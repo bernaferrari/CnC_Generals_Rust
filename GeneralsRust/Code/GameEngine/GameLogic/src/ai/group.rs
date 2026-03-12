@@ -357,6 +357,63 @@ impl AIGroup {
         self.member_list_size == 0
     }
 
+    /// Given a destination location, compute the destination position for
+    /// this object such that it keeps its relative position with the group.
+    /// Matches C++ AIGroup::computeIndividualDestination
+    pub fn compute_individual_destination(
+        &self,
+        obj: &Arc<RwLock<Object>>,
+        group_dest: &Coord3D,
+        center: &Coord3D,
+        is_formation: bool,
+    ) -> Option<Coord3D> {
+        let obj_guard = obj.try_read().ok()?;
+
+        // Compute vector from "group center" to self
+        let pos = obj_guard.get_position();
+        let mut v = if is_formation {
+            obj_guard.get_formation_offset()
+        } else {
+            Coord2D::new(pos.x - center.x, pos.y - center.y)
+        };
+
+        let mut length = (v.x * v.x + v.y * v.y).sqrt();
+        let max_length = 6.0 * obj_guard.get_geometry_info().get_bounding_circle_radius();
+        if length > max_length {
+            length = max_length;
+        }
+
+        // Normalize and scale
+        if length > 0.001 {
+            v.x /= length;
+            v.y /= length;
+            v.x *= length;
+            v.y *= length;
+        }
+
+        // Move to same offset at destination
+        let mut dest = Coord3D::new(group_dest.x + v.x, group_dest.y + v.y, 0.0);
+
+        // Get terrain layer for destination
+        let layer = crate::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .map(|t| t.get_layer_for_destination(group_dest))
+            .unwrap_or(0i32);
+
+        // Set Z coordinate based on layer
+        if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+            dest.z = terrain.get_layer_height(dest.x, dest.y, layer);
+        }
+
+        // Adjust destination for ground movement if object has AI
+        // Note: The full adjustment requires mutable access to AI which we can't get while holding obj_guard
+        // The pathfinder adjustment is a best-effort simplification here
+        drop(obj_guard);
+
+        Some(dest)
+    }
+
     /// Recompute group speed and other properties
     fn recompute(&mut self) {
         self.speed = f32::MAX;

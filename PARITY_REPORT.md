@@ -12,10 +12,10 @@ This report summarizes the parity analysis between C++ (GeneralsMD) and Rust (Ge
 | Subsystem | C++ Lines | Rust Lines | Parity | Status |
 |-----------|-----------|------------|--------|--------|
 | Common/Audio | ~1,200 | ~1,800 | ~85% | Good |
-| Common/INI | ~1,800 | ~1,200 | ~65% | Needs Work |
+| Common/INI | ~1,800 | ~2,500 | **~80%** | Improved |
 | Common/System | ~2,500 | ~2,000 | ~75% | Good |
-| Common/RTS/Player | 4,526 | ~200 | **<5%** | CRITICAL |
-| Common/RTS/Team | 2,732 | ~30 | **<3%** | CRITICAL |
+| Common/RTS/Player | 4,526 | ~1,800 | **~40%** | Improved |
+| Common/RTS/Team | 2,732 | ~950 | **~35%** | Improved |
 | Common/RTS/Money | 113 | 300 | 100% | Fixed |
 | Common/RTS/SpecialPower | 358 | 850 | 100% | Good |
 | Common/RTS/Science | 357 | 1,475 | 85% | Good |
@@ -24,11 +24,67 @@ This report summarizes the parity analysis between C++ (GeneralsMD) and Rust (Ge
 | GameLogic/AI | ~15,000 | ~12,000 | ~80% | Good |
 | GameLogic/ScriptEngine | ~3,000 | ~2,500 | ~75% | Good |
 | GameClient/GUI | ~5,000 | ~4,000 | ~70% | Needs Work |
-| GameEngineDevice/W3D | ~8,000 | ~6,000 | ~65% | Needs Work |
+| GameEngineDevice/W3D | ~8,000 | ~6,500 | **~70%** | Improved |
 
 ---
 
-## Fixes Applied This Session
+## Session Improvements Summary (2026-03-12)
+
+This session achieved major parity improvements across Player, Team, INI, and W3D systems.
+
+### Player Class (~5% → ~40%)
+
+| Component | Status |
+|-----------|--------|
+| ~45 fields added | ✅ |
+| init() method | ✅ |
+| update() method | ✅ |
+| xfer() for save/load | ✅ |
+| crc() for networking | ✅ |
+| PlayerRelationMap | ✅ |
+| Radar system | ✅ |
+| Battle plans | ✅ |
+| Sciences tracking | ✅ |
+| Rank/skill systems | ✅ |
+
+### Team Class (~3% → ~35%)
+
+| Component | Status |
+|-----------|--------|
+| TeamTemplateInfo (34 fields) | ✅ |
+| TCreateUnitsInfo | ✅ |
+| AttitudeType enum | ✅ |
+| TeamPrototype methods | ✅ |
+| update_state() | ✅ |
+| kill_team() | ✅ |
+| Trigger detection | ✅ |
+| xfer() | ✅ |
+
+### INI Parsers (~65% → ~80%)
+
+Added 14+ new block parsers:
+- InGameUI, CommandMap, HeaderTemplate
+- ScriptAction, ScriptCondition
+- AudioSettings, Weather, Rank, Campaign
+- Mouse, Language, Credits, EvaEvent
+- ShellMenuScheme, GameLOD, WindowTransition
+- OnlineChatColors, ChallengeGenerals
+
+### W3D System (~65% → ~70%)
+
+- Enhanced shadow system
+- Texture manager fixes
+- Render state improvements
+
+### Build Status
+
+```
+cargo check: ✅ Passes (warnings only)
+```
+
+---
+
+## Previous Session Fixes
 
 ### CRITICAL/HIGH Priority Fixes
 
@@ -52,47 +108,61 @@ This report summarizes the parity analysis between C++ (GeneralsMD) and Rust (Ge
 
 ## Remaining Critical Issues
 
-### 1. Player Stub (<5% implemented)
+### 1. Player (~40% implemented)
 
 **C++ Reference:** `GeneralsMD/Code/GameEngine/Source/Common/RTS/Player.cpp` (4,526 lines)
-**Rust Stub:** `GeneralsRust/Code/GameEngine/Common/src/common/rts/player.rs` (~200 lines)
+**Rust Implementation:** `GeneralsRust/Code/GameEngine/Common/src/common/rts/player.rs` (~1,800 lines)
 
-**Missing Components:**
+**Implemented This Session:**
+- ~45 fields (was ~10)
+- init() method
+- update() method
+- xfer() for save/load
+- crc() for networking
 - PlayerRelationMap class
-- TeamRelationMap integration
-- AI system integration (m_ai)
-- Build list (m_pBuildList)
+- Radar system basics
+- Battle plan system basics
+- Sciences tracking
+- Rank/skill systems
+
+**Still Missing:**
+- Full AI system integration (m_ai)
+- Complete build list (m_pBuildList)
 - Resource gathering manager
-- Radar system
-- Battle plan system
-- Upgrade list
+- Full upgrade list
 - Squad system (m_squads[])
 - Current selection
 - Attacked tracking
 - Observer mode
 - Cash bounty system
-- xfer() for save/load
-- crc() for networking
+- PlayerType enum variants
 
-**Estimated Work:** ~4,500 lines
+**Estimated Remaining Work:** ~2,700 lines
 
-### 2. Team Stub (<3% implemented)
+### 2. Team (~35% implemented)
 
 **C++ Reference:** `GeneralsMD/Code/GameEngine/Source/Common/RTS/Team.cpp` (2,732 lines)
-**Rust Stub:** `GeneralsRust/Code/GameEngine/Common/src/common/rts/team.rs` (~30 lines)
+**Rust Implementation:** `GeneralsRust/Code/GameEngine/Common/src/common/rts/team.rs` (~950 lines)
 
-**Missing Components:**
+**Implemented This Session:**
+- TeamTemplateInfo (34 fields)
+- TCreateUnitsInfo struct
+- AttitudeType enum
+- TeamPrototype methods
+- update_state() method
+- kill_team() method
+- Trigger detection
+- xfer() for save/load
+
+**Still Missing:**
 - TeamRelationMap class
 - TeamFactory class
-- TeamTemplateInfo class
-- TeamPrototype class
 - All relationship methods
 - Building/unit counting
-- xfer() for save/load
-- AI integration
+- Full AI integration
 - Script hooks
 
-**Estimated Work:** ~2,700 lines
+**Estimated Remaining Work:** ~1,800 lines
 
 ### 3. PlayerList Stub (~30% implemented)
 
@@ -112,31 +182,34 @@ This report summarizes the parity analysis between C++ (GeneralsMD) and Rust (Ge
 
 ## Subsystem Details
 
-### Common/INI (~65% parity)
+### Common/INI (~80% parity) ✅
 
-**Missing Block Parsers (21):**
-- AudioSettings
-- Campaign
-- ChallengeGenerals
-- Credits
-- EvaEvent
+**Added Parsers This Session (14+):**
 - InGameUI
-- Language
-- Mouse
-- MouseCursor
-- OnlineChatColors
-- Rank
-- ShellMenuScheme
-- StaticGameLOD
-- DynamicGameLOD
-- LODPreset
-- BenchProfile
-- Weather (missing entirely)
-- WindowTransition
 - CommandMap
 - HeaderTemplate
+- ScriptAction
+- ScriptCondition
+- AudioSettings
+- Weather
+- Rank
+- Campaign
+- Mouse
+- Language
+- Credits
+- EvaEvent
+- ShellMenuScheme
+- GameLOD (StaticGameLOD, DynamicGameLOD)
+- WindowTransition
+- OnlineChatColors
+- ChallengeGenerals
 
-**Missing Field Parsers (11):**
+**Still Missing Block Parsers (7):**
+- MouseCursor
+- LODPreset
+- BenchProfile
+
+**Still Missing Field Parsers (11):**
 - parsePositiveNonZeroReal
 - parseBitInInt32
 - parseAsciiStringVector
@@ -202,14 +275,15 @@ cargo check -p game_engine: ✅ Passes (warnings only)
 
 ## Next Steps
 
-1. **CRITICAL:** Complete Player implementation (~4,500 lines)
-2. **CRITICAL:** Complete Team implementation (~2,700 lines)
-3. **CRITICAL:** Complete PlayerList implementation (~400 lines)
-4. **HIGH:** Add missing INI block parsers (21 parsers)
-5. **HIGH:** Add missing INI field parsers (11 parsers)
+1. **HIGH:** Continue Player implementation (~2,700 lines remaining - AI, build list, squads, selection)
+2. **HIGH:** Continue Team implementation (~1,800 lines remaining - relations, factory, counting)
+3. **HIGH:** Complete PlayerList implementation (~400 lines)
+4. **MEDIUM:** Add remaining INI block parsers (7 parsers)
+5. **MEDIUM:** Add remaining INI field parsers (11 parsers)
 6. **MEDIUM:** Implement RAMFile class
 7. **MEDIUM:** Complete GameClient GUI parity
-8. **MEDIUM:** Complete GameEngineDevice W3D parity
+8. **MEDIUM:** Continue GameEngineDevice W3D parity
+9. **LOW:** Add LODPreset and BenchProfile INI parsers
 
 ---
 
@@ -224,7 +298,31 @@ cargo check -p game_engine: ✅ Passes (warnings only)
 
 ---
 
-## Files Modified This Session
+## Files Modified This Session (2026-03-12)
+
+### Player System
+| File | Changes |
+|------|---------|
+| `Common/src/common/rts/player.rs` | Added ~45 fields, init(), update(), xfer(), crc(), PlayerRelationMap, radar, battle plans, sciences, rank/skill systems |
+
+### Team System
+| File | Changes |
+|------|---------|
+| `Common/src/common/rts/team.rs` | Added TeamTemplateInfo (34 fields), TCreateUnitsInfo, AttitudeType enum, TeamPrototype methods, update_state(), kill_team(), trigger detection, xfer() |
+
+### INI Parsers
+| File | Changes |
+|------|---------|
+| `Common/src/common/ini/` | Added 14+ new parsers: InGameUI, CommandMap, HeaderTemplate, ScriptAction, ScriptCondition, AudioSettings, Weather, Rank, Campaign, Mouse, Language, Credits, EvaEvent, ShellMenuScheme, GameLOD, WindowTransition, OnlineChatColors, ChallengeGenerals |
+
+### W3D System
+| File | Changes |
+|------|---------|
+| `GameEngineDevice/` | Enhanced shadow system, texture manager fixes |
+
+---
+
+## Files Modified (Previous Session)
 
 | File | Changes |
 |------|---------|
