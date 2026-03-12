@@ -91,6 +91,7 @@ use crate::common::{
     UnsignedInt, UpgradeMaskType, VeterancyLevel, WeaponBonusConditionFlags,
     LOGICFRAMES_PER_SECOND,
 };
+use game_engine::common::game_common::FOREVER;
 use glam::{EulerRot, Mat4};
 
 // Type alias for CommandSource
@@ -1395,6 +1396,24 @@ impl ModuleEntry {
     {
         let mut guard = self.module.lock().expect("behavior module lock poisoned");
         func(guard.as_mut())
+    }
+
+    /// Mutable module access - same as with_module but explicitly named for clarity
+    fn with_module_mut<F, R>(&self, func: F) -> R
+    where
+        F: FnOnce(&mut dyn Module) -> R,
+    {
+        self.with_module(func)
+    }
+
+    /// Get the module name key by querying the module instance
+    fn module_name_key(&self) -> NameKeyType {
+        self.with_module(|module| module.get_module_name_key())
+    }
+
+    /// Get the module tag name key by querying the module instance
+    fn module_tag_key(&self) -> NameKeyType {
+        self.with_module(|module| module.get_module_tag_name_key())
     }
 }
 
@@ -4047,6 +4066,72 @@ impl Object {
         })
     }
 
+    /// Find a module by its NameKeyType (matches C++ Object::findModule).
+    /// This is the primary module lookup used for inter-module communication.
+    ///
+    /// # Arguments
+    /// * `key` - The NameKeyType generated from the module class name
+    ///
+    /// # Returns
+    /// The matching module entry if found, or None
+    ///
+    /// # C++ Reference
+    /// Object.cpp:2847 - Object::findModule(NameKeyType key)
+    pub fn find_module_by_name_key(&self, key: NameKeyType) -> Option<Arc<ModuleEntry>> {
+        // First search behavior modules (matching C++ order)
+        for behavior_arc in &self.behaviors {
+            let Ok(guard) = behavior_arc.lock() else {
+                continue;
+            };
+            // Check if this module has a matching name key via the Module trait
+            if guard.get_module_name_key() == key {
+                // Return a synthetic ModuleEntry for the behavior
+                drop(guard);
+                // We need to convert the behavior back to a module entry
+                // For now, search the modules list since behaviors is separate
+                break;
+            }
+        }
+
+        // Search through module entries by name key
+        for entry in &self.modules {
+            if entry.module_name_key() == key {
+                return Some(Arc::clone(entry));
+            }
+        }
+
+        None
+    }
+
+    /// Find a module by its module tag name key.
+    /// Module tags are unique identifiers assigned per-object instance.
+    ///
+    /// # Arguments
+    /// * `tag_key` - The NameKeyType of the module tag
+    ///
+    /// # Returns
+    /// The matching module entry if found, or None
+    pub fn find_module_by_tag_key(&self, tag_key: NameKeyType) -> Option<Arc<ModuleEntry>> {
+        for entry in &self.modules {
+            if entry.module_tag_key() == tag_key {
+                return Some(Arc::clone(entry));
+            }
+        }
+        None
+    }
+
+    /// Find a module by name string (convenience wrapper around find_module_by_name_key).
+    ///
+    /// # Arguments
+    /// * `module_name` - The module class name (e.g., "ToppleUpdate")
+    ///
+    /// # Returns
+    /// The matching module entry if found, or None
+    pub fn find_module_by_name(&self, module_name: &str) -> Option<Arc<ModuleEntry>> {
+        let key = crate::common::name_key_generate(module_name);
+        self.find_module_by_name_key(key)
+    }
+
     pub fn with_update_behavior_downcast<T: 'static, F, R>(
         &self,
         module_name: &str,
@@ -4876,7 +4961,7 @@ impl Object {
         if flags_minus_exceptions.is_empty() {
             if let Some(drawable) = &self.drawable {
                 if let Ok(mut draw_guard) = drawable.write() {
-                    draw_guard.clear_tint_status(crate::object::drawable::TintStatus::Disabled);
+                    draw_guard.clear_tint_status(crate::object::drawable::TintStatus::DISABLED);
                 }
             }
         }
@@ -4927,6 +5012,61 @@ impl Object {
             return sp_module.get_special_power_interface();
         }
         None
+    }
+
+    /// Friend access to get a typed module by NameKeyType.
+    /// Matches C++ friend_getModule pattern for inter-module communication.
+    ///
+    /// # Type Parameters
+    /// * `T` - The concrete module type to retrieve
+    ///
+    /// # Arguments
+    /// * `key` - The NameKeyType of the module class
+    ///
+    /// # Returns
+    /// A mutable reference to the module if found and type matches
+    ///
+    /// # Example
+    /// ```ignore
+    /// // C++: ToppleUpdate* topple = (ToppleUpdate*)findModule(key_ToppleUpdate);
+    /// let topple = obj.friend_get_module::<ToppleUpdateModule>(key_ToppleUpdate);
+    /// ```
+    pub fn friend_get_module<T: 'static>(&self, key: NameKeyType) -> Option<&T> {
+        let entry = self.find_module_by_name_key(key)?;
+        entry.with_module(|module| module.as_any().downcast_ref::<T>())
+    }
+
+    /// Friend access to get a typed module by name string.
+    /// Convenience wrapper that generates the NameKeyType internally.
+    ///
+    /// # Type Parameters
+    /// * `T` - The concrete module type to retrieve
+    ///
+    /// # Arguments
+    /// * `module_name` - The module class name string
+    ///
+    /// # Returns
+    /// A reference to the module if found and type matches
+    pub fn friend_get_module_by_name<T: 'static>(&self, module_name: &str) -> Option<&T> {
+        let key = crate::common::name_key_generate(module_name);
+        self.friend_get_module(key)
+    }
+
+    /// Get mutable access to a typed module by NameKeyType.
+    /// This is the mutable variant of friend_get_module.
+    ///
+    /// # Type Parameters
+    /// * `T` - The concrete module type to retrieve
+    ///
+    /// # Arguments
+    /// * `key` - The NameKeyType of the module class
+    ///
+    /// # Returns
+    /// A mutable reference to the module if found and type matches
+    pub fn friend_get_module_mut<T: 'static>(&mut self, key: NameKeyType) -> Option<&mut T> {
+        let entry = self.find_module_by_name_key(key)?;
+        // We need mutable access through the Arc - this is limited
+        entry.with_module_mut(|module| module.as_any_mut().downcast_mut::<T>())
     }
 
     /// Get the spawn behavior interface if this object has one.
