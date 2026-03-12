@@ -10,7 +10,7 @@
 
 use crate::common::audio::{
     audio_event_rts::{
-        AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D,
+        AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, ObjectId,
     },
     audio_request::{AudioRequest, RequestType},
     game_music::create_music_manager,
@@ -1128,6 +1128,225 @@ impl AudioManager {
         }
 
         false
+    }
+
+    // C++ parity methods used by SoundManager for audio culling
+
+    /// Check if playing this event would violate its per-event limit.
+    /// Returns true if the event has a positive limit and that many instances
+    /// are already playing.
+    pub fn does_violate_limit(&self, event: &AudioEventRts) -> Bool {
+        let Some(event_info) = event.get_audio_event_info() else {
+            return false;
+        };
+
+        // Negative or zero limit means "no limit" in C++ data.
+        if event_info.limit <= 0 {
+            return false;
+        }
+
+        // Count how many instances of this event name are already playing.
+        let event_name = event.get_event_name();
+        let playing_count = with_sound_playback_hook(|hook| {
+            self.audio_requests
+                .iter()
+                .filter(|req| {
+                    if req.request != RequestType::Play {
+                        return false;
+                    }
+                    req.get_pending_event()
+                        .map(|e| e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle()))
+                        .unwrap_or(false)
+                })
+                .count() as Int
+        })
+        .unwrap_or(0);
+
+        playing_count >= event_info.limit
+    }
+
+    /// Check if there are any sounds playing with lower priority than the given event.
+    /// Returns true if we can kill a lower-priority sound to make room.
+    pub fn is_playing_lower_priority(&self, event: &AudioEventRts) -> Bool {
+        let event_priority = event.get_audio_priority();
+
+        with_sound_playback_hook(|hook| {
+            self.audio_requests
+                .iter()
+                .filter_map(|req| {
+                    if req.request != RequestType::Play {
+                        return None;
+                    }
+                    req.get_pending_event().and_then(|e| {
+                        if hook.is_playing(e.get_playing_handle()) {
+                            Some(e.get_audio_priority())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .any(|priority| priority < event_priority)
+        })
+        .unwrap_or(false)
+    }
+
+    /// Check if a sound with the same event name is already playing.
+    /// Used for interrupting sounds of the same type.
+    pub fn is_playing_already(&self, event: &AudioEventRts) -> Bool {
+        let event_name = event.get_event_name();
+
+        with_sound_playback_hook(|hook| {
+            self.audio_requests
+                .iter()
+                .filter_map(|req| {
+                    if req.request != RequestType::Play {
+                        return None;
+                    }
+                    req.get_pending_event().and_then(|e| {
+                        if e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle())
+                        {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .next()
+                .is_some()
+        })
+        .unwrap_or(false)
+    }
+
+    /// Check if a specific object is currently playing a voice sound.
+    /// Used to prevent multiple voice sounds from the same object.
+    pub fn is_object_playing_voice(&self, object_id: ObjectId) -> Bool {
+        const ST_VOICE: u32 = 0x00000010;
+
+        with_sound_playback_hook(|hook| {
+            self.audio_requests
+                .iter()
+                .filter_map(|req| {
+                    if req.request != RequestType::Play {
+                        return None;
+                    }
+                    req.get_pending_event().and_then(|e| {
+                        let is_voice = e
+                            .get_audio_event_info()
+                            .map(|info| (info.type_field & ST_VOICE) != 0)
+                            .unwrap_or(false);
+                        if is_voice
+                            && e.get_object_id() == object_id
+                            && hook.is_playing(e.get_playing_handle())
+                        {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .next()
+                .is_some()
+        })
+        .unwrap_or(false)
+    }
+
+    /// Remove all audio requests from the queue
+    pub fn remove_all_audio_requests(&mut self) {
+        self.audio_requests.clear();
+    }
+
+    /// Get the number of 2D samples configured
+    pub fn get_num_2d_samples(&self) -> Int {
+        self.audio_settings.sample_count_2d
+    }
+
+    /// Get the number of 3D samples configured
+    pub fn get_num_3d_samples(&self) -> Int {
+        self.audio_settings.sample_count_3d
+    }
+
+    /// Adjust the volume of currently playing audio events matching the given name
+    pub fn adjust_volume_of_playing_audio(&mut self, event_name: &str, new_volume: Real) {
+        for request in &mut self.audio_requests {
+            if request.request == RequestType::Play {
+                if let Some(event) = request.get_pending_event_mut() {
+                    if event.get_event_name() == event_name {
+                        event.set_volume(new_volume);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove all playing audio events matching the given name
+    pub fn remove_playing_audio(&mut self, event_name: &str) {
+        let handles_to_stop: Vec<AudioHandle> = self
+            .audio_requests
+            .iter()
+            .filter_map(|req| {
+                if req.request != RequestType::Play {
+                    return None;
+                }
+                req.get_pending_event().and_then(|e| {
+                    if e.get_event_name() == event_name {
+                        Some(e.get_playing_handle())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles_to_stop {
+            self.remove_audio_event(handle);
+        }
+    }
+
+    /// Remove all disabled audio events (volume = 0)
+    pub fn remove_all_disabled_audio(&mut self) {
+        let handles_to_stop: Vec<AudioHandle> = self
+            .audio_requests
+            .iter()
+            .filter_map(|req| {
+                if req.request != RequestType::Play {
+                    return None;
+                }
+                req.get_pending_event().and_then(|e| {
+                    if e.get_volume() <= 0.0 {
+                        Some(e.get_playing_handle())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles_to_stop {
+            self.remove_audio_event(handle);
+        }
+    }
+
+    /// Check if there are any 3D-sensitive streams currently playing
+    pub fn has_3d_sensitive_streams_playing(&self) -> Bool {
+        with_sound_playback_hook(|hook| {
+            self.audio_requests
+                .iter()
+                .filter_map(|req| {
+                    if req.request != RequestType::Play {
+                        return None;
+                    }
+                    req.get_pending_event().and_then(|e| {
+                        if e.is_positional_audio() && hook.is_playing(e.get_playing_handle()) {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .next()
+                .is_some()
+        })
+        .unwrap_or(false)
     }
 }
 

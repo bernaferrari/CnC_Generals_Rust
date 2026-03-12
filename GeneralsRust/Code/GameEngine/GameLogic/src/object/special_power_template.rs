@@ -86,6 +86,7 @@ pub struct SpecialPowerTemplate {
 
 impl SpecialPowerTemplate {
     /// Create a new special power template
+    /// Default values match C++ SpecialPowerTemplate constructor (SpecialPower.cpp lines 189-211)
     pub fn new(name: String, id: u32) -> Self {
         Self {
             name,
@@ -96,7 +97,9 @@ impl SpecialPowerTemplate {
             initiate_sound: AudioEventRts::default(),
             initiate_at_location_sound: AudioEventRts::default(),
             academy_classification: AcademyClassificationType::Invalid,
-            detection_time: 0,
+            // Default detection time matches C++ DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT
+            // which is LOGICFRAMES_PER_SECOND * 10
+            detection_time: LOGICFRAMES_PER_SECOND * 10,
             view_object_duration: 0,
             view_object_range: 0.0,
             radius_cursor_radius: 0.0,

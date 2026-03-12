@@ -2529,6 +2529,14 @@ impl TheGlobalData {
         guard.special_power_view_object_name.clone()
     }
 
+    /// Check if special powers use delay (matches C++ TheGlobalData->m_specialPowerUsesDelay)
+    /// When false (debug/cheat mode), all special powers are instantly ready
+    pub fn get_special_power_uses_delay(&self) -> bool {
+        let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
+        let guard = data.read();
+        guard.special_power_uses_delay
+    }
+
     /// Prison bounty multiplier (matches GlobalData::m_prisonBountyMultiplier).
     pub fn get_prison_bounty_multiplier(&self) -> Real {
         let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
