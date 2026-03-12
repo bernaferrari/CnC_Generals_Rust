@@ -16,26 +16,21 @@ pub mod wthree_d_volumetric_shadow;
 
 // Re-export main types for convenience
 pub use wthree_d_shadow::{
-    W3DShadowManager, ShadowType, ShadowTypeInfo, ShadowHandle,
-    RenderObject, RenderInfo, Frustum, TimeOfDay,
-    the_w3d_shadow_manager, do_shadows, 
-    SUN_DISTANCE_FROM_GROUND, MAX_SHADOW_LIGHTS,
+    do_shadows, the_w3d_shadow_manager, Frustum, RenderInfo, RenderObject, ShadowHandle,
+    ShadowType, ShadowTypeInfo, TimeOfDay, W3DShadowManager, MAX_SHADOW_LIGHTS,
+    SUN_DISTANCE_FROM_GROUND,
 };
 
 pub use wthree_d_volumetric_shadow::{
-    W3DVolumetricShadow, W3DVolumetricShadowManager,
-    ShadowGeometry, ShadowGeometryMesh, Geometry,
-    PolyNeighbor, NeighborEdge, VisibleState,
-    AABBox, Sphere, TriIndex,
-    the_w3d_volumetric_shadow_manager,
-    MAX_SHADOW_CASTER_MESHES, MAX_SILHOUETTE_EDGES,
-    SHADOW_VERTEX_SIZE, SHADOW_INDEX_SIZE,
+    the_w3d_volumetric_shadow_manager, AABBox, Geometry, NeighborEdge, PolyNeighbor,
+    ShadowGeometry, ShadowGeometryMesh, Sphere, TriIndex, VisibleState, W3DVolumetricShadow,
+    W3DVolumetricShadowManager, MAX_SHADOW_CASTER_MESHES, MAX_SILHOUETTE_EDGES, SHADOW_INDEX_SIZE,
+    SHADOW_VERTEX_SIZE,
 };
 
 pub use wthree_d_projected_shadow::{
-    W3DProjectedShadow, W3DProjectedShadowManager,
-    W3DShadowTexture, W3DShadowTextureManager,
-    ShadowDecalVertex, ShadowVolumeVertex, TextureHandle,
-    the_w3d_projected_shadow_manager, the_projected_shadow_manager,
-    DEFAULT_RENDER_TARGET_WIDTH, DEFAULT_RENDER_TARGET_HEIGHT,
+    the_projected_shadow_manager, the_w3d_projected_shadow_manager, ShadowDecalVertex,
+    ShadowVolumeVertex, TextureHandle, W3DProjectedShadow, W3DProjectedShadowManager,
+    W3DShadowTexture, W3DShadowTextureManager, DEFAULT_RENDER_TARGET_HEIGHT,
+    DEFAULT_RENDER_TARGET_WIDTH,
 };
