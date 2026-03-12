@@ -321,10 +321,8 @@ impl AStarPathfinder {
             return false;
         }
 
-        // Pinched cells are harder to path through
-        if cell.is_pinched() {
-            return false;
-        }
+        // Note: Pinched cells are passable but have higher cost in movement_cost_with_ignore
+        // This matches C++ behavior where pinched cells add COST_DIAGONAL but are not blocked
 
         // Check surface compatibility
         match cell.get_type() {
@@ -353,6 +351,7 @@ impl AStarPathfinder {
         to: GridCoord,
         is_crusher: bool,
         ignore_cells: Option<&HashSet<GridCoord>>,
+        came_from: &HashMap<GridCoord, GridCoord>,
     ) -> u32 {
         let Some(to_cell) = self.get_cell(to) else {
             return u32::MAX;
@@ -372,10 +371,8 @@ impl AStarPathfinder {
                 cost = (cost as f32 * 1.5) as u32; // Slower in water
             }
             PathfindCellType::Cliff => {
-                if !to_cell.is_pinched() {
-                    // Add cliff climbing cost (AIPathfind.cpp:6275)
-                    cost += 7 * COST_DIAGONAL;
-                }
+                // C++ adds cliff climbing cost regardless of pinched state (AIPathfind.cpp:6275)
+                cost += 7 * COST_DIAGONAL;
             }
             PathfindCellType::Rubble => {
                 if is_crusher {
@@ -394,14 +391,38 @@ impl AStarPathfinder {
                     return u32::MAX; // Impassable
                 }
             }
-            _ => {
+            PathfindCellType::BridgeImpassable | PathfindCellType::Impassable => {
                 return u32::MAX; // Impassable
             }
         }
 
-        // Apply pinched cell penalty (AIPathfind.cpp:6278)
+        // Apply pinched cell penalty (AIPathfind.cpp:1701-1703)
+        // C++ adds COST_DIAGONAL (14) for pinched cells
         if to_cell.is_pinched() {
-            cost += COST_ORTHOGONAL;
+            cost += COST_DIAGONAL;
+        }
+
+        // Apply turn cost penalty (AIPathfind.cpp:1705-1720)
+        // This adds extra cost for turns in the path
+        if let Some(&parent_coord) = came_from.get(&from) {
+            // Calculate direction vectors
+            let prev_dir_x = from.x - parent_coord.x;
+            let prev_dir_y = from.y - parent_coord.y;
+            let curr_dir_x = to.x - from.x;
+            let curr_dir_y = to.y - from.y;
+
+            // If direction changed, add turn cost
+            if prev_dir_x != curr_dir_x || prev_dir_y != curr_dir_y {
+                // Dot product determines turn angle
+                let dot = prev_dir_x * curr_dir_x + prev_dir_y * curr_dir_y;
+                if dot > 0 {
+                    cost += 4; // 45 degree turn
+                } else if dot == 0 {
+                    cost += 8; // 90 degree turn
+                } else {
+                    cost += 16; // 135 degree turn
+                }
+            }
         }
 
         // Apply custom cost multiplier
@@ -521,6 +542,7 @@ impl AStarPathfinder {
                     neighbor_coord,
                     is_crusher,
                     ignore_cells,
+                    &came_from,
                 );
                 if movement_cost == u32::MAX {
                     continue; // Impassable

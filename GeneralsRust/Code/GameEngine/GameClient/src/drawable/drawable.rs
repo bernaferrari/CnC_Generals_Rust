@@ -13,6 +13,7 @@ pub use crate::core::DrawableId;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionBitFlags};
 use game_engine::common::ini::{get_anim2d_collection, Anim2DTemplate};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use parking_lot::{Mutex, RwLock};
@@ -1052,6 +1053,12 @@ pub struct BasicDrawable {
     flash_color: Vector3,
     expiration_frame: Option<u32>,
     current_frame: u32,
+    /// Model condition flags for animation state (matches C++ m_conditionState)
+    model_condition_flags: ModelConditionBitFlags,
+    /// Animation loop duration in frames (matches C++ setAnimationLoopDuration)
+    animation_loop_duration: u32,
+    /// Animation completion time in frames (matches C++ setAnimationCompletionTime)
+    animation_completion_time: u32,
 }
 
 impl DrawableDowncast for BasicDrawable {
@@ -1105,6 +1112,9 @@ impl BasicDrawable {
             flash_color: Vector3::zero(),
             expiration_frame: None,
             current_frame: 0,
+            model_condition_flags: create_model_condition_flags(),
+            animation_loop_duration: 0,
+            animation_completion_time: 0,
         }
     }
 
