@@ -604,7 +604,8 @@ impl Snapshotable for ProductionPrerequisite {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: u32 = 1;
+        // C++ uses UnsignedByte (u8) for version - matches C++ parity
+        const CURRENT_VERSION: u8 = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| e.to_string())?;

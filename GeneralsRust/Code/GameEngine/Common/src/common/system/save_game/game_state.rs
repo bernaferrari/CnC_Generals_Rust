@@ -51,12 +51,12 @@ impl GameState {
     }
 
     pub fn xfer<X: Xfer>(&mut self, xfer: &mut X) -> io::Result<()> {
-        // Note: GameState uses u32 for version but Xfer trait uses u8
-        // We convert between them here
-        let mut version_u32 = self.version as u32;
-        let current_version = version_u32;
-        xfer.xfer_version(&mut version_u32, current_version)?;
-        self.version = version_u32;
+        // C++ uses UnsignedByte (u8) for version - matches C++ parity
+        // GameState version stored internally as u32 but serialized as u8
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+        self.version = version as u32;
 
         xfer.xfer_u64(&mut self.timestamp)?;
 

@@ -191,71 +191,132 @@ impl Particle {
     }
 
     /// Update particle physics and animation (matches C++ Particle::update)
-    pub fn update(&mut self) -> bool {
+    /// 
+    /// # Arguments
+    /// * `drift_velocity` - System-level drift velocity to apply to position (C++: m_system->getDriftVelocity())
+    /// * `current_frame` - Current game frame for keyframe timing (C++: TheGameClient->getFrame())
+    /// * `shader_type` - Shader type for alpha handling (C++: m_system->getShaderType())
+    pub fn update(
+        &mut self,
+        drift_velocity: Vector3<f32>,
+        current_frame: u32,
+        shader_type: ParticleShaderType,
+    ) -> bool {
         if self.lifetime_left == 0 {
             return false;
         }
 
-        // Integrate acceleration into velocity
+        // Integrate acceleration into velocity (C++ lines 316-318)
         self.velocity += self.acceleration;
 
-        // Apply velocity damping
-        self.velocity *= self.vel_damping;
+        // Apply velocity damping (C++ lines 320-322)
+        self.velocity.x *= self.vel_damping;
+        self.velocity.y *= self.vel_damping;
+        self.velocity.z *= self.vel_damping;
 
-        // Apply angular damping
-        self.angular_rate_z *= self.angular_damping;
-
-        // Clear acceleration for next frame
-        self.acceleration = Vector3::zeros();
-
-        // Store last position
+        // Store last position for interpolation
         self.last_position = self.position;
 
-        // Integrate velocity into position
-        self.position += self.velocity;
+        // Integrate velocity into position with drift velocity (C++ lines 325-327)
+        // CRITICAL: drift_velocity is applied directly, NOT as force
+        self.position.x += self.velocity.x + drift_velocity.x;
+        self.position.y += self.velocity.y + drift_velocity.y;
+        self.position.z += self.velocity.z + drift_velocity.z;
 
-        // Update rotation
+        // Update rotation (C++ lines 336-337)
         self.angle_z += self.angular_rate_z;
+        self.angular_rate_z *= self.angular_damping;
 
-        // Update size
+        // Handle particleUpTowardsEmitter rotation (C++ lines 339-348)
+        // This adjusts rotation so 0 degrees points toward the emitter
+        if self.particle_up_towards_emitter {
+            let emitter_dir_x = self.position.x - self.emitter_position.x;
+            let emitter_dir_y = self.position.y - self.emitter_position.y;
+            let emitter_len = (emitter_dir_x * emitter_dir_x + emitter_dir_y * emitter_dir_y).sqrt();
+            
+            if emitter_len > 0.0 {
+                // Calculate angle from up vector (0,1) to emitter direction
+                let up_x = 0.0f32;
+                let up_y = 1.0f32;
+                let norm_x = emitter_dir_x / emitter_len;
+                let norm_y = emitter_dir_y / emitter_len;
+                
+                // Angle between (0,1) and (norm_x, norm_y) using atan2
+                let angle_to_emitter = norm_y.atan2(norm_x);
+                self.angle_z = angle_to_emitter + std::f32::consts::PI;
+            }
+        }
+
+        // Update size (C++ lines 351-353)
         self.size += self.size_rate;
         self.size_rate *= self.size_rate_damping;
 
-        // Update alpha
-        self.alpha += self.alpha_rate;
+        // Update alpha - only for non-additive shaders (C++ lines 358-397)
+        if shader_type != ParticleShaderType::Additive {
+            self.alpha += self.alpha_rate;
 
-        // Update color
+            // Check keyframe timing using create_timestamp (C++ lines 385-391)
+            let elapsed_frames = current_frame.saturating_sub(self.create_timestamp);
+            
+            if self.alpha_target_key < MAX_KEYFRAMES && self.alpha_keys[self.alpha_target_key].frame > 0 {
+                if elapsed_frames >= self.alpha_keys[self.alpha_target_key].frame {
+                    self.alpha = self.alpha_keys[self.alpha_target_key].value;
+                    self.alpha_target_key += 1;
+                    self.compute_alpha_rate();
+                }
+            } else {
+                self.alpha_rate = 0.0;
+            }
+
+            // Clamp alpha to [0,1] (C++ lines 395-397)
+            self.alpha = self.alpha.clamp(0.0, 1.0);
+        }
+
+        // Update color (C++ lines 402-423)
         self.color[0] += self.color_rate[0];
         self.color[1] += self.color_rate[1];
         self.color[2] += self.color_rate[2];
 
-        // Decrement lifetime
-        self.lifetime_left = self.lifetime_left.saturating_sub(1);
-
-        // Check if we need to move to next keyframe
-        let current_age = self.lifetime - self.lifetime_left;
-
-        // Check alpha keyframes
-        if self.alpha_target_key < MAX_KEYFRAMES
-            && current_age >= self.alpha_keys[self.alpha_target_key].frame
-        {
-            self.alpha_target_key += 1;
-            if self.alpha_target_key < MAX_KEYFRAMES {
-                self.compute_alpha_rate();
-            }
-        }
-
-        // Check color keyframes
-        if self.color_target_key < MAX_KEYFRAMES
-            && current_age >= self.color_keys[self.color_target_key].frame
-        {
-            self.color_target_key += 1;
-            if self.color_target_key < MAX_KEYFRAMES {
+        // Check color keyframe timing (C++ lines 410-418)
+        let elapsed_frames = current_frame.saturating_sub(self.create_timestamp);
+        
+        if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame > 0 {
+            if elapsed_frames >= self.color_keys[self.color_target_key].frame {
+                self.color_target_key += 1;
                 self.compute_color_rate();
             }
+        } else {
+            self.color_rate = [0.0, 0.0, 0.0];
         }
 
-        self.lifetime_left > 0
+        // Apply color scale (C++ lines 426-428)
+        self.color[0] += self.color_scale;
+        self.color[1] += self.color_scale;
+        self.color[2] += self.color_scale;
+
+        // Clamp color components to [0,1] (C++ lines 430-444)
+        self.color[0] = self.color[0].clamp(0.0, 1.0);
+        self.color[1] = self.color[1].clamp(0.0, 1.0);
+        self.color[2] = self.color[2].clamp(0.0, 1.0);
+
+        // Clear acceleration for next frame (C++ line 447)
+        self.acceleration = Vector3::zeros();
+
+        // Monitor lifetime (C++ lines 450-451)
+        if self.lifetime_left > 0 {
+            self.lifetime_left -= 1;
+        }
+        
+        if self.lifetime_left == 0 {
+            return false;
+        }
+
+        // Check if invisible (C++ lines 454-455)
+        if self.is_invisible(shader_type) {
+            return false;
+        }
+
+        true
     }
 
     /// Apply force to particle (matches C++ Particle::applyForce)
@@ -264,39 +325,77 @@ impl Particle {
     }
 
     /// Do wind motion (matches C++ Particle::doWindMotion)
-    pub fn do_wind_motion(&mut self, wind_angle: f32) {
-        // Calculate wind direction
-        let wind_dir_x = wind_angle.cos();
-        let wind_dir_y = wind_angle.sin();
+    /// 
+    /// Wind force is applied directly to position, not as acceleration.
+    /// The force strength diminishes with distance from the emitter.
+    /// 
+    /// # Arguments
+    /// * `wind_angle` - Current wind angle from the particle system
+    /// * `system_pos` - Position of the particle system (emitter)
+    pub fn do_wind_motion(&mut self, wind_angle: f32, system_pos: Point3<f32>) {
+        // C++ constants for wind force (lines 501-502)
+        const FULL_FORCE_DISTANCE: f32 = 75.0;
+        const NO_FORCE_DISTANCE: f32 = 200.0;
 
-        // Apply wind force with randomness
-        let wind_force = Vector3::new(
-            wind_dir_x * self.wind_randomness,
-            wind_dir_y * self.wind_randomness,
-            0.0,
-        );
+        // Calculate distance from emitter to particle (C++ lines 518-519)
+        let dx = self.position.x - system_pos.x;
+        let dy = self.position.y - system_pos.y;
+        let dz = self.position.z - system_pos.z;
+        let dist_from_wind = (dx * dx + dy * dy + dz * dz).sqrt();
 
-        self.apply_force(wind_force);
+        // Only apply force if within the circle of influence (C++ line 524)
+        if dist_from_wind < NO_FORCE_DISTANCE {
+            // Base wind force strength (C++ line 526)
+            let mut wind_force_strength = 2.0 * self.wind_randomness;
+
+            // Reduce force with distance (C++ lines 529-531)
+            if dist_from_wind > FULL_FORCE_DISTANCE {
+                wind_force_strength *= 1.0 - ((dist_from_wind - FULL_FORCE_DISTANCE) / 
+                                              (NO_FORCE_DISTANCE - FULL_FORCE_DISTANCE));
+            }
+
+            // Apply wind motion directly to position (C++ lines 534-535)
+            // NOT as force/acceleration - this is intentional for visual effect
+            self.position.x += wind_angle.cos() * wind_force_strength;
+            self.position.y += wind_angle.sin() * wind_force_strength;
+        }
     }
 
     /// Check if particle is invisible (matches C++ Particle::isInvisible)
+    /// 
+    /// Invisibility depends on shader type:
+    /// - Additive: Black (sum of RGB <= 0.06) is invisible
+    /// - Alpha: Near-zero alpha (< 0.02) is invisible
+    /// - AlphaTest: Never invisible (assumes visible)
+    /// - Multiply: Near-white (product of RGB > 0.95) is invisible
     pub fn is_invisible(&self, shader_type: ParticleShaderType) -> bool {
         match shader_type {
             ParticleShaderType::Additive => {
-                // If color is black, particle is invisible for additive blending
-                if self.color_target_key < MAX_KEYFRAMES
-                    && self.color_keys[self.color_target_key].frame == 0
-                {
+                // If color is black, particle is invisible for additive blending (C++ lines 468-476)
+                // Check that we're not transitioning to another color
+                if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame == 0 {
                     (self.color[0] + self.color[1] + self.color[2]) <= 0.06
                 } else {
                     false
                 }
             }
             ParticleShaderType::Alpha => {
-                // If alpha is near zero, particle is invisible
-                self.alpha <= 0.01
+                // If alpha is near zero, particle is invisible (C++ lines 479-481)
+                self.alpha < 0.02
             }
-            _ => false,
+            ParticleShaderType::AlphaTest => {
+                // These particles are never invisible (C++ lines 484-485)
+                false
+            }
+            ParticleShaderType::Multiply => {
+                // If color is white, particle is invisible for multiply (C++ lines 488-496)
+                // Check that we're not transitioning to another color
+                if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame == 0 {
+                    (self.color[0] * self.color[1] * self.color[2]) > 0.95
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -490,20 +589,24 @@ impl ParticleSystem {
     }
 
     /// Update the particle system (matches C++ ParticleSystem::update)
-    pub fn update(&mut self, local_player_index: i32) -> bool {
+    /// 
+    /// # Arguments
+    /// * `local_player_index` - Player index for visibility checks
+    /// * `current_frame` - Current game frame for timing
+    pub fn update(&mut self, local_player_index: i32, current_frame: u32) -> bool {
         if self.is_destroyed && self.particles.is_empty() {
             return false;
         }
 
-        // Update wind motion
+        // Update wind motion (C++ line 1978)
         self.update_wind_motion();
 
-        // Update existing particles
-        self.update_particles();
+        // Update existing particles (C++ lines 2143-2158)
+        self.update_particles(current_frame);
 
-        // Emit new particles if not stopped or destroyed
+        // Emit new particles if not stopped or destroyed (C++ lines 1987-2049)
         if !self.is_stopped && !self.is_destroyed {
-            self.emit_particles();
+            self.emit_particles(current_frame);
         }
 
         // Update timing
@@ -629,31 +732,38 @@ impl ParticleSystem {
         self.wind_angle
     }
 
-    /// Update particles
-    fn update_particles(&mut self) {
+    /// Update particles (matches C++ ParticleSystem::update particle loop)
+    fn update_particles(&mut self, current_frame: u32) {
         let mut i = 0;
+        
+        // Cache values from template
+        let gravity = self.template.info().gravity;
+        let drift_velocity = self.template.info().drift_velocity;
+        let wind_angle = self.wind_angle();
+        let wind_motion = self.template.info().wind_motion;
+        let shader_type = self.template.info().shader_type;
+        let system_pos = self.position;
+
         while i < self.particles.len() {
             let mut remove_particle = false;
-            let gravity = self.template.info().gravity;
-            let drift_velocity = self.template.info().drift_velocity;
-            let wind_angle = self.wind_angle();
 
             {
                 let particle = &mut self.particles[i];
 
-                // Apply gravity
+                // Apply gravity as force (C++ update loop lines 2144-2149)
+                // Note: C++ uses positive gravity for downward force (z decreases)
                 if gravity != 0.0 {
-                    particle.apply_force(Vector3::new(0.0, 0.0, -gravity));
+                    particle.apply_force(Vector3::new(0.0, 0.0, gravity));
                 }
 
-                // Apply drift velocity
-                particle.apply_force(drift_velocity);
+                // Do wind motion if enabled (applied directly to position, not as force)
+                // C++ handles this in Particle::doWindMotion, called from Particle::update
+                if wind_motion != WindMotion::NotUsed {
+                    particle.do_wind_motion(wind_angle, system_pos);
+                }
 
-                // Do wind motion
-                particle.do_wind_motion(wind_angle);
-
-                // Update particle
-                if !particle.update() {
+                // Update particle with correct parameters matching C++ signature
+                if !particle.update(drift_velocity, current_frame, shader_type) {
                     remove_particle = true;
                 }
             }
@@ -667,42 +777,54 @@ impl ParticleSystem {
         }
     }
 
-    /// Emit particles
-    fn emit_particles(&mut self) {
-        // Check initial delay
+    /// Emit particles (matches C++ ParticleSystem::update emission logic)
+    fn emit_particles(&mut self, current_frame: u32) {
+        // Check initial delay (C++ lines 1980-1989)
         if self.delay_left > 0 {
             self.delay_left -= 1;
+            // When delay finishes, set start timestamp (C++ line 1988)
+            if self.delay_left == 0 {
+                self.start_timestamp = current_frame;
+            }
             return;
         }
 
-        // Check burst delay
+        // Check burst delay (C++ lines 2037-2040)
         if self.burst_delay_left > 0 {
             self.burst_delay_left -= 1;
             return;
         }
 
-        // Time to emit particles
+        // Time to emit particles (C++ lines 1992-2034)
         let info = self.template.info();
         let burst_count = (info.burst_count.sample() * self.count_coeff) as u32;
 
         for i in 0..burst_count {
             if let Some(particle_info) = self.generate_particle_info(i, burst_count) {
-                let particle = Particle::new(&particle_info, self.personality_counter, 0);
+                // Create particle with current frame as creation timestamp (C++ line 287)
+                let particle = Particle::new(&particle_info, self.personality_counter, current_frame);
                 self.particles.push_back(particle);
                 self.particle_count += 1;
                 self.personality_counter += 1;
             }
         }
 
-        // Reset burst delay
+        // Reset burst delay (C++ lines 2036-2037)
         self.burst_delay_left = (info.burst_delay.sample() * self.delay_coeff) as u32;
 
-        // Update accumulated size bonus
+        // Update accumulated size bonus (C++ line 1800)
         self.accumulated_size_bonus += info.start_size_rate.sample();
+        
+        // Clamp accumulated bonus (C++ lines 1801-1802)
+        const MAX_SIZE_BONUS: f32 = 50.0;
+        if self.accumulated_size_bonus > MAX_SIZE_BONUS {
+            self.accumulated_size_bonus = MAX_SIZE_BONUS;
+        }
 
-        // Check if one-shot
+        // Check if one-shot (C++ doesn't auto-stop on one-shot, but stops emitting)
+        // The is_stopped flag prevents further emission
         if info.is_one_shot {
-            self.stop();
+            self.is_stopped = true;
         }
     }
 
