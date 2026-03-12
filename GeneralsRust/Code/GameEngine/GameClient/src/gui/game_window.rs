@@ -876,28 +876,80 @@ impl GameWindow {
         Ok(())
     }
 
-    /// Check if window is enabled
+    /// Check if window is enabled (C++ parity: checks all parents too)
     pub fn is_enabled(&self) -> bool {
-        self.status.contains(WindowStatus::ENABLED)
+        if !self.status.contains(WindowStatus::ENABLED) {
+            return false;
+        }
+        // C++ parity: isEnabled() walks up parent chain
+        let mut current = self.parent.as_ref().and_then(|w| w.upgrade());
+        while let Some(parent_rc) = current {
+            if let Ok(parent) = parent_rc.try_borrow() {
+                if !parent.status.contains(WindowStatus::ENABLED) {
+                    return false;
+                }
+                current = parent.parent.as_ref().and_then(|w| w.upgrade());
+            } else {
+                // SAFETY: mirrors legacy single-threaded window tree traversal
+                let parent = unsafe { &*parent_rc.as_ptr() };
+                if !parent.status.contains(WindowStatus::ENABLED) {
+                    return false;
+                }
+                current = parent.parent.as_ref().and_then(|w| w.upgrade());
+            }
+        }
+        true
     }
 
     /// Hide or show the window
     pub fn hide(&mut self, hide: bool) -> WindowResult<()> {
         if hide {
+            // C++ parity: windowHiding clears keyboard focus, mouse capture, and modal
+            // state when a window is hidden. We clear our status first, then propagate
+            // to children recursively.
             self.status |= WindowStatus::HIDDEN;
+            self.inst_data.status = self.status;
+            if let Some(widget) = &mut self.widget {
+                widget.set_visible(false);
+            }
+            // Recursively hide children and clear their widget visibility
+            for child_rc in &self.children {
+                let mut child = child_rc.borrow_mut();
+                let _ = child.hide(true);
+            }
         } else {
             self.status &= !WindowStatus::HIDDEN;
-        }
-        self.inst_data.status = self.status;
-        if let Some(widget) = &mut self.widget {
-            widget.set_visible(!hide);
+            self.inst_data.status = self.status;
+            if let Some(widget) = &mut self.widget {
+                widget.set_visible(true);
+            }
         }
         Ok(())
     }
 
-    /// Check if window is hidden
+    /// Check if window is hidden (C++ parity: checks all parents too)
     pub fn is_hidden(&self) -> bool {
-        self.status.contains(WindowStatus::HIDDEN)
+        if self.status.contains(WindowStatus::HIDDEN) {
+            return true;
+        }
+        // C++ parity: isHidden() walks up parent chain
+        let mut current = self.parent.as_ref().and_then(|w| w.upgrade());
+        while let Some(parent_rc) = current {
+            if let Ok(parent) = parent_rc.try_borrow() {
+                if parent.status.contains(WindowStatus::HIDDEN) {
+                    return true;
+                }
+                current = parent.parent.as_ref().and_then(|w| w.upgrade());
+            } else {
+                // SAFETY: mirrors legacy single-threaded window tree traversal
+                let parent = unsafe { &*parent_rc.as_ptr() };
+                if parent.status.contains(WindowStatus::HIDDEN) {
+                    return true;
+                }
+                current = parent.parent.as_ref().and_then(|w| w.upgrade());
+            }
+        }
+        false
     }
 
     /// Activate the window (bring to front and show)

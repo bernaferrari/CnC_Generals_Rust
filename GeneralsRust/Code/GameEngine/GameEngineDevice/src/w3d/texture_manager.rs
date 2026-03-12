@@ -628,7 +628,7 @@ pub fn recolor_pixel(r: f32, g: f32, b: f32, hsv_shift: [f32; 3]) -> (f32, f32, 
 /// This matches C++ remapAlphaTexture32Bit behavior with DO_HUE_SHIFT.
 ///
 /// # Arguments
-/// * `data` - RGBA texture data (4 bytes per pixel)
+/// * `data` - RGBA texture data (4 bytes per pixel, BGRA byte order in memory)
 /// * `width` - Texture width
 /// * `height` - Texture height
 /// * `color` - Team color as 0xRRGGBB integer
@@ -639,11 +639,6 @@ pub fn recolor_texture_32bit_hue_shift(data: &mut [u8], width: u32, height: u32,
 
     // Calculate HSV shift from target color
     let (h_color, s_color, _) = rgb_to_hsv(r_color, g_color, b_color);
-    
-    // The HSV shift is: (target_hue - current_hue, target_sat * current_sat - current_sat, 0)
-    // But for team colors, we shift the hue to the target color's hue
-    // and multiply saturation by the target saturation
-    let hsv_shift = [h_color, s_color, 0.0];
 
     let pitch = width as usize * 4;
 
@@ -654,38 +649,45 @@ pub fn recolor_texture_32bit_hue_shift(data: &mut [u8], width: u32, height: u32,
                 break;
             }
 
-            // Get current pixel (BGRA in memory, but we process as RGB)
-            // C++ uses ARGB format internally
+            // Memory layout is BGRA (D3D byte order), matching C++ pixel access
+            // C++ uses: (pixel>>16)&0xff for R, (pixel>>8)&0xff for G, pixel&0xff for B
+            // Which means when read as u32 little-endian: B at byte 0, G at byte 1, R at byte 2, A at byte 3
             let b = data[idx] as f32 / 255.0;
             let g = data[idx + 1] as f32 / 255.0;
             let r = data[idx + 2] as f32 / 255.0;
             let alpha = data[idx + 3];
 
             // Calculate house color alpha (255 - alpha in C++)
+            // C++: pixelAlpha=255-(pixel>>24) where pixel>>24 is alpha in ARGB format
+            // Since memory is BGRA, alpha is at byte 3 (data[idx + 3])
             let pixel_alpha = 255 - alpha;
 
             if pixel_alpha > 0 {
                 // Get current HSV and apply shift
+                // C++ parity: RGB_To_HSV(hsv,Vector3(((pixel>>16)&0xff)/255.0f,((pixel>>8)&0xff)/255.0f,(pixel&0xff)/255.0f));
                 let (h, s, v) = rgb_to_hsv(r, g, b);
                 
-                // For team color recoloring: shift hue to target, scale saturation
+                // C++: hsv.X = hsv_color.X (replace hue with target color hue)
+                // C++: hsv.Y *= hsv_color.Y (multiply saturation by target saturation)
                 let (new_r, new_g, new_b) = if h < 0.0 {
                     // Monochrome color - only modify value (C++ parity)
-                    let new_v = (v + hsv_shift[2]).clamp(0.0, 1.0);
-                    hsv_to_rgb(h, s, new_v)
+                    // C++ doesn't actually change value for monochrome in remapAlphaTexture32Bit
+                    // since hsv_shift.Z is 0.0 for team colors
+                    hsv_to_rgb(h, s, v)
                 } else {
                     // Apply hue shift to target color hue, multiply saturation
-                    let new_h = (h + hsv_shift[0]) % 360.0;
-                    let new_s = (s * hsv_shift[1]).clamp(0.0, 1.0);
+                    let new_h = h_color;
+                    let new_s = (s * s_color).clamp(0.0, 1.0);
                     hsv_to_rgb(new_h, new_s, v)
                 };
 
+                // Write back in BGRA byte order (matching C++ memory layout)
                 data[idx] = (new_b * 255.0).clamp(0.0, 255.0) as u8;
                 data[idx + 1] = (new_g * 255.0).clamp(0.0, 255.0) as u8;
                 data[idx + 2] = (new_r * 255.0).clamp(0.0, 255.0) as u8;
             }
 
-            // Force alpha to opaque (parity with C++)
+            // Force alpha to opaque (parity with C++: data[x] |= 0xff000000)
             data[idx + 3] = 255;
         }
     }
@@ -695,7 +697,7 @@ pub fn recolor_texture_32bit_hue_shift(data: &mut [u8], width: u32, height: u32,
 /// This matches C++ remapAlphaTexture16Bit behavior with DO_HUE_SHIFT.
 ///
 /// # Arguments
-/// * `data` - 16-bit texture data (2 bytes per pixel, ARGB4444 format)
+/// * `data` - 16-bit texture data (2 bytes per pixel, ARGB4444 format in u16)
 /// * `width` - Texture width  
 /// * `height` - Texture height
 /// * `color` - Team color as 0xRRGGBB integer
@@ -716,31 +718,38 @@ pub fn recolor_texture_16bit_hue_shift(data: &mut [u16], width: u32, height: u32
             let pixel = data[idx];
 
             // ARGB4444 format: AAAA RRRR GGGG BBBB
+            // C++: ((pixel>>8)&0xf) is R, ((pixel>>4)&0xf) is G, (pixel&0xf) is B
             let alpha = (pixel >> 12) & 0xF;
             let r = ((pixel >> 8) & 0xF) as f32 / 15.0;
             let g = ((pixel >> 4) & 0xF) as f32 / 15.0;
             let b = (pixel & 0xF) as f32 / 15.0;
 
-            // Get alpha for house color (15 - alpha)
+            // Get alpha for house color (15 - alpha), matching C++ pixelAlpha=15-(pixel>>12)
             let pixel_alpha = 15 - alpha;
 
             if pixel_alpha > 0 {
-                // Apply hue shift
+                // Apply hue shift matching C++ DO_HUE_SHIFT branch
+                // C++: RGB_To_HSV(hsv,Vector3(((pixel>>8)&0xf)/15.0f,((pixel>>4)&0xf)/15.0f,(pixel &0xf)/15.0f));
                 let (h, s, v) = rgb_to_hsv(r, g, b);
+                
+                // C++: hsv.X = hsv_color.X (replace hue)
+                // C++: hsv.Y *= hsv_color.Y (multiply saturation)
                 let new_h = h_color;
-                let new_s = s * s_color;
+                let new_s = (s * s_color).clamp(0.0, 1.0);
                 let (new_r, new_g, new_b) = hsv_to_rgb(new_h, new_s, v);
 
-                let new_pixel = (0xF << 12) // Force alpha to opaque
-                    | ((new_r * 15.0) as u16 & 0xF) << 8
+                // Write back as ARGB4444: AAAA RRRR GGGG BBBB
+                // C++: data[x] = REAL_TO_INT(rgb.X*15.0f)<<8 | REAL_TO_INT(rgb.Y*15.0f)<<4 | REAL_TO_INT(rgb.Z*15.0f);
+                // Note: C++ clears alpha to 0 in this branch, then sets to 0xF000 below
+                let new_pixel = ((new_r * 15.0) as u16 & 0xF) << 8
                     | ((new_g * 15.0) as u16 & 0xF) << 4
                     | ((new_b * 15.0) as u16 & 0xF);
 
                 data[idx] = new_pixel;
-            } else {
-                // Force alpha to opaque even if no color change
-                data[idx] = pixel | 0xF000;
             }
+            
+            // Force alpha to opaque (parity with C++: data[x] |= 0xf000)
+            data[idx] |= 0xF000;
         }
     }
 }
@@ -1098,47 +1107,57 @@ impl W3DTextureManager {
     /// The C++ algorithm:
     /// 1. Masks each pixel with 0xfcfcfcfc (clears bottom 2 bits per channel)
     /// 2. Divides each by 4 (right shift by 2)
-    /// 3. Sums all four values
+    /// 3. Sums all four values as 32-bit words
     /// This is equivalent to: (pixel1 + pixel2 + pixel3 + pixel4) / 4 with masked low bits
     fn downsample_rgba8(src: &[u8], src_width: u32, src_height: u32) -> Vec<u8> {
         let dst_width = (src_width / 2).max(1);
         let dst_height = (src_height / 2).max(1);
         let mut dst = vec![0u8; (dst_width * dst_height * 4) as usize];
 
-        // Use BGRA word-level processing like C++ for parity
-        // C++ reads as unsigned (32-bit) and processes in BGRA order
+        // C++ Combine_A8R8G8B8 processes entire 32-bit words at once
+        // The texture data is in BGRA byte order in memory (little-endian: B at offset 0)
         for y in 0..dst_height {
             for x in 0..dst_width {
                 let src_x = x * 2;
                 let src_y = y * 2;
 
-                // Read four 2x2 pixels as 32-bit values (BGRA format in memory)
-                // This matches C++ Combine_A8R8G8B8 behavior
-                let mut accum = [0u32; 4];
-                let mut samples = 0u32;
-
-                for oy in 0..2 {
-                    for ox in 0..2 {
-                        let sample_x = (src_x + ox).min(src_width.saturating_sub(1));
-                        let sample_y = (src_y + oy).min(src_height.saturating_sub(1));
-                        let idx = ((sample_y * src_width + sample_x) * 4) as usize;
-                        
-                        // Apply 0xfcfcfcfc mask like C++ (clears bottom 2 bits per channel)
-                        // Then divide by 4 (right shift 2)
-                        for c in 0..4 {
-                            let masked = (src[idx + c] as u32) & 0xFC;
-                            accum[c] += masked >> 2;
-                        }
-                        samples += 1;
-                    }
+                // Read four 2x2 pixels as 32-bit words (BGRA format in memory)
+                // This exactly matches C++ Combine_A8R8G8B8 behavior
+                let mut pixels: [u32; 4] = [0; 4];
+                
+                for (i, (oy, ox)) in [(0, 0), (0, 1), (1, 0), (1, 1)].iter().enumerate() {
+                    let sample_x = (src_x + ox).min(src_width.saturating_sub(1));
+                    let sample_y = (src_y + oy).min(src_height.saturating_sub(1));
+                    let idx = ((sample_y * src_width + sample_x) * 4) as usize;
+                    
+                    // Read as little-endian 32-bit value (BGRA in memory -> ARGB in u32)
+                    // Memory layout: [B, G, R, A] -> u32 = A << 24 | R << 16 | G << 8 | B
+                    pixels[i] = u32::from_le_bytes([
+                        src[idx],     // B
+                        src[idx + 1], // G
+                        src[idx + 2], // R
+                        src[idx + 3], // A
+                    ]);
                 }
 
-                // Sum the four pre-divided values (equivalent to averaging)
+                // Apply 0xfcfcfcfc mask like C++ (clears bottom 2 bits per channel)
+                // Then divide by 4 (right shift 2)
+                // Then sum all four
+                let p1 = (pixels[0] & 0xfcfcfcfc) >> 2;
+                let p2 = (pixels[1] & 0xfcfcfcfc) >> 2;
+                let p3 = (pixels[2] & 0xfcfcfcfc) >> 2;
+                let p4 = (pixels[3] & 0xfcfcfcfc) >> 2;
+                
+                // Sum: p1 + p2 + p3 + p4
+                let result = p1.wrapping_add(p2).wrapping_add(p3).wrapping_add(p4);
+
+                // Write back as little-endian 32-bit value
                 let out_idx = ((y * dst_width + x) * 4) as usize;
-                dst[out_idx] = accum[0].min(255) as u8;
-                dst[out_idx + 1] = accum[1].min(255) as u8;
-                dst[out_idx + 2] = accum[2].min(255) as u8;
-                dst[out_idx + 3] = accum[3].min(255) as u8;
+                let bytes = result.to_le_bytes();
+                dst[out_idx] = bytes[0];     // B
+                dst[out_idx + 1] = bytes[1]; // G
+                dst[out_idx + 2] = bytes[2]; // R
+                dst[out_idx + 3] = bytes[3]; // A
             }
         }
 
@@ -1370,38 +1389,57 @@ mod tests {
     fn downsample_rgba8_averages_2x2_block() {
         let src_width = 2;
         let src_height = 2;
+        // BGRA format in memory: [B, G, R, A]
         let src = vec![
-            0, 0, 0, 255, // top-left
-            100, 0, 0, 255, // top-right
-            0, 100, 0, 255, // bottom-left
-            0, 0, 100, 255, // bottom-right
+            0, 0, 0, 255,     // top-left (B=0, G=0, R=0, A=255)
+            100, 0, 0, 255,   // top-right (B=100, G=0, R=0, A=255)
+            0, 100, 0, 255,   // bottom-left (B=0, G=100, R=0, A=255)
+            0, 0, 100, 255,   // bottom-right (B=0, G=0, R=100, A=255)
         ];
 
         let mip = W3DTextureManager::downsample_rgba8(&src, src_width, src_height);
+        
         // C++ parity: Apply 0xFC mask, divide by 4, then sum
-        // 0 & 0xFC = 0, 0 >> 2 = 0
-        // 100 & 0xFC = 100, 100 >> 2 = 25
-        // So average is: (0+25+0+0, 0+0+25+0, 0+0+0+25, 63+63+63+63) = (25, 25, 25, 255)
-        assert_eq!(mip, vec![25, 25, 25, 255]);
+        // For each channel:
+        // - 0 & 0xFC = 0, 0 >> 2 = 0
+        // - 100 & 0xFC = 100, 100 >> 2 = 25
+        // So for B channel: 0 + 25 + 0 + 0 = 25
+        // For G channel: 0 + 0 + 25 + 0 = 25
+        // For R channel: 0 + 0 + 0 + 25 = 25
+        // For A channel: 63 + 63 + 63 + 63 = 252
+        // Result in BGRA byte order: [25, 25, 25, 252]
+        assert_eq!(mip.len(), 4);
+        assert_eq!(mip[0], 25); // B
+        assert_eq!(mip[1], 25); // G
+        assert_eq!(mip[2], 25); // R
+        assert_eq!(mip[3], 252); // A
     }
 
     #[test]
     fn downsample_rgba8_handles_odd_dimensions_with_edge_clamp() {
         let src_width = 3;
         let src_height = 1;
+        // BGRA format in memory
         let src = vec![
-            10, 20, 30, 40, // x=0
-            50, 60, 70, 80, // x=1
-            90, 100, 110, 120, // x=2
+            10, 20, 30, 40,   // x=0 (B=10, G=20, R=30, A=40)
+            50, 60, 70, 80,   // x=1 (B=50, G=60, R=70, A=80)
+            90, 100, 110, 120, // x=2 (B=90, G=100, R=110, A=120)
         ];
 
         let mip = W3DTextureManager::downsample_rgba8(&src, src_width, src_height);
-        // 1x1 output, samples are x=0,x=1 twice each due Y clamp.
+        // 1x1 output, 2x2 block with Y clamp (samples at y=0 for both oy=0 and oy=1)
+        // Samples: (x=0,y=0), (x=1,y=0), (x=0,y=0) [clamped], (x=1,y=0) [clamped]
+        // This is actually: x=0 twice and x=1 twice
         // Using C++ mask algorithm:
-        // 10 & 0xFC = 8, 8 >> 2 = 2 (x2 samples due to Y clamp)
-        // 50 & 0xFC = 48, 48 >> 2 = 12 (x2 samples due to Y clamp)
-        // Result: (2+2+12+12, 4+4+12+12, 6+6+12+12, 8+8+16+16) = (28, 32, 36, 48)
-        assert_eq!(mip, vec![28, 32, 36, 48]);
+        // B: (10&0xFC)>>2 = 2, (50&0xFC)>>2 = 12 -> sum = 2+12+2+12 = 28
+        // G: (20&0xFC)>>2 = 5, (60&0xFC)>>2 = 15 -> sum = 5+15+5+15 = 40
+        // R: (30&0xFC)>>2 = 7, (70&0xFC)>>2 = 17 -> sum = 7+17+7+17 = 48
+        // A: (40&0xFC)>>2 = 10, (80&0xFC)>>2 = 20 -> sum = 10+20+10+20 = 60
+        assert_eq!(mip.len(), 4);
+        assert_eq!(mip[0], 28);  // B
+        assert_eq!(mip[1], 40);  // G
+        assert_eq!(mip[2], 48);  // R
+        assert_eq!(mip[3], 60);  // A
     }
 
     #[test]
