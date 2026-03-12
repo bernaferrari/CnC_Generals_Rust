@@ -6,12 +6,14 @@
 //!
 //! Texture based shadow projection and decal system.
 
+use glam::{Mat3, Mat4, Vec2, Vec3};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
-use glam::{Vec3, Vec2, Mat4, Mat3};
 
-use super::{ShadowHandle, ShadowTypeInfo, ShadowType, RenderObject, RenderInfo, Frustum, AABBox, Sphere};
+use super::{
+    AABBox, Frustum, RenderInfo, RenderObject, ShadowHandle, ShadowType, ShadowTypeInfo, Sphere,
+};
 
 /// Default render target width for shadow textures
 /// C++: #define DEFAULT_RENDER_TARGET_WIDTH 512
@@ -101,7 +103,7 @@ impl Default for W3DShadowTexture {
             area_effect_box: AABBox::default(),
             area_effect_sphere: Sphere::default(),
             shadow_uv: [
-                Vec3::new(1.0, 0.0, 0.0), // u runs along world x axis
+                Vec3::new(1.0, 0.0, 0.0),  // u runs along world x axis
                 Vec3::new(0.0, -1.0, 0.0), // v runs along world -y axis
             ],
         }
@@ -222,7 +224,7 @@ impl W3DShadowTextureManager {
         if self.textures.contains_key(name) {
             return 0;
         }
-        
+
         let texture = Arc::new(W3DShadowTexture::new(name));
         self.textures.insert(name.to_string(), texture);
         1
@@ -489,6 +491,18 @@ pub struct W3DProjectedShadowManager {
     texture_manager: Option<Arc<RwLock<W3DShadowTextureManager>>>,
     /// Initialized flag
     initialized: bool,
+    /// Decal vertex buffer counter
+    /// C++: int nShadowDecalVertsInBuf
+    decal_verts_in_buf: u32,
+    /// Decal index buffer counter
+    /// C++: int nShadowDecalIndicesInBuf
+    decal_indices_in_buf: u32,
+    /// Decal polygons in batch
+    /// C++: int nShadowDecalPolysInBatch
+    decal_polys_in_batch: u32,
+    /// Decal vertices in batch
+    /// C++: int nShadowDecalVertsInBatch
+    decal_verts_in_batch: u32,
 }
 
 impl Default for W3DProjectedShadowManager {
@@ -512,6 +526,10 @@ impl W3DProjectedShadowManager {
             shadow_context: None,
             texture_manager: None,
             initialized: false,
+            decal_verts_in_buf: 0,
+            decal_indices_in_buf: 0,
+            decal_polys_in_batch: 0,
+            decal_verts_in_batch: 0,
         }
     }
 
@@ -532,7 +550,7 @@ impl W3DProjectedShadowManager {
         self.decal_list = None;
         self.num_decal_shadows = 0;
         self.num_projection_shadows = 0;
-        
+
         if let Some(ref texture_manager) = self.texture_manager {
             texture_manager.write().free_all_textures();
         }
@@ -550,12 +568,16 @@ impl W3DProjectedShadowManager {
     /// C++: Bool W3DProjectedShadowManager::ReAcquireResources()
     pub fn re_acquire_resources(&mut self) -> bool {
         // Create render target
-        self.dynamic_render_target = Some(TextureHandle::new(0, DEFAULT_RENDER_TARGET_WIDTH, DEFAULT_RENDER_TARGET_HEIGHT));
+        self.dynamic_render_target = Some(TextureHandle::new(
+            0,
+            DEFAULT_RENDER_TARGET_WIDTH,
+            DEFAULT_RENDER_TARGET_HEIGHT,
+        ));
         self.render_target_has_alpha = true;
-        
+
         // Create vertex and index buffers
         // C++ uses D3DUSAGE_WRITEONLY|D3DUSAGE_DYNAMIC for dynamic buffers
-        
+
         true
     }
 
@@ -572,7 +594,7 @@ impl W3DProjectedShadowManager {
     pub fn add_shadow(&mut self) -> Option<ShadowHandle> {
         let shadow = Arc::new(RwLock::new(W3DProjectedShadow::new()));
         shadow.write().init();
-        
+
         // Add to shadow list
         {
             let mut s = shadow.write();
@@ -580,15 +602,18 @@ impl W3DProjectedShadowManager {
         }
         self.shadow_list = Some(shadow);
         self.num_projection_shadows += 1;
-        
-        Some(ShadowHandle::new(self.num_projection_shadows as u64, ShadowType::PROJECTION))
+
+        Some(ShadowHandle::new(
+            self.num_projection_shadows as u64,
+            ShadowType::PROJECTION,
+        ))
     }
 
     /// Add decal shadow
     /// C++: Shadow* W3DProjectedShadowManager::addDecal(Shadow::ShadowTypeInfo *shadowInfo)
     pub fn add_decal(&mut self, shadow_info: &ShadowTypeInfo) -> Option<ShadowHandle> {
         let texture_name = format!("{}.tga", shadow_info.shadow_name);
-        
+
         // Get or create texture
         let texture = if let Some(ref texture_manager) = self.texture_manager {
             let mgr = texture_manager.read();
@@ -609,26 +634,44 @@ impl W3DProjectedShadowManager {
             let mut s = shadow.write();
             s.shadow_type = shadow_info.shadow_type;
             s.allow_world_align = shadow_info.allow_world_align;
-            s.decal_size_x = if shadow_info.size_x > 0.0 { shadow_info.size_x } else { 1.0 };
-            s.decal_size_y = if shadow_info.size_y > 0.0 { shadow_info.size_y } else { 1.0 };
+            s.decal_size_x = if shadow_info.size_x > 0.0 {
+                shadow_info.size_x
+            } else {
+                1.0
+            };
+            s.decal_size_y = if shadow_info.size_y > 0.0 {
+                shadow_info.size_y
+            } else {
+                1.0
+            };
             s.oow_decal_size_x = 1.0 / s.decal_size_x;
             s.oow_decal_size_y = 1.0 / s.decal_size_y;
             s.decal_offset_u = shadow_info.offset_x * s.oow_decal_size_x;
             s.decal_offset_v = shadow_info.offset_y * s.oow_decal_size_y;
-            s.flags = if shadow_info.shadow_type.contains(ShadowType::DIRECTIONAL_PROJECTION) { 1 } else { 0 };
+            s.flags = if shadow_info
+                .shadow_type
+                .contains(ShadowType::DIRECTIONAL_PROJECTION)
+            {
+                1
+            } else {
+                0
+            };
             s.init();
-            
+
             if let Some(tex) = texture {
                 s.set_texture(0, tex);
             }
-            
+
             s.next = self.decal_list.clone();
         }
-        
+
         self.decal_list = Some(shadow);
         self.num_decal_shadows += 1;
-        
-        Some(ShadowHandle::new(self.num_decal_shadows as u64, shadow_info.shadow_type))
+
+        Some(ShadowHandle::new(
+            self.num_decal_shadows as u64,
+            shadow_info.shadow_type,
+        ))
     }
 
     /// Remove shadow
@@ -661,19 +704,124 @@ impl W3DProjectedShadowManager {
 
     /// Render shadows
     /// C++: Int W3DProjectedShadowManager::renderShadows(RenderInfoClass & rinfo)
-    pub fn render_shadows(&mut self, rinfo: &mut RenderInfo) -> i32 {
-        let mut projection_count = 0;
-        
+    pub fn render_shadows(&mut self, _rinfo: &mut RenderInfo) -> i32 {
+        let mut projection_count: i32 = 0;
+
         if self.shadow_list.is_none() && self.decal_list.is_none() {
             return projection_count;
         }
-        
+
         // C++: According to Nvidia there's a D3D bug that happens if you don't start with a
         // new dynamic VB each frame - so we force a DISCARD by overflowing the counter.
-        
-        // Render projected shadows and decals
-        // C++ code iterates through shadow list and renders to terrain
-        
+        // nShadowDecalVertsInBuf = 0xffff;
+        // nShadowDecalIndicesInBuf = 0xffff;
+        self.decal_verts_in_buf = 0xffff;
+        self.decal_indices_in_buf = 0xffff;
+
+        // C++ code:
+        // if (TheGlobalData->m_useShadowDecals)
+        // {
+        //     TheDX8MeshRenderer.Set_Camera(&rinfo.Camera);
+        //     ... iterate through shadow_list and decal_list
+        // }
+
+        // Keep track of active decal texture so we can render all decals at once
+        // C++: W3DShadowTexture *lastShadowDecalTexture = NULL;
+        // C++: ShadowType lastShadowType = SHADOW_NONE;
+        let mut last_shadow_decal_texture: Option<Arc<W3DShadowTexture>> = None;
+        let mut last_shadow_type = ShadowType::NONE;
+
+        // Process projected shadows and decals
+        // C++ iterates through m_shadowList and m_decalList
+        if let Some(ref shadow_head) = self.shadow_list {
+            let mut current = Some(shadow_head.clone());
+            while let Some(shadow_arc) = current {
+                let shadow = shadow_arc.read();
+                if shadow.is_enabled && !shadow.is_invisible_enabled {
+                    if shadow.shadow_type.contains(ShadowType::DECAL) {
+                        // Flush previous texture batch if texture changed
+                        if let Some(ref tex) = shadow.shadow_texture[0] {
+                            if last_shadow_decal_texture.is_none() {
+                                last_shadow_decal_texture = Some(tex.clone());
+                            }
+                            if last_shadow_type == ShadowType::NONE {
+                                last_shadow_type = shadow.shadow_type;
+                            }
+
+                            // Check if texture or type changed
+                            let should_flush = last_shadow_decal_texture
+                                .as_ref()
+                                .map_or(true, |t| !Arc::ptr_eq(t, tex))
+                                || last_shadow_type != shadow.shadow_type;
+
+                            if should_flush {
+                                if let Some(ref last_tex) = last_shadow_decal_texture {
+                                    self.flush_decals(last_tex, last_shadow_type);
+                                }
+                                last_shadow_decal_texture = Some(tex.clone());
+                                last_shadow_type = shadow.shadow_type;
+                            }
+
+                            // Queue decal for rendering
+                            // C++: if (shadow->m_robj->Is_Really_Visible())
+                            drop(shadow);
+                            self.queue_decal(&shadow_arc.read());
+                            projection_count += 1;
+                            current = shadow_arc.read().next.clone();
+                            continue;
+                        }
+                    }
+
+                    // Handle SHADOW_PROJECTION type
+                    if shadow.shadow_type == ShadowType::PROJECTION {
+                        // C++: shadow->updateProjectionParameters(rinfo.Camera.Get_Transform());
+                        // C++: renderProjectedTerrainShadow(shadow, aaBox)
+                        projection_count += 1;
+                    }
+                }
+                current = shadow.next.clone();
+            }
+
+            // Flush remaining decals
+            if let Some(ref last_tex) = last_shadow_decal_texture {
+                self.flush_decals(last_tex, last_shadow_type);
+            }
+        }
+
+        // Process standalone decals (m_decalList)
+        if let Some(ref decal_head) = self.decal_list {
+            let mut current = Some(decal_head.clone());
+            while let Some(shadow_arc) = current {
+                let shadow = shadow_arc.read();
+                if shadow.is_enabled && !shadow.is_invisible_enabled {
+                    if let Some(ref tex) = shadow.shadow_texture[0] {
+                        let should_flush = last_shadow_decal_texture
+                            .as_ref()
+                            .map_or(true, |t| !Arc::ptr_eq(t, tex))
+                            || last_shadow_type != shadow.shadow_type;
+
+                        if should_flush {
+                            if let Some(ref last_tex) = last_shadow_decal_texture {
+                                self.flush_decals(last_tex, last_shadow_type);
+                            }
+                            last_shadow_decal_texture = Some(tex.clone());
+                            last_shadow_type = shadow.shadow_type;
+                        }
+
+                        drop(shadow);
+                        self.queue_decal(&shadow_arc.read());
+                        projection_count += 1;
+                    }
+                }
+                current = shadow.next.clone();
+            }
+
+            // Flush remaining decals
+            if let Some(ref last_tex) = last_shadow_decal_texture {
+                self.flush_decals(last_tex, last_shadow_type);
+            }
+        }
+
         projection_count
     }
 
@@ -691,8 +839,35 @@ impl W3DProjectedShadowManager {
 
     /// Flush decals to GPU
     /// C++: void W3DProjectedShadowManager::flushDecals(W3DShadowTexture *texture, ShadowType type)
-    pub fn flush_decals(&mut self, _texture: &W3DShadowTexture, _shadow_type: ShadowType) {
-        // C++ renders accumulated decal geometry
+    pub fn flush_decals(&mut self, texture: &W3DShadowTexture, shadow_type: ShadowType) {
+        // C++: if (nShadowDecalVertsInBatch == 0 && nShadowDecalPolysInBatch == 0)
+        //         return;  // nothing to render
+
+        if self.decal_polys_in_batch == 0 && self.decal_verts_in_batch == 0 {
+            return;
+        }
+
+        // C++ code:
+        // 1. Sets up D3D device with appropriate shader based on shadow type
+        // 2. Sets texture from W3DShadowTexture
+        // 3. Draws indexed primitive
+
+        // Select appropriate shader based on shadow type
+        // C++: switch (type) { case SHADOW_DECAL: _PresetMultiplicativeShader; ... }
+        let _shader = match shadow_type {
+            ShadowType::DECAL => "multiplicative",
+            ShadowType::ALPHA_DECAL => "alpha",
+            ShadowType::ADDITIVE_DECAL => "additive",
+            _ => "multiplicative",
+        };
+
+        // C++: DX8Wrapper::Set_Texture(0, texture->getTexture());
+        let _tex = texture.get_texture();
+
+        // C++: m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, ...)
+        // Reset batch counters after flush
+        self.decal_polys_in_batch = 0;
+        self.decal_verts_in_batch = 0;
     }
 
     /// Get render target
@@ -746,8 +921,9 @@ impl Default for RenderContextHandle {
 
 /// Global projected shadow manager singleton
 /// C++: W3DProjectedShadowManager *TheW3DProjectedShadowManager = NULL;
-static THE_W3D_PROJECTED_SHADOW_MANAGER: std::sync::OnceLock<Arc<RwLock<W3DProjectedShadowManager>>> = 
-    std::sync::OnceLock::new();
+static THE_W3D_PROJECTED_SHADOW_MANAGER: std::sync::OnceLock<
+    Arc<RwLock<W3DProjectedShadowManager>>,
+> = std::sync::OnceLock::new();
 
 /// Global projected shadow manager (simpler interface)
 /// C++: ProjectedShadowManager *TheProjectedShadowManager;
@@ -808,7 +984,7 @@ mod tests {
         let tex = Arc::new(W3DShadowTexture::new("test.tga"));
         assert!(mgr.add_texture(tex));
         assert!(mgr.get_texture("test.tga").is_some());
-        
+
         mgr.free_all_textures();
         assert!(mgr.get_texture("test.tga").is_none());
     }
@@ -839,7 +1015,7 @@ mod tests {
     fn test_projected_shadow_manager_add_shadow() {
         let mut manager = W3DProjectedShadowManager::new();
         manager.init();
-        
+
         let handle = manager.add_shadow();
         assert!(handle.is_some());
         assert_eq!(manager.num_projection_shadows, 1);
@@ -849,7 +1025,7 @@ mod tests {
     fn test_projected_shadow_manager_add_decal() {
         let mut manager = W3DProjectedShadowManager::new();
         manager.init();
-        
+
         let info = ShadowTypeInfo {
             shadow_type: ShadowType::DECAL,
             shadow_name: "test".to_string(),
@@ -857,7 +1033,7 @@ mod tests {
             size_y: 100.0,
             ..Default::default()
         };
-        
+
         let handle = manager.add_decal(&info);
         assert!(handle.is_some());
         assert_eq!(manager.num_decal_shadows, 1);
@@ -869,7 +1045,7 @@ mod tests {
         manager.init();
         manager.add_shadow();
         manager.add_decal(&ShadowTypeInfo::default());
-        
+
         manager.reset();
         assert!(manager.shadow_list.is_none());
         assert!(manager.decal_list.is_none());

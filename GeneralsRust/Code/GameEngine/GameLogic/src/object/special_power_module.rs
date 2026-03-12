@@ -680,10 +680,12 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
             return 0.99999;
         }
 
-        #[cfg(debug_assertions)]
-        {
-            // If delays are disabled in global data, return 1.0 immediately
-            // In C++: if (!TheGlobalData->m_specialPowerUsesDelay) return 1.0
+        // If delays are disabled in global data, return 1.0 immediately
+        // Matches C++ SpecialPowerModule::getPercentReady() lines 150-152
+        if let Some(global_data) = TheGlobalData::get() {
+            if !global_data.get_special_power_uses_delay() {
+                return 1.0;
+            }
         }
 
         // Easy case - is ready
@@ -956,12 +958,14 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
 
     fn start_power_recharge_at(&mut self, current_frame: FrameCount) {
         // Start the cooldown timer after power use
-        // Matches C++ SpecialPowerModule::startPowerRecharge() lines 324-337
+        // Matches C++ SpecialPowerModule::startPowerRecharge() lines 368-396
 
-        #[cfg(debug_assertions)]
-        {
-            // If cheat flag is enabled, skip recharge entirely
-            // In C++: if (TheGlobalData->m_specialPowerUsesDelay == FALSE) return;
+        // If cheat flag is enabled, skip recharge entirely
+        // Matches C++ SpecialPowerModule::startPowerRecharge() lines 369-372
+        if let Some(global_data) = TheGlobalData::get() {
+            if !global_data.get_special_power_uses_delay() {
+                return;
+            }
         }
 
         if let Some(template) = &self.module_data.special_power_template {
@@ -1069,12 +1073,11 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
 
     fn is_ready(&self) -> bool {
         // Cheat for debug builds - if global data disables delays, all powers are ready
-        #[cfg(debug_assertions)]
-        {
-            // Check if special power delays are disabled (for testing)
-            // In C++: TheGlobalData->m_specialPowerUsesDelay
-            // If disabled, return true immediately
-            // For now, we assume delays are enabled
+        // Matches C++ SpecialPowerModule::isReady() lines 269-273
+        if let Some(global_data) = TheGlobalData::get() {
+            if !global_data.get_special_power_uses_delay() {
+                return true;
+            }
         }
 
         if let Some(template) = &self.module_data.special_power_template {

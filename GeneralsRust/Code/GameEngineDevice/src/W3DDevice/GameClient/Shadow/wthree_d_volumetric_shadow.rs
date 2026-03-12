@@ -6,12 +6,12 @@
 //!
 //! Real time shadow volume representations using stencil buffer.
 
+use glam::{Mat3, Mat4, Vec3, Vec4};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::RwLock;
-use glam::{Vec3, Vec4, Mat4, Mat3};
 
-use super::{ShadowHandle, ShadowTypeInfo, RenderObject, RenderInfo, Frustum};
+use super::{Frustum, RenderInfo, RenderObject, ShadowHandle, ShadowTypeInfo};
 
 /// Maximum number of shadow caster meshes in animated hierarchy
 /// C++: #define MAX_SHADOW_CASTER_MESHES 160
@@ -487,7 +487,7 @@ impl W3DVolumetricShadow {
         if self.geometry.is_none() {
             return;
         }
-        
+
         // C++ checks if light angle or object transform changed significantly
         // before rebuilding shadow volumes
         // TODO: Implement update logic
@@ -498,7 +498,7 @@ impl W3DVolumetricShadow {
         if mesh_index >= MAX_SHADOW_CASTER_MESHES {
             return false;
         }
-        
+
         // C++ allocates 2 * num_vertices entries for silhouette edges
         self.silhouette_index[mesh_index] = vec![0; num_vertices * 2];
         self.max_silhouette_entries[mesh_index] = num_vertices as i16 * 2;
@@ -565,7 +565,7 @@ impl ShadowGeometryManager {
         if let Some(geom) = self.geometries.get(name) {
             return Some(geom.clone());
         }
-        
+
         let mut geometry = ShadowGeometry::new(name);
         if geometry.init_from_hlod(robj) || geometry.init_from_mesh(robj) {
             let arc = Arc::new(geometry);
@@ -629,9 +629,7 @@ impl W3DVolumetricShadowManager {
     /// C++: void W3DVolumetricShadowManager::removeShadow(W3DVolumetricShadow *shadow)
     pub fn remove_shadow(&mut self, handle: &ShadowHandle) {
         // Find and remove shadow by handle ID
-        self.shadow_list.retain(|s| {
-            s.read().is_enabled
-        });
+        self.shadow_list.retain(|s| s.read().is_enabled);
     }
 
     /// Remove all shadows
@@ -656,7 +654,7 @@ impl W3DVolumetricShadowManager {
         if self.shadow_list.is_empty() {
             return;
         }
-        
+
         // C++ renders each shadow volume using stencil buffer
         // TODO: Implement GPU rendering
         let _ = projection_count;
@@ -673,8 +671,9 @@ impl W3DVolumetricShadowManager {
 
 /// Global volumetric shadow manager singleton
 /// C++: W3DVolumetricShadowManager *TheW3DVolumetricShadowManager = NULL;
-static THE_W3D_VOLUMETRIC_SHADOW_MANAGER: std::sync::OnceLock<Arc<RwLock<W3DVolumetricShadowManager>>> = 
-    std::sync::OnceLock::new();
+static THE_W3D_VOLUMETRIC_SHADOW_MANAGER: std::sync::OnceLock<
+    Arc<RwLock<W3DVolumetricShadowManager>>,
+> = std::sync::OnceLock::new();
 
 /// Get or initialize the global volumetric shadow manager
 pub fn the_w3d_volumetric_shadow_manager() -> Arc<RwLock<W3DVolumetricShadowManager>> {
@@ -713,7 +712,7 @@ mod tests {
     fn test_volumetric_shadow_manager_add_shadow() {
         let mut manager = W3DVolumetricShadowManager::new();
         manager.init();
-        
+
         let handle = manager.add_shadow();
         assert!(handle.is_some());
         assert_eq!(manager.shadow_list.len(), 1);
@@ -725,7 +724,7 @@ mod tests {
         manager.init();
         manager.add_shadow();
         assert_eq!(manager.shadow_list.len(), 1);
-        
+
         manager.reset();
         assert_eq!(manager.shadow_list.len(), 0);
     }
@@ -743,7 +742,7 @@ mod tests {
     fn test_geometry_polygon_index() {
         let mut geom = Geometry::create(3, 1);
         geom.set_polygon_index(0, [0, 1, 2]);
-        
+
         let indices = geom.get_polygon_index(0);
         assert!(indices.is_some());
         let indices = indices.unwrap();
@@ -754,7 +753,7 @@ mod tests {
     fn test_geometry_vertex() {
         let mut geom = Geometry::create(1, 0);
         geom.set_vertex(0, Vec3::new(1.0, 2.0, 3.0));
-        
+
         let vert = geom.get_vertex(0);
         assert!(vert.is_some());
         assert_eq!(*vert.unwrap(), Vec3::new(1.0, 2.0, 3.0));

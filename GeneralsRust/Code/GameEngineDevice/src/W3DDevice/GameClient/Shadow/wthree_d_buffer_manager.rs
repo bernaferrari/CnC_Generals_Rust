@@ -1,7 +1,7 @@
 //! WthreeDBufferManager Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DBufferManager.cpp
-//! 
+//!
 //! This module provides resource management.
 
 use std::{

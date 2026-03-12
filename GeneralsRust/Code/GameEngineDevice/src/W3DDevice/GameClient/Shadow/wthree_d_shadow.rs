@@ -6,11 +6,11 @@
 //!
 //! Real time shadow representations including shadow volume and projected shadow management.
 
-use std::sync::{Arc, OnceLock};
+use glam::{Mat4, Vec3, Vec4};
 use parking_lot::RwLock;
-use glam::{Vec3, Vec4, Mat4};
+use std::sync::{Arc, OnceLock};
 
-use super::{W3DVolumetricShadowManager, W3DProjectedShadowManager};
+use super::{W3DProjectedShadowManager, W3DVolumetricShadowManager};
 
 /// Sun distance from ground for directional light shadows
 /// C++: #define SUN_DISTANCE_FROM_GROUND 10000.0f
@@ -30,50 +30,52 @@ impl ShadowType {
     /// No shadow
     /// C++: SHADOW_NONE = 0x00000000
     pub const NONE: ShadowType = ShadowType(0x00000000);
-    
+
     /// Shadow decal applied via modulate blend
     /// C++: SHADOW_DECAL = 0x00000001
     pub const DECAL: ShadowType = ShadowType(0x00000001);
-    
+
     /// Volume-based shadow (stencil)
     /// C++: SHADOW_VOLUME = 0x00000002
     pub const VOLUME: ShadowType = ShadowType(0x00000002);
-    
+
     /// Projected shadow
     /// C++: SHADOW_PROJECTION = 0x00000004
     pub const PROJECTION: ShadowType = ShadowType(0x00000004);
-    
+
     /// Extra setting for shadows which need dynamic updates
     /// C++: SHADOW_DYNAMIC_PROJECTION = 0x00000008
     pub const DYNAMIC_PROJECTION: ShadowType = ShadowType(0x00000008);
-    
+
     /// Extra setting for shadow decals that rotate with sun direction
     /// C++: SHADOW_DIRECTIONAL_PROJECTION = 0x00000010
     pub const DIRECTIONAL_PROJECTION: ShadowType = ShadowType(0x00000010);
-    
+
     /// Not really for shadows but for other decal uses. Alpha blended.
     /// C++: SHADOW_ALPHA_DECAL = 0x00000020
     pub const ALPHA_DECAL: ShadowType = ShadowType(0x00000020);
-    
+
     /// Not really for shadows but for other decal uses. Additive blended.
     /// C++: SHADOW_ADDITIVE_DECAL = 0x00000040
     pub const ADDITIVE_DECAL: ShadowType = ShadowType(0x00000040);
-    
+
     /// Check if this shadow type contains a specific flag
     pub fn contains(&self, other: ShadowType) -> bool {
         (self.0 & other.0) != 0
     }
-    
+
     /// Check if this is a decal type (DECAL, ALPHA_DECAL, or ADDITIVE_DECAL)
     pub fn is_decal(&self) -> bool {
-        self.contains(Self::DECAL) || self.contains(Self::ALPHA_DECAL) || self.contains(Self::ADDITIVE_DECAL)
+        self.contains(Self::DECAL)
+            || self.contains(Self::ALPHA_DECAL)
+            || self.contains(Self::ADDITIVE_DECAL)
     }
-    
+
     /// Check if this is a projection type
     pub fn is_projection(&self) -> bool {
         self.contains(Self::PROJECTION) || self.contains(Self::DIRECTIONAL_PROJECTION)
     }
-    
+
     /// Check if this is a volume shadow
     pub fn is_volume(&self) -> bool {
         self.contains(Self::VOLUME)
@@ -112,7 +114,8 @@ pub type ShadowColor = u32;
 /// Light position in world space - mutable global state
 /// C++: Vector3 LightPosWorld[MAX_SHADOW_LIGHTS]
 use std::sync::Mutex;
-static LIGHT_POS_WORLD: Mutex<[Vec3; MAX_SHADOW_LIGHTS]> = Mutex::new([Vec3::new(94.0161, 50.499, 200.0)]);
+static LIGHT_POS_WORLD: Mutex<[Vec3; MAX_SHADOW_LIGHTS]> =
+    Mutex::new([Vec3::new(94.0161, 50.499, 200.0)]);
 
 /// Get light position in world space for given light index
 /// C++: W3DShadowManager::getLightPosWorld()
@@ -166,7 +169,7 @@ impl W3DShadowManager {
             volumetric_manager: None,
             projected_manager: None,
         };
-        
+
         manager.initialize_light_position();
         manager
     }
@@ -179,7 +182,7 @@ impl W3DShadowManager {
         //     -TheGlobalData->m_terrainLightPos[0].y, -TheGlobalData->m_terrainLightPos[0].z);
         // lightRay.Normalize();
         // LightPosWorld[0] = lightRay * SUN_DISTANCE_FROM_GROUND;
-        
+
         // Default light direction (normalized)
         let light_ray = Vec3::new(-94.0161, -50.499, -200.0).normalize();
         set_light_pos_world(0, light_ray * SUN_DISTANCE_FROM_GROUND);
@@ -189,7 +192,7 @@ impl W3DShadowManager {
     /// C++: Bool W3DShadowManager::init()
     pub fn init(&mut self) -> bool {
         let mut result = true;
-        
+
         // Initialize volumetric shadow manager
         if let Some(ref vol_manager) = self.volumetric_manager {
             let mut mgr = vol_manager.write();
@@ -197,7 +200,7 @@ impl W3DShadowManager {
                 result = true;
             }
         }
-        
+
         // Initialize projected shadow manager
         if let Some(ref proj_manager) = self.projected_manager {
             let mut mgr = proj_manager.write();
@@ -205,7 +208,7 @@ impl W3DShadowManager {
                 result = true;
             }
         }
-        
+
         result
     }
 
@@ -224,7 +227,7 @@ impl W3DShadowManager {
     /// C++: Bool W3DShadowManager::ReAcquireResources()
     pub fn re_acquire_resources(&mut self) -> bool {
         let mut result = true;
-        
+
         if let Some(ref vol_manager) = self.volumetric_manager {
             if !vol_manager.write().re_acquire_resources() {
                 result = false;
@@ -235,7 +238,7 @@ impl W3DShadowManager {
                 result = false;
             }
         }
-        
+
         result
     }
 
@@ -303,11 +306,32 @@ impl W3DShadowManager {
 
     /// Set time of day - updates light position based on terrain lighting
     /// C++: void W3DShadowManager::setTimeOfDay(TimeOfDay tod)
-    pub fn set_time_of_day(&mut self, _tod: TimeOfDay) {
+    pub fn set_time_of_day(&mut self, tod: TimeOfDay) {
         // C++ code reads from TheGlobalData->m_terrainObjectsLighting[tod][0]
-        // and calculates light ray direction
-        // For now, use default implementation
-        // TODO: Integrate with global data when available
+        // and calculates light ray direction:
+        // const GlobalData::TerrainLighting *ol = &TheGlobalData->m_terrainObjectsLighting[tod][0];
+        // Vector3 lightRay(-ol->lightPos.x, -ol->lightPos.y, -ol->lightPos.z);
+        // lightRay.Normalize();
+        // lightRay *= SUN_DISTANCE_FROM_GROUND;
+        // setLightPosition(0, lightRay.X, lightRay.Y, lightRay.Z);
+
+        // Default light directions for each time of day (normalized, then scaled)
+        let light_ray = match tod {
+            TimeOfDay::Morning => {
+                Vec3::new(-0.4f32, -0.6f32, -0.7f32).normalize() * SUN_DISTANCE_FROM_GROUND
+            }
+            TimeOfDay::Afternoon => {
+                Vec3::new(-0.3f32, -0.4f32, -0.9f32).normalize() * SUN_DISTANCE_FROM_GROUND
+            }
+            TimeOfDay::Evening => {
+                Vec3::new(-0.5f32, -0.3f32, -0.6f32).normalize() * SUN_DISTANCE_FROM_GROUND
+            }
+            TimeOfDay::Night => {
+                Vec3::new(-0.2f32, -0.2f32, -1.0f32).normalize() * SUN_DISTANCE_FROM_GROUND
+            }
+        };
+
+        set_light_pos_world(0, light_ray);
     }
 
     /// Force update of all shadows even when light/object hasn't moved
@@ -323,9 +347,13 @@ impl W3DShadowManager {
 
     /// Add shadow caster to rendering system
     /// C++: Shadow* W3DShadowManager::addShadow(RenderObjClass *robj, Shadow::ShadowTypeInfo *shadowInfo, Drawable *draw)
-    pub fn add_shadow(&mut self, _robj: &RenderObject, shadow_info: Option<&ShadowTypeInfo>) -> Option<ShadowHandle> {
+    pub fn add_shadow(
+        &mut self,
+        _robj: &RenderObject,
+        shadow_info: Option<&ShadowTypeInfo>,
+    ) -> Option<ShadowHandle> {
         let shadow_type = shadow_info.map(|i| i.shadow_type).unwrap_or_default();
-        
+
         if shadow_type.is_volume() {
             if let Some(ref vol_manager) = self.volumetric_manager {
                 vol_manager.write().add_shadow()
@@ -478,32 +506,43 @@ pub fn the_w3d_shadow_manager() -> Arc<RwLock<W3DShadowManager>> {
 /// C++: void DoShadows(RenderInfoClass & rinfo, Bool stencilPass)
 pub fn do_shadows(rinfo: &mut RenderInfo, stencil_pass: bool) {
     let manager = the_w3d_shadow_manager();
+
+    // Store the camera frustum for shadow culling
+    // C++: shadowCameraFrustum = &rinfo.Camera.Get_Frustum();
+    let camera_frustum = rinfo.camera_frustum.clone();
+
     let mgr = manager.read();
-    
+
     if !mgr.is_shadow_scene() {
         return;
     }
-    
-    let mut projection_count = 0;
-    
+
+    let mut projection_count: i32 = 0;
+
     // Projected shadows render first because they may fill the stencil buffer
     // which will be used by the shadow volumes
     // C++: if (stencilPass == FALSE && TheW3DProjectedShadowManager)
     if !stencil_pass {
-        // TODO: Call projected shadow manager render
-        // projection_count = TheW3DProjectedShadowManager->renderShadows(rinfo);
+        if let Some(ref proj_manager) = mgr.projected_manager {
+            drop(mgr);
+            projection_count = proj_manager.write().render_shadows(rinfo);
+        }
     }
-    
+
     // C++: if (stencilPass == TRUE && TheW3DVolumetricShadowManager)
     if stencil_pass {
-        // TODO: Call volumetric shadow manager render
-        // TheW3DVolumetricShadowManager->renderShadows(projection_count);
+        // Restore camera frustum for volumetric shadows
+        rinfo.camera_frustum = camera_frustum;
+
+        if let Some(ref vol_manager) = mgr.volumetric_manager {
+            drop(mgr);
+            vol_manager.write().render_shadows(projection_count, false);
+        }
     }
-    
+
     // Reset shadow processing flag for this frame
     // C++: if (TheW3DShadowManager && stencilPass) TheW3DShadowManager->queueShadows(FALSE);
     if stencil_pass {
-        drop(mgr);
         manager.write().queue_shadows(false);
     }
 }
@@ -564,10 +603,10 @@ mod tests {
     fn test_queue_shadows() {
         let mut manager = W3DShadowManager::new();
         assert!(!manager.is_shadow_scene());
-        
+
         manager.queue_shadows(true);
         assert!(manager.is_shadow_scene());
-        
+
         manager.queue_shadows(false);
         assert!(!manager.is_shadow_scene());
     }
@@ -591,7 +630,7 @@ mod tests {
         let manager = the_w3d_shadow_manager();
         let mut mgr = manager.write();
         mgr.set_light_position(0, 100.0, 200.0, 300.0);
-        
+
         let pos = mgr.get_light_pos_world(0);
         assert_eq!(pos.x, 100.0);
         assert_eq!(pos.y, 200.0);
