@@ -1,0 +1,56 @@
+Starting server with Config HP="localhost:3307"|T="300000"|R="false"|L="warning"|S="/tmp/mysql.sock"
+time="2026-03-12T16:51:57-03:00" level=warning msg="secure_file_priv is set to \"\", which is insecure."
+time="2026-03-12T16:51:57-03:00" level=warning msg="Any user with GRANT FILE privileges will be able to read any file which the sql-server process can read."
+time="2026-03-12T16:51:57-03:00" level=warning msg="Please consider restarting the server with secure_file_priv set to a safe (or non-existent) directory."
+Starting server with Config HP="localhost:3307"|T="300000"|R="false"|L="warning"|S="/tmp/mysql.sock"
+time="2026-03-12T16:53:04-03:00" level=warning msg="secure_file_priv is set to \"\", which is insecure."
+time="2026-03-12T16:53:04-03:00" level=warning msg="Any user with GRANT FILE privileges will be able to read any file which the sql-server process can read."
+time="2026-03-12T16:53:04-03:00" level=warning msg="Please consider restarting the server with secure_file_priv set to a safe (or non-existent) directory."
+time="2026-03-12T16:57:43-03:00" level=error msg="unable to prepare query: table not found: wisps" query="SELECT w.id FROM `town`.wisps w LEFT JOIN (\n\t\t\tSELECT DISTINCT wd.issue_id\n\t\t\tFROM `town`.wisp_dependencies wd\n\t\t\tINNER JOIN `town`.wisps parent ON parent.id = wd.depends_on_id\n\t\t\tWHERE wd.type = 'parent-child'\n\t\t\tAND parent.status IN ('open', 'hooked', 'in_progress')\n\t\t) open_parent ON open_parent.issue_id = w.id WHERE w.status IN ('open', 'hooked', 'in_progress') AND w.created_at < ? AND open_parent.issue_id IS NULL LIMIT 100"
+time="2026-03-12T16:57:43-03:00" level=error msg="unable to prepare query: table not found: wisps (errno 1146) (sqlstate HY000)"
+time="2026-03-12T16:57:43-03:00" level=error msg="unable to prepare query: table not found: wisps" query="SELECT COALESCE(w.wisp_type, 'unknown') AS wtype, COUNT(*) AS cnt FROM `town`.wisps w WHERE w.status = 'closed' AND w.closed_at < ? GROUP BY wtype"
+time="2026-03-12T16:57:43-03:00" level=error msg="unable to prepare query: table not found: wisps (errno 1146) (sqlstate HY000)"
+time="2026-03-12T16:57:43-03:00" level=error msg="unable to prepare query: table not found: issues" query="SELECT i.id FROM `town`.issues i WHERE \n\t\ti.status IN ('open', 'in_progress')\n\t\tAND i.updated_at < ?\n\t\tAND i.priority > 1\n\t\tAND i.issue_type != 'epic'\n\t\tAND i.id NOT IN (\n\t\t\tSELECT DISTINCT d.issue_id FROM `town`.dependencies d\n\t\t\tINNER JOIN `town`.issues dep ON d.depends_on_id = dep.id\n\t\t\tWHERE dep.status IN ('open', 'in_progress')\n\t\t)\n\t\tAND i.id NOT IN (\n\t\t\tSELECT DISTINCT d.depends_on_id FROM `town`.dependencies d\n\t\t\tINNER JOIN `town`.issues blocker ON d.issue_id = blocker.id\n\t\t\tWHERE blocker.status IN ('open', 'in_progress')\n\t\t)"
+time="2026-03-12T16:57:43-03:00" level=error msg="unable to prepare query: table not found: issues (errno 1146) (sqlstate HY000)"
+Starting server with Config HP="localhost:3307"|T="300000"|R="false"|L="warning"|S="/tmp/mysql.sock"
+time="2026-03-12T17:27:40-03:00" level=warning msg="secure_file_priv is set to \"\", which is insecure."
+time="2026-03-12T17:27:40-03:00" level=warning msg="Any user with GRANT FILE privileges will be able to read any file which the sql-server process can read."
+time="2026-03-12T17:27:40-03:00" level=warning msg="Please consider restarting the server with secure_file_priv set to a safe (or non-existent) directory."
+time="2026-03-12T17:27:41-03:00" level=error msg="unable to prepare query: table not found: wisps" query="SELECT w.id FROM `town`.wisps w LEFT JOIN (\n\t\t\tSELECT DISTINCT wd.issue_id\n\t\t\tFROM `town`.wisp_dependencies wd\n\t\t\tINNER JOIN `town`.wisps parent ON parent.id = wd.depends_on_id\n\t\t\tWHERE wd.type = 'parent-child'\n\t\t\tAND parent.status IN ('open', 'hooked', 'in_progress')\n\t\t) open_parent ON open_parent.issue_id = w.id WHERE w.status IN ('open', 'hooked', 'in_progress') AND w.created_at < ? AND open_parent.issue_id IS NULL LIMIT 100"
+time="2026-03-12T17:27:41-03:00" level=error msg="unable to prepare query: table not found: wisps (errno 1146) (sqlstate HY000)"
+time="2026-03-12T17:27:41-03:00" level=error msg="unable to prepare query: table not found: wisps" query="SELECT COALESCE(w.wisp_type, 'unknown') AS wtype, COUNT(*) AS cnt FROM `town`.wisps w WHERE w.status = 'closed' AND w.closed_at < ? GROUP BY wtype"
+time="2026-03-12T17:27:41-03:00" level=error msg="unable to prepare query: table not found: wisps (errno 1146) (sqlstate HY000)"
+time="2026-03-12T17:27:41-03:00" level=error msg="unable to prepare query: table not found: issues" query="SELECT i.id FROM `town`.issues i WHERE \n\t\ti.status IN ('open', 'in_progress')\n\t\tAND i.updated_at < ?\n\t\tAND i.priority > 1\n\t\tAND i.issue_type != 'epic'\n\t\tAND i.id NOT IN (\n\t\t\tSELECT DISTINCT d.issue_id FROM `town`.dependencies d\n\t\t\tINNER JOIN `town`.issues dep ON d.depends_on_id = dep.id\n\t\t\tWHERE dep.status IN ('open', 'in_progress')\n\t\t)\n\t\tAND i.id NOT IN (\n\t\t\tSELECT DISTINCT d.depends_on_id FROM `town`.dependencies d\n\t\t\tINNER JOIN `town`.issues blocker ON d.issue_id = blocker.id\n\t\t\tWHERE blocker.status IN ('open', 'in_progress')\n\t\t)"
+time="2026-03-12T17:27:41-03:00" level=error msg="unable to prepare query: table not found: issues (errno 1146) (sqlstate HY000)"
+Starting server with Config HP="localhost:13423"|T="300000"|R="false"|L="warning"|S="/tmp/mysql.sock"
+time="2026-03-12T17:29:12-03:00" level=warning msg="secure_file_priv is set to \"\", which is insecure."
+time="2026-03-12T17:29:12-03:00" level=warning msg="Any user with GRANT FILE privileges will be able to read any file which the sql-server process can read."
+time="2026-03-12T17:29:12-03:00" level=warning msg="Please consider restarting the server with secure_file_priv set to a safe (or non-existent) directory."
+time="2026-03-12T17:29:21-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:21-03:00" level=error msg="failed to set the database client 8 (127.0.0.1:56503): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:26-03:00" level=error msg="failed to set the database client 13 (127.0.0.1:56536): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:31-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:31-03:00" level=error msg="failed to set the database client 16 (127.0.0.1:56561): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:36-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:36-03:00" level=error msg="failed to set the database client 25 (127.0.0.1:56598): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:41-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:41-03:00" level=error msg="failed to set the database client 28 (127.0.0.1:56622): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:46-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:46-03:00" level=error msg="failed to set the database client 31 (127.0.0.1:56646): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:51-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:51-03:00" level=error msg="failed to set the database client 34 (127.0.0.1:56669): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:29:56-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:29:56-03:00" level=error msg="failed to set the database client 37 (127.0.0.1:56694): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:30:01-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:30:01-03:00" level=error msg="failed to set the database client 40 (127.0.0.1:56719): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:30:06-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:30:06-03:00" level=error msg="failed to set the database client 43 (127.0.0.1:56742): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:30:11-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:30:11-03:00" level=error msg="failed to set the database client 46 (127.0.0.1:56768): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:30:16-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:30:16-03:00" level=error msg="failed to set the database client 49 (127.0.0.1:56804): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:30:21-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:30:21-03:00" level=error msg="failed to set the database client 52 (127.0.0.1:56837): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-12T17:30:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-12T17:30:26-03:00" level=error msg="failed to set the database client 55 (127.0.0.1:56873): database not found: hq (errno 1049) (sqlstate HY000)"

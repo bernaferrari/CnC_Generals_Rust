@@ -62,8 +62,8 @@ pub enum DamageType {
 pub const LEVEL_COUNT: usize = 4;
 pub const DAMAGE_NUM_TYPES: usize = 38;
 
-/// FX list pointer type (placeholder for actual FX system)
-pub type ConstFXListPtr = Option<String>; // Will be replaced with actual FX list type
+/// FX list reference (stores FX list name for lazy resolution against FXListStore).
+pub type ConstFXListPtr = Option<String>;
 
 /// Object trait for damage source/victim
 pub trait Object {
@@ -542,13 +542,11 @@ impl DamageFXStore {
     /// Initialize the damage FX store
     pub fn init(&mut self) {
         self.damage_fx_map.clear();
-        println!("DamageFXStore initialized");
     }
 
     /// Reset the damage FX store
     pub fn reset(&mut self) {
         self.damage_fx_map.clear();
-        println!("DamageFXStore reset");
     }
 
     /// Update the damage FX store (called per frame)
@@ -608,7 +606,7 @@ impl DamageFXStore {
     }
 }
 
-/// Global DamageFXStore instance (placeholder for actual global)
+/// Global DamageFXStore instance, initialized via `init_global_damage_fx_store`.
 static DAMAGE_FX_STORE: OnceCell<RwLock<DamageFXStore>> = OnceCell::new();
 
 /// Initialize the global damage FX store

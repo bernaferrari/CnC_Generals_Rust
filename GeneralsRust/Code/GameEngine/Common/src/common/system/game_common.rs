@@ -224,6 +224,19 @@ impl Relationship {
     }
 }
 
+impl From<i32> for Relationship {
+    /// Convert an integer value to a Relationship.
+    /// Maps: 0 -> Enemies, 1 -> Neutral, anything else -> Allies
+    /// This matches the C++ serialization behavior where values are read as raw integers.
+    fn from(value: i32) -> Self {
+        match value {
+            0 => Relationship::Enemies,
+            1 => Relationship::Neutral,
+            _ => Relationship::Allies,
+        }
+    }
+}
+
 /// Turret types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WhichTurretType {

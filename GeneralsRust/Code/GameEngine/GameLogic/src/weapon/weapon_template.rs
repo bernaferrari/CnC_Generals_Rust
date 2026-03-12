@@ -8,13 +8,13 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::KindOf;
 use crate::common::{
-    Coord2D, Coord3D, DamageType, DeathType, ObjectID, ObjectStatusTypes, PlayerMaskType,
-    PathfindLayerEnum, Relationship, VeterancyLevel, LOGICFRAMES_PER_SECOND,
+    Coord2D, Coord3D, DamageType, DeathType, ObjectID, ObjectStatusTypes, PathfindLayerEnum,
+    PlayerMaskType, Relationship, VeterancyLevel, LOGICFRAMES_PER_SECOND,
 };
 use crate::damage::{DamageInfo, DamageInfoInput};
 use crate::effects::{FXList, ObjectCreationList};
-use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::helpers::TheThingFactory;
+use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule;
 use crate::system::game_logic::TheObjectFactory;
@@ -108,6 +108,8 @@ pub struct WeaponTemplate {
     pub allow_attack_garrisoned_bldgs: bool,
     pub play_fx_when_stealthed: bool,
     pub die_on_detonate: bool,
+    /// Whether projectile must use a trail particle effect
+    pub must_travel_pfx: bool,
 
     /// Continuous fire properties
     pub continuous_fire_one_shots_needed: i32,
@@ -191,7 +193,7 @@ impl WeaponTemplate {
             damage_type: DamageType::Explosion,
             damage_status_type: ObjectStatusTypes::None,
             death_type: DeathType::Normal,
-            anti_mask: WeaponAntiMask::new(0),
+            anti_mask: WeaponAntiMask::new(WeaponAntiMask::GROUND), // C++ line 284: WEAPON_ANTI_GROUND
             affects_mask: WeaponAffectsMask::new(0),
             collide_mask: WeaponCollideMask::new(0),
             damage_dealt_at_self_position: false,
@@ -203,8 +205,9 @@ impl WeaponTemplate {
             allow_attack_garrisoned_bldgs: false,
             play_fx_when_stealthed: false,
             die_on_detonate: false,
-            continuous_fire_one_shots_needed: 0,
-            continuous_fire_two_shots_needed: 0,
+            must_travel_pfx: false,
+            continuous_fire_one_shots_needed: i32::MAX, // C++ line 282: INT_MAX
+            continuous_fire_two_shots_needed: i32::MAX, // C++ line 283: INT_MAX
             continuous_fire_coast_frames: 0,
             continue_attack_range: 0.0,
             infantry_inaccuracy_dist: 0.0,
@@ -691,6 +694,40 @@ impl WeaponTemplate {
             }
         };
 
+        // Bridge attack point selection (C++ lines 819-831)
+        // Bridges have two targetable points at either end - select the closer one
+        if let Some(victim_id) = actual_victim_obj {
+            if let Some(victim_obj_arc) = TheGameLogic::find_object_by_id(victim_id) {
+                if let Ok(victim_guard) = victim_obj_arc.read() {
+                    if victim_guard.is_kind_of(KindOf::Bridge) {
+                        // Get bridge attack points
+                        let mut info = crate::terrain::BridgeAttackInfo::new();
+                        if let Some(_terrain) = TheTerrainLogic::get() {
+                            let terrain_logic = crate::terrain::get_terrain_logic();
+                            if let Ok(terrain_guard) = terrain_logic.read() {
+                                terrain_guard.get_bridge_attack_points(victim_id, &mut info);
+                            }
+                        }
+
+                        // Calculate distance to both attack points and choose the closer one
+                        // C++ lines 823-830
+                        let dist_sqr1 =
+                            Self::calc_distance_squared(&source_pos, &info.attack_point1);
+                        let dist_sqr2 =
+                            Self::calc_distance_squared(&source_pos, &info.attack_point2);
+
+                        if dist_sqr2 < dist_sqr1 {
+                            // Use attack point 2 (closer to source)
+                            actual_victim_pos = info.attack_point2;
+                        } else {
+                            // Use attack point 1 (closer to source, or equal distance)
+                            actual_victim_pos = info.attack_point1;
+                        }
+                    }
+                }
+            }
+        }
+
         // Calculate distance squared (C++ line 792-836)
         let dist_sqr = Self::calc_distance_squared(&source_pos, &actual_victim_pos);
 
@@ -713,7 +750,10 @@ impl WeaponTemplate {
         // Fire FX handling (C++ lines 889-941)
         // C++ calls: sourceObj->getDrawable()->handleWeaponFireFX(...)
         if let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) {
-            let drawable = source_obj.read().ok().and_then(|guard| guard.get_drawable());
+            let drawable = source_obj
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_drawable());
             if let Some(drawable) = drawable {
                 if let Ok(mut draw_guard) = drawable.write() {
                     let _ = draw_guard.handle_weapon_fire_fx(
@@ -1482,6 +1522,51 @@ impl WeaponTemplate {
                     Ok(pos) => pos,
                     Err(_) => continue, // Skip if we can't get position
                 };
+
+                // ===== RADIUS DAMAGE ANGLE CONE CHECK (C++ lines 1389-1400) =====
+                // If radius_damage_angle < PI, damage is constrained to a directional cone
+                let allowed_angle = self.radius_damage_angle;
+                if allowed_angle < std::f32::consts::PI {
+                    // Directional cone damage - only affect targets in front of the source
+                    // Get source object to determine facing direction
+                    let Some(source_obj_arc) =
+                        crate::helpers::TheGameLogic::find_object_by_id(source_obj)
+                    else {
+                        continue; // Can't determine source direction, bail
+                    };
+                    let Ok(source_guard) = source_obj_arc.read() else {
+                        continue; // Can't read source, bail
+                    };
+
+                    // Get source's forward direction vector (X-axis from transform)
+                    // C++ code: Vector3 sourceVector = source->getTransformMatrix()->Get_X_Vector()
+                    let source_angle = source_guard.get_geometry_info().angle;
+                    let source_dir = Coord3D::new(source_angle.cos(), source_angle.sin(), 0.0);
+
+                    // Calculate damage direction vector (from source position to target)
+                    // C++ code: damageDirection.set(curVictim->getPosition()); damageDirection.sub(source->getPosition())
+                    let source_pos = source_guard.get_position();
+                    let damage_dir = Coord3D::new(
+                        target_pos.x - source_pos.x,
+                        target_pos.y - source_pos.y,
+                        target_pos.z - source_pos.z,
+                    );
+
+                    // Normalize both vectors for dot product calculation
+                    let source_dir_norm = source_dir.normalize();
+                    let damage_dir_norm = damage_dir.normalize();
+
+                    // Dot product gives cos(angle between vectors)
+                    // C++ code: if( Vector3::Dot_Product(sourceVector, damageVector) < Cos(allowedAngle) )
+                    let dot = source_dir_norm.x * damage_dir_norm.x
+                        + source_dir_norm.y * damage_dir_norm.y
+                        + source_dir_norm.z * damage_dir_norm.z;
+
+                    // If dot < cos(allowed_angle), target is outside the cone
+                    if dot < allowed_angle.cos() {
+                        continue; // Too far to the side, can't hurt them
+                    }
+                }
 
                 // Calculate distance from damage center
                 let dist_sqr = Self::calc_distance_squared(&actual_pos, &target_pos);

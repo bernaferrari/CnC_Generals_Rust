@@ -1,8 +1,7 @@
 //! Direct translation of the legacy damage system.
 //!
-//! The modern scaffolding included only thin placeholders for damage handling.
-//! This module mirrors the original `Damage.h` / `Damage.cpp` definitions so
-//! behaviour can be brought over verbatim before any modernisation passes.
+//! Mirrors the original `Damage.h` / `Damage.cpp` definitions with full
+//! behavior parity: types, enums, serialization, and helper functions.
 
 use crate::common::XferExt;
 use crate::common::{

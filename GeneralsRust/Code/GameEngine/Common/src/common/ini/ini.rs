@@ -410,6 +410,18 @@ fn parse_locomotor_block(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
+fn parse_rank_block(ini: &mut INI) -> INIResult<()> {
+    super::ini_rank::parse_rank_definition(ini).map_err(|_| INIError::InvalidData)
+}
+
+fn parse_credits_block(ini: &mut INI) -> INIResult<()> {
+    super::ini_credits::parse_credits_definition(ini).map_err(|_| INIError::InvalidData)
+}
+
+fn parse_eva_event_block(ini: &mut INI) -> INIResult<()> {
+    super::ini_eva_event::parse_eva_event_definition(ini).map_err(|_| INIError::InvalidData)
+}
+
 fn parse_particle_system_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
     let template = super::ini_particle_sys::IniParticleSys::parse_particle_system_block(
@@ -513,6 +525,27 @@ fn parse_weapon_block(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
+// GameLOD wrapper functions - convert Result<(), String> to INIResult<()>
+fn parse_static_game_lod_block(ini: &mut INI) -> INIResult<()> {
+    parse_block_result(super::ini_game_lod::parse_static_game_lod_definition(ini))
+}
+
+fn parse_dynamic_game_lod_block(ini: &mut INI) -> INIResult<()> {
+    parse_block_result(super::ini_game_lod::parse_dynamic_game_lod_definition(ini))
+}
+
+fn parse_lod_preset_block(ini: &mut INI) -> INIResult<()> {
+    parse_block_result(super::ini_game_lod::parse_lod_preset(ini))
+}
+
+fn parse_bench_profile_block(ini: &mut INI) -> INIResult<()> {
+    parse_block_result(super::ini_game_lod::parse_bench_profile(ini))
+}
+
+fn parse_really_low_mhz_block(ini: &mut INI) -> INIResult<()> {
+    parse_block_result(super::ini_game_lod::parse_really_low_mhz(ini))
+}
+
 const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     BlockParse {
         token: "AIData",
@@ -531,6 +564,10 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
         parse: super::ini_audio_event_info::parse_audio_event_definition,
     },
     BlockParse {
+        token: "AudioSettings",
+        parse: super::ini_audio_settings::parse_audio_settings_definition,
+    },
+    BlockParse {
         token: "BeaconButtonDisabled",
         parse: parse_passthrough_block,
     },
@@ -544,7 +581,11 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     },
     BlockParse {
         token: "Campaign",
-        parse: parse_passthrough_block,
+        parse: super::ini_campaign::parse_campaign_definition,
+    },
+    BlockParse {
+        token: "ChallengeGenerals",
+        parse: super::ini_challenge_generals::parse_challenge_generals_definition,
     },
     BlockParse {
         token: "CommandButton",
@@ -552,7 +593,7 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     },
     BlockParse {
         token: "CommandMap",
-        parse: parse_passthrough_block,
+        parse: super::ini_command_map::parse_meta_map_definition,
     },
     BlockParse {
         token: "CommandSet",
@@ -583,8 +624,12 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
         parse: super::ini_audio_event_info::parse_dialog_definition,
     },
     BlockParse {
+        token: "Credits",
+        parse: parse_credits_block,
+    },
+    BlockParse {
         token: "EvaEvent",
-        parse: parse_passthrough_block,
+        parse: parse_eva_event_block,
     },
     BlockParse {
         token: "DrawGroupInfo",
@@ -599,8 +644,20 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
         parse: parse_fx_list_block,
     },
     BlockParse {
+        token: "HeaderTemplate",
+        parse: super::ini_header_template::parse_header_template_definition,
+    },
+    BlockParse {
+        token: "InGameUI",
+        parse: super::ini_in_game_ui::parse_in_game_ui_definition,
+    },
+    BlockParse {
         token: "Locomotor",
         parse: parse_locomotor_block,
+    },
+    BlockParse {
+        token: "Language",
+        parse: super::ini_language::parse_language_definition,
     },
     BlockParse {
         token: "MapCache",
@@ -623,12 +680,16 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
         parse: parse_model_block,
     },
     BlockParse {
-        token: "MultiplayerColor",
-        parse: super::ini_multiplayer::parse_multiplayer_color_definition,
+        token: "Mouse",
+        parse: super::ini_mouse::parse_mouse_definition,
     },
     BlockParse {
         token: "MouseCursor",
-        parse: parse_passthrough_block,
+        parse: super::ini_mouse::parse_mouse_cursor_definition,
+    },
+    BlockParse {
+        token: "MultiplayerColor",
+        parse: super::ini_multiplayer::parse_multiplayer_color_definition,
     },
     BlockParse {
         token: "MultiplayerSettings",
@@ -676,11 +737,11 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     },
     BlockParse {
         token: "Rank",
-        parse: parse_passthrough_block,
+        parse: parse_rank_block,
     },
     BlockParse {
         token: "ShellMenuScheme",
-        parse: parse_passthrough_block,
+        parse: super::ini_shell_menu_scheme::parse_shell_menu_scheme_definition,
     },
     BlockParse {
         token: "SpecialPower",
@@ -716,11 +777,45 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     },
     BlockParse {
         token: "WindowTransition",
-        parse: parse_passthrough_block,
+        parse: super::ini_window_transition::parse_window_transition_block,
     },
     BlockParse {
         token: "Science",
         parse: parse_science_block,
+    },
+    BlockParse {
+        token: "Weather",
+        parse: super::ini_weather::parse_weather_definition,
+    },
+    // GameLOD block parsers
+    BlockParse {
+        token: "StaticGameLOD",
+        parse: parse_static_game_lod_block,
+    },
+    BlockParse {
+        token: "DynamicGameLOD",
+        parse: parse_dynamic_game_lod_block,
+    },
+    BlockParse {
+        token: "LODPreset",
+        parse: parse_lod_preset_block,
+    },
+    BlockParse {
+        token: "BenchProfile",
+        parse: parse_bench_profile_block,
+    },
+    BlockParse {
+        token: "ReallyLowMHz",
+        parse: parse_really_low_mhz_block,
+    },
+    // Script parsers
+    BlockParse {
+        token: "ScriptAction",
+        parse: super::ini_script::parse_script_action_definition,
+    },
+    BlockParse {
+        token: "ScriptCondition",
+        parse: super::ini_script::parse_script_condition_definition,
     },
 ];
 
@@ -1567,6 +1662,77 @@ impl INI {
         } else {
             Err(INIError::InvalidData)
         }
+    }
+
+    /// Get the next sub-token in "Tag:Value" format.
+    ///
+    /// This is called when the next thing you expect is something like:
+    ///   `Tag:value`
+    ///
+    /// Pass "Tag" (without the colon) for `expected`, and you will have the
+    /// 'value' token returned.
+    ///
+    /// If "Tag" is not the next token, an error is returned.
+    /// Matches C++ INI::getSubToken
+    pub fn get_next_sub_token(&mut self, expected: &str) -> INIResult<String> {
+        let token = self.get_next_token()
+            .ok_or(INIError::InvalidData)?;
+
+        let (tag, value) = token.split_once(':')
+            .ok_or(INIError::InvalidData)?;
+
+        if !tag.eq_ignore_ascii_case(expected) {
+            return Err(INIError::InvalidData);
+        }
+
+        Ok(value.to_string())
+    }
+
+    /// Parse a string label and translate it using the localization system.
+    ///
+    /// This fetches the localized text for the given label key and returns it.
+    /// If the translation is empty or the key is not found, an error is returned.
+    ///
+    /// C++ equivalent: `INI::parseAndTranslateLabel`
+    pub fn parse_and_translate_label(&mut self) -> INIResult<String> {
+        let token = self.get_next_token().ok_or(INIError::InvalidData)?;
+
+        // Translate using GameText (if available) or return the key itself
+        let translated = Self::translate_label(&token)?;
+
+        Ok(translated)
+    }
+
+    /// Translate a label key to its localized string.
+    ///
+    /// This is a helper function that performs the actual translation lookup.
+    pub fn translate_label(label: &str) -> INIResult<String> {
+        // Try to get the translated string using the Language system
+        // The Language::get_localized_string function returns the key itself if no translation found
+        let translated = crate::common::language::Language::get_localized_string(label);
+
+        if translated.is_empty() {
+            // In C++, an empty translation throws INI_INVALID_DATA
+            // However, for flexibility, we return the key itself
+            if label.is_empty() {
+                return Err(INIError::InvalidData);
+            }
+            return Ok(label.to_string());
+        }
+
+        Ok(translated)
+    }
+
+    /// Scan a real value from a sub-token (helper for coordinate parsing)
+    pub fn scan_real_from_sub_token(&mut self, expected: &str) -> INIResult<f32> {
+        let token = self.get_next_sub_token(expected)?;
+        Self::parse_real(&token)
+    }
+
+    /// Scan an int value from a sub-token (helper for coordinate parsing)
+    pub fn scan_int_from_sub_token(&mut self, expected: &str) -> INIResult<i32> {
+        let token = self.get_next_sub_token(expected)?;
+        Self::parse_int(&token)
     }
 }
 

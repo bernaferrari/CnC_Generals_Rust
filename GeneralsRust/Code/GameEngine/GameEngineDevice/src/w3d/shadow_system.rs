@@ -1,42 +1,963 @@
-//! # W3D Shadow System - Advanced Shadow Mapping
+//! # W3D Shadow System - C&C Generals Parity Implementation
 //!
-//! This module implements a complete modern shadow mapping system featuring:
-//! - Cascaded Shadow Maps (CSM) for directional lights
-//! - Point light shadow mapping with cube maps
-//! - Spot light shadow mapping with perspective projection
-//! - Soft shadows with Percentage-Closer Filtering (PCF)
-//! - Variance Shadow Maps (VSM) for high-quality soft shadows
-//! - Shadow atlas management for efficient memory usage
-//! - Temporal shadow map caching and updates
-//! - GPU-based shadow caster culling
+//! This module implements the W3D shadow system matching the C++ behavior:
+//! - Volumetric shadows (stencil buffer shadow volumes)
+//! - Projected shadows (texture projection onto terrain/objects)
+//! - Decal shadows (terrain-conforming decals)
+//!
+//! Shadow types matching C++ ShadowType enum:
+//! - SHADOW_VOLUME: Stencil-based volumetric shadows
+//! - SHADOW_PROJECTION: Projected shadow textures onto geometry
+//! - SHADOW_DECAL: Modulate blend decals on terrain
+//! - SHADOW_ALPHA_DECAL: Alpha blended decals
+//! - SHADOW_ADDITIVE_DECAL: Additive blended decals
 
-use super::{W3DError, Result, BoundingBox, W3DVertex, MaterialData, CameraUniforms};
+use super::{BoundingBox, CameraUniforms, MaterialData, Result, W3DError, W3DVertex};
 use crate::video::{ColorFormat, Resolution};
+use bytemuck::{cast_slice, Pod, Zeroable};
+use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::{RwLock, Mutex};
-use bytemuck::{Pod, Zeroable, cast_slice};
-use glam::{Vec2, Vec3, Vec4, Mat4, Quat};
+
+// ============================================================================
+// Constants matching C++ implementation
+// ============================================================================
+
+/// Maximum number of shadow casting light sources (C++: MAX_SHADOW_LIGHTS)
+pub const MAX_SHADOW_LIGHTS: usize = 1;
+
+/// Distance of sun from ground (C++: SUN_DISTANCE_FROM_GROUND)
+pub const SUN_DISTANCE_FROM_GROUND: f32 = 10000.0;
+
+/// Maximum number of meshes in animated hierarchy (C++: MAX_SHADOW_CASTER_MESHES)
+pub const MAX_SHADOW_CASTER_MESHES: usize = 160;
+
+/// Shadow extrusion buffer amount (C++: SHADOW_EXTRUSION_BUFFER)
+pub const SHADOW_EXTRUSION_BUFFER: f32 = 0.1;
+
+/// Maximum shadow extrusion length (C++: MAX_EXTRUSION_LENGTH)
+pub const MAX_EXTRUSION_LENGTH: f32 = 512.0 * 10.0; // MAP_XY_FACTOR
+
+/// Cosine of angle threshold for shadow updates (C++: cosAngleToCare)
+pub const COS_ANGLE_TO_CARE: f32 = 0.999998; // ~0.2 degrees
+
+// ============================================================================
+// Shadow Type Flags - Matching C++ ShadowType enum
+// ============================================================================
+
+bitflags::bitflags! {
+    /// Shadow type flags matching C++ ShadowType enum exactly
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ShadowType: u32 {
+        const NONE = 0x00000000;
+        /// Shadow decal applied via modulate blend
+        const DECAL = 0x00000001;
+        /// Volumetric stencil shadow
+        const VOLUME = 0x00000002;
+        /// Projected shadow texture
+        const PROJECTION = 0x00000004;
+        /// Extra setting for shadows which need dynamic updates
+        const DYNAMIC_PROJECTION = 0x00000008;
+        /// Extra setting for shadow decals that rotate with sun direction
+        const DIRECTIONAL_PROJECTION = 0x00000010;
+        /// Alpha blended decal (not just for shadows)
+        const ALPHA_DECAL = 0x00000020;
+        /// Additive blended decal (not just for shadows)
+        const ADDITIVE_DECAL = 0x00000040;
+    }
+}
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    Device, Queue, Buffer, BufferDescriptor, BufferUsages,
-    Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
-    Sampler, SamplerDescriptor, AddressMode, FilterMode, CompareFunction,
-    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupEntry,
-    RenderPipeline, RenderPipelineDescriptor, ComputePipeline, ComputePipelineDescriptor,
-    PipelineLayout, PipelineLayoutDescriptor,
-    CommandEncoder, CommandBuffer, RenderPass, ComputePass,
-    RenderPassDescriptor, RenderPassColorAttachment, RenderPassDepthStencilAttachment,
-    VertexState, FragmentState, VertexBufferLayout,
-    PrimitiveState, PrimitiveTopology, FrontFace, Face, PolygonMode,
-    DepthStencilState, StencilState, DepthBiasState,
-    LoadOp, StoreOp, Operations,
-    util::{DeviceExt, BufferInitDescriptor},
-    Extent3d, Origin3d, TextureAspect, TextureViewDescriptor, TextureViewDimension,
-    BindingType, BufferBindingType, TextureSampleType,
-    ShaderStages, SamplerBindingType,
+    util::{BufferInitDescriptor, DeviceExt},
+    AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindingType, Buffer, BufferBindingType, BufferDescriptor,
+    BufferUsages, CommandBuffer, CommandEncoder, CompareFunction, ComputePass, ComputePipeline,
+    ComputePipelineDescriptor, DepthBiasState, DepthStencilState, Device, Extent3d, Face,
+    FilterMode, FragmentState, FrontFace, LoadOp, Operations, Origin3d, PipelineLayout,
+    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass,
+    RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
+    RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
+    ShaderStages, StencilState, StoreOp, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDescriptor, TextureViewDimension, VertexBufferLayout, VertexState,
 };
+
+// ============================================================================
+// Shadow Type Info - Matching C++ Shadow::ShadowTypeInfo
+// ============================================================================
+
+/// Shadow configuration info for creating shadows
+/// Matches C++ Shadow::ShadowTypeInfo struct
+#[derive(Debug, Clone)]
+pub struct ShadowTypeInfo {
+    /// Shadow name (when set, overrides default model shadow)
+    pub shadow_name: [u8; 64],
+    /// Type of shadow
+    pub shadow_type: ShadowType,
+    /// Whether to update shadow image when object/light moves
+    pub allow_updates: bool,
+    /// Whether to align shadow to world geometry or draw as horizontal decal
+    pub allow_world_align: bool,
+    /// World size of decal projection in X
+    pub size_x: f32,
+    /// World size of decal projection in Y
+    pub size_y: f32,
+    /// World shift along X axis
+    pub offset_x: f32,
+    /// World shift along Y axis
+    pub offset_y: f32,
+}
+
+impl Default for ShadowTypeInfo {
+    fn default() -> Self {
+        Self {
+            shadow_name: [0; 64],
+            shadow_type: ShadowType::VOLUME,
+            allow_updates: true,
+            allow_world_align: true,
+            size_x: 0.0,
+            size_y: 0.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
+        }
+    }
+}
+
+impl ShadowTypeInfo {
+    /// Create a new ShadowTypeInfo with the specified shadow type
+    pub fn new(shadow_type: ShadowType) -> Self {
+        Self {
+            shadow_type,
+            ..Default::default()
+        }
+    }
+
+    /// Set the shadow name
+    pub fn with_name(mut self, name: &str) -> Self {
+        let bytes = name.as_bytes();
+        let len = bytes.len().min(63);
+        self.shadow_name[..len].copy_from_slice(&bytes[..len]);
+        self.shadow_name[len] = 0; // null terminator
+        self
+    }
+
+    /// Set the decal size
+    pub fn with_size(mut self, size_x: f32, size_y: f32) -> Self {
+        self.size_x = size_x;
+        self.size_y = size_y;
+        self
+    }
+
+    /// Set the decal offset
+    pub fn with_offset(mut self, offset_x: f32, offset_y: f32) -> Self {
+        self.offset_x = offset_x;
+        self.offset_y = offset_y;
+        self
+    }
+}
+
+// ============================================================================
+// Time of Day - For shadow light position updates
+// ============================================================================
+
+/// Time of day enum matching C++ TimeOfDay
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeOfDay {
+    Morning,
+    Afternoon,
+    Evening,
+    Night,
+}
+
+// ============================================================================
+// Base Shadow Interface - Matching C++ Shadow class
+// ============================================================================
+
+/// Base shadow trait matching C++ Shadow interface
+pub trait Shadow: Send + Sync {
+    /// Release this shadow from suitable manager
+    fn release(&self);
+
+    /// Check if shadow rendering is enabled
+    fn is_render_enabled(&self) -> bool;
+
+    /// Check if invisible rendering is enabled (overrides render enabled)
+    fn is_invisible_enabled(&self) -> bool;
+
+    /// Get shadow type
+    fn get_shadow_type(&self) -> ShadowType;
+
+    /// Set shadow opacity (0-255)
+    fn set_opacity(&mut self, value: u32);
+
+    /// Set shadow color (ARGB format, alpha ignored)
+    fn set_color(&mut self, color: u32);
+
+    /// Set shadow orientation around z-axis
+    fn set_angle(&mut self, angle: f32);
+
+    /// Set shadow position (for decals not bound to render objects)
+    fn set_position(&mut self, x: f32, y: f32, z: f32);
+
+    /// Set shadow size
+    fn set_size(&mut self, size_x: f32, size_y: f32);
+}
+
+/// Base shadow implementation with common fields
+#[derive(Debug)]
+pub struct ShadowBase {
+    /// Toggle to turn rendering of this shadow on/off
+    pub is_enabled: bool,
+    /// If set, overrides and causes no rendering (used by Shroud)
+    pub is_invisible_enabled: bool,
+    /// Value between 0 (transparent) and 255 (opaque)
+    pub opacity: u32,
+    /// Color in ARGB format (Alpha is ignored)
+    pub color: u32,
+    /// Type of projection
+    pub shadow_type: ShadowType,
+    /// Diffuse color used to tint/fade shadow
+    pub diffuse: u32,
+    /// World position of shadow center when not bound to robj/drawable
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    /// 1/(world space extent of texture in x direction)
+    pub oow_decal_size_x: f32,
+    /// 1/(world space extent of texture in y direction)
+    pub oow_decal_size_y: f32,
+    /// World space extent of texture in x direction
+    pub decal_size_x: f32,
+    /// World space extent of texture in y direction
+    pub decal_size_y: f32,
+    /// Yaw or rotation around z-axis when not bound to robj/drawable
+    pub local_angle: f32,
+}
+
+impl ShadowBase {
+    pub fn new() -> Self {
+        Self {
+            is_enabled: true,
+            is_invisible_enabled: false,
+            opacity: 0x000000ff,
+            color: 0xffffffff,
+            shadow_type: ShadowType::NONE,
+            diffuse: 0xffffffff,
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            oow_decal_size_x: 0.0,
+            oow_decal_size_y: 0.0,
+            decal_size_x: 0.0,
+            decal_size_y: 0.0,
+            local_angle: 0.0,
+        }
+    }
+
+    /// Enable/disable shadow rendering
+    pub fn enable_shadow_render(&mut self, is_enabled: bool) {
+        self.is_enabled = is_enabled;
+    }
+
+    /// Enable/disable shadow invisible mode
+    pub fn enable_shadow_invisible(&mut self, is_enabled: bool) {
+        self.is_invisible_enabled = is_enabled;
+    }
+
+    /// Set opacity (matching C++ Shadow::setOpacity)
+    pub fn set_opacity(&mut self, value: u32) {
+        self.opacity = value;
+
+        if self.shadow_type.contains(ShadowType::ALPHA_DECAL) {
+            self.diffuse = (self.color & 0x00ffffff) + (value << 24);
+        } else if self.shadow_type.contains(ShadowType::ADDITIVE_DECAL) {
+            let fvalue = value as f32 / 255.0;
+            self.diffuse = (((self.color & 0xff) as f32 * fvalue) as u32)
+                | ((((self.color >> 8) & 0xff) as f32 * fvalue) as u32)
+                | ((((self.color >> 16) & 0xff) as f32 * fvalue) as u32);
+        }
+    }
+
+    /// Set color (matching C++ Shadow::setColor)
+    pub fn set_color(&mut self, color: u32) {
+        self.color = color & 0x00ffffff; // Filter out alpha
+
+        if self.shadow_type.contains(ShadowType::ALPHA_DECAL) {
+            self.diffuse = self.color | (self.opacity << 24);
+        } else if self.shadow_type.contains(ShadowType::ADDITIVE_DECAL) {
+            let fvalue = self.opacity as f32 / 255.0;
+            self.diffuse = (((self.color & 0xff) as f32 * fvalue) as u32)
+                | ((((self.color >> 8) & 0xff) as f32 * fvalue) as u32)
+                | ((((self.color >> 16) & 0xff) as f32 * fvalue) as u32);
+        }
+    }
+
+    /// Set position (matching C++ Shadow::setPosition)
+    pub fn set_position(&mut self, x: f32, y: f32, z: f32) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+    }
+
+    /// Set angle (matching C++ Shadow::setAngle)
+    pub fn set_angle(&mut self, angle: f32) {
+        self.local_angle = angle;
+    }
+
+    /// Set size (matching C++ Shadow::setSize)
+    pub fn set_size(&mut self, size_x: f32, size_y: f32) {
+        self.decal_size_x = size_x;
+        self.decal_size_y = size_y;
+
+        self.oow_decal_size_x = if size_x == 0.0 { 0.0 } else { 1.0 / size_x };
+        self.oow_decal_size_y = if size_y == 0.0 { 0.0 } else { 1.0 / size_y };
+    }
+}
+
+impl Default for ShadowBase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// W3D Shadow Manager - Matching C++ W3DShadowManager
+// ============================================================================
+
+/// Light position in world space (matches C++ LightPosWorld global)
+pub static LIGHT_POS_WORLD: Mutex<[Vec3; MAX_SHADOW_LIGHTS]> =
+    Mutex::new([Vec3::new(94.0161, 50.499, 200.0); MAX_SHADOW_LIGHTS]);
+
+/// W3D Shadow Manager matching C++ W3DShadowManager
+/// Manages both volumetric and projected shadow systems
+pub struct W3DShadowManager {
+    /// Flag if current scene needs shadows (no shadows on pre-pass and 2D)
+    is_shadow_scene: bool,
+    /// Color and alpha for all shadows in scene (ARGB format)
+    shadow_color: u32,
+    /// Mask used to mask out stencil bits for storing occlusion/playerColor
+    stencil_shadow_mask: i32,
+
+    /// Volumetric shadow manager
+    volumetric_manager: Option<W3DVolumetricShadowManager>,
+    /// Projected shadow manager
+    projected_manager: Option<W3DProjectedShadowManager>,
+}
+
+impl W3DShadowManager {
+    /// Create new W3D shadow manager
+    pub fn new() -> Self {
+        Self {
+            is_shadow_scene: false,
+            shadow_color: 0x7fa0a0a0,
+            stencil_shadow_mask: 0,
+            volumetric_manager: None,
+            projected_manager: None,
+        }
+    }
+
+    /// Initialize shadow systems (C++: W3DShadowManager::init)
+    pub fn init(&mut self) -> bool {
+        let mut result = true;
+
+        // Initialize volumetric shadow manager
+        let mut vol_manager = W3DVolumetricShadowManager::new();
+        if vol_manager.init() && vol_manager.re_acquire_resources() {
+            self.volumetric_manager = Some(vol_manager);
+        } else {
+            result = false;
+        }
+
+        // Initialize projected shadow manager
+        let mut proj_manager = W3DProjectedShadowManager::new();
+        if proj_manager.init() && proj_manager.re_acquire_resources() {
+            self.projected_manager = Some(proj_manager);
+        } else {
+            result = false;
+        }
+
+        result
+    }
+
+    /// Queue shadows for processing (C++: queueShadows)
+    pub fn queue_shadows(&mut self, state: bool) {
+        self.is_shadow_scene = state;
+    }
+
+    /// Check if this is a shadow scene
+    pub fn is_shadow_scene(&self) -> bool {
+        self.is_shadow_scene
+    }
+
+    /// Reset all shadows for new map (C++: Reset)
+    pub fn reset(&mut self) {
+        if let Some(ref mut vol) = self.volumetric_manager {
+            vol.reset();
+        }
+        if let Some(ref mut proj) = self.projected_manager {
+            proj.reset();
+        }
+    }
+
+    /// Add shadow to appropriate manager (C++: addShadow)
+    pub fn add_shadow(
+        &mut self,
+        render_obj: Option<&RenderObjectHandle>,
+        shadow_info: Option<&ShadowTypeInfo>,
+        drawable: Option<&DrawableHandle>,
+    ) -> Option<Box<dyn Shadow>> {
+        let shadow_type = shadow_info
+            .map(|si| si.shadow_type)
+            .unwrap_or(ShadowType::VOLUME);
+
+        match shadow_type {
+            ShadowType::VOLUME => {
+                if let Some(ref mut vol) = self.volumetric_manager {
+                    vol.add_shadow(render_obj, shadow_info, drawable)
+                } else {
+                    None
+                }
+            }
+            ShadowType::PROJECTION | ShadowType::DECAL => {
+                if let Some(ref mut proj) = self.projected_manager {
+                    proj.add_shadow(render_obj, shadow_info, drawable)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Remove shadow from system (C++: removeShadow)
+    pub fn remove_shadow(&mut self, shadow: &dyn Shadow) {
+        shadow.release();
+    }
+
+    /// Remove all shadows (C++: removeAllShadows)
+    pub fn remove_all_shadows(&mut self) {
+        if let Some(ref mut vol) = self.volumetric_manager {
+            vol.remove_all_shadows();
+        }
+        if let Some(ref mut proj) = self.projected_manager {
+            proj.remove_all_shadows();
+        }
+    }
+
+    /// Set shadow color (C++: setShadowColor)
+    pub fn set_shadow_color(&mut self, color: u32) {
+        self.shadow_color = color;
+    }
+
+    /// Get shadow color (C++: getShadowColor)
+    pub fn get_shadow_color(&self) -> u32 {
+        self.shadow_color
+    }
+
+    /// Set light position (C++: setLightPosition)
+    pub fn set_light_position(&mut self, light_index: usize, x: f32, y: f32, z: f32) {
+        if light_index >= MAX_SHADOW_LIGHTS {
+            return;
+        }
+        let mut light_pos = LIGHT_POS_WORLD.lock();
+        light_pos[light_index] = Vec3::new(x, y, z);
+    }
+
+    /// Get light position in world space (C++: getLightPosWorld)
+    pub fn get_light_pos_world(&self, light_index: usize) -> Vec3 {
+        if light_index >= MAX_SHADOW_LIGHTS {
+            return Vec3::ZERO;
+        }
+        LIGHT_POS_WORLD.lock()[light_index]
+    }
+
+    /// Set time of day lighting (C++: setTimeOfDay)
+    pub fn set_time_of_day(&mut self, tod: TimeOfDay, terrain_light_pos: Vec3) {
+        // Calculate light ray direction from terrain light position
+        let light_ray = -terrain_light_pos.normalize();
+        let sun_pos = light_ray * SUN_DISTANCE_FROM_GROUND;
+        self.set_light_position(0, sun_pos.x, sun_pos.y, sun_pos.z);
+    }
+
+    /// Set stencil shadow mask
+    pub fn set_stencil_shadow_mask(&mut self, mask: i32) {
+        self.stencil_shadow_mask = mask;
+    }
+
+    /// Get stencil shadow mask
+    pub fn get_stencil_shadow_mask(&self) -> i32 {
+        self.stencil_shadow_mask
+    }
+
+    /// Force update of all shadows (C++: invalidateCachedLightPositions)
+    pub fn invalidate_cached_light_positions(&mut self) {
+        if let Some(ref mut vol) = self.volumetric_manager {
+            vol.invalidate_cached_light_positions();
+        }
+        if let Some(ref mut proj) = self.projected_manager {
+            proj.invalidate_cached_light_positions();
+        }
+    }
+
+    /// Render shadows (C++: DoShadows)
+    pub fn render_shadows(&mut self, render_info: &mut RenderInfo, stencil_pass: bool) {
+        let mut projection_count = 0;
+
+        // Projected shadows render first (before volumetric)
+        if !stencil_pass {
+            if self.is_shadow_scene {
+                if let Some(ref mut proj) = self.projected_manager {
+                    projection_count = proj.render_shadows(render_info);
+                }
+            }
+        }
+
+        // Volumetric shadows use stencil buffer
+        if stencil_pass {
+            if self.is_shadow_scene {
+                if let Some(ref mut vol) = self.volumetric_manager {
+                    vol.render_shadows(projection_count);
+                }
+            }
+            // Reset so no more shadow processing this frame
+            self.is_shadow_scene = false;
+        }
+    }
+
+    /// Release resources (device lost)
+    pub fn release_resources(&mut self) {
+        if let Some(ref mut vol) = self.volumetric_manager {
+            vol.release_resources();
+        }
+        if let Some(ref mut proj) = self.projected_manager {
+            proj.release_resources();
+        }
+    }
+
+    /// Re-acquire resources after device reset
+    pub fn re_acquire_resources(&mut self) -> bool {
+        let mut result = true;
+        if let Some(ref mut vol) = self.volumetric_manager {
+            if !vol.re_acquire_resources() {
+                result = false;
+            }
+        }
+        if let Some(ref mut proj) = self.projected_manager {
+            if !proj.re_acquire_resources() {
+                result = false;
+            }
+        }
+        result
+    }
+}
+
+impl Default for W3DShadowManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Volumetric Shadow Manager - Matching C++ W3DVolumetricShadowManager
+// ============================================================================
+
+/// Volumetric shadow manager for stencil shadow volumes
+pub struct W3DVolumetricShadowManager {
+    /// List of active shadows
+    shadow_list: Vec<VolumetricShadowEntry>,
+    /// Dynamic shadow volumes to render
+    dynamic_shadow_volumes_to_render: Vec<VolumetricShadowRenderTask>,
+    /// Shadow geometry manager (caches geometry for reuse)
+    shadow_geometry_cache: HashMap<String, ShadowGeometry>,
+}
+
+/// Entry in the volumetric shadow list
+#[derive(Debug)]
+struct VolumetricShadowEntry {
+    /// Base shadow data
+    base: ShadowBase,
+    /// Shadow geometry reference
+    geometry: Option<String>,
+    /// Render object this shadow is attached to
+    render_obj: Option<RenderObjectHandle>,
+    /// Shadow length scale factor
+    shadow_length_scale: f32,
+    /// Maximum horizontal reach of shadow from object center
+    robj_extent: f32,
+    /// Extra extrusion padding for immobile objects
+    extra_extrusion_padding: f32,
+    /// Shadow volumes per light per mesh
+    shadow_volumes: [[Option<ShadowVolumeData>; MAX_SHADOW_CASTER_MESHES]; MAX_SHADOW_LIGHTS],
+    /// Light position history for change detection
+    light_pos_history: [[Vec3; MAX_SHADOW_CASTER_MESHES]; MAX_SHADOW_LIGHTS],
+}
+
+/// Shadow volume data
+#[derive(Debug, Clone)]
+struct ShadowVolumeData {
+    /// Vertex data
+    vertices: Vec<Vec3>,
+    /// Index data
+    indices: Vec<u16>,
+    /// Bounding box
+    bounds: BoundingBox,
+    /// Is this a dynamic (animated) shadow
+    is_dynamic: bool,
+}
+
+/// Shadow geometry cached data
+#[derive(Debug, Clone)]
+struct ShadowGeometry {
+    /// Mesh name
+    name: String,
+    /// Mesh data per sub-mesh
+    meshes: Vec<ShadowMeshData>,
+    /// Total vertex count
+    total_verts: usize,
+}
+
+/// Per-mesh shadow geometry data
+#[derive(Debug, Clone)]
+struct ShadowMeshData {
+    /// Vertices
+    verts: Vec<Vec3>,
+    /// Polygon indices
+    polygons: Vec<[u16; 3]>,
+    /// Polygon normals
+    normals: Vec<Vec3>,
+    /// Parent vertex indices (for deduplication)
+    parent_verts: Vec<u16>,
+    /// Polygon neighbors for silhouette computation
+    poly_neighbors: Vec<PolyNeighbor>,
+}
+
+/// Polygon neighbor info for silhouette building
+#[derive(Debug, Clone)]
+struct PolyNeighbor {
+    /// This polygon's index
+    my_index: u16,
+    /// Neighbor indices (-1 if no neighbor)
+    neighbors: [i16; 3],
+    /// Shared edge vertex indices
+    neighbor_edges: [[u16; 2]; 3],
+}
+
+/// Render task for dynamic shadows
+#[derive(Debug, Clone)]
+struct VolumetricShadowRenderTask {
+    /// Parent shadow index
+    shadow_index: usize,
+    /// Mesh index within shadow
+    mesh_index: u8,
+    /// Light index
+    light_index: u8,
+}
+
+impl W3DVolumetricShadowManager {
+    pub fn new() -> Self {
+        Self {
+            shadow_list: Vec::new(),
+            dynamic_shadow_volumes_to_render: Vec::new(),
+            shadow_geometry_cache: HashMap::new(),
+        }
+    }
+
+    /// Initialize the manager
+    pub fn init(&mut self) -> bool {
+        true
+    }
+
+    /// Reset for new map
+    pub fn reset(&mut self) {
+        self.shadow_list.clear();
+        self.dynamic_shadow_volumes_to_render.clear();
+        // Keep geometry cache - it's reusable across maps
+    }
+
+    /// Add a volumetric shadow
+    pub fn add_shadow(
+        &mut self,
+        render_obj: Option<&RenderObjectHandle>,
+        shadow_info: Option<&ShadowTypeInfo>,
+        _drawable: Option<&DrawableHandle>,
+    ) -> Option<Box<dyn Shadow>> {
+        let entry = VolumetricShadowEntry {
+            base: ShadowBase::new(),
+            geometry: None,
+            render_obj: render_obj.cloned(),
+            shadow_length_scale: 0.0,
+            robj_extent: 0.0,
+            extra_extrusion_padding: 0.0,
+            shadow_volumes: Default::default(),
+            light_pos_history: [[Vec3::ZERO; MAX_SHADOW_CASTER_MESHES]; MAX_SHADOW_LIGHTS],
+        };
+
+        self.shadow_list.push(entry);
+        // Return a handle - in real implementation would return proper Shadow trait object
+        None
+    }
+
+    /// Remove a shadow
+    pub fn remove_shadow(&mut self, _shadow: &VolumetricShadowEntry) {
+        // Find and remove shadow from list
+    }
+
+    /// Remove all shadows
+    pub fn remove_all_shadows(&mut self) {
+        self.shadow_list.clear();
+    }
+
+    /// Invalidate cached light positions
+    pub fn invalidate_cached_light_positions(&mut self) {
+        // Reset all light position history to force updates
+        for shadow in &mut self.shadow_list {
+            shadow.light_pos_history = [[Vec3::ZERO; MAX_SHADOW_CASTER_MESHES]; MAX_SHADOW_LIGHTS];
+        }
+    }
+
+    /// Render shadows
+    pub fn render_shadows(&mut self, _projection_count: i32) {
+        // Implementation would render stencil shadow volumes
+    }
+
+    /// Release resources
+    pub fn release_resources(&mut self) {
+        // Release GPU resources
+    }
+
+    /// Re-acquire resources
+    pub fn re_acquire_resources(&mut self) -> bool {
+        true
+    }
+}
+
+impl Default for W3DVolumetricShadowManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Projected Shadow Manager - Matching C++ W3DProjectedShadowManager
+// ============================================================================
+
+/// Projected shadow manager for decal/projection shadows
+pub struct W3DProjectedShadowManager {
+    /// List of projection shadows
+    shadow_list: Vec<ProjectedShadowEntry>,
+    /// List of standalone decals
+    decal_list: Vec<ProjectedShadowEntry>,
+    /// Shadow textures by name
+    shadow_textures: HashMap<String, ShadowTexture>,
+    /// Number of decal shadows
+    num_decal_shadows: i32,
+    /// Number of projection shadows
+    num_projection_shadows: i32,
+}
+
+/// Projected shadow entry
+#[derive(Debug)]
+struct ProjectedShadowEntry {
+    /// Base shadow data
+    base: ShadowBase,
+    /// Shadow texture reference
+    texture_name: Option<String>,
+    /// Render object this shadow is attached to
+    render_obj: Option<RenderObjectHandle>,
+    /// Allow world alignment
+    allow_world_align: bool,
+    /// Decal offset U
+    decal_offset_u: f32,
+    /// Decal offset V  
+    decal_offset_v: f32,
+    /// Last object position
+    last_obj_position: Vec3,
+    /// Custom flags
+    flags: u32,
+}
+
+/// Shadow texture data
+#[derive(Debug, Clone)]
+struct ShadowTexture {
+    /// Texture name
+    name: String,
+    /// Last light position when texture was updated
+    last_light_position: Vec3,
+    /// Last object orientation
+    last_object_orientation: Mat4,
+    /// Bounding sphere for visibility
+    bounding_sphere: BoundingSphere,
+    /// Bounding box for visibility
+    bounding_box: BoundingBox,
+    /// UV axis vectors
+    uv_axis: [Vec3; 2],
+}
+
+/// Bounding sphere for culling
+#[derive(Debug, Clone)]
+struct BoundingSphere {
+    center: Vec3,
+    radius: f32,
+}
+
+impl W3DProjectedShadowManager {
+    pub fn new() -> Self {
+        Self {
+            shadow_list: Vec::new(),
+            decal_list: Vec::new(),
+            shadow_textures: HashMap::new(),
+            num_decal_shadows: 0,
+            num_projection_shadows: 0,
+        }
+    }
+
+    /// Initialize the manager
+    pub fn init(&mut self) -> bool {
+        true
+    }
+
+    /// Reset for new map
+    pub fn reset(&mut self) {
+        self.shadow_list.clear();
+        self.decal_list.clear();
+        self.shadow_textures.clear();
+        self.num_decal_shadows = 0;
+        self.num_projection_shadows = 0;
+    }
+
+    /// Add a projected shadow
+    pub fn add_shadow(
+        &mut self,
+        render_obj: Option<&RenderObjectHandle>,
+        shadow_info: Option<&ShadowTypeInfo>,
+        _drawable: Option<&DrawableHandle>,
+    ) -> Option<Box<dyn Shadow>> {
+        let shadow_type = shadow_info
+            .map(|si| si.shadow_type)
+            .unwrap_or(ShadowType::PROJECTION);
+
+        let entry = ProjectedShadowEntry {
+            base: ShadowBase::new(),
+            texture_name: None,
+            render_obj: render_obj.cloned(),
+            allow_world_align: shadow_info.map(|si| si.allow_world_align).unwrap_or(true),
+            decal_offset_u: shadow_info.map(|si| si.offset_x).unwrap_or(0.0),
+            decal_offset_v: shadow_info.map(|si| si.offset_y).unwrap_or(0.0),
+            last_obj_position: Vec3::ZERO,
+            flags: 0,
+        };
+
+        match shadow_type {
+            ShadowType::DECAL | ShadowType::ALPHA_DECAL | ShadowType::ADDITIVE_DECAL => {
+                self.num_decal_shadows += 1;
+                self.decal_list.push(entry);
+            }
+            ShadowType::PROJECTION | ShadowType::DYNAMIC_PROJECTION => {
+                self.num_projection_shadows += 1;
+                self.shadow_list.push(entry);
+            }
+            _ => {}
+        }
+
+        None
+    }
+
+    /// Add a standalone decal (not attached to object)
+    pub fn add_decal(&mut self, shadow_info: &ShadowTypeInfo) -> Option<Box<dyn Shadow>> {
+        let entry = ProjectedShadowEntry {
+            base: ShadowBase::new(),
+            texture_name: None,
+            render_obj: None,
+            allow_world_align: shadow_info.allow_world_align,
+            decal_offset_u: shadow_info.offset_x,
+            decal_offset_v: shadow_info.offset_y,
+            last_obj_position: Vec3::ZERO,
+            flags: 0,
+        };
+
+        self.num_decal_shadows += 1;
+        self.decal_list.push(entry);
+        None
+    }
+
+    /// Remove all shadows
+    pub fn remove_all_shadows(&mut self) {
+        self.shadow_list.clear();
+        self.decal_list.clear();
+        self.num_decal_shadows = 0;
+        self.num_projection_shadows = 0;
+    }
+
+    /// Invalidate cached light positions
+    pub fn invalidate_cached_light_positions(&mut self) {
+        for texture in self.shadow_textures.values_mut() {
+            texture.last_light_position = Vec3::ZERO;
+        }
+    }
+
+    /// Render shadows
+    pub fn render_shadows(&mut self, _render_info: &mut RenderInfo) -> i32 {
+        let mut count = 0;
+
+        // Render decal shadows first
+        for shadow in &self.shadow_list {
+            if shadow.base.is_enabled && !shadow.base.is_invisible_enabled {
+                count += 1;
+            }
+        }
+
+        count
+    }
+
+    /// Release resources
+    pub fn release_resources(&mut self) {
+        self.shadow_textures.clear();
+    }
+
+    /// Re-acquire resources
+    pub fn re_acquire_resources(&mut self) -> bool {
+        true
+    }
+}
+
+impl Default for W3DProjectedShadowManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Handle types for render objects and drawables
+// ============================================================================
+
+/// Handle to a render object (placeholder for actual W3D render object)
+#[derive(Debug, Clone)]
+pub struct RenderObjectHandle {
+    pub id: u64,
+}
+
+/// Handle to a drawable (placeholder for actual drawable)
+#[derive(Debug, Clone)]
+pub struct DrawableHandle {
+    pub id: u64,
+}
+
+/// Render info passed during shadow rendering
+pub struct RenderInfo {
+    pub camera_frustum: Frustum,
+}
+
+/// Frustum for culling
+#[derive(Debug, Clone)]
+pub struct Frustum {
+    // Placeholder for actual frustum data
+}
+
+// ============================================================================
+// Modern Shadow Mapping System (WGPU-based)
+// ============================================================================
 
 /// Number of cascades for directional light shadows
 pub const CASCADE_COUNT: usize = 4;
@@ -226,26 +1147,26 @@ pub struct W3DShadowMapper {
     /// GPU queue
     #[cfg(feature = "w3d")]
     queue: Arc<Queue>,
-    
+
     /// Shadow configuration
     config: Arc<RwLock<ShadowConfig>>,
-    
+
     /// Shadow atlas for 2D shadows
     #[cfg(feature = "w3d")]
     shadow_atlas: Arc<Mutex<ShadowAtlas>>,
-    
+
     /// Point light cube map array
     #[cfg(feature = "w3d")]
     point_shadow_maps: Option<Texture>,
     #[cfg(feature = "w3d")]
     point_shadow_view: Option<TextureView>,
-    
+
     /// Shadow samplers
     #[cfg(feature = "w3d")]
     shadow_sampler: Sampler,
     #[cfg(feature = "w3d")]
     comparison_sampler: Sampler,
-    
+
     /// Shadow uniforms buffer
     #[cfg(feature = "w3d")]
     cascade_uniform_buffer: Buffer,
@@ -253,7 +1174,7 @@ pub struct W3DShadowMapper {
     point_uniform_buffer: Buffer,
     #[cfg(feature = "w3d")]
     spot_uniform_buffer: Buffer,
-    
+
     /// Shadow render pipelines
     #[cfg(feature = "w3d")]
     depth_only_pipeline: Option<RenderPipeline>,
@@ -261,12 +1182,12 @@ pub struct W3DShadowMapper {
     depth_cube_pipeline: Option<RenderPipeline>,
     #[cfg(feature = "w3d")]
     vsm_blur_pipeline: Option<ComputePipeline>,
-    
+
     /// Current shadow data
     cascade_data: Arc<RwLock<[ShadowCascadeData; CASCADE_COUNT]>>,
     point_data: Arc<RwLock<Vec<PointShadowData>>>,
     spot_data: Arc<RwLock<Vec<SpotShadowData>>>,
-    
+
     /// Statistics
     render_stats: Arc<RwLock<ShadowRenderStats>>,
 }
@@ -401,14 +1322,16 @@ impl W3DShadowMapper {
             depth_only_pipeline: None,
             depth_cube_pipeline: None,
             vsm_blur_pipeline: None,
-            cascade_data: Arc::new(RwLock::new([ShadowCascadeData {
-                light_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
-                world_to_light: Mat4::IDENTITY.to_cols_array_2d(),
-                split_distance: 0.0,
-                texel_size: 0.0,
-                bias_params: [0.0, 0.0],
-                atlas_bounds: [0.0, 0.0, 1.0, 1.0],
-            }; CASCADE_COUNT])),
+            cascade_data: Arc::new(RwLock::new(
+                [ShadowCascadeData {
+                    light_view_proj: Mat4::IDENTITY.to_cols_array_2d(),
+                    world_to_light: Mat4::IDENTITY.to_cols_array_2d(),
+                    split_distance: 0.0,
+                    texel_size: 0.0,
+                    bias_params: [0.0, 0.0],
+                    atlas_bounds: [0.0, 0.0, 1.0, 1.0],
+                }; CASCADE_COUNT],
+            )),
             point_data: Arc::new(RwLock::new(Vec::new())),
             spot_data: Arc::new(RwLock::new(Vec::new())),
             render_stats: Arc::new(RwLock::new(ShadowRenderStats::default())),
@@ -424,72 +1347,79 @@ impl W3DShadowMapper {
         tracing::info!("Initializing shadow rendering pipelines");
 
         // Create depth-only shader for shadow mapping
-        let depth_shader = self.device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("Depth Only Shader"),
-            source: wgpu::ShaderSource::Wgsl(self.get_depth_shader_source().into()),
-            
-        });
+        let depth_shader = self
+            .device
+            .create_shader_module(&wgpu::ShaderModuleDescriptor {
+                label: Some("Depth Only Shader"),
+                source: wgpu::ShaderSource::Wgsl(self.get_depth_shader_source().into()),
+            });
 
         // Create bind group layout for shadows
-        let bind_group_layout = self.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Shadow Bind Group Layout"),
-            entries: &[
-                // Light view-projection matrix
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let bind_group_layout = self
+            .device
+            .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Shadow Bind Group Layout"),
+                entries: &[
+                    // Light view-projection matrix
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
         // Create pipeline layout
-        let pipeline_layout = self.device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("Shadow Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Shadow Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         // Create depth-only pipeline
-        self.depth_only_pipeline = Some(self.device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Depth Only Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: VertexState {
-                module: &depth_shader,
-                entry_point: Some("vs_depth_only"),
-                buffers: &[self.get_shadow_vertex_layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: None, // Depth-only, no fragment shader needed
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode: Some(Face::Back),
-                unclipped_depth: false,
-                polygon_mode: PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(DepthStencilState {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Less,
-                stencil: StencilState::default(),
-                bias: DepthBiasState {
-                    constant: 2, // Depth bias for shadow acne
-                    slope_scale: 2.0,
-                    clamp: 0.0,
+        self.depth_only_pipeline = Some(self.device.create_render_pipeline(
+            &RenderPipelineDescriptor {
+                label: Some("Depth Only Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: VertexState {
+                    module: &depth_shader,
+                    entry_point: Some("vs_depth_only"),
+                    buffers: &[self.get_shadow_vertex_layout()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            cache: None,
-            multiview: None,
-        }));
+                fragment: None, // Depth-only, no fragment shader needed
+                primitive: PrimitiveState {
+                    topology: PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: FrontFace::Ccw,
+                    cull_mode: Some(Face::Back),
+                    unclipped_depth: false,
+                    polygon_mode: PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: Some(DepthStencilState {
+                    format: TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: CompareFunction::Less,
+                    stencil: StencilState::default(),
+                    bias: DepthBiasState {
+                        constant: 2, // Depth bias for shadow acne
+                        slope_scale: 2.0,
+                        clamp: 0.0,
+                    },
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                cache: None,
+                multiview: None,
+            },
+        ));
 
         tracing::info!("Shadow rendering pipelines initialized");
         Ok(())
@@ -508,22 +1438,18 @@ impl W3DShadowMapper {
         }
 
         let mut cascade_data = self.cascade_data.write();
-        
+
         // Calculate view matrix for light
         let light_up = if light_direction.y.abs() > 0.99 {
             Vec3::new(1.0, 0.0, 0.0) // Avoid gimbal lock
         } else {
             Vec3::new(0.0, 1.0, 0.0)
         };
-        
+
         let light_right = light_direction.cross(light_up).normalize();
         let light_up = light_right.cross(light_direction).normalize();
-        
-        let light_view = Mat4::look_to_rh(
-            Vec3::ZERO,
-            light_direction,
-            light_up,
-        );
+
+        let light_view = Mat4::look_to_rh(Vec3::ZERO, light_direction, light_up);
 
         // Get camera matrices
         let camera_view = Mat4::from_cols_array_2d(&camera.view_matrix);
@@ -533,20 +1459,22 @@ impl W3DShadowMapper {
         // Calculate cascade splits
         let near = camera.near_far[0];
         let far = config.max_shadow_distance.min(camera.near_far[1]);
-        
+
         for (i, cascade) in cascade_data.iter_mut().enumerate() {
-            let split_near = if i == 0 { near } else { config.cascade_distances[i - 1] };
+            let split_near = if i == 0 {
+                near
+            } else {
+                config.cascade_distances[i - 1]
+            };
             let split_far = config.cascade_distances[i];
-            
+
             // Calculate frustum corners in world space
-            let frustum_corners = self.calculate_frustum_corners(
-                camera_view_proj_inv,
-                split_near,
-                split_far,
-            );
+            let frustum_corners =
+                self.calculate_frustum_corners(camera_view_proj_inv, split_near, split_far);
 
             // Transform corners to light space
-            let light_space_corners: Vec<Vec3> = frustum_corners.iter()
+            let light_space_corners: Vec<Vec3> = frustum_corners
+                .iter()
                 .map(|corner| (light_view * corner.extend(1.0)).truncate())
                 .collect();
 
@@ -590,24 +1518,20 @@ impl W3DShadowMapper {
             cascade.split_distance = split_far;
             cascade.texel_size = texel_size;
             cascade.bias_params = [config.shadow_bias, config.normal_offset_bias];
-            
+
             // Allocate atlas space (simplified - would be more complex in real implementation)
             let atlas_size = config.quality.resolution() / 2; // Quarter atlas per cascade
             let atlas_x = (i % 2) as f32 * 0.5;
             let atlas_y = (i / 2) as f32 * 0.5;
-            cascade.atlas_bounds = [
-                atlas_x,
-                atlas_y,
-                atlas_x + 0.5,
-                atlas_y + 0.5,
-            ];
+            cascade.atlas_bounds = [atlas_x, atlas_y, atlas_x + 0.5, atlas_y + 0.5];
         }
 
         // Update GPU uniform buffer
         #[cfg(feature = "w3d")]
         {
             let data = cast_slice(&cascade_data[..]);
-            self.queue.write_buffer(&self.cascade_uniform_buffer, 0, data);
+            self.queue
+                .write_buffer(&self.cascade_uniform_buffer, 0, data);
         }
 
         Ok(())
@@ -623,13 +1547,13 @@ impl W3DShadowMapper {
         // NDC coordinates for frustum corners
         let ndc_corners = [
             Vec4::new(-1.0, -1.0, 0.0, 1.0), // near bottom-left
-            Vec4::new( 1.0, -1.0, 0.0, 1.0), // near bottom-right
-            Vec4::new( 1.0,  1.0, 0.0, 1.0), // near top-right
-            Vec4::new(-1.0,  1.0, 0.0, 1.0), // near top-left
+            Vec4::new(1.0, -1.0, 0.0, 1.0),  // near bottom-right
+            Vec4::new(1.0, 1.0, 0.0, 1.0),   // near top-right
+            Vec4::new(-1.0, 1.0, 0.0, 1.0),  // near top-left
             Vec4::new(-1.0, -1.0, 1.0, 1.0), // far bottom-left
-            Vec4::new( 1.0, -1.0, 1.0, 1.0), // far bottom-right
-            Vec4::new( 1.0,  1.0, 1.0, 1.0), // far top-right
-            Vec4::new(-1.0,  1.0, 1.0, 1.0), // far top-left
+            Vec4::new(1.0, -1.0, 1.0, 1.0),  // far bottom-right
+            Vec4::new(1.0, 1.0, 1.0, 1.0),   // far top-right
+            Vec4::new(-1.0, 1.0, 1.0, 1.0),  // far top-left
         ];
 
         let mut world_corners = [Vec3::ZERO; 8];
@@ -646,7 +1570,7 @@ impl W3DShadowMapper {
             let near_corner = world_corners[i];
             let far_corner = world_corners[i + 4];
             let direction = (far_corner - near_corner).normalize();
-            
+
             // Interpolate based on actual near/far distances
             world_corners[i] = near_corner + direction * near_plane;
             world_corners[i + 4] = near_corner + direction * far_plane;
@@ -671,13 +1595,16 @@ impl W3DShadowMapper {
         let render_start = std::time::Instant::now();
 
         // Render cascaded shadow maps
-        self.render_cascade_shadows(encoder, shadow_casters, &mut stats).await?;
+        self.render_cascade_shadows(encoder, shadow_casters, &mut stats)
+            .await?;
 
         // Render point light shadows
-        self.render_point_shadows(encoder, shadow_casters, &mut stats).await?;
+        self.render_point_shadows(encoder, shadow_casters, &mut stats)
+            .await?;
 
         // Render spot light shadows
-        self.render_spot_shadows(encoder, shadow_casters, &mut stats).await?;
+        self.render_spot_shadows(encoder, shadow_casters, &mut stats)
+            .await?;
 
         // Update statistics
         stats.shadow_render_time = render_start.elapsed().as_millis() as f32;
@@ -694,8 +1621,9 @@ impl W3DShadowMapper {
         shadow_casters: &[ShadowCaster],
         stats: &mut ShadowRenderStats,
     ) -> Result<()> {
-        let pipeline = self.depth_only_pipeline.as_ref()
-            .ok_or_else(|| W3DError::RenderingError("Shadow pipeline not initialized".to_string()))?;
+        let pipeline = self.depth_only_pipeline.as_ref().ok_or_else(|| {
+            W3DError::RenderingError("Shadow pipeline not initialized".to_string())
+        })?;
 
         let atlas = self.shadow_atlas.lock();
 
@@ -718,13 +1646,13 @@ impl W3DShadowMapper {
 
             // Set pipeline and viewport
             render_pass.set_pipeline(pipeline);
-            
+
             let atlas_bounds = &cascade.atlas_bounds;
             let viewport_x = (atlas_bounds[0] * atlas.resolution as f32) as u32;
             let viewport_y = (atlas_bounds[1] * atlas.resolution as f32) as u32;
             let viewport_w = ((atlas_bounds[2] - atlas_bounds[0]) * atlas.resolution as f32) as u32;
             let viewport_h = ((atlas_bounds[3] - atlas_bounds[1]) * atlas.resolution as f32) as u32;
-            
+
             // Set viewport (this would be a real wgpu call in actual implementation)
             // render_pass.set_viewport(viewport_x, viewport_y, viewport_w, viewport_h, 0.0, 1.0);
 
@@ -778,7 +1706,7 @@ impl W3DShadowMapper {
         // Set vertex and index buffers
         render_pass.set_vertex_buffer(0, caster.vertex_buffer.slice(..));
         render_pass.set_index_buffer(caster.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        
+
         // Draw
         render_pass.draw_indexed(0..caster.index_count, 0, 0..1);
     }
@@ -887,11 +1815,7 @@ pub struct W3DCascadedShadowMaps {
 impl W3DCascadedShadowMaps {
     /// Create new cascaded shadow maps
     #[cfg(feature = "w3d")]
-    pub fn new(
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        config: ShadowConfig,
-    ) -> Result<Self> {
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>, config: ShadowConfig) -> Result<Self> {
         let shadow_mapper = W3DShadowMapper::new(device, queue, config)?;
 
         Ok(Self {
@@ -929,11 +1853,8 @@ impl W3DCascadedShadowMaps {
             return Ok();
         }
 
-        self.shadow_mapper.update_cascaded_shadows(
-            self.light_direction,
-            camera,
-            scene_bounds,
-        )
+        self.shadow_mapper
+            .update_cascaded_shadows(self.light_direction, camera, scene_bounds)
     }
 
     /// Get shadow mapper

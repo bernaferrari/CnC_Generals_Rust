@@ -56,6 +56,11 @@ pub mod weapon_set;
 pub mod weapon_store;
 mod weapon_template;
 
+// Phase 12 consolidation: mod.rs defines its own WeaponTemplate and Weapon
+// structs (the canonical definitions used throughout gamelogic).
+// weapon.rs and weapon_template.rs contain supplementary logic that extends
+// these types.
+
 pub use armor_system::*;
 pub use ballistics::*;
 // Export damage_application with specific types to avoid DamageInfo conflict
@@ -84,7 +89,6 @@ pub use targeting::*;
 pub use weapon_firing_integration::*;
 pub use weapon_set::*;
 pub use weapon_store::*;
-pub use weapon_template::*;
 
 /// Maximum shots limit constant
 pub const NO_MAX_SHOTS_LIMIT: i32 = 0x7fffffff;
@@ -1303,8 +1307,19 @@ impl WeaponTemplate {
     }
 
     /// Check if this is a contact weapon (requires collision with target)
+    ///
+    /// Matches C++ WeaponTemplate::isContactWeapon() from Weapon.cpp lines 531-543
+    /// A weapon is a contact weapon if its attack range (minus undersize) is less than
+    /// one pathfind cell size. This ensures weapons that require close proximity
+    /// (melee, collision-based) are correctly identified.
     pub fn is_contact_weapon(&self) -> bool {
-        self.weapon_speed <= 0.0 && self.projectile_name.is_empty()
+        // Note: undersize by 1/4 of a pathfind cell to avoid edge cases with
+        // goal positions teetering on the edge of firing range
+        const PATHFIND_CELL_SIZE: f32 = 10.0;
+        const UNDERSIZE: f32 = PATHFIND_CELL_SIZE * 0.25;
+
+        // Contact weapon if attack range after undersize is less than one cell
+        (self.attack_range - UNDERSIZE) < PATHFIND_CELL_SIZE
     }
 
     /// Check if this weapon automatically reloads
@@ -2766,6 +2781,16 @@ impl Weapon {
     /// Check if leech range is active
     pub fn has_leech_range(&self) -> bool {
         self.leech_weapon_range_active
+    }
+
+    /// Set the frame when the weapon can fire next (matches C++ Weapon::setPossibleNextShotFrame)
+    pub fn set_possible_next_shot_frame(&mut self, frame: u32) {
+        self.when_we_can_fire_again = frame;
+    }
+
+    /// Set weapon status directly (matches C++ Weapon::setStatus)
+    pub fn set_status(&mut self, status: WeaponStatus) {
+        self.status = status;
     }
 
     /// Set maximum shot count

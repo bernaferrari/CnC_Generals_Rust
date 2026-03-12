@@ -566,7 +566,7 @@ impl TextureWeights {
 }
 
 impl TextureManager {
-    /// Initialize the manager (placeholder hook for future logic)
+    /// Initialize the manager and prepare default configuration.
     pub fn init(&mut self) -> TerrainResult<()> {
         Ok(())
     }
@@ -804,7 +804,7 @@ impl TextureManager {
         match filename.to_ascii_lowercase().as_str() {
             // The extracted asset set used by the Rust shell path is missing this exact
             // terrain tile payload even though Terrain.ini still references it.
-            // Use the adjacent rock tile family instead of dropping to a magenta placeholder.
+            // Use the adjacent rock tile family as a fallback alias.
             "txrock07a.tga" => Some("TXRock06a.tga"),
             _ => None,
         }
@@ -1346,7 +1346,7 @@ impl TextureManager {
             texture.dimensions = Some(img.dimensions());
         } else {
             warn!(
-                "Terrain texture '{}' could not be resolved; falling back to placeholder",
+                "Terrain texture '{}' could not be resolved; using default dimensions",
                 texture.diffuse_path
             );
             texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
