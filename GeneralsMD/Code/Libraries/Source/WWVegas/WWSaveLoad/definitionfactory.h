@@ -1,0 +1,57 @@
+#if defined(_MSC_VER)
+#pragma once
+#endif
+
+#ifndef __DEFINITION_FACTORY_H
+#define __DEFINITION_FACTORY_H
+
+#include "always.h"
+#include "bittype.h"
+#include "definitionclassids.h"
+
+// Forward declarations
+class DefinitionClass;
+
+//////////////////////////////////////////////////////////////////////////////////
+//
+//	DefinitionFactoryClass 
+//
+//	Definition factories act as virtual constructors for object definitions.  They
+//	are responsible for creating new definitions for a particular class of objects.
+//
+//////////////////////////////////////////////////////////////////////////////////
+class DefinitionFactoryClass
+{
+public:
+
+	//////////////////////////////////////////////////////////////
+	//	Public constructors/destructors
+	//////////////////////////////////////////////////////////////
+	DefinitionFactoryClass (void);
+	virtual ~DefinitionFactoryClass (void);
+
+	//////////////////////////////////////////////////////////////
+	//	Public methods
+	//////////////////////////////////////////////////////////////
+	virtual DefinitionClass *	Create (void) const = 0;
+	virtual const char *			Get_Name (void) const = 0;
+	virtual uint32					Get_Class_ID (void) const = 0;
+	virtual bool					Is_Displayed (void) const = 0;
+
+protected:
+	
+	//////////////////////////////////////////////////////////////
+	//	Protected member data
+	//////////////////////////////////////////////////////////////
+	DefinitionFactoryClass *	m_NextFactory;
+	DefinitionFactoryClass *	m_PrevFactory;
+
+	
+	//////////////////////////////////////////////////////////////
+	//	Friends
+	//////////////////////////////////////////////////////////////
+	friend class DefinitionFactoryMgrClass;
+};
+
+
+#endif //__DEFINITION_FACTORY_H

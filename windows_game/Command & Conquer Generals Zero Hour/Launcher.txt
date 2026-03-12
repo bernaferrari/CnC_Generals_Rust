@@ -1,0 +1,390 @@
+Command & Conquer(tm) Generals Zero Hour
+
+IMPORTANT UPDATE FROM THE BATTLEFIELD
+
+© 2003 Electronic Arts Inc. All rights reserved.
+
+
+For latest news and updates visit GENERALS.EA.COM
+
+
+- - Incoming transmission - -
+ 
+General,
+
+Several of our loyal supporters have passed along intelligence that has allowed the Generals Intelligence Agency to uncover and repair several glitches in your Zero Hour tactical software.  Your software has been updated accordingly.
+
+Good luck.
+
+Generals Intelligence Agency
+
+
+- - End transmission - -
+
+Version 1.04 – March, 2005
+
+1. GLA WORKER - Slow supply gather rate problem fixed.
+
+2. Online lobby sorts alphabetically instead of by rank.
+
+3. MOUNTAIN FOX - Missing bridge bug fixed.
+
+
+Version 1.03 – February, 2005
+
+1. COMMAND CENTER CRASH- fixed the crash that would occur when upgrading a fake GLA command center.
+
+2. GARRISONED BUNKER CRASH- fixed the crash that would occur when a stealth bomber attacked a garrisoned bunker or palace.
+
+3. FIXED THE UNFINISHED BUILDING EXPLOIT
+* Scud Storm (All GLA Generals)
+* Firebase (all USA Generals)
+* Gattling Tower (all China Generals)
+* Patriot Missile (all USA Generals)
+* Tunnel Network (Stealth and Demolition Generals)
+
+4. WORKERS STOPPING- fixed the problem that would cause GLA workers to stop gathering resources when buying the Fortified Building Upgrade.
+
+5. GLA CAPTURING OPPONENT’S COMMAND CENTER- fixed an issue that caused the user’s general’s powers to become un-clickable after he captured an opponent’s command center.
+
+6. COLONEL BURTON- fixed the bug where he could destroy aircraft by knife-attack.
+
+7. TANK HUNTER- his explosives no longer disappear when he dies. Instead, they explode.
+
+8. SENTRY DRONES- no longer automatically engage on enemy units when stealthed.
+
+9. USA AIR FORCE GENERAL- the rangers are now specific to the faction, rather than being the default USA rangers. 
+
+10.  COMANCHES- now get the red rocket trails when they achieve heroic rank.
+
+11.  TEXT CHANGES- the tooltip for the Laser Defense Turret now indicates   the correct power usage. 
+
+12.  TOXIN GENERAL- Anthrax bomb now has Gamma toxin by default.
+
+13.  BOMB TRUCK DISGUISED AS AVENGER- now uses the correct Avenger Model.
+
+14.  ADDED NEW MAPS!
+
+15.  ALL USA GENERALS
+
+a. RAPTOR & STEALTH FIGHTER- fixed the laser missile upgrade.
+
+b. PILOT- displays upgrade cameos for chemical suits and advanced training.
+
+c. COMANCHE- 
+i. Blades no longer collide with anything.
+ii. Rocket pod “instant damage speed” removed.
+
+d. CHINOOK- 
+i. No longer takes damage from flashbangs.
+
+e. HUMVEE- transported units can now directly target air units.
+
+f. TOMAHAWK- now drop salvage crate when destroyed by GLA.
+
+g. SCOUT DRONE- Reduced effects of armor upgrade from 50% to 25%.
+
+h. HELLFIRE DRONE- Reduced effects of armor upgrade from 50% to 25%.
+
+i. SPY DRONE- now displays the upgrade cameo for drone armor.
+
+j. FIREBASE- Armor adjusted to be vulnerable to snipers and immune to melee and laser damage.
+
+k. SENTRY DRONE- 
+i. Benefits from drone armor upgrade granting 25% bonus.
+
+l. AVENGER-	
+i. Laser turret no longer has sight range.
+ii. Composite armor upgrade has been removed.
+iii. Now displays cameo for hellfire drone.
+iv. Damage received vs. jet missiles improved from 30% to 23%.
+v. Fixed the bug where the map would become slightly uncovered when building an avenger.
+vi. Locomotor has been corrected.
+
+m. BATTLE DRONE- Increased vehicle repair rate from 5 to 10 points per second.
+
+n. FLASHBANGS- increased primary damage from 25 to 35.
+
+o. SPECTRE GUNSHIP- level 1 hit points decreased from 1000 to 600.
+
+
+
+16.  USA (BASE FACTION)
+
+a. SPECTRE GUNSHIP- now grants less experience when killed.
+
+b. POWER PLANT – now displays upgrade cameo for control rods.
+
+c. SUPPLY DROP ZONE- now displays upgrade cameo for supply lines.
+
+d. PALADIN- now displays the upgrade cameo for hellfire drone.
+
+
+17.  USA AIR FORCE GENERAL
+
+a. COMANCHE- now displays upgrade for stealth upgrade. 
+
+b. POWER PLANT- now displays upgrade cameo for control rods.
+
+c. SUPPLY CENTER- now displays upgrade cameo for supply lines.
+
+d. SUPPLY DROP ZONE- - now displays upgrade cameo for supply lines.
+
+e. CHINOOK- build time increased from 15 to 25 seconds.
+
+f. KING RAPTOR- laser guided missile only increased damage by 12% rather than 25% for the other factions.
+
+g. AURORA- 
+i. Bomb damage increased from 900 to 1000. 
+ii. Bomb damage radius increased from 70 to 100.
+
+h. CARPET BOMBER- now has to be activated in the general’s experience menu (Level 1 – experience point). Is deployed from the Strategy Center.
+
+
+18.  USA LASER GENERAL
+
+a. LASER DEFENSE TURRET– correct number of Rangers appear when destroyed.
+
+19.  USA SUPERWEAPON GENERAL
+
+a. AURORA ALPHA- 
+i. New unique model. 
+ii. Secondary attack damage decreased from 1000 to 900. 
+iii. Secondary attack range decreased from 100 to 70.
+
+b. BATTLE DRONE- reduced drone armor upgrade from 50% to 25%.
+
+c. PATRIOT BATTERY- now spawns rangers when destroyed.
+
+d. DAISY CUTTER FUEL BOMB-
+i. Damage reduced from 1000 to 900.
+ii. Damage radius reduced from 100 to 70.
+
+e. Avenger- 
+i. Now available without the Strategy Center.
+ii. Decreased price from 2400 to 2000.
+
+20.  ALL CHINA GENERALS
+
+a. PROPAGANDA TOWER- now displays the upgrade cameo for subliminal messaging.
+
+b. INTERNET CENTER- now displays the upgrade cameo for satellite hack 1 and 2.
+
+c. GATTLING TANK- experience required to level up is more spread out (gets to level 2 sooner and to level 3 later).
+
+d. INFERNO CANNON- 
+i. It only takes three shots to trigger a napalm firestorm (down from six).
+
+e. NAPALM MISSILES- 
+i. Now inflicts burning death instead of explosion death.
+ii. Range reduced from 320 to 300.
+
+
+21.  CHINA (BASE FACTION)
+
+a. HELIX- now displays upgrade cameo for black napalm.
+
+b. INFERNO CANNON- Speed increased from 20 to 30.
+
+
+22.  CHINA INFANTRY GENERAL
+
+a. MINI GUNNER- 
+i. Now displays upgrade cameo for capture building.
+ii. Reduced price from 400 to 350.
+iii. Range reduced from 125 to 115.
+
+b. ASSAULT TROOP CRAWLER- 
+i. Decreased heal rate to 2% (non-upgraded) and 4% (upgraded).
+ii. Now displays the upgrade cameo for subliminal messaging.
+
+c. ATTACK OUTPOST- 
+i. Now displays the upgrade cameo for subliminal messaging
+ii. Decreased slots from 10 to 8.
+iii. Decreased included Tank Hunters from 4 to 3. 
+iv. Decreased health from 350 to 300
+v. Decreased heal rate to 1% (non-upgraded) and 2% (upgraded).
+
+d. ASSAULT HELIX- 
+i. Decreased health from 300 to 265.
+ii. Can now build special bunker and drop napalm bombs.
+
+
+23.  CHINA NUKE GENERAL
+
+a. RADIATION FIELDS
+i. Changed ambient sound to toxic ambient sound.
+ii. Reduced health from 120 to 100 allowing medics to clean them up faster.
+iii. Increased lifetime from 2.5 seconds to 10 seconds.
+iv. Now uses toxic FX on death.
+v. Reduced geometry radius from 10 to 6. 
+vi. Damage radius is now smaller.
+
+b. HELIX- now displays upgrade cameo for nuke bomb. 
+
+c. MIG- removed upgrade cameo for black napalm, since it is not available.
+
+d. BATTLEMASTER- now displays upgrade cameo for isotope stability.
+
+e. CARPET BOMB- delay increased from 2:30 to 3:00.
+
+f. TROOPCRAWLER- Now contains the Tank General’s Red Guard rather than base China’s.
+
+
+24.  CHINA TANK GENERAL
+
+a. TROOPCRAWLER- 
+i. Increased price from 1200 to 1400.
+ii. Now contains the Tank General’s Red Guard rather than base China’s.
+
+b. GATTLING TANK- evened out the experience points needed to level up (0 – 80 – 200 – 300).
+
+
+25.  ALL GLA GENERALS
+
+a. QUAD CANNONS- 
+i. Now 50% more resistant to fire damage.
+ii. Damage with the AP upgrade is now sequentially higher after each weapon crate upgrade. Previously, damage was slightly reduced after the second upgrade.
+
+b. ALL BUILDINGS- now display upgrade cameo for fortified structure (when appropriate).
+
+c. SCUD LAUNCHER- now drops salvage crate when destroyed by GLA.
+
+d. RADAR VAN- stealth detection range increased from 200 to 250. 
+
+e. BATTLE BUS- 	
+i. Transported units can directly target air units.
+ii. Decreased speed from 75 to 70.
+
+f. SCUD MISSILES- Can now do damage to structures
+
+g. MARAUDER- weapon range increased from 150 to 170.
+
+h. TECHNICAL-
+i. Cannon (salvage upgrade) damage now has different properties.
+ii. Machine gun damage reduced from 15 to 10.
+iii. Damage increases when purchasing AP Bullets after the second salvage upgrade.
+
+i. HIJACKER- can no longer capture the battle bus, when occupied.
+
+
+26.  GLA (BASE FACTION)
+
+a. SCUD STORM, SCORPION- now displays upgrade cameo for Anthrax Beta.
+
+b. REBEL- now displays upgrade cameo for Booby Traps.
+
+c. BOMB TRUCK- now displays upgrade cameo for Anthrax Beta.
+
+d. TECHNICAL- increased build time from 3 to 5.
+
+e. SABOTEUR- now available in barracks after the war factory is built.
+
+f. TUNNEL NETWORK- damage caused by gun increased from 10 to 15.
+
+g. MARAUDER TANK-
+i. Armor increased from 430 to 500. 
+ii. Weapon range increased from 150 to 170. 
+
+
+27.  GLA DEMO GENERAL
+
+a. Most units that can commit suicide only explode when committing suicide and not when they are destroyed.
+
+b. TECHNICAL- 
+i. Increased build time from 3 to 5 seconds.
+ii. With the demolition upgrade, the technical can only explode by manual command. 
+
+c. TERRORIST- the explosion power increased.
+
+d. TUNNEL NETWORK- damage caused by gun increased from 10 to 15.
+
+e. MARAUDER TANK-
+i. Health increased from 430 to 500. 
+ii. Weapon range increased from 150 to 170. 
+
+f. JARMEN KELL- can no longer detect stealthed units.
+
+
+28.  GLA TOXIN GENERAL
+
+a. ANTHRAX GAMMA UPGRADE- price increased from 1000 to 1500.
+
+b. RPGs- the effect of gamma upgrade has been reduced.
+
+c. TECHNICAL- increased build time from 3 to 5.
+
+d. MARAUDER TANK-
+i. Health increased from 430 to 500. 
+ii. Weapon range increased from 150 to 170. 
+
+29.  GLA STEALTH GENERAL
+
+a. TECHNICAL- increased build time from 3 to 5.
+
+b. TUNNEL NETWORK- damage caused by gun increased from 10 to 15.
+
+c. SABOTEUR- now available in barracks after the war factory is built.
+
+
+
+Version 1.02 – December, 2003
+
+Issues addressed:
+
+
+30. MISSING PARTICLE EFFECTS - Fixed instances of missing particle effects during certain explosions.
+
+
+Version 1.01 – December, 2003
+
+Issues addressed:
+
+1.  ADDED NEW MULTIPLAYER MAPS
+* Death Valley
+* Forgotten Forest
+* Hostile Dawn
+* Iron Dragon
+* Mountain Fox
+* North America
+* Red Rock
+* Seaside Mutiny
+* Dogs of War
+* Manic Aggression
+* Floodplains
+* The Frontline
+
+2.  TUNNEL NETWORK SPEED – Reduced the build time of GLA Tunnel Networks to match that of Generals.
+
+3.  IMPROVED ONLINE STATS - Made improvements to the code that tracks statistics for multiplayer ranks and battle honors in Generals Online.
+
+4.  NEW COMMAND LINE PARAMETERS – Added “-quickstart” and “-mod” command line parameters to the Zero Hour executable.
+
+5.  BALANCE FIXES – Addressed balance issues for Jarmen Kell, the Pathfinder, and the Alpha Aurora Bomber.
+
+6.  DISAPPEARING SUPPLY DOCKS – Fixed an issue that caused supply docks to disappear during certain skirmish and LAN games.
+
+7.  CHINA HACKER FIX – Addressed an issue that caused Hackers located inside an Internet Center to stop hacking indefinitely after the structure is attacked by a Microwave Tank. Hackers now resume hacking after the Microwave Tank has stopped.
+
+8.  ADJUSTED CHAT SOUND EFFECT – Tweaked the audio cue for the communicator to only alert users to an incoming chat message. The audio cue will no longer sound for any non-chat related messages.
+
+9.  TEXT FIXES - Fixed text errors for the US Intelligence tooltip. It now correctly displays a five-minute recharge time, instead of two minutes. Also fixed text errors in the tooltips for the USA Drone Armor upgrade and China Nuclear Tank upgrades.
+
+10. CRASH BUGS – Addressed bugs that caused the game to crash if you drop a bunker buster on garrisoned Tunnel Networks; and if you attempt to garrison the castle in mission GLA05 with any more than 14 units. 
+
+11. BLACK LOTUS EXPLOIT – Fixed an issue that caused Black Lotus to capture buildings as she is moving. 
+
+12. GLA BUILDING DESTRUCTION – Units now no longer have to be given three separate orders to completely destroy a single GLA structure.
+
+13. GATTLING WEAPONS FIX – All Gattling weapons can no longer be made to fire through structures by force-firing.
+
+14. STEALTH UNITS – Fixed an issue that caused certain stealth units to appear on an enemy’s radar occasionally.
+
+15. GENERALS CHALLENGE DIFFICULTY – The Generals Challenge campaign will no longer reset its difficulty when restarting a new campaign with one already in progress.
+
+16. NUKE GENERAL MAP FIX – Addressed an issue that caused the Nuke General AI to build multiple Nuke Silos on top of each other.
+
+
+
+
+

@@ -1,0 +1,44 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\EA Games]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\EA Games\Command and Conquer Generals Zero Hour]
+"DisplayName"="Command and Conquer Generals Zero Hour"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Electronic Arts]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Electronic Arts\EA Games]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Electronic Arts\EA Games\Command and Conquer Generals Zero Hour]
+"Language"="english"
+"UserDataLeafName"="Command and Conquer Generals Zero Hour Data"
+"Version"=dword:00010004
+"MapPackVersion"=dword:00010000
+"InstallPath"="%d"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{F3E9C243-122E-4D6B-ACC1-E1FEC02F6CA1}]
+"AuthorizedCDFPrefix"=""
+"Comments"="Command & Conquer Generals Zero Hour"
+"Contact"="Customer Support Department"
+"DisplayVersion"="1.00.0000"
+"HelpLink"=hex(2):68,00,74,00,74,00,70,00,3a,00,2f,00,2f,00,65,00,61,00,74,00,\
+  65,00,63,00,68,00,2e,00,63,00,75,00,73,00,74,00,68,00,65,00,6c,00,70,00,2e,\
+  00,63,00,6f,00,6d,00,2f,00,00,00
+"HelpTelephone"="None"
+"InstallDate"="20100430"
+"InstallLocation"=""
+"NoModify"=dword:00000001
+"NoRemove"=dword:00000001
+"Publisher"="Electronic Arts"
+"Readme"=""
+"Size"=""
+"EstimatedSize"=dword:00133365
+"SystemComponent"=dword:00000001
+"URLInfoAbout"="http://www.ea.com"
+"URLUpdateInfo"="http://www.generals.ea.com/"
+"VersionMajor"=dword:00000001
+"VersionMinor"=dword:00000000
+"WindowsInstaller"=dword:00000001
+"Version"=dword:01000000
+"Language"=dword:00000409
+"DisplayName"="Command and ConquerTM Generals Zero Hour"

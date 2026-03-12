@@ -1,0 +1,107 @@
+// FILE: CashBountyPower.h /////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+//                                                                          
+//                       Electronic Arts Pacific.                          
+//                                                                          
+//                       Confidential Information                           
+//                Copyright (C) 2002 - All Rights Reserved                  
+//                                                                          
+//-----------------------------------------------------------------------------
+//
+//	created:	Aug 2002
+//
+//	Filename: 	CashBountyPower.h
+//
+//	
+//	purpose:	
+//
+//-----------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
+
+#pragma once
+
+#ifndef __CashBountyPower_H_
+#define __CashBountyPower_H_
+
+//-----------------------------------------------------------------------------
+// SYSTEM INCLUDES ////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// USER INCLUDES //////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+#include "GameLogic/Module/SpecialPowerModule.h"
+#include "Common/Science.h"
+//-----------------------------------------------------------------------------
+// FORWARD REFERENCES /////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+class Thing;
+class Player;
+
+//-----------------------------------------------------------------------------
+// TYPE DEFINES ///////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// INLINING ///////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// EXTERNALS //////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
+
+// FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+class CashBountyPowerModuleData : public SpecialPowerModuleData
+{
+
+public:
+
+#ifdef NOT_IN_USE
+	struct Upgrades
+	{
+		ScienceType									m_science;
+		Real												m_bounty;
+
+		Upgrades() : m_science(SCIENCE_INVALID), m_bounty(0)
+		{
+		}
+	};
+
+	std::vector<Upgrades>			m_upgrades;
+#endif
+	Real											m_defaultBounty;
+
+	CashBountyPowerModuleData( void );
+	static void buildFieldParse(MultiIniFieldParse& p);
+};
+
+//-------------------------------------------------------------------------------------------------
+/** The OCL upgrade module */
+//-------------------------------------------------------------------------------------------------
+class CashBountyPower : public SpecialPowerModule
+{
+
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( CashBountyPower, "CashBountyPower" )
+	MAKE_STANDARD_MODULE_MACRO_WITH_MODULE_DATA( CashBountyPower, CashBountyPowerModuleData );
+
+public:
+
+	CashBountyPower( Thing *thing, const ModuleData* moduleData );
+	// virtual destructor prototype defined by MemoryPoolObject
+
+	virtual void onObjectCreated();
+
+	//virtual void onBuildComplete();	///< This is called when you are a finished game object
+	virtual void onSpecialPowerCreation();	///< This is called when you are a finished game object
+	virtual void doSpecialPower( UnsignedInt commandOptions ) { return; }
+
+protected:
+
+	Real findBounty() const;
+
+};
+
+#endif // __CashBountyPower_H_

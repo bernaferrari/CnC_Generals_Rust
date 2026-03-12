@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo.lock for executables (keep for libraries)
+# Cargo.lock
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Debug files
+*.pdb
+
+# Rust-specific
+**/*.rs.bk
+*.orig

@@ -1,0 +1,20 @@
+Generated: 2026-03-06
+Scope: non-test source under Common/GameLogic/GameClient/GameEngineDevice
+
+Hard runtime stubs (todo!/unimplemented!/panic-not-implemented): 0
+
+Explicit runtime text markers ("placeholder implementation"/"This is a stub"/"stub implementation"/"not implemented"): 0
+
+Marker counts (TODO/FIXME/placeholder/stub):
+- Common/src: 49
+- GameLogic/src: 16
+- GameClient/src: 37
+- GameEngineDevice/src: 9
+- Total: 111
+
+Recently closed gaps (latest pass):
+- Shell/default image-window parity:
+  - `GameClient/src/gui/game_window.rs::default_draw_callback(...)` now matches C++ `W3DGameWinDefaultDraw` for `WIN_STATUS_IMAGE` windows.
+  - Rust no longer fills/tints/borders image-backed windows in the generic path; it now draws only the resolved mapped image with neutral color, while non-image windows keep the fill/border path.
+  - This closes a concrete startup-shell drift where `MainMenu.wnd:MainMenuParent`, `MainMenu.wnd:Logo`, and `MainMenu.wnd:MainMenuRuler` could be visibly darkened or blackened despite resolving valid textures.
+$(tail -n +11 /Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/STUB_BACKLOG_RUNTIME.txt)

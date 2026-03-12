@@ -1,0 +1,5 @@
+Log C:\Users\User\Desktop\Command and Conquer Generals & Command & Conquer Generals Zero Hour\#Command & Conquer Generals Zero Hour#\wb_DebugLogFileI.txt opened: Fri Apr 30 13:10:13 2010
+
+*** Initing Memory Manager prior to main!
+Log closed: Fri Apr 30 13:10:16 2010
+
