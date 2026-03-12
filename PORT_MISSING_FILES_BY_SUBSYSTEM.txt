@@ -1,0 +1,25 @@
+Missing file list based on expected Rust path using snake_case conversion of C++ relative paths.
+Include/ headers are listed separately because Rust has no direct header equivalents.
+
+[Common]
+Source missing:
+Include missing (no Rust header equivalents):
+
+[GameClient]
+Source missing:
+Include missing (no Rust header equivalents):
+
+[GameLogic]
+Source missing:
+Include missing (no Rust header equivalents):
+
+[GameNetwork]
+Source missing:
+Include missing (no Rust header equivalents):
+
+[Precompiled]
+Source missing:
+Source/Precompiled/PreRTS.cpp
+Include missing (no Rust header equivalents):
+Include/Precompiled/PreRTS.h
+

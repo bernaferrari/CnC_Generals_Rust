@@ -1,0 +1,64 @@
+#ifndef __MESH_DEFORM_DEFS_H
+#define __MESH_DEFORM_DEFS_H
+
+#include <Max.H>
+#include "Vector.H"
+
+///////////////////////////////////////////////////////////////////////////
+//
+//	Constants
+//
+///////////////////////////////////////////////////////////////////////////
+typedef enum
+{
+	VERT_POSITION		= 1,
+	VERT_COLORS			= 2,
+	BOTH					= VERT_POSITION | VERT_COLORS
+} DEFORM_CHANNELS;
+
+
+///////////////////////////////////////////////////////////////////////////
+//
+//	Structures
+//
+///////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////
+//
+//	VERT_INFO
+//
+//	Used to represent position or color information for a vertex.
+//
+///////////////////////////////////////////////////////////////////////////
+typedef struct _VERT_INFO
+{
+	_VERT_INFO (void)
+		:	index (0),
+			color_index (0),
+			value (0,0,0)				{ }
+
+	_VERT_INFO (int vert_index, const Point3 &point, int vert_color_index = 0)
+		:	index (vert_index),
+			color_index (vert_color_index),
+			value (point)				{ }
+
+	UINT			index;
+	UINT			color_index;
+	Point3		value;
+
+	// Don't care, DynamicVectorClass needs these
+	bool operator== (const _VERT_INFO &src) { return false; }
+	bool operator!= (const _VERT_INFO &src) { return true; }
+} VERT_INFO;
+
+
+///////////////////////////////////////////////////////////////////////////
+//
+//	Typedefs
+//
+///////////////////////////////////////////////////////////////////////////
+typedef DynamicVectorClass<VERT_INFO> DEFORM_LIST;
+
+
+#endif //__MESH_DEFORM_DEFS_H
+
