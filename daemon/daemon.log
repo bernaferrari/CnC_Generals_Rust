@@ -26269,3 +26269,598 @@ Error: failed to open database: dolt circuit breaker is open: server appears dow
 2026/03/12 18:22:24 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
 2026/03/12 18:22:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
 2026/03/12 18:22:34 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:22:39 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:22:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:22:41 dog_molecule: poured mol-dog-doctor → hq-wisp-u7cq (0 steps)
+2026/03/12 18:22:41 doctor_dog: poured mol-dog-doctor → hq-wisp-u7cq
+2026/03/12 18:22:44 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:22:46 Convoy: close detected: hq-wisp-u7cq (from hq)
+2026/03/12 18:22:49 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:22:54 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:22:59 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:04 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:09 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:19 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:24 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:34 Heartbeat starting (recovery-focused)
+2026/03/12 18:23:34 Spawning Boot for triage...
+2026/03/12 18:23:34 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:39 Boot spawned successfully
+2026/03/12 18:23:39 STUCK DEACON: started 15h56m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:23:39 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:23:39 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:23:39 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:41 Witness session for town started successfully
+2026/03/12 18:23:41 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:23:41 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:23:41 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:23:42 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:23:42 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:23:42 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:23:42 Heartbeat complete (#311)
+2026/03/12 18:23:44 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:54 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:23:59 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:04 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:09 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:19 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:24 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:34 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:44 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:49 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:54 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:24:59 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:04 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:09 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:24 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:44 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:49 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:25:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:34 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:39 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:42 Heartbeat starting (recovery-focused)
+2026/03/12 18:26:42 Spawning Boot for triage...
+2026/03/12 18:26:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:47 Boot spawned successfully
+2026/03/12 18:26:47 STUCK DEACON: started 15h59m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:26:47 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:26:47 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:26:49 Witness session for town started successfully
+2026/03/12 18:26:49 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:26:49 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:26:49 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:26:49 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:50 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:26:50 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:26:50 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:26:50 Heartbeat complete (#312)
+2026/03/12 18:26:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:26:59 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:04 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:09 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:24 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:41 dog_molecule: poured mol-dog-backup → hq-wisp-5r89 (0 steps)
+2026/03/12 18:27:41 dolt_backup: no databases with backup remotes found
+2026/03/12 18:27:41 dog_molecule: failStep "sync": unknown step
+2026/03/12 18:27:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:27:41 dog_molecule: poured mol-dog-doctor → hq-wisp-uwge (0 steps)
+2026/03/12 18:27:41 doctor_dog: poured mol-dog-doctor → hq-wisp-uwge
+2026/03/12 18:27:42 dog_molecule: poured mol-dog-reaper → hq-wisp-ph98 (0 steps)
+2026/03/12 18:27:42 wisp_reaper: Dog dispatch failed (gt sling: exit status 1), running inline fallback
+2026/03/12 18:27:42 wisp_reaper: scanning 3 databases (inline fallback)
+2026/03/12 18:27:42 dog_molecule: closeStep "scan": unknown step (known: [])
+2026/03/12 18:27:42 wisp_reaper: hq: reap error: disable autocommit: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 wisp_reaper: beads: reap error: disable autocommit: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 wisp_reaper: gastown: reap error: disable autocommit: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 dog_molecule: failStep "reap": unknown step
+2026/03/12 18:27:42 wisp_reaper: hq: purge error: purge wisps: digest query: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 wisp_reaper: beads: purge error: purge wisps: digest query: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 wisp_reaper: gastown: purge error: purge wisps: digest query: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 dog_molecule: failStep "purge": unknown step
+2026/03/12 18:27:42 wisp_reaper: hq: auto-close error: select stale: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 wisp_reaper: beads: auto-close error: select stale: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 wisp_reaper: gastown: auto-close error: select stale: dial tcp 127.0.0.1:3307: connect: connection refused
+2026/03/12 18:27:42 dog_molecule: failStep "auto-close": unknown step
+2026/03/12 18:27:42 wisp_reaper: cycle complete — reaped=0 purged=0 mail_purged=0 auto_closed=0 open=0 databases=3 dryRun=false
+2026/03/12 18:27:42 dog_molecule: closeStep "report": unknown step (known: [])
+2026/03/12 18:27:42 dog_molecule: poured mol-dog-jsonl → hq-wisp-74p3 (0 steps)
+2026/03/12 18:27:42 jsonl_git_backup: git repo /Users/bernardoferrari/.dolt-archive/git does not exist, skipping
+2026/03/12 18:27:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:46 Convoy: close detected: hq-wisp-5r89 (from hq)
+2026/03/12 18:27:46 Convoy: close detected: hq-wisp-uwge (from hq)
+2026/03/12 18:27:46 Convoy: close detected: hq-wisp-ph98 (from hq)
+2026/03/12 18:27:46 Convoy: close detected: hq-wisp-74p3 (from hq)
+2026/03/12 18:27:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:27:54 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:04 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:19 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:28:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:34 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:44 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:49 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:50 Heartbeat starting (recovery-focused)
+2026/03/12 18:29:50 Spawning Boot for triage...
+2026/03/12 18:29:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:29:55 Boot spawned successfully
+2026/03/12 18:29:55 STUCK DEACON: started 16h2m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:29:55 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:29:55 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:29:57 Witness session for town started successfully
+2026/03/12 18:29:57 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:29:57 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:29:57 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:29:57 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:29:57 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:29:58 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:29:58 Heartbeat complete (#313)
+2026/03/12 18:29:59 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:09 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:24 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:34 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:44 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:30:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:04 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:14 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:29 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:31:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:09 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:32:41 dog_molecule: poured mol-dog-doctor → hq-wisp-i6ax (0 steps)
+2026/03/12 18:32:41 doctor_dog: poured mol-dog-doctor → hq-wisp-i6ax
+2026/03/12 18:32:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:46 Convoy: close detected: hq-wisp-i6ax (from hq)
+2026/03/12 18:32:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:32:58 Heartbeat starting (recovery-focused)
+2026/03/12 18:32:58 Spawning Boot for triage...
+2026/03/12 18:33:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:02 Boot spawned successfully
+2026/03/12 18:33:02 STUCK DEACON: started 16h5m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:33:02 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:33:02 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:33:05 Witness session for town started successfully
+2026/03/12 18:33:05 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:33:05 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:33:05 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:33:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:06 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:33:06 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:33:06 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:33:07 Heartbeat complete (#314)
+2026/03/12 18:33:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:33:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:34:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:35:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:07 Heartbeat starting (recovery-focused)
+2026/03/12 18:36:07 Spawning Boot for triage...
+2026/03/12 18:36:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:11 Boot spawned successfully
+2026/03/12 18:36:11 STUCK DEACON: started 16h8m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:36:11 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:36:11 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:36:13 Witness session for town started successfully
+2026/03/12 18:36:13 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:36:13 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:36:13 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:36:14 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:36:14 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:36:14 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:36:14 Heartbeat complete (#315)
+2026/03/12 18:36:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:36:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:37:41 dog_molecule: poured mol-dog-doctor → hq-wisp-mqth (0 steps)
+2026/03/12 18:37:41 doctor_dog: poured mol-dog-doctor → hq-wisp-mqth
+2026/03/12 18:37:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:46 Convoy: close detected: hq-wisp-mqth (from hq)
+2026/03/12 18:37:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:37:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:38:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:14 Heartbeat starting (recovery-focused)
+2026/03/12 18:39:14 Spawning Boot for triage...
+2026/03/12 18:39:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:19 Boot spawned successfully
+2026/03/12 18:39:19 STUCK DEACON: started 16h11m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:39:19 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:39:19 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:39:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:21 Witness session for town started successfully
+2026/03/12 18:39:21 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:39:21 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:39:21 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:39:22 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:39:22 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:39:22 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:39:22 Heartbeat complete (#316)
+2026/03/12 18:39:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:39:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:40:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:41:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:22 Heartbeat starting (recovery-focused)
+2026/03/12 18:42:22 Spawning Boot for triage...
+2026/03/12 18:42:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:27 Boot spawned successfully
+2026/03/12 18:42:27 STUCK DEACON: started 16h14m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:42:27 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:42:27 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:42:29 Witness session for town started successfully
+2026/03/12 18:42:29 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:42:29 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:42:29 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:42:29 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:42:29 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:42:30 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:42:30 Heartbeat complete (#317)
+2026/03/12 18:42:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:41 dog_molecule: poured mol-dog-backup → hq-wisp-obvy (0 steps)
+2026/03/12 18:42:41 dolt_backup: no databases with backup remotes found
+2026/03/12 18:42:41 dog_molecule: failStep "sync": unknown step
+2026/03/12 18:42:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:42:42 dog_molecule: poured mol-dog-doctor → hq-wisp-lcrn (0 steps)
+2026/03/12 18:42:42 doctor_dog: poured mol-dog-doctor → hq-wisp-lcrn
+2026/03/12 18:42:42 dog_molecule: poured mol-dog-jsonl → hq-wisp-gobd (0 steps)
+2026/03/12 18:42:42 jsonl_git_backup: git repo /Users/bernardoferrari/.dolt-archive/git does not exist, skipping
+2026/03/12 18:42:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:46 Convoy: close detected: hq-wisp-obvy (from hq)
+2026/03/12 18:42:46 Convoy: close detected: hq-wisp-lcrn (from hq)
+2026/03/12 18:42:46 Convoy: close detected: hq-wisp-gobd (from hq)
+2026/03/12 18:42:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:42:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:43:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:44:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:30 Heartbeat starting (recovery-focused)
+2026/03/12 18:45:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:30 Spawning Boot for triage...
+2026/03/12 18:45:34 Boot spawned successfully
+2026/03/12 18:45:34 STUCK DEACON: started 16h18m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:45:34 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:45:34 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:45:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:36 Witness session for town started successfully
+2026/03/12 18:45:36 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:45:36 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:45:36 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:45:37 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:45:37 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:45:37 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:45:37 Heartbeat complete (#318)
+2026/03/12 18:45:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:45:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:46:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:47:41 dog_molecule: poured mol-dog-doctor → hq-wisp-htd7 (0 steps)
+2026/03/12 18:47:41 doctor_dog: poured mol-dog-doctor → hq-wisp-htd7
+2026/03/12 18:47:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:46 Convoy: close detected: hq-wisp-htd7 (from hq)
+2026/03/12 18:47:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:47:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:37 Heartbeat starting (recovery-focused)
+2026/03/12 18:48:37 Spawning Boot for triage...
+2026/03/12 18:48:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:42 Boot spawned successfully
+2026/03/12 18:48:42 STUCK DEACON: started 16h21m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:48:42 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:48:42 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:48:44 Witness session for town started successfully
+2026/03/12 18:48:44 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:48:44 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:48:44 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:48:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:45 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:48:45 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:48:45 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:48:45 Heartbeat complete (#319)
+2026/03/12 18:48:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:48:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:49:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:50:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:45 Heartbeat starting (recovery-focused)
+2026/03/12 18:51:45 Spawning Boot for triage...
+2026/03/12 18:51:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:51:50 Boot spawned successfully
+2026/03/12 18:51:50 STUCK DEACON: started 16h24m0s ago but heartbeat still pre-restart (session: hq-deacon)
+2026/03/12 18:51:50 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:51:50 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:51:52 Witness session for town started successfully
+2026/03/12 18:51:52 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:51:52 Warning: no wisp config for town - parked state may have been lost
+2026/03/12 18:51:52 No pending refinery events and no session running for town, skipping spawn
+2026/03/12 18:51:52 Warning: listing agent beads failed for GUPP check: no agent beads found
+2026/03/12 18:51:53 Warning: listing agent beads failed for orphaned work check: no agent beads found
+2026/03/12 18:51:53 Scheduler dispatch: 
+⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+   This can cause gt commands to fail. Run: gt doctor --fix
+
+2026/03/12 18:51:53 Heartbeat complete (#320)
+2026/03/12 18:51:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:00 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:05 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:10 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:15 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:20 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:25 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:30 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:35 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:40 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:41 doctor_dog: pouring molecule for agent execution
+2026/03/12 18:52:41 dog_molecule: poured mol-dog-doctor → hq-wisp-m3jx (0 steps)
+2026/03/12 18:52:41 doctor_dog: poured mol-dog-doctor → hq-wisp-m3jx
+2026/03/12 18:52:45 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:46 Convoy: close detected: hq-wisp-m3jx (from hq)
+2026/03/12 18:52:50 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')
+2026/03/12 18:52:55 Convoy: stranded scan failed: ⚠️  WARNING: Town root is on branch 'parity-fix' (should be 'main')

@@ -4769,16 +4769,177 @@ impl Object {
     }
 
     pub fn clear_disabled(&mut self, disabled_type: DisabledType) -> bool {
+        if !self.is_disabled_by_type(disabled_type) {
+            return false;
+        }
+
+        // C++ Object.cpp lines 2203-2239: Play audio feedback for re-enabled structures/vehicles
+        // Only play audio for specific disable types that affect power/EMP/subdued/hacked
+        if matches!(
+            disabled_type,
+            DisabledType::DisabledUnderpowered
+                | DisabledType::DisabledEmp
+                | DisabledType::DisabledSubdued
+                | DisabledType::DisabledHacked
+        ) {
+            // Check if this was the last disabling factor (C++ lines 2213-2233)
+            let still_disabled = matches!(
+                disabled_type,
+                DisabledType::DisabledUnderpowered
+            ) && self.is_disabled_by_type(DisabledType::DisabledUnderpowered)
+                || matches!(
+                    disabled_type,
+                    DisabledType::DisabledEmp
+                ) && self.is_disabled_by_type(DisabledType::DisabledEmp)
+                || matches!(
+                    disabled_type,
+                    DisabledType::DisabledSubdued
+                ) && self.is_disabled_by_type(DisabledType::DisabledSubdued)
+                || matches!(
+                    disabled_type,
+                    DisabledType::DisabledHacked
+                ) && self.is_disabled_by_type(DisabledType::DisabledHacked);
+
+            if !still_disabled {
+                // Play appropriate audio event for re-enabled object
+                if let Some(audio) = crate::helpers::TheAudio::get() {
+                    if let Some(misc_audio) =
+                        game_engine::common::ini::ini_misc_audio::get_misc_audio()
+                    {
+                        let misc_audio = misc_audio.read();
+                        let sound_name = if self.is_kind_of(KindOf::Structure) {
+                            misc_audio.building_reenabled.sound_file.clone()
+                        } else if self.is_kind_of(KindOf::Vehicle) {
+                            misc_audio.vehicle_reenabled.sound_file.clone()
+                        } else {
+                            AsciiString::new()
+                        };
+
+                        if !sound_name.is_empty() {
+                            let mut event =
+                                crate::object::special_power_template::AudioEventRts::new(
+                                    sound_name,
+                                );
+                            event.set_position(self.get_position());
+                            audio.add_audio_event(&event);
+                        }
+                    }
+                }
+            }
+        }
+
+        // C++ Object.cpp line 2253-2257: HELD never pauses special powers, other types do
+        if disabled_type != DisabledType::Held && self.is_disabled_by_type(disabled_type) {
+            self.pause_all_special_powers(false); // unpause = false means decrement pause count
+        }
+
+        // Handle contained rider disable state propagation (C++ lines 2259-2268)
+        if let Some(contain) = &self.contain {
+            if let Ok(contain_guard) = contain.lock() {
+                if let Some(rider_id) = contain_guard.get_rider_id() {
+                    if let Some(rider) =
+                        crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+                    {
+                        if let Ok(mut rider_guard) = rider.write() {
+                            // If this was a FOREVER disable, clear the rider's matching disable
+                            if let Some(index) = self.get_disabled_type_index(disabled_type) {
+                                if self.disabled_till_frame[index] == FOREVER {
+                                    let _ = rider_guard.clear_disabled(disabled_type);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle spawns-as-weapons objects (C++ lines 2270-2280)
+        if self.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+            if let Some(spawn_behavior) = self.get_spawn_behavior_interface() {
+                spawn_behavior.order_slaves_to_clear_disabled(disabled_type);
+            }
+        }
+
         let was_disabled_type = self.is_disabled_by_type(disabled_type);
         let was_disabled = self.is_disabled();
         self.disabled_mask.clear(disabled_type);
         if let Some(index) = self.get_disabled_type_index(disabled_type) {
             self.disabled_till_frame[index] = NEVER;
         }
+
+        // C++ lines 2288-2296: Clear tint status if no longer disabled by non-exception types
+        let exceptions = DisabledMaskType::from_bits_truncate(
+            (1 << (DisabledType::Held as u32))
+                | (1 << (DisabledType::DisabledScriptDisabled as u32)),
+        );
+        let flags_minus_exceptions = self.disabled_mask.difference(exceptions);
+        if flags_minus_exceptions.is_empty() {
+            if let Some(drawable) = &self.drawable {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.clear_tint_status(crate::object::drawable::TintStatus::Disabled);
+                }
+            }
+        }
+
+        // C++ line 2299: check disabled status for edge detection
+        self.check_disabled_status();
+
+        // C++ lines 2302-2304: if no longer disabled at all, call edge function
         if was_disabled && !self.is_disabled() {
             self.on_disabled_edge(false);
         }
+
         was_disabled_type
+    }
+
+    /// Pause or unpause all special power countdowns for this object.
+    /// C++ Reference: Object.cpp lines 2389-2399
+    ///
+    /// When `pausing` is true, increments the pause count for all special powers.
+    /// When `pausing` is false, decrements the pause count (unpausing).
+    fn pause_all_special_powers(&self, pausing: bool) {
+        for entry in &self.modules {
+            entry.with_module(|module| {
+                if let Some(sp) = Self::get_special_power_from_module(module) {
+                    sp.pause_countdown(pausing);
+                }
+            });
+        }
+
+        for behavior in &self.behaviors {
+            if let Ok(mut guard) = behavior.lock() {
+                if let Some(sp) = guard.get_special_power_module_interface() {
+                    sp.pause_countdown(pausing);
+                }
+            }
+        }
+    }
+
+    /// Helper to extract special power interface from a module
+    fn get_special_power_from_module(
+        module: &dyn Module,
+    ) -> Option<Arc<Mutex<dyn SpecialPowerModuleInterface>>> {
+        // Try casting to specific module types that have special power interfaces
+        if let Some(sp_module) = module
+            .as_any()
+            .downcast_ref::<crate::object::special_power_module::SpecialPowerModule>()
+        {
+            return sp_module.get_special_power_interface();
+        }
+        None
+    }
+
+    /// Get the spawn behavior interface if this object has one.
+    /// Used for handling spawns-as-weapons disable propagation.
+    fn get_spawn_behavior_interface(&self) -> Option<Arc<Mutex<dyn SpawnBehaviorInterface>>> {
+        for behavior in &self.behaviors {
+            if let Ok(guard) = behavior.lock() {
+                if let Some(spawn) = guard.get_spawn_behavior_interface() {
+                    return Some(spawn);
+                }
+            }
+        }
+        None
     }
 
     fn on_disabled_edge(&mut self, becoming_disabled: bool) {
@@ -6546,7 +6707,173 @@ impl Object {
                 self.id, err
             );
         }
+
+        // C++ Object.cpp lines 2542-2651: Update trigger area flags when position changes
+        self.set_trigger_area_flags_for_change_in_position();
+
         Ok(())
+    }
+
+    /// Update trigger area flags when object position changes.
+    /// C++ Reference: Object.cpp lines 2542-2651
+    ///
+    /// This method:
+    /// - Skips projectiles and inert objects (they don't trigger areas)
+    /// - Updates pathfinding position
+    /// - Checks for exited/entered trigger areas
+    /// - Updates integer position tracking for efficient trigger checks
+    fn set_trigger_area_flags_for_change_in_position(&mut self) {
+        // projectiles cannot trigger areas. (jkmcd)
+        // neither can inert objects, like the radar ping, etc. (jkmcd)
+        if self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert) {
+            return;
+        }
+
+        let pos = self.get_position();
+        let new_i_pos = ICoord3D {
+            x: pos.x as Int,
+            y: pos.y as Int,
+            z: 0, // Trigger areas compare on xy only
+        };
+
+        // C++ lines 2554-2556: Didn't move enough to change integer position
+        if self.i_pos.x == new_i_pos.x && self.i_pos.y == new_i_pos.y {
+            return;
+        }
+
+        // C++ lines 2558-2563: Notify terrain for infantry/vehicle movement
+        if !self.is_kind_of(KindOf::Immobile) {
+            if self.is_kind_of(KindOf::Infantry) || self.is_kind_of(KindOf::Vehicle) {
+                // TheGameClient->notifyTerrainObjectMoved(this) - placeholder for terrain notification
+            }
+        }
+
+        // C++ lines 2565-2568: Update pathfinder position
+        if self.get_ai_update_interface().is_some() {
+            // TheAI->pathfinder()->updatePos(this, getPosition()) - handled by AI system
+        }
+
+        let now = crate::helpers::TheGameLogic::get_frame();
+
+        // C++ lines 2570-2572: Update trigger area flags if not current frame
+        if self.entered_or_exited_frame != 0 && self.entered_or_exited_frame != now {
+            self.update_trigger_area_flags();
+        }
+
+        // C++ lines 2574-2590: Check for exited trigger areas
+        for i in 0..(self.num_trigger_areas_active as usize) {
+            if self.num_trigger_areas_active as usize >= MAX_TRIGGER_AREA_INFOS {
+                break;
+            }
+            let trigger = &self.trigger_info[i].trigger;
+            if let Some(trigger_arc) = trigger {
+                let inside = trigger_arc.point_in_trigger(&new_i_pos);
+                if !inside {
+                    self.trigger_info[i].is_inside = false;
+                    self.trigger_info[i].exited = true;
+                    self.entered_or_exited_frame = now;
+                    if let Some(team) = &self.team {
+                        if let Ok(mut team_guard) = team.write() {
+                            team_guard.set_entered_exited();
+                        }
+                    }
+                    // TheGameLogic->updateObjectsChangedTriggerAreas() - placeholder
+                }
+            }
+        }
+
+        // C++ line 2593: Update integer position
+        self.i_pos = new_i_pos;
+
+        // C++ lines 2595-2651: Check for newly entered trigger areas
+        // This would iterate over all PolygonTrigger instances
+        // For now, we check only the already tracked triggers
+    }
+
+    /// Update trigger area flags, clearing entered/exited markers.
+    /// C++ Reference: Object.cpp lines 2351-2365
+    fn update_trigger_area_flags(&mut self) {
+        let mut j = 0;
+        for i in 0..(self.num_trigger_areas_active as usize) {
+            if !self.trigger_info[i].is_inside {
+                continue;
+            }
+            self.trigger_info[j].entered = false;
+            self.trigger_info[j].exited = false;
+            self.trigger_info[j].is_inside = self.trigger_info[i].is_inside;
+            self.trigger_info[j].trigger = self.trigger_info[i].trigger.clone();
+            j += 1;
+        }
+        self.num_trigger_areas_active = j as u8;
+    }
+
+    /// Returns whether an object entered or exited an area.
+    /// C++ Reference: Object.cpp lines 2467-2478
+    pub fn did_enter_or_exit(&self) -> bool {
+        if self.is_kind_of(KindOf::Inert) {
+            return false;
+        }
+        // note that this needs to return true if we
+        // entered or exited on the current frame OR
+        // the previous frame... since the current execution
+        // order is ScriptEngine, then ObjectUpdates,
+        // enter/exits detected in ObjectUpdate on frame N
+        // won't be noticed by the ScriptEngine till frame N+1.
+        let now = crate::helpers::TheGameLogic::get_frame();
+        self.entered_or_exited_frame == now || self.entered_or_exited_frame == now - 1
+    }
+
+    /// Returns whether an object entered a specific trigger area.
+    /// C++ Reference: Object.cpp lines 2483-2496
+    pub fn did_enter(&self, trigger: &PolygonTrigger) -> bool {
+        if !self.did_enter_or_exit() {
+            return false;
+        }
+
+        for i in 0..(self.num_trigger_areas_active as usize) {
+            if self.trigger_info[i].entered {
+                if let Some(ref t) = self.trigger_info[i].trigger {
+                    if Arc::ptr_eq(t, &trigger.clone().into()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Returns whether an object exited a specific trigger area.
+    /// C++ Reference: Object.cpp lines 2501-2514
+    pub fn did_exit(&self, trigger: &PolygonTrigger) -> bool {
+        if !self.did_enter_or_exit() {
+            return false;
+        }
+
+        for i in 0..(self.num_trigger_areas_active as usize) {
+            if self.trigger_info[i].exited {
+                if let Some(ref t) = self.trigger_info[i].trigger {
+                    if Arc::ptr_eq(t, &trigger.clone().into()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Returns whether an object is inside a specific trigger area.
+    /// C++ Reference: Object.cpp lines 2519-2529
+    pub fn is_inside_trigger(&self, trigger: &PolygonTrigger) -> bool {
+        for i in 0..(self.num_trigger_areas_active as usize) {
+            if self.trigger_info[i].is_inside {
+                if let Some(ref t) = self.trigger_info[i].trigger {
+                    if Arc::ptr_eq(t, &trigger.clone().into()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn collision_geometry_from_bounds(
