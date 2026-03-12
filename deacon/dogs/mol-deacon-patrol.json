@@ -1,0 +1,34 @@
+{
+  "wisp": "mol-deacon-patrol",
+  "role": "deacon",
+  "created_at": "2026-03-12T02:28:00Z",
+  "completed_at": "2026-03-12T02:28:30Z",
+  "status": "completed",
+  "patrol_log": [
+    {
+      "timestamp": "2026-03-12T02:28:00Z",
+      "action": "heartbeat",
+      "result": "success"
+    },
+    {
+      "timestamp": "2026-03-12T02:28:00Z",
+      "action": "check_hook",
+      "result": "no_hook_assigned"
+    },
+    {
+      "timestamp": "2026-03-12T02:28:00Z",
+      "action": "check_mail",
+      "result": "inbox_empty"
+    },
+    {
+      "timestamp": "2026-03-12T02:28:00Z",
+      "action": "check_ready_work",
+      "result": "no_ready_work"
+    },
+    {
+      "timestamp": "2026-03-12T02:28:00Z",
+      "action": "dolt_status",
+      "result": "not_initialized_for_rig"
+    }
+  ]
+}

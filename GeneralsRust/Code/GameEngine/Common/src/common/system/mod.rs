@@ -59,7 +59,7 @@ pub use geometry::{
     BoundingBox, Coord3D, GeometryInfo, GeometryType, Matrix3D, Point2D, Point3D, Rectangle,
 };
 pub use snapshot::{Snapshot, SnapshotManager, Snapshotable};
-pub use subsystem_interface::SubsystemInterface;
+pub use subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState};
 pub use xfer::{
     Color, ICoord2D, ICoord3D, IRegion2D, IRegion3D, RGBAColorInt, RGBAColorReal, RGBColor,
     RealRange, Region2D, Region3D, Xfer, XferBlockSize, XferMode, XferOptions, XferStatus,

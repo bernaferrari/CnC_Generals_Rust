@@ -23,6 +23,7 @@ pub mod ini_control_bar_scheme;
 pub mod ini_crate;
 
 // Batch 2 (Converted)
+pub mod ini_audio_settings;
 pub mod ini_damage_fx;
 pub mod ini_draw_group_info;
 pub mod ini_game_data;
@@ -33,11 +34,30 @@ pub mod ini_misc_audio;
 pub mod ini_model;
 
 // Batch 3 (New parsers - Completed)
+pub mod ini_campaign;
+pub mod ini_challenge_generals;
+pub mod ini_credits;
+pub mod ini_eva_event;
 pub mod ini_fx_list;
+pub mod ini_game_lod;
+pub mod ini_language;
 pub mod ini_locomotor;
 pub mod ini_player_template;
+pub mod ini_rank;
 pub mod ini_road;
 pub mod ini_science;
+
+// Batch 4 (UI/Shell parsers)
+pub mod ini_mouse;
+pub mod ini_online_chat_colors;
+pub mod ini_shell_menu_scheme;
+pub mod ini_window_transition;
+
+// Batch 5 (Critical gameplay parsers - newly implemented)
+pub mod ini_command_map;
+pub mod ini_header_template;
+pub mod ini_in_game_ui;
+pub mod ini_script;
 
 // Placeholder modules for future batches
 pub mod ini_multiplayer;
@@ -52,10 +72,12 @@ pub mod ini_video;
 pub mod ini_water;
 pub mod ini_weapon;
 pub mod ini_webpage_url;
+pub mod ini_weather;
 
 // Re-export main types from the batch 1 modules
 pub use ini::{
     register_block_parser, FieldParse, INIError, INIFieldParseProc, INILoadType, INIResult, INI,
+    LookupListRec,
 };
 pub use ini_ai_data::{
     get_ai_data_store, get_ai_data_store_mut, parse_ai_data_definition, AIData, AiSideBuildList,
@@ -71,13 +93,19 @@ pub use ini_audio_event_info::{
 pub use ini_command_button::{parse_command_button_definition, CommandButton, ControlBar};
 pub use ini_command_set::{parse_command_set_definition, CommandSet};
 pub use ini_control_bar_scheme::{
-    parse_control_bar_scheme_definition, ControlBarScheme, ControlBarSchemeManager,
+    ensure_control_bar_scheme_manager, get_control_bar_scheme_manager,
+    parse_control_bar_scheme_definition, set_scheme_draw_func, ControlBarScheme,
+    ControlBarSchemeManager, SchemeDrawFunc, SchemeImage,
 };
 pub use ini_crate::{
     parse_crate_template_definition, CrateContentType, CrateRarity, CrateSystem, CrateTemplate,
 };
 
 // Re-export main types from batch 2 modules
+pub use ini_audio_settings::{
+    get_audio_settings, get_audio_settings_read, get_audio_settings_write, init_global_audio_settings,
+    parse_audio_settings_definition, AudioSettings, SpeakerType, MAX_HW_PROVIDERS,
+};
 pub use ini_damage_fx::{parse_damage_fx_definition, DamageFX, DamageFXStore, DamageType};
 pub use ini_draw_group_info::{
     parse_draw_group_number_definition, Color, DrawGroupInfo, FontInfo, PositionOffset,
@@ -93,7 +121,8 @@ pub use ini_map_data::{
     parse_map_data_definition, MapBounds, MapCamera, MapData, MapEnvironment, MapLighting,
 };
 pub use ini_mapped_image::{
-    parse_mapped_image_definition, ICoord2D, Image, ImageCollection, ImageStatus, Region2D,
+    get_mapped_image_collection, parse_mapped_image_definition, ICoord2D, Image, ImageCollection,
+    ImageStatus, Region2D,
 };
 pub use ini_misc_audio::{parse_misc_audio, AudioEventRTS, MiscAudio};
 pub use ini_model::{
@@ -102,14 +131,46 @@ pub use ini_model::{
 pub use ini_player_template::parse_player_template_definition;
 
 // Re-export main types from batch 3 modules (new parsers)
+pub use ini_campaign::{
+    get_campaign_store, get_campaign_store_mut, init_campaign_store, parse_campaign_definition,
+    Campaign, CampaignStore, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
+};
+pub use ini_challenge_generals::{
+    get_challenge_generals, get_challenge_generals_mut, init_challenge_generals,
+    parse_challenge_generals_definition, ChallengeGenerals, GeneralPersona, NUM_GENERALS,
+};
+pub use ini_credits::{
+    get_credits_manager, get_credits_manager_mut, init_credits_manager, parse_credits_definition,
+    CreditStyle, CreditsLine, CreditsManager, CREDIT_SPACE_OFFSET,
+};
+pub use ini_eva_event::{
+    get_eva_event_store, get_eva_event_store_mut, init_eva_event_store, parse_eva_event_definition,
+    EvaCheckInfo, EvaEventStore, EvaMessage, EvaSideSounds,
+};
 pub use ini_fx_list::{
     get_fx_list_store, get_fx_list_store_mut, parse_fx_list_definition, FXList, FXListError,
     FXListResult, FXListStore, FXNugget,
+};
+pub use ini_game_lod::{
+    get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager,
+    parse_bench_profile, parse_dynamic_game_lod_definition, parse_lod_preset,
+    parse_really_low_mhz, parse_static_game_lod_definition, BenchProfile, ChipsetType,
+    CpuType, DynamicGameLODInfo, DynamicGameLODLevel, GameLODManager, LODPresetInfo,
+    ParticlePriorityType, StaticGameLODInfo, StaticGameLODLevel, MAX_BENCH_PROFILES,
+    MAX_LOD_PRESETS_PER_LEVEL,
+};
+pub use ini_language::{
+    get_global_language, get_global_language_read, get_global_language_write, init_global_language,
+    parse_language_definition, FontDesc, GlobalLanguage, LANGUAGE_FIELD_PARSE_TABLE,
 };
 pub use ini_locomotor::{
     get_locomotor_store, get_locomotor_store_mut, parse_locomotor_template_definition,
     LocomotorAppearance, LocomotorBehaviorZ, LocomotorError, LocomotorPriority, LocomotorResult,
     LocomotorStore, LocomotorSurfaceTypeMask, LocomotorTemplate,
+};
+pub use ini_rank::{
+    get_rank_info_store, get_rank_info_store_mut, init_rank_info_store, parse_rank_definition,
+    RankError, RankInfo, RankInfoStore, RankResult,
 };
 pub use ini_road::{
     get_terrain_roads, get_terrain_roads_mut, parse_terrain_bridge_definition,
@@ -119,6 +180,28 @@ pub use ini_road::{
 pub use ini_science::{
     get_science_store, get_science_store_mut, parse_science_definition, ScienceError, ScienceInfo,
     ScienceResult, ScienceStore, ScienceType,
+};
+
+// Re-export main types from batch 4 modules (UI/Shell parsers)
+pub use ini_window_transition::{
+    get_window_transition_store, get_window_transition_store_mut, init_window_transition_store,
+    parse_window_transition_block, parse_window_transition_definition, TransitionGroup,
+    TransitionStyle, TransitionWindow, WindowTransitionStore,
+};
+pub use ini_shell_menu_scheme::{
+    get_shell_menu_scheme_manager, init_shell_menu_scheme_manager, parse_shell_menu_scheme_definition,
+    ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine, ShellMenuSchemeManager,
+};
+pub use ini_mouse::{
+    add_cursor_info, get_cursor_info, get_mouse_settings, get_mouse_settings_mut,
+    init_global_mouse_settings, parse_mouse_cursor_definition, parse_mouse_definition,
+    CursorInfo, MouseSettings, RedrawMode, RGBAColorInt,
+    CURSOR_INFO_FIELD_PARSE_TABLE, MOUSE_SETTINGS_FIELD_PARSE_TABLE,
+};
+pub use ini_online_chat_colors::{
+    get_online_chat_colors, get_online_chat_colors_mut, init_online_chat_colors,
+    parse_online_chat_color_definition, register_online_chat_colors_parser,
+    GSColorIndex, OnlineChatColors, GSCOLOR_MAX,
 };
 
 pub use crate::common::system::Matrix3D;
@@ -251,6 +334,7 @@ pub fn initialize_ini_systems() {
     ini_crate::initialize_crate_system();
 
     // Batch 2 initialization
+    ini_audio_settings::init_global_audio_settings();
     ini_damage_fx::init_global_damage_fx_store();
     ini_draw_group_info::init_global_draw_group_info();
     ini_game_data::init_global_data();
@@ -262,10 +346,20 @@ pub fn initialize_ini_systems() {
     load_player_templates();
 
     // Batch 3 initialization (new parsers)
+    ini_campaign::init_campaign_store();
+    ini_challenge_generals::init_challenge_generals();
+    ini_game_lod::init_game_lod_manager();
     let _locomotor_guard = ini_locomotor::get_locomotor_store();
     let _science_guard = ini_science::get_science_store();
     let _road_guard = ini_road::get_terrain_roads();
     let _fx_list_guard = ini_fx_list::get_fx_list_store();
+
+    // Batch 4 initialization (UI/Shell parsers)
+    ini_mouse::init_global_mouse_settings();
+    ini_online_chat_colors::init_online_chat_colors();
+    ini_online_chat_colors::register_online_chat_colors_parser();
+    ini_shell_menu_scheme::init_shell_menu_scheme_manager();
+    ini_window_transition::init_window_transition_store();
 
     let _ = crate::game_network::game_info::set_map_players_provider(Arc::new(|map_name: &str| {
         ini_map_cache::get_map_cache()

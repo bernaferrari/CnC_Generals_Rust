@@ -13,7 +13,7 @@ pub mod transition_damage_fx;
 
 // Re-export main types
 pub use bone_fx_damage::BoneFXDamage;
-pub use damage_module::{DamageModule, DamageModuleData, DamageModuleInterface};
+pub use damage_module::{DamageModule, DamageModuleData};
 pub use transition_damage_fx::{
     TransitionDamageFX, TransitionDamageFXModule, TransitionDamageFXModuleData,
 };

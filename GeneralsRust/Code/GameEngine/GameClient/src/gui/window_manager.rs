@@ -24,12 +24,13 @@ use super::w3d_gadget_draw::{
     w3d_cameo_movie_draw, w3d_clock_draw, w3d_command_bar_background_draw,
     w3d_command_bar_foreground_draw, w3d_command_bar_gen_exp_draw, w3d_command_bar_grid_draw,
     w3d_command_bar_help_popup_draw, w3d_command_bar_top_draw, w3d_credits_menu_draw,
-    w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw, w3d_gadget_combo_box_draw,
-    w3d_gadget_combo_box_image_draw, w3d_gadget_horizontal_slider_draw,
-    w3d_gadget_horizontal_slider_image_draw, w3d_gadget_list_box_draw,
+    w3d_draw_map_preview, w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw,
+    w3d_gadget_combo_box_draw, w3d_gadget_combo_box_image_draw, w3d_gadget_horizontal_slider_draw,
+    w3d_gadget_horizontal_slider_image_draw, w3d_gadget_horizontal_slider_image_draw_a,
+    w3d_gadget_horizontal_slider_image_draw_b, w3d_gadget_list_box_draw,
     w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw,
-    w3d_gadget_progress_bar_image_draw, w3d_gadget_push_button_draw,
-    w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
+    w3d_gadget_progress_bar_image_draw, w3d_gadget_progress_bar_image_draw_a,
+    w3d_gadget_push_button_draw, w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
     w3d_gadget_radio_button_image_draw, w3d_gadget_static_text_draw,
     w3d_gadget_static_text_image_draw, w3d_gadget_tab_control_draw,
     w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw,
@@ -37,7 +38,8 @@ use super::w3d_gadget_draw::{
     w3d_gadget_vertical_slider_image_draw, w3d_left_hud_draw,
     w3d_main_menu_button_drop_shadow_draw, w3d_main_menu_draw, w3d_main_menu_four_draw,
     w3d_main_menu_map_border, w3d_main_menu_random_text_draw, w3d_metal_bar_menu_draw, w3d_no_draw,
-    w3d_power_draw, w3d_right_hud_draw, w3d_shell_menu_scheme_draw, w3d_thin_border_draw,
+    w3d_power_draw, w3d_power_draw_a, w3d_right_hud_draw, w3d_shell_menu_scheme_draw,
+    w3d_thin_border_draw,
 };
 use super::window_script::{parse_window_script, WindowDefinition, WindowLayoutDefinition};
 use super::{MAX_DRAW_DATA, MAX_WINDOWS};
@@ -47,32 +49,32 @@ use crate::gui::callbacks::{
     challenge_menu_init, challenge_menu_input, challenge_menu_shutdown, challenge_menu_system,
     challenge_menu_update, difficulty_select_init, difficulty_select_input,
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
-    download_menu_system, download_menu_update, draw_map_preview, game_info_window_init,
-    game_info_window_system, generals_exp_points_input, generals_exp_points_system,
-    get_control_bar_system, get_diplomacy_system, get_ingame_ui_system, get_menu_manager,
-    get_message_box_system, ime_candidate_main_draw, ime_candidate_text_area_draw,
-    ime_candidate_window_input, ime_candidate_window_system, in_game_popup_message_init,
-    in_game_popup_message_input, in_game_popup_message_system, keyboard_options_menu_init,
-    keyboard_options_menu_input, keyboard_options_menu_shutdown, keyboard_options_menu_system,
-    keyboard_options_menu_update, lan_game_options_menu_init, lan_game_options_menu_input,
-    lan_game_options_menu_shutdown, lan_game_options_menu_system, lan_game_options_menu_update,
-    lan_map_select_menu_init, lan_map_select_menu_input, lan_map_select_menu_shutdown,
-    lan_map_select_menu_system, lan_map_select_menu_update, network_direct_connect_init,
-    network_direct_connect_input, network_direct_connect_shutdown, network_direct_connect_system,
-    network_direct_connect_update, popup_buddy_notification_system, popup_communicator_init,
-    popup_communicator_input, popup_communicator_shutdown, popup_communicator_system,
-    popup_communicator_update, popup_host_game_init, popup_host_game_input, popup_host_game_system,
-    popup_host_game_update, popup_join_game_init, popup_join_game_input, popup_join_game_system,
-    popup_ladder_select_init, popup_ladder_select_input, popup_ladder_select_shutdown,
-    popup_ladder_select_system, popup_ladder_select_update, popup_player_info_init,
-    popup_player_info_input, popup_player_info_shutdown, popup_player_info_system,
-    popup_player_info_update, popup_replay_init, popup_replay_input, popup_replay_shutdown,
-    popup_replay_system, popup_replay_update, quit_menu_system, rc_game_details_menu_init,
-    rc_game_details_menu_system, replay_menu_init, replay_menu_input, replay_menu_shutdown,
-    replay_menu_system, replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init,
-    save_load_menu_input, save_load_menu_shutdown, save_load_menu_system, save_load_menu_update,
-    score_screen_init, score_screen_input, score_screen_shutdown, score_screen_system,
-    score_screen_update, skirmish_game_options_menu_init, skirmish_game_options_menu_input,
+    download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
+    generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
+    get_diplomacy_system, get_ingame_ui_system, get_menu_manager, get_message_box_system,
+    ime_candidate_main_draw, ime_candidate_text_area_draw, ime_candidate_window_input,
+    ime_candidate_window_system, in_game_popup_message_init, in_game_popup_message_input,
+    in_game_popup_message_system, keyboard_options_menu_init, keyboard_options_menu_input,
+    keyboard_options_menu_shutdown, keyboard_options_menu_system, keyboard_options_menu_update,
+    lan_game_options_menu_init, lan_game_options_menu_input, lan_game_options_menu_shutdown,
+    lan_game_options_menu_system, lan_game_options_menu_update, lan_map_select_menu_init,
+    lan_map_select_menu_input, lan_map_select_menu_shutdown, lan_map_select_menu_system,
+    lan_map_select_menu_update, network_direct_connect_init, network_direct_connect_input,
+    network_direct_connect_shutdown, network_direct_connect_system, network_direct_connect_update,
+    popup_buddy_notification_system, popup_communicator_init, popup_communicator_input,
+    popup_communicator_shutdown, popup_communicator_system, popup_communicator_update,
+    popup_host_game_init, popup_host_game_input, popup_host_game_system, popup_host_game_update,
+    popup_join_game_init, popup_join_game_input, popup_join_game_system, popup_ladder_select_init,
+    popup_ladder_select_input, popup_ladder_select_shutdown, popup_ladder_select_system,
+    popup_ladder_select_update, popup_player_info_init, popup_player_info_input,
+    popup_player_info_shutdown, popup_player_info_system, popup_player_info_update,
+    popup_replay_init, popup_replay_input, popup_replay_shutdown, popup_replay_system,
+    popup_replay_update, quit_menu_system, rc_game_details_menu_init, rc_game_details_menu_system,
+    replay_menu_init, replay_menu_input, replay_menu_shutdown, replay_menu_system,
+    replay_menu_update, save_load_menu_full_screen_init, save_load_menu_init, save_load_menu_input,
+    save_load_menu_shutdown, save_load_menu_system, save_load_menu_update, score_screen_init,
+    score_screen_input, score_screen_shutdown, score_screen_system, score_screen_update,
+    skirmish_game_options_menu_init, skirmish_game_options_menu_input,
     skirmish_game_options_menu_shutdown, skirmish_game_options_menu_system,
     skirmish_game_options_menu_update, skirmish_map_select_menu_init,
     skirmish_map_select_menu_input, skirmish_map_select_menu_shutdown,
@@ -2598,6 +2600,9 @@ impl WindowManager {
                 "W3DGadgetProgressBarImageDraw" => {
                     window.set_draw_callback(w3d_gadget_progress_bar_image_draw);
                 }
+                "W3DGadgetProgressBarImageDrawA" => {
+                    window.set_draw_callback(w3d_gadget_progress_bar_image_draw_a);
+                }
                 "W3DGadgetCheckBoxDraw" => {
                     window.set_draw_callback(w3d_gadget_check_box_draw);
                 }
@@ -2615,6 +2620,12 @@ impl WindowManager {
                 }
                 "W3DGadgetHorizontalSliderImageDraw" => {
                     window.set_draw_callback(w3d_gadget_horizontal_slider_image_draw);
+                }
+                "W3DGadgetHorizontalSliderImageDrawA" => {
+                    window.set_draw_callback(w3d_gadget_horizontal_slider_image_draw_a);
+                }
+                "W3DGadgetHorizontalSliderImageDrawB" => {
+                    window.set_draw_callback(w3d_gadget_horizontal_slider_image_draw_b);
                 }
                 "W3DGadgetVerticalSliderDraw" => {
                     window.set_draw_callback(w3d_gadget_vertical_slider_draw);
@@ -2688,6 +2699,9 @@ impl WindowManager {
                 "W3DPowerDraw" => {
                     window.set_draw_callback(w3d_power_draw);
                 }
+                "W3DPowerDrawA" => {
+                    window.set_draw_callback(w3d_power_draw_a);
+                }
                 "W3DCommandBarTopDraw" => {
                     window.set_draw_callback(w3d_command_bar_top_draw);
                 }
@@ -2710,7 +2724,7 @@ impl WindowManager {
                     window.set_draw_callback(w3d_no_draw);
                 }
                 "W3DDrawMapPreview" => {
-                    window.set_draw_callback(|window, inst| draw_map_preview(window, inst));
+                    window.set_draw_callback(w3d_draw_map_preview);
                 }
                 "IMECandidateMainDraw" => {
                     window.set_draw_callback(|window, inst| ime_candidate_main_draw(window, inst));

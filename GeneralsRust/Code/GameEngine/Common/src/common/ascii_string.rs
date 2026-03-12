@@ -10,6 +10,11 @@
 //! It is modeled after the MFC CString class with reference counting and efficient
 //! memory management.
 //!
+//! The reference counting implementation mirrors the C++ AsciiStringData pattern:
+//! - AsciiStringData holds the refcount and string data
+//! - Copies share the underlying buffer (incrementing refcount via Arc)
+//! - Mutations create unique buffers when needed (copy-on-write semantics)
+//!
 //! Steven Johnson, October 2001
 //! Rust conversion: 2025
 
@@ -17,17 +22,50 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+use std::sync::Arc;
 
-/// Maximum length for formatted strings
+/// Maximum length for formatted strings (matches C++ MAX_FORMAT_BUF_LEN)
 pub const MAX_FORMAT_BUF_LEN: usize = 2048;
 
-/// Maximum total length of any AsciiString
+/// Maximum total length of any AsciiString (matches C++ MAX_LEN)
 pub const MAX_LEN: usize = 32767;
 
-/// ASCII String class that provides efficient string operations with reference counting
+/// Internal string data with reference counting via Arc.
+///
+/// This mirrors the C++ AsciiStringData structure:
+/// - m_refCount: handled by Arc internally (thread-safe reference counting)
+/// - m_numCharsAllocated: stored as String capacity
+/// - string data: stored in the inner String
+#[derive(Debug, Clone)]
+struct AsciiStringData {
+    /// The actual string content
+    data: String,
+}
+
+impl AsciiStringData {
+    /// Create new string data with the given content
+    fn new(s: String) -> Self {
+        Self { data: s }
+    }
+
+    /// Get the capacity (matches C++ m_numCharsAllocated)
+    fn capacity(&self) -> usize {
+        self.data.capacity()
+    }
+}
+
+/// ASCII String class that provides efficient string operations with reference counting.
+///
+/// This is the fundamental single-byte string type used in the Generals code base.
+/// It uses reference counting (via Arc<AsciiStringData>) to efficiently share string
+/// data between copies. Modifications create new buffers (copy-on-write semantics).
+///
+/// When an AsciiString is copied, the underlying data is shared via Arc reference counting.
+/// When the string is mutated, a unique buffer is allocated if the current buffer is shared.
 #[derive(Debug, Clone)]
 pub struct AsciiString {
-    data: String,
+    /// Reference-counted string data (None represents empty string for efficiency)
+    inner: Option<Arc<AsciiStringData>>,
 }
 
 impl Default for AsciiString {
@@ -39,12 +77,10 @@ impl Default for AsciiString {
 impl AsciiString {
     /// Create a new empty AsciiString
     pub fn new() -> Self {
-        Self {
-            data: String::new(),
-        }
+        Self { inner: None }
     }
 
-    /// Get an empty string (compatibility helper)
+    /// Get an empty string (compatibility helper matching C++ TheEmptyString)
     #[allow(non_snake_case)]
     pub fn TheEmptyString() -> Self {
         Self::new()
@@ -52,24 +88,34 @@ impl AsciiString {
 
     /// Create an AsciiString from a string slice
     pub fn from(s: &str) -> Self {
-        Self {
-            data: s.to_string(),
+        if s.is_empty() {
+            Self::new()
+        } else {
+            Self {
+                inner: Some(Arc::new(AsciiStringData::new(s.to_string()))),
+            }
         }
     }
 
     /// Get the length of the string in characters
     pub fn get_length(&self) -> usize {
-        self.data.len()
+        match &self.inner {
+            Some(data) => data.data.len(),
+            None => 0,
+        }
     }
 
     /// Get the length of the string in characters (alias for get_length)
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.get_length()
     }
 
     /// Check if the string is empty
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        match &self.inner {
+            Some(data) => data.data.is_empty(),
+            None => true,
+        }
     }
 
     /// Check if the string is not empty
@@ -77,131 +123,238 @@ impl AsciiString {
         !self.is_empty()
     }
 
-    /// Clear the string, making it empty
+    /// Clear the string, making it empty (releases reference)
     pub fn clear(&mut self) {
-        self.data.clear();
+        self.inner = None;
     }
 
     /// Get the character at the given index
     pub fn get_char_at(&self, index: usize) -> Option<char> {
-        self.data.chars().nth(index)
+        match &self.inner {
+            Some(data) => data.data.chars().nth(index),
+            None => None,
+        }
     }
 
     /// Get the string as a &str
     pub fn as_str(&self) -> &str {
-        &self.data
+        match &self.inner {
+            Some(data) => &data.data,
+            None => "",
+        }
     }
 
     /// Get a C-style string pointer (for compatibility)
     pub fn str(&self) -> &str {
-        &self.data
+        self.as_str()
     }
 
-    /// Set the contents of the string
+    /// Set the contents of the string (creates new buffer)
     pub fn set(&mut self, s: &str) {
-        self.data = s.to_string();
+        if s.is_empty() {
+            self.inner = None;
+        } else {
+            self.inner = Some(Arc::new(AsciiStringData::new(s.to_string())));
+        }
     }
 
-    /// Set from another AsciiString
+    /// Set from another AsciiString (shares reference via Arc clone)
     pub fn set_from_ascii_string(&mut self, other: &AsciiString) {
-        self.data = other.data.clone();
+        // Arc::clone just increments the refcount, sharing the buffer
+        self.inner = other.inner.clone();
+    }
+
+    /// Ensure we have a unique buffer for mutation (copy-on-write)
+    fn ensure_unique(&mut self) {
+        if let Some(ref arc) = self.inner {
+            // If there are multiple references, we need our own copy
+            if Arc::strong_count(arc) > 1 {
+                self.inner = Some(Arc::new(AsciiStringData::new(arc.data.clone())));
+            }
+        }
+    }
+
+    /// Ensure we have a unique buffer with at least the specified capacity
+    fn ensure_unique_with_capacity(&mut self, capacity: usize) {
+        match &self.inner {
+            Some(arc) => {
+                // If shared or capacity too small, create new buffer
+                if Arc::strong_count(arc) > 1 || arc.capacity() < capacity {
+                    let mut new_data = String::with_capacity(capacity);
+                    new_data.push_str(&arc.data);
+                    self.inner = Some(Arc::new(AsciiStringData::new(new_data)));
+                }
+            }
+            None => {
+                self.inner = Some(Arc::new(AsciiStringData::new(String::with_capacity(capacity))));
+            }
+        }
     }
 
     /// Concatenate a string slice
     pub fn concat(&mut self, s: &str) {
-        self.data.push_str(s);
+        if s.is_empty() {
+            return;
+        }
+        
+        let new_len = self.get_length() + s.len();
+        self.ensure_unique_with_capacity(new_len);
+        
+        if let Some(ref mut arc) = self.inner {
+            // We have unique access now due to ensure_unique_with_capacity
+            // Use Arc::get_mut to get mutable access
+            if let Some(data) = Arc::get_mut(arc) {
+                data.data.push_str(s);
+            } else {
+                // Fallback: create new buffer
+                let mut new_string = String::with_capacity(new_len);
+                match &self.inner {
+                    Some(old_arc) => new_string.push_str(&old_arc.data),
+                    None => {}
+                }
+                new_string.push_str(s);
+                self.inner = Some(Arc::new(AsciiStringData::new(new_string)));
+            }
+        } else {
+            self.inner = Some(Arc::new(AsciiStringData::new(s.to_string())));
+        }
     }
 
     /// Concatenate another AsciiString
     pub fn concat_ascii_string(&mut self, other: &AsciiString) {
-        self.data.push_str(&other.data);
+        self.concat(other.as_str());
     }
 
     /// Concatenate a single character
     pub fn push(&mut self, c: char) {
-        self.data.push(c);
+        let new_len = self.get_length() + 1;
+        self.ensure_unique_with_capacity(new_len);
+        
+        if let Some(ref mut arc) = self.inner {
+            if let Some(data) = Arc::get_mut(arc) {
+                data.data.push(c);
+            } else {
+                let mut new_string = String::with_capacity(new_len);
+                match &self.inner {
+                    Some(old_arc) => new_string.push_str(&old_arc.data),
+                    None => {}
+                }
+                new_string.push(c);
+                self.inner = Some(Arc::new(AsciiStringData::new(new_string)));
+            }
+        } else {
+            self.inner = Some(Arc::new(AsciiStringData::new(c.to_string())));
+        }
     }
 
     /// Push a string slice
     pub fn push_str(&mut self, s: &str) {
-        self.data.push_str(s);
+        self.concat(s);
     }
 
     /// Remove leading and trailing whitespace
     pub fn trim(&mut self) {
-        self.data = self.data.trim().to_string();
+        if let Some(ref arc) = self.inner {
+            let trimmed = arc.data.trim();
+            if trimmed.len() != arc.data.len() {
+                // Content changed, need new buffer
+                if trimmed.is_empty() {
+                    self.inner = None;
+                } else {
+                    self.inner = Some(Arc::new(AsciiStringData::new(trimmed.to_string())));
+                }
+            }
+        }
     }
 
     /// Convert to lowercase
     pub fn to_lower(&mut self) {
-        self.data = self.data.to_lowercase();
+        if let Some(ref arc) = self.inner {
+            let lower = arc.data.to_lowercase();
+            if lower != arc.data {
+                self.inner = Some(Arc::new(AsciiStringData::new(lower)));
+            }
+        }
     }
 
     /// Remove the last character
     pub fn remove_last_char(&mut self) {
-        if !self.data.is_empty() {
-            self.data.pop();
+        if let Some(ref arc) = self.inner {
+            if !arc.data.is_empty() {
+                let mut new_string = arc.data.clone();
+                new_string.pop();
+                if new_string.is_empty() {
+                    self.inner = None;
+                } else {
+                    self.inner = Some(Arc::new(AsciiStringData::new(new_string)));
+                }
+            }
         }
     }
 
     /// Format the string using format! style formatting
     pub fn format(&mut self, args: fmt::Arguments<'_>) {
-        self.data = format!("{}", args);
+        let formatted = format!("{}", args);
+        if formatted.is_empty() {
+            self.inner = None;
+        } else {
+            self.inner = Some(Arc::new(AsciiStringData::new(formatted)));
+        }
     }
 
     /// Compare with another AsciiString (case sensitive)
     pub fn compare(&self, other: &AsciiString) -> Ordering {
-        self.data.cmp(&other.data)
+        self.as_str().cmp(other.as_str())
     }
 
     /// Compare with a string slice (case sensitive)
     pub fn compare_str(&self, s: &str) -> Ordering {
-        self.data.as_str().cmp(s)
+        self.as_str().cmp(s)
     }
 
     /// Compare with another AsciiString (case insensitive)
     pub fn compare_no_case(&self, other: &AsciiString) -> Ordering {
-        self.data.to_lowercase().cmp(&other.data.to_lowercase())
+        self.as_str().to_lowercase().cmp(&other.as_str().to_lowercase())
     }
 
     /// Compare with a string slice (case insensitive)
     pub fn compare_no_case_str(&self, s: &str) -> Ordering {
-        self.data.to_lowercase().cmp(&s.to_lowercase())
+        self.as_str().to_lowercase().cmp(&s.to_lowercase())
     }
 
     /// Find a character in the string
     pub fn find(&self, c: char) -> Option<usize> {
-        self.data.find(c)
+        self.as_str().find(c)
     }
 
     /// Find a character from the end of the string
     pub fn reverse_find(&self, c: char) -> Option<usize> {
-        self.data.rfind(c)
+        self.as_str().rfind(c)
     }
 
     /// Check if string starts with the given prefix
     pub fn starts_with(&self, prefix: &str) -> bool {
-        self.data.starts_with(prefix)
+        self.as_str().starts_with(prefix)
     }
 
     /// Check if string starts with the given prefix (case insensitive)
     pub fn starts_with_no_case(&self, prefix: &str) -> bool {
-        self.data.to_lowercase().starts_with(&prefix.to_lowercase())
+        self.as_str().to_lowercase().starts_with(&prefix.to_lowercase())
     }
 
     /// Check if string ends with the given suffix
     pub fn ends_with(&self, suffix: &str) -> bool {
-        self.data.ends_with(suffix)
+        self.as_str().ends_with(suffix)
     }
 
     /// Check if string ends with the given suffix (case insensitive)
     pub fn ends_with_no_case(&self, suffix: &str) -> bool {
-        self.data.to_lowercase().ends_with(&suffix.to_lowercase())
+        self.as_str().to_lowercase().ends_with(&suffix.to_lowercase())
     }
 
     /// Check if the string contains a substring
     pub fn contains(&self, s: &str) -> bool {
-        self.data.contains(s)
+        self.as_str().contains(s)
     }
 
     /// Extract the next token from the string
@@ -212,12 +365,15 @@ impl AsciiString {
         }
 
         let separators = seps.unwrap_or(" \n\r\t");
-
-        // Create a copy to avoid borrow issues
-        let data_copy = self.data.clone();
+        
+        // Clone the data to avoid borrow issues
+        let data = match &self.inner {
+            Some(arc) => arc.data.clone(),
+            None => return None,
+        };
 
         // Skip leading separators
-        let trimmed = data_copy.trim_start_matches(|c: char| separators.contains(c));
+        let trimmed = data.trim_start_matches(|c: char| separators.contains(c));
 
         if trimmed.is_empty() {
             self.clear();
@@ -232,7 +388,7 @@ impl AsciiString {
             // Skip separators in remainder
             let remainder_trimmed = remainder.trim_start_matches(|c: char| separators.contains(c));
 
-            self.data = remainder_trimmed.to_string();
+            self.set(remainder_trimmed);
             Some(AsciiString::from(token))
         } else {
             // Entire remaining string is the token
@@ -244,7 +400,7 @@ impl AsciiString {
 
     /// Check if the string is "None" (case insensitive)
     pub fn is_none(&self) -> bool {
-        self.data.eq_ignore_ascii_case("none")
+        self.as_str().eq_ignore_ascii_case("none")
     }
 
     /// Check if the string is not "None" (case insensitive)
@@ -253,30 +409,59 @@ impl AsciiString {
     }
 
     /// Get a mutable buffer for reading data (for compatibility with C++ API)
+    /// This ensures the buffer is NOT shared.
     pub fn get_buffer_for_read(&mut self, len: usize) -> &mut String {
-        self.data.clear();
-        self.data.reserve(len);
-        &mut self.data
+        // Always create a new unique buffer for reading
+        self.inner = Some(Arc::new(AsciiStringData::new(String::with_capacity(len))));
+        
+        // Get mutable reference - we know it's unique
+        if let Some(ref mut arc) = self.inner {
+            if let Some(data) = Arc::get_mut(arc) {
+                return &mut data.data;
+            }
+        }
+        // This should never happen since we just created a unique Arc
+        unreachable!("get_buffer_for_read should always have unique access");
+    }
+
+    /// Get the reference count of the underlying data (for debugging)
+    pub fn ref_count(&self) -> usize {
+        match &self.inner {
+            Some(arc) => Arc::strong_count(arc),
+            None => 0,
+        }
+    }
+
+    /// Check if this string shares data with another (for debugging)
+    pub fn shares_data_with(&self, other: &AsciiString) -> bool {
+        match (&self.inner, &other.inner) {
+            (Some(arc1), Some(arc2)) => Arc::ptr_eq(arc1, arc2),
+            _ => false,
+        }
     }
 }
 
 impl fmt::Display for AsciiString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.data)
+        write!(f, "{}", self.as_str())
     }
 }
 
 impl From<String> for AsciiString {
     fn from(s: String) -> Self {
-        Self { data: s }
+        if s.is_empty() {
+            Self::new()
+        } else {
+            Self {
+                inner: Some(Arc::new(AsciiStringData::new(s))),
+            }
+        }
     }
 }
 
 impl From<&str> for AsciiString {
     fn from(s: &str) -> Self {
-        Self {
-            data: s.to_string(),
-        }
+        Self::from(s)
     }
 }
 
@@ -290,13 +475,7 @@ impl FromStr for AsciiString {
 
 impl AsRef<str> for AsciiString {
     fn as_ref(&self) -> &str {
-        &self.data
-    }
-}
-
-impl AsRef<String> for AsciiString {
-    fn as_ref(&self) -> &String {
-        &self.data
+        self.as_str()
     }
 }
 
@@ -304,29 +483,19 @@ impl std::ops::Deref for AsciiString {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &self.data
-    }
-}
-
-impl AsciiString {
-    pub fn as_string(&self) -> &String {
-        &self.data
-    }
-
-    pub fn as_mut_string(&mut self) -> &mut String {
-        &mut self.data
+        self.as_str()
     }
 }
 
 impl std::borrow::Borrow<str> for AsciiString {
     fn borrow(&self) -> &str {
-        &self.data
+        self.as_str()
     }
 }
 
 impl PartialEq for AsciiString {
     fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
+        self.as_str() == other.as_str()
     }
 }
 
@@ -334,19 +503,19 @@ impl Eq for AsciiString {}
 
 impl PartialEq<str> for AsciiString {
     fn eq(&self, other: &str) -> bool {
-        self.data == other
+        self.as_str() == other
     }
 }
 
 impl PartialEq<&str> for AsciiString {
     fn eq(&self, other: &&str) -> bool {
-        self.data == *other
+        self.as_str() == *other
     }
 }
 
 impl PartialEq<String> for AsciiString {
     fn eq(&self, other: &String) -> bool {
-        &self.data == other
+        self.as_str() == other.as_str()
     }
 }
 
@@ -358,13 +527,13 @@ impl PartialOrd for AsciiString {
 
 impl Ord for AsciiString {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.data.cmp(&other.data)
+        self.as_str().cmp(other.as_str())
     }
 }
 
 impl Hash for AsciiString {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
+        self.as_str().hash(state);
     }
 }
 
@@ -382,6 +551,48 @@ mod tests {
         assert!(!s.is_empty());
         assert_eq!(s.get_length(), 11);
         assert_eq!(s.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn test_refcount_sharing() {
+        let s1 = AsciiString::from("hello");
+        let s2 = s1.clone();
+        
+        // Both should share the same underlying data
+        assert!(s1.shares_data_with(&s2));
+        assert_eq!(s1.ref_count(), 2);
+        assert_eq!(s2.ref_count(), 2);
+        assert_eq!(s1.as_str(), "hello");
+        assert_eq!(s2.as_str(), "hello");
+    }
+
+    #[test]
+    fn test_copy_on_write() {
+        let s1 = AsciiString::from("hello");
+        let mut s2 = s1.clone();
+        
+        // They share data initially
+        assert!(s1.shares_data_with(&s2));
+        
+        // Modifying s2 should create a new buffer
+        s2.concat(" world");
+        
+        // They no longer share data
+        assert!(!s1.shares_data_with(&s2));
+        assert_eq!(s1.as_str(), "hello");
+        assert_eq!(s2.as_str(), "hello world");
+    }
+
+    #[test]
+    fn test_set_from_ascii_string() {
+        let s1 = AsciiString::from("shared data");
+        let mut s2 = AsciiString::new();
+        
+        s2.set_from_ascii_string(&s1);
+        
+        // They should share data
+        assert!(s1.shares_data_with(&s2));
+        assert_eq!(s1.ref_count(), 2);
     }
 
     #[test]
@@ -454,5 +665,22 @@ mod tests {
         assert_eq!(s.find('o'), Some(4));
         assert_eq!(s.reverse_find('o'), Some(7));
         assert_eq!(s.find('z'), None);
+    }
+
+    #[test]
+    fn test_empty_string_efficiency() {
+        let s = AsciiString::new();
+        assert!(s.is_empty());
+        assert_eq!(s.ref_count(), 0); // No Arc allocated for empty string
+    }
+
+    #[test]
+    fn test_clear_releases_reference() {
+        let mut s = AsciiString::from("hello");
+        assert_eq!(s.ref_count(), 1);
+        
+        s.clear();
+        assert!(s.is_empty());
+        assert_eq!(s.ref_count(), 0);
     }
 }

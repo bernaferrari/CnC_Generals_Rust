@@ -1,4 +1,4 @@
-// stats_collector.rs - Game statistics collector placeholder
+//! Game statistics collector for tracking gameplay and performance metrics.
 
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;

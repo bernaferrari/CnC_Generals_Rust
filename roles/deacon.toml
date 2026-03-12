@@ -1,0 +1,3 @@
+# Override deacon role to use droid with Hunter Alpha
+[session]
+start_command = "exec droid --model custom:openrouter/hunter-alpha"

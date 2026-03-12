@@ -579,32 +579,25 @@ impl Weapon {
             // Some objects (like aircraft with multiple weapons) share reload time
             // across all weapon slots. When one weapon fires, all weapons get
             // the same cooldown to prevent all weapons from firing simultaneously.
-            //
-            // C++ implementation (lines 2655-2667):
-            // ```cpp
-            // if (sourceObj && sourceObj->isReloadTimeShared()) {
-            //     WeaponSet* weapons = sourceObj->getWeaponSet();
-            //     if (weapons) {
-            //         for (int slot = 0; slot < WEAPONSLOT_COUNT; ++slot) {
-            //             Weapon* weapon = weapons->getWeapon(slot);
-            //             if (weapon && weapon != this) {
-            //                 weapon->setPossibleNextShotFrame(m_whenWeCanFireAgain);
-            //                 weapon->setStatus(BETWEEN_FIRING_SHOTS);
-            //             }
-            //         }
-            //     }
-            // }
-            // ```
-            //
-            // Deferred: requires Object::isReloadTimeShared() and WeaponSet integration
-            // When implemented:
-            // 1. Get source object via TheGameLogic::find_object_by_id(source_id)
-            // 2. Check if obj.is_reload_time_shared()
-            // 3. Get weapon set and iterate all weapons
-            // 4. Set each weapon's when_we_can_fire_again and status
-            //
-            // This prevents exploits where rapid weapon switching bypasses cooldowns
-            // on multi-weapon units like helicopters or aircraft.
+            if let Some(source_obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
+            {
+                if let Ok(mut source_obj) = source_obj_arc.write() {
+                    if source_obj.is_reload_time_shared() {
+                        let when_can_fire = self.when_we_can_fire_again;
+                        for slot_idx in 0..crate::common::WEAPONSLOT_COUNT {
+                            let slot = match slot_idx {
+                                0 => WeaponSlotType::Primary,
+                                1 => WeaponSlotType::Secondary,
+                                _ => WeaponSlotType::Tertiary,
+                            };
+                            if let Some(weapon) = source_obj.get_weapon_in_slot_mut(slot) {
+                                weapon.set_possible_next_shot_frame(when_can_fire);
+                                weapon.set_status(WeaponStatus::BetweenFiringShots);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Ok((reloaded, projectile_id))

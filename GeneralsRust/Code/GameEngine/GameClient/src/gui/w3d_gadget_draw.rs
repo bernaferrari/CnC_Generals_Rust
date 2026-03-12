@@ -16,13 +16,38 @@ use crate::gui::ui_renderer::UIRect;
 use crate::gui::window_manager::with_window_manager_ref;
 use crate::gui::{GameWindow, WindowInstanceData};
 use crate::helpers::TheControlBar;
+use crate::map_util::{find_draw_positions, get_supply_and_tech_image_locations};
 use crate::message_stream::game_message::IRegion2D;
 use chrono::Local;
+use game_engine::common::ini::get_control_bar_scheme_manager;
 use game_engine::common::ini::get_global_data;
+use game_engine::common::ini::ini_map_cache::MapMetaData;
+use game_engine::common::ini::set_scheme_draw_func;
+use game_engine::common::ini::ICoord2D;
+use game_engine::common::ini::SchemeDrawFunc;
+use game_engine::common::system::radar::get_radar_system;
 use gamelogic::player::{RankProgressInfo, ThePlayerList};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
+
+/// Draw callback for control bar scheme images.
+/// Resolves image name via the window manager and draws the image.
+fn scheme_draw_image(image_name: &str, start_x: i32, start_y: i32, end_x: i32, end_y: i32) {
+    with_window_manager_ref(|manager| {
+        if let Some(image) = manager.win_find_image(image_name) {
+            manager.win_draw_image(&image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+        }
+    });
+}
+
+/// One-time initialization for scheme draw callback.
+fn ensure_scheme_draw_registered() {
+    static REGISTER_DRAW: OnceLock<()> = OnceLock::new();
+    REGISTER_DRAW.get_or_init(|| {
+        set_scheme_draw_func(scheme_draw_image);
+    });
+}
 
 fn press_scaled_rect(window: &GameWindow) -> UIRect {
     let (x, y) = window.get_screen_position();
@@ -797,38 +822,7 @@ pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceDa
     menu.draw();
 }
 
-fn has_compat_default_content(window: &GameWindow, inst_data: &WindowInstanceData) -> bool {
-    let mut draw_data = inst_data
-        .enabled_draw_data
-        .iter()
-        .chain(inst_data.disabled_draw_data.iter())
-        .chain(inst_data.hilite_draw_data.iter());
-
-    if draw_data.any(|draw| {
-        draw.image.is_some()
-            || draw.color != WIN_COLOR_UNDEFINED
-            || draw.border_color != WIN_COLOR_UNDEFINED
-    }) {
-        return true;
-    }
-
-    inst_data.video_buffer.is_some()
-        || !inst_data.text.is_empty()
-        || !inst_data.text_label.is_empty()
-        || window.get_status().contains(WindowStatus::IMAGE)
-}
-
-/// C++ compat bridge for windows using `W3DNoDraw`.
-///
-/// In the original engine, certain callback paths still resulted in default
-/// image, color, border, text, or video presentation despite using a nominal
-/// no-draw callback name. Preserve that behavior while leaving pure empty
-/// windows untouched.
-pub fn w3d_no_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    if has_compat_default_content(window, inst_data) {
-        super::game_window::default_draw_callback(window, inst_data);
-    }
-}
+pub fn w3d_no_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {}
 
 pub fn w3d_compat_default_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     super::game_window::default_draw_callback(window, inst_data);
@@ -887,6 +881,7 @@ pub fn w3d_cameo_movie_draw(window: &GameWindow, inst_data: &WindowInstanceData)
 }
 
 pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    // First check for video buffer (in-game movies)
     if inst_data
         .video_buffer
         .as_ref()
@@ -897,9 +892,146 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
         return;
     }
 
-    // TODO(ui-refactor): once control bar/radar draw parity is fully centralized, route
-    // this callback through the same dedicated radar pipeline as C++ W3DControlBar.cpp.
-    super::game_window::default_draw_callback(window, inst_data);
+    // C++ parity: check if radar should be drawn
+    // W3DLeftHUDDraw draws radar when:
+    // - TheRadar->isRadarForced() OR
+    // - (!TheRadar->isRadarHidden() AND player->hasRadar())
+    let should_draw_radar = {
+        let radar_system = get_radar_system();
+        if let Ok(radar) = radar_system.read() {
+            if radar.is_radar_forced() {
+                true
+            } else if !radar.is_radar_hidden() {
+                // Check if local player has radar
+                if let Ok(list) = ThePlayerList().read() {
+                    let player_arc = TheControlBar::get_observer_look_at_player_index()
+                        .and_then(|index| {
+                            if index >= 0 {
+                                list.get_player(index as i32).cloned()
+                            } else {
+                                None
+                            }
+                        })
+                        .or_else(|| list.get_local_player().cloned());
+                    
+                    if let Some(player_arc) = player_arc {
+                        if let Ok(player) = player_arc.read() {
+                            player.has_radar()
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+
+    if should_draw_radar {
+        // Get window position and size for radar drawing
+        let (pos_x, pos_y) = window.get_screen_position();
+        let (size_x, size_y) = window.get_size();
+        
+        // Draw radar with 1-pixel border (matching C++ TheRadar->draw(pos.x + 1, pos.y + 1, size.x - 2, size.y - 2))
+        draw_radar_in_hud(pos_x + 1, pos_y + 1, size_x.saturating_sub(2), size_y.saturating_sub(2));
+    } else {
+        // Fall back to default drawing when no radar
+        super::game_window::default_draw_callback(window, inst_data);
+    }
+}
+
+/// Draw radar in the HUD area (matches C++ TheRadar->draw())
+fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+
+    let radar_system = get_radar_system();
+    let Ok(radar) = radar_system.read() else {
+        return;
+    };
+
+    // Draw terrain texture from radar system
+    let terrain_texture = radar.get_terrain_texture();
+    if terrain_texture.is_empty() {
+        return;
+    }
+
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        
+        // Create texture from radar terrain data (RGBA format)
+        let texture = renderer.create_texture_from_rgba(
+            game_engine::common::system::radar::RADAR_CELL_WIDTH,
+            game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+            &terrain_texture,
+        );
+
+        // Draw the radar texture scaled to the HUD area
+        let rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
+        renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+
+        // Draw radar objects (units, structures)
+        for obj in radar.get_all_objects() {
+            if !obj.is_visible {
+                continue;
+            }
+            
+            // Convert world position to radar screen coordinates
+            let radar_pos = radar.world_to_radar(&obj.world_pos);
+            let screen_x = x + (radar_pos.x as i64 * width as i64 / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64) as i32;
+            let screen_y = y + (radar_pos.y as i64 * height as i64 / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64) as i32;
+            
+            // Draw object as a small colored dot
+            let dot_size = 2;
+            renderer.draw_rect(
+                UIRect::new(
+                    (screen_x - dot_size) as f32,
+                    (screen_y - dot_size) as f32,
+                    (dot_size * 2) as f32,
+                    (dot_size * 2) as f32,
+                ),
+                color_to_rgba(obj.color),
+                0.0,
+            );
+        }
+
+        // Draw active radar events
+        for event in radar.get_active_events() {
+            let screen_x = x + (event.radar_loc.x as i64 * width as i64 / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64) as i32;
+            let screen_y = y + (event.radar_loc.y as i64 * height as i64 / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64) as i32;
+            
+            // Draw event indicator (pulsing/blinking based on frame)
+            let alpha = if (event.create_frame / 10) % 2 == 0 { 1.0 } else { 0.5 };
+            let color1 = [
+                event.color1.r as f32 / 255.0,
+                event.color1.g as f32 / 255.0,
+                event.color1.b as f32 / 255.0,
+                alpha,
+            ];
+            
+            let event_size = 4;
+            renderer.draw_rect(
+                UIRect::new(
+                    (screen_x - event_size) as f32,
+                    (screen_y - event_size) as f32,
+                    (event_size * 2) as f32,
+                    (event_size * 2) as f32,
+                ),
+                color1,
+                0.0,
+            );
+        }
+
+        Some(())
+    });
 }
 
 pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -944,6 +1076,189 @@ fn draw_tiled_vert(image: &super::game_window::Image, x: i32, y: i32, width: i32
             manager.win_draw_image(image, x, draw_y, x + width, next_y, WIN_COLOR_UNDEFINED);
             draw_y += tile_height;
         }
+    });
+}
+
+pub fn w3d_power_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let Some(global) = get_global_data() else {
+        return;
+    };
+    let global = global.read();
+    let power_bar_base = global.power_bar_base.max(2) as f32;
+    let power_bar_intervals = global.power_bar_intervals.max(1.0);
+    let yellow_range = global.power_bar_yellow_range;
+    drop(global);
+
+    let Ok(list) = ThePlayerList().read() else {
+        return;
+    };
+    let player_arc = TheControlBar::get_observer_look_at_player_index()
+        .and_then(|index| {
+            if index >= 0 {
+                list.get_player(index as i32).cloned()
+            } else {
+                None
+            }
+        })
+        .or_else(|| list.get_local_player().cloned());
+    let Some(player_arc) = player_arc else {
+        return;
+    };
+    let Ok(player) = player_arc.read() else {
+        return;
+    };
+    let energy = player.get_energy();
+    let consumption = energy.consumption();
+    let production = energy.production();
+    drop(player);
+
+    let (end_bar, begin_bar, center_bar) =
+        if consumption > production - yellow_range && consumption <= production {
+            ("PowerBarYellowEndR", "PowerBarYellowEndL", "PowerBarYellow")
+        } else if consumption > production {
+            ("PowerBarRedEndR", "PowerBarRedEndL", "PowerBarRed")
+        } else {
+            ("PowerBarGreenEndR", "PowerBarGreenEndL", "PowerBarGreen")
+        };
+
+    let (end_bar, begin_bar, center_bar, slider) = with_window_manager_ref(|manager| {
+        (
+            manager.win_find_image(end_bar),
+            manager.win_find_image(begin_bar),
+            manager.win_find_image(center_bar),
+            manager.win_find_image("PowerBarSlider"),
+        )
+    });
+    let (Some(end_bar), Some(begin_bar), Some(center_bar), Some(slider)) =
+        (end_bar, begin_bar, center_bar, slider)
+    else {
+        return;
+    };
+
+    let (pos_x, pos_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    if size_x <= 0 || size_y <= 0 {
+        return;
+    }
+
+    let prod_for_log = production.max(1) as f32;
+    let mut range = (log_n(prod_for_log, power_bar_base) * (size_x as f32 / power_bar_intervals))
+        .round() as i32;
+    range = range.clamp(0, size_x);
+
+    let begin_w = begin_bar.width.max(1);
+    let end_w = end_bar.width.max(1);
+    if range < begin_w + end_w {
+        range = begin_w + end_w;
+    }
+
+    let left_end_x = pos_x + begin_w;
+    let right_start_x = pos_x + range - end_w;
+
+    if right_start_x <= left_end_x {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                &begin_bar,
+                pos_x,
+                pos_y,
+                pos_x + range / 2,
+                pos_y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+            manager.win_draw_image(
+                &end_bar,
+                pos_x + range / 2,
+                pos_y,
+                pos_x + range,
+                pos_y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    } else {
+        let center_w = center_bar.width.max(1);
+        let center_width = right_start_x - left_end_x;
+        let pieces = center_width / center_w;
+        let mut x = left_end_x;
+        for _ in 0..pieces {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    &center_bar,
+                    x,
+                    pos_y,
+                    x + center_w,
+                    pos_y + size_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            x += center_w;
+        }
+
+        let remaining = right_start_x - x;
+        if remaining > 0 {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    &center_bar,
+                    x,
+                    pos_y,
+                    x + center_w,
+                    pos_y + size_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+        }
+
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                &begin_bar,
+                pos_x,
+                pos_y,
+                left_end_x,
+                pos_y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                &end_bar,
+                right_start_x,
+                pos_y,
+                right_start_x + end_w,
+                pos_y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
+
+    let consumption_for_needle = if consumption == 1 {
+        1.5f32
+    } else {
+        consumption.max(1) as f32
+    };
+    let mut needle = (log_n(consumption_for_needle, power_bar_base)
+        * (size_x as f32 / power_bar_intervals)) as i32;
+    needle = needle.clamp(0, size_x);
+
+    let slider_w = slider.width.max(1);
+    let slider_h = slider.height.max(1);
+    let mut slider_start = if needle >= size_x {
+        pos_x + size_x - slider_w
+    } else {
+        pos_x + needle - slider_w / 2
+    };
+    if slider_start <= pos_x {
+        slider_start = pos_x;
+    }
+
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            &slider,
+            slider_start,
+            pos_y + size_y - slider_h,
+            slider_start + slider_w,
+            pos_y + size_y,
+            WIN_COLOR_UNDEFINED,
+        );
     });
 }
 
@@ -1116,15 +1431,65 @@ pub fn w3d_command_bar_top_draw(_window: &GameWindow, _inst_data: &WindowInstanc
 }
 
 pub fn w3d_command_bar_background_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    // TODO(ui-refactor): forward to the control bar scheme manager draw path once the
-    // compat bridge exports marker offsets exactly like C++.
-    super::game_window::default_draw_callback(window, inst_data);
+    ensure_scheme_draw_registered();
+
+    let manager_handle = get_control_bar_scheme_manager();
+    let Some(manager_handle) = manager_handle else {
+        super::game_window::default_draw_callback(window, inst_data);
+        return;
+    };
+
+    let manager = manager_handle.read();
+
+    let base_pos = manager.get_background_marker_pos();
+    let win_name = "ControlBar.wnd:BackgroundMarker";
+    let marker_window = with_window_manager_ref(|wm| wm.find_window_by_name(win_name));
+    let marker_window = match marker_window {
+        Some(w) => w,
+        None => {
+            super::game_window::default_draw_callback(window, inst_data);
+            return;
+        }
+    };
+
+    let (pos_x, pos_y) = marker_window.borrow().get_screen_position();
+    let offset = ICoord2D {
+        x: pos_x - base_pos.x,
+        y: pos_y - base_pos.y,
+    };
+
+    manager.draw_background(offset);
 }
 
 pub fn w3d_command_bar_foreground_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    // TODO(ui-refactor): forward to the control bar scheme manager draw path once the
-    // compat bridge exports marker offsets exactly like C++.
-    super::game_window::default_draw_callback(window, inst_data);
+    ensure_scheme_draw_registered();
+
+    let manager_handle = get_control_bar_scheme_manager();
+    let Some(manager_handle) = manager_handle else {
+        super::game_window::default_draw_callback(window, inst_data);
+        return;
+    };
+
+    let manager = manager_handle.read();
+
+    let base_pos = manager.get_foreground_marker_pos();
+    let win_name = "ControlBar.wnd:BackgroundMarker";
+    let marker_window = with_window_manager_ref(|wm| wm.find_window_by_name(win_name));
+    let marker_window = match marker_window {
+        Some(w) => w,
+        None => {
+            super::game_window::default_draw_callback(window, inst_data);
+            return;
+        }
+    };
+
+    let (pos_x, pos_y) = marker_window.borrow().get_screen_position();
+    let offset = ICoord2D {
+        x: pos_x - base_pos.x,
+        y: pos_y - base_pos.y,
+    };
+
+    manager.draw_foreground(offset);
 }
 
 pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -1750,6 +2115,8 @@ fn draw_progress_bar_image(
     let (size_x, size_y) = window.get_size();
     let progress = progress_percent(window).clamp(0, 100);
 
+    let y_offset = inst_data.image_offset.y;
+
     if let Some(image) = &back.image {
         with_window_manager_ref(|manager| {
             manager.win_draw_image(
@@ -1764,13 +2131,17 @@ fn draw_progress_bar_image(
     }
 
     if let Some(image) = &bar.image {
-        let bar_width = (size_x * progress) / 100;
+        let bar_width = ((size_x - 20) * progress) / 100;
         if bar_width > 0 {
+            let start_x = origin_x + 10;
+            let start_y = origin_y + y_offset + 5;
+            let end_x = start_x + bar_width;
+            let end_y = start_y + size_y - 10;
             let rect = UIRect::new(
-                origin_x as f32,
-                origin_y as f32,
+                start_x as f32,
+                start_y as f32,
                 bar_width as f32,
-                size_y as f32,
+                (end_y - start_y) as f32,
             );
             let _ = with_ui_renderer(|renderer| {
                 let mut renderer = renderer.write().ok()?;
@@ -1833,6 +2204,51 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
     let back = &draw_data[0];
     let bar = &draw_data[1];
     draw_progress_bar_image(window, inst_data, back, bar);
+}
+
+pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let progress = progress_percent(window).clamp(0, 100);
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+
+    let bar_center = &draw_data[1].image;
+    let bar_right = &draw_data[2].image;
+    let left = &draw_data[3].image;
+    let right = &draw_data[4].image;
+    let center = &draw_data[5].image;
+
+    let (Some(bar_center), Some(_bar_right), Some(_left), Some(_right), Some(_center)) =
+        (bar_center, bar_right, left, right, center)
+    else {
+        return;
+    };
+
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+
+    let width = bar_center.width.max(1);
+    let draw_width = (size_x * progress) / 100;
+    let pieces = draw_width / width;
+    let mut x = origin_x;
+    for _ in 0..pieces {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                bar_center,
+                x,
+                origin_y,
+                x + width,
+                origin_y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+        x += width;
+    }
 }
 
 fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -1901,7 +2317,12 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
         (&inst_data.enabled_draw_data, &inst_data.enabled_text)
     };
     let back = &draw_data[0];
-    let check_box = &draw_data[1];
+    let checked = is_check_box_checked(window);
+    let check_box = if checked {
+        draw_data.get(2).unwrap_or(&draw_data[1])
+    } else {
+        &draw_data[1]
+    };
 
     let rect = press_scaled_rect(window);
     let origin_x = rect.x as i32;
@@ -2329,7 +2750,8 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
     let selected_percent = slider_percent(window, slider_data);
 
     let (box_width, box_padding) = if let Some(image) = filled.as_ref() {
-        (image.width.max(1), 2)
+        let x_multi = with_window_manager_ref(|manager| manager.screen_size().0 as f32 / 800.0);
+        (((image.width as f32 * x_multi).round() as i32).max(1), 2)
     } else {
         (8, 2)
     };
@@ -2407,12 +2829,480 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
     }
 }
 
+const HORIZONTAL_SLIDER_THUMB_WIDTH: i32 = 8;
+
+pub fn w3d_gadget_horizontal_slider_image_draw_a(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+
+    let left_image_left = draw_data[0].image.as_ref();
+    let right_image_left = draw_data[1].image.as_ref();
+    let center_image_left = draw_data[2].image.as_ref();
+    let small_center_image_left = draw_data[3].image.as_ref();
+    let left_image_right = draw_data[4].image.as_ref();
+    let right_image_right = draw_data[5].image.as_ref();
+    let center_image_right = draw_data[6].image.as_ref();
+    let small_center_image_right = draw_data[7].image.as_ref();
+
+    if left_image_left.is_none()
+        || right_image_left.is_none()
+        || center_image_left.is_none()
+        || small_center_image_left.is_none()
+        || left_image_right.is_none()
+        || right_image_right.is_none()
+        || center_image_right.is_none()
+        || small_center_image_right.is_none()
+    {
+        return;
+    }
+
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+
+    let slider_data = window.get_user_data::<crate::gui::window_script::SliderData>();
+    let (num_ticks, position, min_val) = if let Some(s) = slider_data {
+        (s.num_ticks, s.position, s.min_value)
+    } else {
+        (10.0, 0, 0)
+    };
+    let trans_pos = (num_ticks as i32 * (position - min_val)) + HORIZONTAL_SLIDER_THUMB_WIDTH / 2;
+
+    let x_offset = inst_data.image_offset.x;
+    let y_offset = inst_data.image_offset.y;
+
+    let left_image_left = left_image_left.unwrap();
+    let right_image_left = right_image_left.unwrap();
+    let center_image_left = center_image_left.unwrap();
+    let small_center_image_left = small_center_image_left.unwrap();
+    let left_image_right = left_image_right.unwrap();
+    let right_image_right = right_image_right.unwrap();
+    let center_image_right = center_image_right.unwrap();
+    let small_center_image_right = small_center_image_right.unwrap();
+
+    let left_size_x = left_image_left.width;
+    let right_size_x = right_image_left.width;
+
+    let left_end_x = origin_x + left_size_x + x_offset;
+    let left_end_y = origin_y + size_y + y_offset;
+    let right_start_x = origin_x + size_x - right_size_x + x_offset;
+    let right_start_y = origin_y + size_y - left_size_x + y_offset;
+
+    let clip_left = IRegion2D {
+        x: origin_x,
+        y: right_start_y,
+        width: (origin_x + trans_pos - origin_x).max(0),
+        height: (left_end_y - right_start_y).max(0),
+    };
+    let clip_right = IRegion2D {
+        x: origin_x + trans_pos,
+        y: right_start_y,
+        width: (origin_x + size_x - (origin_x + trans_pos)).max(0),
+        height: (left_end_y - right_start_y).max(0),
+    };
+
+    // Draw center pieces
+    let center_width = right_start_x - left_end_x;
+    let pieces = center_width / center_image_left.width.max(1);
+    let mut start_x = left_end_x;
+    let start_y = origin_y + size_y - left_size_x + y_offset;
+    let end_y = origin_y + size_y + y_offset;
+
+    for _ in 0..pieces {
+        let end_x = start_x + center_image_left.width;
+        draw_window_image_clipped(
+            center_image_left,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            &clip_left,
+        );
+        draw_window_image_clipped(
+            center_image_right,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            &clip_right,
+        );
+        start_x += center_image_left.width;
+    }
+
+    // Draw small center pieces in the gap
+    let center_width = right_start_x - start_x;
+    let pieces = center_width / small_center_image_left.width.max(1) + 1;
+    for _ in 0..pieces {
+        let end_x = start_x + small_center_image_left.width;
+        draw_window_image_clipped(
+            small_center_image_left,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            &clip_left,
+        );
+        draw_window_image_clipped(
+            small_center_image_right,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            &clip_right,
+        );
+        start_x += small_center_image_left.width;
+    }
+
+    // Draw left end
+    draw_window_image_clipped(
+        left_image_left,
+        origin_x + x_offset,
+        right_start_y,
+        left_end_x,
+        left_end_y,
+        &clip_left,
+    );
+    draw_window_image_clipped(
+        left_image_right,
+        origin_x + x_offset,
+        right_start_y,
+        left_end_x,
+        left_end_y,
+        &clip_right,
+    );
+
+    // Draw right end
+    draw_window_image_clipped(
+        right_image_left,
+        right_start_x,
+        right_start_y,
+        right_start_x + right_size_x,
+        left_end_y,
+        &clip_left,
+    );
+    draw_window_image_clipped(
+        right_image_right,
+        right_start_x,
+        right_start_y,
+        right_start_x + right_size_x,
+        left_end_y,
+        &clip_right,
+    );
+}
+
+pub fn w3d_gadget_horizontal_slider_image_draw_b(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+
+    let slider_data = window.get_user_data::<crate::gui::window_script::SliderData>();
+
+    let (display_w, display_h) = with_window_manager_ref(|manager| manager.screen_size());
+    let x_multi = display_w as f32 / 800.0;
+    let y_multi = display_h as f32 / 600.0;
+
+    let x_offset = inst_data.image_offset.x;
+    let y_offset = inst_data.image_offset.y;
+
+    let mut tooltip = format!(
+        "mult:{:.4}/{:.4}, img offset:{},{}",
+        x_multi, y_multi, x_offset, y_offset
+    );
+
+    tooltip.push_str(&format!(
+        "\norigin: {},{} size:{},{}",
+        origin_x, origin_y, size_x, size_y
+    ));
+
+    let (min_val, max_val, num_ticks, position) = if let Some(s) = slider_data {
+        (s.min_value, s.max_value, s.num_ticks, s.position)
+    } else {
+        (0, 100, 10.0, 0)
+    };
+    tooltip.push_str(&format!(
+        "\ns= {} <--> {}, numTicks={:.4}, pos = {}",
+        min_val, max_val, num_ticks, position
+    ));
+
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+
+    if inst_data.state.contains(WindowState::HILITED) {
+        let highlight_square = draw_data[0].image.as_ref();
+        if let Some(highlight_square) = highlight_square {
+            let hw = highlight_square.width.max(1);
+            let hh = highlight_square.height.max(1);
+            let mut background_start_x = origin_x - ((hw as f32 * x_multi) / 2.0).round() as i32;
+            let background_start_y = origin_y + ((hh as f32 * y_multi) / 3.0).round() as i32;
+            let background_end_y = background_start_y + (hh as f32 * y_multi).round() as i32;
+            let mut background_end_x = background_start_x + (hw as f32 * x_multi).round() as i32;
+
+            tooltip.push_str(&format!(
+                "\nHighlighted: ({},{}) -> ({},{}), step {}/({}), full {}/{}",
+                background_start_x,
+                background_start_y,
+                background_end_x,
+                background_end_y,
+                hw,
+                hw as f32 * x_multi,
+                origin_x,
+                size_x
+            ));
+
+            while background_start_x < origin_x + size_x {
+                with_window_manager_ref(|manager| {
+                    manager.win_draw_image(
+                        highlight_square,
+                        background_start_x,
+                        background_start_y,
+                        background_end_x,
+                        background_end_y,
+                        WIN_COLOR_UNDEFINED,
+                    );
+                });
+                background_start_x = background_end_x;
+                background_end_x = background_start_x + (hw as f32 * x_multi).round() as i32;
+            }
+            tooltip.push_str(&format!(
+                "\n  bsX = {}, beX = {} ({} < {}+{} or {}?)",
+                background_start_x,
+                background_end_x,
+                background_start_x,
+                origin_x,
+                size_x,
+                origin_x + size_x
+            ));
+        }
+    }
+
+    // Draw filled squares up to position
+    let fill_square = draw_data[0].image.as_ref();
+    if let Some(fill_square) = fill_square {
+        let fw = fill_square.width.max(1);
+        let fh = fill_square.height.max(1);
+        let mut start_x = origin_x;
+        let start_y = origin_y;
+        let end_y = start_y + (fh as f32 * y_multi).round() as i32;
+        let mut end_x = start_x + (fw as f32 * x_multi).round() as i32;
+
+        tooltip.push_str(&format!(
+            "\ntop: start={},{}, end={},{}",
+            start_x, start_y, end_x, end_y
+        ));
+
+        let max_selected_x = origin_x + (num_ticks * (position - min_val) as f32) as i32;
+        while start_x <= max_selected_x && end_x < origin_x + size_x && position != min_val {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    fill_square,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            start_x = end_x + 2;
+            end_x = start_x + (fw as f32 * x_multi).round() as i32;
+        }
+    }
+
+    // Draw blank squares for the rest
+    let blank_square = draw_data[1].image.as_ref();
+    if let Some(blank_square) = blank_square {
+        let bw = blank_square.width.max(1);
+        let bh = blank_square.height.max(1);
+        let mut start_x = origin_x + (num_ticks * (position - min_val) as f32) as i32;
+        let start_y = origin_y;
+        let end_y = start_y + (bh as f32 * y_multi).round() as i32;
+        let mut end_x = start_x + (bw as f32 * x_multi).round() as i32;
+
+        while end_x < origin_x + size_x {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    blank_square,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            start_x = end_x + 2;
+            end_x = start_x + (bw as f32 * x_multi).round() as i32;
+        }
+    }
+}
+
 pub fn w3d_gadget_vertical_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     w3d_gadget_horizontal_slider_draw(window, inst_data);
 }
 
 pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    w3d_gadget_horizontal_slider_image_draw(window, inst_data);
+    let (draw_data, _) = if !window.is_enabled() {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+
+    let top_image = draw_data[0].image.as_ref();
+    let bottom_image = draw_data[1].image.as_ref();
+    let center_image = draw_data[2].image.as_ref();
+    let small_center_image = draw_data[3].image.as_ref();
+
+    if top_image.is_none()
+        || bottom_image.is_none()
+        || center_image.is_none()
+        || small_center_image.is_none()
+    {
+        return;
+    }
+    let top_image = top_image.unwrap();
+    let bottom_image = bottom_image.unwrap();
+    let center_image = center_image.unwrap();
+    let small_center_image = small_center_image.unwrap();
+
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+
+    let x_offset = inst_data.image_offset.x;
+    let y_offset = inst_data.image_offset.y;
+
+    let top_width = top_image.width;
+    let top_height = top_image.height;
+    let bottom_width = bottom_image.width;
+    let bottom_height = bottom_image.height;
+
+    if top_height + bottom_height >= size_y {
+        // top and bottom images overlap or fill the whole window
+        // draw top end in first half
+        let start_x = origin_x + x_offset;
+        let start_y = origin_y + y_offset;
+        let end_x = origin_x + x_offset + top_width;
+        let end_y = origin_y + size_y / 2;
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                top_image,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+
+        // draw bottom end in second half
+        let start_y = origin_y + size_y / 2;
+        let end_x = origin_x + x_offset + bottom_width;
+        let end_y = origin_y + y_offset + size_y;
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                bottom_image,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    } else {
+        // get two key points used in the end drawing
+        let top_end_x = origin_x + top_width + x_offset;
+        let top_end_y = origin_y + top_height + y_offset;
+        let bottom_start_x = origin_x + x_offset;
+        let bottom_start_y = origin_y + size_y - bottom_height + y_offset;
+
+        // draw the center repeating bar
+        let center_height = bottom_start_y - top_end_y;
+        let pieces = center_height / center_image.height.max(1);
+
+        let start_x = origin_x + x_offset;
+        let mut start_y = top_end_y;
+        let end_x = start_x + center_image.width;
+        for _ in 0..pieces {
+            let end_y = start_y + center_image.height;
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    center_image,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            start_y += center_image.height;
+        }
+
+        // fill remaining gap with small center pieces, overlapping underneath the bottom end
+        let center_height = bottom_start_y - start_y;
+        let pieces = center_height / small_center_image.height.max(1) + 1;
+        let end_x = start_x + small_center_image.width;
+        for _ in 0..pieces {
+            let end_y = start_y + small_center_image.height;
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    small_center_image,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            start_y += small_center_image.height;
+        }
+
+        // draw top end
+        let start_x = origin_x + x_offset;
+        let start_y = origin_y + y_offset;
+        let end_x = top_end_x;
+        let end_y = top_end_y;
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                top_image,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+
+        // draw bottom end
+        let start_x = bottom_start_x;
+        let start_y = bottom_start_y;
+        let end_x = start_x + bottom_width;
+        let end_y = start_y + bottom_height;
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                bottom_image,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
 }
 
 fn draw_text_entry_text(
@@ -3659,4 +4549,245 @@ pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowIn
             }
         }
     }
+}
+
+fn draw_skinny_border(pixel_x: i32, pixel_y: i32, width: i32, height: i32) {
+    const BORDER_LINE_SIZE: i32 = 5;
+    const SIZE: i32 = 5;
+    const HALF_SIZE: i32 = SIZE / 2;
+    const OFFSET: i32 = 2;
+    const OFFSET_LOWER: i32 = 5;
+
+    let max_x = pixel_x + width;
+    let max_y = pixel_y + height;
+
+    with_window_manager_ref(|manager| {
+        let top = manager.win_find_image("FrameT");
+        let bottom = manager.win_find_image("FrameB");
+        if let (Some(top), Some(bottom)) = (top, bottom) {
+            let top_y = pixel_y - OFFSET;
+            let bottom_y = max_y - OFFSET_LOWER;
+            let mut x = pixel_x + 3;
+            let x_limit = max_x - (OFFSET_LOWER + SIZE);
+            while x <= x_limit {
+                manager.win_draw_image(&top, x, top_y, x + SIZE, top_y + SIZE, WIN_COLOR_UNDEFINED);
+                manager.win_draw_image(
+                    &bottom,
+                    x,
+                    bottom_y,
+                    x + SIZE,
+                    bottom_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                x += SIZE;
+            }
+            let border_end = max_x - SIZE;
+            if (border_end - x) >= (BORDER_LINE_SIZE / 2) {
+                manager.win_draw_image(
+                    &top,
+                    x,
+                    top_y,
+                    x + HALF_SIZE,
+                    top_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &bottom,
+                    x,
+                    bottom_y,
+                    x + HALF_SIZE,
+                    bottom_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                x += BORDER_LINE_SIZE / 2;
+            }
+            if x < border_end {
+                let adjust = (BORDER_LINE_SIZE / 2) - (((border_end - x) + 1) & !1);
+                x -= adjust;
+                manager.win_draw_image(
+                    &top,
+                    x,
+                    top_y,
+                    x + HALF_SIZE,
+                    top_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &bottom,
+                    x,
+                    bottom_y,
+                    x + HALF_SIZE,
+                    bottom_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+
+        let left = manager.win_find_image("FrameL");
+        let right = manager.win_find_image("FrameR");
+        if let (Some(left), Some(right)) = (left, right) {
+            let left_x = pixel_x - OFFSET;
+            let right_x = max_x - OFFSET_LOWER;
+            let mut y = pixel_y + 3;
+            let y_limit = max_y - (OFFSET_LOWER + SIZE);
+            while y <= y_limit {
+                manager.win_draw_image(
+                    &left,
+                    left_x,
+                    y,
+                    left_x + SIZE,
+                    y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &right,
+                    right_x,
+                    y,
+                    right_x + SIZE,
+                    y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                y += SIZE;
+            }
+            let border_end = max_y - OFFSET_LOWER;
+            if (border_end - y) >= (BORDER_LINE_SIZE / 2) {
+                manager.win_draw_image(
+                    &left,
+                    left_x,
+                    y,
+                    left_x + SIZE,
+                    y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &right,
+                    right_x,
+                    y,
+                    right_x + SIZE,
+                    y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                y += BORDER_LINE_SIZE / 2;
+            }
+            if y < border_end {
+                let adjust = (BORDER_LINE_SIZE / 2) - (((border_end - y) + 1) & !1);
+                y -= adjust;
+                manager.win_draw_image(
+                    &left,
+                    left_x,
+                    y,
+                    left_x + SIZE,
+                    y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &right,
+                    right_x,
+                    y,
+                    right_x + SIZE,
+                    y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+
+        for (name, x, y) in [
+            ("FrameCornerUL", pixel_x - 2, pixel_y - 2),
+            ("FrameCornerUR", max_x - 5, pixel_y - 2),
+            ("FrameCornerLL", pixel_x - 2, max_y - 5),
+            ("FrameCornerLR", max_x - 5, max_y - 5),
+        ] {
+            if let Some(image) = manager.win_find_image(name) {
+                manager.win_draw_image(&image, x, y, x + SIZE, y + SIZE, WIN_COLOR_UNDEFINED);
+            }
+        }
+    });
+}
+
+pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (x, y) = window.get_screen_position();
+    let (w, h) = window.get_size();
+    if w <= 0 || h <= 0 {
+        return;
+    }
+
+    let meta = window
+        .get_user_data::<Option<MapMetaData>>()
+        .and_then(|meta| meta.as_ref())
+        .cloned();
+    let Some(meta) = meta else {
+        super::game_window::default_draw_callback(window, inst_data);
+        draw_skinny_border(x - 1, y - 1, w + 2, h + 2);
+        return;
+    };
+
+    let (ul, lr) = find_draw_positions(x, y, w, h, meta.extent);
+    let fill_color: u32 = 0xFF000000;
+    let line_color: u32 = 0xFF323232;
+
+    with_window_manager_ref(|manager| {
+        let map_ratio = (meta.extent.hi.x - meta.extent.lo.x) / (w as f32).max(1.0);
+        let window_ratio = (meta.extent.hi.y - meta.extent.lo.y) / (h as f32).max(1.0);
+        if map_ratio >= window_ratio {
+            manager.win_fill_rect(fill_color, 1.0, x, y, x + w, ul.y - 1);
+            manager.win_fill_rect(fill_color, 1.0, x, lr.y + 1, x + w, y + h);
+            manager.win_draw_line(line_color, 1.0, x, ul.y, x + w, ul.y);
+            manager.win_draw_line(line_color, 1.0, x, lr.y + 1, x + w, lr.y + 1);
+        } else {
+            manager.win_fill_rect(fill_color, 1.0, x, y, ul.x - 1, y + h);
+            manager.win_fill_rect(fill_color, 1.0, lr.x + 1, y, x + w, y + h);
+            manager.win_draw_line(line_color, 1.0, ul.x, y, ul.x, y + h);
+            manager.win_draw_line(line_color, 1.0, lr.x + 1, y, lr.x + 1, y + h);
+        }
+    });
+
+    if let Some(draw) = window.get_enabled_draw_data(0) {
+        if window.get_status().contains(WindowStatus::IMAGE) {
+            if let Some(image) = draw.image {
+                with_window_manager_ref(|manager| {
+                    manager.win_draw_image(&image, ul.x, ul.y, lr.x, lr.y, draw.color);
+                });
+            } else {
+                with_window_manager_ref(|manager| {
+                    manager.win_fill_rect(line_color, 1.0, ul.x, ul.y, lr.x, lr.y);
+                });
+            }
+        } else {
+            with_window_manager_ref(|manager| {
+                manager.win_fill_rect(line_color, 1.0, ul.x, ul.y, lr.x, lr.y);
+            });
+        }
+    }
+
+    const SUPPLY_TECH_SIZE: i32 = 15;
+    let supply_and_tech = get_supply_and_tech_image_locations();
+    let overlay = supply_and_tech.lock().unwrap();
+    with_window_manager_ref(|manager| {
+        if let Some(image) = manager.win_find_image("TecBuilding") {
+            for pos in &overlay.tech_positions {
+                manager.win_draw_image(
+                    &image,
+                    x + pos.x,
+                    y + pos.y,
+                    x + pos.x + SUPPLY_TECH_SIZE,
+                    y + pos.y + SUPPLY_TECH_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+        if let Some(image) = manager.win_find_image("Cash") {
+            for pos in &overlay.supply_positions {
+                manager.win_draw_image(
+                    &image,
+                    x + pos.x,
+                    y + pos.y,
+                    x + pos.x + SUPPLY_TECH_SIZE,
+                    y + pos.y + SUPPLY_TECH_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+    });
+
+    draw_skinny_border(x - 1, y - 1, w + 2, h + 2);
 }

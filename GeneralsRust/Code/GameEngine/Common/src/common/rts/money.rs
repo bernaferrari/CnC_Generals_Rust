@@ -14,6 +14,10 @@
 ///
 /// # C++ Reference
 /// C++ class Money (Money.h lines 28-71)
+///
+/// # Save/Load Parity
+/// Only `money` and `player_index` are serialized to match C++ binary format.
+/// The xfer() method uses version 1 with only the money value.
 pub struct Money {
     /// Amount of money/resources
     /// C++ equivalent: m_money (Money.h line 69)
@@ -22,24 +26,6 @@ pub struct Money {
     /// Player index for audio events
     /// C++ equivalent: m_playerIndex (Money.h line 70)
     player_index: i32,
-
-    /// Total income received (for tracking)
-    total_income: u64,
-
-    /// Total expenditure (for tracking)
-    total_spent: u64,
-
-    /// Number of deposits made
-    deposit_count: u32,
-
-    /// Number of withdrawals made
-    withdrawal_count: u32,
-
-    /// Last deposit timestamp (for rate calculation)
-    last_deposit_time: std::time::Instant,
-
-    /// Last withdrawal timestamp (for rate calculation)
-    last_withdrawal_time: std::time::Instant,
 }
 
 impl Money {
@@ -47,16 +33,9 @@ impl Money {
     ///
     /// C++ equivalent: Money::Money() constructor (Money.h lines 33-35)
     pub fn new() -> Self {
-        let now = std::time::Instant::now();
         Self {
             money: 0,
             player_index: 0,
-            total_income: 0,
-            total_spent: 0,
-            deposit_count: 0,
-            withdrawal_count: 0,
-            last_deposit_time: now,
-            last_withdrawal_time: now,
         }
     }
 
@@ -72,13 +51,6 @@ impl Money {
     /// C++ equivalent: Money::init() (Money.h lines 37-40)
     pub fn init(&mut self) {
         self.money = 0;
-        let now = std::time::Instant::now();
-        self.total_income = 0;
-        self.total_spent = 0;
-        self.deposit_count = 0;
-        self.withdrawal_count = 0;
-        self.last_deposit_time = now;
-        self.last_withdrawal_time = now;
     }
 
     /// Get the current amount of money
@@ -133,11 +105,6 @@ impl Money {
         // C++ Money.cpp line 39: Deduct the money
         self.money -= actual_withdrawal;
 
-        // Track statistics
-        self.total_spent += actual_withdrawal as u64;
-        self.withdrawal_count += 1;
-        self.last_withdrawal_time = std::time::Instant::now();
-
         // C++ Money.cpp line 41: Return actual amount
         actual_withdrawal
     }
@@ -173,11 +140,6 @@ impl Money {
 
         // C++ Money.cpp line 58: Add the money
         self.money += amount_to_deposit;
-
-        // Track statistics
-        self.total_income += amount_to_deposit as u64;
-        self.deposit_count += 1;
-        self.last_deposit_time = std::time::Instant::now();
 
         // C++ Money.cpp lines 60-67: Record income for academy stats
         if amount_to_deposit > 0 {
@@ -265,83 +227,6 @@ impl Money {
         }
     }
 
-    // ========== Income Tracking and Rate Calculations ==========
-
-    /// Get total income received over lifetime
-    pub fn get_total_income(&self) -> u64 {
-        self.total_income
-    }
-
-    /// Get total amount spent over lifetime
-    pub fn get_total_spent(&self) -> u64 {
-        self.total_spent
-    }
-
-    /// Get net income (income - spent)
-    pub fn get_net_income(&self) -> i64 {
-        self.total_income as i64 - self.total_spent as i64
-    }
-
-    /// Get number of deposits made
-    pub fn get_deposit_count(&self) -> u32 {
-        self.deposit_count
-    }
-
-    /// Get number of withdrawals made
-    pub fn get_withdrawal_count(&self) -> u32 {
-        self.withdrawal_count
-    }
-
-    /// Get average deposit amount
-    pub fn get_average_deposit(&self) -> f64 {
-        if self.deposit_count == 0 {
-            0.0
-        } else {
-            self.total_income as f64 / self.deposit_count as f64
-        }
-    }
-
-    /// Get average withdrawal amount
-    pub fn get_average_withdrawal(&self) -> f64 {
-        if self.withdrawal_count == 0 {
-            0.0
-        } else {
-            self.total_spent as f64 / self.withdrawal_count as f64
-        }
-    }
-
-    /// Get time since last deposit
-    pub fn time_since_last_deposit(&self) -> std::time::Duration {
-        self.last_deposit_time.elapsed()
-    }
-
-    /// Get time since last withdrawal
-    pub fn time_since_last_withdrawal(&self) -> std::time::Duration {
-        self.last_withdrawal_time.elapsed()
-    }
-
-    /// Calculate income rate (money per second)
-    pub fn calculate_income_rate(&self, time_window: std::time::Duration) -> f64 {
-        let elapsed = self.last_deposit_time.elapsed();
-        if elapsed < time_window {
-            // Not enough time has passed for accurate rate calculation
-            0.0
-        } else {
-            self.total_income as f64 / elapsed.as_secs_f64()
-        }
-    }
-
-    /// Calculate spending rate (money per second)
-    pub fn calculate_spending_rate(&self, time_window: std::time::Duration) -> f64 {
-        let elapsed = self.last_withdrawal_time.elapsed();
-        if elapsed < time_window {
-            // Not enough time has passed for accurate rate calculation
-            0.0
-        } else {
-            self.total_spent as f64 / elapsed.as_secs_f64()
-        }
-    }
-
     /// Transfer money from this account to another
     ///
     /// # Returns
@@ -396,38 +281,35 @@ impl Money {
 
     /// Compute CRC for this Money instance
     ///
-    /// Used for network synchronization and save game validation.
-    ///
     /// # C++ Reference
     /// Money::crc() (Money.cpp lines 71-76)
+    ///
+    /// C++ implementation is empty - CRC is computed at higher level.
+    /// This method exists for API compatibility but does nothing.
     pub fn crc(&self) -> u32 {
-        // C++ implementation is empty - CRC is computed at higher level
-        // For Rust, we compute a simple hash of the money value
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        self.money.hash(&mut hasher);
-        hasher.finish() as u32
+        // C++ Money::crc() is empty - no CRC computation at this level
+        0
     }
 
-    /// Serialize/deserialize money data
-    ///
-    /// This method would be used with a proper Xfer system for save/load.
+    /// Serialize money data for save game
     ///
     /// # C++ Reference
     /// Money::xfer() (Money.cpp lines 78-94)
     ///
-    /// # Version History
-    /// * Version 1: Initial version (money value only)
+    /// # Binary Format (Version 1)
+    /// - 1 byte: XferVersion (always 1)
+    /// - 4 bytes: m_money (u32, little-endian)
+    ///
+    /// # Note
+    /// Player index is NOT serialized - it's set by the owning Player object.
     pub fn xfer_save(&self) -> Vec<u8> {
-        // C++ Money.cpp lines 87-92: Save version and money value
+        // C++ Money.cpp lines 87-92: Save version and money value only
         let mut data = Vec::new();
 
-        // Version 1
+        // Version 1 (C++: XferVersion currentVersion = 1)
         data.push(1u8);
 
-        // Money value (u32 as 4 bytes)
+        // Money value (C++: xfer->xferUnsignedInt(&m_money))
         data.extend_from_slice(&self.money.to_le_bytes());
 
         data
@@ -437,6 +319,9 @@ impl Money {
     ///
     /// # C++ Reference
     /// Money::xfer() (Money.cpp lines 78-94)
+    ///
+    /// # Returns
+    /// Ok(()) on success, Err with description on failure
     pub fn xfer_load(&mut self, data: &[u8]) -> Result<(), &'static str> {
         if data.len() < 5 {
             return Err("Invalid money data: too short");
@@ -445,7 +330,7 @@ impl Money {
         // C++ Money.cpp line 88-89: Read and validate version
         let version = data[0];
         if version != 1 {
-            return Err("Invalid money version");
+            return Err("Unsupported money data version");
         }
 
         // C++ Money.cpp line 92: Read money value
@@ -463,12 +348,10 @@ impl Money {
     ///
     /// # C++ Reference
     /// Money::loadPostProcess() (Money.cpp lines 96-102)
+    ///
+    /// C++ implementation is empty - no post-processing needed.
     pub fn load_post_process(&mut self) {
-        // C++ implementation is empty - no post-processing needed
-        // Reset tracking stats since they're not serialized
-        let now = std::time::Instant::now();
-        self.last_deposit_time = now;
-        self.last_withdrawal_time = now;
+        // C++ Money::loadPostProcess() is empty
     }
 }
 
@@ -483,12 +366,6 @@ impl Clone for Money {
         Self {
             money: self.money,
             player_index: self.player_index,
-            total_income: self.total_income,
-            total_spent: self.total_spent,
-            deposit_count: self.deposit_count,
-            withdrawal_count: self.withdrawal_count,
-            last_deposit_time: self.last_deposit_time,
-            last_withdrawal_time: self.last_withdrawal_time,
         }
     }
 }
@@ -632,50 +509,6 @@ mod tests {
     }
 
     #[test]
-    fn test_income_tracking() {
-        let mut money = Money::new();
-
-        // Make some deposits
-        money.deposit(1000, false);
-        money.deposit(500, false);
-        money.deposit(250, false);
-
-        assert_eq!(money.get_total_income(), 1750);
-        assert_eq!(money.get_deposit_count(), 3);
-        assert_eq!(money.get_average_deposit(), 583.3333333333334);
-    }
-
-    #[test]
-    fn test_spending_tracking() {
-        let mut money = Money::new_with_amount(2000);
-
-        // Make some withdrawals
-        money.withdraw(500, false);
-        money.withdraw(300, false);
-        money.withdraw(200, false);
-
-        assert_eq!(money.get_total_spent(), 1000);
-        assert_eq!(money.get_withdrawal_count(), 3);
-        assert_eq!(money.get_average_withdrawal(), 333.3333333333333);
-        assert_eq!(money.count_money(), 1000);
-    }
-
-    #[test]
-    fn test_net_income() {
-        let mut money = Money::new();
-
-        money.deposit(5000, false);
-        money.withdraw(2000, false);
-        money.deposit(1000, false);
-        money.withdraw(500, false);
-
-        assert_eq!(money.get_total_income(), 6000);
-        assert_eq!(money.get_total_spent(), 2500);
-        assert_eq!(money.get_net_income(), 3500);
-        assert_eq!(money.count_money(), 3500);
-    }
-
-    #[test]
     fn test_bounty_system() {
         let mut money = Money::new();
 
@@ -750,15 +583,10 @@ mod tests {
 
     #[test]
     fn test_crc() {
-        let money1 = Money::new_with_amount(1000);
-        let money2 = Money::new_with_amount(1000);
-        let money3 = Money::new_with_amount(2000);
-
-        // Same amounts should produce same CRC
-        assert_eq!(money1.crc(), money2.crc());
-
-        // Different amounts should (probably) produce different CRC
-        assert_ne!(money1.crc(), money3.crc());
+        // C++ Money::crc() is empty and does nothing
+        // This test verifies the method exists and returns 0
+        let money = Money::new_with_amount(1000);
+        assert_eq!(money.crc(), 0);
     }
 
     #[test]
@@ -773,60 +601,17 @@ mod tests {
     }
 
     #[test]
-    fn test_time_tracking() {
-        let mut money = Money::new();
-
-        money.deposit(1000, false);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let time_since_deposit = money.time_since_last_deposit();
-        assert!(time_since_deposit.as_millis() >= 10);
-
-        money.withdraw(500, false);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let time_since_withdrawal = money.time_since_last_withdrawal();
-        assert!(time_since_withdrawal.as_millis() >= 10);
-    }
-
-    #[test]
-    fn test_rate_calculations() {
-        let mut money = Money::new();
-
-        // Make some deposits
-        money.deposit(1000, false);
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        // Rate calculation with short window
-        let income_rate = money.calculate_income_rate(std::time::Duration::from_millis(50));
-        assert!(income_rate > 0.0);
-
-        // Make some withdrawals
-        money.withdraw(500, false);
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        let spending_rate = money.calculate_spending_rate(std::time::Duration::from_millis(50));
-        assert!(spending_rate > 0.0);
-    }
-
-    #[test]
-    fn test_init_resets_tracking() {
+    fn test_init_resets_money() {
         let mut money = Money::new();
 
         money.deposit(1000, false);
         money.withdraw(500, false);
 
         assert_eq!(money.count_money(), 500);
-        assert_eq!(money.get_total_income(), 1000);
-        assert_eq!(money.get_total_spent(), 500);
 
-        // Init should reset everything
+        // Init should reset money to 0
         money.init();
         assert_eq!(money.count_money(), 0);
-        assert_eq!(money.get_total_income(), 0);
-        assert_eq!(money.get_total_spent(), 0);
-        assert_eq!(money.get_deposit_count(), 0);
-        assert_eq!(money.get_withdrawal_count(), 0);
     }
 
     #[test]
@@ -839,7 +624,6 @@ mod tests {
 
         assert_eq!(cloned.count_money(), money.count_money());
         assert_eq!(cloned.get_player_index(), money.get_player_index());
-        // Note: tracking stats are preserved in clone but not player_index in equality
         assert_eq!(cloned, money);
     }
 }

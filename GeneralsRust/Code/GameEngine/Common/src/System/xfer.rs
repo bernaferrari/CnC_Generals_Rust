@@ -7,7 +7,7 @@
 use std::fmt;
 
 /// Xfer version type
-pub type XferVersion = u8;
+pub type XferVersion = u32;
 
 /// Transfer block size type
 pub type XferBlockSize = i32;

@@ -1,0 +1,74 @@
+# Parity Analysis Formula
+# Compares C++ files in GeneralsMD with Rust files in GeneralsRust
+# Identifies behavioral differences, missing implementations, and parity issues
+
+name = "parity-analysis"
+description = "Compare C++ and Rust implementations for parity"
+
+[variables]
+subsystem = "Common"  # Common, GameClient, GameLogic, GameEngineDevice
+focus_area = ""      # Optional: specific module to focus on
+
+[[steps]]
+name = "compare-subsystem"
+action = "analyze"
+prompt = """
+You are analyzing parity between C++ and Rust implementations in a Command & Conquer: Generals port.
+
+SUBSYSTEM: {{subsystem}}
+FOCUS AREA: {{focus_area}}
+
+C++ Source: GeneralsMD/Code/GameEngine/{{subsystem}}/
+Rust Source: GeneralsRust/Code/GameEngine/{{subsystem}}/
+
+Your task:
+1. List all .cpp/.h files in the C++ subsystem
+2. Find corresponding .rs files in Rust (snake_case conversion)
+3. For each file pair, compare:
+   - Function signatures and behavior
+   - Constants and enums (values must match exactly)
+   - State machine logic
+   - INI parsing behavior
+   - Save/load (Snapshot/Xfer) behavior
+   - Frame/logic timing
+
+4. Classify issues by severity:
+   CRITICAL: Game-breaking, crashes, wrong gameplay behavior
+   HIGH: Visual glitches, audio issues, performance problems
+   MEDIUM: Minor behavioral differences, edge cases
+   LOW: Code style, comments, non-functional differences
+
+5. Output format:
+```
+FILE: <cpp_file> -> <rust_file>
+ISSUES:
+- [SEVERITY] <description>
+- [SEVERITY] <description>
+...
+```
+
+Focus on behavioral parity, not idiomatic differences.
+Write findings to: parity_report_{{subsystem}}.md
+"""
+
+[[steps]]
+name = "summarize-findings"
+action = "report"
+prompt = """
+Consolidate all findings into a ranked report.
+
+Order by severity:
+1. CRITICAL issues first
+2. HIGH issues second
+3. MEDIUM issues third
+4. LOW issues last
+
+For each issue, include:
+- File locations (C++ and Rust)
+- What's different
+- Expected behavior (from C++)
+- Current behavior (from Rust)
+- Suggested fix
+
+Output to: PARITY_REPORT_{{subsystem}}.md
+"""

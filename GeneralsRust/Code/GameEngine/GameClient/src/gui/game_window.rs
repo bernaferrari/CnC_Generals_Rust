@@ -283,7 +283,7 @@ impl WindowRegion {
 /// Color type (RGBA)
 pub type Color = u32;
 
-/// Font placeholder (would be implemented based on the game's font system)
+/// Game font descriptor used for font resolution via the font library.
 #[derive(Debug, Clone)]
 pub struct GameFont {
     pub name: String,
@@ -297,7 +297,7 @@ impl GameFont {
     }
 }
 
-/// Image placeholder (would be implemented based on the game's image system)
+/// Image reference used for window draw data, resolved via the mapped image collection.
 #[derive(Debug, Clone)]
 pub struct Image {
     pub name: String,
@@ -2261,34 +2261,11 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
             let texture = renderer.create_texture_from_rgba(frame.width, frame.height, &frame.data);
             renderer.draw_textured_rect(video_rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
         }
-
-        let raw_text = if !_inst_data.text.is_empty() {
-            _inst_data.text.as_str()
-        } else {
-            _inst_data.text_label.as_str()
-        };
-        let text = resolve_window_text(raw_text);
-
-        if !text.is_empty() {
-            if let Some(display) = _inst_data.display_text.as_ref() {
-                let mut display = display.borrow_mut();
-                display.set_text(text.clone());
-                display.draw_with_renderer(
-                    &mut renderer,
-                    rect.x as i32 + 2,
-                    rect.y as i32 + 2,
-                    text_colors.color,
-                    text_colors.border_color,
-                    1,
-                    1,
-                );
-            } else {
-                let font_size = _inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
-                let color = color_to_rgba(text_colors.color);
-                let pos = Vec2::new(rect.x + 2.0, rect.y + 2.0);
-                let _ = renderer.draw_text_simple(&text, pos, font_size, color);
-            }
-        }
+        // C++ parity: W3DGameWinDefaultDraw does NOT draw text here.
+        // Text drawing is the responsibility of gadget-specific draw callbacks
+        // (e.g., W3DGadgetPushButtonDraw, W3DGadgetStaticTextDraw) which call
+        // drawButtonText() explicitly. The default draw only handles image/color
+        // backgrounds and video buffers.
     });
 }
 

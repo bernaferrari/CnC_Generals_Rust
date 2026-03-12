@@ -1,72 +1,19 @@
-//! WthreeDVolumetricShadow Module
-//! 
+//! W3D Volumetric Shadow System - Re-export from Shadow module
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DVolumetricShadow.h
-//! 
-//! This module provides shadow rendering functionality.
+//!
+//! This module re-exports the volumetric shadow system implementation from the Shadow subdirectory.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
+// Re-export all types from the Shadow module
+pub use super::shadow::{
+    W3DVolumetricShadowManager, W3DVolumetricShadow, ShadowGeometry, ShadowGeometryMesh,
+    Geometry, PolyNeighbor, NeighborEdge, VisibleState, AABBox, Sphere,
+    MAX_SHADOW_CASTER_MESHES, MAX_SILHOUETTE_EDGES, SHADOW_EXTRUSION_BUFFER,
+    AIRBORNE_UNIT_GROUND_DELTA, MAX_SHADOW_LENGTH_SCALE_FACTOR,
+    MAX_SHADOW_LENGTH_EXTRA_AIRBORNE_SCALE_FACTOR, MAX_EXTRUSION_LENGTH,
+    MAX_SHADOW_EXTRUSION_UNDER_OBJECT_CLAMP, SHADOW_SAMPLING_INTERVAL,
+    OVERHANGING_OBJECT_CLAMP_ANGLE, COS_ANGLE_TO_CARE, MAX_SHADOW_VOLUME_VERTS,
+    SHADOW_VERTEX_SIZE, SHADOW_INDEX_SIZE, POLY_VISIBLE, POLY_PROCESSED,
+    NO_NEIGHBOR, MAX_POLYGON_NEIGHBORS,
+    the_w3d_volumetric_shadow_manager, ShadowRenderTask, ShadowGeometryManager,
 };
-
-/// Constants for WthreeDVolumetricShadow
-pub const DEFAULT_VALUE: u32 = 0;
-pub const MAX_VALUE: u32 = 1000;
-
-/// WthreeDVolumetricShadow structure
-#[derive(Debug, Clone, Default)]
-pub struct WthreeDVolumetricShadow {
-    /// Value field
-    pub value: u32,
-    /// Name field
-    pub name: String,
-}
-
-impl WthreeDVolumetricShadow {
-    /// Create new instance
-    pub fn new(value: u32, name: &str) -> Self {
-        Self {
-            value,
-            name: name.to_string(),
-        }
-    }
-
-    /// Get value
-    pub fn get_value(&self) -> u32 {
-        self.value
-    }
-
-    /// Set value
-    pub fn set_value(&mut self, value: u32) {
-        self.value = value;
-    }
-
-    /// Get name
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
-}
-
-/// Enumeration for WthreeDVolumetricShadow types
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WthreeDVolumetricShadowType {
-    /// Default type
-    Default = 0,
-    /// Custom type
-    Custom = 1,
-    /// Special type
-    Special = 2,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_wthree_d_volumetric_shadow_basic() {
-        // TODO: Implement tests for wthree_d_volumetric_shadow
-        assert!(true, "Placeholder test for wthree_d_volumetric_shadow");
-    }
-}
