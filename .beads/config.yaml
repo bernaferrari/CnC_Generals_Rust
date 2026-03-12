@@ -1,0 +1,4 @@
+prefix: hq
+issue-prefix: hq
+
+routing.mode: "explicit"

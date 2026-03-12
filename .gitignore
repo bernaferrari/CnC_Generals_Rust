@@ -27,3 +27,7 @@ Thumbs.db
 # Rust-specific
 **/*.rs.bk
 *.orig
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
