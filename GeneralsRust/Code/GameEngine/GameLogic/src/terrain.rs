@@ -443,6 +443,135 @@ impl Bridge {
             BridgeTowerType::To => self.bridge_info.tower_object_id[1] = id,
         }
     }
+
+    /// Check if a cell region lies on the side of the bridge.
+    /// Reference: C++ TerrainLogic.cpp Bridge::isCellOnSide()
+    ///
+    /// This is used to determine if a pathfinding cell touches the sides
+    /// of a bridge, which affects pathfinding calculations.
+    pub fn is_cell_on_side(&self, cell: &Region2D) -> bool {
+        let mut end_vector = self.bridge_info.from_right - self.bridge_info.from_left;
+        let len = end_vector.length();
+        if len <= f32::EPSILON {
+            return false;
+        }
+        end_vector /= len;
+        // Offset by 0.51 pathfind cells for side detection
+        end_vector *= PATHFIND_CELL_SIZE_F * 0.51;
+
+        let mut from_left = self.bridge_info.from_left;
+        from_left.x -= end_vector.x;
+        from_left.y -= end_vector.y;
+
+        let mut from_right = self.bridge_info.from_right;
+        from_right.x += end_vector.x;
+        from_right.y += end_vector.y;
+
+        let mut to_left = self.bridge_info.to_left;
+        to_left.x -= end_vector.x;
+        to_left.y -= end_vector.y;
+
+        let mut to_right = self.bridge_info.to_right;
+        to_right.x += end_vector.x;
+        to_right.y += end_vector.y;
+
+        // Check left side of bridge
+        let line1 = Coord2D::new(from_left.x, from_left.y);
+        let line2 = Coord2D::new(to_left.x, to_left.y);
+        if line_in_region(&line1, &line2, cell) {
+            return true;
+        }
+
+        // Check right side of bridge
+        let line1 = Coord2D::new(from_right.x, from_right.y);
+        let line2 = Coord2D::new(to_right.x, to_right.y);
+        if line_in_region(&line1, &line2, cell) {
+            return true;
+        }
+
+        // Check with additional offset for wider detection
+        from_left.x -= end_vector.x;
+        from_left.y -= end_vector.y;
+        from_right.x += end_vector.x;
+        from_right.y += end_vector.y;
+        to_left.x -= end_vector.x;
+        to_left.y -= end_vector.y;
+        to_right.x += end_vector.x;
+        to_right.y += end_vector.y;
+
+        let line1 = Coord2D::new(from_left.x, from_left.y);
+        let line2 = Coord2D::new(to_left.x, to_left.y);
+        if line_in_region(&line1, &line2, cell) {
+            return true;
+        }
+
+        let line1 = Coord2D::new(from_right.x, from_right.y);
+        let line2 = Coord2D::new(to_right.x, to_right.y);
+        line_in_region(&line1, &line2, cell)
+    }
+
+    /// Check if a pathfind cell is an entry point to the bridge.
+    /// Reference: C++ TerrainLogic.cpp Bridge::isCellEntryPoint()
+    ///
+    /// Entry points are the areas at either end of the bridge where
+    /// units can transition onto the bridge surface.
+    pub fn is_cell_entry_point(&self, cell: &Region2D) -> bool {
+        let mut end_vector = self.bridge_info.from_right - self.bridge_info.from_left;
+        let len = end_vector.length();
+        if len <= f32::EPSILON {
+            return false;
+        }
+        end_vector /= len;
+        // Offset by 1 pathfind cell
+        end_vector *= PATHFIND_CELL_SIZE_F;
+
+        let mut bridge_vector = self.bridge_info.to - self.bridge_info.from;
+        let bridge_len = bridge_vector.length();
+        if bridge_len <= f32::EPSILON {
+            return false;
+        }
+        bridge_vector /= bridge_len;
+        // Offset by half a pathfind cell along bridge direction
+        bridge_vector *= PATHFIND_CELL_SIZE_F * 0.5;
+
+        // Calculate entry point at 'from' end
+        let mut from_left = self.bridge_info.from_left;
+        from_left.x -= bridge_vector.x;
+        from_left.y -= bridge_vector.y;
+        from_left.x += end_vector.x;
+        from_left.y += end_vector.y;
+
+        let mut from_right = self.bridge_info.from_right;
+        from_right.x -= bridge_vector.x;
+        from_right.y -= bridge_vector.y;
+        from_right.x -= end_vector.x;
+        from_right.y -= end_vector.y;
+
+        // Check 'from' entry point
+        let line1 = Coord2D::new(from_left.x, from_left.y);
+        let line2 = Coord2D::new(from_right.x, from_right.y);
+        if line_in_region(&line1, &line2, cell) {
+            return true;
+        }
+
+        // Calculate entry point at 'to' end
+        let mut to_left = self.bridge_info.to_left;
+        to_left.x += bridge_vector.x;
+        to_left.y += bridge_vector.y;
+        to_left.x += end_vector.x;
+        to_left.y += end_vector.y;
+
+        let mut to_right = self.bridge_info.to_right;
+        to_right.x += bridge_vector.x;
+        to_right.y += bridge_vector.y;
+        to_right.x -= end_vector.x;
+        to_right.y -= end_vector.y;
+
+        // Check 'to' entry point
+        let line1 = Coord2D::new(to_left.x, to_left.y);
+        let line2 = Coord2D::new(to_right.x, to_right.y);
+        line_in_region(&line1, &line2, cell)
+    }
 }
 
 /// Water handle for dynamic water management
@@ -646,6 +775,15 @@ impl TerrainLogic {
         let hi_y = (height - border).max(lo_y);
 
         Region3D::new(Coord3D::new(lo_x, lo_y, 0.0), Coord3D::new(hi_x, hi_y, 0.0))
+    }
+
+    /// Get the map extent in world coordinates.
+    /// Reference: C++ TerrainLogic::getExtent()
+    ///
+    /// Returns the bounding box of the playable map area.
+    pub fn get_extent(&self) -> Region3D {
+        // Use the maximum pathfind extent as the primary extent
+        self.get_maximum_pathfind_extent()
     }
 
     /// Initialize the terrain system
@@ -1448,6 +1586,62 @@ impl TerrainLogic {
         let mut new_bridge = Box::new(Bridge::new(bridge_info, template_name));
         new_bridge.next = self.bridge_list_head.take();
         self.bridge_list_head = Some(new_bridge);
+    }
+
+    /// Add a landmark bridge to logic from an existing object.
+    /// Reference: C++ TerrainLogic::addLandmarkBridgeToLogic()
+    ///
+    /// Landmark bridges are placed as objects in the map and need to be
+    /// registered with the terrain system for pathfinding and height queries.
+    pub fn add_landmark_bridge_to_logic(&mut self, _bridge_obj: &Object) {
+        // Extract bridge geometry from the object
+        // The bridge object should have a box geometry with position and orientation
+        // that defines the bridge's bounds.
+
+        // Note: Full implementation requires:
+        // 1. Getting the object's geometry info (major/minor radius for box)
+        // 2. Calculating the 4 corners based on position and orientation
+        // 3. Creating BridgeInfo from the calculated corners
+        // 4. Adding to the bridge list
+
+        // For now, this is a placeholder that logs the intent
+        // Full implementation would be:
+        // let pos = bridge_obj.get_position();
+        // let angle = bridge_obj.get_orientation();
+        // let halfsize_x = bridge_obj.get_geometry_info().get_major_radius();
+        // let halfsize_y = bridge_obj.get_geometry_info().get_minor_radius();
+        // ... calculate corners and create BridgeInfo ...
+
+        log::debug!("add_landmark_bridge_to_logic called - placeholder implementation");
+    }
+
+    /// Delete a specific bridge from the terrain system.
+    /// Reference: C++ TerrainLogic::deleteBridge()
+    ///
+    /// Removes the bridge from the list and destroys its associated object.
+    pub fn delete_bridge(&mut self, location: &Coord3D) -> bool {
+        // Find the bridge at this location
+        let Some(bridge) = self.find_bridge_at(location) else {
+            return false;
+        };
+
+        // Get the bridge info before removing
+        let bridge_object_id = bridge.get_bridge_info().bridge_object_id;
+        let layer = bridge.get_layer();
+
+        // Remove from pathfinder (would notify AI system)
+        // TheAI->pathfinder()->changeBridgeState(layer, false);
+        // Note: This requires integration with the AI pathfinder
+
+        // Destroy the bridge object if it exists
+        if bridge_object_id != crate::common::INVALID_ID {
+            // Would destroy the object through game logic
+            // TheGameLogic->destroyObject(bridgeObj);
+            // Note: This requires integration with the game logic system
+        }
+
+        // Remove from list
+        self.delete_bridge_at(location)
     }
 
     /// Enable/disable water grid

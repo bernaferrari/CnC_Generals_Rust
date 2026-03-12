@@ -368,7 +368,8 @@ impl DynamicAudioEventInfo {
 
     /// C++ parity: transfer all overridden fields except the customized audio name.
     pub fn xfer_no_name(&mut self, xfer: &mut dyn Xfer) -> io::Result<()> {
-        let current_version: u32 = 1;
+        // C++ uses UnsignedByte (u8) for version - matches C++ parity
+        let current_version: u8 = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
 

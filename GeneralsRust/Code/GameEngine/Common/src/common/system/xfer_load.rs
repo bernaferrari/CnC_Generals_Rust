@@ -219,10 +219,14 @@ impl<R: Read> Xfer for XferLoad<R> {
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
-        let mut len = 0u32;
-        self.xfer_unsigned_int(&mut len)?;
+        // C++ uses UnsignedByte (u8) for string length, max 255 chars
+        // Matches C++ XferLoad.cpp lines 142-158
+        let mut len = 0u8;
+        self.xfer_unsigned_byte(&mut len)?;
         let mut bytes = vec![0u8; len as usize];
-        self.reader.read_exact(&mut bytes)?;
+        if len > 0 {
+            self.reader.read_exact(&mut bytes)?;
+        }
         *ascii_string_data = String::from_utf8(bytes)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-8"))?;
         Ok(())

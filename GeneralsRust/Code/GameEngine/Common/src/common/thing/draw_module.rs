@@ -347,8 +347,8 @@ impl DrawableModuleTrait for DrawModule {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Serialization implementation
-        let current_version = 1u32;
+        // C++ uses UnsignedByte (u8) for version - matches C++ parity
+        let current_version = 1u8;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
