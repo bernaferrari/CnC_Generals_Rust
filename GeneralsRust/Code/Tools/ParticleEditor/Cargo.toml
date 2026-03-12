@@ -1,0 +1,55 @@
+[package]
+name = "particle_editor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# UI Framework
+ui_framework = { path = "../UIFramework" }
+
+# Core dependencies
+egui = { workspace = true }
+eframe = { workspace = true }
+winit = { workspace = true }
+
+# 3D Graphics and Particles
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+
+# File handling
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+ron = { workspace = true }
+rfd = { workspace = true }
+
+# Image processing
+image = { workspace = true }
+
+# Utilities
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# Game engine integration
+# Note: Temporarily commented out missing dependencies
+# wwlib = { workspace = true }
+# game_engine = { workspace = true }
+
+# Animation and timing
+tokio = { workspace = true, features = ["time"] }
+rayon = { workspace = true }
+
+[[bin]]
+name = "particle_editor"
+path = "src/main.rs"
+
+[features]
+default = ["real_time_preview", "timeline_editing", "gpu_particles"]
+real_time_preview = []
+timeline_editing = []
+gpu_particles = []
+advanced_physics = []

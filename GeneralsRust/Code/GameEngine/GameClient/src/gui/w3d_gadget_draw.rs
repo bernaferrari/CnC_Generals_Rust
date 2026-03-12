@@ -1,0 +1,3662 @@
+//! W3D gadget draw callbacks (push button) for device-style rendering.
+
+use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
+use crate::gui::callbacks::get_menu_manager;
+use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::gadgets::tabcontrol::{
+    TP_BOTTOMRIGHT, TP_BOTTOM_SIDE, TP_CENTER, TP_LEFT_SIDE, TP_RIGHT_SIDE, TP_TOP_SIDE,
+};
+use crate::gui::gadgets::{ClockMode, PushButton, TabControl, TextAlignment, VerticalAlignment};
+use crate::gui::game_window::{
+    read_video_frame, resolve_window_text, WindowState, WindowStatus, WIN_COLOR_UNDEFINED,
+};
+use crate::gui::shell::get_shell;
+use crate::gui::ui_globals::with_ui_renderer;
+use crate::gui::ui_renderer::UIRect;
+use crate::gui::window_manager::with_window_manager_ref;
+use crate::gui::{GameWindow, WindowInstanceData};
+use crate::helpers::TheControlBar;
+use crate::message_stream::game_message::IRegion2D;
+use chrono::Local;
+use game_engine::common::ini::get_global_data;
+use gamelogic::player::{RankProgressInfo, ThePlayerList};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
+
+fn press_scaled_rect(window: &GameWindow) -> UIRect {
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let mut rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
+    let scale = window.get_press_scale();
+    if (scale - 1.0).abs() > f32::EPSILON {
+        let cx = rect.x + rect.width * 0.5;
+        let cy = rect.y + rect.height * 0.5;
+        let scaled_width = rect.width * scale;
+        let scaled_height = rect.height * scale;
+        rect = UIRect::new(
+            cx - scaled_width * 0.5,
+            cy - scaled_height * 0.5,
+            scaled_width,
+            scaled_height,
+        );
+    }
+    rect
+}
+
+fn press_scaled_bounds_i32(window: &GameWindow) -> (i32, i32, i32, i32) {
+    let rect = press_scaled_rect(window);
+    (
+        rect.x.round() as i32,
+        rect.y.round() as i32,
+        rect.width.round() as i32,
+        rect.height.round() as i32,
+    )
+}
+
+trait RgbaColor {
+    fn rgba(self) -> (u8, u8, u8, u8);
+}
+
+impl RgbaColor for crate::gui::gadgets::Color {
+    fn rgba(self) -> (u8, u8, u8, u8) {
+        (self.r, self.g, self.b, self.a)
+    }
+}
+
+impl RgbaColor for crate::gui::shell::Color {
+    fn rgba(self) -> (u8, u8, u8, u8) {
+        (self.r, self.g, self.b, self.a)
+    }
+}
+
+fn gadget_color_to_win_color<C: RgbaColor>(color: C) -> u32 {
+    let (r, g, b, a) = color.rgba();
+    ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | b as u32
+}
+
+fn gadget_color_opt_to_win_color<C: RgbaColor>(color: Option<C>) -> Option<u32> {
+    color.map(gadget_color_to_win_color)
+}
+
+fn global_hotkey_text_color() -> u32 {
+    get_global_data()
+        .map(|global| global.read().hot_key_text_color)
+        .map(|color| {
+            ((1.0_f32.clamp(0.0, 1.0) * 255.0).round() as u32) << 24
+                | ((color.r.clamp(0.0, 1.0) * 255.0).round() as u32) << 16
+                | ((color.g.clamp(0.0, 1.0) * 255.0).round() as u32) << 8
+                | (color.b.clamp(0.0, 1.0) * 255.0).round() as u32
+        })
+        .unwrap_or(0)
+}
+
+fn region_from_corners(x1: i32, y1: i32, x2: i32, y2: i32) -> IRegion2D {
+    IRegion2D {
+        x: x1,
+        y: y1,
+        width: (x2 - x1).max(0),
+        height: (y2 - y1).max(0),
+    }
+}
+
+fn region_right(region: &IRegion2D) -> i32 {
+    region.x + region.width
+}
+
+fn region_bottom(region: &IRegion2D) -> i32 {
+    region.y + region.height
+}
+
+fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let raw_text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    let text = resolve_window_text(raw_text);
+    if text.is_empty() {
+        return;
+    }
+
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let width = rect.width as i32;
+    let height = rect.height as i32;
+    let mut text_x = origin_x;
+    let mut text_y = origin_y;
+
+    if window.get_status().contains(WindowStatus::SHORTCUT_BUTTON) {
+        text_x += 2;
+    } else if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text.to_string());
+        display.set_word_wrap(width);
+        display.set_word_wrap_centered(window.get_status().contains(WindowStatus::WRAP_CENTERED));
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        let (text_width, text_height) = display.get_size();
+        text_x += (width / 2) - (text_width / 2);
+        text_y += (height / 2) - (text_height / 2);
+    } else {
+        text_x += 2;
+        text_y += 2;
+    }
+
+    let (text_color, border_color) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (
+                inst_data.hilite_text.color,
+                inst_data.hilite_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+
+    if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text.clone());
+        display.draw(text_x, text_y, text_color, border_color);
+    } else {
+        let _ = with_ui_renderer(|renderer| {
+            let mut renderer = renderer.write().ok()?;
+            let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
+            if let Err(err) = renderer.draw_text_simple(
+                &text,
+                glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
+                font_size,
+                super::game_window::color_to_rgba(border_color),
+            ) {
+                log::warn!("W3DGadgetDraw text shadow render failed: {err}");
+            }
+            if let Err(err) = renderer.draw_text_simple(
+                &text,
+                glam::Vec2::new(text_x as f32, text_y as f32),
+                font_size,
+                super::game_window::color_to_rgba(text_color),
+            ) {
+                log::warn!("W3DGadgetDraw text render failed: {err}");
+            }
+            Some(())
+        });
+    }
+}
+
+fn draw_main_menu_button_drop_shadow_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let raw_text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    let text = resolve_window_text(raw_text);
+    if text.is_empty() {
+        return;
+    }
+
+    let (origin_x, origin_y, width, height) = press_scaled_bounds_i32(window);
+    let (text_color, drop_color) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (
+                inst_data.hilite_text.color,
+                inst_data.hilite_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+
+    if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text);
+        display.set_word_wrap(width);
+        display.set_word_wrap_centered(window.get_status().contains(WindowStatus::WRAP_CENTERED));
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        let (text_width, text_height) = display.get_size();
+        let text_x = origin_x + (width / 2) - (text_width / 2);
+        let text_y = origin_y + (height / 2) - (text_height / 2);
+        display.draw(text_x, text_y, text_color, drop_color);
+        return;
+    }
+
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
+        let text_width = (text.chars().count() as f32 * font_size * 0.6).round() as i32;
+        let text_height = font_size.round() as i32;
+        let text_x = origin_x + (width / 2) - (text_width / 2);
+        let text_y = origin_y + (height / 2) - (text_height / 2);
+        let _ = renderer.draw_text_simple(
+            &text,
+            glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
+            font_size,
+            super::game_window::color_to_rgba(drop_color),
+        );
+        let _ = renderer.draw_text_simple(
+            &text,
+            glam::Vec2::new(text_x as f32, text_y as f32),
+            font_size,
+            super::game_window::color_to_rgba(text_color),
+        );
+        Some(())
+    });
+}
+
+#[derive(Debug)]
+struct MainMenuPulseState {
+    started_at: Instant,
+    going_forward: bool,
+}
+
+fn main_menu_pulse_state() -> &'static Mutex<MainMenuPulseState> {
+    static STATE: OnceLock<Mutex<MainMenuPulseState>> = OnceLock::new();
+    STATE.get_or_init(|| {
+        Mutex::new(MainMenuPulseState {
+            started_at: Instant::now(),
+            going_forward: true,
+        })
+    })
+}
+
+fn ui_screen_height() -> i32 {
+    with_ui_renderer(|renderer| {
+        let renderer = renderer.read().ok()?;
+        Some(renderer.screen_size().1 as i32)
+    })
+    .flatten()
+    .unwrap_or(720)
+}
+
+fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32]) {
+    const COLOR: u32 = 0xFFA7865E;
+    const COLOR_DROP: u32 = 0xFF261E15;
+
+    let (pos_x, pos_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let height = ui_screen_height();
+
+    let top_horizontal_1 = (pos_x, pos_y, pos_x + size_x, pos_y);
+    let top_horizontal_1_drop = (pos_x, pos_y + 1, pos_x + size_x, pos_y + 1);
+    let top_horizontal_2 = (
+        pos_x,
+        pos_y + (size_y as f32 * 0.1).round() as i32,
+        pos_x + size_x,
+        pos_y + (size_y as f32 * 0.1).round() as i32,
+    );
+    let top_horizontal_2_drop = (
+        pos_x,
+        pos_y + (size_y as f32 * 0.12).round() as i32,
+        pos_x + size_x,
+        pos_y + (size_y as f32 * 0.12).round() as i32,
+    );
+    let bottom_horizontal_1 = (
+        pos_x,
+        pos_y + (size_y as f32 * 0.9).round() as i32,
+        pos_x + size_x,
+        pos_y + (size_y as f32 * 0.9).round() as i32,
+    );
+    let bottom_horizontal_1_drop = (
+        pos_x,
+        pos_y + (size_y as f32 * 0.92).round() as i32,
+        pos_x + size_x,
+        pos_y + (size_y as f32 * 0.92).round() as i32,
+    );
+    let bottom_horizontal_2 = (pos_x, pos_y + size_y, pos_x + size_x, pos_y + size_y);
+    let bottom_horizontal_2_drop = (
+        pos_x,
+        pos_y + size_y + 1,
+        pos_x + size_x,
+        pos_y + size_y + 1,
+    );
+
+    with_window_manager_ref(|manager| {
+        for (x1, y1, x2, y2, width, color) in [
+            (
+                top_horizontal_1.0,
+                top_horizontal_1.1,
+                top_horizontal_1.2,
+                top_horizontal_1.3,
+                2.0,
+                COLOR,
+            ),
+            (
+                top_horizontal_1_drop.0,
+                top_horizontal_1_drop.1,
+                top_horizontal_1_drop.2,
+                top_horizontal_1_drop.3,
+                2.0,
+                COLOR_DROP,
+            ),
+            (
+                top_horizontal_2.0,
+                top_horizontal_2.1,
+                top_horizontal_2.2,
+                top_horizontal_2.3,
+                1.0,
+                COLOR,
+            ),
+            (
+                top_horizontal_2_drop.0,
+                top_horizontal_2_drop.1,
+                top_horizontal_2_drop.2,
+                top_horizontal_2_drop.3,
+                1.0,
+                COLOR_DROP,
+            ),
+            (
+                bottom_horizontal_1.0,
+                bottom_horizontal_1.1,
+                bottom_horizontal_1.2,
+                bottom_horizontal_1.3,
+                1.0,
+                COLOR,
+            ),
+            (
+                bottom_horizontal_1_drop.0,
+                bottom_horizontal_1_drop.1,
+                bottom_horizontal_1_drop.2,
+                bottom_horizontal_1_drop.3,
+                1.0,
+                COLOR_DROP,
+            ),
+            (
+                bottom_horizontal_2.0,
+                bottom_horizontal_2.1,
+                bottom_horizontal_2.2,
+                bottom_horizontal_2.3,
+                2.0,
+                COLOR,
+            ),
+            (
+                bottom_horizontal_2_drop.0,
+                bottom_horizontal_2_drop.1,
+                bottom_horizontal_2_drop.2,
+                bottom_horizontal_2_drop.3,
+                2.0,
+                COLOR_DROP,
+            ),
+        ] {
+            manager.win_draw_line(color, width, x1, y1, x2, y2);
+        }
+
+        for ratio in vertical_ratios {
+            let x = pos_x + (size_x as f32 * ratio).round() as i32;
+            manager.win_draw_line(COLOR, 3.0, x, pos_y, x, height);
+        }
+    });
+}
+
+fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &str) {
+    let Some(image) = with_window_manager_ref(|manager| manager.win_find_image(pulse_image_name))
+    else {
+        return;
+    };
+
+    let (pos_x, pos_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let width = size_x + image.width;
+
+    let mut state = main_menu_pulse_state()
+        .lock()
+        .expect("main menu pulse state poisoned");
+    let elapsed = state.started_at.elapsed().as_secs_f32();
+    let percent_done = (elapsed / 10.0).clamp(0.0, 1.0);
+
+    let (draw_x, draw_y) = if state.going_forward {
+        if percent_done >= 1.0 {
+            state.started_at = Instant::now();
+            state.going_forward = false;
+            (pos_x + size_x, pos_y + size_y - (image.height / 2))
+        } else {
+            (
+                pos_x + ((percent_done * width as f32) - image.width as f32).round() as i32,
+                pos_y - (image.height / 2),
+            )
+        }
+    } else if percent_done >= 1.0 {
+        state.started_at = Instant::now();
+        state.going_forward = true;
+        (pos_x - image.width, pos_y - (image.height / 2))
+    } else {
+        (
+            pos_x + (size_x as f32 - (percent_done * width as f32)).round() as i32,
+            pos_y + size_y - (image.height / 2),
+        )
+    };
+
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            &image,
+            draw_x,
+            draw_y,
+            draw_x + image.width,
+            draw_y + image.height,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
+pub fn w3d_main_menu_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+    draw_main_menu_frame(window, &[0.225, 0.445, 0.6662, 0.885]);
+    animate_main_menu_pulse(window, "MainMenuPulse");
+}
+
+pub fn w3d_main_menu_four_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+    draw_main_menu_frame(window, &[0.295, 0.59, 0.885]);
+    animate_main_menu_pulse(window, "MainMenuPulse");
+}
+
+pub fn w3d_metal_bar_menu_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+    window.draw_border_w3d();
+}
+
+pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstanceData) {
+    const BORDER_CORNER_SIZE: i32 = 10;
+    const BORDER_LINE_SIZE: i32 = 20;
+    const SIZE: i32 = 20;
+    const HALF_SIZE: i32 = SIZE / 2;
+
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let max_x = x + width;
+    let max_y = y + height;
+
+    with_window_manager_ref(|manager| {
+        let mut drew_any_piece = false;
+
+        if let Some(image) = manager.win_find_image("FrameCornerHorizontal") {
+            drew_any_piece = true;
+            let top_y = y - BORDER_CORNER_SIZE;
+            let bottom_y = max_y - BORDER_CORNER_SIZE;
+            let mut draw_x = x + BORDER_CORNER_SIZE;
+            let limit_x = max_x - (BORDER_CORNER_SIZE + BORDER_LINE_SIZE);
+            while draw_x <= limit_x {
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    top_y,
+                    draw_x + SIZE,
+                    top_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    bottom_y,
+                    draw_x + SIZE,
+                    bottom_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                draw_x += BORDER_LINE_SIZE;
+            }
+            let border_end = max_x - BORDER_CORNER_SIZE;
+            if (border_end - draw_x) >= (BORDER_LINE_SIZE / 2) {
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    top_y,
+                    draw_x + HALF_SIZE,
+                    top_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    bottom_y,
+                    draw_x + HALF_SIZE,
+                    bottom_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                draw_x += BORDER_LINE_SIZE / 2;
+            }
+            if draw_x < border_end {
+                let adjust = (BORDER_LINE_SIZE / 2) - (((border_end - draw_x) + 1) & !1);
+                draw_x -= adjust;
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    top_y,
+                    draw_x + HALF_SIZE,
+                    top_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    bottom_y,
+                    draw_x + HALF_SIZE,
+                    bottom_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+
+        if let Some(image) = manager.win_find_image("FrameCornerVertical") {
+            drew_any_piece = true;
+            let left_x = x - BORDER_CORNER_SIZE;
+            let right_x = max_x - BORDER_CORNER_SIZE;
+            let mut draw_y = y + BORDER_CORNER_SIZE;
+            let limit_y = max_y - (BORDER_CORNER_SIZE + BORDER_LINE_SIZE);
+            while draw_y <= limit_y {
+                manager.win_draw_image(
+                    &image,
+                    left_x,
+                    draw_y,
+                    left_x + SIZE,
+                    draw_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &image,
+                    right_x,
+                    draw_y,
+                    right_x + SIZE,
+                    draw_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                draw_y += BORDER_LINE_SIZE;
+            }
+            let border_end = max_y - BORDER_CORNER_SIZE;
+            if (border_end - draw_y) >= (BORDER_LINE_SIZE / 2) {
+                manager.win_draw_image(
+                    &image,
+                    left_x,
+                    draw_y,
+                    left_x + SIZE,
+                    draw_y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &image,
+                    right_x,
+                    draw_y,
+                    right_x + SIZE,
+                    draw_y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                draw_y += BORDER_LINE_SIZE / 2;
+            }
+            if draw_y < border_end {
+                let adjust = (BORDER_LINE_SIZE / 2) - (((border_end - draw_y) + 1) & !1);
+                draw_y -= adjust;
+                manager.win_draw_image(
+                    &image,
+                    left_x,
+                    draw_y,
+                    left_x + SIZE,
+                    draw_y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+                manager.win_draw_image(
+                    &image,
+                    right_x,
+                    draw_y,
+                    right_x + SIZE,
+                    draw_y + HALF_SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+
+        for (name, draw_x, draw_y) in [
+            (
+                "FrameCornerUL",
+                x - BORDER_CORNER_SIZE,
+                y - BORDER_CORNER_SIZE,
+            ),
+            (
+                "FrameCornerUR",
+                max_x - BORDER_CORNER_SIZE,
+                y - BORDER_CORNER_SIZE,
+            ),
+            (
+                "FrameCornerLL",
+                x - BORDER_CORNER_SIZE,
+                max_y - BORDER_CORNER_SIZE,
+            ),
+            (
+                "FrameCornerLR",
+                max_x - BORDER_CORNER_SIZE,
+                max_y - BORDER_CORNER_SIZE,
+            ),
+        ] {
+            if let Some(image) = manager.win_find_image(name) {
+                drew_any_piece = true;
+                manager.win_draw_image(
+                    &image,
+                    draw_x,
+                    draw_y,
+                    draw_x + SIZE,
+                    draw_y + SIZE,
+                    WIN_COLOR_UNDEFINED,
+                );
+            }
+        }
+
+        if !drew_any_piece {
+            const COLOR: u32 = 0xFF5E86A7;
+            const COLOR_DROP: u32 = 0xFF151E26;
+
+            let left = x - BORDER_CORNER_SIZE;
+            let top = y - BORDER_CORNER_SIZE;
+            let right = max_x + BORDER_CORNER_SIZE;
+            let bottom = max_y + BORDER_CORNER_SIZE;
+
+            manager.win_draw_line(COLOR, 1.0, left, top, right, top);
+            manager.win_draw_line(COLOR_DROP, 1.0, left, top + 1, right, top + 1);
+            manager.win_draw_line(COLOR, 1.0, left, bottom, right, bottom);
+            manager.win_draw_line(COLOR_DROP, 1.0, left, bottom - 1, right, bottom - 1);
+            manager.win_draw_line(COLOR, 1.0, left, top, left, bottom);
+            manager.win_draw_line(COLOR_DROP, 1.0, left + 1, top, left + 1, bottom);
+            manager.win_draw_line(COLOR, 1.0, right, top, right, bottom);
+            manager.win_draw_line(COLOR_DROP, 1.0, right - 1, top, right - 1, bottom);
+        }
+    });
+}
+
+pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_push_button_base(window, inst_data);
+    draw_main_menu_button_drop_shadow_text(window, inst_data);
+    draw_video_buffer(window, inst_data);
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::PushButton(button) = widget {
+            draw_button_style_overlay(window, button);
+        }
+    }
+    draw_button_overlays(window, inst_data);
+}
+
+pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let raw_text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    let text = resolve_window_text(raw_text);
+    if text.is_empty() {
+        return;
+    }
+
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let clip_region = IRegion2D {
+        x: origin_x + 1,
+        y: origin_y + 1,
+        width: (width - 2).max(0),
+        height: (height - 2).max(0),
+    };
+
+    if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text);
+        display.set_word_wrap(0);
+        display.set_word_wrap_centered(false);
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        let (_, text_height) = display.get_size();
+        let text_y = origin_y + (height / 2) - (text_height / 2);
+        display.set_clip_region(Some(clip_region));
+        display.draw_with_drop(
+            origin_x,
+            text_y,
+            inst_data.disabled_text.color,
+            inst_data.disabled_text.border_color,
+            1,
+            1,
+        );
+        display.set_clip_region(None);
+        return;
+    }
+
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
+        let text_height = font_size.round() as i32;
+        let text_y = origin_y + (height / 2) - (text_height / 2);
+        let scissor = UIRect::new(
+            clip_region.x as f32,
+            clip_region.y as f32,
+            clip_region.width as f32,
+            clip_region.height as f32,
+        );
+        let _ = renderer.draw_text_simple_with_scissor(
+            &text,
+            glam::Vec2::new((origin_x + 1) as f32, (text_y + 1) as f32),
+            font_size,
+            super::game_window::color_to_rgba(inst_data.disabled_text.border_color),
+            scissor,
+        );
+        let _ = renderer.draw_text_simple_with_scissor(
+            &text,
+            glam::Vec2::new(origin_x as f32, text_y as f32),
+            font_size,
+            super::game_window::color_to_rgba(inst_data.disabled_text.color),
+            scissor,
+        );
+        Some(())
+    });
+}
+
+pub fn w3d_thin_border_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let Some(draw_data) = window.get_enabled_draw_data(0) else {
+        return;
+    };
+    let Some(image) = draw_data.image else {
+        return;
+    };
+
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            &image,
+            x + inst_data.image_offset.x,
+            y + inst_data.image_offset.y,
+            x + inst_data.image_offset.x + width,
+            y + inst_data.image_offset.y + height,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
+pub fn w3d_shell_menu_scheme_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+    let mut shell = get_shell();
+    if shell.is_shell_active() {
+        shell.get_shell_menu_scheme_manager().draw();
+    }
+}
+
+pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+    let manager = get_menu_manager();
+    let Ok(manager) = manager.read() else {
+        return;
+    };
+    let menu = manager.get_credits_menu();
+    let Ok(mut menu) = menu.write() else {
+        return;
+    };
+    menu.draw();
+}
+
+fn has_compat_default_content(window: &GameWindow, inst_data: &WindowInstanceData) -> bool {
+    let mut draw_data = inst_data
+        .enabled_draw_data
+        .iter()
+        .chain(inst_data.disabled_draw_data.iter())
+        .chain(inst_data.hilite_draw_data.iter());
+
+    if draw_data.any(|draw| {
+        draw.image.is_some()
+            || draw.color != WIN_COLOR_UNDEFINED
+            || draw.border_color != WIN_COLOR_UNDEFINED
+    }) {
+        return true;
+    }
+
+    inst_data.video_buffer.is_some()
+        || !inst_data.text.is_empty()
+        || !inst_data.text_label.is_empty()
+        || window.get_status().contains(WindowStatus::IMAGE)
+}
+
+/// C++ compat bridge for windows using `W3DNoDraw`.
+///
+/// In the original engine, certain callback paths still resulted in default
+/// image, color, border, text, or video presentation despite using a nominal
+/// no-draw callback name. Preserve that behavior while leaving pure empty
+/// windows untouched.
+pub fn w3d_no_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    if has_compat_default_content(window, inst_data) {
+        super::game_window::default_draw_callback(window, inst_data);
+    }
+}
+
+pub fn w3d_compat_default_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    super::game_window::default_draw_callback(window, inst_data);
+}
+
+pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    super::game_window::default_draw_callback(window, inst_data);
+
+    let datestr = Local::now().format("%H:%M:%S").to_string();
+    let font = get_font_library()
+        .get_font(&FontDesc::new("Arial", 16, false))
+        .ok();
+    let text_width = font
+        .as_ref()
+        .map(|font| font.measure_text(&datestr))
+        .unwrap_or((datestr.len() as i32 * 10).max(1));
+    let text_height = font
+        .as_ref()
+        .map(|font| font.get_line_height())
+        .unwrap_or(16);
+
+    let (pos_x, pos_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let text_x = pos_x + (size_x / 2) - (text_width / 2);
+    let text_y = pos_y + (size_y / 2) - (text_height / 2);
+    let scissor = UIRect::new(
+        (pos_x + 1) as f32,
+        (pos_y + 1) as f32,
+        (size_x - 2).max(0) as f32,
+        (size_y - 2).max(0) as f32,
+    );
+
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        let font_size = font.as_ref().map(|font| font.desc.size).unwrap_or(16) as f32;
+        let _ = renderer.draw_text_simple_with_scissor(
+            &datestr,
+            glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
+            font_size,
+            [0.0, 0.0, 0.0, 1.0],
+            scissor,
+        );
+        let _ = renderer.draw_text_simple_with_scissor(
+            &datestr,
+            glam::Vec2::new(text_x as f32, text_y as f32),
+            font_size,
+            [1.0, 1.0, 1.0, 1.0],
+            scissor,
+        );
+        Some(())
+    });
+}
+
+pub fn w3d_cameo_movie_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_video_buffer(window, inst_data);
+}
+
+pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    if inst_data
+        .video_buffer
+        .as_ref()
+        .and_then(read_video_frame)
+        .is_some()
+    {
+        draw_video_buffer(window, inst_data);
+        return;
+    }
+
+    // TODO(ui-refactor): once control bar/radar draw parity is fully centralized, route
+    // this callback through the same dedicated radar pipeline as C++ W3DControlBar.cpp.
+    super::game_window::default_draw_callback(window, inst_data);
+}
+
+pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    if window.get_status().contains(WindowStatus::IMAGE) {
+        super::game_window::default_draw_callback(window, inst_data);
+    }
+}
+
+fn log_n(value: f32, base: f32) -> f32 {
+    if value <= 0.0 || base <= 1.0 {
+        return 0.0;
+    }
+    value.log10() / base.log10()
+}
+
+fn draw_tiled_horiz(image: &super::game_window::Image, x: i32, y: i32, width: i32, height: i32) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let tile_width = image.width.max(1);
+    with_window_manager_ref(|manager| {
+        let mut draw_x = x;
+        let end_x = x + width;
+        while draw_x < end_x {
+            let next_x = (draw_x + tile_width).min(end_x);
+            manager.win_draw_image(image, draw_x, y, next_x, y + height, WIN_COLOR_UNDEFINED);
+            draw_x += tile_width;
+        }
+    });
+}
+
+fn draw_tiled_vert(image: &super::game_window::Image, x: i32, y: i32, width: i32, height: i32) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let tile_height = image.height.max(1);
+    with_window_manager_ref(|manager| {
+        let mut draw_y = y;
+        let end_y = y + height;
+        while draw_y < end_y {
+            let next_y = (draw_y + tile_height).min(end_y);
+            manager.win_draw_image(image, x, draw_y, x + width, next_y, WIN_COLOR_UNDEFINED);
+            draw_y += tile_height;
+        }
+    });
+}
+
+pub fn w3d_power_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let Some(global) = get_global_data() else {
+        return;
+    };
+    let global = global.read();
+    let power_bar_base = global.power_bar_base.max(2) as f32;
+    let power_bar_intervals = global.power_bar_intervals.max(1.0);
+    let yellow_range = global.power_bar_yellow_range;
+    drop(global);
+
+    let Ok(list) = ThePlayerList().read() else {
+        return;
+    };
+    let player_arc = TheControlBar::get_observer_look_at_player_index()
+        .and_then(|index| {
+            if index >= 0 {
+                list.get_player(index as i32).cloned()
+            } else {
+                None
+            }
+        })
+        .or_else(|| list.get_local_player().cloned());
+    let Some(player_arc) = player_arc else {
+        return;
+    };
+    let Ok(player) = player_arc.read() else {
+        return;
+    };
+    let energy = player.get_energy();
+    let consumption = energy.consumption();
+    let production = energy.production();
+    drop(player);
+
+    let center_name = if consumption > production - yellow_range && consumption <= production {
+        "PowerPointY"
+    } else if consumption > production {
+        "PowerPointR"
+    } else {
+        "PowerPointG"
+    };
+
+    let (center_bar, slider) = with_window_manager_ref(|manager| {
+        (
+            manager.win_find_image(center_name),
+            manager.win_find_image("PowerBarSlider"),
+        )
+    });
+    let (Some(center_bar), Some(slider)) = (center_bar, slider) else {
+        super::game_window::default_draw_callback(window, inst_data);
+        return;
+    };
+
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+
+    let prod_for_log = production.max(1) as f32;
+    let mut power_range =
+        (log_n(prod_for_log, power_bar_base) * (width as f32 / power_bar_intervals)).round() as i32;
+    power_range = power_range.clamp(0, width);
+    if power_range > 0 {
+        draw_tiled_horiz(&center_bar, x, y, power_range, height);
+    }
+
+    let consumption_for_needle = if consumption == 1 {
+        1.5
+    } else {
+        consumption.max(1) as f32
+    };
+    let mut needle = (log_n(consumption_for_needle, power_bar_base)
+        * (width as f32 / power_bar_intervals))
+        .round() as i32;
+    needle = needle.clamp(0, width);
+
+    let slider_w = slider.width.max(1);
+    let slider_h = slider.height.max(1);
+    let mut slider_start = if needle >= width {
+        x + width - slider_w
+    } else {
+        x + needle - slider_w / 2
+    };
+    if slider_w >= width {
+        slider_start = x;
+    } else {
+        slider_start = slider_start.max(x).min(x + width - slider_w);
+    }
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            &slider,
+            slider_start,
+            y + height - slider_h,
+            slider_start + slider_w,
+            y + height,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
+fn draw_vertical_meter(
+    window: &GameWindow,
+    top_name: &str,
+    bottom_name: &str,
+    center_name: &str,
+    filled_height: i32,
+) {
+    let (top, bottom, center) = with_window_manager_ref(|manager| {
+        (
+            manager.win_find_image(top_name),
+            manager.win_find_image(bottom_name),
+            manager.win_find_image(center_name),
+        )
+    });
+    let (Some(top), Some(bottom), Some(center)) = (top, bottom, center) else {
+        return;
+    };
+
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    if width <= 0 || height <= 0 {
+        return;
+    }
+
+    let fill = filled_height.clamp(0, height);
+    if fill <= 0 {
+        return;
+    }
+
+    let top_h = top.height.max(1);
+    let bottom_h = bottom.height.max(1);
+    let fill_top = y + height - fill;
+
+    let bottom_start = y + height - bottom_h;
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            &bottom,
+            x,
+            bottom_start,
+            x + width,
+            y + height,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+
+    let top_start = (fill_top - top_h).max(y);
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            &top,
+            x,
+            top_start,
+            x + width,
+            top_start + top_h,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+
+    let center_start = top_start + top_h;
+    let center_end = bottom_start;
+    if center_end > center_start {
+        draw_tiled_vert(&center, x, center_start, width, center_end - center_start);
+    }
+}
+
+pub fn w3d_command_bar_top_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
+    // C++ callback is effectively no-op in W3DControlBar.cpp.
+}
+
+pub fn w3d_command_bar_background_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    // TODO(ui-refactor): forward to the control bar scheme manager draw path once the
+    // compat bridge exports marker offsets exactly like C++.
+    super::game_window::default_draw_callback(window, inst_data);
+}
+
+pub fn w3d_command_bar_foreground_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    // TODO(ui-refactor): forward to the control bar scheme manager draw path once the
+    // compat bridge exports marker offsets exactly like C++.
+    super::game_window::default_draw_callback(window, inst_data);
+}
+
+pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    if window.get_status().contains(WindowStatus::IMAGE) {
+        super::game_window::default_draw_callback(window, inst_data);
+        return;
+    }
+
+    super::game_window::default_draw_callback(window, inst_data);
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    let color = window
+        .get_enabled_draw_data(0)
+        .map(|entry| entry.border_color)
+        .filter(|color| *color != WIN_COLOR_UNDEFINED)
+        .unwrap_or(0xFF808080);
+
+    with_window_manager_ref(|manager| {
+        manager.win_draw_line(
+            color,
+            1.0,
+            x,
+            y + (height as f32 * 0.33) as i32,
+            x + width,
+            y + (height as f32 * 0.33) as i32,
+        );
+        manager.win_draw_line(
+            color,
+            1.0,
+            x,
+            y + (height as f32 * 0.66) as i32,
+            x + width,
+            y + (height as f32 * 0.66) as i32,
+        );
+        manager.win_draw_line(
+            color,
+            1.0,
+            x + (width as f32 * 0.33) as i32,
+            y,
+            x + (width as f32 * 0.33) as i32,
+            y + height,
+        );
+        manager.win_draw_line(
+            color,
+            1.0,
+            x + (width as f32 * 0.66) as i32,
+            y,
+            x + (width as f32 * 0.66) as i32,
+            y + height,
+        );
+    });
+}
+
+pub fn w3d_command_bar_gen_exp_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let _ = inst_data;
+    let Ok(list) = ThePlayerList().read() else {
+        return;
+    };
+    let Some(player_arc) = list.get_local_player().cloned() else {
+        return;
+    };
+    let Ok(player) = player_arc.read() else {
+        return;
+    };
+    if !player.is_player_active() {
+        return;
+    }
+    let Some(rank_progress) = RankProgressInfo::from_player(&player) else {
+        return;
+    };
+    let mut progress = (rank_progress.progress_percentage * 100.0).round() as i32;
+    progress = progress.clamp(0, 100);
+    if progress <= 0 {
+        return;
+    }
+
+    let (_, height) = window.get_size();
+    let filled_height = (height * progress) / 100;
+    draw_vertical_meter(
+        window,
+        "GenExpBarTop1",
+        "GenExpBarBottom1",
+        "GenExpBar1",
+        filled_height,
+    );
+}
+
+pub fn w3d_command_bar_help_popup_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let _ = inst_data;
+    let (_, height) = window.get_size();
+    draw_vertical_meter(
+        window,
+        "Helpbox-top",
+        "Helpbox-bottom",
+        "Helpbox-middle",
+        height,
+    );
+}
+
+fn draw_video_buffer(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let frame = inst_data.video_buffer.as_ref().and_then(read_video_frame);
+    let Some(frame) = frame else {
+        return;
+    };
+    let rect = press_scaled_rect(window);
+    let offset = inst_data.image_offset;
+    let rect = UIRect::new(
+        rect.x + offset.x as f32,
+        rect.y + offset.y as f32,
+        rect.width,
+        rect.height,
+    );
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        let texture = renderer.create_texture_from_rgba(frame.width, frame.height, &frame.data);
+        renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+        Some(())
+    });
+}
+
+fn draw_overlay_image(window: &GameWindow, name: &str) {
+    let (x, y, w, h) = press_scaled_bounds_i32(window);
+    with_window_manager_ref(|manager| {
+        if let Some(image) = manager.win_find_image(name) {
+            manager.win_draw_image(&image, x, y, x + w, y + h, WIN_COLOR_UNDEFINED);
+        }
+    });
+}
+
+fn draw_button_overlays(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let status = window.get_status();
+    if status.contains(WindowStatus::FLASHING) {
+        draw_overlay_image(window, "Cameo_push");
+    }
+
+    if status.contains(WindowStatus::USE_OVERLAY_STATES) && status.contains(WindowStatus::ENABLED) {
+        if inst_data.state.contains(WindowState::HILITED) {
+            if inst_data.state.contains(WindowState::PUSHED) {
+                draw_overlay_image(window, "Cameo_push");
+            } else {
+                draw_overlay_image(window, "Cameo_hilited");
+            }
+        } else if inst_data.state.contains(WindowState::PUSHED) {
+            draw_overlay_image(window, "Cameo_push");
+        }
+    }
+}
+
+fn draw_button_style_overlay(window: &GameWindow, button: &PushButton) {
+    let (x, y, w, h) = press_scaled_bounds_i32(window);
+    if let Some(ref overlay) = button.style().overlay_image {
+        with_window_manager_ref(|manager| {
+            if let Some(image) = manager.win_find_image(overlay) {
+                manager.win_draw_image(&image, x, y, x + w, y + h, WIN_COLOR_UNDEFINED);
+            }
+        });
+    }
+
+    match button.style().clock_mode {
+        ClockMode::Normal => {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_rect_clock(
+                    x,
+                    y,
+                    w,
+                    h,
+                    button.style().clock_progress as i32,
+                    gadget_color_to_win_color(button.style().clock_color),
+                );
+            });
+        }
+        ClockMode::Inverse => {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_remaining_rect_clock(
+                    x,
+                    y,
+                    w,
+                    h,
+                    button.style().clock_progress as i32,
+                    gadget_color_to_win_color(button.style().clock_color),
+                );
+            });
+        }
+        ClockMode::None => {}
+    }
+}
+
+fn current_push_button_draw_data<'a>(
+    window: &GameWindow,
+    inst_data: &'a WindowInstanceData,
+) -> (
+    &'a [super::game_window::WindowDrawData],
+    &'a super::game_window::WindowTextColors,
+) {
+    if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    }
+}
+
+fn button_draw_entry_image<'a>(
+    draw_data: &'a [super::game_window::WindowDrawData],
+    index: usize,
+) -> Option<&'a super::game_window::Image> {
+    draw_data.get(index).and_then(|entry| entry.image.as_ref())
+}
+
+fn draw_push_button_image_one(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_data: &[super::game_window::WindowDrawData],
+) {
+    let selected = inst_data.state.contains(WindowState::PUSHED);
+    let image = if selected {
+        button_draw_entry_image(draw_data, 1).or_else(|| button_draw_entry_image(draw_data, 0))
+    } else {
+        button_draw_entry_image(draw_data, 0)
+    };
+
+    let Some(image) = image else {
+        return;
+    };
+
+    let rect = press_scaled_rect(window);
+    let start_x = rect.x as i32 + inst_data.image_offset.x;
+    let start_y = rect.y as i32 + inst_data.image_offset.y;
+    let end_x = start_x + rect.width as i32;
+    let end_y = start_y + rect.height as i32;
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+    });
+}
+
+fn resolve_push_button_three_piece_images<'a>(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    draw_data: &'a [super::game_window::WindowDrawData],
+) -> Option<(
+    &'a super::game_window::Image,
+    &'a super::game_window::Image,
+    &'a super::game_window::Image,
+)> {
+    let selected = inst_data.state.contains(WindowState::PUSHED);
+    if window
+        .get_status()
+        .contains(WindowStatus::USE_OVERLAY_STATES)
+    {
+        return None;
+    }
+
+    let (left_idx, center_idx, right_idx) = if selected {
+        (1usize, 3usize, 4usize)
+    } else {
+        (0usize, 5usize, 6usize)
+    };
+
+    let left = button_draw_entry_image(draw_data, left_idx)
+        .or_else(|| button_draw_entry_image(draw_data, 0))?;
+    let center = button_draw_entry_image(draw_data, center_idx)
+        .or_else(|| button_draw_entry_image(draw_data, 5))?;
+    let right = button_draw_entry_image(draw_data, right_idx)
+        .or_else(|| button_draw_entry_image(draw_data, 6))?;
+    Some((left, center, right))
+}
+
+fn draw_push_button_image_three(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    left: &super::game_window::Image,
+    center: &super::game_window::Image,
+    right: &super::game_window::Image,
+) {
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let width = rect.width as i32;
+    let height = rect.height as i32;
+    let x_offset = inst_data.image_offset.x;
+    let y_offset = inst_data.image_offset.y;
+
+    let left_w = left.width.max(1);
+    let right_w = right.width.max(1);
+    let center_w = center.width.max(1);
+
+    let left_end_x = origin_x + x_offset + left_w;
+    let right_start_x = origin_x + width - right_w + x_offset;
+    let start_y = origin_y + y_offset;
+    let end_y = start_y + height;
+
+    with_window_manager_ref(|manager| {
+        if right_start_x <= left_end_x {
+            let mid_x = origin_x + x_offset + (width / 2);
+            manager.win_draw_image(
+                left,
+                origin_x + x_offset,
+                start_y,
+                mid_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+            manager.win_draw_image(
+                right,
+                mid_x,
+                start_y,
+                origin_x + width + x_offset,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+            return;
+        }
+
+        let mut x = left_end_x;
+        while x + center_w <= right_start_x {
+            manager.win_draw_image(center, x, start_y, x + center_w, end_y, WIN_COLOR_UNDEFINED);
+            x += center_w;
+        }
+
+        if x < right_start_x {
+            manager.win_draw_image(
+                center,
+                x,
+                start_y,
+                right_start_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        }
+
+        manager.win_draw_image(
+            left,
+            origin_x + x_offset,
+            start_y,
+            left_end_x,
+            end_y,
+            WIN_COLOR_UNDEFINED,
+        );
+        manager.win_draw_image(
+            right,
+            right_start_x,
+            start_y,
+            right_start_x + right_w,
+            end_y,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
+fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let rect = press_scaled_rect(window);
+
+    let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
+
+    if let Some((left, center, right)) =
+        resolve_push_button_three_piece_images(window, inst_data, draw_data)
+    {
+        draw_push_button_image_three(window, inst_data, left, center, right);
+        let _ = text_colors;
+        return;
+    }
+
+    if button_draw_entry_image(draw_data, 0).is_some() {
+        draw_push_button_image_one(window, inst_data, draw_data);
+        let _ = text_colors;
+        return;
+    }
+
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        if let Some(entry) = draw_data.first() {
+            if entry.color != WIN_COLOR_UNDEFINED {
+                renderer.draw_rect(rect, super::game_window::color_to_rgba(entry.color), 0.0);
+            }
+            if entry.border_color != WIN_COLOR_UNDEFINED {
+                renderer.draw_rect_outline(
+                    rect,
+                    1.0,
+                    super::game_window::color_to_rgba(entry.border_color),
+                    0.1,
+                );
+            }
+        }
+        Some(())
+    });
+
+    let _ = text_colors;
+}
+
+pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_push_button_base(window, inst_data);
+    draw_button_text(window, inst_data);
+    draw_video_buffer(window, inst_data);
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::PushButton(button) = widget {
+            draw_button_style_overlay(window, button);
+        }
+    }
+    draw_button_overlays(window, inst_data);
+}
+
+pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_push_button_base(window, inst_data);
+    draw_button_text(window, inst_data);
+    draw_video_buffer(window, inst_data);
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::PushButton(button) = widget {
+            draw_button_style_overlay(window, button);
+        }
+    }
+    draw_button_overlays(window, inst_data);
+}
+
+fn draw_static_text(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    text_color: u32,
+    drop: u32,
+) {
+    let raw_text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    let text = resolve_window_text(raw_text);
+    if text.is_empty() {
+        return;
+    }
+
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let width = rect.width as i32;
+    let height = rect.height as i32;
+
+    let mut left_margin = 0;
+    let mut top_margin = 0;
+    let mut align = TextAlignment::Left;
+    let mut valign = VerticalAlignment::Top;
+
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::StaticText(static_text) = widget {
+            let cfg = static_text.config();
+            left_margin = cfg.left_margin as i32;
+            top_margin = cfg.top_margin as i32;
+            align = cfg.alignment;
+            valign = cfg.vertical_alignment;
+        }
+    }
+
+    let mut text_x = origin_x + left_margin;
+    let mut text_y = origin_y + top_margin;
+
+    if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text.clone());
+        let wrap = (width - 10).max(0);
+        display.set_word_wrap(wrap);
+        display.set_word_wrap_centered(window.get_status().contains(WindowStatus::WRAP_CENTERED));
+        display.set_use_hotkey(
+            window.get_status().contains(WindowStatus::HOTKEY_TEXT),
+            global_hotkey_text_color(),
+        );
+        display.set_clip_region(Some(region_from_corners(
+            origin_x,
+            origin_y,
+            origin_x + width,
+            origin_y + height,
+        )));
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        let (text_w, text_h) = display.get_size();
+        if align == TextAlignment::Center {
+            text_x = origin_x + (width / 2) - (text_w / 2);
+        } else if align == TextAlignment::Right {
+            text_x = origin_x + width - text_w - left_margin;
+        }
+        if valign == VerticalAlignment::Center {
+            text_y = origin_y + (height / 2) - (text_h / 2);
+        } else if valign == VerticalAlignment::Bottom {
+            text_y = origin_y + height - text_h - top_margin;
+        }
+        display.draw(text_x, text_y, text_color, drop);
+        display.set_clip_region(None);
+    }
+}
+
+pub fn w3d_gadget_static_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_push_button_base(window, inst_data);
+    let (text_color, drop) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+    draw_static_text(window, inst_data, text_color, drop);
+}
+
+pub fn w3d_gadget_static_text_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_push_button_base(window, inst_data);
+    let (text_color, drop) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+    draw_static_text(window, inst_data, text_color, drop);
+}
+
+fn progress_percent(window: &GameWindow) -> i32 {
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::ProgressBar(bar) = widget {
+            return bar.percentage().round() as i32;
+        }
+    }
+    if let Some(value) = window.get_user_data::<i32>() {
+        return *value;
+    }
+    0
+}
+
+fn draw_progress_bar_solid(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    back: &super::game_window::WindowDrawData,
+    bar: &super::game_window::WindowDrawData,
+) {
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let progress = progress_percent(window).clamp(0, 100);
+
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                origin_x,
+                origin_y,
+                origin_x + size_x,
+                origin_y + size_y,
+            );
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+
+    if progress > 0 {
+        let bar_width = (size_x * progress) / 100;
+        if bar.border_color != WIN_COLOR_UNDEFINED && bar_width > 1 {
+            with_window_manager_ref(|manager| {
+                manager.win_open_rect(
+                    bar.border_color,
+                    1.0,
+                    origin_x,
+                    origin_y,
+                    origin_x + bar_width,
+                    origin_y + size_y,
+                );
+            });
+        }
+        if bar.color != WIN_COLOR_UNDEFINED && bar_width > 1 {
+            with_window_manager_ref(|manager| {
+                manager.win_fill_rect(
+                    bar.color,
+                    1.0,
+                    origin_x + 1,
+                    origin_y + 1,
+                    origin_x + bar_width - 1,
+                    origin_y + size_y - 1,
+                );
+                manager.win_draw_line(
+                    0xFFFFFFFF,
+                    1.0,
+                    origin_x + 1,
+                    origin_y + 1,
+                    origin_x + bar_width - 1,
+                    origin_y + 1,
+                );
+                manager.win_draw_line(
+                    0xFFC8C8C8,
+                    1.0,
+                    origin_x + 1,
+                    origin_y + 1,
+                    origin_x + 1,
+                    origin_y + size_y - 1,
+                );
+            });
+        }
+    }
+}
+
+fn draw_progress_bar_image(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    back: &super::game_window::WindowDrawData,
+    bar: &super::game_window::WindowDrawData,
+) {
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let progress = progress_percent(window).clamp(0, 100);
+
+    if let Some(image) = &back.image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                image,
+                origin_x + inst_data.image_offset.x,
+                origin_y + inst_data.image_offset.y,
+                origin_x + inst_data.image_offset.x + size_x,
+                origin_y + inst_data.image_offset.y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
+
+    if let Some(image) = &bar.image {
+        let bar_width = (size_x * progress) / 100;
+        if bar_width > 0 {
+            let rect = UIRect::new(
+                origin_x as f32,
+                origin_y as f32,
+                bar_width as f32,
+                size_y as f32,
+            );
+            let _ = with_ui_renderer(|renderer| {
+                let mut renderer = renderer.write().ok()?;
+                let texture = {
+                    let collection = get_mapped_image_collection();
+                    let mut collection = collection.write();
+                    if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
+                        if mapped.get_gpu_texture().is_none() {
+                            let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
+                        }
+                        mapped.get_gpu_texture().map(|gpu| {
+                            let uv = mapped.get_uv();
+                            (
+                                std::sync::Arc::new(gpu.view().clone()),
+                                UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
+                            )
+                        })
+                    } else {
+                        None
+                    }
+                };
+                if let Some((texture, tex_rect)) = texture {
+                    renderer.draw_textured_rect(
+                        rect,
+                        texture,
+                        [1.0, 1.0, 1.0, 1.0],
+                        Some(tex_rect),
+                        0.0,
+                    );
+                }
+                Some(())
+            });
+        }
+    }
+}
+
+pub fn w3d_gadget_progress_bar_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let back = &draw_data[0];
+    let bar = &draw_data[1];
+    draw_progress_bar_solid(window, inst_data, back, bar);
+}
+
+pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let back = &draw_data[0];
+    let bar = &draw_data[1];
+    draw_progress_bar_image(window, inst_data, back, bar);
+}
+
+fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let raw_text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    let text = resolve_window_text(raw_text);
+    if text.is_empty() {
+        return;
+    }
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let size_x = rect.width as i32;
+    let size_y = rect.height as i32;
+
+    let (text_color, drop_color) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (
+                inst_data.hilite_text.color,
+                inst_data.hilite_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+
+    if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text.clone());
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        let (text_w, text_h) = display.get_size();
+        let text_x = origin_x + size_y;
+        let text_y = origin_y + (size_y / 2) - (text_h / 2);
+        display.draw(text_x, text_y, text_color, drop_color);
+    }
+}
+
+fn is_check_box_checked(window: &GameWindow) -> bool {
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::CheckBox(checkbox) = widget {
+            return checkbox.is_checked();
+        }
+    }
+    window.instance_data().state.contains(WindowState::PUSHED)
+}
+
+pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let back = &draw_data[0];
+    let check_box = &draw_data[1];
+
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let size_x = rect.width as i32;
+    let size_y = rect.height as i32;
+    let check_offset = size_x / 16;
+
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                origin_x,
+                origin_y,
+                origin_x + size_x,
+                origin_y + size_y,
+            );
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+
+    let box_x = origin_x + check_offset;
+    let box_y = origin_y + (size_y / 3);
+    let box_end_x = box_x + (size_y / 3);
+    let box_end_y = box_y + (size_y / 3);
+    with_window_manager_ref(|manager| {
+        manager.win_open_rect(
+            check_box.border_color,
+            1.0,
+            box_x,
+            box_y,
+            box_end_x,
+            box_end_y,
+        );
+    });
+
+    if is_check_box_checked(window) && check_box.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_line(check_box.color, 1.0, box_x, box_y, box_end_x, box_end_y);
+            manager.win_draw_line(check_box.color, 1.0, box_x, box_end_y, box_end_x, box_y);
+        });
+    }
+
+    draw_check_box_text(window, inst_data);
+}
+
+pub fn w3d_gadget_check_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let check_box = &draw_data[0];
+    if let Some(image) = &check_box.image {
+        let rect = press_scaled_rect(window);
+        let origin_x = rect.x as i32;
+        let origin_y = rect.y as i32;
+        let size_y = rect.height as i32;
+        let start_x = origin_x + inst_data.image_offset.x;
+        let start_y = origin_y + inst_data.image_offset.y + 3;
+        let end_x = start_x + (size_y - 6);
+        let end_y = start_y + (size_y - 6);
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+        });
+    }
+    draw_check_box_text(window, inst_data);
+}
+
+fn draw_radio_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let raw_text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    let text = resolve_window_text(raw_text);
+    if text.is_empty() {
+        return;
+    }
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let size_x = rect.width as i32;
+    let size_y = rect.height as i32;
+
+    let (text_color, drop_color) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (
+                inst_data.hilite_text.color,
+                inst_data.hilite_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+
+    if let Some(display) = inst_data.display_text.as_ref() {
+        let mut display = display.borrow_mut();
+        display.set_text(text.clone());
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        let (text_w, text_h) = display.get_size();
+        let text_x = origin_x + (size_x / 2) - (text_w / 2);
+        let text_y = origin_y + (size_y / 2) - (text_h / 2);
+        display.draw(text_x, text_y, text_color, drop_color);
+    }
+}
+
+fn is_radio_selected(window: &GameWindow) -> bool {
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::RadioButton(radio) = widget {
+            return radio.is_selected();
+        }
+    }
+    window.instance_data().state.contains(WindowState::PUSHED)
+}
+
+pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let back = &draw_data[0];
+    let radio_box = &draw_data[1];
+
+    let rect = press_scaled_rect(window);
+    let origin_x = rect.x as i32;
+    let origin_y = rect.y as i32;
+    let size_x = rect.width as i32;
+    let size_y = rect.height as i32;
+
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                origin_x,
+                origin_y,
+                origin_x + size_x,
+                origin_y + size_y,
+            );
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_line(
+                back.border_color,
+                1.0,
+                origin_x + size_y,
+                origin_y,
+                origin_x + size_y,
+                origin_y + size_y,
+            );
+            manager.win_draw_line(
+                back.border_color,
+                1.0,
+                origin_x + size_x - size_y,
+                origin_y,
+                origin_x + size_x - size_y,
+                origin_y + size_y,
+            );
+        });
+    }
+
+    if radio_box.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                radio_box.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_y - 1,
+                origin_y + size_y - 1,
+            );
+            manager.win_fill_rect(
+                radio_box.color,
+                1.0,
+                origin_x + size_x - size_y,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+
+    if is_radio_selected(window) {
+        draw_radio_button_text(window, inst_data);
+    } else {
+        draw_radio_button_text(window, inst_data);
+    }
+}
+
+fn draw_radio_button_image_strip(
+    left: &crate::gui::game_window::Image,
+    center: &crate::gui::game_window::Image,
+    right: &crate::gui::game_window::Image,
+    origin_x: i32,
+    origin_y: i32,
+    size_x: i32,
+    size_y: i32,
+    x_offset: i32,
+    y_offset: i32,
+) {
+    let left_w = left.width.max(1);
+    let right_w = right.width.max(1);
+    let center_w = center.width.max(1);
+    let left_end_x = origin_x + x_offset + left_w;
+    let right_start_x = origin_x + size_x - right_w + x_offset;
+    let strip_bottom_y = origin_y + size_y + y_offset;
+    let center_clip = region_from_corners(left_end_x, origin_y, right_start_x, strip_bottom_y);
+
+    let mut start_x = left_end_x;
+    while start_x < right_start_x {
+        let end_x = (start_x + center_w).min(right_start_x);
+        draw_window_image_clipped(
+            center,
+            start_x,
+            origin_y + y_offset,
+            end_x,
+            strip_bottom_y,
+            &center_clip,
+        );
+        start_x += center_w;
+    }
+
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            left,
+            origin_x + x_offset,
+            origin_y + y_offset,
+            left_end_x,
+            strip_bottom_y,
+            WIN_COLOR_UNDEFINED,
+        );
+        manager.win_draw_image(
+            right,
+            right_start_x,
+            origin_y + y_offset,
+            origin_x + size_x,
+            strip_bottom_y,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
+pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let draw_data = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+        &inst_data.disabled_draw_data
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        &inst_data.hilite_draw_data
+    } else {
+        &inst_data.enabled_draw_data
+    };
+    let selected = is_radio_selected(window);
+    let image_set = if selected {
+        (
+            &draw_data[0].image,
+            &draw_data[1].image,
+            &draw_data[2].image,
+        )
+    } else if inst_data.state.contains(WindowState::HILITED)
+        && draw_data[3].image.is_some()
+        && draw_data[4].image.is_some()
+        && draw_data[5].image.is_some()
+    {
+        (
+            &draw_data[3].image,
+            &draw_data[4].image,
+            &draw_data[5].image,
+        )
+    } else {
+        (
+            &draw_data[0].image,
+            &draw_data[1].image,
+            &draw_data[2].image,
+        )
+    };
+
+    if let (Some(left), Some(center), Some(right)) = image_set {
+        let rect = press_scaled_rect(window);
+        let origin_x = rect.x as i32;
+        let origin_y = rect.y as i32;
+        let size_x = rect.width as i32;
+        let size_y = rect.height as i32;
+        draw_radio_button_image_strip(
+            left,
+            center,
+            right,
+            origin_x,
+            origin_y,
+            size_x,
+            size_y,
+            inst_data.image_offset.x,
+            inst_data.image_offset.y,
+        );
+    }
+    draw_radio_button_text(window, inst_data);
+}
+
+fn slider_percent(
+    window: &GameWindow,
+    slider_data: Option<&crate::gui::window_script::SliderData>,
+) -> f32 {
+    if let Some(widget) = window.widget() {
+        match widget {
+            super::game_window::WindowWidget::HorizontalSlider(slider) => {
+                let (min, max) = slider.range();
+                let value = slider.value();
+                let range = (max - min).max(1);
+                return (value - min) as f32 / range as f32;
+            }
+            super::game_window::WindowWidget::VerticalSlider(slider) => {
+                let (min, max) = slider.range();
+                let value = slider.value();
+                let range = (max - min).max(1);
+                return (value - min) as f32 / range as f32;
+            }
+            _ => {}
+        }
+    }
+    if let Some(data) = slider_data {
+        let range = (data.max_value - data.min_value).max(1);
+        return (data.position - data.min_value) as f32 / range as f32;
+    }
+    0.0
+}
+
+pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let back = &draw_data[0];
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                origin_x,
+                origin_y,
+                origin_x + size_x,
+                origin_y + size_y,
+            );
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+}
+
+pub fn w3d_gadget_horizontal_slider_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let filled = &draw_data[0].image;
+    let blank = &draw_data[1].image;
+    let highlight = &draw_data[2].image;
+
+    let (mut origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let slider_data = None;
+    let selected_percent = slider_percent(window, slider_data);
+
+    let (box_width, box_padding) = if let Some(image) = filled.as_ref() {
+        (image.width.max(1), 2)
+    } else {
+        (8, 2)
+    };
+
+    let mut num_boxes = 0;
+    let mut num_selected = 0;
+    let mut start_x = origin_x;
+    let mut end_x = start_x + box_width;
+    let max_selected_x = origin_x + (selected_percent * size_x as f32) as i32;
+    while end_x < origin_x + size_x {
+        if start_x <= max_selected_x && end_x < origin_x + size_x && selected_percent > 0.0 {
+            num_selected += 1;
+        }
+        start_x = end_x + box_padding;
+        end_x = start_x + box_width;
+        num_boxes += 1;
+    }
+    let distance = end_x - origin_x - box_width;
+    let blankness = size_x - distance;
+    origin_x += blankness / 2;
+
+    if inst_data.state.contains(WindowState::HILITED) {
+        if let Some(image) = highlight {
+            let mut bg_start_x = origin_x - (box_width + box_padding) / 2;
+            let bg_start_y = origin_y + box_width / 3;
+            let bg_end_y = bg_start_y + box_width + box_padding;
+            for _ in 0..(num_boxes + 1) {
+                let bg_end_x = bg_start_x + box_width + box_padding;
+                with_window_manager_ref(|manager| {
+                    manager.win_draw_image(
+                        image,
+                        bg_start_x,
+                        bg_start_y,
+                        bg_end_x,
+                        bg_end_y,
+                        WIN_COLOR_UNDEFINED,
+                    );
+                });
+                bg_start_x = bg_end_x;
+            }
+        }
+    }
+
+    for i in 0..num_selected {
+        if let Some(image) = filled {
+            let sx = origin_x + i * (box_width + box_padding);
+            let ex = sx + box_width;
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    image,
+                    sx,
+                    origin_y,
+                    ex,
+                    origin_y + box_width,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+        }
+    }
+    for i in num_selected..num_boxes {
+        if let Some(image) = blank {
+            let sx = origin_x + i * (box_width + box_padding);
+            let ex = sx + box_width;
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    image,
+                    sx,
+                    origin_y,
+                    ex,
+                    origin_y + box_width,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+        }
+    }
+}
+
+pub fn w3d_gadget_vertical_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    w3d_gadget_horizontal_slider_draw(window, inst_data);
+}
+
+pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    w3d_gadget_horizontal_slider_image_draw(window, inst_data);
+}
+
+fn draw_text_entry_text(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    text_color: u32,
+    drop_color: u32,
+    composite_color: u32,
+    composite_drop: u32,
+    start_x: i32,
+    start_y: i32,
+    width: i32,
+    font_height: i32,
+) {
+    let Some(widget) = window.widget() else {
+        return;
+    };
+    let super::game_window::WindowWidget::TextEntry(entry) = widget else {
+        return;
+    };
+
+    let text = entry.displayed_text();
+    if text.is_empty() {
+        return;
+    }
+
+    let mut display = if let Some(display) = inst_data.display_text.as_ref() {
+        display.borrow_mut()
+    } else {
+        return;
+    };
+    display.set_text(text.to_string());
+    if let Some(font) = inst_data.font.as_ref() {
+        display.set_font(font);
+    }
+    display.set_clip_region(Some(IRegion2D {
+        x: start_x,
+        y: start_y,
+        width: width.max(0),
+        height: font_height.max(0),
+    }));
+
+    display.draw(start_x, start_y, text_color, drop_color);
+    let mut cursor_pos = start_x + display.get_width(entry.cursor_position() as i32);
+
+    if !entry.ime_composition().is_empty() {
+        let comp_text = entry.ime_composition().to_string();
+        let comp_x = start_x + display.get_width(-1);
+        display.set_text(comp_text);
+        display.draw(comp_x, start_y, composite_color, composite_drop);
+        cursor_pos += display.get_width(entry.ime_cursor() as i32);
+    }
+
+    static DRAW_CNT: AtomicU8 = AtomicU8::new(0);
+    let cnt = DRAW_CNT.fetch_add(1, Ordering::Relaxed);
+    if (cnt >> 3) & 0x1 == 1 {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                text_color,
+                1.0,
+                cursor_pos,
+                start_y + 3,
+                cursor_pos + 2,
+                start_y + font_height - 3,
+            );
+        });
+    }
+
+    display.set_clip_region(None);
+    let _ = cursor_pos;
+}
+
+pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+    let back = &draw_data[0];
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(
+                back.border_color,
+                1.0,
+                origin_x,
+                origin_y,
+                origin_x + size_x,
+                origin_y + size_y,
+            );
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+
+    let font_height = with_window_manager_ref(|manager| {
+        inst_data
+            .font
+            .as_ref()
+            .map(|font| manager.win_font_height(font))
+            .unwrap_or(12)
+    });
+    let start_offset = 5;
+    let width = size_x - (2 * start_offset);
+    let start_x = origin_x + start_offset;
+    let start_y = if window.get_status().contains(WindowStatus::ONE_LINE) {
+        origin_y + (size_y / 2) - (font_height / 2)
+    } else {
+        origin_y + start_offset
+    };
+
+    draw_text_entry_text(
+        window,
+        inst_data,
+        text_colors.color,
+        text_colors.border_color,
+        inst_data.ime_composite_text.color,
+        inst_data.ime_composite_text.border_color,
+        start_x,
+        start_y,
+        width,
+        font_height,
+    );
+}
+
+pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+
+    if let Some(image) = &draw_data[0].image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                image,
+                origin_x + inst_data.image_offset.x,
+                origin_y + inst_data.image_offset.y,
+                origin_x + inst_data.image_offset.x + size_x,
+                origin_y + inst_data.image_offset.y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
+
+    let font_height = with_window_manager_ref(|manager| {
+        inst_data
+            .font
+            .as_ref()
+            .map(|font| manager.win_font_height(font))
+            .unwrap_or(12)
+    });
+    let start_offset = 5;
+    let width = size_x - (2 * start_offset);
+    let start_x = origin_x + start_offset;
+    let start_y = if window.get_status().contains(WindowStatus::ONE_LINE) {
+        origin_y + (size_y / 2) - (font_height / 2)
+    } else {
+        origin_y + start_offset
+    };
+
+    draw_text_entry_text(
+        window,
+        inst_data,
+        text_colors.color,
+        text_colors.border_color,
+        inst_data.ime_composite_text.color,
+        inst_data.ime_composite_text.border_color,
+        start_x,
+        start_y,
+        width,
+        font_height,
+    );
+}
+
+pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+    let back = &draw_data[0];
+    let select = &draw_data[1];
+
+    let (mut x, mut y) = window.get_screen_position();
+    let (mut width, mut height) = window.get_size();
+    let font_height = with_window_manager_ref(|manager| {
+        inst_data
+            .font
+            .as_ref()
+            .map(|font| manager.win_font_height(font))
+            .unwrap_or(12)
+    });
+
+    if let Some(title) = inst_data.display_text.as_ref() {
+        let mut title = title.borrow_mut();
+        if let Some(font) = inst_data.font.as_ref() {
+            title.set_font(font);
+        }
+        title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+        y += font_height + 1;
+        height -= font_height + 1;
+    }
+
+    let mut slider_hidden = false;
+    if let Some(links) = window.listbox_links() {
+        if let Some(slider) = window.find_child_by_id(links.slider) {
+            slider_hidden = slider.borrow().is_hidden();
+            if !slider_hidden {
+                let (slider_width, _) = slider.borrow().get_size();
+                width = (width - slider_width - 2).max(0);
+            }
+        }
+    }
+
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(back.border_color, 1.0, x, y, x + width, y + height);
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
+        });
+    }
+
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::ListBox(listbox) = widget {
+            let item_height = listbox.item_height() as i32;
+            let scroll = listbox.scroll_offset() as i32 * item_height;
+            let mut draw_y = y + 4 - scroll;
+            let selected = listbox.selected_indices();
+            let columns = listbox.columns().max(1) as usize;
+            let mut column_widths = listbox.column_widths_for_width(width as u32);
+            if columns == 1 && slider_hidden {
+                if let Some(first) = column_widths.get_mut(0) {
+                    *first = first.saturating_sub(3);
+                }
+            }
+            let list_clip = region_from_corners(x + 1, y - 3, x + width - 1, y + height - 1);
+            for (idx, item) in listbox.items().iter().enumerate() {
+                if draw_y + item_height < y {
+                    draw_y += item_height + 1;
+                    continue;
+                }
+                if draw_y > y + height {
+                    break;
+                }
+                if selected.contains(&idx) {
+                    if select.border_color != WIN_COLOR_UNDEFINED {
+                        with_window_manager_ref(|manager| {
+                            manager.win_open_rect(
+                                select.border_color,
+                                1.0,
+                                x,
+                                draw_y,
+                                x + width,
+                                draw_y + item_height,
+                            );
+                        });
+                    }
+                    if select.color != WIN_COLOR_UNDEFINED {
+                        with_window_manager_ref(|manager| {
+                            manager.win_fill_rect(
+                                select.color,
+                                1.0,
+                                x + 1,
+                                draw_y + 1,
+                                x + width - 1,
+                                draw_y + item_height - 1,
+                            );
+                        });
+                    }
+                }
+                let mut column_x = x;
+                for column in 0..columns {
+                    let column_width = column_widths.get(column).copied().unwrap_or(0) as i32;
+                    if column_width <= 0 {
+                        continue;
+                    }
+                    let mut column_region = region_from_corners(
+                        column_x,
+                        draw_y,
+                        column_x + column_width,
+                        draw_y + item_height,
+                    );
+                    if column_region.x < list_clip.x {
+                        column_region.x = list_clip.x;
+                    }
+                    if column_region.y < list_clip.y {
+                        column_region.y = list_clip.y;
+                    }
+                    let max_right = region_right(&list_clip);
+                    let max_bottom = region_bottom(&list_clip);
+                    let column_right = region_right(&column_region);
+                    let column_bottom = region_bottom(&column_region);
+                    if column_right > max_right {
+                        column_region.width = (max_right - column_region.x).max(0);
+                    }
+                    if column_bottom > max_bottom {
+                        column_region.height = (max_bottom - column_region.y).max(0);
+                    }
+
+                    let cell = item.column_data.get(column);
+                    let column_color = item.column_colors.get(column).and_then(|color| *color);
+                    match cell {
+                        Some(super::gadgets::ListBoxItemData::Text(text)) => {
+                            if let Some(display) = inst_data.display_text.as_ref() {
+                                let mut display = display.borrow_mut();
+                                display.set_text(text.clone());
+                                if let Some(font) = inst_data.font.as_ref() {
+                                    display.set_font(font);
+                                }
+                                display.set_clip_region(Some(column_region));
+                                let color = gadget_color_opt_to_win_color(column_color)
+                                    .or(gadget_color_opt_to_win_color(item.text_color))
+                                    .unwrap_or(text_colors.color);
+                                display.draw(column_x + 4, draw_y, color, text_colors.border_color);
+                                display.set_clip_region(None);
+                            }
+                        }
+                        Some(super::gadgets::ListBoxItemData::Image {
+                            name,
+                            width,
+                            height,
+                            ..
+                        }) => {
+                            let collection = get_mapped_image_collection();
+                            if let Some(collection) = collection.try_read() {
+                                if let Some(image) = collection.find_image_by_name(name) {
+                                    let mut draw_width = if *width > 0 {
+                                        *width
+                                    } else {
+                                        column_width as u32
+                                    };
+                                    let mut draw_height = if *height > 0 {
+                                        *height
+                                    } else {
+                                        item_height as u32
+                                    };
+                                    if column == 0 && draw_width > 0 {
+                                        draw_width = draw_width.saturating_sub(1);
+                                    }
+                                    let draw_width_i = draw_width as i32;
+                                    let draw_height_i = draw_height as i32;
+                                    let mut offset_x = if draw_width_i < column_width {
+                                        column_x + (column_width - draw_width_i) / 2
+                                    } else {
+                                        column_x
+                                    };
+                                    let mut offset_y = if draw_height_i < item_height {
+                                        draw_y + (item_height - draw_height_i) / 2
+                                    } else {
+                                        draw_y
+                                    };
+                                    offset_y += 1;
+                                    if offset_x < x + 1 {
+                                        offset_x = x + 1;
+                                    }
+                                    let draw_color = gadget_color_opt_to_win_color(column_color)
+                                        .unwrap_or(WIN_COLOR_UNDEFINED);
+                                    draw_mapped_image_clipped(
+                                        image,
+                                        offset_x,
+                                        offset_y,
+                                        offset_x + draw_width_i,
+                                        offset_y + draw_height_i,
+                                        &column_region,
+                                        draw_color,
+                                    );
+                                }
+                            };
+                        }
+                        _ => {
+                            if column == 0 {
+                                if let Some(display) = inst_data.display_text.as_ref() {
+                                    let mut display = display.borrow_mut();
+                                    display.set_text(item.text.clone());
+                                    if let Some(font) = inst_data.font.as_ref() {
+                                        display.set_font(font);
+                                    }
+                                    display.set_clip_region(Some(column_region));
+                                    let color = gadget_color_opt_to_win_color(column_color)
+                                        .or(gadget_color_opt_to_win_color(item.text_color))
+                                        .unwrap_or(text_colors.color);
+                                    display.draw(
+                                        column_x + 4,
+                                        draw_y,
+                                        color,
+                                        text_colors.border_color,
+                                    );
+                                    display.set_clip_region(None);
+                                }
+                            }
+                        }
+                    }
+                    column_x += column_width;
+                }
+                draw_y += item_height + 1;
+            }
+        }
+    }
+}
+
+pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+
+    let (mut x, mut y) = window.get_screen_position();
+    let (mut width, mut height) = window.get_size();
+    if let Some(image) = &draw_data[0].image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                image,
+                x + inst_data.image_offset.x,
+                y + inst_data.image_offset.y,
+                x + inst_data.image_offset.x + width,
+                y + inst_data.image_offset.y + height,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
+
+    let font_height = with_window_manager_ref(|manager| {
+        inst_data
+            .font
+            .as_ref()
+            .map(|font| manager.win_font_height(font))
+            .unwrap_or(12)
+    });
+    if let Some(title) = inst_data.display_text.as_ref() {
+        let mut title = title.borrow_mut();
+        if let Some(font) = inst_data.font.as_ref() {
+            title.set_font(font);
+        }
+        title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+        y += font_height + 1;
+        height -= font_height + 1;
+    }
+
+    let mut slider_hidden = false;
+    if let Some(links) = window.listbox_links() {
+        if let Some(slider) = window.find_child_by_id(links.slider) {
+            slider_hidden = slider.borrow().is_hidden();
+            if !slider_hidden {
+                let (slider_width, _) = slider.borrow().get_size();
+                width = (width - slider_width - 2).max(0);
+            }
+        }
+    }
+
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::ListBox(listbox) = widget {
+            let item_height = listbox.item_height() as i32;
+            let scroll = listbox.scroll_offset() as i32 * item_height;
+            let mut draw_y = y + 4 - scroll;
+            let selected = listbox.selected_indices();
+            let columns = listbox.columns().max(1) as usize;
+            let mut column_widths = listbox.column_widths_for_width(width as u32);
+            if columns == 1 && slider_hidden {
+                if let Some(first) = column_widths.get_mut(0) {
+                    *first = first.saturating_sub(3);
+                }
+            }
+            let list_clip = region_from_corners(x + 1, y - 3, x + width - 1, y + height - 1);
+            for (idx, item) in listbox.items().iter().enumerate() {
+                if draw_y + item_height < y {
+                    draw_y += item_height + 1;
+                    continue;
+                }
+                if draw_y > y + height {
+                    break;
+                }
+                if selected.contains(&idx) {
+                    let left = draw_data[1].image.as_ref();
+                    let right = draw_data[2].image.as_ref();
+                    let center = draw_data[3].image.as_ref();
+                    let small_center = draw_data[4].image.as_ref();
+                    if let (Some(left), Some(right), Some(center), Some(small_center)) =
+                        (left, right, center, small_center)
+                    {
+                        draw_listbox_hilite_bar(
+                            left,
+                            right,
+                            center,
+                            small_center,
+                            x + 1,
+                            draw_y,
+                            x + width - 1,
+                            draw_y + item_height,
+                        );
+                    } else if let Some(image) = draw_data[1].image.as_ref() {
+                        with_window_manager_ref(|manager| {
+                            manager.win_draw_image(
+                                image,
+                                x + 1,
+                                draw_y,
+                                x + width - 1,
+                                draw_y + item_height,
+                                WIN_COLOR_UNDEFINED,
+                            );
+                        });
+                    }
+                }
+                let mut column_x = x;
+                for column in 0..columns {
+                    let column_width = column_widths.get(column).copied().unwrap_or(0) as i32;
+                    if column_width <= 0 {
+                        continue;
+                    }
+                    let mut column_region = region_from_corners(
+                        column_x,
+                        draw_y,
+                        column_x + column_width,
+                        draw_y + item_height,
+                    );
+                    if column_region.x < list_clip.x {
+                        column_region.x = list_clip.x;
+                    }
+                    if column_region.y < list_clip.y {
+                        column_region.y = list_clip.y;
+                    }
+                    let max_right = region_right(&list_clip);
+                    let max_bottom = region_bottom(&list_clip);
+                    let column_right = region_right(&column_region);
+                    let column_bottom = region_bottom(&column_region);
+                    if column_right > max_right {
+                        column_region.width = (max_right - column_region.x).max(0);
+                    }
+                    if column_bottom > max_bottom {
+                        column_region.height = (max_bottom - column_region.y).max(0);
+                    }
+
+                    let cell = item.column_data.get(column);
+                    let column_color = item.column_colors.get(column).and_then(|color| *color);
+                    match cell {
+                        Some(super::gadgets::ListBoxItemData::Text(text)) => {
+                            if let Some(display) = inst_data.display_text.as_ref() {
+                                let mut display = display.borrow_mut();
+                                display.set_text(text.clone());
+                                if let Some(font) = inst_data.font.as_ref() {
+                                    display.set_font(font);
+                                }
+                                display.set_clip_region(Some(column_region));
+                                let color = gadget_color_opt_to_win_color(column_color)
+                                    .or(gadget_color_opt_to_win_color(item.text_color))
+                                    .unwrap_or(text_colors.color);
+                                display.draw(column_x + 4, draw_y, color, text_colors.border_color);
+                                display.set_clip_region(None);
+                            }
+                        }
+                        Some(super::gadgets::ListBoxItemData::Image {
+                            name,
+                            width,
+                            height,
+                            ..
+                        }) => {
+                            let collection = get_mapped_image_collection();
+                            if let Some(collection) = collection.try_read() {
+                                if let Some(image) = collection.find_image_by_name(name) {
+                                    let mut draw_width = if *width > 0 {
+                                        *width
+                                    } else {
+                                        column_width as u32
+                                    };
+                                    let mut draw_height = if *height > 0 {
+                                        *height
+                                    } else {
+                                        item_height as u32
+                                    };
+                                    if column == 0 && draw_width > 0 {
+                                        draw_width = draw_width.saturating_sub(1);
+                                    }
+                                    let draw_width_i = draw_width as i32;
+                                    let draw_height_i = draw_height as i32;
+                                    let mut offset_x = if draw_width_i < column_width {
+                                        column_x + (column_width - draw_width_i) / 2
+                                    } else {
+                                        column_x
+                                    };
+                                    let mut offset_y = if draw_height_i < item_height {
+                                        draw_y + (item_height - draw_height_i) / 2
+                                    } else {
+                                        draw_y
+                                    };
+                                    offset_y += 1;
+                                    if offset_x < x + 1 {
+                                        offset_x = x + 1;
+                                    }
+                                    let draw_color = gadget_color_opt_to_win_color(column_color)
+                                        .unwrap_or(WIN_COLOR_UNDEFINED);
+                                    draw_mapped_image_clipped(
+                                        image,
+                                        offset_x,
+                                        offset_y,
+                                        offset_x + draw_width_i,
+                                        offset_y + draw_height_i,
+                                        &column_region,
+                                        draw_color,
+                                    );
+                                }
+                            };
+                        }
+                        _ => {
+                            if column == 0 {
+                                if let Some(display) = inst_data.display_text.as_ref() {
+                                    let mut display = display.borrow_mut();
+                                    display.set_text(item.text.clone());
+                                    if let Some(font) = inst_data.font.as_ref() {
+                                        display.set_font(font);
+                                    }
+                                    display.set_clip_region(Some(column_region));
+                                    let color = gadget_color_opt_to_win_color(column_color)
+                                        .or(gadget_color_opt_to_win_color(item.text_color))
+                                        .unwrap_or(text_colors.color);
+                                    display.draw(
+                                        column_x + 4,
+                                        draw_y,
+                                        color,
+                                        text_colors.border_color,
+                                    );
+                                    display.set_clip_region(None);
+                                }
+                            }
+                        }
+                    }
+                    column_x += column_width;
+                }
+                draw_y += item_height + 1;
+            }
+        }
+    }
+}
+
+fn draw_listbox_hilite_bar(
+    left: &crate::gui::game_window::Image,
+    right: &crate::gui::game_window::Image,
+    center: &crate::gui::game_window::Image,
+    small_center: &crate::gui::game_window::Image,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+) {
+    let mut bar_width = (end_x - start_x).max(0);
+    let bar_height = (end_y - start_y).max(0);
+    let min_width = left.width + right.width;
+    if bar_width < min_width {
+        bar_width = min_width;
+    }
+
+    let left_w = left.width.max(1);
+    let right_w = right.width.max(1);
+    let center_w = center.width.max(1);
+    let small_w = small_center.width.max(1);
+
+    let left_end_x = start_x + left_w;
+    let right_start_x = start_x + bar_width - right_w;
+    let center_clip = region_from_corners(left_end_x, start_y, right_start_x, start_y + bar_height);
+
+    let mut x = left_end_x;
+    while x + center_w <= right_start_x {
+        let sx = x;
+        let ex = sx + center_w;
+        draw_window_image_clipped(center, sx, start_y, ex, start_y + bar_height, &center_clip);
+        x += center_w;
+    }
+
+    while x < right_start_x {
+        let sx = x;
+        let ex = (sx + small_w).min(right_start_x);
+        draw_window_image_clipped(
+            small_center,
+            sx,
+            start_y,
+            ex,
+            start_y + bar_height,
+            &center_clip,
+        );
+        x += small_w;
+    }
+
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            left,
+            start_x,
+            start_y,
+            left_end_x,
+            start_y + bar_height,
+            WIN_COLOR_UNDEFINED,
+        );
+        manager.win_draw_image(
+            right,
+            right_start_x,
+            start_y,
+            right_start_x + right_w,
+            start_y + bar_height,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
+fn draw_mapped_image_clipped(
+    image: &crate::display::image::Image,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    clip_region: &IRegion2D,
+    color: u32,
+) {
+    let x1 = start_x;
+    let y1 = start_y;
+    let x2 = end_x;
+    let y2 = end_y;
+    if x2 <= x1 || y2 <= y1 {
+        return;
+    }
+    let ix1 = x1.max(clip_region.x);
+    let iy1 = y1.max(clip_region.y);
+    let ix2 = x2.min(region_right(clip_region));
+    let iy2 = y2.min(region_bottom(clip_region));
+    if ix2 <= ix1 || iy2 <= iy1 {
+        return;
+    }
+
+    let dest_w = (x2 - x1) as f32;
+    let dest_h = (y2 - y1) as f32;
+    let left_frac = (ix1 - x1) as f32 / dest_w;
+    let right_frac = (ix2 - x1) as f32 / dest_w;
+    let top_frac = (iy1 - y1) as f32 / dest_h;
+    let bottom_frac = (iy2 - y1) as f32 / dest_h;
+
+    let rect = UIRect::new(
+        ix1 as f32,
+        iy1 as f32,
+        (ix2 - ix1) as f32,
+        (iy2 - iy1) as f32,
+    );
+
+    let _ = with_ui_renderer(|renderer| {
+        let mut renderer = renderer.write().ok()?;
+        let texture = {
+            let collection = get_mapped_image_collection();
+            let mut collection = collection.write();
+            if let Some(mapped) = collection.find_image_by_name_mut(image.get_name()) {
+                if mapped.get_gpu_texture().is_none() {
+                    let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
+                }
+                mapped.get_gpu_texture().map(|gpu| {
+                    let uv = mapped.get_uv();
+                    (
+                        std::sync::Arc::new(gpu.view().clone()),
+                        UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
+                    )
+                })
+            } else {
+                None
+            }
+        };
+        if let Some((texture, tex_rect)) = texture {
+            let uv_x = tex_rect.x + tex_rect.width * left_frac;
+            let uv_y = tex_rect.y + tex_rect.height * top_frac;
+            let uv_w = tex_rect.width * (right_frac - left_frac);
+            let uv_h = tex_rect.height * (bottom_frac - top_frac);
+            let tex_rect = UIRect::new(uv_x, uv_y, uv_w, uv_h);
+            let color = if color != WIN_COLOR_UNDEFINED {
+                super::game_window::color_to_rgba(color)
+            } else {
+                [1.0, 1.0, 1.0, 1.0]
+            };
+            renderer.draw_textured_rect(rect, texture, color, Some(tex_rect), 0.0);
+        }
+        Some(())
+    });
+}
+
+fn draw_window_image_clipped(
+    image: &crate::gui::game_window::Image,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    clip_region: &IRegion2D,
+) {
+    let collection = get_mapped_image_collection();
+    let Some(collection) = collection.try_read() else {
+        return;
+    };
+    let Some(mapped) = collection.find_image_by_name(&image.name) else {
+        return;
+    };
+    draw_mapped_image_clipped(
+        mapped,
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+        clip_region,
+        WIN_COLOR_UNDEFINED,
+    );
+}
+
+fn draw_tabcontrol_background(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+    use_images: bool,
+) {
+    let (draw_data, _text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+
+    let back = &draw_data[0];
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+
+    if use_images {
+        if let Some(image) = back.image.as_ref() {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    image,
+                    x + inst_data.image_offset.x,
+                    y + inst_data.image_offset.y,
+                    x + inst_data.image_offset.x + width,
+                    y + inst_data.image_offset.y + height,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+        }
+    } else {
+        if back.border_color != WIN_COLOR_UNDEFINED {
+            with_window_manager_ref(|manager| {
+                manager.win_open_rect(back.border_color, 1.0, x, y, x + width, y + height);
+            });
+        }
+        if back.color != WIN_COLOR_UNDEFINED {
+            with_window_manager_ref(|manager| {
+                manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
+            });
+        }
+    }
+}
+
+fn compute_tab_layout(
+    window: &GameWindow,
+    tab_control: &TabControl,
+) -> (i32, i32, i32, i32, i32, i32, usize) {
+    let (win_width_u, win_height_u) = window.get_size();
+    let win_width = win_width_u as i32;
+    let win_height = win_height_u as i32;
+    let tab_count = tab_control.tab_count().min(8).max(1);
+    let tab_width = tab_control.tab_width_px();
+    let tab_height = tab_control.tab_height_px();
+    let pane_border = tab_control.pane_border();
+    let tab_edge = tab_control.tab_edge();
+    let tab_orientation = tab_control.tab_orientation();
+
+    let mut horz_offset = 0;
+    let mut vert_offset = 0;
+
+    if tab_edge == TP_TOP_SIDE || tab_edge == TP_BOTTOM_SIDE {
+        if tab_orientation == TP_CENTER {
+            horz_offset = win_width - (2 * pane_border) - ((tab_count as i32) * tab_width);
+            horz_offset /= 2;
+        } else if tab_orientation == TP_BOTTOMRIGHT {
+            horz_offset = win_width - (2 * pane_border) - ((tab_count as i32) * tab_width);
+        }
+    } else {
+        if tab_orientation == TP_CENTER {
+            vert_offset = win_height - (2 * pane_border) - ((tab_count as i32) * tab_height);
+            vert_offset /= 2;
+        } else if tab_orientation == TP_BOTTOMRIGHT {
+            vert_offset = win_height - (2 * pane_border) - ((tab_count as i32) * tab_height);
+        }
+    }
+
+    let (tabs_left, tabs_top) = if tab_edge == TP_TOP_SIDE {
+        (pane_border + horz_offset, pane_border)
+    } else if tab_edge == TP_BOTTOM_SIDE {
+        (
+            pane_border + horz_offset,
+            win_height - pane_border - tab_height,
+        )
+    } else if tab_edge == TP_RIGHT_SIDE {
+        (
+            win_width - pane_border - tab_width,
+            pane_border + vert_offset,
+        )
+    } else if tab_edge == TP_LEFT_SIDE {
+        (pane_border, pane_border + vert_offset)
+    } else {
+        (pane_border, pane_border)
+    };
+
+    let (tab_dx, tab_dy) = if tab_edge == TP_TOP_SIDE || tab_edge == TP_BOTTOM_SIDE {
+        (tab_width, 0)
+    } else {
+        (0, tab_height)
+    };
+
+    (
+        tabs_left, tabs_top, tab_width, tab_height, tab_dx, tab_dy, tab_count,
+    )
+}
+
+pub fn w3d_gadget_tab_control_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_tabcontrol_background(window, inst_data, false);
+
+    let widget = window.widget();
+    let Some(super::game_window::WindowWidget::TabControl(tab_control)) = widget else {
+        return;
+    };
+
+    let (tabs_left, tabs_top, tab_width, tab_height, tab_dx, tab_dy, tab_count) =
+        compute_tab_layout(window, tab_control);
+    let active_tab = tab_control.active_tab_index();
+
+    for tab_index in 0..tab_count {
+        let is_disabled = tab_control.is_sub_pane_disabled(tab_index);
+        let draw_data = if is_disabled {
+            &inst_data.disabled_draw_data
+        } else if active_tab == tab_index {
+            &inst_data.hilite_draw_data
+        } else {
+            &inst_data.enabled_draw_data
+        };
+
+        let entry_index = tab_index + 1;
+        if entry_index >= draw_data.len() {
+            continue;
+        }
+        let entry = &draw_data[entry_index];
+        let tab_x = tabs_left + (tab_dx * tab_index as i32);
+        let tab_y = tabs_top + (tab_dy * tab_index as i32);
+        let (origin_x, origin_y) = window.get_screen_position();
+        let x1 = origin_x + tab_x;
+        let y1 = origin_y + tab_y;
+        let x2 = x1 + tab_width;
+        let y2 = y1 + tab_height;
+
+        if entry.border_color != WIN_COLOR_UNDEFINED {
+            with_window_manager_ref(|manager| {
+                manager.win_open_rect(entry.border_color, 1.0, x1, y1, x2, y2);
+            });
+        }
+        if entry.color != WIN_COLOR_UNDEFINED {
+            with_window_manager_ref(|manager| {
+                manager.win_fill_rect(entry.color, 1.0, x1 + 1, y1 + 1, x2 - 1, y2 - 1);
+            });
+        }
+    }
+}
+
+pub fn w3d_gadget_tab_control_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    draw_tabcontrol_background(window, inst_data, true);
+
+    let widget = window.widget();
+    let Some(super::game_window::WindowWidget::TabControl(tab_control)) = widget else {
+        return;
+    };
+
+    let (tabs_left, tabs_top, tab_width, tab_height, tab_dx, tab_dy, tab_count) =
+        compute_tab_layout(window, tab_control);
+    let active_tab = tab_control.active_tab_index();
+
+    for tab_index in 0..tab_count {
+        let is_disabled = tab_control.is_sub_pane_disabled(tab_index);
+        let draw_data = if is_disabled {
+            &inst_data.disabled_draw_data
+        } else if active_tab == tab_index {
+            &inst_data.hilite_draw_data
+        } else {
+            &inst_data.enabled_draw_data
+        };
+
+        let entry_index = tab_index + 1;
+        if entry_index >= draw_data.len() {
+            continue;
+        }
+        let entry = &draw_data[entry_index];
+        let image = match entry.image.as_ref() {
+            Some(image) => image,
+            None => continue,
+        };
+
+        let tab_x = tabs_left + (tab_dx * tab_index as i32);
+        let tab_y = tabs_top + (tab_dy * tab_index as i32);
+        let (origin_x, origin_y) = window.get_screen_position();
+        let x1 = origin_x + tab_x;
+        let y1 = origin_y + tab_y;
+        let x2 = x1 + tab_width;
+        let y2 = y1 + tab_height;
+
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(image, x1, y1, x2, y2, WIN_COLOR_UNDEFINED);
+        });
+    }
+}
+
+fn draw_combobox_title(
+    inst_data: &WindowInstanceData,
+    x: i32,
+    y: i32,
+    text_colors: &crate::gui::game_window::WindowTextColors,
+) -> i32 {
+    if let Some(title) = inst_data.display_text.as_ref() {
+        let mut title = title.borrow_mut();
+        let text = if !inst_data.text.is_empty() {
+            inst_data.text.as_str()
+        } else {
+            inst_data.text_label.as_str()
+        };
+        if !text.is_empty() {
+            title.set_text(text.to_string());
+        }
+        if let Some(font) = inst_data.font.as_ref() {
+            title.set_font(font);
+        }
+        title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+        return 1;
+    }
+    0
+}
+
+pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+
+    let (mut x, mut y) = window.get_screen_position();
+    let (mut width, mut height) = window.get_size();
+
+    let font_height = with_window_manager_ref(|manager| {
+        inst_data
+            .font
+            .as_ref()
+            .map(|font| manager.win_font_height(font))
+            .unwrap_or(12)
+    });
+
+    if draw_combobox_title(inst_data, x, y, text_colors) != 0 {
+        y += font_height + 1;
+        height -= font_height + 1;
+    }
+
+    let back = &draw_data[0];
+    if back.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(back.border_color, 1.0, x, y, x + width, y + height);
+        });
+    }
+    if back.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
+        });
+    }
+
+    if let Some(super::game_window::WindowWidget::ComboBox(combo)) = window.widget() {
+        let text = combo.text().to_string();
+        if !text.is_empty() {
+            if let Some(display) = inst_data.display_text.as_ref() {
+                let mut display = display.borrow_mut();
+                display.set_text(text);
+                if let Some(font) = inst_data.font.as_ref() {
+                    display.set_font(font);
+                }
+                display.draw(x + 4, y + 2, text_colors.color, text_colors.border_color);
+            }
+        }
+
+        if combo.is_open() {
+            let dropdown = combo.dropdown_bounds();
+            let dropdown_x = dropdown.x;
+            let dropdown_y = dropdown.y;
+            let dropdown_w = dropdown.width as i32;
+            let dropdown_h = dropdown.height as i32;
+
+            if back.border_color != WIN_COLOR_UNDEFINED {
+                with_window_manager_ref(|manager| {
+                    manager.win_open_rect(
+                        back.border_color,
+                        1.0,
+                        dropdown_x,
+                        dropdown_y,
+                        dropdown_x + dropdown_w,
+                        dropdown_y + dropdown_h,
+                    );
+                });
+            }
+            if back.color != WIN_COLOR_UNDEFINED {
+                with_window_manager_ref(|manager| {
+                    manager.win_fill_rect(
+                        back.color,
+                        1.0,
+                        dropdown_x + 1,
+                        dropdown_y + 1,
+                        dropdown_x + dropdown_w - 1,
+                        dropdown_y + dropdown_h - 1,
+                    );
+                });
+            }
+
+            let item_height = combo.item_height() as i32;
+            let hovered = combo.hovered_item();
+            let selected = combo.selected_index();
+            for (index, item) in combo.items().iter().enumerate() {
+                let item_y = dropdown_y + (index as i32 * item_height);
+                if item_y > dropdown_y + dropdown_h {
+                    break;
+                }
+                if hovered == Some(index) || selected == Some(index) {
+                    let select = &draw_data[1];
+                    if select.border_color != WIN_COLOR_UNDEFINED {
+                        with_window_manager_ref(|manager| {
+                            manager.win_open_rect(
+                                select.border_color,
+                                1.0,
+                                dropdown_x + 1,
+                                item_y,
+                                dropdown_x + dropdown_w - 1,
+                                item_y + item_height,
+                            );
+                        });
+                    }
+                    if select.color != WIN_COLOR_UNDEFINED {
+                        with_window_manager_ref(|manager| {
+                            manager.win_fill_rect(
+                                select.color,
+                                1.0,
+                                dropdown_x + 2,
+                                item_y + 1,
+                                dropdown_x + dropdown_w - 2,
+                                item_y + item_height - 1,
+                            );
+                        });
+                    }
+                }
+                if let Some(display) = inst_data.display_text.as_ref() {
+                    let mut display = display.borrow_mut();
+                    display.set_text(item.text.clone());
+                    if let Some(font) = inst_data.font.as_ref() {
+                        display.set_font(font);
+                    }
+                    display.draw(
+                        dropdown_x + 4,
+                        item_y + 2,
+                        text_colors.color,
+                        text_colors.border_color,
+                    );
+                }
+            }
+        }
+    }
+}
+
+pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) =
+        if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
+            (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+        } else if inst_data.state.contains(WindowState::HILITED) {
+            (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+        } else {
+            (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        };
+
+    let (mut x, mut y) = window.get_screen_position();
+    let (mut width, mut height) = window.get_size();
+
+    if let Some(image) = &draw_data[0].image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                image,
+                x + inst_data.image_offset.x,
+                y + inst_data.image_offset.y,
+                x + inst_data.image_offset.x + width,
+                y + inst_data.image_offset.y + height,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
+
+    let font_height = with_window_manager_ref(|manager| {
+        inst_data
+            .font
+            .as_ref()
+            .map(|font| manager.win_font_height(font))
+            .unwrap_or(12)
+    });
+
+    if draw_combobox_title(inst_data, x, y, text_colors) != 0 {
+        y += font_height + 1;
+        height -= font_height + 1;
+    }
+
+    if let Some(super::game_window::WindowWidget::ComboBox(combo)) = window.widget() {
+        let text = combo.text().to_string();
+        if !text.is_empty() {
+            if let Some(display) = inst_data.display_text.as_ref() {
+                let mut display = display.borrow_mut();
+                display.set_text(text);
+                if let Some(font) = inst_data.font.as_ref() {
+                    display.set_font(font);
+                }
+                display.draw(x + 4, y + 2, text_colors.color, text_colors.border_color);
+            }
+        }
+    }
+}

@@ -1,0 +1,293 @@
+[package]
+name = "game-client-rust"
+version = "0.1.0"
+edition = "2021"
+description = "Rust conversion of Command & Conquer Generals Zero Hour GameClient"
+license = "GPL-3.0-or-later"
+authors = ["Command & Conquer Generals Zero Hour Contributors"]
+repository = "https://github.com/CnC-Generals-Zero-Hour/CnC_Generals_Zero_Hour"
+keywords = ["game", "graphics", "rts", "cnc", "generals"]
+categories = ["games", "graphics", "multimedia"]
+autoexamples = false
+
+
+[dependencies]
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+ww3d-core = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
+ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
+game_network = { path = "../GameNetwork", optional = true }
+gamelogic = { path = "../GameLogic" }
+game_engine = { path = "../Common" }
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Utilities
+bitflags = "2.10"
+once_cell = "1.21"
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_distr = "0.4"
+reqwest = { version = "0.11", features = ["rustls-tls"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = "1.0"
+bincode = "1.3"
+byteorder = { workspace = true }
+chrono = { workspace = true }
+
+# 3D Math and linear algebra  
+num-traits = "0.2"
+glam = { version = "0.28", features = ["serde"] }
+nalgebra = { version = "0.32", features = ["serde", "serde-serialize"] }
+ultraviolet = { version = "0.9", features = ["serde", "bytemuck"] }
+mint = "0.5"
+
+# Graphics and rendering
+wgpu = { version = "27.0.1", features = ["wgsl", "spirv"] }
+wgpu-hal = "27.0.4"
+winit = { version = "0.29", features = ["rwh_05"] }
+pollster = "0.3"
+bytemuck = { version = "1.24", features = ["derive"] }
+raw-window-handle = "0.6"
+gpu-allocator = { version = "0.25", features = ["vulkan", "d3d12"] }
+
+# Advanced 3D formats and processing
+gltf = { version = "1.4", features = ["KHR_lights_punctual", "KHR_materials_transmission"] }
+meshopt = "0.2"
+mikktspace = "0.2"
+# rend3 = { version = "0.3", optional = true }  # Removed due to wgpu version conflicts
+
+# Modern shader compilation
+naga = { version = "0.19", features = ["wgsl-in", "spv-out", "hlsl-out"] }
+# wgsl-analyzer = { version = "0.5", optional = true }  # Removed - package not found
+
+# Image loading and processing
+image = { version = "0.24", features = ["png", "tga", "jpeg", "bmp", "dds"] }
+tiff = "0.9"
+
+# Audio support
+# Single comprehensive game audio library (replaces cpal + rodio + hound)
+kira = { version = "0.8", features = ["symphonia", "wav", "ogg", "flac", "mp3"] }
+num_cpus = "1.17"
+
+# Video playback - using simpler alternatives for now
+# ffmpeg-next = { version = "6.0", optional = true }  # Removed due to compilation issues
+
+# UI and text rendering
+fontdue = "0.8"
+cosmic-text = "0.10"
+
+# Input handling
+gilrs = "0.10"
+
+# File system and compression
+walkdir = "2.5"
+zip = "0.6"
+lz4 = "1.28"
+flate2 = "1.1"
+
+# Asset system dependencies
+notify = "6.1"
+sha2 = "0.10"
+crc32fast = "1.5"
+regex = "1.12"
+lazy_static = "1.5"
+
+# Memory management and performance
+memmap2 = "0.9"
+rayon = "1.11"
+crossbeam = "0.8"
+dashmap = "5.5"
+smallvec = { version = "1.15", features = ["serde"] }
+bumpalo = "3.19"
+slotmap = "1.0"
+
+# SIMD optimizations  
+wide = "0.7"
+packed_simd_2 = { version = "0.3", optional = true }
+
+# Advanced graphics features
+spirv-reflect = "0.2"
+half = { version = "2.7", features = ["bytemuck", "serde"] }
+noise = "0.8"
+bracket-noise = "0.8"
+
+# Network (for multiplayer support)
+quinn = { version = "0.10", optional = true }
+
+# Platform-specific dependencies
+
+# Windows Platform - Complete Win32, DirectX, and WASAPI support
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    # Foundation APIs
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+    "Win32_System_Power",
+    "Win32_System_LibraryLoader",
+    
+    # Graphics APIs (DirectX 11/12, DXGI)
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    
+    # Audio APIs (WASAPI, DirectSound)
+    "Win32_Media_Audio",
+    "Win32_Media_MediaFoundation",
+    
+    # Input APIs (Raw Input, XInput)
+    "Win32_UI_Input",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Devices_HumanInterfaceDevice",
+    
+    # Additional Windows features
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Debug",
+] }
+
+# Linux Platform - X11/Wayland, ALSA/PulseAudio, Vulkan support
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+libc = "0.2"
+
+# X11 support
+x11 = { version = "2.21", optional = true }
+xcursor = { version = "0.3", optional = true }
+
+# Wayland support  
+wayland-client = { version = "0.31", optional = true }
+wayland-protocols = { version = "0.31", optional = true }
+
+# Cross-platform audio (handled by cpal/rodio in main dependencies)
+
+# Input device support
+evdev = { version = "0.12", optional = true }
+
+# Hardware detection
+udev = { version = "0.7", optional = true }
+
+# System integration
+dbus = { version = "0.9", optional = true }
+
+# macOS Platform - Cocoa, Metal, Core Audio support
+[target.'cfg(target_os = "macos")'.dependencies]
+# Core Foundation and Cocoa
+core-foundation = { version = "0.9", optional = true }
+cocoa = { version = "0.25", optional = true }
+
+# Metal graphics
+metal = { version = "0.27", optional = true }
+objc = { version = "0.2", optional = true }
+
+# Audio handled cross-platform by cpal/rodio
+
+# IOKit for hardware access
+IOKit-sys = { version = "0.1", optional = true }
+
+[dev-dependencies]
+approx = "0.5"
+tempfile = "3.23"
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.9"
+mockall = "0.12"
+
+[features]
+default = ["platform-native"]
+video = []  # Video features temporarily disabled
+network = ["dep:game_network"]
+multiplayer = ["network", "quinn"]
+debug_graphics = []
+benchmark = []
+internal = []
+allow_surrender = []
+
+# Platform-specific feature flags
+platform-native = ["platform-windows", "platform-linux", "platform-macos"]
+
+# Windows platform features
+platform-windows = []
+
+# Linux platform features  
+platform-linux = ["x11", "wayland", "evdev", "udev", "dbus"]
+x11 = ["dep:x11", "dep:xcursor"]
+wayland = ["dep:wayland-client", "dep:wayland-protocols"]
+# Audio is handled cross-platform by cpal/rodio 
+evdev = ["dep:evdev"]
+udev = ["dep:udev"]
+dbus = ["dep:dbus"]
+
+# macOS platform features
+platform-macos = ["cocoa", "metal", "iokit"]
+cocoa = ["dep:core-foundation", "dep:cocoa", "dep:objc"]
+metal = ["dep:metal", "dep:objc"]
+# Audio handled cross-platform by cpal/rodio
+iokit = ["dep:IOKit-sys"]
+
+# Cross-platform optional features
+async-trait = []
+
+# Advanced W3D rendering features
+w3d_support = []
+advanced_rendering = []
+pbr_rendering = []
+deferred_rendering = []
+shadow_mapping = []
+post_processing = []
+compute_shaders = []
+tessellation = []
+gpu_culling = []
+temporal_effects = []
+simd_optimizations = ["packed_simd_2"]
+mesh_optimization = []
+lod_system = []
+
+[lib]
+name = "game_client_rust"
+path = "src/lib.rs"
+
+[[bin]]
+name = "game-client"
+path = "src/bin/main.rs"
+
+[[example]]
+name = "display_demo"
+path = "examples/display_demo.rs"
+
+[[example]]
+name = "gui_demo"
+path = "examples/gui_demo.rs"
+
+[[bench]]
+name = "rendering_benchmark"
+harness = false
+path = "benches/rendering.rs"
+
+[profile.dev]
+opt-level = 1
+debug = true
+panic = "abort"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+opt-level = 3
+lto = true
+codegen-units = 1

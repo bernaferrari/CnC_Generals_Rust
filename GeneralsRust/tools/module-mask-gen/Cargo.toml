@@ -1,0 +1,11 @@
+[package]
+name = "module-mask-gen"
+version = "0.1.0"
+edition = "2021"
+description = "Utility to harvest module interface masks from the original C++ headers"
+
+[dependencies]
+walkdir = { workspace = true }
+regex = "1.12"
+serde_json = { workspace = true }
+anyhow = { workspace = true }

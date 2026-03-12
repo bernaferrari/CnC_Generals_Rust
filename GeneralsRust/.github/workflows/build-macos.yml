@@ -1,0 +1,200 @@
+name: macOS Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-macos:
+    name: Build on macOS
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+        profile:
+          - dev
+          - release
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-index-
+
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ matrix.profile }}-
+
+    - name: Install system dependencies
+      run: |
+        brew update
+        brew install llvm pkg-config
+
+    - name: Check formatting
+      if: matrix.profile == 'dev' && matrix.target == 'aarch64-apple-darwin'
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy
+      if: matrix.profile == 'dev' && matrix.target == 'aarch64-apple-darwin'
+      run: cargo clippy --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
+
+    - name: Build workspace (dev)
+      if: matrix.profile == 'dev'
+      run: |
+        cargo build --workspace --all-features --target ${{ matrix.target }}
+
+    - name: Build workspace (release)
+      if: matrix.profile == 'release'
+      run: |
+        cargo build --workspace --all-features --release --target ${{ matrix.target }}
+
+    - name: Run tests
+      # Only run tests on native architecture
+      if: (matrix.target == 'aarch64-apple-darwin' && runner.arch == 'ARM64') || (matrix.target == 'x86_64-apple-darwin' && runner.arch == 'X64')
+      run: |
+        cargo test --workspace --all-features --target ${{ matrix.target }} ${{ matrix.profile == 'release' && '--release' || '' }}
+
+    - name: Build main executable
+      run: |
+        cargo build --package generals_main --all-features --target ${{ matrix.target }} ${{ matrix.profile == 'release' && '--release' || '' }}
+
+    - name: Create macOS app bundle
+      if: matrix.profile == 'release'
+      run: |
+        mkdir -p Generals.app/Contents/MacOS
+        mkdir -p Generals.app/Contents/Resources
+        cp target/${{ matrix.target }}/release/generals Generals.app/Contents/MacOS/
+
+        # Create Info.plist
+        cat > Generals.app/Contents/Info.plist << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleExecutable</key>
+            <string>generals</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.generalsrust.game</string>
+            <key>CFBundleName</key>
+            <string>Generals Rust</string>
+            <key>CFBundleVersion</key>
+            <string>0.1.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>0.1.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+        </dict>
+        </plist>
+        EOF
+
+    - name: Upload artifacts
+      if: matrix.profile == 'release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: generals-rust-macos-${{ matrix.target }}
+        path: |
+          Generals.app
+        retention-days: 30
+
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-latest
+    needs: build-macos
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Install system dependencies
+      run: |
+        brew update
+        brew install llvm pkg-config
+
+    - name: Run unit tests
+      run: cargo test --lib --all-features
+
+    - name: Run integration tests
+      run: cargo test --test '*' --all-features
+
+    - name: Run doc tests
+      run: cargo test --doc --all-features
+
+  universal-binary:
+    name: Create Universal Binary
+    runs-on: macos-latest
+    needs: build-macos
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Download x86_64 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: generals-rust-macos-x86_64-apple-darwin
+        path: x86_64
+
+    - name: Download aarch64 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: generals-rust-macos-aarch64-apple-darwin
+        path: aarch64
+
+    - name: Create universal binary
+      run: |
+        lipo -create \
+          x86_64/Generals.app/Contents/MacOS/generals \
+          aarch64/Generals.app/Contents/MacOS/generals \
+          -output generals-universal
+
+        # Update app bundle with universal binary
+        mkdir -p Generals-Universal.app/Contents/MacOS
+        cp -r x86_64/Generals.app/Contents/* Generals-Universal.app/Contents/
+        cp generals-universal Generals-Universal.app/Contents/MacOS/generals
+
+    - name: Upload universal binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: generals-rust-macos-universal
+        path: Generals-Universal.app
+        retention-days: 90

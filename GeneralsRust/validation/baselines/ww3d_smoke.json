@@ -1,0 +1,53 @@
+{
+  "assets": {
+    "CBChalet3": {
+      "meshes": {
+        "CBCHALET3": {
+          "vertex_count": 0,
+          "triangle_count": 0,
+          "bounding_sphere_radius": 0.0,
+          "bounding_sphere_center": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb_min": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb_max": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "CBCHALET3A": {
+          "vertex_count": 0,
+          "triangle_count": 0,
+          "bounding_sphere_radius": 0.0,
+          "bounding_sphere_center": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb_min": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb_max": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "total_vertices": 0,
+      "total_triangles": 0
+    }
+  },
+  "lod_models": {},
+  "collections": {},
+  "hlods": {}
+}

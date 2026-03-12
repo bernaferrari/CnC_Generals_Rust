@@ -1,0 +1,1862 @@
+#![allow(unused_variables, unused_mut)]
+
+use crate::build_list_info::BuildListInfo;
+use crate::common::coord::*;
+use crate::common::*;
+use crate::helpers::{TheGameLogic, ThePartitionManager, TheThingFactory};
+use crate::object::*;
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::production::construction::FoundationValidator;
+use crate::object_manager::get_object_manager;
+use crate::player::{player_list, GameDifficulty, Player, PlayerType};
+use crate::special_power::SpecialPowerTemplate;
+use crate::team::{get_team_factory, Team, TeamPrototype};
+use crate::upgrade::UpgradeTemplate;
+use crate::waypoint::Waypoint;
+use crate::ai::THE_AI;
+
+use crate::common::INVALID_ID;
+
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, RwLock, Weak};
+
+/// Invalid skillset selection constant
+pub const INVALID_SKILLSET_SELECTION: i32 = -1;
+
+/// Supply center close distance
+const SUPPLY_CENTER_CLOSE_DIST: f32 = 20.0 * 32.0; // Assuming PATHFIND_CELL_SIZE_F = 32.0
+
+/// Maximum structures that can be queued for repair
+const MAX_STRUCTURES_TO_REPAIR: usize = 2;
+
+/// Work order for tracking unit production
+pub struct WorkOrder {
+    /// Template of thing to build
+    thing: Option<Arc<dyn ThingTemplate>>,
+    /// ID of factory building this unit
+    factory_id: ObjectID,
+    /// Number of units completed
+    num_completed: i32,
+    /// Number of units required
+    num_required: i32,
+    /// Whether this is a required unit (minimum requirement)
+    required: bool,
+    /// Whether this unit is a resource gatherer
+    is_resource_gatherer: bool,
+}
+
+impl WorkOrder {
+    pub fn new() -> Self {
+        Self {
+            thing: None,
+            factory_id: INVALID_ID,
+            num_completed: 0,
+            num_required: 1,
+            required: false,
+            is_resource_gatherer: false,
+        }
+    }
+
+    /// Check if this work order is waiting to be built
+    pub fn is_waiting_to_build(&self) -> bool {
+        self.factory_id == INVALID_ID && self.num_completed < self.num_required
+    }
+
+    /// Validate that the factory still exists
+    pub fn validate_factory(&mut self, player: &Player) {
+        if self.factory_id == INVALID_ID {
+            return;
+        }
+
+        let Some(factory_arc) = OBJECT_REGISTRY.get_object(self.factory_id) else {
+            self.factory_id = INVALID_ID;
+            return;
+        };
+
+        let Ok(factory) = factory_arc.read() else {
+            self.factory_id = INVALID_ID;
+            return;
+        };
+
+        let player_id = player.get_id() as UnsignedInt;
+        if factory.get_controlling_player_id() != Some(player_id)
+            || factory.test_status(ObjectStatusTypes::Sold)
+            || factory.is_under_construction()
+        {
+            self.factory_id = INVALID_ID;
+        }
+    }
+
+    /// Get thing template
+    pub fn get_thing(&self) -> Option<&Arc<dyn ThingTemplate>> {
+        self.thing.as_ref()
+    }
+
+    /// Set thing template
+    pub fn set_thing(&mut self, thing: Option<Arc<dyn ThingTemplate>>) {
+        self.thing = thing;
+    }
+
+    /// Get factory ID
+    pub fn get_factory_id(&self) -> ObjectID {
+        self.factory_id
+    }
+
+    /// Set factory ID
+    pub fn set_factory_id(&mut self, id: ObjectID) {
+        self.factory_id = id;
+    }
+
+    /// Get number completed
+    pub fn get_num_completed(&self) -> i32 {
+        self.num_completed
+    }
+
+    /// Increment completed count
+    pub fn increment_completed(&mut self) {
+        self.num_completed += 1;
+    }
+
+    /// Get number required
+    pub fn get_num_required(&self) -> i32 {
+        self.num_required
+    }
+
+    /// Set number required
+    pub fn set_num_required(&mut self, num: i32) {
+        self.num_required = num;
+    }
+
+    pub fn set_required(&mut self, required: bool) {
+        self.required = required;
+    }
+
+    pub fn set_resource_gatherer(&mut self, gatherer: bool) {
+        self.is_resource_gatherer = gatherer;
+    }
+}
+
+/// Team in build queue
+pub struct TeamInQueue {
+    /// List of work orders for this team
+    work_orders: Vec<WorkOrder>,
+    /// Target team for completed units
+    team: Option<Arc<Mutex<Team>>>,
+    /// Frame when building started
+    frame_started: u32,
+    /// Whether this is a priority build
+    priority_build: bool,
+    /// Whether team has been sent to start location
+    sent_to_start_location: bool,
+    /// Whether to stop queueing more units
+    stop_queueing: bool,
+    /// Whether this is a reinforcement
+    reinforcement: bool,
+    /// ID of team being reinforced
+    reinforcement_id: ObjectID,
+    /// Prototype name for this team (if known)
+    team_proto_name: Option<String>,
+}
+
+impl TeamInQueue {
+    pub fn new() -> Self {
+        Self {
+            work_orders: Vec::new(),
+            team: None,
+            frame_started: 0,
+            priority_build: false,
+            sent_to_start_location: false,
+            stop_queueing: false,
+            reinforcement: false,
+            reinforcement_id: INVALID_ID,
+            team_proto_name: None,
+        }
+    }
+
+    /// Check if all units in team are built
+    pub fn is_all_built(&self) -> bool {
+        for order in &self.work_orders {
+            if order.num_completed < order.num_required {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if build time has expired
+    pub fn is_build_time_expired(&self) -> bool {
+        const MAX_BUILD_TIME_SECONDS: u32 = 180;
+        let expiry = self.frame_started + MAX_BUILD_TIME_SECONDS * LOGICFRAMES_PER_SECOND;
+        TheGameLogic::get_frame() > expiry
+    }
+
+    /// Check if minimum required units are built
+    pub fn is_minimum_built(&self) -> bool {
+        for order in &self.work_orders {
+            if order.required && order.num_completed == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if team includes a dozer unit
+    pub fn includes_a_dozer(&self) -> bool {
+        for order in &self.work_orders {
+            if let Some(thing) = &order.thing {
+                if thing.is_kind_of(KindOf::Dozer)
+                    || thing.get_name().as_str().to_lowercase().contains("dozer")
+                    || thing.get_name().as_str().to_lowercase().contains("worker")
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if all builds are complete (units finished in factories)
+    pub fn are_builds_complete(&self) -> bool {
+        for order in &self.work_orders {
+            if order.factory_id == INVALID_ID {
+                continue;
+            }
+            let Some(factory_arc) = OBJECT_REGISTRY.get_object(order.factory_id) else {
+                return false;
+            };
+            let Ok(factory_guard) = factory_arc.read() else {
+                return false;
+            };
+            for behavior in factory_guard.get_behavior_modules() {
+                if let Ok(mut behavior_guard) = behavior.lock() {
+                    if let Some(prod) = behavior_guard.get_production_update_interface() {
+                        if prod.is_producing() || prod.get_queue_size() > 0 {
+                            return false;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Disband the team (move units to default team)
+    pub fn disband(&mut self) {
+        // Implementation would move all completed units to default team
+        self.stop_queueing = true;
+    }
+
+    /// Stop queueing new units
+    pub fn stop_queueing(&mut self) {
+        self.stop_queueing = true;
+    }
+
+    /// Add work order
+    pub fn add_work_order(&mut self, order: WorkOrder) {
+        self.work_orders.push(order);
+    }
+
+    /// Get work orders
+    pub fn get_work_orders(&self) -> &[WorkOrder] {
+        &self.work_orders
+    }
+
+    /// Get work orders mutably
+    pub fn get_work_orders_mut(&mut self) -> &mut Vec<WorkOrder> {
+        &mut self.work_orders
+    }
+}
+
+/// The computer-controlled player
+pub struct AIPlayer {
+    /// The player we represent
+    player: Weak<RwLock<Player>>,
+    /// Teams in build queue
+    team_build_queue: VecDeque<TeamInQueue>,
+    /// Teams ready and waiting to reach rally point
+    team_ready_queue: VecDeque<TeamInQueue>,
+    /// Whether ready to build team
+    ready_to_build_team: bool,
+    /// Whether ready to build structure
+    ready_to_build_structure: bool,
+    /// Timer for team building
+    team_timer: u32,
+    /// Timer for structure building
+    structure_timer: u32,
+    /// Seconds to delay between teams
+    team_seconds: i32,
+    /// Build delay for resources/prerequisites
+    build_delay: u32,
+    /// Team delay for resources/factory prerequisites
+    team_delay: u32,
+    /// Frame when last building was built
+    frame_last_building_built: u32,
+    /// AI difficulty level
+    difficulty: GameDifficulty,
+    /// Skillset selector
+    skillset_selector: i32,
+    /// Base center position
+    base_center: Coord3D,
+    /// Whether base center is set
+    base_center_set: bool,
+    /// Base radius
+    base_radius: f32,
+    /// Structures to repair
+    structures_to_repair: [ObjectID; MAX_STRUCTURES_TO_REPAIR],
+    /// Repair dozer ID
+    repair_dozer: ObjectID,
+    /// Repair dozer origin position
+    repair_dozer_origin: Coord3D,
+    /// Number of structures in repair queue
+    structures_in_queue: i32,
+    /// Whether dozer is queued for repair
+    dozer_queued_for_repair: bool,
+    /// Whether dozer is currently repairing
+    dozer_is_repairing: bool,
+    /// Bridge repair timer
+    bridge_timer: u32,
+    /// Frame to check supply source attack
+    supply_source_attack_check_frame: u32,
+    /// ID of attacked supply center
+    attacked_supply_center: ObjectID,
+    /// Current warehouse ID
+    cur_warehouse_id: ObjectID,
+}
+
+impl AIPlayer {
+    pub fn new(player: Weak<RwLock<Player>>) -> Self {
+        let mut ai_player = Self {
+            player,
+            team_build_queue: VecDeque::new(),
+            team_ready_queue: VecDeque::new(),
+            ready_to_build_team: false,
+            ready_to_build_structure: false,
+            team_timer: 2,      // Don't start building teams until frame 1
+            structure_timer: 2, // Don't start building structures until frame 1
+            team_seconds: 10,
+            build_delay: 0,
+            team_delay: 0,
+            frame_last_building_built: TheGameLogic::get_frame(),
+            difficulty: GameDifficulty::Normal,
+            skillset_selector: INVALID_SKILLSET_SELECTION,
+            base_center: Coord3D::new(0.0, 0.0, 0.0),
+            base_center_set: false,
+            base_radius: 0.0,
+            structures_to_repair: [INVALID_ID; MAX_STRUCTURES_TO_REPAIR],
+            repair_dozer: INVALID_ID,
+            repair_dozer_origin: Coord3D::new(0.0, 0.0, 0.0),
+            structures_in_queue: 0,
+            dozer_queued_for_repair: false,
+            dozer_is_repairing: false,
+            bridge_timer: 0,
+            supply_source_attack_check_frame: 0,
+            attacked_supply_center: INVALID_ID,
+            cur_warehouse_id: INVALID_ID,
+        };
+
+        // Turn off AI production by default
+        if let Some(player_arc) = ai_player.player.upgrade() {
+            if let Ok(mut player_ref) = player_arc.try_write() {
+                player_ref.set_can_build_units(false);
+            }
+        }
+
+        ai_player
+    }
+
+    /// Main update function - simulates the behavior of a player
+    pub fn update(&mut self) {
+        // Update timers
+        if self.team_timer > 0 {
+            self.team_timer -= 1;
+        } else {
+            self.ready_to_build_team = true;
+            self.team_delay = 0;
+        }
+
+        if self.structure_timer > 0 {
+            self.structure_timer -= 1;
+        } else {
+            self.ready_to_build_structure = true;
+            self.build_delay = 0;
+        }
+
+        // Decrement delays
+        if self.build_delay > 0 {
+            self.build_delay -= 1;
+        }
+
+        if self.team_delay > 0 {
+            self.team_delay -= 1;
+        }
+
+        // Process AI behaviors
+        self.do_base_building();
+        self.check_ready_teams();
+        self.check_queued_teams();
+        self.do_team_building();
+        self.do_upgrades_and_skills();
+        self.update_bridge_repair();
+    }
+
+    /// Update loop variant for skirmish AI that supplies its own base-building logic.
+    pub fn update_without_base_building(&mut self) {
+        if self.team_timer > 0 {
+            self.team_timer -= 1;
+        } else {
+            self.ready_to_build_team = true;
+            self.team_delay = 0;
+        }
+
+        if self.structure_timer > 0 {
+            self.structure_timer -= 1;
+        } else {
+            self.ready_to_build_structure = true;
+            self.build_delay = 0;
+        }
+
+        let max_timer = 3 * LOGICFRAMES_PER_SECOND;
+        if self.team_timer > max_timer {
+            self.team_timer = max_timer;
+        }
+        if self.structure_timer > max_timer {
+            self.structure_timer = max_timer;
+        }
+
+        if self.build_delay > 0 {
+            self.build_delay -= 1;
+        }
+
+        if self.team_delay > 0 {
+            self.team_delay -= 1;
+        }
+
+        self.check_ready_teams();
+        self.check_queued_teams();
+        self.do_upgrades_and_skills();
+        self.update_bridge_repair();
+    }
+
+    /// Called when new map is loaded
+    pub fn new_map(&mut self) {
+        // Reset AI state for new map
+        self.base_center_set = false;
+        self.base_radius = 0.0;
+        self.team_build_queue.clear();
+        self.team_ready_queue.clear();
+        self.structures_to_repair = [INVALID_ID; MAX_STRUCTURES_TO_REPAIR];
+        self.repair_dozer = INVALID_ID;
+        self.dozer_queued_for_repair = false;
+        self.dozer_is_repairing = false;
+        self.frame_last_building_built = TheGameLogic::get_frame();
+    }
+
+    /// Called when a unit is produced
+    pub fn on_unit_produced(&mut self, factory: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
+        // Find and update the corresponding work order
+        for team_in_queue in &mut self.team_build_queue {
+            for order in &mut team_in_queue.work_orders {
+                if let Ok(factory_ref) = factory.try_read() {
+                    if order.factory_id == factory_ref.get_id() {
+                        order.increment_completed();
+                        order.set_factory_id(INVALID_ID); // Factory is now free
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Reset delays to trigger immediate updates
+        self.team_delay = 0;
+        self.build_delay = 0;
+    }
+
+    /// Called when a structure is produced
+    pub fn on_structure_produced(
+        &mut self,
+        factory: &Arc<RwLock<Object>>,
+        structure: &Arc<RwLock<Object>>,
+    ) {
+        // Reset delays to trigger immediate updates
+        self.team_delay = 0;
+        self.build_delay = 0;
+
+        // Update frame last building built
+        self.frame_last_building_built = TheGameLogic::get_frame();
+
+        // Check if this is a supply center
+        self.check_for_supply_center(structure);
+
+        // Update base footprint after new structure (base expansion parity).
+        self.determine_base_center();
+    }
+
+    /// Build a specific AI team immediately
+    pub fn is_team_in_queue(&self, proto_name: &str) -> bool {
+        self.team_build_queue.iter().any(|team| {
+            team.team_proto_name
+                .as_ref()
+                .map(|name| name == proto_name)
+                .unwrap_or(false)
+        })
+    }
+
+    pub fn build_specific_ai_team(&mut self, team_proto: &TeamPrototype, priority_build: bool) {
+        let mut team_in_queue = TeamInQueue::new();
+        team_in_queue.priority_build = priority_build;
+        team_in_queue.frame_started = TheGameLogic::get_frame();
+        team_in_queue.team_proto_name = Some(team_proto.get_name().as_str().to_string());
+        for info in team_proto.units_info() {
+            if info.unit_thing_name.is_empty() {
+                continue;
+            }
+            let mut order = WorkOrder::new();
+            if let Some(template) = TheThingFactory::find_template(info.unit_thing_name) {
+                order.set_thing(Some(template));
+            }
+            let required = info.min_units.max(0);
+            let max_units = info.max_units.max(required);
+            if max_units > 0 {
+                order.set_num_required(max_units);
+                order.set_required(required > 0);
+                team_in_queue.work_orders.push(order);
+            }
+        }
+
+        self.team_build_queue.push_back(team_in_queue);
+    }
+
+    /// Build AI base defense
+    pub fn build_ai_base_defense(&mut self, flank: bool) {
+        let Some(player_arc) = self.player.upgrade() else {
+            return;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return;
+        };
+        let side = player_guard.get_side().as_str();
+        let structure = if side.contains("GLA") {
+            "StingerSite"
+        } else if side.contains("China") {
+            "Bunker"
+        } else {
+            "PatriotMissileBattery"
+        };
+        let build_pos = self.get_base_center().unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+        let offset = if flank { 120.0 } else { 60.0 };
+        let target = Coord3D::new(build_pos.x + offset, build_pos.y, build_pos.z);
+        self.queue_building_at(structure, target);
+    }
+
+    /// Build specific AI building
+    pub fn build_specific_ai_building(&mut self, thing_name: &str) {
+        if self.mark_build_list_priority(thing_name, None) {
+            self.build_delay = 0;
+        } else {
+            log::debug!(
+                "AIPlayer build_specific_ai_building: '{}' not found in build list",
+                thing_name
+            );
+        }
+    }
+
+    /// Build specific AI building at an explicit position.
+    pub fn build_specific_ai_building_at(&mut self, thing_name: &str, build_pos: Coord3D) {
+        if self.mark_build_list_priority(thing_name, Some(build_pos)) {
+            self.build_delay = 0;
+        } else {
+            log::debug!(
+                "AIPlayer build_specific_ai_building_at: '{}' not found in build list",
+                thing_name
+            );
+        }
+    }
+
+    /// Recruit specific AI team
+    pub fn recruit_specific_ai_team(&mut self, team_proto: &TeamPrototype, recruit_radius: f32) {
+        let Some(player_arc) = self.player.upgrade() else {
+            return;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return;
+        };
+
+        let origin = self
+            .get_base_center()
+            .or_else(|| {
+                player_guard
+                    .get_all_objects()
+                    .first()
+                    .and_then(|id| OBJECT_REGISTRY.get_object(*id))
+                    .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
+            })
+            .unwrap_or_else(Coord3D::origin);
+
+        let radius = if recruit_radius < 1.0 { 99999.0 } else { recruit_radius };
+
+        let Ok(mut factory) = get_team_factory().lock() else {
+            return;
+        };
+
+        if team_proto.is_singleton() {
+            if let Some(existing) = factory.find_team(team_proto.get_name().as_str()) {
+                if let Ok(existing_guard) = existing.read() {
+                    if existing_guard.has_any_objects() {
+                        return;
+                    }
+                }
+            }
+        }
+
+        let Some(team) = factory.create_inactive_team(team_proto.get_name().as_str()) else {
+            return;
+        };
+
+        if let Ok(mut team_guard) = team.write() {
+            team_guard.set_controlling_player_id(Some(player_guard.get_id() as UnsignedInt));
+        }
+
+        let mut recruited = 0;
+        let mut claimed: Vec<ObjectID> = Vec::new();
+
+        for info in team_proto.units_info() {
+            if info.unit_thing_name.is_empty() {
+                continue;
+            }
+            let Some(template) = TheThingFactory::find_template(info.unit_thing_name) else {
+                continue;
+            };
+            let target_name = template.get_name().to_string();
+
+            let mut remaining = info.max_units.max(0);
+            while remaining > 0 {
+                let mut best_candidate = None;
+                let mut best_dist = f32::MAX;
+
+                for obj_id in player_guard.get_all_objects() {
+                    if claimed.contains(&obj_id) {
+                        continue;
+                    }
+                    let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                        continue;
+                    };
+                    let Ok(obj_guard) = obj_arc.read() else {
+                        continue;
+                    };
+                    if obj_guard.is_destroyed() {
+                        continue;
+                    }
+                    if obj_guard.get_template_name() != target_name {
+                        continue;
+                    }
+                    let dist = (*obj_guard.get_position() - origin).length();
+                    if dist > radius || dist >= best_dist {
+                        continue;
+                    }
+                    best_dist = dist;
+                    best_candidate = Some(obj_arc.clone());
+                }
+
+                let Some(candidate) = best_candidate else {
+                    break;
+                };
+
+                let candidate_id = candidate.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+                if candidate_id == INVALID_ID {
+                    break;
+                }
+                if let Ok(mut obj_guard) = candidate.write() {
+                    let _ = obj_guard.set_team(Some(team.clone()));
+                }
+                if let Ok(mut team_guard) = team.write() {
+                    team_guard.add_member(candidate_id);
+                }
+                claimed.push(candidate_id);
+                recruited += 1;
+                remaining -= 1;
+            }
+        }
+
+        if recruited > 0 {
+            if let Ok(mut team_guard) = team.write() {
+                team_guard.set_active();
+            }
+        }
+    }
+
+    /// Check if this is a skirmish AI
+    pub fn is_skirmish_ai(&self) -> bool {
+        false // Base AI player is not skirmish AI
+    }
+
+    /// Get the backing Player for this AI instance.
+    pub fn get_player(&self) -> Option<Arc<RwLock<Player>>> {
+        self.player.upgrade()
+    }
+
+    /// Get AI enemy (for skirmish AI)
+    pub fn get_ai_enemy(&self) -> Option<Arc<RwLock<Player>>> {
+        None // Solo AI attacks based on scripting
+    }
+
+    /// Repair a structure
+    pub fn repair_structure(&mut self, structure_id: ObjectID) {
+        for i in 0..MAX_STRUCTURES_TO_REPAIR {
+            if self.structures_to_repair[i] == INVALID_ID {
+                self.structures_to_repair[i] = structure_id;
+                break;
+            }
+        }
+    }
+
+    /// Select skillset
+    pub fn select_skillset(&mut self, skillset: i32) {
+        self.skillset_selector = skillset;
+    }
+
+    /// Get base center position
+    pub fn get_base_center(&self) -> Option<Coord3D> {
+        if self.base_center_set {
+            Some(self.base_center)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_base_radius(&self) -> f32 {
+        self.base_radius
+    }
+
+    /// Get AI difficulty
+    pub fn get_ai_difficulty(&self) -> GameDifficulty {
+        self.difficulty
+    }
+
+    /// Set AI difficulty
+    pub fn set_ai_difficulty(&mut self, difficulty: GameDifficulty) {
+        self.difficulty = difficulty;
+    }
+
+    /// Set team delay in seconds
+    pub fn set_team_delay_seconds(&mut self, delay: i32) {
+        self.team_seconds = delay;
+    }
+
+    pub fn get_team_seconds(&self) -> i32 {
+        self.team_seconds
+    }
+
+    /// Check if supply source is safe
+    pub fn is_supply_source_safe(&self, min_supplies: i32) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return true;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return true;
+        };
+        if player_guard.get_money().get_money() < min_supplies {
+            return false;
+        }
+        let Some(partition) = ThePartitionManager::get() else {
+            return true;
+        };
+        for obj_id in player_guard.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if !obj_guard.is_kind_of(KindOf::SupplySource)
+                && !obj_guard.is_kind_of(KindOf::ResourceNode)
+                && !obj_guard.is_kind_of(KindOf::FSSupplyCenter)
+                && !obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
+                && !obj_guard.is_kind_of(KindOf::Refinery)
+            {
+                continue;
+            }
+            let pos = obj_guard.get_position();
+            let has_enemy = partition.get_objects_in_range(pos, 150.0).iter().any(|other_id| {
+                if *other_id == obj_id {
+                    return false;
+                }
+                let Some(other_arc) = OBJECT_REGISTRY.get_object(*other_id) else {
+                    return false;
+                };
+                let Ok(other_guard) = other_arc.read() else {
+                    return false;
+                };
+                if other_guard.is_effectively_dead() {
+                    return false;
+                }
+                obj_guard.relationship_to(&*other_guard) == Relationship::Enemy
+            });
+            if has_enemy {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if supply source is attacked
+    pub fn is_supply_source_attacked(&self) -> bool {
+        self.attacked_supply_center != INVALID_ID
+    }
+
+    /// Check if location is safe for building
+    pub fn is_location_safe(&self, pos: &Coord3D, thing: &dyn ThingTemplate) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return true;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return true;
+        };
+        let Some(partition) = ThePartitionManager::get() else {
+            return true;
+        };
+        let scan_radius = 200.0;
+        let player_id = player_guard.get_id() as UnsignedInt;
+
+        for obj_id in partition.get_objects_in_range(pos, scan_radius) {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_destroyed() {
+                continue;
+            }
+            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                continue;
+            };
+            if owner_id == player_id {
+                continue;
+            }
+            if obj_guard.is_kind_of(KindOf::Unit)
+                || obj_guard.is_kind_of(KindOf::Vehicle)
+                || obj_guard.is_kind_of(KindOf::Infantry)
+                || obj_guard.is_kind_of(KindOf::Aircraft)
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn get_structure_timer(&self) -> u32 {
+        self.structure_timer
+    }
+
+    pub fn set_structure_timer_frames(&mut self, frames: u32) {
+        self.structure_timer = frames;
+    }
+
+    pub fn can_build_structure_now(&self) -> bool {
+        self.ready_to_build_structure && self.build_delay == 0
+    }
+
+    pub fn start_structure_timer_seconds(&mut self, seconds: i32) {
+        let seconds = seconds.max(0) as u32;
+        self.structure_timer = seconds * LOGICFRAMES_PER_SECOND;
+        self.ready_to_build_structure = false;
+    }
+
+    pub fn get_team_timer(&self) -> u32 {
+        self.team_timer
+    }
+
+    pub fn set_team_timer_frames(&mut self, frames: u32) {
+        self.team_timer = frames;
+    }
+
+    pub fn can_build_team_now(&self) -> bool {
+        self.ready_to_build_team && self.team_delay == 0
+    }
+
+    pub fn start_team_timer_seconds(&mut self, seconds: i32) {
+        let seconds = seconds.max(0) as u32;
+        self.team_timer = seconds * LOGICFRAMES_PER_SECOND;
+        self.ready_to_build_team = false;
+    }
+
+    pub fn get_build_delay(&self) -> u32 {
+        self.build_delay
+    }
+
+    pub fn set_build_delay_frames(&mut self, frames: u32) {
+        self.build_delay = frames;
+    }
+
+    pub fn get_team_delay(&self) -> u32 {
+        self.team_delay
+    }
+
+    pub fn set_team_delay_frames(&mut self, frames: u32) {
+        self.team_delay = frames;
+    }
+
+    pub fn start_training_for_order(&self, order: &mut WorkOrder, busy_ok: bool) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(player_guard) = player_arc.try_read() else {
+            return false;
+        };
+        self.start_training(order, &player_guard, busy_ok)
+    }
+
+    pub fn queue_units(&mut self) {
+        self.queue_supply_truck();
+
+        let Some(player_arc) = self.player.upgrade() else {
+            return;
+        };
+        let Ok(player_guard) = player_arc.try_read() else {
+            return;
+        };
+
+        for team in &mut self.team_build_queue {
+            let busy_ok = team.priority_build;
+
+            for order in &mut team.work_orders {
+                if order.is_waiting_to_build() {
+                    let _ = self.start_training(order, &player_guard, busy_ok);
+                } else {
+                    order.validate_factory(&player_guard);
+                }
+            }
+        }
+    }
+
+    pub fn select_team_to_build_ai(&mut self) -> bool {
+        self.select_team_to_build()
+    }
+
+    // Private methods
+
+    /// Process base building
+    fn do_base_building(&mut self) {
+        if !self.ready_to_build_structure || self.build_delay > 0 {
+            return;
+        }
+
+        self.process_base_building();
+    }
+
+    /// Check ready teams
+    fn check_ready_teams(&mut self) {
+        // Move completed teams from build queue to ready queue
+        let mut completed_teams = Vec::new();
+
+        for (index, team) in self.team_build_queue.iter().enumerate() {
+            if team.is_all_built() {
+                completed_teams.push(index);
+            }
+        }
+
+        // Remove completed teams in reverse order to maintain indices
+        for &index in completed_teams.iter().rev() {
+            if let Some(team) = self.team_build_queue.remove(index) {
+                self.team_ready_queue.push_back(team);
+            }
+        }
+    }
+
+    /// Check queued teams
+    fn check_queued_teams(&mut self) {
+        // Validate work orders and update factory assignments
+        for team in &mut self.team_build_queue {
+            for order in &mut team.work_orders {
+                if let Some(player_arc) = self.player.upgrade() {
+                    if let Ok(player_ref) = player_arc.try_read() {
+                        order.validate_factory(&player_ref);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Process team building
+    fn do_team_building(&mut self) {
+        if !self.ready_to_build_team || self.team_delay > 0 {
+            return;
+        }
+
+        self.process_team_building();
+    }
+
+    fn queue_supply_truck(&mut self) {
+        let already_queued = self.team_build_queue.iter().any(|team| {
+            team.work_orders.iter().any(|order| order.is_resource_gatherer)
+        });
+        if already_queued {
+            return;
+        }
+
+        let Some(player_arc) = self.player.upgrade() else {
+            return;
+        };
+        let Ok(player_guard) = player_arc.try_read() else {
+            return;
+        };
+
+        let mut desired_gatherers_total = 0;
+        if let Some(build_list) = player_guard.get_build_list() {
+            let mut has_supply = false;
+            let mut needs_gatherer = false;
+            let mut node = Some(build_list);
+            while let Some(info) = node {
+                if info.is_supply_building() {
+                    has_supply = true;
+                    desired_gatherers_total += info.get_desired_gatherers().max(0);
+                    if info.get_current_gatherers() < info.get_desired_gatherers() {
+                        needs_gatherer = true;
+                    }
+                }
+                node = info.get_next();
+            }
+
+            if has_supply && !needs_gatherer {
+                return;
+            }
+        }
+
+        if desired_gatherers_total > 0 {
+            let mut total_harvesters = 0;
+            for id in player_guard.get_all_objects() {
+                let Some(obj_arc) = OBJECT_REGISTRY.get_object(id) else {
+                    continue;
+                };
+                let Ok(obj) = obj_arc.read() else {
+                    continue;
+                };
+                if !obj.is_kind_of(KindOf::Harvester) {
+                    continue;
+                }
+                if let Some(ai) = obj.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        if ai_guard.get_supply_truck_ai_interface().is_some() {
+                            total_harvesters += 1;
+                        }
+                    }
+                }
+            }
+            if total_harvesters >= desired_gatherers_total {
+                return;
+            }
+        }
+
+        let Some(template) = TheThingFactory::find_template("SupplyTruck") else {
+            return;
+        };
+
+        let mut order = WorkOrder::new();
+        order.set_thing(Some(template));
+        order.set_num_required(1);
+        order.set_required(true);
+        order.set_resource_gatherer(true);
+
+        let mut team = TeamInQueue::new();
+        team.team = player_guard.get_default_team();
+        team.priority_build = true;
+        team.frame_started = TheGameLogic::get_frame();
+        team.work_orders.push(order);
+        self.team_build_queue.push_front(team);
+        self.team_delay = 0;
+    }
+
+    fn start_training(
+        &self,
+        order: &mut WorkOrder,
+        player: &Player,
+        busy_ok: bool,
+    ) -> bool {
+        let Some(thing) = order.get_thing() else {
+            return false;
+        };
+
+        let Some(factory_id) = self.find_factory_for_unit(player, thing, busy_ok) else {
+            return false;
+        };
+
+        let Some(factory_arc) = OBJECT_REGISTRY.get_object(factory_id) else {
+            return false;
+        };
+
+        let template_name = thing.get_name().as_str().to_string();
+        let Ok(factory) = factory_arc.read() else {
+            return false;
+        };
+        for behavior in factory.get_behavior_modules() {
+            if let Ok(mut behavior_guard) = behavior.lock() {
+                if let Some(production) = behavior_guard.get_production_update_interface() {
+                    if !production.can_produce(&template_name) {
+                        continue;
+                    }
+                    let player_id = player.get_id() as ObjectID;
+                    if production
+                        .start_production(template_name.clone(), player_id)
+                        .is_ok()
+                    {
+                        order.set_factory_id(factory_id);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    fn find_factory_for_unit(
+        &self,
+        player: &Player,
+        thing: &Arc<dyn ThingTemplate>,
+        busy_ok: bool,
+    ) -> Option<ObjectID> {
+        let mut busy_factory = None;
+        let template_name = thing.get_name().as_str();
+
+        for id in player.get_all_objects() {
+            let Some(factory_arc) = OBJECT_REGISTRY.get_object(id) else {
+                continue;
+            };
+            let Ok(factory) = factory_arc.read() else {
+                continue;
+            };
+
+            if factory.is_under_construction()
+                || factory.test_status(ObjectStatusTypes::Sold)
+            {
+                continue;
+            }
+
+            let behaviors = factory.get_behavior_modules();
+            drop(factory);
+
+            for behavior in behaviors {
+                if let Ok(mut behavior_guard) = behavior.lock() {
+                    if let Some(production) = behavior_guard.get_production_update_interface() {
+                        if !production.can_produce(template_name) {
+                            continue;
+                        }
+                        let busy = production.get_queue_size() > 0;
+                        if !busy {
+                            return Some(id);
+                        }
+                        if busy_ok {
+                            busy_factory = Some(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        if busy_ok {
+            busy_factory
+        } else {
+            None
+        }
+    }
+
+    /// Process upgrades and skills
+    fn do_upgrades_and_skills(&mut self) {
+        // Implementation would handle upgrade and skill research
+    }
+
+    /// Process base building logic
+    fn process_base_building(&mut self) {
+        let Some(player_arc) = self.player.upgrade() else {
+            return;
+        };
+        let Ok(mut player_guard) = player_arc.try_write() else {
+            return;
+        };
+
+        let current_frame = TheGameLogic::get_frame();
+        let ai_data = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.get_ai_data().read().ok().cloned());
+
+        let rebuild_delay_frames = ai_data
+            .as_ref()
+            .map(|data| data.rebuild_delay_seconds.max(0) as u32 * LOGICFRAMES_PER_SECOND)
+            .unwrap_or(0);
+
+        let mut selected_name: Option<AsciiString> = None;
+        let mut selected_location: Option<Coord3D> = None;
+        let mut is_priority = false;
+
+        let mut info_opt = player_guard.get_build_list_mut();
+        while let Some(info) = info_opt {
+            let name = info.get_template_name();
+            if name.is_empty() {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            let Some(cur_plan) = TheThingFactory::find_template(name.as_str()) else {
+                info_opt = info.get_next_mut();
+                continue;
+            };
+
+            let obj_id = info.get_object_id();
+            if obj_id != INVALID_ID {
+                if let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) {
+                    if let Ok(obj_guard) = obj_arc.read() {
+                        if obj_guard.get_controlling_player_id() == Some(player_guard.get_id() as UnsignedInt) {
+                            if obj_guard.is_under_construction() {
+                                info.set_under_construction(true);
+                                let builder_id = obj_guard.get_builder_id();
+                                let mut builder_valid = builder_id != INVALID_ID;
+                                if builder_valid {
+                                    if let Some(builder_arc) = TheGameLogic::find_object_by_id(builder_id) {
+                                        if let Ok(builder_guard) = builder_arc.read() {
+                                            let wrong_owner = builder_guard.get_controlling_player_id()
+                                                != Some(player_guard.get_id() as UnsignedInt);
+                                            let unmanned = builder_guard.is_disabled_by_type(DisabledType::DisabledUnmanned);
+                                            if wrong_owner || unmanned {
+                                                builder_valid = false;
+                                            }
+                                        } else {
+                                            builder_valid = false;
+                                        }
+                                    } else {
+                                        builder_valid = false;
+                                    }
+                                }
+                                if !builder_valid {
+                                    drop(obj_guard);
+                                    if let Ok(mut obj_write) = obj_arc.write() {
+                                        obj_write.set_builder(None);
+                                    }
+                                    self.queue_dozer();
+                                }
+                            } else {
+                                info.set_under_construction(false);
+                            }
+                            info_opt = info.get_next_mut();
+                            continue;
+                        }
+                    }
+                }
+
+                info.set_object_id(INVALID_ID);
+                info.set_object_timestamp(current_frame + 1);
+
+                for hole_arc in OBJECT_REGISTRY.get_all_objects() {
+                    let Ok(hole_guard) = hole_arc.read() else {
+                        continue;
+                    };
+                    if !hole_guard.is_kind_of(KindOf::RebuildHole) {
+                        continue;
+                    }
+                    let dist = (*hole_guard.get_position() - *info.get_location()).length();
+                    if dist < 50.0 {
+                        info.set_object_id(hole_guard.get_id());
+                        info.set_under_construction(true);
+                        break;
+                    }
+                }
+            }
+
+            if info.get_object_id() == INVALID_ID && info.get_object_timestamp() > 0 {
+                if info.get_object_timestamp().saturating_add(rebuild_delay_frames) > current_frame {
+                    info_opt = info.get_next_mut();
+                    continue;
+                }
+                info.set_object_timestamp(0);
+            }
+
+            if !info.is_buildable() {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            if !self.is_location_safe(info.get_location(), cur_plan.as_ref()) {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            let build_cost = cur_plan.get_build_cost();
+            if build_cost > 0 && player_guard.get_money().get_money() < build_cost {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            if self.find_dozer(info.get_location()).is_none() {
+                self.queue_dozer();
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            let validator = FoundationValidator::new_ai();
+            if validator
+                .validate_placement(
+                    info.get_location(),
+                    cur_plan.get_name().as_str(),
+                    info.get_angle(),
+                    player_guard.get_id() as ObjectID,
+                )
+                .is_err()
+            {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            if info.is_priority_build() && !is_priority {
+                selected_name = Some(name.clone());
+                selected_location = Some(*info.get_location());
+                is_priority = true;
+            } else if selected_name.is_none() {
+                selected_name = Some(name.clone());
+                selected_location = Some(*info.get_location());
+            }
+
+            info_opt = info.get_next_mut();
+        }
+
+        if let Some(name) = selected_name {
+            let location = selected_location;
+            if self.mark_build_list_priority(name.as_str(), location) {
+                self.ready_to_build_structure = false;
+                let mut structure_frames = ai_data
+                    .as_ref()
+                    .map(|data| (data.structure_seconds * LOGICFRAMES_PER_SECOND as f32) as u32)
+                    .unwrap_or(LOGICFRAMES_PER_SECOND * 5);
+
+                if let Some(ai) = ai_data.as_ref() {
+                    let money = player_guard.get_money().get_money();
+                    if money < ai.resources_poor {
+                        let mod_value = ai.structures_poor_mod.max(1.0);
+                        structure_frames = (structure_frames as f32 / mod_value) as u32;
+                    } else if money > ai.resources_wealthy {
+                        let mod_value = ai.structures_wealthy_mod.max(1.0);
+                        structure_frames = (structure_frames as f32 / mod_value) as u32;
+                    }
+                }
+
+                self.structure_timer = structure_frames;
+                self.frame_last_building_built = current_frame;
+            }
+        }
+    }
+
+    /// Process team building logic
+    fn process_team_building(&mut self) {
+        // Implementation would select and queue teams for training
+        if self.select_team_to_build() {
+            self.ready_to_build_team = false;
+            let mut team_frames = (self.team_seconds as u32) * LOGICFRAMES_PER_SECOND;
+            if let Some(player_arc) = self.player.upgrade() {
+                if let Ok(player_guard) = player_arc.read() {
+                    if let Ok(ai_guard) = THE_AI.read() {
+                        if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+                            let money = player_guard.get_money().get_money();
+                            if money < ai_data.resources_poor {
+                                let mod_value = ai_data.team_poor_mod.max(1.0);
+                                team_frames = (team_frames as f32 / mod_value) as u32;
+                            } else if money > ai_data.resources_wealthy {
+                                let mod_value = ai_data.team_wealthy_mod.max(1.0);
+                                team_frames = (team_frames as f32 / mod_value) as u32;
+                            }
+                        }
+                    }
+                }
+            }
+            self.team_timer = team_frames;
+        }
+    }
+
+    /// Select a team to build
+    fn select_team_to_build(&mut self) -> bool {
+        let Ok(factory) = get_team_factory().lock() else {
+            return false;
+        };
+
+        let mut best_proto = None;
+        let mut best_priority = i32::MIN;
+
+        for proto in factory.list_team_prototypes() {
+            if !proto.is_ai_recruitable() {
+                continue;
+            }
+            let priority = proto.get_production_priority();
+            if priority > best_priority {
+                best_priority = priority;
+                best_proto = Some(proto);
+            }
+        }
+
+        let Some(proto) = best_proto else {
+            return false;
+        };
+
+        self.build_specific_ai_team(proto.as_ref(), true);
+        true
+    }
+
+    /// Update bridge repair logic
+    fn update_bridge_repair(&mut self) {
+        if self.bridge_timer > 0 {
+            self.bridge_timer = self.bridge_timer.saturating_sub(1);
+            return;
+        }
+
+        let structure_id = self
+            .structures_to_repair
+            .iter()
+            .copied()
+            .find(|id| *id != INVALID_ID);
+        let Some(structure_id) = structure_id else {
+            return;
+        };
+
+        let Some(structure_arc) = OBJECT_REGISTRY.get_object(structure_id) else {
+            return;
+        };
+        let Ok(structure_guard) = structure_arc.read() else {
+            return;
+        };
+        if structure_guard.is_destroyed() {
+            for slot in &mut self.structures_to_repair {
+                if *slot == structure_id {
+                    *slot = INVALID_ID;
+                }
+            }
+            return;
+        }
+
+        let target_pos = *structure_guard.get_position();
+
+        if self.repair_dozer == INVALID_ID {
+            if let Some(dozer_id) = self.find_dozer(&target_pos) {
+                self.repair_dozer = dozer_id;
+                if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(dozer_id) {
+                    if let Ok(dozer_guard) = dozer_arc.read() {
+                        self.repair_dozer_origin = *dozer_guard.get_position();
+                    }
+                }
+            }
+        }
+
+        if self.repair_dozer != INVALID_ID {
+            if let Some(dozer_arc) = OBJECT_REGISTRY.get_object(self.repair_dozer) {
+                if let Ok(dozer_guard) = dozer_arc.read() {
+                    if let Some(ai) = dozer_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            let _ = ai_guard.set_movement_target(&target_pos);
+                            self.dozer_is_repairing = true;
+                        }
+                    }
+                }
+            } else {
+                self.repair_dozer = INVALID_ID;
+                self.dozer_is_repairing = false;
+            }
+        }
+    }
+
+    /// Check for supply center completion
+    fn check_for_supply_center(&mut self, building: &Arc<RwLock<Object>>) {
+        // Implementation would check if completed building is a supply center
+        // and update supply management accordingly
+        if let Ok(building_guard) = building.read() {
+            if building_guard.is_kind_of(KindOf::SupplySource)
+                || building_guard.is_kind_of(KindOf::ResourceNode)
+                || building_guard.is_kind_of(KindOf::FSSupplyCenter)
+                || building_guard.is_kind_of(KindOf::FSSupplyDropzone)
+                || building_guard.is_kind_of(KindOf::Refinery)
+            {
+                self.current_warehouse_id = building_guard.get_id();
+                self.attacked_supply_center = INVALID_ID;
+                self.supply_source_attack_check_frame = TheGameLogic::get_frame();
+            }
+        }
+    }
+
+    /// Compute superweapon target
+    pub fn compute_superweapon_target(
+        &self,
+        power: &SpecialPowerTemplate,
+        pos: &mut Coord3D,
+        player_index: i32,
+        weapon_radius: f32,
+    ) -> bool {
+        // Implementation would calculate optimal target position for superweapon
+        // based on enemy concentration and strategic value
+        let Ok(list) = player_list().read() else {
+            return false;
+        };
+        let mut best_score = 0.0;
+        let mut best_pos = None;
+
+        for (idx, player_arc) in list.iter().enumerate() {
+            if idx as i32 == player_index {
+                continue;
+            }
+            let Ok(player_guard) = player_arc.read() else {
+                continue;
+            };
+            if player_guard.get_player_type() == PlayerType::Neutral {
+                continue;
+            }
+            for obj_id in player_guard.get_all_objects() {
+                let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                    continue;
+                };
+                let Ok(obj_guard) = obj_arc.read() else {
+                    continue;
+                };
+                if obj_guard.is_destroyed() {
+                    continue;
+                }
+                let mut score = if obj_guard.is_kind_of(KindOf::CommandCenter)
+                    || obj_guard.is_kind_of(KindOf::KeyStructure)
+                    || obj_guard.is_kind_of(KindOf::FSSuperweapon)
+                {
+                    1.0
+                } else if obj_guard.is_kind_of(KindOf::Defense) {
+                    0.7
+                } else if obj_guard.is_kind_of(KindOf::Structure)
+                    || obj_guard.is_kind_of(KindOf::Building)
+                {
+                    0.6
+                } else if obj_guard.is_kind_of(KindOf::Vehicle)
+                    || obj_guard.is_kind_of(KindOf::Infantry)
+                {
+                    0.3
+                } else {
+                    0.2
+                };
+                score *= obj_guard.get_health_percentage().clamp(0.2, 1.0);
+                if score > best_score {
+                    best_score = score;
+                    best_pos = Some(*obj_guard.get_position());
+                }
+            }
+        }
+
+        if let Some(best) = best_pos {
+            *pos = best;
+            return true;
+        }
+
+        false
+    }
+
+    /// Determine base center position
+    fn determine_base_center(&mut self) {
+        if let Some(player_arc) = self.player.upgrade() {
+            if let Ok(player_ref) = player_arc.try_read() {
+                // Find command center or construction dozer as base center
+                let mut center = Coord3D::new(0.0, 0.0, 0.0);
+                let mut found = false;
+                let mut min = Coord3D::new(f32::MAX, f32::MAX, 0.0);
+                let mut max = Coord3D::new(f32::MIN, f32::MIN, 0.0);
+
+                let mut entry = player_ref.get_build_list();
+                while let Some(cur) = entry {
+                    let template_name = cur.get_template_name();
+                    if let Some(template) = TheThingFactory::find_template(template_name.as_str()) {
+                        if template.is_kind_of(KindOf::CommandCenter) {
+                            center = *cur.get_location();
+                            found = true;
+                        }
+                    }
+                    let pos = cur.get_location();
+                    min.x = min.x.min(pos.x);
+                    min.y = min.y.min(pos.y);
+                    max.x = max.x.max(pos.x);
+                    max.y = max.y.max(pos.y);
+                    entry = cur.get_next();
+                }
+
+                // Fallback to default position
+                if !found {
+                    center = Coord3D::new(500.0, 500.0, 0.0); // Default center
+                }
+
+                self.base_center = center;
+                self.base_center_set = true;
+                if min.x <= max.x && min.y <= max.y {
+                    let dx = (max.x - min.x) * 0.5;
+                    let dy = (max.y - min.y) * 0.5;
+                    self.base_radius = (dx * dx + dy * dy).sqrt();
+                } else {
+                    self.base_radius = 300.0;
+                }
+            }
+        }
+    }
+
+    /// Check if we need a power plant
+    fn needs_power_plant(&self) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return false;
+        };
+        !player_guard.get_energy().has_sufficient_power()
+    }
+
+    /// Check if we need a supply center
+    fn needs_supply_center(&self) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return false;
+        };
+        let mut supply_centers = 0;
+        for obj_id in player_guard.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_kind_of(KindOf::SupplySource)
+                || obj_guard.is_kind_of(KindOf::ResourceNode)
+                || obj_guard.is_kind_of(KindOf::FSSupplyCenter)
+                || obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
+                || obj_guard.is_kind_of(KindOf::Refinery)
+            {
+                supply_centers += 1;
+            }
+        }
+        supply_centers == 0
+    }
+
+    /// Check if we need barracks
+    fn needs_barracks(&self) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return false;
+        };
+        for obj_id in player_guard.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_kind_of(KindOf::FSBarracks) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if we need war factory
+    fn needs_war_factory(&self) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return false;
+        };
+        for obj_id in player_guard.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_kind_of(KindOf::FSWarfactory) || obj_guard.is_kind_of(KindOf::Factory)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if we need airfield
+    fn needs_air_field(&self) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return false;
+        };
+        let mut has_airfield = false;
+        for obj_id in player_guard.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_kind_of(KindOf::FSAirfield) {
+                has_airfield = true;
+                break;
+            }
+        }
+        !has_airfield
+    }
+
+    /// Queue a building for construction
+    fn queue_building(&mut self, building_name: &str) {
+        let build_pos = self
+            .get_base_center()
+            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+        self.queue_building_at(building_name, build_pos);
+    }
+
+    /// Queue a building for construction at a specific location.
+    fn queue_building_at(&mut self, building_name: &str, build_pos: Coord3D) {
+        let Some(player_arc) = self.player.upgrade() else {
+            return;
+        };
+
+        let Ok(player_guard) = player_arc.read() else {
+            return;
+        };
+
+        let Some(template) = TheThingFactory::find_template(building_name) else {
+            log::debug!(
+                "AIPlayer queue_building_at: template '{}' not found",
+                building_name
+            );
+            return;
+        };
+
+        let validator = FoundationValidator::new_ai();
+        if validator
+            .validate_placement(
+                &build_pos,
+                template.get_name().as_str(),
+                0.0,
+                player_guard.get_id() as ObjectID,
+            )
+            .is_err()
+        {
+            log::debug!(
+                "AIPlayer queue_building_at: placement rejected for '{}'",
+                building_name
+            );
+            return;
+        }
+
+        if self.mark_build_list_priority(building_name, Some(build_pos)) {
+            self.build_delay = 0;
+            return;
+        }
+
+        let dozer_id = self.find_dozer(&build_pos);
+        if dozer_id.is_none() {
+            self.queue_dozer();
+            self.build_delay = LOGICFRAMES_PER_SECOND;
+            return;
+        }
+
+        self.build_delay = LOGICFRAMES_PER_SECOND;
+    }
+
+    fn mark_build_list_priority(&mut self, thing_name: &str, location: Option<Coord3D>) -> bool {
+        let Some(player_arc) = self.player.upgrade() else {
+            return false;
+        };
+        let Ok(mut player_guard) = player_arc.write() else {
+            return false;
+        };
+
+        let mut info_opt = player_guard.get_build_list_mut();
+        while let Some(info) = info_opt {
+            let name = info.get_template_name();
+            if name != thing_name {
+                info_opt = info.get_next_mut();
+                continue;
+            }
+
+            if let Some(pos) = location {
+                info.set_location(pos);
+            }
+
+            if info.get_object_id() != INVALID_ID {
+                return false;
+            }
+            if info.is_priority_build() {
+                return false;
+            }
+            if !info.is_buildable() {
+                return false;
+            }
+            info.mark_priority_build();
+            return true;
+        }
+
+        false
+    }
+
+    fn find_dozer(&self, location: &Coord3D) -> Option<ObjectID> {
+        let Some(player_arc) = self.player.upgrade() else {
+            return None;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return None;
+        };
+        let player_index = player_guard.get_id() as UnsignedInt;
+
+        let manager = get_object_manager();
+        let Ok(manager_guard) = manager.read() else {
+            return None;
+        };
+        let owned_objects = manager_guard.get_objects_owned_by_player(player_index);
+
+        let mut best_id = None;
+        let mut best_dist = f32::MAX;
+
+        for obj_id in owned_objects {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_effectively_dead() || !obj_guard.is_kind_of(KindOf::Dozer) {
+                continue;
+            }
+            if obj_guard.is_disabled_by_type(DisabledType::DisabledUnmanned) {
+                continue;
+            }
+
+            let dist = ThePartitionManager::get_distance_squared_to_pos(
+                &obj_guard,
+                location,
+                FROM_BOUNDING_SPHERE_2D,
+            );
+            if dist < best_dist {
+                best_dist = dist;
+                best_id = Some(obj_id);
+            }
+        }
+
+        best_id
+    }
+
+    pub fn queue_dozer(&mut self) {
+        if self.dozer_queued_for_repair {
+            return;
+        }
+
+        let mut order = WorkOrder::new();
+        if let Some(template) = TheThingFactory::find_template("Dozer") {
+            order.set_thing(Some(template));
+        }
+
+        let mut team = TeamInQueue::new();
+        team.work_orders.push(order);
+        team.priority_build = true;
+
+        self.team_build_queue.push_front(team);
+        self.dozer_queued_for_repair = true;
+    }
+}

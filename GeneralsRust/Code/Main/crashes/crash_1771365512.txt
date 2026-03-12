@@ -1,0 +1,76 @@
+Command & Conquer Generals Zero Hour - Crash Report
+Time: 1771365512
+Panic: panicked at Code/Main/src/save_load/snapshot.rs:1832:9:
+assertion failed: source.restore_terrain_heights_from_grid(width, height, &heights)
+Location: Some(Location { file: "Code/Main/src/save_load/snapshot.rs", line: 1832, column: 9 })
+Backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/backtrace.rs:331:13
+   3: generals_main::debug_system::DebugSystem::setup_crash_handler::{{closure}}
+             at ./src/debug_system.rs:240:37
+   4: <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/alloc/src/boxed.rs:2220:9
+   5: std::panicking::panic_with_hook
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:833:13
+   6: std::panicking::panic_handler::{{closure}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:691:13
+   7: std::sys::backtrace::__rust_end_short_backtrace
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/sys/backtrace.rs:176:18
+   8: __rustc::rust_begin_unwind
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:689:5
+   9: core::panicking::panic_fmt
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/core/src/panicking.rs:80:14
+  10: core::panicking::panic
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/core/src/panicking.rs:150:5
+  11: generals_main::save_load::snapshot::tests::snapshot_restore_rebuilds_terrain_height_samples
+             at ./src/save_load/snapshot.rs:1832:9
+  12: generals_main::save_load::snapshot::tests::snapshot_restore_rebuilds_terrain_height_samples::{{closure}}
+             at ./src/save_load/snapshot.rs:1822:58
+  13: core::ops::function::FnOnce::call_once
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  14: core::ops::function::FnOnce::call_once
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/core/src/ops/function.rs:250:5
+  15: test::__rust_begin_short_backtrace
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/test/src/lib.rs:663:18
+  16: test::run_test_in_process::{{closure}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/test/src/lib.rs:686:74
+  17: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/core/src/panic/unwind_safe.rs:274:9
+  18: std::panicking::catch_unwind::do_call
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:581:40
+  19: std::panicking::catch_unwind
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:544:19
+  20: std::panic::catch_unwind
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panic.rs:359:14
+  21: test::run_test_in_process
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/test/src/lib.rs:686:27
+  22: test::run_test::{{closure}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/test/src/lib.rs:607:43
+  23: test::run_test::{{closure}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/test/src/lib.rs:637:41
+  24: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/sys/backtrace.rs:160:18
+  25: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/thread/lifecycle.rs:92:13
+  26: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/core/src/panic/unwind_safe.rs:274:9
+  27: std::panicking::catch_unwind::do_call
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:581:40
+  28: std::panicking::catch_unwind
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panicking.rs:544:19
+  29: std::panic::catch_unwind
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/panic.rs:359:14
+  30: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/thread/lifecycle.rs:90:26
+  31: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/core/src/ops/function.rs:250:5
+  32: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/alloc/src/boxed.rs:2206:9
+  33: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/254b59607d4417e9dffbc307138ae5c86280fe4c/library/std/src/sys/thread/unix.rs:118:17
+  34: __pthread_cond_wait
+

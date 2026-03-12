@@ -1,0 +1,132 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - x86_64-pc-windows-gnu
+        profile:
+          - dev
+          - release
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-index-
+
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ matrix.profile }}-
+
+    - name: Install system dependencies (MSVC)
+      if: matrix.target == 'x86_64-pc-windows-msvc'
+      run: |
+        choco install llvm -y
+
+    - name: Install system dependencies (GNU)
+      if: matrix.target == 'x86_64-pc-windows-gnu'
+      run: |
+        choco install mingw -y
+
+    - name: Check formatting
+      if: matrix.profile == 'dev'
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy
+      if: matrix.profile == 'dev'
+      run: cargo clippy --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
+
+    - name: Build workspace (dev)
+      if: matrix.profile == 'dev'
+      run: |
+        cargo build --workspace --all-features --target ${{ matrix.target }}
+
+    - name: Build workspace (release)
+      if: matrix.profile == 'release'
+      run: |
+        cargo build --workspace --all-features --release --target ${{ matrix.target }}
+
+    - name: Run tests
+      run: |
+        cargo test --workspace --all-features --target ${{ matrix.target }} ${{ matrix.profile == 'release' && '--release' || '' }}
+
+    - name: Build main executable
+      run: |
+        cargo build --package generals_main --all-features --target ${{ matrix.target }} ${{ matrix.profile == 'release' && '--release' || '' }}
+
+    - name: Upload artifacts
+      if: matrix.profile == 'release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: generals-rust-windows-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/release/generals.exe
+          target/${{ matrix.target }}/release/*.dll
+        retention-days: 30
+
+  test-windows:
+    name: Test on Windows
+    runs-on: windows-latest
+    needs: build-windows
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Run unit tests
+      run: cargo test --lib --all-features
+
+    - name: Run integration tests
+      run: cargo test --test '*' --all-features
+
+    - name: Run doc tests
+      run: cargo test --doc --all-features

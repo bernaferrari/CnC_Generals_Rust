@@ -1,0 +1,40 @@
+[package]
+name = "wwlib-rust"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+internal = []
+
+[dependencies]
+rand = { version = "0.8", features = ["std_rng"] }
+tokio = { version = "1.40", features = ["full"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+base_types = { path = "base_types" }
+memory_system = { path = "memory_system" }
+string_system = { path = "string_system" }
+ini_parser = { path = "ini_parser" }
+base64 = "0.22"
+regex = "1.10"
+rsa = "0.9"
+num-bigint = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.52", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Registry",
+  "Win32_System_SystemServices",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }

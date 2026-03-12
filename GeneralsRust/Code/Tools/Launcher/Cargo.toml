@@ -1,0 +1,36 @@
+[package]
+name = "launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core dependencies - minimal set for launcher
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# Future dependencies (commented out for minimal build)
+# serde = { workspace = true }
+# serde_json = { workspace = true }
+# thiserror = { workspace = true }
+# uuid = { workspace = true }
+# chrono = { workspace = true }
+# egui = { workspace = true }
+# eframe = { workspace = true }
+# winit = { workspace = true }
+# rfd = { workspace = true }
+# walkdir = { workspace = true }
+# toml = { workspace = true }
+# sysinfo = { workspace = true }
+# tokio = { workspace = true }
+# parking_lot = { workspace = true }
+
+[[bin]]
+name = "launcher"
+path = "main.rs"
+
+[features]
+default = ["gui", "auto_update"]
+gui = []
+auto_update = []
+debug_tools = []

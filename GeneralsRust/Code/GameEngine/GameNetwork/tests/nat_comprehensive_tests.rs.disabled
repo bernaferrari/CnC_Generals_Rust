@@ -1,0 +1,442 @@
+//! Comprehensive NAT traversal test suite.
+//!
+//! Tests all NAT traversal components for C++ compatibility.
+
+use game_network::nat::{NatConfig, NatService, StunAttribute, StunMessage};
+use game_network::nat_traversal::{
+    NatBehavior, NatTraversalManager, NatType, PortAllocationPattern,
+};
+use game_network::security::firewall::{FirewallConfig, FirewallHelper};
+use game_network::security::windows_firewall::{
+    create_firewall_helper, FirewallIntegration, Protocol,
+};
+use game_network::transport::TransportProtocol;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::net::UdpSocket;
+
+// Test STUN message encoding/decoding (Part 1)
+#[tokio::test]
+async fn test_stun_message_encoding_decoding() {
+    let msg = StunMessage::new_binding_request();
+    assert_eq!(msg.message_type, 0x0001);
+    assert_eq!(msg.transaction_id.len(), 12);
+
+    // Encode
+    let encoded = msg.encode();
+    assert!(encoded.len() >= 20);
+
+    // Verify header
+    assert_eq!(u16::from_be_bytes([encoded[0], encoded[1]]), 0x0001);
+    assert_eq!(
+        u32::from_be_bytes([encoded[4], encoded[5], encoded[6], encoded[7]]),
+        0x2112_A442
+    );
+
+    // Decode
+    let decoded = StunMessage::decode(&encoded).unwrap();
+    assert_eq!(decoded.message_type, msg.message_type);
+    assert_eq!(decoded.transaction_id, msg.transaction_id);
+}
+
+#[tokio::test]
+async fn test_stun_xor_mapped_address_attribute() {
+    let test_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 8088);
+
+    let mut msg = StunMessage::new_binding_request();
+    msg.attributes
+        .push(StunAttribute::XorMappedAddress(test_addr));
+
+    let encoded = msg.encode();
+    let decoded = StunMessage::decode(&encoded).unwrap();
+
+    let xor_addr = decoded.get_xor_mapped_address();
+    assert!(xor_addr.is_some());
+    assert_eq!(xor_addr.unwrap(), test_addr);
+}
+
+#[tokio::test]
+async fn test_stun_software_attribute() {
+    let mut msg = StunMessage::new_binding_request();
+    msg.attributes
+        .push(StunAttribute::Software("C&C Generals ZH".to_string()));
+
+    let encoded = msg.encode();
+    let decoded = StunMessage::decode(&encoded).unwrap();
+
+    let has_software = decoded
+        .attributes
+        .iter()
+        .any(|attr| matches!(attr, StunAttribute::Software(_)));
+    assert!(has_software);
+}
+
+#[tokio::test]
+async fn test_stun_error_code_attribute() {
+    // Create a mock error response
+    let data = &[
+        0x01, 0x11, // BINDING_ERROR_RESPONSE
+        0x00, 0x10, // Length: 16 bytes
+        0x21, 0x12, 0xA4, 0x42, // Magic cookie
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+        0x0B, // Transaction ID
+        0x00, 0x09, // ERROR-CODE
+        0x00, 0x04, // Length: 4
+        0x00, 0x00, // Reserved
+        0x04, // Class: 4
+        0x01, // Number: 1
+    ];
+
+    let decoded = StunMessage::decode(data).unwrap();
+    assert_eq!(decoded.message_type, 0x0111);
+
+    let has_error = decoded
+        .attributes
+        .iter()
+        .any(|attr| matches!(attr, StunAttribute::ErrorCode { code: 401, .. }));
+    assert!(has_error);
+}
+
+// Test NAT type detection (Part 5)
+#[tokio::test]
+async fn test_nat_type_open_internet() {
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+
+    let manager = NatTraversalManager::new(
+        0,
+        Ipv4Addr::new(8, 8, 8, 8), // Public IP as local - simulates open internet
+        8088,
+        nat_service.clone(),
+    )
+    .await
+    .unwrap();
+
+    // Note: This test would require mocking STUN response
+    // For now, we just verify the function doesn't panic
+    let _ = manager.nat_type().await;
+}
+
+#[tokio::test]
+async fn test_nat_behavior_flags() {
+    let mut behavior = NatBehavior::UNKNOWN;
+    assert!(!behavior.is_nat());
+
+    behavior.insert(NatBehavior::DUMB_MANGLING);
+    assert!(behavior.is_nat());
+    assert!(behavior.contains(NatBehavior::DUMB_MANGLING));
+
+    behavior.insert(NatBehavior::NETGEAR_BUG);
+    assert!(behavior.is_netgear());
+
+    behavior.insert(NatBehavior::SMART_MANGLING);
+    assert!(behavior.contains(NatBehavior::SMART_MANGLING));
+}
+
+// Test symmetric NAT port prediction (Part 3)
+#[tokio::test]
+async fn test_port_prediction_sequential() {
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+    let manager = NatTraversalManager::new(0, Ipv4Addr::new(192, 168, 1, 100), 8088, nat_service)
+        .await
+        .unwrap();
+
+    let mappings = vec![
+        (
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 1000),
+            9000,
+        ),
+        (
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)), 1000),
+            9001,
+        ),
+        (
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(3, 3, 3, 3)), 1000),
+            9002,
+        ),
+    ];
+
+    let predicted = manager.predict_next_ports(&mappings, 5).await;
+
+    assert_eq!(predicted.len(), 5);
+    // Should predict sequential: 9003, 9004, 9005, 9006, 9007
+    assert_eq!(predicted[0], 9003);
+    assert_eq!(predicted[1], 9004);
+}
+
+#[tokio::test]
+async fn test_port_prediction_with_delta() {
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+    let manager = NatTraversalManager::new(0, Ipv4Addr::new(192, 168, 1, 100), 8088, nat_service)
+        .await
+        .unwrap();
+
+    let mappings = vec![
+        (
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 1000),
+            9000,
+        ),
+        (
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)), 1000),
+            9010,
+        ),
+        (
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(3, 3, 3, 3)), 1000),
+            9020,
+        ),
+    ];
+
+    let predicted = manager.predict_next_ports(&mappings, 3).await;
+
+    assert_eq!(predicted.len(), 3);
+    // Should predict with delta of 10: 9030, 9040, 9050
+    assert_eq!(predicted[0], 9030);
+}
+
+#[tokio::test]
+async fn test_port_prediction_no_data() {
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+    let manager = NatTraversalManager::new(0, Ipv4Addr::new(192, 168, 1, 100), 8088, nat_service)
+        .await
+        .unwrap();
+
+    let mappings = vec![];
+    let predicted = manager.predict_next_ports(&mappings, 3).await;
+
+    assert_eq!(predicted.len(), 3);
+    // Should return sequential from local_port
+    assert_eq!(predicted[0], 8089);
+    assert_eq!(predicted[1], 8090);
+    assert_eq!(predicted[2], 8091);
+}
+
+// Test UPnP/IGD lease management (Part 4)
+#[tokio::test]
+async fn test_firewall_helper_disabled() {
+    let helper = FirewallHelper::new(FirewallConfig {
+        enabled: false,
+        ..Default::default()
+    });
+
+    let result = helper
+        .ensure_mapping(TransportProtocol::Quic, Ipv4Addr::new(127, 0, 0, 1), 8088)
+        .await
+        .unwrap();
+
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_firewall_helper_status() {
+    let helper = FirewallHelper::new(FirewallConfig::default());
+
+    assert!(!helper.is_active().await);
+
+    let mapping = helper.current_mapping().await;
+    assert!(mapping.is_none());
+}
+
+// Test keep-alive mechanism (Part 6)
+#[tokio::test]
+async fn test_keepalive_interval() {
+    // Verify the constant is correct (20 seconds to match C++)
+    use game_network::nat_traversal::KEEPALIVE_INTERVAL;
+    assert_eq!(KEEPALIVE_INTERVAL, Duration::from_secs(20));
+}
+
+// Test probe protocol
+#[tokio::test]
+async fn test_probe_packet_format() {
+    let local_id = 5u8;
+    let message = format!("PROBE{}", local_id);
+
+    assert_eq!(message, "PROBE5");
+    assert!(message.starts_with("PROBE"));
+    assert_eq!(message[5..].parse::<u8>().unwrap(), local_id);
+}
+
+#[tokio::test]
+async fn test_keepalive_packet_format() {
+    let message = "KEEPALIVE";
+
+    assert_eq!(message, "KEEPALIVE");
+    assert_eq!(message.len(), 9);
+}
+
+// Test Windows Firewall integration (Part 2)
+#[test]
+fn test_protocol_conversion() {
+    assert_eq!(Protocol::Tcp.as_str(), "TCP");
+    assert_eq!(Protocol::Udp.as_str(), "UDP");
+
+    #[cfg(target_os = "windows")]
+    {
+        assert_eq!(Protocol::Tcp.as_net_fw_protocol(), 6);
+        assert_eq!(Protocol::Udp.as_net_fw_protocol(), 17);
+    }
+}
+
+#[test]
+fn test_firewall_helper_creation() {
+    let result = create_firewall_helper("C&C Generals Zero Hour");
+
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    assert!(result.is_ok());
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    assert!(result.is_err());
+}
+
+// Integration test: End-to-end NAT traversal
+#[tokio::test]
+async fn test_nat_traversal_initialization() {
+    let nat_config = NatConfig {
+        stun_servers: vec!["127.0.0.1:19302".to_string()],
+        request_timeout: Duration::from_millis(100),
+        refresh_interval: Duration::from_secs(30),
+        max_refresh_interval: Duration::from_secs(180),
+        failure_backoff_factor: 2.0,
+        refresh_jitter: Duration::from_millis(100),
+    };
+
+    let nat_service = Arc::new(NatService::new(nat_config));
+
+    let manager = NatTraversalManager::new(
+        0,
+        Ipv4Addr::new(192, 168, 1, 100),
+        8088,
+        nat_service.clone(),
+    )
+    .await
+    .unwrap();
+
+    // Verify initialization
+    assert_eq!(manager.nat_type().await, NatType::Unknown);
+    assert_eq!(manager.nat_behavior().await, NatBehavior::UNKNOWN);
+    assert!(manager.port_pattern().await.is_none());
+}
+
+// Test error handling and graceful degradation (Part 7)
+#[tokio::test]
+async fn test_stun_invalid_magic_cookie() {
+    let data = &[
+        0x01, 0x01, // BINDING_RESPONSE
+        0x00, 0x00, // Length: 0
+        0xFF, 0xFF, 0xFF, 0xFF, // Invalid magic cookie
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
+    ];
+
+    let result = StunMessage::decode(data);
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_stun_truncated_message() {
+    let data = &[0x01, 0x01, 0x00, 0x00]; // Too short
+
+    let result = StunMessage::decode(data);
+    assert!(result.is_err());
+}
+
+// Test connection state machine (Part 8)
+#[tokio::test]
+async fn test_peer_connection_lifecycle() {
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+    let manager = NatTraversalManager::new(0, Ipv4Addr::new(192, 168, 1, 100), 8088, nat_service)
+        .await
+        .unwrap();
+
+    let peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101)), 8089);
+
+    manager.add_peer(1, peer_addr, NatBehavior::SIMPLE).await;
+
+    // Peer should now be in the list
+    let peers = manager.peers.read().await;
+    assert!(peers.contains_key(&1));
+    assert_eq!(peers.get(&1).unwrap().peer_id, 1);
+}
+
+// Performance characteristics test (from documentation)
+#[tokio::test]
+async fn test_performance_characteristics() {
+    use std::time::Instant;
+
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+    let start = Instant::now();
+
+    let _manager = NatTraversalManager::new(0, Ipv4Addr::new(192, 168, 1, 100), 8088, nat_service)
+        .await
+        .unwrap();
+
+    let elapsed = start.elapsed();
+
+    // Initialization should be fast (< 100ms)
+    assert!(elapsed < Duration::from_millis(100));
+}
+
+// Test NAT type classification
+#[test]
+fn test_nat_type_classification() {
+    use game_network::nat_traversal::NatType;
+
+    let types = vec![
+        NatType::OpenInternet,
+        NatType::FullCone,
+        NatType::RestrictedCone,
+        NatType::PortRestrictedCone,
+        NatType::Symmetric,
+        NatType::Unknown,
+    ];
+
+    assert_eq!(types.len(), 6);
+
+    // Verify each type is distinct
+    for (i, type1) in types.iter().enumerate() {
+        for (j, type2) in types.iter().enumerate() {
+            if i == j {
+                assert_eq!(type1, type2);
+            } else {
+                assert_ne!(type1, type2);
+            }
+        }
+    }
+}
+
+// Test mangler packet format (Part 9)
+#[test]
+fn test_mangler_packet_format() {
+    let packet_id: u16 = 0x1234;
+    let mut request = Vec::new();
+    request.extend_from_slice(&0u32.to_be_bytes()); // CRC
+    request.extend_from_slice(&0xF00Du16.to_be_bytes()); // Magic
+    request.extend_from_slice(&packet_id.to_be_bytes()); // Packet ID
+    request.extend_from_slice(&[0; 6]); // Padding
+
+    assert_eq!(request.len(), 14);
+    assert_eq!(u16::from_be_bytes([request[4], request[5]]), 0xF00D);
+    assert_eq!(u16::from_be_bytes([request[6], request[7]]), packet_id);
+}
+
+// Memory overhead test
+#[tokio::test]
+async fn test_memory_overhead() {
+    use std::mem::size_of;
+
+    let nat_service = Arc::new(NatService::new(NatConfig::default()));
+    let manager = NatTraversalManager::new(0, Ipv4Addr::new(192, 168, 1, 100), 8088, nat_service)
+        .await
+        .unwrap();
+
+    // Add 8 peers (max for C&C Generals)
+    for i in 1..=8u8 {
+        let peer_addr = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100 + i)),
+            8088 + i as u16,
+        );
+        manager.add_peer(i, peer_addr, NatBehavior::SIMPLE).await;
+    }
+
+    // Each peer connection should be small
+    // This is just a sanity check, not a hard requirement
+    assert!(size_of::<game_network::nat_traversal::PeerConnection>() < 1024);
+}

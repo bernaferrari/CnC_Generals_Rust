@@ -1,0 +1,17 @@
+[package]
+name = "ww3d-compat"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ww3d-core = { path = "../ww3d-core" }
+ww3d-assets = { path = "../ww3d-assets" }
+ww3d-geometry = { path = "../ww3d-geometry" }
+ww3d-animation = { path = "../ww3d-animation" }
+ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
+ww3d-render-2d = { path = "../ww3d-render-2d" }
+ww3d-scene = { path = "../ww3d-scene" }
+ww3d-effects = { path = "../ww3d-effects" }
+ww3d-particles = { path = "../ww3d-particles" }
+ww3d-collision = { path = "../ww3d-collision" }
+ww3d-gpu = { path = "../ww3d-gpu" }

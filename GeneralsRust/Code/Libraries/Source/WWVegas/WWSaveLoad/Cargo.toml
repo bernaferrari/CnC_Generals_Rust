@@ -1,0 +1,37 @@
+[package]
+name = "ww_save_load"
+version = "0.1.0"
+edition = "2021"
+description = "WWSaveLoad - Westwood Studios Save/Load System - Rust conversion"
+authors = ["Westwood Studios", "Community Contributors"]
+license = "GPL-3.0"
+
+[dependencies]
+# External dependencies
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bitvec = "1.0"
+parking_lot = "0.12"
+log = "0.4"
+
+# Internal WWVegas dependencies (commented out due to compilation issues)
+# base_types = { path = "../WWLib/base_types" }
+# string_system = { path = "../WWLib/string_system" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "saveload_benchmarks"
+harness = false
+
+[lib]
+name = "ww_save_load"
+crate-type = ["rlib"]
+
+[features]
+default = ["debug"]
+debug = []
+chunk-validation = []
+

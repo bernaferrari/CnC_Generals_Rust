@@ -1,0 +1,1964 @@
+#![allow(missing_docs)]
+
+//! Message Stream Translators
+//!
+//! This module contains implementations of various message translators that
+//! convert raw input events into tactical commands and game actions.
+//!
+//! Translators are the heart of the message stream system, processing messages
+//! in priority order and deciding whether to keep, modify, or destroy them.
+
+use super::command_list::get_command_list;
+use super::game_message::*;
+use super::hot_key::HotKeyTranslator;
+use super::look_at_xlat::LookAtTranslator;
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
+use super::meta_event::MetaEventTranslator;
+use super::place_event_translator::PlaceEventTranslator;
+use super::player_state::get_local_player_id;
+use super::selection_xlat::SelectionTranslator as SelectionTranslatorXlat;
+use super::window_xlat::WindowTranslator;
+use crate::display::view::{with_tactical_view_ref, IPoint2};
+use crate::gui::{toggle_control_bar, toggle_diplomacy};
+use crate::helpers::{PendingCommand, TheInGameUI};
+use crate::input::KeyModifiers;
+use crate::system::beacon_display;
+use gamelogic::attack::{AbleToAttackType, CanAttackResult};
+use gamelogic::commands::command::CommandType;
+use gamelogic::commands::get_selection_manager;
+use gamelogic::common::Coord3D as LogicCoord3D;
+use gamelogic::common::{
+    CommandSourceType, KindOf, ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
+};
+use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::player::player_list;
+use log::{debug, info, warn};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
+
+fn logic_to_message_coord(pos: &LogicCoord3D) -> Coord3D {
+    Coord3D::new(pos.x, pos.y, pos.z)
+}
+
+fn screen_to_terrain(pos: &ICoord2D) -> Option<Coord3D> {
+    let screen = IPoint2::new(pos.x, pos.y);
+    with_tactical_view_ref(|view| {
+        view.screen_to_terrain(&screen)
+            .ok()
+            .map(|point| Coord3D::new(point.x, point.y, point.z))
+    })
+}
+
+const CMD_NEED_TARGET_ENEMY_OBJECT: u32 = 0x0000_0001;
+const CMD_NEED_TARGET_NEUTRAL_OBJECT: u32 = 0x0000_0002;
+const CMD_NEED_TARGET_ALLY_OBJECT: u32 = 0x0000_0004;
+const CMD_NEED_TARGET_PRISONER: u32 = 0x0000_0008;
+const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
+const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
+
+fn pending_command_accepts_object(options: u32) -> bool {
+    options
+        & (CMD_NEED_TARGET_ENEMY_OBJECT
+            | CMD_NEED_TARGET_NEUTRAL_OBJECT
+            | CMD_NEED_TARGET_ALLY_OBJECT
+            | CMD_NEED_TARGET_PRISONER)
+        != 0
+}
+
+fn pending_command_accepts_position(options: u32) -> bool {
+    options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION) != 0
+}
+
+fn relationship_to_target(local_player_id: i32, target_id: ObjectID) -> Option<Relationship> {
+    if local_player_id < 0 {
+        return None;
+    }
+
+    let target = OBJECT_REGISTRY.get_object(target_id)?;
+    let target_guard = target.read().ok()?;
+    let owner = target_guard.get_controlling_player_id()?;
+
+    let list = player_list().read().ok()?;
+    let me = list.get_player(local_player_id)?;
+    let them = list.get_player(owner as i32)?;
+    let (Ok(me_guard), Ok(them_guard)) = (me.read(), them.read()) else {
+        return None;
+    };
+
+    Some(me_guard.get_relationship(&them_guard))
+}
+
+fn is_prisoner_target(target_id: ObjectID) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    target_guard.is_kind_of(KindOf::CanSurrender)
+        || target_guard.is_kind_of(KindOf::Prison)
+        || target_guard.is_kind_of(KindOf::PowTruck)
+}
+
+fn pending_command_target_allowed(options: u32, local_player_id: i32, target_id: ObjectID) -> bool {
+    let needs_enemy = options & CMD_NEED_TARGET_ENEMY_OBJECT != 0;
+    let needs_neutral = options & CMD_NEED_TARGET_NEUTRAL_OBJECT != 0;
+    let needs_ally = options & CMD_NEED_TARGET_ALLY_OBJECT != 0;
+    let needs_prisoner = options & CMD_NEED_TARGET_PRISONER != 0;
+
+    if !(needs_enemy || needs_neutral || needs_ally || needs_prisoner) {
+        return true;
+    }
+
+    if needs_prisoner && is_prisoner_target(target_id) {
+        return true;
+    }
+
+    let Some(relationship) = relationship_to_target(local_player_id, target_id) else {
+        return false;
+    };
+
+    if needs_enemy && matches!(relationship, Relationship::Enemy) {
+        return true;
+    }
+    if needs_neutral && matches!(relationship, Relationship::Neutral) {
+        return true;
+    }
+    if needs_ally
+        && matches!(
+            relationship,
+            Relationship::Friend | Relationship::Ally | Relationship::Allies
+        )
+    {
+        return true;
+    }
+
+    false
+}
+
+fn pending_command_for_object(
+    pending: &PendingCommand,
+    target: ObjectID,
+) -> Option<GameMessageType> {
+    match pending.command_type {
+        CommandType::ConvertToCarbomb => Some(GameMessageType::Enter(0, target)),
+        CommandType::CaptureBuilding => Some(GameMessageType::CaptureBuilding(
+            pending.source_object_id,
+            target,
+        )),
+        CommandType::DisableVehicleHack => Some(GameMessageType::DisableVehicleHack(
+            pending.source_object_id,
+            target,
+        )),
+        CommandType::StealCashHack => Some(GameMessageType::StealCashHack(
+            pending.source_object_id,
+            target,
+        )),
+        CommandType::DisableBuildingHack => Some(GameMessageType::DisableBuildingHack(
+            pending.source_object_id,
+            target,
+        )),
+        CommandType::SnipeVehicle => Some(GameMessageType::SnipeVehicle(
+            pending.source_object_id,
+            target,
+        )),
+        CommandType::DoGuardObject => Some(GameMessageType::DoGuardObject(target, 0)),
+        CommandType::Enter => Some(GameMessageType::Enter(0, target)),
+        CommandType::DoRepair => Some(GameMessageType::DoRepair(target)),
+        CommandType::GetRepaired => Some(GameMessageType::GetRepaired(target)),
+        CommandType::GetHealed => Some(GameMessageType::GetHealed(target)),
+        CommandType::ResumeConstruction => Some(GameMessageType::ResumeConstruction(target)),
+        CommandType::Dock => Some(GameMessageType::Dock(target)),
+        _ => None,
+    }
+}
+
+fn pending_command_for_position(
+    pending: &PendingCommand,
+    position: Coord3D,
+) -> Option<GameMessageType> {
+    match pending.command_type {
+        CommandType::DoAttackMoveTo => Some(GameMessageType::DoAttackMoveTo(position)),
+        CommandType::DoGuardPosition => Some(GameMessageType::DoGuardPosition(position, 0)),
+        CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPoint(
+            pending.source_object_id,
+            position,
+        )),
+        _ => None,
+    }
+}
+
+fn pending_command_selection_valid(
+    pending: &PendingCommand,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    match pending.command_type {
+        CommandType::Enter => selection_can_enter_target(local_player, selection, target_id),
+        CommandType::DoRepair => selection_can_repair_target(local_player, selection, target_id),
+        CommandType::ResumeConstruction => {
+            selection_can_resume_construction_target(local_player, selection, target_id)
+        }
+        CommandType::Dock => selection_can_dock_at_target(local_player, selection, target_id),
+        _ => true,
+    }
+}
+
+/// Command Translator - converts raw input into game commands
+pub struct CommandTranslator {
+    // State for tracking mouse operations
+    mouse_down_position: Option<ICoord2D>,
+    drag_threshold: i32,
+    mouse_down_modifiers: u32,
+
+    // State for selection operations
+    current_selection: HashSet<ObjectID>,
+    selection_anchor: Option<ICoord2D>,
+
+    // Mode flags
+    force_attack_mode: bool,
+    force_move_mode: bool,
+    waypoint_mode: bool,
+    path_build_mode: bool,
+    prefer_selection_mode: bool,
+}
+
+impl CommandTranslator {
+    pub fn new() -> Self {
+        Self {
+            mouse_down_position: None,
+            drag_threshold: 5, // pixels
+            mouse_down_modifiers: 0,
+            current_selection: HashSet::new(),
+            selection_anchor: None,
+            force_attack_mode: false,
+            force_move_mode: false,
+            waypoint_mode: false,
+            path_build_mode: false,
+            prefer_selection_mode: false,
+        }
+    }
+
+    /// Process mouse button down events
+    fn handle_mouse_button_down(
+        &mut self,
+        position: &ICoord2D,
+        button: MouseButton,
+        modifiers: u32,
+    ) -> Vec<GameMessageType> {
+        debug!("Mouse button {:?} down at {:?}", button, position);
+
+        match button {
+            MouseButton::Left => {
+                self.mouse_down_position = Some(position.clone());
+                self.selection_anchor = Some(position.clone());
+                self.mouse_down_modifiers = modifiers;
+                vec![]
+            }
+            MouseButton::Right => {
+                // Right click typically issues commands to selected units
+                if !self.current_selection.is_empty() {
+                    let world = screen_to_terrain(position).unwrap_or(Coord3D {
+                        x: position.x as f32,
+                        y: position.y as f32,
+                        z: 0.0,
+                    });
+                    vec![GameMessageType::DoMoveToHint(world)]
+                } else {
+                    vec![]
+                }
+            }
+            MouseButton::Middle => {
+                vec![]
+            }
+        }
+    }
+
+    fn sync_selection_from_logic(&mut self) {
+        let local_player = get_local_player_id();
+        if local_player < 0 {
+            return;
+        }
+
+        let selection_manager = get_selection_manager();
+        let Ok(manager) = selection_manager.read() else {
+            return;
+        };
+
+        let Some(selection) = manager.get_player_selection_ref(local_player) else {
+            return;
+        };
+
+        self.current_selection.clear();
+        self.current_selection
+            .extend(selection.get_selected_objects());
+    }
+
+    /// Process mouse button up events
+    fn handle_mouse_button_up(
+        &mut self,
+        position: &ICoord2D,
+        button: MouseButton,
+        modifiers: u32,
+    ) -> Vec<GameMessageType> {
+        debug!("Mouse button {:?} up at {:?}", button, position);
+
+        match button {
+            MouseButton::Left => {
+                let mut messages = Vec::new();
+
+                if let Some(down_pos) = &self.mouse_down_position {
+                    let dx = (position.x - down_pos.x) as f32;
+                    let dy = (position.y - down_pos.y) as f32;
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    let key_mods = KeyModifiers::from_bits_truncate(modifiers as u8);
+                    if distance < self.drag_threshold as f32 {
+                        let region = IRegion2D {
+                            x: position.x,
+                            y: position.y,
+                            width: 0,
+                            height: 0,
+                        };
+                        messages.extend(self.handle_selection_region(&region, key_mods));
+                    } else if let Some(anchor) = &self.selection_anchor {
+                        let region = build_region(anchor, position);
+                        messages.extend(self.handle_selection_region(&region, key_mods));
+                    }
+                }
+
+                self.mouse_down_position = None;
+                self.selection_anchor = None;
+                self.mouse_down_modifiers = 0;
+                messages
+            }
+            MouseButton::Right => {
+                if TheInGameUI::get_pending_command().is_some() {
+                    TheInGameUI::clear_pending_command();
+                    TheInGameUI::set_force_attack_mode(false);
+                    TheInGameUI::set_force_move_to_mode(false);
+                    TheInGameUI::set_prefer_selection_mode(false);
+                    self.force_attack_mode = false;
+                    self.force_move_mode = false;
+                    self.prefer_selection_mode = false;
+                    return Vec::new();
+                }
+                // Issue move command
+                if !self.current_selection.is_empty() {
+                    let world_pos = screen_to_terrain(position).unwrap_or(Coord3D {
+                        x: position.x as f32,
+                        y: position.y as f32,
+                        z: 0.0,
+                    });
+
+                    if self.force_attack_mode {
+                        vec![GameMessageType::DoForceAttackGround(world_pos)]
+                    } else if self.force_move_mode {
+                        vec![GameMessageType::DoForceMoveTO(world_pos)]
+                    } else if self.waypoint_mode {
+                        vec![GameMessageType::AddWaypoint(world_pos)]
+                    } else {
+                        vec![GameMessageType::DoMoveTo(world_pos)]
+                    }
+                } else {
+                    vec![]
+                }
+            }
+            MouseButton::Middle => {
+                vec![]
+            }
+        }
+    }
+
+    fn handle_selection_region(
+        &mut self,
+        region: &IRegion2D,
+        modifiers: KeyModifiers,
+    ) -> Vec<GameMessageType> {
+        const MAX_SELECTION_COUNT: usize = 40;
+        const PICK_RADIUS_WORLD: f32 = 10.0;
+
+        let is_point = region.width == 0 && region.height == 0;
+        let allow_add = modifiers.contains(KeyModifiers::SHIFT) || self.prefer_selection_mode;
+        let allow_toggle = modifiers.contains(KeyModifiers::CTRL);
+
+        let local_player = get_local_player_id();
+        let local_player_u32 = if local_player >= 0 {
+            Some(local_player as u32)
+        } else {
+            None
+        };
+
+        let (mut mine, mut other) =
+            collect_selectable_objects(region, is_point, PICK_RADIUS_WORLD, local_player_u32);
+
+        if is_point {
+            let picked_object = pick_closest(&mut mine).or_else(|| pick_closest(&mut other));
+
+            if let Some(pending) = TheInGameUI::get_pending_command() {
+                if let Some(object_id) = picked_object {
+                    if pending_command_accepts_object(pending.options)
+                        && pending_command_target_allowed(pending.options, local_player, object_id)
+                        && pending_command_selection_valid(
+                            &pending,
+                            local_player_u32,
+                            &self.current_selection,
+                            object_id,
+                        )
+                    {
+                        if let Some(message) = pending_command_for_object(&pending, object_id) {
+                            TheInGameUI::clear_pending_command();
+                            TheInGameUI::set_force_attack_mode(false);
+                            TheInGameUI::set_force_move_to_mode(false);
+                            TheInGameUI::set_prefer_selection_mode(false);
+                            self.force_attack_mode = false;
+                            self.force_move_mode = false;
+                            self.prefer_selection_mode = false;
+                            return vec![message];
+                        }
+                    }
+
+                    if pending_command_accepts_position(pending.options) {
+                        if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                            if let Ok(obj_guard) = obj.read() {
+                                let position = logic_to_message_coord(obj_guard.get_position());
+                                if let Some(message) =
+                                    pending_command_for_position(&pending, position)
+                                {
+                                    TheInGameUI::clear_pending_command();
+                                    TheInGameUI::set_force_attack_mode(false);
+                                    TheInGameUI::set_force_move_to_mode(false);
+                                    TheInGameUI::set_prefer_selection_mode(false);
+                                    self.force_attack_mode = false;
+                                    self.force_move_mode = false;
+                                    self.prefer_selection_mode = false;
+                                    return vec![message];
+                                }
+                            }
+                        }
+                    }
+                } else if pending_command_accepts_position(pending.options) {
+                    if let Some(world) = screen_to_terrain(&ICoord2D::new(region.x, region.y)) {
+                        if let Some(message) = pending_command_for_position(&pending, world) {
+                            TheInGameUI::clear_pending_command();
+                            TheInGameUI::set_force_attack_mode(false);
+                            TheInGameUI::set_force_move_to_mode(false);
+                            TheInGameUI::set_prefer_selection_mode(false);
+                            self.force_attack_mode = false;
+                            self.force_move_mode = false;
+                            self.prefer_selection_mode = false;
+                            return vec![message];
+                        }
+                    }
+                    let position = Coord3D {
+                        x: region.x as f32,
+                        y: region.y as f32,
+                        z: 0.0,
+                    };
+                    if let Some(message) = pending_command_for_position(&pending, position) {
+                        TheInGameUI::clear_pending_command();
+                        TheInGameUI::set_force_attack_mode(false);
+                        TheInGameUI::set_force_move_to_mode(false);
+                        TheInGameUI::set_prefer_selection_mode(false);
+                        self.force_attack_mode = false;
+                        self.force_move_mode = false;
+                        self.prefer_selection_mode = false;
+                        return vec![message];
+                    }
+                }
+
+                // Targeting mode active: ignore selection changes until command is fulfilled/cancelled.
+                return Vec::new();
+            }
+
+            let Some(object_id) = picked_object else {
+                if !allow_add && !self.current_selection.is_empty() {
+                    self.current_selection.clear();
+                    return vec![GameMessageType::CreateSelectedGroup(true, Vec::new())];
+                }
+                return Vec::new();
+            };
+
+            let (
+                current_count_mine,
+                current_count_mine_infantry,
+                current_count_mine_buildings,
+                current_count_other,
+            ) = selection_counts(local_player_u32, &self.current_selection);
+
+            // C++ SelectionInfo.cpp: context sensitive selection never applies in force-attack or
+            // force-move modes.
+            let allow_context = !self.force_attack_mode
+                && !self.force_move_mode
+                && current_count_other == 0
+                && current_count_mine > 0;
+
+            if allow_context {
+                // Enemy click becomes an action (typically attack) rather than selecting the enemy.
+                if is_enemy_target(local_player, object_id)
+                    && selection_can_attack_target(
+                        local_player_u32,
+                        &self.current_selection,
+                        object_id,
+                    )
+                {
+                    return vec![GameMessageType::DoAttackObject(object_id)];
+                }
+
+                // Clicking a garrison/transport-capable container with infantry selected issues Enter.
+                if current_count_mine_infantry > 0
+                    && selection_can_enter_target(
+                        local_player_u32,
+                        &self.current_selection,
+                        object_id,
+                    )
+                {
+                    return vec![GameMessageType::Enter(0, object_id)];
+                }
+
+                // Clicking a damaged friendly object with a dozer selected issues DoRepair.
+                if selection_can_repair_target(local_player_u32, &self.current_selection, object_id)
+                {
+                    return vec![GameMessageType::DoRepair(object_id)];
+                }
+
+                if selection_can_resume_construction_target(
+                    local_player_u32,
+                    &self.current_selection,
+                    object_id,
+                ) {
+                    return vec![GameMessageType::ResumeConstruction(object_id)];
+                }
+
+                if selection_can_dock_at_target(
+                    local_player_u32,
+                    &self.current_selection,
+                    object_id,
+                ) {
+                    return vec![GameMessageType::Dock(object_id)];
+                }
+
+                if let Some(dest) = selection_can_pickup_crate_target(
+                    local_player_u32,
+                    &self.current_selection,
+                    object_id,
+                ) {
+                    return vec![GameMessageType::DoMoveTo(dest)];
+                }
+
+                // Salvage (hulks): C++ issues MSG_DO_SALVAGE with the target's position.
+                if let Some(dest) = selection_can_salvage_target(
+                    local_player_u32,
+                    &self.current_selection,
+                    object_id,
+                ) {
+                    return vec![GameMessageType::DoSalvage(dest)];
+                }
+            }
+
+            // SelectionXlat.cpp: prefer-selection mode appends/removes, but selecting enemies,
+            // friends, civilians, or buildings forces a replace selection.
+            let mut add_to_group = allow_add;
+            if current_count_mine_buildings > 0 || current_count_other > 0 {
+                add_to_group = false;
+            }
+
+            if allow_toggle {
+                if self.current_selection.remove(&object_id) {
+                    return vec![GameMessageType::RemoveFromSelectedGroup(vec![object_id])];
+                }
+                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                    return Vec::new();
+                }
+                self.current_selection.insert(object_id);
+                return vec![GameMessageType::CreateSelectedGroup(false, vec![object_id])];
+            }
+
+            if add_to_group {
+                if self.current_selection.contains(&object_id) {
+                    self.current_selection.remove(&object_id);
+                    return vec![GameMessageType::RemoveFromSelectedGroup(vec![object_id])];
+                }
+                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                    return Vec::new();
+                }
+                self.current_selection.insert(object_id);
+                return vec![GameMessageType::CreateSelectedGroup(false, vec![object_id])];
+            }
+
+            self.current_selection.clear();
+            self.current_selection.insert(object_id);
+            return vec![GameMessageType::CreateSelectedGroup(true, vec![object_id])];
+        }
+
+        // Region selection: C++ selection prefers locally controlled units; buildings can be
+        // selected when no units are selectable in the region.
+        mine.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut selected_ids = Vec::new();
+        let mut building_ids = Vec::new();
+        for (id, _) in mine.into_iter() {
+            if selected_ids.len() >= MAX_SELECTION_COUNT {
+                break;
+            }
+
+            let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+
+            if guard.is_kind_of(KindOf::Structure) || guard.is_kind_of(KindOf::Building) {
+                building_ids.push(id);
+                continue;
+            }
+
+            selected_ids.push(id);
+        }
+
+        if selected_ids.is_empty() && building_ids.len() == 1 {
+            selected_ids.push(building_ids[0]);
+        }
+
+        if selected_ids.is_empty() {
+            return Vec::new();
+        }
+
+        if allow_add {
+            let mut new_ids = Vec::new();
+            for id in selected_ids {
+                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                    break;
+                }
+                if self.current_selection.insert(id) {
+                    new_ids.push(id);
+                }
+            }
+            if new_ids.is_empty() {
+                Vec::new()
+            } else {
+                vec![GameMessageType::CreateSelectedGroup(false, new_ids)]
+            }
+        } else {
+            self.current_selection.clear();
+            self.current_selection.extend(selected_ids.iter().copied());
+            vec![GameMessageType::CreateSelectedGroup(true, selected_ids)]
+        }
+    }
+
+    /// Process keyboard events
+    fn handle_keyboard(&mut self, key: u32, down: bool) -> Vec<GameMessageType> {
+        debug!("Key {} {}", key, if down { "down" } else { "up" });
+
+        let mut messages = Vec::new();
+
+        match key {
+            // Meta commands mapped to keys
+            0x53 => {
+                // 'S' key - stop
+                if down {
+                    messages.push(GameMessageType::MetaStop);
+                }
+            }
+            0x41 => {
+                // 'A' key - attack move
+                if down {
+                    messages.push(GameMessageType::MetaToggleAttackMove);
+                }
+            }
+            0x47 => {
+                // 'G' key - guard
+                if down && !self.current_selection.is_empty() {
+                    // Guard current position
+                    let first = *self.current_selection.iter().next().unwrap();
+                    let pos = OBJECT_REGISTRY
+                        .get_object(first)
+                        .and_then(|obj| {
+                            obj.read()
+                                .ok()
+                                .map(|guard| logic_to_message_coord(guard.get_position()))
+                        })
+                        .unwrap_or_default();
+                    messages.push(GameMessageType::DoGuardPosition(pos, 0));
+                }
+            }
+            0x48 => {
+                // 'H' key - halt/stop
+                if down {
+                    messages.push(GameMessageType::MetaStop);
+                }
+            }
+            0x20 => {
+                // Spacebar - scatter
+                if down {
+                    messages.push(GameMessageType::MetaScatter);
+                }
+            }
+            // Control key modifiers
+            0x11 => {
+                // Ctrl key
+                if down {
+                    self.prefer_selection_mode = true;
+                    TheInGameUI::set_prefer_selection_mode(true);
+                    messages.push(GameMessageType::MetaBeginPreferSelection);
+                } else {
+                    self.prefer_selection_mode = false;
+                    TheInGameUI::set_prefer_selection_mode(false);
+                    messages.push(GameMessageType::MetaEndPreferSelection);
+                }
+            }
+            // Alt key for force attack
+            0x12 => {
+                // Alt key
+                if down {
+                    self.force_attack_mode = true;
+                    TheInGameUI::set_force_attack_mode(true);
+                    messages.push(GameMessageType::MetaBeginForceAttack);
+                } else {
+                    self.force_attack_mode = false;
+                    TheInGameUI::set_force_attack_mode(false);
+                    messages.push(GameMessageType::MetaEndForceAttack);
+                }
+            }
+            _ => {}
+        }
+
+        messages
+    }
+
+    /// Update current selection
+    fn update_selection(&mut self, objects: HashSet<ObjectID>) {
+        debug!("Updating selection with {} objects", objects.len());
+        self.current_selection = objects;
+    }
+}
+
+impl Default for CommandTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameMessageTranslator for CommandTranslator {
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        let new_messages = match msg.get_type() {
+            GameMessageType::FrameTick(_) => {
+                // Keep the client-side selection cache in sync with the GameLogic selection manager
+                // so commands work after selection changes originating outside this translator
+                // (control groups, scripts, multiplayer, etc.).
+                self.sync_selection_from_logic();
+                return GameMessageDisposition::KeepMessage;
+            }
+            GameMessageType::RawMouseLeftButtonDown(pos, _modifiers, _time) => {
+                self.handle_mouse_button_down(pos, MouseButton::Left, *_modifiers)
+            }
+            GameMessageType::RawMouseRightButtonDown(pos, _modifiers, _time) => {
+                self.handle_mouse_button_down(pos, MouseButton::Right, *_modifiers)
+            }
+            GameMessageType::RawMouseMiddleButtonDown(pos, _modifiers, _time) => {
+                self.handle_mouse_button_down(pos, MouseButton::Middle, *_modifiers)
+            }
+            GameMessageType::RawMouseLeftButtonUp(pos, _modifiers, _time) => {
+                self.handle_mouse_button_up(pos, MouseButton::Left, *_modifiers)
+            }
+            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, _time) => {
+                self.handle_mouse_button_up(pos, MouseButton::Right, *_modifiers)
+            }
+            GameMessageType::RawMouseMiddleButtonUp(pos, _modifiers, _time) => {
+                self.handle_mouse_button_up(pos, MouseButton::Middle, *_modifiers)
+            }
+            GameMessageType::RawKeyDown(key) => self.handle_keyboard(*key, true),
+            GameMessageType::RawKeyUp(key) => self.handle_keyboard(*key, false),
+            _ => {
+                // Pass through other messages unchanged
+                return GameMessageDisposition::KeepMessage;
+            }
+        };
+
+        // Translated high-level messages are forwarded into the command list, matching the C++
+        // message stream flow where raw input messages are consumed and replaced with commands.
+        for new_msg in new_messages {
+            dispatch_translated_message(&new_msg);
+        }
+
+        // Destroy raw input messages after processing
+        GameMessageDisposition::DestroyMessage
+    }
+}
+
+/// Mouse button enumeration
+#[derive(Debug, Clone, PartialEq)]
+enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+/// Selection Translator - handles unit selection and group management
+pub struct SelectionTranslator {
+    selected_objects: HashSet<ObjectID>,
+    control_groups: HashMap<u8, Vec<ObjectID>>, // 0-9 control groups
+    last_selected_group: Option<u8>,
+}
+
+impl SelectionTranslator {
+    pub fn new() -> Self {
+        Self {
+            selected_objects: HashSet::new(),
+            control_groups: HashMap::new(),
+            last_selected_group: None,
+        }
+    }
+
+    fn handle_area_selection(&mut self, region: &IRegion2D) -> Vec<GameMessageType> {
+        debug!("Handling area selection: {:?}", region);
+        let upper_left = ICoord2D::new(region.x, region.y);
+        let lower_right = ICoord2D::new(region.x + region.width, region.y + region.height);
+        TheInGameUI::select_area(upper_left, lower_right);
+        Vec::new()
+    }
+
+    fn handle_control_group_create(&mut self, group: u8) -> Vec<GameMessageType> {
+        debug!("Creating control group {}", group);
+
+        if !self.selected_objects.is_empty() {
+            let objects: Vec<_> = self.selected_objects.iter().cloned().collect();
+            self.control_groups.insert(group, objects.clone());
+            vec![GameMessageType::CreateTeamSlot(group)]
+        } else {
+            vec![]
+        }
+    }
+
+    fn handle_control_group_select(&mut self, group: u8) -> Vec<GameMessageType> {
+        debug!("Selecting control group {}", group);
+
+        if let Some(objects) = self.control_groups.get(&group).cloned() {
+            self.selected_objects.clear();
+            self.selected_objects.extend(objects.iter());
+            self.last_selected_group = Some(group);
+            vec![GameMessageType::SelectTeamSlot(group)]
+        } else {
+            vec![]
+        }
+    }
+
+    fn handle_control_group_add(&mut self, group: u8) -> Vec<GameMessageType> {
+        debug!("Adding control group {}", group);
+
+        if let Some(objects) = self.control_groups.get(&group).cloned() {
+            self.selected_objects.extend(objects.iter());
+            self.last_selected_group = Some(group);
+            vec![GameMessageType::AddTeamSlot(group)]
+        } else {
+            vec![]
+        }
+    }
+}
+
+fn collect_selectable_objects(
+    region: &IRegion2D,
+    is_point: bool,
+    pick_radius_world: f32,
+    local_player: Option<u32>,
+) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
+    let min_x = region.x.min(region.x + region.width);
+    let min_y = region.y.min(region.y + region.height);
+    let max_x = region.x.max(region.x + region.width);
+    let max_y = region.y.max(region.y + region.height);
+
+    let cx = region.x as f32;
+    let cy = region.y as f32;
+    let radius_sq = pick_radius_world * pick_radius_world;
+
+    let mut mine = Vec::new();
+    let mut other = Vec::new();
+
+    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
+        let Ok(obj) = obj_ref.read() else {
+            continue;
+        };
+
+        if obj.is_destroyed() {
+            continue;
+        }
+
+        let selectable =
+            obj.is_kind_of(KindOf::Selectable) || obj.is_kind_of(KindOf::AlwaysSelectable);
+        if !selectable {
+            continue;
+        }
+
+        let status = obj.get_status_bits();
+        if status.contains(LogicObjectStatusMaskType::UNSELECTABLE)
+            || status.contains(LogicObjectStatusMaskType::MASKED)
+        {
+            continue;
+        }
+
+        let pos = obj.get_position();
+        let x = pos.x as i32;
+        let y = pos.y as i32;
+
+        let in_region = if is_point {
+            let dx = pos.x - cx;
+            let dy = pos.y - cy;
+            (dx * dx + dy * dy) <= radius_sq
+        } else {
+            x >= min_x && x <= max_x && y >= min_y && y <= max_y
+        };
+
+        if !in_region {
+            continue;
+        }
+
+        let dx = pos.x - cx;
+        let dy = pos.y - cy;
+        let dist_sq = dx * dx + dy * dy;
+
+        let is_mine = local_player
+            .and_then(|pid| obj.get_controlling_player_id().map(|owner| owner == pid))
+            .unwrap_or(false);
+
+        if is_mine {
+            mine.push((obj.get_id(), dist_sq));
+        } else {
+            other.push((obj.get_id(), dist_sq));
+        }
+    }
+
+    (mine, other)
+}
+
+fn pick_closest(candidates: &mut Vec<(ObjectID, f32)>) -> Option<ObjectID> {
+    candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.first().map(|(id, _)| *id)
+}
+
+fn selection_counts(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+) -> (usize, usize, usize, usize) {
+    let mut mine = 0usize;
+    let mut mine_infantry = 0usize;
+    let mut mine_buildings = 0usize;
+    let mut other = 0usize;
+
+    for &id in selection {
+        let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(guard) = obj.read() else {
+            continue;
+        };
+        if guard.is_destroyed() {
+            continue;
+        }
+
+        let is_mine = local_player
+            .and_then(|pid| guard.get_controlling_player_id().map(|owner| owner == pid))
+            .unwrap_or(false);
+
+        if is_mine {
+            mine += 1;
+            if guard.is_kind_of(KindOf::Infantry) {
+                mine_infantry += 1;
+            }
+            if guard.is_kind_of(KindOf::Structure) || guard.is_kind_of(KindOf::Building) {
+                mine_buildings += 1;
+            }
+        } else {
+            other += 1;
+        }
+    }
+
+    (mine, mine_infantry, mine_buildings, other)
+}
+
+fn selection_can_attack_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if !sel_guard.is_able_to_attack() {
+            continue;
+        }
+
+        let result = sel_guard.get_able_to_attack_specific_object(
+            AbleToAttackType::CanAttackSpecific,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        );
+
+        if !matches!(
+            result,
+            CanAttackResult::NotPossible | CanAttackResult::InvalidShot
+        ) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_can_enter_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let contain = {
+        let Ok(target_guard) = target.read() else {
+            return false;
+        };
+        target_guard.get_contain()
+    };
+
+    let Some(contain) = contain else {
+        return false;
+    };
+    let Ok(contain_guard) = contain.lock() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+        if !sel_guard.is_kind_of(KindOf::Infantry) {
+            continue;
+        }
+
+        if contain_guard.can_contain(id) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_can_repair_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(local_player) = local_player else {
+        return false;
+    };
+
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    if target_guard.is_destroyed() {
+        return false;
+    }
+
+    let Some(owner) = target_guard.get_controlling_player_id() else {
+        return false;
+    };
+    if owner != local_player {
+        return false;
+    }
+
+    let damaged = target_guard.get_health() + f32::EPSILON < target_guard.get_max_health();
+    if !damaged {
+        return false;
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = sel_guard
+            .get_controlling_player_id()
+            .map(|owner| owner == local_player)
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_kind_of(KindOf::Dozer) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_can_resume_construction_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(local_player) = local_player else {
+        return false;
+    };
+
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    if target_guard.is_destroyed() {
+        return false;
+    }
+
+    let Some(owner) = target_guard.get_controlling_player_id() else {
+        return false;
+    };
+    if owner != local_player {
+        return false;
+    }
+
+    let status = target_guard.get_status_bits();
+    let under_construction = status.contains(LogicObjectStatusMaskType::UNDER_CONSTRUCTION)
+        || status.contains(LogicObjectStatusMaskType::RECONSTRUCTING);
+    if !under_construction {
+        return false;
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = sel_guard
+            .get_controlling_player_id()
+            .map(|owner| owner == local_player)
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_kind_of(KindOf::Dozer) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_can_dock_at_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(local_player) = local_player else {
+        return false;
+    };
+
+    if selection.is_empty() {
+        return false;
+    }
+
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    if target_guard.is_destroyed() {
+        return false;
+    }
+
+    let Some(owner) = target_guard.get_controlling_player_id() else {
+        return false;
+    };
+    if owner != local_player {
+        return false;
+    }
+
+    target_guard
+        .with_dock_update_interface(|_| true)
+        .unwrap_or(false)
+}
+
+fn selection_can_pickup_crate_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> Option<Coord3D> {
+    let Some(local_player) = local_player else {
+        return None;
+    };
+
+    if selection.is_empty() {
+        return None;
+    }
+
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return None;
+    };
+    let Ok(target_guard) = target.read() else {
+        return None;
+    };
+    if target_guard.is_destroyed() || !target_guard.is_kind_of(KindOf::Crate) {
+        return None;
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = sel_guard
+            .get_controlling_player_id()
+            .map(|owner| owner == local_player)
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_kind_of(KindOf::Unit) {
+            return Some(logic_to_message_coord(target_guard.get_position()));
+        }
+    }
+
+    None
+}
+
+fn selection_can_salvage_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> Option<Coord3D> {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return None;
+    };
+    let Ok(target_guard) = target.read() else {
+        return None;
+    };
+    if target_guard.is_destroyed() {
+        return None;
+    }
+
+    // In Generals, salvage is typically performed on hulks/wrecks.
+    if !target_guard.is_kind_of(KindOf::Hulk) {
+        return None;
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_kind_of(KindOf::Salvager)
+            || sel_guard.is_kind_of(KindOf::WeaponSalvager)
+            || sel_guard.is_kind_of(KindOf::ArmorSalvager)
+        {
+            return Some(logic_to_message_coord(target_guard.get_position()));
+        }
+    }
+
+    None
+}
+
+fn is_enemy_target(local_player_id: i32, target_id: ObjectID) -> bool {
+    if local_player_id < 0 {
+        return false;
+    }
+
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    let Some(owner) = target_guard.get_controlling_player_id() else {
+        return false;
+    };
+    if owner as i32 == local_player_id {
+        return false;
+    }
+
+    let Ok(list) = player_list().read() else {
+        return false;
+    };
+    let Some(me) = list.get_player(local_player_id) else {
+        return false;
+    };
+    let Some(them) = list.get_player(owner as i32) else {
+        return false;
+    };
+    let (Ok(me_guard), Ok(them_guard)) = (me.read(), them.read()) else {
+        return false;
+    };
+
+    matches!(me_guard.get_relationship(&them_guard), Relationship::Enemy)
+}
+
+fn dispatch_translated_message(message: &GameMessageType) {
+    use GameMessageType::*;
+
+    fn enqueue(message_type: GameMessageType) {
+        match get_command_list().write() {
+            Ok(mut list) => {
+                let player = get_local_player_id();
+                list.append_message(GameMessage::with_player(message_type, player));
+            }
+            Err(err) => {
+                warn!("Failed to enqueue translated message: {}", err);
+            }
+        }
+    }
+
+    match message {
+        CreateSelectedGroup(_, _)
+        | CreateSelectedGroupNoSound(_, _)
+        | DestroySelectedGroup(_)
+        | RemoveFromSelectedGroup(_)
+        | SelectedGroupCommand(_) => {
+            enqueue(message.clone());
+        }
+        AreaSelection(region) => {
+            let upper_left = ICoord2D::new(region.x, region.y);
+            let lower_right = ICoord2D::new(region.x + region.width, region.y + region.height);
+            TheInGameUI::select_area(upper_left, lower_right);
+            enqueue(message.clone());
+        }
+        DoMoveTo(pos) | DoForceMoveTO(pos) | AddWaypoint(pos) => {
+            let queue = matches!(message, AddWaypoint(_) | DoForceMoveTO(_));
+            let world = Coord3D::new(pos.x, pos.y, pos.z);
+            TheInGameUI::issue_move_command(world, queue);
+            enqueue(message.clone());
+        }
+        DoAttackMoveTo(_) => {
+            TheInGameUI::clear_attack_move_to_mode();
+            enqueue(message.clone());
+        }
+        DoSalvage(pos) => {
+            let world = Coord3D::new(pos.x, pos.y, pos.z);
+            TheInGameUI::issue_move_command(world, false);
+            enqueue(message.clone());
+        }
+        DoForceAttackGround(pos) => {
+            let world = Coord3D::new(pos.x, pos.y, pos.z);
+            TheInGameUI::issue_force_attack_ground(world);
+            enqueue(message.clone());
+        }
+        DoAttackObject(target) => {
+            TheInGameUI::issue_attack_command(*target, false);
+            enqueue(message.clone());
+        }
+        DoForceAttackObject(target) => {
+            TheInGameUI::issue_attack_command(*target, true);
+            enqueue(message.clone());
+        }
+        MetaToggleAttackMove => {
+            TheInGameUI::toggle_attack_move_to_mode();
+        }
+        Exit(_)
+        | Evacuate
+        | ExecuteRailedTransport
+        | DoAttackSquad(_)
+        | DoGuardObject(_, _)
+        | DoGuardPosition(_, _)
+        | SetRallyPoint(_, _)
+        | DozerConstruct(_, _, _)
+        | DozerConstructLine(_, _, _, _)
+        | DozerCancelConstruct(_)
+        | Sell(_)
+        | CombatDropAtLocation(_)
+        | CombatDropAtObject(_)
+        | GetRepaired(_)
+        | GetHealed(_)
+        | DoRepair(_)
+        | ResumeConstruction(_)
+        | Enter(_, _)
+        | Dock(_)
+        | DoWeapon(_)
+        | DoWeaponAtLocation(_, _)
+        | DoWeaponAtObject(_, _)
+        | DoSpecialPower(_, _, _)
+        | DoSpecialPowerAtLocation(_, _, _, _, _, _)
+        | DoSpecialPowerAtObject(_, _, _, _)
+        | DoSpecialPowerOverrideDestination(_, _, _)
+        | InternetHack
+        | DoCheer
+        | ToggleOvercharge
+        | SwitchWeapons(_)
+        | ConvertToCarbomb(_, _)
+        | CaptureBuilding(_, _)
+        | DisableVehicleHack(_, _)
+        | StealCashHack(_, _)
+        | DisableBuildingHack(_, _)
+        | SnipeVehicle(_, _)
+        | PurchaseScience(_)
+        | QueueUpgrade(_)
+        | CancelUpgrade(_)
+        | QueueUnitCreate(_)
+        | CancelUnitCreate(_) => {
+            enqueue(message.clone());
+        }
+        PlaceBeacon(coord) => {
+            info!(
+                "Placing beacon at ({:.1}, {:.1}, {:.1})",
+                coord.x, coord.y, coord.z
+            );
+            let player = get_local_player_id();
+            beacon_display::record_beacon_placed(player, coord.clone(), None);
+            enqueue(message.clone());
+        }
+        RemoveBeacon(coord) => {
+            info!(
+                "Removing beacon at ({:.1}, {:.1}, {:.1})",
+                coord.x, coord.y, coord.z
+            );
+            let player = get_local_player_id();
+            beacon_display::record_beacon_removed(player, coord.clone());
+            enqueue(message.clone());
+        }
+        SetBeaconText(coord, text) => {
+            info!(
+                "Setting beacon text at ({:.1}, {:.1}, {:.1}) to '{}'",
+                coord.x, coord.y, coord.z, text
+            );
+            let player = get_local_player_id();
+            beacon_display::record_beacon_text(player, coord.clone(), text.clone());
+            enqueue(message.clone());
+        }
+        SetReplayCamera(coord, pitch, zoom) => {
+            info!(
+                "Setting replay camera to ({:.1}, {:.1}, {:.1}) pitch={:.1} zoom={:.1}",
+                coord.x, coord.y, coord.z, pitch, zoom
+            );
+            enqueue(message.clone());
+        }
+        ClearInGamePopupMessage => {
+            info!("Clearing in-game popup message");
+            enqueue(message.clone());
+        }
+        SelfDestruct(player_id) => {
+            info!("Triggering self-destruct for player {}", player_id);
+            enqueue(message.clone());
+        }
+        CreateFormation(units) => {
+            info!("Creating formation with {} units", units.len());
+            enqueue(message.clone());
+        }
+        LogicCRC(crc) => {
+            info!("Submitting logic CRC {:08X}", crc);
+            enqueue(message.clone());
+        }
+        SetMineClearingDetail(level) => {
+            info!("Setting mine clearing detail to {}", level);
+            enqueue(message.clone());
+        }
+        EnableRetaliationMode(player_id, enabled) => {
+            info!(
+                "Setting retaliation mode for player {} to {}",
+                player_id, enabled
+            );
+            enqueue(message.clone());
+        }
+        MetaStop => {
+            TheInGameUI::issue_stop_command();
+        }
+        _ => {
+            debug!("Unhandled translated message {:?}", message);
+        }
+    }
+}
+
+impl Default for SelectionTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameMessageTranslator for SelectionTranslator {
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        let new_messages = match msg.get_type() {
+            GameMessageType::AreaSelection(region) => self.handle_area_selection(region),
+            GameMessageType::MetaCreateTeam(group) => self.handle_control_group_create(*group),
+            GameMessageType::MetaSelectTeam(group) => self.handle_control_group_select(*group),
+            GameMessageType::MetaAddTeam(group) => self.handle_control_group_add(*group),
+            GameMessageType::CreateSelectedGroup(create_new, objects) => {
+                if *create_new {
+                    self.selected_objects.clear();
+                }
+                self.selected_objects.extend(objects.iter());
+                debug!(
+                    "Updated selection to {} objects",
+                    self.selected_objects.len()
+                );
+                return GameMessageDisposition::KeepMessage;
+            }
+            GameMessageType::CreateSelectedGroupNoSound(create_new, objects) => {
+                if *create_new {
+                    self.selected_objects.clear();
+                }
+                self.selected_objects.extend(objects.iter());
+                debug!(
+                    "Updated selection to {} objects",
+                    self.selected_objects.len()
+                );
+                return GameMessageDisposition::KeepMessage;
+            }
+            GameMessageType::RemoveFromSelectedGroup(objects) => {
+                for id in objects {
+                    self.selected_objects.remove(id);
+                }
+                debug!(
+                    "Updated selection to {} objects",
+                    self.selected_objects.len()
+                );
+                return GameMessageDisposition::KeepMessage;
+            }
+            _ => {
+                return GameMessageDisposition::KeepMessage;
+            }
+        };
+
+        // Log generated messages
+        for new_msg in new_messages {
+            dispatch_translated_message(&new_msg);
+        }
+
+        GameMessageDisposition::KeepMessage
+    }
+}
+
+/// GUI Command Translator - handles UI-specific commands
+pub struct GUICommandTranslator {
+    ui_state: HashMap<String, bool>,
+}
+
+impl GUICommandTranslator {
+    pub fn new() -> Self {
+        Self {
+            ui_state: HashMap::new(),
+        }
+    }
+
+    fn toggle_flag(&mut self, key: &str, default: bool) -> bool {
+        let current = *self.ui_state.get(key).unwrap_or(&default);
+        self.ui_state.insert(key.to_string(), !current);
+        !current
+    }
+
+    fn handle_toggle_control_bar(&mut self) -> Vec<GameMessageType> {
+        let new_state = self.toggle_flag("control_bar_visible", true);
+        info!("Toggling control bar to: {}", new_state);
+        if let Err(err) = toggle_control_bar(false) {
+            warn!("Failed to toggle control bar: {}", err);
+        }
+        vec![] // UI changes don't generate game messages
+    }
+
+    fn handle_toggle_diplomacy(&mut self) -> Vec<GameMessageType> {
+        let new_state = self.toggle_flag("diplomacy_visible", false);
+        info!("Toggling diplomacy to: {}", new_state);
+        if let Err(err) = toggle_diplomacy(false) {
+            warn!("Failed to toggle diplomacy: {}", err);
+        }
+        vec![]
+    }
+}
+
+impl Default for GUICommandTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameMessageTranslator for GUICommandTranslator {
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        match msg.get_type() {
+            GameMessageType::MetaToggleControlBar => {
+                self.handle_toggle_control_bar();
+                GameMessageDisposition::DestroyMessage
+            }
+            GameMessageType::MetaDiplomacy => {
+                self.handle_toggle_diplomacy();
+                GameMessageDisposition::DestroyMessage
+            }
+            GameMessageType::MetaOptions => {
+                info!("Opening options menu");
+                GameMessageDisposition::DestroyMessage
+            }
+            _ => GameMessageDisposition::KeepMessage,
+        }
+    }
+}
+
+/// Hint Spy - processes hint messages for UI feedback
+pub struct HintSpy {
+    last_hint: Option<String>,
+}
+
+impl HintSpy {
+    pub fn new() -> Self {
+        Self { last_hint: None }
+    }
+
+    fn process_hint(&mut self, hint: String) {
+        debug!("Processing hint: {}", hint);
+        self.last_hint = Some(hint);
+        if let Some(last_hint) = &self.last_hint {
+            TheInGameUI::set_hint_text(last_hint);
+        }
+    }
+}
+
+impl Default for HintSpy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameMessageTranslator for HintSpy {
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        match msg.get_type() {
+            GameMessageType::DoMoveToHint(pos) => {
+                self.process_hint(format!("Move to {:?}", pos));
+                GameMessageDisposition::DestroyMessage
+            }
+            GameMessageType::DoAttackObjectHint(target) => {
+                self.process_hint(format!("Attack object {}", target));
+                GameMessageDisposition::DestroyMessage
+            }
+            GameMessageType::DoRepairHint(target) => {
+                self.process_hint(format!("Repair object {}", target));
+                GameMessageDisposition::DestroyMessage
+            }
+            GameMessageType::DoInvalidHint => {
+                self.process_hint("Invalid action".to_string());
+                GameMessageDisposition::DestroyMessage
+            }
+            _ => GameMessageDisposition::KeepMessage,
+        }
+    }
+}
+
+/// Translator factory for creating and managing translators
+pub struct TranslatorFactory {}
+
+impl TranslatorFactory {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// Create a command translator
+    pub fn create_command_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(CommandTranslator::new()))
+    }
+
+    /// Create a selection translator  
+    pub fn create_selection_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(SelectionTranslatorXlat::new()))
+    }
+
+    /// Create a window translator
+    pub fn create_window_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(WindowTranslator::new()))
+    }
+
+    /// Create a meta event translator
+    pub fn create_meta_event_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(MetaEventTranslator::new()))
+    }
+
+    /// Create a look-at translator
+    pub fn create_look_at_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(LookAtTranslator::new()))
+    }
+
+    /// Create a hot key translator
+    pub fn create_hot_key_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(HotKeyTranslator::new()))
+    }
+
+    /// Create a placement translator
+    pub fn create_place_event_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(PlaceEventTranslator::new()))
+    }
+
+    /// Create a GUI command translator
+    pub fn create_gui_command_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(GUICommandTranslator::new()))
+    }
+
+    /// Create a hint spy translator
+    pub fn create_hint_spy() -> Arc<RwLock<dyn GameMessageTranslator>> {
+        Arc::new(RwLock::new(HintSpy::new()))
+    }
+
+    /// Create the standard set of translators with appropriate priorities
+    pub fn create_standard_translator_set() -> Vec<(Arc<RwLock<dyn GameMessageTranslator>>, u32)> {
+        vec![
+            (Self::create_window_translator(), 10), // Window input handling
+            (Self::create_meta_event_translator(), 20), // Meta key remapping
+            (Self::create_hot_key_translator(), 25), // UI hotkeys
+            (Self::create_place_event_translator(), 30), // Placement handling
+            (Self::create_gui_command_translator(), 40), // UI commands
+            (Self::create_selection_translator(), 50), // Selection handling
+            (Self::create_look_at_translator(), 60), // Camera movement
+            (Self::create_command_translator(), 70), // Command processing
+            (Self::create_hint_spy(), 100),         // Hints and feedback
+        ]
+    }
+}
+
+impl Default for TranslatorFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_translator() {
+        let mut translator = CommandTranslator::new();
+
+        // Test mouse button down
+        let down_msg = GameMessage::new(GameMessageType::RawMouseLeftButtonDown(
+            ICoord2D { x: 100, y: 50 },
+            0,
+            1000,
+        ));
+
+        let result = translator.translate_game_message(&down_msg);
+        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+
+        // Test keyboard input
+        let key_msg = GameMessage::new(GameMessageType::RawKeyDown(0x53)); // 'S' key
+        let result = translator.translate_game_message(&key_msg);
+        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+    }
+
+    #[test]
+    fn test_selection_translator() {
+        let mut translator = SelectionTranslator::new();
+
+        // Test area selection
+        let region = IRegion2D {
+            x: 10,
+            y: 10,
+            width: 50,
+            height: 50,
+        };
+        let selection_msg = GameMessage::new(GameMessageType::AreaSelection(region));
+
+        let result = translator.translate_game_message(&selection_msg);
+        assert_eq!(result, GameMessageDisposition::KeepMessage);
+
+        // Test control group creation
+        let group_msg = GameMessage::new(GameMessageType::MetaCreateTeam(1));
+        let result = translator.translate_game_message(&group_msg);
+        assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn test_gui_command_translator() {
+        let mut translator = GUICommandTranslator::new();
+
+        // Test control bar toggle
+        let toggle_msg = GameMessage::new(GameMessageType::MetaToggleControlBar);
+        let result = translator.translate_game_message(&toggle_msg);
+        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+
+        // Test diplomacy toggle
+        let diplomacy_msg = GameMessage::new(GameMessageType::MetaDiplomacy);
+        let result = translator.translate_game_message(&diplomacy_msg);
+        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+
+        // Test pass-through message
+        let other_msg = GameMessage::new(GameMessageType::Invalid);
+        let result = translator.translate_game_message(&other_msg);
+        assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn test_hint_spy() {
+        let mut hint_spy = HintSpy::new();
+
+        assert!(hint_spy.last_hint.is_none());
+
+        // Test move hint
+        let move_hint = GameMessage::new(GameMessageType::DoMoveToHint(Coord3D::default()));
+        let result = hint_spy.translate_game_message(&move_hint);
+        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+        assert!(hint_spy.last_hint.is_some());
+
+        // Test attack hint
+        let attack_hint = GameMessage::new(GameMessageType::DoAttackObjectHint(123));
+        let result = hint_spy.translate_game_message(&attack_hint);
+        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+
+        // Test pass-through
+        let other_msg = GameMessage::new(GameMessageType::Invalid);
+        let result = hint_spy.translate_game_message(&other_msg);
+        assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn test_translator_factory() {
+        let factory = TranslatorFactory::new();
+
+        // Test individual translator creation
+        let command_translator = TranslatorFactory::create_command_translator();
+        assert!(command_translator.read().is_ok());
+
+        let selection_translator = TranslatorFactory::create_selection_translator();
+        assert!(selection_translator.read().is_ok());
+
+        let window_translator = TranslatorFactory::create_window_translator();
+        assert!(window_translator.read().is_ok());
+
+        let meta_translator = TranslatorFactory::create_meta_event_translator();
+        assert!(meta_translator.read().is_ok());
+
+        let gui_translator = TranslatorFactory::create_gui_command_translator();
+        assert!(gui_translator.read().is_ok());
+
+        let look_at = TranslatorFactory::create_look_at_translator();
+        assert!(look_at.read().is_ok());
+
+        let hot_key = TranslatorFactory::create_hot_key_translator();
+        assert!(hot_key.read().is_ok());
+
+        let place_event = TranslatorFactory::create_place_event_translator();
+        assert!(place_event.read().is_ok());
+
+        let hint_spy = TranslatorFactory::create_hint_spy();
+        assert!(hint_spy.read().is_ok());
+
+        // Test standard translator set
+        let standard_set = TranslatorFactory::create_standard_translator_set();
+        assert_eq!(standard_set.len(), 9);
+
+        // Verify priorities are in ascending order
+        let priorities: Vec<u32> = standard_set.iter().map(|(_, p)| *p).collect();
+        assert_eq!(priorities, vec![10, 20, 25, 30, 40, 50, 60, 70, 100]);
+    }
+
+    #[test]
+    fn test_command_translator_modes() {
+        let mut translator = CommandTranslator::new();
+
+        // Test force attack mode
+        assert!(!translator.force_attack_mode);
+
+        let alt_down = GameMessage::new(GameMessageType::RawKeyDown(0x12)); // Alt key
+        translator.translate_game_message(&alt_down);
+        assert!(translator.force_attack_mode);
+
+        let alt_up = GameMessage::new(GameMessageType::RawKeyUp(0x12));
+        translator.translate_game_message(&alt_up);
+        assert!(!translator.force_attack_mode);
+
+        // Test prefer selection mode
+        assert!(!translator.prefer_selection_mode);
+
+        let ctrl_down = GameMessage::new(GameMessageType::RawKeyDown(0x11)); // Ctrl key
+        translator.translate_game_message(&ctrl_down);
+        assert!(translator.prefer_selection_mode);
+
+        let ctrl_up = GameMessage::new(GameMessageType::RawKeyUp(0x11));
+        translator.translate_game_message(&ctrl_up);
+        assert!(!translator.prefer_selection_mode);
+    }
+
+    #[test]
+    fn test_selection_translator_groups() {
+        let mut translator = SelectionTranslator::new();
+
+        // Simulate having selected objects
+        translator.selected_objects.insert(100);
+        translator.selected_objects.insert(101);
+
+        // Create control group
+        let create_msg = GameMessage::new(GameMessageType::MetaCreateTeam(1));
+        translator.translate_game_message(&create_msg);
+
+        assert!(translator.control_groups.contains_key(&1));
+        assert_eq!(translator.control_groups[&1].len(), 2);
+
+        // Clear current selection
+        translator.selected_objects.clear();
+        assert_eq!(translator.selected_objects.len(), 0);
+
+        // Select control group
+        let select_msg = GameMessage::new(GameMessageType::MetaSelectTeam(1));
+        translator.translate_game_message(&select_msg);
+
+        assert_eq!(translator.selected_objects.len(), 2);
+        assert_eq!(translator.last_selected_group, Some(1));
+    }
+}

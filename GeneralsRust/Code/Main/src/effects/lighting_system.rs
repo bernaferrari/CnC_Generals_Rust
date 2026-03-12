@@ -1,0 +1,933 @@
+use bytemuck::{Pod, Zeroable};
+use glam::{Mat4, Vec3};
+use log::{debug, info};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Maximum number of dynamic lights supported simultaneously
+const MAX_DYNAMIC_LIGHTS: usize = 64;
+
+/// Light types matching C&C lighting categories
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LightType {
+    Point,       // Omnidirectional light (explosions, fires)
+    Spot,        // Directional cone light (searchlights, muzzle flashes)
+    Directional, // Parallel light (sun, moon)
+    Area,        // Large surface light (building glows)
+}
+
+/// Light falloff patterns
+#[derive(Debug, Clone, Copy)]
+pub enum FalloffType {
+    Linear,      // Linear distance falloff
+    Quadratic,   // Physically accurate inverse square
+    Exponential, // Smooth exponential falloff
+    Custom(f32), // Custom power falloff
+}
+
+/// Dynamic light source
+#[derive(Debug, Clone)]
+pub struct LightSource {
+    pub id: u32,
+    pub light_type: LightType,
+    pub position: Vec3,
+    pub direction: Vec3, // For spot and directional lights
+    pub color: Vec3,     // RGB color
+    pub intensity: f32,  // Light intensity
+    pub radius: f32,     // Maximum light range
+    pub falloff: FalloffType,
+
+    // Spot light properties
+    pub cone_angle: f32,    // Spot light cone angle (radians)
+    pub cone_softness: f32, // Edge softness (0.0 = hard, 1.0 = very soft)
+
+    // Animation properties
+    pub flicker_speed: f32,     // Flicker rate in Hz
+    pub flicker_intensity: f32, // Flicker amount (0.0 = none, 1.0 = full)
+    pub pulse_speed: f32,       // Pulsing rate in Hz
+    pub pulse_intensity: f32,   // Pulse amount
+
+    // State
+    pub is_active: bool,
+    pub lifetime: f32,       // Remaining lifetime (-1.0 = infinite)
+    pub creation_time: f32,  // When this light was created
+    pub last_intensity: f32, // For smooth transitions
+
+    // Shadow casting
+    pub cast_shadows: bool,
+    pub shadow_bias: f32,
+    pub shadow_quality: ShadowQuality,
+}
+
+/// Shadow quality settings
+#[derive(Debug, Clone, Copy)]
+pub enum ShadowQuality {
+    None,   // No shadows
+    Low,    // 512x512 shadow map
+    Medium, // 1024x1024 shadow map
+    High,   // 2048x2048 shadow map
+    Ultra,  // 4096x4096 shadow map
+}
+
+/// GPU light data for shaders
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct GPULight {
+    position: [f32; 4],        // Vec3 + light type as float
+    direction: [f32; 4],       // Vec3 + cone angle
+    color_intensity: [f32; 4], // RGB + intensity
+    radius_falloff: [f32; 4],  // radius, falloff power, cone_softness, shadow_bias
+    flicker_pulse: [f32; 4],   // flicker_speed, flicker_intensity, pulse_speed, pulse_intensity
+    flags: [u32; 4],           // active, cast_shadows, shadow_quality, padding
+}
+
+impl From<&LightSource> for GPULight {
+    fn from(light: &LightSource) -> Self {
+        let light_type_value = match light.light_type {
+            LightType::Point => 0.0,
+            LightType::Spot => 1.0,
+            LightType::Directional => 2.0,
+            LightType::Area => 3.0,
+        };
+
+        let falloff_power = match light.falloff {
+            FalloffType::Linear => 1.0,
+            FalloffType::Quadratic => 2.0,
+            FalloffType::Exponential => 3.0,
+            FalloffType::Custom(power) => power,
+        };
+
+        let shadow_quality_value = match light.shadow_quality {
+            ShadowQuality::None => 0,
+            ShadowQuality::Low => 1,
+            ShadowQuality::Medium => 2,
+            ShadowQuality::High => 3,
+            ShadowQuality::Ultra => 4,
+        };
+
+        Self {
+            position: [
+                light.position.x,
+                light.position.y,
+                light.position.z,
+                light_type_value,
+            ],
+            direction: [
+                light.direction.x,
+                light.direction.y,
+                light.direction.z,
+                light.cone_angle,
+            ],
+            color_intensity: [light.color.x, light.color.y, light.color.z, light.intensity],
+            radius_falloff: [
+                light.radius,
+                falloff_power,
+                light.cone_softness,
+                light.shadow_bias,
+            ],
+            flicker_pulse: [
+                light.flicker_speed,
+                light.flicker_intensity,
+                light.pulse_speed,
+                light.pulse_intensity,
+            ],
+            flags: [
+                if light.is_active { 1 } else { 0 },
+                if light.cast_shadows { 1 } else { 0 },
+                shadow_quality_value,
+                0, // padding
+            ],
+        }
+    }
+}
+
+/// Lighting uniforms for GPU
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct LightingUniforms {
+    view_matrix: [[f32; 4]; 4],
+    projection_matrix: [[f32; 4]; 4],
+    camera_position: [f32; 4], // Vec3 + padding
+    ambient_color: [f32; 4],   // RGB + intensity
+    time: f32,                 // Current time for animations
+    num_active_lights: u32,    // Number of lights currently active
+    shadow_cascade_count: u32, // Number of shadow cascades
+    _padding: u32,
+}
+
+/// Shadow cascade data for cascaded shadow mapping
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct ShadowCascade {
+    view_proj_matrix: [[f32; 4]; 4],
+    split_distance: f32,
+    _padding: [f32; 3],
+}
+
+/// Dynamic lighting system
+pub struct DynamicLighting {
+    // GPU resources
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+
+    // Light management
+    lights: HashMap<u32, LightSource>,
+    next_light_id: u32,
+    current_time: f32,
+
+    // GPU buffers
+    light_buffer: wgpu::Buffer,
+    uniform_buffer: wgpu::Buffer,
+    cascade_buffer: wgpu::Buffer,
+
+    // Shadow mapping
+    shadow_texture: wgpu::Texture,
+    shadow_view: wgpu::TextureView,
+    shadow_sampler: wgpu::Sampler,
+    shadow_map_size: u32,
+
+    // Lighting settings
+    ambient_color: Vec3,
+    ambient_intensity: f32,
+    shadow_enabled: bool,
+    max_shadow_distance: f32,
+    cascade_splits: [f32; 4], // For cascaded shadow mapping
+
+    // Render pipeline
+    lighting_pipeline: wgpu::RenderPipeline,
+    shadow_pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    bind_group: wgpu::BindGroup,
+
+    // Performance settings
+    max_lights_per_object: u32,
+    light_culling_enabled: bool,
+    camera_position: Vec3,
+}
+
+impl DynamicLighting {
+    fn collect_shadow_casting_light_ids(lights: &HashMap<u32, LightSource>) -> Vec<u32> {
+        let mut ids: Vec<u32> = lights
+            .values()
+            .filter(|light| light.is_active && light.cast_shadows)
+            .map(|light| light.id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        // Create shadow texture
+        let shadow_map_size = 2048;
+        let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Shadow Map"),
+            size: wgpu::Extent3d {
+                width: shadow_map_size,
+                height: shadow_map_size,
+                depth_or_array_layers: MAX_DYNAMIC_LIGHTS as u32, // Array texture for multiple lights
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let shadow_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("Shadow Map View"),
+            format: Some(wgpu::TextureFormat::Depth32Float),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            aspect: wgpu::TextureAspect::DepthOnly,
+            base_mip_level: 0,
+            mip_level_count: Some(1),
+            base_array_layer: 0,
+            array_layer_count: Some(MAX_DYNAMIC_LIGHTS as u32),
+            usage: None,
+        });
+
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Shadow Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+
+        // Create buffers
+        let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Dynamic Lights Buffer"),
+            size: (MAX_DYNAMIC_LIGHTS * std::mem::size_of::<GPULight>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Lighting Uniforms"),
+            size: std::mem::size_of::<LightingUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let cascade_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Shadow Cascades"),
+            size: (4 * std::mem::size_of::<ShadowCascade>()) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Create bind group layout
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Lighting Bind Group Layout"),
+            entries: &[
+                // Lighting uniforms
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Dynamic lights buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Shadow map texture
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Shadow sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+                // Shadow cascades
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        // Create bind group
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Lighting Bind Group"),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: cascade_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Create shader modules
+        let lighting_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Dynamic Lighting Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../shaders/dynamic_lighting.wgsl").into(),
+            ),
+        });
+
+        let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shadow Mapping Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shadow_mapping.wgsl").into()),
+        });
+
+        // Create render pipelines
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Lighting Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let lighting_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Dynamic Lighting Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &lighting_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &lighting_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+            multiview: None,
+        });
+
+        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Shadow Mapping Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shadow_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: None, // Depth-only pass
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Front), // Front-face culling for shadow mapping
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+            multiview: None,
+        });
+
+        Self {
+            device,
+            queue,
+            lights: HashMap::new(),
+            next_light_id: 1,
+            current_time: 0.0,
+            light_buffer,
+            uniform_buffer,
+            cascade_buffer,
+            shadow_texture,
+            shadow_view,
+            shadow_sampler,
+            shadow_map_size,
+            ambient_color: Vec3::new(0.1, 0.1, 0.15), // Slightly blue ambient
+            ambient_intensity: 0.3,
+            shadow_enabled: true,
+            max_shadow_distance: 200.0,
+            cascade_splits: [10.0, 30.0, 80.0, 200.0],
+            lighting_pipeline,
+            shadow_pipeline,
+            bind_group_layout,
+            bind_group,
+            max_lights_per_object: 16,
+            light_culling_enabled: true,
+            camera_position: Vec3::ZERO,
+        }
+    }
+
+    /// Add a new dynamic light
+    pub fn add_light(&mut self, mut light: LightSource) -> u32 {
+        let light_id = self.next_light_id;
+        self.next_light_id += 1;
+
+        light.id = light_id;
+        light.creation_time = self.current_time;
+        light.is_active = true;
+
+        let light_type = light.light_type;
+        self.lights.insert(light_id, light);
+        debug!("Added dynamic light {} of type {:?}", light_id, light_type);
+
+        light_id
+    }
+
+    /// Remove a dynamic light
+    pub fn remove_light(&mut self, light_id: u32) -> bool {
+        if self.lights.remove(&light_id).is_some() {
+            debug!("Removed dynamic light {}", light_id);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get mutable reference to a light
+    pub fn get_light_mut(&mut self, light_id: u32) -> Option<&mut LightSource> {
+        self.lights.get_mut(&light_id)
+    }
+
+    /// Update all dynamic lights
+    pub fn update(&mut self, delta_time: f32, camera_pos: Vec3) {
+        self.current_time += delta_time;
+        self.camera_position = camera_pos;
+
+        // Update light animations and lifetime
+        let mut expired_lights = Vec::new();
+
+        for (id, light) in &mut self.lights {
+            if !light.is_active {
+                continue;
+            }
+
+            // Update lifetime
+            if light.lifetime > 0.0 {
+                light.lifetime -= delta_time;
+                if light.lifetime <= 0.0 {
+                    light.is_active = false;
+                    expired_lights.push(*id);
+                    continue;
+                }
+            }
+
+            // Update intensity based on animations
+            let age = self.current_time - light.creation_time;
+            let mut intensity_modifier = 1.0;
+
+            // Flicker effect
+            if light.flicker_speed > 0.0 && light.flicker_intensity > 0.0 {
+                let flicker_phase = age * light.flicker_speed * 2.0 * std::f32::consts::PI;
+                let flicker_value = (flicker_phase + (flicker_phase * 3.7).sin() * 0.3).sin();
+                intensity_modifier *= 1.0 + flicker_value * light.flicker_intensity;
+            }
+
+            // Pulse effect
+            if light.pulse_speed > 0.0 && light.pulse_intensity > 0.0 {
+                let pulse_phase = age * light.pulse_speed * 2.0 * std::f32::consts::PI;
+                let pulse_value = (pulse_phase).sin();
+                intensity_modifier *= 1.0 + pulse_value * light.pulse_intensity;
+            }
+
+            // Smooth intensity transitions
+            let target_intensity = light.intensity * intensity_modifier;
+            let smooth_factor = (delta_time * 10.0).min(1.0);
+            light.last_intensity =
+                light.last_intensity + (target_intensity - light.last_intensity) * smooth_factor;
+        }
+
+        // Remove expired lights
+        for id in expired_lights {
+            self.lights.remove(&id);
+        }
+
+        // Update GPU buffers
+        self.update_gpu_data();
+    }
+
+    /// Update GPU buffers with current light data
+    fn update_gpu_data(&mut self) {
+        // Collect active lights
+        let mut gpu_lights: Vec<GPULight> = self
+            .lights
+            .values()
+            .filter(|light| light.is_active)
+            .take(MAX_DYNAMIC_LIGHTS)
+            .map(|light| {
+                let mut gpu_light: GPULight = light.into();
+                // Override intensity with animated value
+                gpu_light.color_intensity[3] = light.last_intensity;
+                gpu_light
+            })
+            .collect();
+
+        // Pad to maximum size
+        gpu_lights.resize(MAX_DYNAMIC_LIGHTS, unsafe { std::mem::zeroed() });
+
+        // Update light buffer
+        self.queue
+            .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&gpu_lights));
+
+        // Update uniforms
+        let uniforms = LightingUniforms {
+            view_matrix: Mat4::IDENTITY.to_cols_array_2d(),
+            projection_matrix: Mat4::IDENTITY.to_cols_array_2d(),
+            camera_position: [
+                self.camera_position.x,
+                self.camera_position.y,
+                self.camera_position.z,
+                0.0,
+            ],
+            ambient_color: [
+                self.ambient_color.x,
+                self.ambient_color.y,
+                self.ambient_color.z,
+                self.ambient_intensity,
+            ],
+            time: self.current_time,
+            num_active_lights: self.lights.values().filter(|light| light.is_active).count() as u32,
+            shadow_cascade_count: 4,
+            _padding: 0,
+        };
+
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+    }
+
+    /// Render shadow maps for all shadow-casting lights
+    pub fn render_shadow_maps(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        mut scene_render_fn: impl FnMut(&mut wgpu::RenderPass),
+    ) {
+        self.render_shadow_maps_with_context(encoder, |_light, _layer, pass| scene_render_fn(pass));
+    }
+
+    /// Render shadow maps for all shadow-casting lights with per-light context.
+    pub fn render_shadow_maps_with_context(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        mut scene_render_fn: impl FnMut(&LightSource, usize, &mut wgpu::RenderPass),
+    ) {
+        if !self.shadow_enabled {
+            return;
+        }
+
+        let shadow_casting_light_ids = Self::collect_shadow_casting_light_ids(&self.lights);
+        for (layer_index, light_id) in shadow_casting_light_ids.into_iter().enumerate() {
+            if layer_index >= MAX_DYNAMIC_LIGHTS {
+                break;
+            }
+            let Some(light) = self.lights.get(&light_id) else {
+                continue;
+            };
+
+            // Create view for this shadow map layer
+            let shadow_layer_view = self
+                .shadow_texture
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: Some(&format!("Shadow Map Layer {}", layer_index)),
+                    format: Some(wgpu::TextureFormat::Depth32Float),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    aspect: wgpu::TextureAspect::DepthOnly,
+                    base_mip_level: 0,
+                    mip_level_count: Some(1),
+                    base_array_layer: layer_index as u32,
+                    array_layer_count: Some(1),
+                    usage: None,
+                });
+
+            // Render shadow map
+            {
+                let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(&format!("Shadow Pass Light {}", light.id)),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &shadow_layer_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                // Render scene from light's perspective.
+                // The callback owns pipeline/bind state so it can submit real mesh geometry.
+                scene_render_fn(light, layer_index, &mut shadow_pass);
+            }
+        }
+    }
+
+    /// Apply dynamic lighting to the scene
+    pub fn render_lighting(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target_view: &wgpu::TextureView,
+    ) {
+        if self.lights.is_empty() {
+            return;
+        }
+
+        let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Dynamic Lighting Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        lighting_pass.set_pipeline(&self.lighting_pipeline);
+        lighting_pass.set_bind_group(0, &self.bind_group, &[]);
+
+        // Render fullscreen quad to apply lighting
+        lighting_pass.draw(0..3, 0..1); // Triangle trick for fullscreen
+    }
+
+    /// Create a point light (explosion, fire, etc.)
+    pub fn create_point_light(
+        position: Vec3,
+        color: Vec3,
+        intensity: f32,
+        radius: f32,
+    ) -> LightSource {
+        LightSource {
+            id: 0, // Will be set when added
+            light_type: LightType::Point,
+            position,
+            direction: Vec3::Y,
+            color,
+            intensity,
+            radius,
+            falloff: FalloffType::Quadratic,
+            cone_angle: 0.0,
+            cone_softness: 0.0,
+            flicker_speed: 0.0,
+            flicker_intensity: 0.0,
+            pulse_speed: 0.0,
+            pulse_intensity: 0.0,
+            is_active: true,
+            lifetime: -1.0,
+            creation_time: 0.0,
+            last_intensity: intensity,
+            cast_shadows: false,
+            shadow_bias: 0.005,
+            shadow_quality: ShadowQuality::Medium,
+        }
+    }
+
+    /// Create a spot light (searchlight, muzzle flash, etc.)
+    pub fn create_spot_light(
+        position: Vec3,
+        direction: Vec3,
+        color: Vec3,
+        intensity: f32,
+        radius: f32,
+        cone_angle: f32,
+        cone_softness: f32,
+    ) -> LightSource {
+        LightSource {
+            id: 0,
+            light_type: LightType::Spot,
+            position,
+            direction: direction.normalize(),
+            color,
+            intensity,
+            radius,
+            falloff: FalloffType::Quadratic,
+            cone_angle,
+            cone_softness,
+            flicker_speed: 0.0,
+            flicker_intensity: 0.0,
+            pulse_speed: 0.0,
+            pulse_intensity: 0.0,
+            is_active: true,
+            lifetime: -1.0,
+            creation_time: 0.0,
+            last_intensity: intensity,
+            cast_shadows: true,
+            shadow_bias: 0.005,
+            shadow_quality: ShadowQuality::Medium,
+        }
+    }
+
+    /// Create a flickering light (fire, electrical arc, etc.)
+    pub fn create_flickering_light(
+        position: Vec3,
+        color: Vec3,
+        intensity: f32,
+        radius: f32,
+        flicker_speed: f32,
+        flicker_intensity: f32,
+    ) -> LightSource {
+        let mut light = Self::create_point_light(position, color, intensity, radius);
+        light.flicker_speed = flicker_speed;
+        light.flicker_intensity = flicker_intensity;
+        light
+    }
+
+    /// Create a temporary explosion light
+    pub fn create_explosion_light(position: Vec3, size: f32) -> LightSource {
+        let intensity = size * 8.0;
+        let radius = size * 25.0;
+        let mut light = Self::create_point_light(
+            position,
+            Vec3::new(1.0, 0.6, 0.2), // Orange explosion color
+            intensity,
+            radius,
+        );
+        light.lifetime = 2.0; // 2 second lifetime
+        light.flicker_speed = 8.0;
+        light.flicker_intensity = 0.3;
+        light.cast_shadows = true;
+        light.shadow_quality = ShadowQuality::High;
+        light
+    }
+
+    /// Create a muzzle flash light
+    pub fn create_muzzle_flash_light(position: Vec3, direction: Vec3) -> LightSource {
+        let mut light = Self::create_spot_light(
+            position,
+            direction,
+            Vec3::new(1.0, 0.9, 0.6), // Bright yellow-white
+            3.0,
+            8.0,
+            std::f32::consts::PI * 0.3, // 54 degree cone
+            0.7,
+        );
+        light.lifetime = 0.2; // Very brief
+        light.cast_shadows = false; // Too brief for shadows
+        light
+    }
+
+    /// Set ambient lighting
+    pub fn set_ambient_lighting(&mut self, color: Vec3, intensity: f32) {
+        self.ambient_color = color;
+        self.ambient_intensity = intensity;
+    }
+
+    /// Enable/disable shadow mapping
+    pub fn set_shadow_enabled(&mut self, enabled: bool) {
+        self.shadow_enabled = enabled;
+        info!(
+            "Shadow mapping {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
+    }
+
+    /// Get the number of active lights
+    pub fn get_active_light_count(&self) -> usize {
+        self.lights.values().filter(|light| light.is_active).count()
+    }
+
+    /// Get lights within range of a position (for light culling)
+    pub fn get_lights_in_range(&self, position: Vec3, range: f32) -> Vec<&LightSource> {
+        if !self.light_culling_enabled {
+            return self
+                .lights
+                .values()
+                .filter(|light| light.is_active)
+                .collect();
+        }
+
+        self.lights
+            .values()
+            .filter(|light| {
+                light.is_active && light.position.distance(position) <= (light.radius + range)
+            })
+            .take(self.max_lights_per_object as usize)
+            .collect()
+    }
+
+    /// Clean up finished lights
+    pub fn cleanup(&mut self) {
+        let before_count = self.lights.len();
+        self.lights
+            .retain(|_, light| light.is_active || light.lifetime > 0.0);
+        let removed = before_count - self.lights.len();
+
+        if removed > 0 {
+            debug!("Cleaned up {} finished lights", removed);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_shadow_casting_light_ids_is_sorted_and_filtered() {
+        let mut lights = HashMap::new();
+
+        let mut light_20 = DynamicLighting::create_point_light(Vec3::ZERO, Vec3::ONE, 1.0, 10.0);
+        light_20.id = 20;
+        light_20.cast_shadows = true;
+        light_20.is_active = true;
+        lights.insert(light_20.id, light_20);
+
+        let mut light_5 = DynamicLighting::create_spot_light(
+            Vec3::ZERO,
+            Vec3::Y,
+            Vec3::ONE,
+            1.0,
+            10.0,
+            0.5,
+            0.2,
+        );
+        light_5.id = 5;
+        light_5.cast_shadows = true;
+        light_5.is_active = true;
+        lights.insert(light_5.id, light_5);
+
+        let mut light_11 = DynamicLighting::create_point_light(Vec3::ZERO, Vec3::ONE, 1.0, 10.0);
+        light_11.id = 11;
+        light_11.cast_shadows = false;
+        light_11.is_active = true;
+        lights.insert(light_11.id, light_11);
+
+        let mut light_7 = DynamicLighting::create_point_light(Vec3::ZERO, Vec3::ONE, 1.0, 10.0);
+        light_7.id = 7;
+        light_7.cast_shadows = true;
+        light_7.is_active = false;
+        lights.insert(light_7.id, light_7);
+
+        assert_eq!(
+            DynamicLighting::collect_shadow_casting_light_ids(&lights),
+            vec![5, 20]
+        );
+    }
+}

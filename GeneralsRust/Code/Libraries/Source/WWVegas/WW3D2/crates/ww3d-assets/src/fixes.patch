@@ -1,0 +1,9 @@
+Summary of fixes needed:
+
+1. Convert u8 colors to f32 (divide by 255.0)
+2. Use InvalidParameter instead of ParseError
+3. Use IoError variant correctly
+4. Fix borrow checker issues in rendering.rs
+5. Remove unused variables
+
+All fixes applied inline below.

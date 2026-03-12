@@ -1,0 +1,240 @@
+[workspace]
+resolver = "2"
+members = [
+    # Main executable
+    "Code/Main",
+
+    # Game Engine Core
+    "Code/GameEngine/Common",
+    "Code/GameEngine/GameEngineDevice",
+    "Code/GameEngine/GameNetwork",
+    "Code/GameEngine/GameLogic",
+    "Code/GameEngine/GameClient",
+    "Code/Integration",
+
+    # Libraries - WWVegas
+    "Code/Libraries/Source/WWVegas/WWLib",
+    "Code/Libraries/Source/WWVegas/WWLib/base_types",
+    "Code/Libraries/Source/WWVegas/WWLib/string_system",
+    "Code/Libraries/Source/WWVegas/WWLib/memory_system",
+    "Code/Libraries/Source/WWVegas/WWLib/ini_parser",
+    "Code/Libraries/Source/WWVegas/WWMath",
+    "Code/Libraries/Source/WWVegas/WWAudio",
+    "Code/Libraries/Source/WWVegas/WWDebug",
+    "Code/Libraries/Source/WWVegas/WWDownload",
+    "Code/Libraries/Source/WWVegas/WWFileSystem",
+    "Code/Libraries/Source/WWVegas/WWSaveLoad",
+    "Code/Libraries/Source/WWVegas/wwshade",
+    "Code/Libraries/Source/WWVegas/WW3DCore",
+
+    # WW3D2 Crates
+    "Code/Libraries/Source/WWVegas/WW3D2/game",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene-renderer",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-render-2d",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu",
+
+    # Compression Libraries
+    "Code/Libraries/Source/Compression",
+    "Code/Libraries/Source/Compression/EAC",
+    "Code/Libraries/Source/Compression/LZHCompress",
+    "Code/Libraries/Source/Compression/ZLib",
+
+    # Other Libraries
+    "Code/Libraries/Source/AssetPipeline",
+    "Code/Libraries/Source/WPAudio",
+    "Code/Libraries/Source/WPAudio/shared",
+
+    # Tools
+    "tools/module-mask-gen",
+    "Code/Tools/big_unpack",
+    "Code/Tools/w3d_to_gltf",
+    "Code/Tools/UIFramework",
+    "Code/Tools/WorldBuilder",
+    "Code/Tools/ParticleEditor",
+    "Code/Tools/GUIEdit",
+    "Code/Tools/DebugWindow",
+    "Code/Tools/ImagePacker",
+    "Code/Tools/MapCacheBuilder",
+    "Code/Tools/Launcher",
+]
+
+default-members = [
+    "Code/Main",
+]
+
+[workspace.dependencies]
+# Core Rust - Serialization & Error Handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+bincode = "1.3"
+
+# Logging & Diagnostics
+log = "0.4"
+env_logger = "0.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
+
+# Identifiers & Time
+uuid = { version = "1.18", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async Runtime
+tokio = { version = "1.48", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+futures-util = "0.3"
+
+# Concurrency & Parallelism
+rayon = "1.11"
+parking_lot = "0.12"
+crossbeam = "0.8"
+crossbeam-channel = "0.5"
+dashmap = "5.5"
+once_cell = "1.21"
+lazy_static = "1.5"
+
+# Math & Random
+rand = "0.8"
+fastrand = "2.3"
+glam = { version = "0.24", features = ["serde"] }
+
+# UI and Graphics
+egui = "0.33.2"
+egui-wgpu = "0.33.2"
+egui-winit = "0.33.2"
+eframe = "0.33.2"
+winit = "0.29"
+wgpu = "27.0.1"
+bytemuck = { version = "1.24", features = ["derive"] }
+three-d = "0.16"
+image = "0.24"
+raw-window-handle = "0.6"
+
+# File Handling & I/O
+rfd = "0.14"
+walkdir = "2.5"
+toml = "0.8"
+ron = "0.8"
+byteorder = "1.5"
+memmap2 = "0.9"
+tempfile = "3.23"
+directories = "5.0"
+
+# Compression
+zip = "0.6"
+flate2 = "1.1"
+lz4 = "1.28"
+lz4_flex = "0.11"
+zstd = "0.13"
+crc32fast = "1.5"
+
+# Networking
+hyper = { version = "0.14", features = ["full"] }
+reqwest = { version = "0.11", features = ["rustls-tls"] }
+url = "2.5"
+if-addrs = "0.11"
+
+# Audio
+rodio = "0.17"
+cpal = "0.15"
+hound = "3.5"
+
+# System & Platform
+libc = "0.2"
+sysinfo = "0.30"
+num_cpus = "1.17"
+bitflags = "2.10"
+bit-vec = "0.6"
+ahash = "0.8"
+
+# Collections & Utilities
+indexmap = "2.12"
+smallvec = "1.15"
+regex = "1.12"
+
+# Encoding & Strings
+encoding_rs = "0.8"
+unicode-normalization = "0.1"
+
+# Memory Management
+bumpalo = "3.19"
+region = "3.0"
+
+# File Monitoring
+notify = "6.1"
+
+# Graphics & Assets
+texture_packer = "0.3"
+pollster = "0.3"
+
+# CLI
+clap = "2.34"
+
+# Internal workspace crates
+game_engine = { path = "Code/GameEngine/Common" }
+game_network = { path = "Code/GameEngine/GameNetwork" }
+gamelogic = { path = "Code/GameEngine/GameLogic" }
+game_client = { path = "Code/GameEngine/GameClient", package = "game-client-rust" }
+game_engine_device = { path = "Code/GameEngine/GameEngineDevice" }
+
+# WWVegas Libraries
+wwlib = { path = "Code/Libraries/Source/WWVegas/WWLib", package = "wwlib-rust" }
+wwmath = { path = "Code/Libraries/Source/WWVegas/WWMath", package = "math_utilities" }
+wwaudio = { path = "Code/Libraries/Source/WWVegas/WWAudio" }
+wwdebug = { path = "Code/Libraries/Source/WWVegas/WWDebug" }
+ww3dcore = { path = "Code/Libraries/Source/WWVegas/WW3DCore" }
+
+# WW3D2 Libraries
+ww3d = { path = "Code/Libraries/Source/WWVegas/WW3D2/game", package = "ww3d-game" }
+ww3d-core = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
+ww3d-engine = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
+ww3d-assets = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
+ww3d-scene = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene" }
+ww3d-scene-renderer = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-scene-renderer" }
+ww3d-geometry = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry" }
+ww3d-renderer-3d = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }
+ww3d-render-2d = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-render-2d" }
+ww3d-particles = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles" }
+ww3d-animation = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
+ww3d-physics = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics" }
+ww3d-effects = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects" }
+ww3d-collision = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision" }
+ww3d-gpu = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
+
+# Compression Libraries
+generals_compression = { path = "Code/Libraries/Source/Compression" }
+
+# Profile configurations
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = false
+debug = false
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+
+[profile.bench]
+inherits = "release"
+debug = true

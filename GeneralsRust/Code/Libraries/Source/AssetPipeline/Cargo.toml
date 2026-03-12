@@ -1,0 +1,86 @@
+[package]
+name = "asset_pipeline"
+version = "1.0.0"
+edition = "2021"
+authors = ["GeneralsRust Team"]
+description = "Modern asset pipeline replacing Max4SDK with advanced import/export and processing capabilities"
+license = "GPL-3.0"
+repository = "https://github.com/GeneralsRust/AssetPipeline"
+
+[features]
+default = ["importers", "processors", "exporters", "gpu_processing", "batch_processing"]
+importers = ["gltf", "obj"]
+processors = []
+exporters = []
+gpu_processing = ["wgpu"]
+batch_processing = ["rayon", "tokio"]
+3ds_max_integration = []
+blender_integration = []
+maya_integration = []
+
+[dependencies]
+# Core dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# File I/O and formats
+image = { version = "0.25", features = ["png", "jpeg", "tga", "dds"] }
+tiff = "0.9"
+png = "0.17"
+jpeg-decoder = "0.3"
+
+# 3D formats
+gltf = { version = "1.4", optional = true }
+obj = { version = "0.10", optional = true }
+
+# Mesh processing
+meshopt = "0.3"
+glam = "0.28"
+ultraviolet = "0.9"
+
+# GPU processing
+wgpu = { version = "27.0.1", optional = true }
+
+# Parallel processing
+rayon = { version = "1.10", optional = true }
+tokio = { version = "1.40", features = ["full"], optional = true }
+futures = "0.3"
+async-trait = "0.1"
+
+# Compression
+zstd = "0.13"
+lz4_flex = "0.11"
+eac_compression = { path = "../Compression/EAC" }
+
+# Text processing and scripting
+regex = "1.10"
+toml = "0.8"
+yaml-rust = "0.4"
+
+# Progress tracking
+indicatif = "0.17"
+
+# Utilities
+log = "0.4"
+env_logger = "0.11"
+memmap2 = "0.9"
+walkdir = "2.5"
+globset = "0.4"
+num_cpus = "1.16"
+
+# Platform specific (optional)
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "combaseapi"], optional = true }
+
+# Math and geometry
+ncollide3d = "0.33"
+parry3d = "0.13"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.8"
+approx = "0.5"

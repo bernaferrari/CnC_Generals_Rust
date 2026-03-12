@@ -1,0 +1,7569 @@
+//! Unit class - Moveable game entities
+//!
+//! Units are mobile objects that can move around the map, engage in combat,
+//! and perform various actions. This includes infantry, vehicles, aircraft, etc.
+//!
+//! Port reference: GameLogic/Object/Unit.cpp, GameLogic/Object/Update/AIUpdate.cpp.
+
+use crate::action_manager::{ActionManager, TheActionManager};
+use crate::ai::dock::AIDockMachine;
+use crate::ai::object_registry::get_legacy_object;
+use crate::ai::pathfind::PathfindLayerEnum;
+use crate::ai::pathfind_astar::PathfindLayerEnum as ClassicPathLayer;
+use crate::ai::pathfinding_system::PathfindLayerEnum as PfLayer;
+use crate::ai::states::{AIStateMachine, AIStateType};
+use crate::ai::turret::{TurretAI, TurretStateMachine};
+use crate::ai::{
+    mood_matrix_adjustment, mood_matrix_parameters, search_qualifiers, AiCommandInterface,
+    MoodMatrixAction, THE_AI,
+};
+use crate::attack::CanAttackResult;
+use crate::common::ObjectID;
+use crate::common::VeterancyLevel;
+use crate::common::*;
+use crate::damage::{DamageInfo, DamageType, DeathType};
+use crate::helpers::{
+    get_game_logic_random_value_real, FindPositionOptions, TheFXListStore, TheGameLogic,
+    ThePartitionManager, TheTerrainLogic,
+};
+use crate::locomotor::{
+    update_movement_with_pathfinding, BodyDamageType, Locomotor, LocomotorAppearance, LocomotorSet,
+    LocomotorSurfaceTypeMask, PathFollowingState, SURFACE_AIR,
+};
+use crate::modules::{
+    AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,
+    PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+};
+use crate::object::draw::TerrainDecalType;
+use crate::object::object_factory::{get_object_factory, GameObjectInstance};
+use crate::object::update::{
+    AssaultTransportAIUpdate, DeliverPayloadAIUpdate, DeployStyleAIUpdate, HackInternetAIUpdate,
+    RailedTransportAIUpdate, TransportAIUpdate, WanderAIUpdate,
+};
+use crate::object::update::{ChinookAIUpdate, DozerAIUpdate, JetAIUpdate, TurretAIData};
+use crate::object::{Object, TriggerInfo};
+use crate::path::{PathfindMap, Waypoint, PATHFIND_CELL_SIZE_F, PATHFIND_CLOSE_ENOUGH};
+use crate::physics::GRAVITY;
+use crate::player::PlayerIndex;
+#[cfg(feature = "allow_surrender")]
+use crate::pow_truck_ai_update::{POWTruckAIUpdate, POWTruckAIUpdateData};
+use crate::supply_system::{SupplyTruckAIUpdate, WorkerAIUpdate};
+use crate::team::Team;
+use crate::upgrade::center::get_upgrade_center;
+use crate::weapon::{WeaponAntiMask, WeaponChoiceCriteria, WeaponSet, WeaponSlotType};
+use log::error;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock, Weak};
+
+/// Movement states for units
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovementState {
+    Idle,
+    Moving,
+    TurningToFace,
+    Attacking,
+    Retreating,
+    Following,
+    Patrolling,
+    Guarding,
+    Pursuing,
+    Fleeing,
+    Backing,
+}
+
+/// Formation positions for group movement
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormationType {
+    None,
+    Line,
+    Column,
+    Wedge,
+    Box,
+    Scattered,
+}
+
+/// Combat modes for units
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CombatMode {
+    Aggressive,   // Attack anything in range
+    Defensive,    // Only attack when attacked
+    HoldPosition, // Don't move to attack
+    HoldFire,     // Don't attack at all
+    GuardArea,    // Stay in designated area
+}
+
+/// Unit-specific data and behavior
+#[derive(Debug)]
+pub struct Unit {
+    /// Base object functionality
+    base_object: Arc<RwLock<Object>>,
+
+    /// Movement and pathfinding
+    locomotor_set: LocomotorSet,
+    current_locomotor: Option<Arc<Mutex<Locomotor>>>,
+    movement_state: MovementState,
+    target_position: Option<Coord3D>,
+    waypoint_queue: Vec<Waypoint>,
+    current_path: Option<Vec<Coord2D>>,
+    path_index: usize,
+    path_following_state: Option<PathFollowingState>,
+    path_extra_distance: Real,
+    path_adjusts_destination: bool,
+    movement_speed_multiplier: Real,
+    current_speed: f32,
+    attack_move_active: bool,
+    last_target_scan_frame: u32,
+    attack_move_resume_frame: u32,
+    attack_target_lock_until: u32,
+    mood_attack_check_rate_frames: u32,
+
+    /// Formation and group behavior
+    formation_type: FormationType,
+    formation_position: usize,
+    group_leader: Option<ObjectID>,
+    group_members: Vec<ObjectID>,
+    follow_target: Option<ObjectID>,
+    follow_distance: Real,
+
+    /// Combat behavior
+    combat_mode: CombatMode,
+    attack_target: Option<ObjectID>,
+    attack_position: Option<Coord3D>,
+    engagement_range: Real,
+    retreat_threshold: Real,
+    patrol_points: Vec<Coord3D>,
+    current_patrol_index: usize,
+    patrol_loop: bool,
+    guard_position: Option<Coord3D>,
+    guard_radius: Real,
+
+    /// Movement constraints
+    can_cross_bridges: bool,
+    can_swim: bool,
+    can_fly: bool,
+    preferred_terrain: TerrainType,
+    movement_penalty_modifiers: HashMap<TerrainType, Real>,
+
+    /// Orders and commands
+    current_order: Option<UnitOrder>,
+    order_queue: Vec<UnitOrder>,
+    auto_acquire_enemies: bool,
+    auto_acquire_attack_buildings: bool,
+    auto_acquire_while_stealthed: bool,
+    auto_acquire_not_while_attacking: bool,
+    return_to_formation: bool,
+
+    /// Morale and psychology
+    morale_level: Real,
+    fear_level: Real,
+    panic_threshold: Real,
+    bravery_modifier: Real,
+
+    /// Status effects
+    is_stunned: bool,
+    is_suppressed: bool,
+    is_pinned: bool,
+    is_routing: bool,
+    is_garrisoned: bool,
+    garrison_building: Option<ObjectID>,
+
+    /// Transport capabilities (for vehicles that can carry troops)
+    transport_capacity: usize,
+    transported_units: Vec<ObjectID>,
+    can_amphibious_unload: bool,
+
+    /// Special abilities
+    can_capture_buildings: bool,
+    can_sabotage: bool,
+    can_hack: bool,
+    stealth_detection_range: Real,
+
+    /// Animation and visual state
+    current_animation: AsciiString,
+    animation_state: ModelConditionFlags,
+    facing_direction: Real,
+    desired_facing: Real,
+    turn_rate: Real,
+}
+
+/// Orders that can be given to units
+#[derive(Debug, Clone)]
+pub enum UnitOrder {
+    Stop,
+    Move {
+        destination: Coord3D,
+        use_formation: bool,
+        waypoints: Vec<Waypoint>,
+    },
+    Attack {
+        target: ObjectID,
+        pursue: bool,
+    },
+    AttackMove {
+        destination: Coord3D,
+        engage_enemies: bool,
+    },
+    Guard {
+        position: Coord3D,
+        area_radius: Real,
+    },
+    Follow {
+        target: ObjectID,
+        distance: Real,
+    },
+    Patrol {
+        waypoints: Vec<Coord3D>,
+        loop_patrol: bool,
+    },
+    Garrison {
+        building: ObjectID,
+    },
+    Ungarrison {
+        exit_position: Option<Coord3D>,
+    },
+    Capture {
+        building: ObjectID,
+    },
+    Sabotage {
+        target: ObjectID,
+    },
+    Hack {
+        target: ObjectID,
+    },
+    PickupSupplies {
+        supply_source: ObjectID,
+    },
+    Retreat {
+        safe_position: Coord3D,
+        organized: bool,
+    },
+}
+
+impl Unit {
+    /// Create a new Unit
+    pub fn new(
+        base_object: Arc<RwLock<Object>>,
+        thing_template: &dyn ThingTemplate,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let locomotor_set = LocomotorSet::new();
+        let current_locomotor = locomotor_set.get_default_locomotor();
+
+        Ok(Unit {
+            base_object,
+            locomotor_set,
+            current_locomotor,
+            movement_state: MovementState::Idle,
+            target_position: None,
+            waypoint_queue: Vec::new(),
+            current_path: None,
+            path_index: 0,
+            path_following_state: None,
+            path_extra_distance: 0.0,
+            path_adjusts_destination: true,
+            movement_speed_multiplier: 1.0,
+            current_speed: 0.0,
+            attack_move_active: false,
+            last_target_scan_frame: 0,
+            attack_move_resume_frame: 0,
+            attack_target_lock_until: 0,
+            mood_attack_check_rate_frames: (LOGICFRAMES_PER_SECOND * 2) as u32,
+
+            formation_type: FormationType::None,
+            formation_position: 0,
+            group_leader: None,
+            group_members: Vec::new(),
+            follow_target: None,
+            follow_distance: 50.0, // Default follow distance
+
+            combat_mode: CombatMode::Aggressive,
+            attack_target: None,
+            attack_position: None,
+            engagement_range: thing_template.calc_vision_range(),
+            retreat_threshold: 0.25, // Retreat when health below 25%
+            patrol_points: Vec::new(),
+            current_patrol_index: 0,
+            patrol_loop: false,
+            guard_position: None,
+            guard_radius: 0.0,
+
+            can_cross_bridges: thing_template.is_kind_of(KindOf::CanCrossBridges),
+            can_swim: thing_template.is_kind_of(KindOf::Amphibious),
+            can_fly: thing_template.is_kind_of(KindOf::Aircraft),
+            preferred_terrain: TerrainType::Grass,
+            movement_penalty_modifiers: HashMap::new(),
+
+            current_order: None,
+            order_queue: Vec::new(),
+            auto_acquire_enemies: true,
+            auto_acquire_attack_buildings: false,
+            auto_acquire_while_stealthed: false,
+            auto_acquire_not_while_attacking: false,
+            return_to_formation: false,
+
+            morale_level: 1.0,
+            fear_level: 0.0,
+            panic_threshold: 0.8,
+            bravery_modifier: 1.0,
+
+            is_stunned: false,
+            is_suppressed: false,
+            is_pinned: false,
+            is_routing: false,
+            is_garrisoned: false,
+            garrison_building: None,
+
+            transport_capacity: 0,
+            transported_units: Vec::new(),
+            can_amphibious_unload: thing_template.is_kind_of(KindOf::AmphibiousTransport),
+
+            can_capture_buildings: thing_template.is_kind_of(KindOf::CanCapture),
+            can_sabotage: thing_template.is_kind_of(KindOf::Saboteur),
+            can_hack: thing_template.is_kind_of(KindOf::Hacker),
+            stealth_detection_range: 0.0,
+
+            current_animation: AsciiString::from("IDLE"),
+            animation_state: ModelConditionFlags::empty(),
+            facing_direction: 0.0,
+            desired_facing: 0.0,
+            turn_rate: 0.0,
+        })
+    }
+
+    /// Attempt to load an occupant into this transport. Returns true on success.
+    pub fn load_occupant(&mut self, occupant: ObjectID) -> bool {
+        if self.transport_capacity == 0 {
+            return false;
+        }
+        if self.transported_units.len() >= self.transport_capacity {
+            return false;
+        }
+        if self.transported_units.contains(&occupant) {
+            return false;
+        }
+        self.transported_units.push(occupant);
+        true
+    }
+
+    /// Attempt to unload an occupant; returns true if it was present.
+    pub fn unload_occupant(&mut self, occupant: ObjectID) -> bool {
+        if let Some(pos) = self.transported_units.iter().position(|id| *id == occupant) {
+            self.transported_units.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove all occupants, returning the list for callers to place them.
+    pub fn unload_all(&mut self) -> Vec<ObjectID> {
+        let mut out = Vec::new();
+        std::mem::swap(&mut out, &mut self.transported_units);
+        out
+    }
+
+    /// Whether this transport currently holds an occupant.
+    pub fn has_occupant(&self, occupant: ObjectID) -> bool {
+        self.transported_units.contains(&occupant)
+    }
+
+    /// Count current occupants.
+    pub fn occupant_count(&self) -> usize {
+        self.transported_units.len()
+    }
+
+    pub fn base_object(&self) -> Arc<RwLock<Object>> {
+        Arc::clone(&self.base_object)
+    }
+
+    pub fn get_id(&self) -> ObjectID {
+        self.base_object
+            .read()
+            .ok()
+            .map(|guard| guard.get_id())
+            .unwrap_or(INVALID_ID)
+    }
+
+    pub fn get_orientation(&self) -> Real {
+        self.base_object
+            .read()
+            .ok()
+            .map(|guard| guard.get_orientation())
+            .unwrap_or(0.0)
+    }
+
+    pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
+        let Ok(mut guard) = self.base_object.write() else {
+            return Err("Unit base object lock poisoned".to_string());
+        };
+        guard.set_orientation(angle)
+    }
+
+    pub fn get_unit_direction_vector_2d(&self) -> (f32, f32) {
+        self.base_object
+            .read()
+            .ok()
+            .map(|guard| guard.get_unit_direction_vector_2d())
+            .unwrap_or((1.0, 0.0))
+    }
+
+    pub fn get_ai_update_interface(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
+        self.base_object
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_ai_update_interface())
+    }
+
+    pub(crate) fn forward_command_to_flight_deck(&self, params: &crate::ai::AiCommandParams) {
+        if let Ok(guard) = self.base_object.read() {
+            guard.forward_command_to_flight_deck(params);
+        }
+    }
+
+    /// Update unit logic for one frame
+    pub fn update(
+        &mut self,
+        delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Process current order
+        self.process_current_order(delta_time)?;
+
+        // Update movement
+        self.update_movement(delta_time)?;
+
+        // Update combat behavior
+        self.update_combat(delta_time)?;
+
+        // Update facing direction
+        self.update_facing(delta_time)?;
+
+        // Check for state changes
+        self.check_status_effects(delta_time)?;
+
+        // Update animation state
+        self.update_animation_state()?;
+
+        // Update per-unit AI module (matches C++ AIUpdateInterface::update call per frame).
+        if let Ok(base_guard) = self.base_object.read() {
+            if let Some(ai) = base_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let _ = ai_guard.update();
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Process the current order
+    fn process_current_order(
+        &mut self,
+        _delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.advance_order_queue();
+        if let Some(ref current_order) = self.current_order.clone() {
+            if !matches!(current_order, UnitOrder::AttackMove { .. }) {
+                self.attack_move_active = false;
+            }
+
+            match current_order {
+                UnitOrder::Stop => {
+                    self.stop_movement();
+                    self.current_order = None;
+                    self.advance_order_queue();
+                }
+
+                UnitOrder::Move {
+                    destination,
+                    use_formation,
+                    waypoints,
+                } => {
+                    if self.movement_state == MovementState::Idle
+                        && self.target_position.is_none()
+                        && self.waypoint_queue.is_empty()
+                    {
+                        let delta = self.get_position() - *destination;
+                        if (delta.x * delta.x + delta.y * delta.y).sqrt() <= 1.0 {
+                            self.current_order = None;
+                            self.advance_order_queue();
+                            return Ok(());
+                        }
+                    }
+                    self.process_move_order(*destination, *use_formation, waypoints)?;
+                }
+
+                UnitOrder::Attack { target, pursue } => {
+                    self.process_attack_order(*target, *pursue)?;
+                }
+
+                UnitOrder::AttackMove {
+                    destination,
+                    engage_enemies,
+                } => {
+                    self.process_attack_move_order(*destination, *engage_enemies)?;
+                }
+
+                UnitOrder::Guard {
+                    position,
+                    area_radius,
+                } => {
+                    self.process_guard_order(*position, *area_radius)?;
+                }
+
+                UnitOrder::Follow { target, distance } => {
+                    self.process_follow_order(*target, *distance)?;
+                }
+
+                UnitOrder::Patrol {
+                    waypoints,
+                    loop_patrol,
+                } => {
+                    self.process_patrol_order(waypoints, *loop_patrol)?;
+                }
+
+                UnitOrder::Garrison { building } => {
+                    self.process_garrison_order(*building)?;
+                }
+
+                UnitOrder::Ungarrison { exit_position } => {
+                    self.process_ungarrison_order(*exit_position)?;
+                }
+
+                UnitOrder::Capture { building } => {
+                    self.process_capture_order(*building)?;
+                }
+
+                UnitOrder::Retreat {
+                    safe_position,
+                    organized,
+                } => {
+                    self.process_retreat_order(*safe_position, *organized)?;
+                }
+
+                _ => {
+                    // Handle other order types
+                }
+            }
+        } else {
+            // No current order, check for auto-behaviors
+            if self.auto_acquire_enemies {
+                self.look_for_enemies()?;
+            }
+
+            if self.return_to_formation {
+                self.return_to_formation_position()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn advance_order_queue(&mut self) {
+        if self.current_order.is_none() && !self.order_queue.is_empty() {
+            self.current_order = Some(self.order_queue.remove(0));
+        }
+    }
+
+    /// Update movement based on current state
+    fn update_movement(
+        &mut self,
+        delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let prev_movement_state = self.movement_state;
+        let mut completed_move = false;
+
+        let should_stop_for_dead_ai = self
+            .base_object
+            .read()
+            .ok()
+            .and_then(|obj_guard| obj_guard.get_ai_update_interface())
+            .and_then(|ai| {
+                ai.lock()
+                    .ok()
+                    .map(|ai_guard| ai_guard.is_ai_in_dead_state())
+            })
+            .unwrap_or(false)
+            && self
+                .current_locomotor
+                .as_ref()
+                .and_then(|locomotor| {
+                    locomotor
+                        .lock()
+                        .ok()
+                        .map(|loc_guard| !loc_guard.template.locomotor_works_when_dead)
+                })
+                .unwrap_or(false);
+        if should_stop_for_dead_ai {
+            self.stop_movement();
+            self.target_position = None;
+            self.path_following_state = None;
+            self.current_path = None;
+            self.current_speed = 0.0;
+            return Ok(());
+        }
+
+        if self.is_movement_active() {
+            if let Some(target) = self.target_position {
+                // Get position before entering the mutable borrow scope
+                let current_pos = self.get_position();
+                let current_angle = self.facing_direction;
+                let current_speed = self.current_speed;
+
+                // Track whether we need to handle a waypoint after the borrow ends
+                let mut handle_waypoint: Option<Coord3D> = None;
+
+                let (mut desired_speed, condition, blocked, max_blocked_speed) = {
+                    let mut speed = FAST_AS_POSSIBLE;
+                    let mut body_condition = BodyDamageType::Pristine;
+                    let mut blocked = false;
+                    let mut max_blocked_speed = FAST_AS_POSSIBLE;
+                    if let Ok(obj_guard) = self.base_object.read() {
+                        if let Some(ai) = obj_guard.get_ai_update_interface() {
+                            if let Ok(mut ai_guard) = ai.lock() {
+                                speed = ai_guard.get_desired_speed();
+                                blocked = ai_guard.get_num_frames_blocked() > 0;
+                                max_blocked_speed = ai_guard.get_cur_max_blocked_speed();
+                                if blocked && speed > max_blocked_speed {
+                                    speed = max_blocked_speed;
+                                }
+                                speed = ai_guard.apply_bump_speed_limit(speed, blocked);
+                            }
+                        }
+                        if let Some(body) = obj_guard.get_body_module() {
+                            if let Ok(body_guard) = body.lock() {
+                                body_condition =
+                                    to_locomotor_body_damage_type(body_guard.get_damage_state());
+                            }
+                        }
+                    }
+                    (speed, body_condition, blocked, max_blocked_speed)
+                };
+                let _ = max_blocked_speed;
+
+                if let (Some(path_state), Some(locomotor)) = (
+                    self.path_following_state.as_mut(),
+                    self.current_locomotor.as_ref(),
+                ) {
+                    // Clone the locomotor Arc so we don't keep borrowing self
+                    let locomotor_clone = locomotor.clone();
+
+                    if let Ok(ai_guard) = THE_AI.read() {
+                        if let Some(pathfinding) = ai_guard.pathfinding_system() {
+                            if let Ok(mut loc_guard) = locomotor_clone.lock() {
+                                let current_frame = TheGameLogic::get_frame() as u32;
+                                let delta_time =
+                                    (delta_time * self.movement_speed_multiplier) as f32;
+
+                                match update_movement_with_pathfinding(
+                                    self.base_object
+                                        .read()
+                                        .map(|obj| obj.get_id())
+                                        .unwrap_or(INVALID_ID),
+                                    &mut loc_guard,
+                                    path_state,
+                                    &current_pos,
+                                    current_angle,
+                                    current_speed,
+                                    condition,
+                                    desired_speed,
+                                    current_frame,
+                                    delta_time,
+                                    pathfinding,
+                                ) {
+                                    Ok(Some((new_pos, new_angle, new_speed))) => {
+                                        if let Ok(mut obj_guard) = self.base_object.write() {
+                                            let _ = obj_guard.set_position(&new_pos);
+                                            let _ = obj_guard.set_orientation(new_angle as Real);
+                                            if let Some(physics) = obj_guard.get_physics() {
+                                                if let Ok(mut phys_guard) = physics.lock() {
+                                                    let delta = new_pos - current_pos;
+                                                    let velocity = if delta_time > 0.0 {
+                                                        delta / delta_time.max(0.0001)
+                                                    } else {
+                                                        Vec3D::ZERO
+                                                    };
+                                                    phys_guard.set_velocity(&velocity);
+                                                    if delta_time > 0.0 {
+                                                        let mut yaw_delta =
+                                                            new_angle - current_angle;
+                                                        let two_pi = std::f32::consts::PI * 2.0;
+                                                        while yaw_delta > std::f32::consts::PI {
+                                                            yaw_delta -= two_pi;
+                                                        }
+                                                        while yaw_delta < -std::f32::consts::PI {
+                                                            yaw_delta += two_pi;
+                                                        }
+                                                        phys_guard.set_yaw_rate(
+                                                            (yaw_delta / delta_time.max(0.0001))
+                                                                as Real,
+                                                        );
+                                                        let turning = if yaw_delta > 0.0 {
+                                                            1
+                                                        } else if yaw_delta < 0.0 {
+                                                            -1
+                                                        } else {
+                                                            0
+                                                        };
+                                                        phys_guard.set_turning(turning);
+                                                        if matches!(
+                                                            loc_guard.get_appearance(),
+                                                            LocomotorAppearance::Thrust
+                                                                | LocomotorAppearance::Wings
+                                                                | LocomotorAppearance::Hover
+                                                        ) {
+                                                            let pitch_rate = loc_guard
+                                                                .template
+                                                                .pitch_by_z_vel_coef
+                                                                * velocity.z;
+                                                            let mut pitch_rate = pitch_rate;
+                                                            if loc_guard.template.pitch_stiffness
+                                                                > 0.0
+                                                            {
+                                                                pitch_rate *= loc_guard
+                                                                    .template
+                                                                    .pitch_stiffness;
+                                                            }
+                                                            if loc_guard.template.pitch_damping
+                                                                > 0.0
+                                                            {
+                                                                pitch_rate *= (1.0
+                                                                    - loc_guard
+                                                                        .template
+                                                                        .pitch_damping)
+                                                                    .clamp(0.0, 1.0);
+                                                            }
+                                                            phys_guard.set_pitch_rate(pitch_rate);
+                                                            let mut roll_rate =
+                                                                loc_guard.template.thrust_roll
+                                                                    * new_speed;
+                                                            if loc_guard.template.roll_stiffness
+                                                                > 0.0
+                                                            {
+                                                                roll_rate *= loc_guard
+                                                                    .template
+                                                                    .roll_stiffness;
+                                                            }
+                                                            if loc_guard.template.roll_damping > 0.0
+                                                            {
+                                                                roll_rate *= (1.0
+                                                                    - loc_guard
+                                                                        .template
+                                                                        .roll_damping)
+                                                                    .clamp(0.0, 1.0);
+                                                            }
+                                                            if loc_guard.template.wobble_rate > 0.0
+                                                            {
+                                                                let frame =
+                                                                    TheGameLogic::get_frame()
+                                                                        as f32;
+                                                                let phase = (obj_guard.get_id()
+                                                                    as f32)
+                                                                    * 0.01;
+                                                                let wobble_min =
+                                                                    loc_guard.template.min_wobble;
+                                                                let wobble_max =
+                                                                    loc_guard.template.max_wobble;
+                                                                let wobble_amp = wobble_max
+                                                                    .max(wobble_min)
+                                                                    - wobble_min;
+                                                                if wobble_amp > 0.0 {
+                                                                    let wobble = (frame
+                                                                        * loc_guard
+                                                                            .template
+                                                                            .wobble_rate
+                                                                        + phase)
+                                                                        .sin()
+                                                                        * wobble_amp
+                                                                        + wobble_min;
+                                                                    roll_rate += wobble;
+                                                                }
+                                                            }
+                                                            phys_guard.set_roll_rate(roll_rate);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        self.facing_direction = new_angle as Real;
+                                        self.current_speed = new_speed;
+                                        return Ok(());
+                                    }
+                                    Ok(None) => {
+                                        self.movement_state = MovementState::Idle;
+                                        self.target_position = None;
+                                        self.path_following_state = None;
+                                        self.current_speed = 0.0;
+                                        completed_move = true;
+
+                                        if !self.waypoint_queue.is_empty() {
+                                            let next_waypoint = self.waypoint_queue.remove(0);
+                                            handle_waypoint = Some(next_waypoint.position);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        self.path_following_state = None;
+                                        self.current_speed = 0.0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Handle waypoint outside of the borrow scope
+                if let Some(waypoint_pos) = handle_waypoint {
+                    self.move_to_position(waypoint_pos, false)?;
+                    return Ok(());
+                }
+
+                if completed_move && self.target_position.is_none() {
+                    // Movement finished during pathfinding update; skip extra movement math.
+                    // Completion is handled after the movement state switch below.
+                } else {
+                    let current_pos = self.get_position();
+                    let path_len = self.current_path.as_ref().map(|path| path.len());
+                    let (active_target, using_path) = if let Some(path) = &self.current_path {
+                        if self.path_index < path.len() {
+                            (
+                                Coord3D::new(
+                                    path[self.path_index].x,
+                                    path[self.path_index].y,
+                                    target.z,
+                                ),
+                                true,
+                            )
+                        } else {
+                            (target, false)
+                        }
+                    } else {
+                        (target, false)
+                    };
+
+                    let dx = current_pos.x - active_target.x;
+                    let dy = current_pos.y - active_target.y;
+                    let distance = (dx * dx + dy * dy).sqrt();
+                    let reach_distance = if (using_path || !self.waypoint_queue.is_empty())
+                        && self.path_extra_distance > 0.0
+                    {
+                        self.path_extra_distance
+                    } else {
+                        1.0
+                    };
+
+                    if distance < reach_distance {
+                        if using_path {
+                            self.path_index += 1;
+                            if let Some(path_len) = path_len {
+                                if self.path_index >= path_len {
+                                    self.current_path = None;
+                                    let final_dx = current_pos.x - target.x;
+                                    let final_dy = current_pos.y - target.y;
+                                    let final_distance =
+                                        (final_dx * final_dx + final_dy * final_dy).sqrt();
+                                    if final_distance < 1.0 {
+                                        self.movement_state = MovementState::Idle;
+                                        self.target_position = None;
+                                        self.current_speed = 0.0;
+                                        completed_move = true;
+
+                                        // Process next waypoint if available
+                                        if !self.waypoint_queue.is_empty() {
+                                            let next_waypoint = self.waypoint_queue.remove(0);
+                                            self.move_to_position(next_waypoint.position, false)?;
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Close enough
+                            self.movement_state = MovementState::Idle;
+                            self.target_position = None;
+                            self.current_speed = 0.0;
+                            completed_move = true;
+
+                            // Process next waypoint if available
+                            if !self.waypoint_queue.is_empty() {
+                                let next_waypoint = self.waypoint_queue.remove(0);
+                                self.move_to_position(next_waypoint.position, false)?;
+                            }
+                        }
+                    } else {
+                        // Continue moving towards target
+                        if let Some(locomotor) = &self.current_locomotor {
+                            if let Ok(mut loc_guard) = locomotor.lock() {
+                                let effective_delta = delta_time * self.movement_speed_multiplier;
+                                let current = self.get_position();
+                                let prev_angle = self.facing_direction;
+                                let (new_pos, new_angle, new_speed) = loc_guard.move_towards(
+                                    current,
+                                    prev_angle,
+                                    self.current_speed,
+                                    active_target,
+                                    desired_speed,
+                                    condition,
+                                    effective_delta,
+                                );
+                                self.current_speed = new_speed;
+                                if let Ok(mut obj_guard) = self.base_object.write() {
+                                    let _ = obj_guard.set_position(&new_pos);
+                                    let _ = obj_guard.set_orientation(new_angle as Real);
+                                    if let Some(physics) = obj_guard.get_physics() {
+                                        if let Ok(mut phys_guard) = physics.lock() {
+                                            let delta = new_pos - current;
+                                            let velocity = if effective_delta > 0.0 {
+                                                delta / effective_delta.max(0.0001)
+                                            } else {
+                                                Vec3D::ZERO
+                                            };
+                                            phys_guard.set_velocity(&velocity);
+                                            if effective_delta > 0.0 {
+                                                let mut yaw_delta = new_angle - prev_angle;
+                                                let two_pi = std::f32::consts::PI * 2.0;
+                                                while yaw_delta > std::f32::consts::PI {
+                                                    yaw_delta -= two_pi;
+                                                }
+                                                while yaw_delta < -std::f32::consts::PI {
+                                                    yaw_delta += two_pi;
+                                                }
+                                                phys_guard.set_yaw_rate(
+                                                    (yaw_delta / effective_delta.max(0.0001))
+                                                        as Real,
+                                                );
+                                                let turning = if yaw_delta > 0.0 {
+                                                    1
+                                                } else if yaw_delta < 0.0 {
+                                                    -1
+                                                } else {
+                                                    0
+                                                };
+                                                phys_guard.set_turning(turning);
+                                                if matches!(
+                                                    loc_guard.get_appearance(),
+                                                    LocomotorAppearance::Thrust
+                                                        | LocomotorAppearance::Wings
+                                                        | LocomotorAppearance::Hover
+                                                ) {
+                                                    let pitch_rate =
+                                                        loc_guard.template.pitch_by_z_vel_coef
+                                                            * velocity.z;
+                                                    let mut pitch_rate = pitch_rate;
+                                                    if loc_guard.template.pitch_stiffness > 0.0 {
+                                                        pitch_rate *=
+                                                            loc_guard.template.pitch_stiffness;
+                                                    }
+                                                    if loc_guard.template.pitch_damping > 0.0 {
+                                                        pitch_rate *= (1.0
+                                                            - loc_guard.template.pitch_damping)
+                                                            .clamp(0.0, 1.0);
+                                                    }
+                                                    phys_guard.set_pitch_rate(pitch_rate);
+                                                    let mut roll_rate =
+                                                        loc_guard.template.thrust_roll * new_speed;
+                                                    if loc_guard.template.roll_stiffness > 0.0 {
+                                                        roll_rate *=
+                                                            loc_guard.template.roll_stiffness;
+                                                    }
+                                                    if loc_guard.template.roll_damping > 0.0 {
+                                                        roll_rate *= (1.0
+                                                            - loc_guard.template.roll_damping)
+                                                            .clamp(0.0, 1.0);
+                                                    }
+                                                    if loc_guard.template.wobble_rate > 0.0 {
+                                                        let frame =
+                                                            TheGameLogic::get_frame() as f32;
+                                                        let phase =
+                                                            (obj_guard.get_id() as f32) * 0.01;
+                                                        let wobble_min =
+                                                            loc_guard.template.min_wobble;
+                                                        let wobble_max =
+                                                            loc_guard.template.max_wobble;
+                                                        let wobble_amp =
+                                                            wobble_max.max(wobble_min) - wobble_min;
+                                                        if wobble_amp > 0.0 {
+                                                            let wobble = (frame
+                                                                * loc_guard.template.wobble_rate
+                                                                + phase)
+                                                                .sin()
+                                                                * wobble_amp
+                                                                + wobble_min;
+                                                            roll_rate += wobble;
+                                                        }
+                                                    }
+                                                    phys_guard.set_roll_rate(roll_rate);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                self.facing_direction = new_angle;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if self.movement_state == MovementState::TurningToFace {
+            self.current_speed = 0.0;
+            let angle_diff = self.desired_facing - self.facing_direction;
+            let normalized_diff = Self::normalize_angle(angle_diff);
+
+            if normalized_diff.abs() < 0.1 {
+                // Finished turning
+                self.facing_direction = self.desired_facing;
+                self.movement_state = MovementState::Idle;
+            } else {
+                // Continue turning
+                let turn_amount = self.turn_rate * delta_time;
+                if normalized_diff > 0.0 {
+                    self.facing_direction += turn_amount.min(normalized_diff);
+                } else {
+                    self.facing_direction += (-turn_amount).max(normalized_diff);
+                }
+            }
+        } else {
+            // Other movement states handled elsewhere
+            self.current_speed = 0.0;
+        }
+
+        if completed_move {
+            match prev_movement_state {
+                MovementState::Patrolling => {
+                    if let Some(UnitOrder::Patrol {
+                        waypoints,
+                        loop_patrol,
+                    }) = self.current_order.clone()
+                    {
+                        let _ = self.process_patrol_order(&waypoints, loop_patrol);
+                    }
+                }
+                MovementState::Following => {
+                    if let Some(UnitOrder::Follow { target, distance }) = self.current_order.clone()
+                    {
+                        let _ = self.process_follow_order(target, distance);
+                    }
+                }
+                MovementState::Retreating => {
+                    if matches!(self.current_order, Some(UnitOrder::Retreat { .. }))
+                        && self.target_position.is_none()
+                    {
+                        self.current_order = None;
+                        self.advance_order_queue();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update combat behavior
+    fn update_combat(
+        &mut self,
+        delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.auto_acquire_enemies && self.attack_target.is_none() {
+            return Ok(());
+        }
+
+        match self.combat_mode {
+            CombatMode::Aggressive => {
+                if self.attack_target.is_none() {
+                    self.acquire_target()?;
+                }
+            }
+
+            CombatMode::Defensive => {
+                // Only attack if we're being attacked
+                if self.is_under_attack() && self.attack_target.is_none() {
+                    self.acquire_target()?;
+                }
+            }
+
+            CombatMode::HoldPosition => {
+                // Attack but don't move to engage
+                if self.attack_target.is_none() {
+                    self.acquire_target_in_range()?;
+                }
+            }
+
+            CombatMode::HoldFire => {
+                // Don't attack at all
+                self.attack_target = None;
+            }
+
+            CombatMode::GuardArea => {
+                // Only attack enemies in our guard area
+                if self.attack_target.is_none() {
+                    self.acquire_target_in_guard_area()?;
+                    if self.attack_target.is_none() {
+                        if let Some(guard_pos) = self.guard_position {
+                            let current_pos = self.get_position();
+                            let dx = guard_pos.x - current_pos.x;
+                            let dy = guard_pos.y - current_pos.y;
+                            let distance = (dx * dx + dy * dy).sqrt();
+                            if distance > 1.0
+                                && !self.is_movement_active()
+                                && self.target_position.is_none()
+                            {
+                                self.move_to_position(guard_pos, false)?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process attack if we have a target
+        if let Some(target_id) = self.attack_target {
+            self.engage_target(target_id, delta_time)?;
+        } else if self.attack_move_active && self.is_movement_active() {
+            self.acquire_target()?;
+        }
+
+        if self.attack_move_active && self.movement_state == MovementState::Attacking {
+            const ATTACK_MOVE_SHOT_GRACE: u32 = 15;
+            let current_frame = TheGameLogic::get_frame() as u32;
+            let last_shot = self
+                .base_object
+                .read()
+                .map(|guard| guard.get_last_shot_fired_frame())
+                .unwrap_or(0);
+            if current_frame >= self.attack_move_resume_frame
+                && current_frame.saturating_sub(last_shot) > ATTACK_MOVE_SHOT_GRACE
+            {
+                self.movement_state = match self.current_order {
+                    Some(UnitOrder::Patrol { .. }) => MovementState::Patrolling,
+                    Some(UnitOrder::Follow { .. }) => MovementState::Following,
+                    Some(UnitOrder::Guard { .. }) => MovementState::Guarding,
+                    _ => MovementState::Moving,
+                };
+            }
+        }
+
+        if self.attack_move_active && self.movement_state == MovementState::Idle {
+            let destination = match &self.current_order {
+                Some(UnitOrder::AttackMove { destination, .. }) => *destination,
+                Some(UnitOrder::Patrol { .. }) => {
+                    return Ok(());
+                }
+                _ => {
+                    self.attack_move_active = false;
+                    return Ok(());
+                }
+            };
+
+            let current_pos = self.get_position();
+            let dx = destination.x - current_pos.x;
+            let dy = destination.y - current_pos.y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance > 1.0 {
+                self.move_to_position(destination, false)?;
+            } else {
+                self.attack_move_active = false;
+                self.movement_state = MovementState::Idle;
+            }
+        }
+
+        if !self.attack_move_active
+            && self.attack_target.is_none()
+            && self.movement_state == MovementState::Attacking
+        {
+            let mut resume_state = match self.current_order {
+                Some(UnitOrder::Follow { .. }) => MovementState::Following,
+                Some(UnitOrder::Patrol { .. }) => MovementState::Patrolling,
+                Some(UnitOrder::Retreat { .. }) => MovementState::Retreating,
+                Some(UnitOrder::Guard { .. }) => MovementState::Idle,
+                Some(UnitOrder::Move { .. }) => MovementState::Moving,
+                _ => MovementState::Idle,
+            };
+            if matches!(
+                resume_state,
+                MovementState::Moving
+                    | MovementState::Following
+                    | MovementState::Patrolling
+                    | MovementState::Retreating
+            ) && self.target_position.is_none()
+            {
+                resume_state = MovementState::Idle;
+            }
+            self.movement_state = resume_state;
+        }
+
+        if matches!(self.current_order, Some(UnitOrder::Attack { .. }))
+            && self.attack_target.is_none()
+        {
+            self.current_order = None;
+            self.advance_order_queue();
+        }
+
+        Ok(())
+    }
+
+    /// Issue a move order to the unit
+    pub fn give_move_order(
+        &mut self,
+        destination: Coord3D,
+        waypoints: Vec<Waypoint>,
+        use_formation: bool,
+        queue_order: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let order = UnitOrder::Move {
+            destination,
+            use_formation,
+            waypoints,
+        };
+
+        if queue_order {
+            self.order_queue.push(order);
+        } else {
+            self.current_order = Some(order);
+            self.order_queue.clear();
+        }
+
+        Ok(())
+    }
+
+    /// Issue an attack order to the unit
+    pub fn give_attack_order(
+        &mut self,
+        target: ObjectID,
+        pursue: bool,
+        queue_order: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let order = UnitOrder::Attack { target, pursue };
+
+        if queue_order {
+            self.order_queue.push(order);
+        } else {
+            self.current_order = Some(order);
+            self.order_queue.clear();
+        }
+
+        self.attack_target = Some(target);
+
+        Ok(())
+    }
+
+    /// Issue a capture building order to the unit.
+    pub fn give_capture_order(
+        &mut self,
+        building: ObjectID,
+        queue_order: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let order = UnitOrder::Capture { building };
+
+        if queue_order {
+            self.order_queue.push(order);
+        } else {
+            self.current_order = Some(order);
+            self.order_queue.clear();
+        }
+
+        Ok(())
+    }
+
+    /// Set combat mode
+    pub fn set_combat_mode(&mut self, mode: CombatMode) {
+        self.combat_mode = mode;
+
+        // Clear attack target if switching to hold fire
+        if mode == CombatMode::HoldFire {
+            self.attack_target = None;
+        }
+    }
+
+    /// Check if unit can move
+    pub fn can_move(&self) -> bool {
+        !self.is_stunned
+            && !self.is_pinned
+            && !self.is_garrisoned
+            && self.current_locomotor.is_some()
+    }
+
+    /// Check if unit can attack
+    pub fn can_attack(&self) -> bool {
+        !self.is_stunned
+            && !self.is_suppressed
+            && self.combat_mode != CombatMode::HoldFire
+            && self.has_weapons()
+    }
+
+    /// Get current position
+    pub fn get_position(&self) -> Coord3D {
+        if let Ok(obj_guard) = self.base_object.read() {
+            *obj_guard.get_position()
+        } else {
+            Coord3D::new(0.0, 0.0, 0.0)
+        }
+    }
+
+    /// Get current health percentage
+    pub fn get_health_percentage(&self) -> Real {
+        if let Ok(obj_guard) = self.base_object.read() {
+            let current = obj_guard.get_health();
+            let max = obj_guard.get_max_health();
+            if max > 0.0 {
+                current / max
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    }
+
+    /// Check if unit has weapons
+    pub fn has_weapons(&self) -> bool {
+        if let Ok(obj_guard) = self.base_object.read() {
+            obj_guard.has_any_weapon()
+        } else {
+            false
+        }
+    }
+
+    /// Private helper methods
+    fn process_move_order(
+        &mut self,
+        destination: Coord3D,
+        use_formation: bool,
+        waypoints: &[Waypoint],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.can_move() {
+            let should_repath = self
+                .target_position
+                .map(|pos| (pos - destination).length() > 0.1 || !self.is_movement_active())
+                .unwrap_or(true);
+            if should_repath {
+                self.move_to_position(destination, use_formation)?;
+                // Set up waypoint queue
+                self.waypoint_queue = waypoints.to_vec();
+            }
+        }
+        Ok(())
+    }
+
+    fn process_attack_order(
+        &mut self,
+        target: ObjectID,
+        _pursue: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.can_attack() {
+            self.attack_target = Some(target);
+            // Additional attack logic would go here
+        }
+        Ok(())
+    }
+
+    fn move_to_position(
+        &mut self,
+        destination: Coord3D,
+        _use_formation: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.target_position = Some(destination);
+        self.movement_state = MovementState::Moving;
+        self.current_speed = 0.0;
+        self.current_path = None;
+        self.path_index = 0;
+        self.path_following_state = Some(PathFollowingState::new(destination));
+
+        Ok(())
+    }
+
+    pub fn get_pathfind_layer(&self) -> PathfindLayerEnum {
+        if self.can_fly {
+            PathfindLayerEnum::Top
+        } else {
+            PathfindLayerEnum::Ground
+        }
+    }
+
+    pub fn get_locomotor_surface_mask(&self) -> Option<LocomotorSurfaceTypeMask> {
+        self.current_locomotor
+            .as_ref()
+            .and_then(|locomotor| locomotor.lock().ok())
+            .map(|guard| guard.get_legal_surfaces())
+    }
+
+    pub fn get_crusher_level(&self) -> u32 {
+        self.base_object
+            .read()
+            .map(|guard| guard.get_crusher_level())
+            .unwrap_or(0)
+    }
+
+    fn stop_movement(&mut self) {
+        self.movement_state = MovementState::Idle;
+        self.target_position = None;
+        self.current_path = None;
+        self.path_following_state = None;
+        self.current_speed = 0.0;
+        self.attack_move_active = false;
+        self.path_extra_distance = 0.0;
+        self.attack_move_resume_frame = 0;
+        self.attack_target_lock_until = 0;
+        self.waypoint_queue.clear();
+    }
+
+    fn is_movement_active(&self) -> bool {
+        matches!(
+            self.movement_state,
+            MovementState::Moving
+                | MovementState::Following
+                | MovementState::Patrolling
+                | MovementState::Guarding
+                | MovementState::Pursuing
+                | MovementState::Retreating
+                | MovementState::Backing
+                | MovementState::Fleeing
+        )
+    }
+
+    fn normalize_angle(angle: Real) -> Real {
+        use std::f32::consts::PI;
+        let mut result = angle;
+        while result > PI {
+            result -= 2.0 * PI;
+        }
+        while result < -PI {
+            result += 2.0 * PI;
+        }
+        result
+    }
+
+    fn process_attack_move_order(
+        &mut self,
+        destination: Coord3D,
+        engage_enemies: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.can_move() {
+            let should_repath = self
+                .target_position
+                .map(|pos| (pos - destination).length() > 0.1 || !self.is_movement_active())
+                .unwrap_or(true);
+
+            if should_repath {
+                self.move_to_position(destination, false)?;
+            }
+        }
+
+        self.attack_target = None;
+        self.auto_acquire_enemies = engage_enemies;
+        if engage_enemies {
+            self.combat_mode = CombatMode::Aggressive;
+        }
+        self.attack_move_active = true;
+        Ok(())
+    }
+    fn process_guard_order(
+        &mut self,
+        position: Coord3D,
+        area_radius: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.can_move() {
+            let should_repath = self
+                .target_position
+                .map(|pos| (pos - position).length() > 0.1 || !self.is_movement_active())
+                .unwrap_or(true);
+
+            if should_repath {
+                self.move_to_position(position, false)?;
+            }
+        }
+
+        self.guard_position = Some(position);
+        self.guard_radius = area_radius;
+        self.combat_mode = CombatMode::GuardArea;
+        self.auto_acquire_enemies = true;
+        Ok(())
+    }
+    fn process_follow_order(
+        &mut self,
+        target: ObjectID,
+        distance: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.follow_target = Some(target);
+        self.follow_distance = distance.max(0.0);
+        let target_obj = match crate::object::registry::OBJECT_REGISTRY.get_object(target) {
+            Some(obj) => obj,
+            None => {
+                self.follow_target = None;
+                self.current_order = None;
+                self.advance_order_queue();
+                return Ok(());
+            }
+        };
+        let target_pos = target_obj.read().ok().map(|g| *g.get_position());
+        let Some(target_pos) = target_pos else {
+            return Ok(());
+        };
+        let current_pos = self.get_position();
+        let dx = target_pos.x - current_pos.x;
+        let dy = target_pos.y - current_pos.y;
+        let distance_to_target = (dx * dx + dy * dy).sqrt();
+        if distance_to_target > self.follow_distance + 1.0 {
+            let mut desired = target_pos;
+            if distance_to_target > 0.001 {
+                let scale =
+                    (distance_to_target - self.follow_distance).max(0.0) / distance_to_target;
+                desired.x = current_pos.x + dx * scale;
+                desired.y = current_pos.y + dy * scale;
+            }
+            if self.can_move() {
+                let should_repath = self
+                    .target_position
+                    .map(|pos| (pos - desired).length() > 0.1 || !self.is_movement_active())
+                    .unwrap_or(true);
+                if should_repath {
+                    self.move_to_position(desired, false)?;
+                    self.movement_state = MovementState::Following;
+                }
+            }
+        } else if matches!(
+            self.movement_state,
+            MovementState::Moving | MovementState::Following
+        ) {
+            self.movement_state = MovementState::Idle;
+            self.target_position = None;
+        }
+        Ok(())
+    }
+    fn process_patrol_order(
+        &mut self,
+        waypoints: &[Coord3D],
+        loop_patrol: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let is_same_path = !self.patrol_points.is_empty() && self.patrol_points == waypoints;
+        if !is_same_path {
+            self.patrol_points = waypoints.to_vec();
+            self.current_patrol_index = 0;
+            self.patrol_loop = loop_patrol;
+        } else {
+            self.patrol_loop = loop_patrol;
+        }
+        if self.patrol_points.is_empty() {
+            self.current_order = None;
+            self.advance_order_queue();
+            return Ok(());
+        }
+        self.combat_mode = CombatMode::Aggressive;
+        self.auto_acquire_enemies = true;
+        self.attack_move_active = true;
+        if self.can_move()
+            && self.movement_state == MovementState::Idle
+            && self.target_position.is_none()
+        {
+            if self.current_patrol_index >= self.patrol_points.len() {
+                if self.patrol_loop {
+                    self.current_patrol_index = 0;
+                } else {
+                    self.current_order = None;
+                    self.advance_order_queue();
+                    return Ok(());
+                }
+            }
+            let dest = self.patrol_points[self.current_patrol_index];
+            self.current_patrol_index = self.current_patrol_index.saturating_add(1);
+            self.move_to_position(dest, false)?;
+            self.movement_state = MovementState::Patrolling;
+        }
+        Ok(())
+    }
+    fn process_garrison_order(
+        &mut self,
+        building: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.is_garrisoned {
+            self.current_order = None;
+            self.advance_order_queue();
+            return Ok(());
+        }
+        self.garrison_building = Some(building);
+        let enter_command = self.base_object.read().ok().and_then(|obj_guard| {
+            let ai = obj_guard.get_ai_update_interface()?;
+            let cmd_source = ai
+                .lock()
+                .ok()
+                .map(|ai_guard| ai_guard.get_last_command_source())
+                .unwrap_or(CommandSourceType::FromPlayer);
+            Some((ai, cmd_source))
+        });
+        if let Some((ai, cmd_source)) = enter_command {
+            ai.ai_enter(building, cmd_source);
+            self.current_order = None;
+            self.advance_order_queue();
+            return Ok(());
+        }
+        if let Some(container) = TheGameLogic::find_object_by_id(building) {
+            if let Ok(container_guard) = container.read() {
+                if let Some(contain) = container_guard.get_contain() {
+                    if let Ok(mut contain_guard) = contain.lock() {
+                        if let Ok(base_guard) = self.base_object.read() {
+                            let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                                &*base_guard,
+                                crate::modules::ContainWant::WantsToEnter,
+                            );
+                        }
+                    }
+                }
+                if self.can_move() && self.movement_state == MovementState::Idle {
+                    self.move_to_position(*container_guard.get_position(), false)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn process_ungarrison_order(
+        &mut self,
+        exit_position: Option<Coord3D>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let container_id = self
+            .base_object
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_contained_by());
+        if let Ok(obj_guard) = self.base_object.read() {
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                let cmd_source = ai
+                    .lock()
+                    .ok()
+                    .map(|ai_guard| ai_guard.get_last_command_source())
+                    .unwrap_or(CommandSourceType::FromPlayer);
+                let mut params =
+                    crate::ai::AiCommandParams::new(crate::ai::AiCommandType::Exit, cmd_source);
+                params.obj = container_id;
+                let _ = ai
+                    .lock()
+                    .ok()
+                    .map(|mut guard| guard.execute_command(&params));
+            }
+        }
+        if let Some(container_id) = container_id {
+            if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
+                if let Ok(container_guard) = container.read() {
+                    if let Some(contain) = container_guard.get_contain() {
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            if let Ok(base_guard) = self.base_object.read() {
+                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                                    &*base_guard,
+                                    crate::modules::ContainWant::WantsToExit,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.is_garrisoned = false;
+        self.garrison_building = None;
+        if let Some(pos) = exit_position {
+            self.order_queue.insert(
+                0,
+                UnitOrder::Move {
+                    destination: pos,
+                    use_formation: false,
+                    waypoints: Vec::new(),
+                },
+            );
+        }
+        self.current_order = None;
+        self.advance_order_queue();
+        Ok(())
+    }
+    fn process_capture_order(
+        &mut self,
+        building: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.can_capture_buildings {
+            return Ok(());
+        }
+
+        let Some(building_arc) = TheGameLogic::find_object_by_id(building) else {
+            return Ok(());
+        };
+
+        let (unit_pos, unit_radius, unit_player_id) = {
+            let Ok(unit_guard) = self.base_object.read() else {
+                return Ok(());
+            };
+            let player_id = unit_guard.get_player_id();
+            let radius = unit_guard.get_geometry_info().get_bounding_circle_radius();
+            (*unit_guard.get_position(), radius, player_id)
+        };
+
+        let (building_pos, building_radius, can_capture) = {
+            let Ok(building_guard) = building_arc.read() else {
+                return Ok(());
+            };
+            let radius = building_guard
+                .get_geometry_info()
+                .get_bounding_circle_radius();
+            let can_capture = TheActionManager::can_capture_building(
+                &*self.base_object.read().map_err(|_| "Unit lock poisoned")?,
+                &*building_guard,
+                CommandSourceType::FromAi,
+            );
+            (*building_guard.get_position(), radius, can_capture)
+        };
+
+        if !can_capture {
+            return Ok(());
+        }
+
+        let dx = unit_pos.x - building_pos.x;
+        let dy = unit_pos.y - building_pos.y;
+        let dist_sq = dx * dx + dy * dy;
+        let capture_range = unit_radius + building_radius + PATHFIND_CLOSE_ENOUGH;
+
+        if dist_sq > capture_range * capture_range {
+            self.move_to_position(building_pos, false)?;
+            return Ok(());
+        }
+
+        let Some(player_id) = unit_player_id else {
+            return Ok(());
+        };
+
+        if let Ok(mut factory) = get_object_factory().write() {
+            if let Some(GameObjectInstance::Structure(structure_arc)) =
+                factory.get_object_mut(building)
+            {
+                if let Ok(mut structure_guard) = structure_arc.write() {
+                    let _ = structure_guard.mark_capture_activity(player_id);
+                }
+            }
+        }
+        Ok(())
+    }
+    fn process_retreat_order(
+        &mut self,
+        safe_position: Coord3D,
+        _organized: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.attack_target = None;
+        self.attack_move_active = false;
+        self.auto_acquire_enemies = false;
+
+        if self.can_move() {
+            let should_repath = self
+                .target_position
+                .map(|pos| (pos - safe_position).length() > 0.1 || !self.is_movement_active())
+                .unwrap_or(true);
+            if should_repath {
+                self.move_to_position(safe_position, false)?;
+                self.movement_state = MovementState::Retreating;
+            }
+        }
+        Ok(())
+    }
+    fn look_for_enemies(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.auto_acquire_enemies {
+            return Ok(());
+        }
+
+        if self.auto_acquire_not_while_attacking && self.is_currently_attacking() {
+            return Ok(());
+        }
+
+        if !self.auto_acquire_while_stealthed
+            && self
+                .base_object
+                .read()
+                .map(|guard| guard.is_stealthed())
+                .unwrap_or(false)
+        {
+            return Ok(());
+        }
+
+        match self.combat_mode {
+            CombatMode::GuardArea => self.acquire_target_in_guard_area()?,
+            CombatMode::HoldPosition | CombatMode::HoldFire => self.acquire_target_in_range()?,
+            CombatMode::Aggressive | CombatMode::Defensive => self.acquire_target()?,
+        }
+
+        Ok(())
+    }
+    fn return_to_formation_position(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let leader_id = match self.group_leader {
+            Some(id) => id,
+            None => {
+                self.return_to_formation = false;
+                return Ok(());
+            }
+        };
+        let leader = match crate::object::registry::OBJECT_REGISTRY.get_object(leader_id) {
+            Some(obj) => obj,
+            None => {
+                self.group_leader = None;
+                self.return_to_formation = false;
+                return Ok(());
+            }
+        };
+        let leader_pos = leader.read().ok().map(|g| *g.get_position());
+        let Some(leader_pos) = leader_pos else {
+            self.return_to_formation = false;
+            return Ok(());
+        };
+        let current_pos = self.get_position();
+        let dx = leader_pos.x - current_pos.x;
+        let dy = leader_pos.y - current_pos.y;
+        let distance = (dx * dx + dy * dy).sqrt();
+        if distance > self.follow_distance && self.can_move() && !self.is_movement_active() {
+            self.move_to_position(leader_pos, false)?;
+        } else if distance <= self.follow_distance {
+            self.return_to_formation = false;
+        }
+        Ok(())
+    }
+    fn update_facing(
+        &mut self,
+        delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let target_angle = self.desired_facing;
+        let current = self.facing_direction;
+        let mut delta = target_angle - current;
+        let two_pi = std::f32::consts::PI * 2.0;
+        while delta > std::f32::consts::PI {
+            delta -= two_pi;
+        }
+        while delta < -std::f32::consts::PI {
+            delta += two_pi;
+        }
+        let max_turn = (self.turn_rate.max(0.0) * delta_time).max(0.0);
+        let adjust = delta.clamp(-max_turn, max_turn);
+        let new_angle = current + adjust;
+        self.facing_direction = new_angle;
+        if let Ok(mut obj_guard) = self.base_object.write() {
+            let _ = obj_guard.set_orientation(new_angle as Real);
+        }
+        Ok(())
+    }
+    fn check_status_effects(
+        &mut self,
+        _delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let contained_by = self
+            .base_object
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_contained_by());
+        match contained_by {
+            Some(container) => {
+                self.is_garrisoned = true;
+                self.garrison_building = Some(container);
+                if matches!(self.current_order, Some(UnitOrder::Garrison { .. })) {
+                    self.current_order = None;
+                    self.advance_order_queue();
+                }
+                self.stop_movement();
+            }
+            None => {
+                self.is_garrisoned = false;
+                self.garrison_building = None;
+            }
+        }
+        Ok(())
+    }
+    fn update_animation_state(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Ok(mut obj_guard) = self.base_object.write() {
+            match self.movement_state {
+                MovementState::Moving
+                | MovementState::TurningToFace
+                | MovementState::Following
+                | MovementState::Patrolling
+                | MovementState::Guarding
+                | MovementState::Pursuing
+                | MovementState::Retreating
+                | MovementState::Backing
+                | MovementState::Fleeing => {
+                    obj_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                }
+                MovementState::Idle | MovementState::Attacking => {
+                    obj_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+                }
+            }
+            if matches!(self.movement_state, MovementState::Attacking) {
+                obj_guard.set_model_condition_state(ModelConditionFlags::ATTACKING);
+            } else {
+                obj_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
+            }
+        }
+        Ok(())
+    }
+    fn acquire_target(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.can_auto_acquire_now() {
+            return Ok(());
+        }
+
+        if !self.should_scan_for_targets(self.engagement_range) {
+            return Ok(());
+        }
+
+        if let Some((target_id, _)) = self.find_closest_enemy_with_buildings(
+            self.get_position(),
+            self.engagement_range,
+            self.engagement_range,
+        ) {
+            self.attack_target = Some(target_id);
+        }
+        Ok(())
+    }
+    fn acquire_target_in_range(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.can_auto_acquire_now() {
+            return Ok(());
+        }
+
+        if !self.should_scan_for_targets(self.engagement_range) {
+            return Ok(());
+        }
+
+        if let Some((target_id, _)) = self.find_closest_enemy_with_buildings(
+            self.get_position(),
+            self.engagement_range,
+            self.engagement_range,
+        ) {
+            self.attack_target = Some(target_id);
+        }
+        Ok(())
+    }
+    fn acquire_target_in_guard_area(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.can_auto_acquire_now() {
+            return Ok(());
+        }
+
+        let guard_pos = match self.guard_position {
+            Some(pos) => pos,
+            None => return Ok(()),
+        };
+
+        if !self.should_scan_for_targets(self.guard_radius) {
+            return Ok(());
+        }
+
+        let guard_radius = if self.guard_radius > 0.0 {
+            self.guard_radius
+        } else {
+            self.engagement_range
+        };
+
+        if let Some((target_id, _)) =
+            self.find_closest_enemy_with_buildings(guard_pos, guard_radius, self.engagement_range)
+        {
+            self.attack_target = Some(target_id);
+        }
+        Ok(())
+    }
+    fn engage_target(
+        &mut self,
+        target_id: ObjectID,
+        _delta_time: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (target_pos, target_relationship, detected) =
+            match crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
+                Some(obj) => {
+                    let guard = obj.read().ok();
+                    let pos = guard.as_ref().map(|g| *g.get_position());
+                    let rel = guard
+                        .as_ref()
+                        .and_then(|g| {
+                            self.base_object
+                                .read()
+                                .ok()
+                                .map(|me| me.relationship_to(&g))
+                        })
+                        .unwrap_or(Relationship::Neutral);
+                    let detected = guard.map(|g| g.is_detected()).unwrap_or(false);
+                    (pos, rel, detected)
+                }
+                None => (None, Relationship::Neutral, false),
+            };
+
+        let target_pos = match target_pos {
+            Some(pos) => pos,
+            None => {
+                self.attack_target = None;
+                return Ok(());
+            }
+        };
+
+        if !matches!(target_relationship, Relationship::Enemy) {
+            self.attack_target = None;
+            return Ok(());
+        }
+
+        let current_pos = self.get_position();
+        let dx = target_pos.x - current_pos.x;
+        let dy = target_pos.y - current_pos.y;
+        let distance = (dx * dx + dy * dy).sqrt();
+
+        if !detected && !self.can_detect_target_distance(distance) {
+            self.attack_target = None;
+            return Ok(());
+        }
+
+        if distance > self.engagement_range {
+            if self.attack_move_active {
+                self.attack_target = None;
+                return Ok(());
+            }
+
+            if self.can_move() && !self.is_movement_active() {
+                self.move_to_position(target_pos, false)?;
+            }
+        } else {
+            if matches!(self.combat_mode, CombatMode::GuardArea) {
+                if let Some(guard_pos) = self.guard_position {
+                    let guard_radius = if self.guard_radius > 0.0 {
+                        self.guard_radius
+                    } else {
+                        self.engagement_range
+                    };
+                    let dx_guard = target_pos.x - guard_pos.x;
+                    let dy_guard = target_pos.y - guard_pos.y;
+                    let dist_guard = (dx_guard * dx_guard + dy_guard * dy_guard).sqrt();
+                    if dist_guard > guard_radius {
+                        self.attack_target = None;
+                        return Ok(());
+                    }
+                }
+            }
+            self.movement_state = MovementState::Attacking;
+            if self.attack_move_active {
+                const ATTACK_MOVE_PAUSE_FRAMES: u32 = 30;
+                let current_frame = TheGameLogic::get_frame() as u32;
+                self.attack_move_resume_frame =
+                    current_frame.saturating_add(ATTACK_MOVE_PAUSE_FRAMES);
+            }
+            const TARGET_LOCK_FRAMES: u32 = 30;
+            let current_frame = TheGameLogic::get_frame() as u32;
+            self.attack_target_lock_until = current_frame.saturating_add(TARGET_LOCK_FRAMES);
+        }
+
+        Ok(())
+    }
+    fn should_scan_for_targets(&mut self, max_distance: Real) -> bool {
+        const TARGET_LOCK_GRACE: u32 = 30;
+
+        let current_frame = TheGameLogic::get_frame() as u32;
+        if let Ok(guard) = self.base_object.read() {
+            let last_shot = guard.get_last_shot_fired_frame();
+            if current_frame.saturating_sub(last_shot) < TARGET_LOCK_GRACE {
+                return false;
+            }
+        }
+        if current_frame < self.attack_target_lock_until {
+            return false;
+        }
+
+        if let Some(target_id) = self.attack_target {
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
+                if let Ok(target_guard) = obj.read() {
+                    if matches!(
+                        self.base_object
+                            .read()
+                            .ok()
+                            .map(|guard| guard.relationship_to(&target_guard)),
+                        Some(Relationship::Enemy)
+                    ) {
+                        let target_pos = *target_guard.get_position();
+                        let self_pos = self.get_position();
+                        let dx = target_pos.x - self_pos.x;
+                        let dy = target_pos.y - self_pos.y;
+                        let distance = (dx * dx + dy * dy).sqrt();
+                        if distance <= max_distance
+                            && self.can_detect_target(&target_guard, distance)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        let interval = self.mood_attack_check_rate_frames.max(1);
+        if current_frame.saturating_sub(self.last_target_scan_frame) < interval {
+            return false;
+        }
+
+        self.last_target_scan_frame = current_frame;
+        true
+    }
+    fn find_closest_enemy(
+        &self,
+        center: Coord3D,
+        max_distance: Real,
+        vision_distance: Real,
+    ) -> Option<(ObjectID, Real)> {
+        let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
+        let self_id = self
+            .base_object
+            .read()
+            .map(|guard| guard.get_id())
+            .unwrap_or(0);
+        let mut closest: Option<(ObjectID, Real)> = None;
+
+        if let Some(current_target) = self.attack_target {
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(current_target) {
+                if let Ok(target_guard) = obj.read() {
+                    if matches!(
+                        self.base_object
+                            .read()
+                            .ok()
+                            .map(|guard| guard.relationship_to(&target_guard)),
+                        Some(Relationship::Enemy)
+                    ) {
+                        let target_pos = *target_guard.get_position();
+                        let dx_center = target_pos.x - center.x;
+                        let dy_center = target_pos.y - center.y;
+                        let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
+                        let self_pos = self.get_position();
+                        let dx_self = target_pos.x - self_pos.x;
+                        let dy_self = target_pos.y - self_pos.y;
+                        let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
+
+                        if dist_to_center <= max_distance
+                            && dist_to_self <= vision_distance
+                            && self.can_detect_target(&target_guard, dist_to_self)
+                        {
+                            closest = Some((current_target, dist_to_self * 1.1));
+                        }
+                    }
+                }
+            }
+        }
+
+        for obj in all_objects {
+            let obj_guard = match obj.read() {
+                Ok(guard) => guard,
+                Err(_) => continue,
+            };
+
+            let obj_id = obj_guard.get_id();
+            if obj_id == self_id {
+                continue;
+            }
+
+            if !obj_guard.is_kind_of(KindOf::Unit) {
+                continue;
+            }
+
+            if !matches!(
+                self.base_object
+                    .read()
+                    .ok()
+                    .map(|guard| guard.relationship_to(&obj_guard)),
+                Some(Relationship::Enemy)
+            ) {
+                continue;
+            }
+
+            let obj_pos = *obj_guard.get_position();
+            let dx_center = obj_pos.x - center.x;
+            let dy_center = obj_pos.y - center.y;
+            let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
+
+            if dist_to_center > max_distance {
+                continue;
+            }
+
+            let self_pos = self.get_position();
+            let dx_self = obj_pos.x - self_pos.x;
+            let dy_self = obj_pos.y - self_pos.y;
+            let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
+
+            if dist_to_self > vision_distance {
+                continue;
+            }
+
+            if !self.can_detect_target(&obj_guard, dist_to_self) {
+                continue;
+            }
+
+            let mut weighted_dist = dist_to_self;
+            if self.is_under_attack() {
+                weighted_dist *= 0.9;
+            }
+            if dist_to_self <= self.engagement_range {
+                weighted_dist *= 0.8;
+            }
+
+            match closest {
+                Some((current_id, best_dist)) if weighted_dist >= best_dist => {
+                    // Keep current target unless new target is meaningfully closer.
+                    if current_id == obj_id {
+                        closest = Some((obj_id, weighted_dist));
+                    }
+                }
+                _ => closest = Some((obj_id, weighted_dist)),
+            }
+        }
+
+        closest
+    }
+
+    fn find_closest_enemy_with_buildings(
+        &self,
+        center: Coord3D,
+        max_distance: Real,
+        vision_distance: Real,
+    ) -> Option<(ObjectID, Real)> {
+        if !self.auto_acquire_attack_buildings {
+            return self.find_closest_enemy(center, max_distance, vision_distance);
+        }
+
+        let all_objects = crate::object::registry::OBJECT_REGISTRY.get_all_objects();
+        let self_id = self
+            .base_object
+            .read()
+            .map(|guard| guard.get_id())
+            .unwrap_or(0);
+        let mut closest: Option<(ObjectID, Real)> = None;
+
+        for obj in all_objects {
+            let obj_guard = match obj.read() {
+                Ok(guard) => guard,
+                Err(_) => continue,
+            };
+
+            let obj_id = obj_guard.get_id();
+            if obj_id == self_id {
+                continue;
+            }
+
+            let is_unit = obj_guard.is_kind_of(KindOf::Unit);
+            let is_structure = obj_guard.is_kind_of(KindOf::Structure);
+            if !is_unit && !is_structure {
+                continue;
+            }
+
+            if !matches!(
+                self.base_object
+                    .read()
+                    .ok()
+                    .map(|guard| guard.relationship_to(&obj_guard)),
+                Some(Relationship::Enemy)
+            ) {
+                continue;
+            }
+
+            let obj_pos = *obj_guard.get_position();
+            let dx_center = obj_pos.x - center.x;
+            let dy_center = obj_pos.y - center.y;
+            let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
+
+            if dist_to_center > max_distance {
+                continue;
+            }
+
+            let self_pos = self.get_position();
+            let dx_self = obj_pos.x - self_pos.x;
+            let dy_self = obj_pos.y - self_pos.y;
+            let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
+
+            if dist_to_self > vision_distance {
+                continue;
+            }
+
+            if !self.can_detect_target(&obj_guard, dist_to_self) {
+                continue;
+            }
+
+            let mut weighted_dist = dist_to_self;
+            if self.is_under_attack() {
+                weighted_dist *= 0.9;
+            }
+            if dist_to_self <= self.engagement_range {
+                weighted_dist *= 0.8;
+            }
+
+            match closest {
+                Some((current_id, best_dist)) if weighted_dist >= best_dist => {
+                    if current_id == obj_id {
+                        closest = Some((obj_id, weighted_dist));
+                    }
+                }
+                _ => closest = Some((obj_id, weighted_dist)),
+            }
+        }
+
+        closest
+    }
+    fn can_detect_target(&self, target: &Object, distance: Real) -> bool {
+        if target.is_detected() {
+            return true;
+        }
+
+        self.can_detect_target_distance(distance)
+    }
+
+    fn can_detect_target_distance(&self, distance: Real) -> bool {
+        let base_range = self
+            .base_object
+            .read()
+            .ok()
+            .map(|guard| guard.get_stealth_detection_range() as Real)
+            .unwrap_or(0.0);
+        let detection_range = self.stealth_detection_range.max(base_range);
+
+        if detection_range <= 0.0 {
+            return false;
+        }
+
+        distance <= detection_range
+    }
+    fn is_under_attack(&self) -> bool {
+        let Some(body) = self
+            .base_object
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_body_module())
+        else {
+            return false;
+        };
+
+        let Ok(body_guard) = body.lock() else {
+            return false;
+        };
+
+        let Some(last) = body_guard.get_last_damage_info() else {
+            return false;
+        };
+
+        if matches!(
+            last.input.damage_type,
+            DamageType::Healing | DamageType::Penalty
+        ) {
+            return false;
+        }
+
+        let last_frame = body_guard.get_last_damage_timestamp();
+        if last_frame == u32::MAX {
+            return false;
+        }
+
+        let current_frame = TheGameLogic::get_frame() as u32;
+        current_frame.saturating_sub(last_frame) <= LOGICFRAMES_PER_SECOND
+    }
+
+    fn is_currently_attacking(&self) -> bool {
+        matches!(
+            self.current_order,
+            Some(UnitOrder::Attack { .. }) | Some(UnitOrder::AttackMove { .. })
+        ) || self.movement_state == MovementState::Attacking
+    }
+
+    fn can_auto_acquire_now(&self) -> bool {
+        if !self.auto_acquire_enemies {
+            return false;
+        }
+
+        if self.auto_acquire_not_while_attacking && self.is_currently_attacking() {
+            return false;
+        }
+
+        if !self.auto_acquire_while_stealthed {
+            let stealthed = self
+                .base_object
+                .read()
+                .map(|guard| guard.is_stealthed())
+                .unwrap_or(false);
+            if stealthed {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// Extension trait for Object to provide Unit-specific functionality
+pub trait UnitExt {
+    /// Get unit-specific data if this object is a unit
+    fn as_unit(&self) -> Option<&Unit>;
+    fn as_unit_mut(&mut self) -> Option<&mut Unit>;
+}
+
+#[derive(Debug, Clone)]
+struct RappelState {
+    rappel_rate: Real,
+    dest_z: Real,
+    target_is_bldg: bool,
+    target_id: Option<ObjectID>,
+}
+
+fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Option<ObjectID> {
+    let container = crate::object::registry::OBJECT_REGISTRY.get_object(container_id)?;
+    let contained_ids = {
+        let guard = container.read().ok()?;
+        let contain = guard.get_contain()?;
+        let contain_guard = contain.lock().ok()?;
+        contain_guard.get_contained_objects().to_vec()
+    };
+
+    for id in contained_ids {
+        let enemy = crate::object::registry::OBJECT_REGISTRY.get_object(id)?;
+        let enemy_guard = enemy.read().ok()?;
+        if enemy_guard.is_effectively_dead() {
+            continue;
+        }
+        let Some(killer) = crate::object::registry::OBJECT_REGISTRY.get_object(killer_id) else {
+            continue;
+        };
+        let killer_guard = killer.read().ok()?;
+        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemy {
+            return Some(id);
+        }
+    }
+    None
+}
+
+fn kill_enemies_in_container(killer_id: ObjectID, container_id: ObjectID, max_to_kill: i32) -> i32 {
+    let mut num_killed = 0;
+    while num_killed < max_to_kill {
+        let Some(enemy_id) = find_enemy_in_container(killer_id, container_id) else {
+            break;
+        };
+
+        if let Some(enemy) = crate::object::registry::OBJECT_REGISTRY.get_object(enemy_id) {
+            if let Ok(mut enemy_guard) = enemy.write() {
+                if let Some(contained_by_id) = enemy_guard.get_contained_by() {
+                    if let Some(container) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(contained_by_id)
+                    {
+                        if let Ok(container_guard) = container.read() {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(mut contain_guard) = contain.lock() {
+                                    let _ = contain_guard.release_object(enemy_id);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(killer) = crate::object::registry::OBJECT_REGISTRY.get_object(killer_id)
+                {
+                    if let Ok(mut killer_guard) = killer.write() {
+                        killer_guard.score_the_kill(&enemy_guard);
+                    }
+                }
+                enemy_guard.kill(None, None);
+                num_killed += 1;
+            }
+        } else {
+            break;
+        }
+    }
+
+    num_killed
+}
+
+fn to_locomotor_body_damage_type(value: crate::common::BodyDamageType) -> BodyDamageType {
+    match value {
+        crate::common::BodyDamageType::Pristine => BodyDamageType::Pristine,
+        crate::common::BodyDamageType::Damaged => BodyDamageType::Damaged,
+        crate::common::BodyDamageType::ReallyDamaged => BodyDamageType::ReallyDamaged,
+        crate::common::BodyDamageType::Rubble => BodyDamageType::Rubble,
+    }
+}
+
+/// Basic AI update interface that bridges AI commands to unit orders.
+pub struct UnitAIUpdate {
+    unit: Weak<RwLock<Unit>>,
+    crate_created: Mutex<ObjectID>,
+    supply_truck_ai: Option<SupplyTruckAIUpdate>,
+    chinook_ai: Option<ChinookAIUpdate>,
+    jet_ai: Option<JetAIUpdate>,
+    worker_ai: Option<WorkerAIUpdate>,
+    dozer_ai: Option<DozerAIUpdate>,
+    #[cfg(feature = "allow_surrender")]
+    pow_truck_ai: Option<POWTruckAIUpdate>,
+    railed_transport_ai: Option<RailedTransportAIUpdate>,
+    hack_internet_ai: Option<HackInternetAIUpdate>,
+    assault_transport_ai: Option<AssaultTransportAIUpdate>,
+    deliver_payload_ai: Option<DeliverPayloadAIUpdate>,
+    transport_ai: Option<TransportAIUpdate>,
+    deploy_style_ai: Option<DeployStyleAIUpdate>,
+    wander_ai: Option<WanderAIUpdate>,
+    dock_machine: Option<AIDockMachine>,
+    ai_state_machine: Option<Arc<Mutex<AIStateMachine>>>,
+    can_path_through_units: bool,
+    allow_chase: bool,
+    attitude: AIAttitudeType,
+    last_command_source: CommandSourceType,
+    current_command: Option<crate::ai::AiCommandType>,
+    pending_command: Option<crate::ai::AiCommandType>,
+    surrendered_frames_left: UnsignedInt,
+    surrendered_player_index: Option<PlayerIndex>,
+    surrender_duration_frames: UnsignedInt,
+    demoralized_frames_left: UnsignedInt,
+    auto_acquire_enemies_when_idle: u32,
+    mood_attack_check_rate_frames: UnsignedInt,
+    forbid_player_commands: Bool,
+    turrets_linked: Bool,
+    turret_primary_data: Option<TurretAIData>,
+    turret_secondary_data: Option<TurretAIData>,
+    locomotor_upgraded: Bool,
+    current_locomotor_set: LocomotorSetType,
+    locomotor_sets: HashMap<LocomotorSetType, Vec<AsciiString>>,
+    turret_primary_enabled: Bool,
+    turret_secondary_enabled: Bool,
+    turret_primary_natural: Bool,
+    turret_secondary_natural: Bool,
+    turret_primary_machine: Option<TurretStateMachine>,
+    turret_secondary_machine: Option<TurretStateMachine>,
+    enter_target: Option<ObjectID>,
+    desired_speed: Real,
+    prior_waypoint_id: Option<crate::waypoint::WaypointId>,
+    current_waypoint_id: Option<crate::waypoint::WaypointId>,
+    completed_waypoint_id: Option<crate::waypoint::WaypointId>,
+    current_goal_path_index: i32,
+    rappel_state: Option<RappelState>,
+    original_victim_pos: Option<Coord3D>,
+    pending_safe_path: Option<Vec<Coord3D>>,
+    pathfind_goal_cell: ICoord2D,
+    pathfind_goal_layer: ClassicPathLayer,
+    move_out_of_way_1: ObjectID,
+    move_out_of_way_2: ObjectID,
+    repulsor1: ObjectID,
+    repulsor2: ObjectID,
+    ignore_obstacle_id: ObjectID,
+    ignore_collisions_until: UnsignedInt,
+    queue_for_path_frame: UnsignedInt,
+    path_timestamp: UnsignedInt,
+    ai_dead: Bool,
+    is_blocked: Bool,
+    blocked_and_stuck: Bool,
+    blocked_frames: u32,
+    cur_max_blocked_speed: Real,
+    bump_speed_limit: Real,
+}
+
+impl std::fmt::Debug for UnitAIUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnitAIUpdate")
+            .field("can_path_through_units", &self.can_path_through_units)
+            .field("allow_chase", &self.allow_chase)
+            .field("last_command_source", &self.last_command_source)
+            .field("current_command", &self.current_command)
+            .field("pending_command", &self.pending_command)
+            .field("ai_dead", &self.ai_dead)
+            .finish()
+    }
+}
+
+impl UnitAIUpdate {
+    pub fn new(
+        unit: Weak<RwLock<Unit>>,
+        supply_truck_ai: Option<SupplyTruckAIUpdate>,
+        chinook_ai: Option<ChinookAIUpdate>,
+        jet_ai: Option<JetAIUpdate>,
+        worker_ai: Option<WorkerAIUpdate>,
+        dozer_ai: Option<DozerAIUpdate>,
+        #[cfg(feature = "allow_surrender")] pow_truck_ai: Option<POWTruckAIUpdate>,
+        railed_transport_ai: Option<RailedTransportAIUpdate>,
+        hack_internet_ai: Option<HackInternetAIUpdate>,
+        assault_transport_ai: Option<AssaultTransportAIUpdate>,
+        deliver_payload_ai: Option<DeliverPayloadAIUpdate>,
+        transport_ai: Option<TransportAIUpdate>,
+        deploy_style_ai: Option<DeployStyleAIUpdate>,
+        wander_ai: Option<WanderAIUpdate>,
+    ) -> Self {
+        let ai_state_machine = unit.upgrade().and_then(|unit_arc| {
+            let owner = unit_arc
+                .read()
+                .ok()
+                .map(|guard| Arc::downgrade(&guard.base_object))?;
+            Some(Arc::new(Mutex::new(AIStateMachine::new(
+                owner,
+                "AIStateMachine",
+            ))))
+        });
+
+        Self {
+            unit,
+            crate_created: Mutex::new(crate::common::INVALID_ID),
+            supply_truck_ai,
+            chinook_ai,
+            jet_ai,
+            worker_ai,
+            dozer_ai,
+            #[cfg(feature = "allow_surrender")]
+            pow_truck_ai,
+            railed_transport_ai,
+            hack_internet_ai,
+            assault_transport_ai,
+            deliver_payload_ai,
+            transport_ai,
+            deploy_style_ai,
+            wander_ai,
+            dock_machine: None,
+            ai_state_machine,
+            can_path_through_units: false,
+            allow_chase: false,
+            attitude: AIAttitudeType::Normal,
+            last_command_source: CommandSourceType::FromAi,
+            current_command: None,
+            pending_command: None,
+            surrendered_frames_left: 0,
+            surrendered_player_index: None,
+            surrender_duration_frames: LOGICFRAMES_PER_SECOND * 120,
+            demoralized_frames_left: 0,
+            auto_acquire_enemies_when_idle: 0,
+            mood_attack_check_rate_frames: LOGICFRAMES_PER_SECOND * 2,
+            forbid_player_commands: false,
+            turrets_linked: false,
+            turret_primary_data: None,
+            turret_secondary_data: None,
+            locomotor_upgraded: false,
+            current_locomotor_set: LocomotorSetType::Normal,
+            locomotor_sets: HashMap::new(),
+            turret_primary_enabled: true,
+            turret_secondary_enabled: true,
+            turret_primary_natural: true,
+            turret_secondary_natural: true,
+            turret_primary_machine: None,
+            turret_secondary_machine: None,
+            enter_target: None,
+            desired_speed: FAST_AS_POSSIBLE,
+            prior_waypoint_id: None,
+            current_waypoint_id: None,
+            completed_waypoint_id: None,
+            current_goal_path_index: -1,
+            rappel_state: None,
+            original_victim_pos: None,
+            pending_safe_path: None,
+            pathfind_goal_cell: ICoord2D::new(-1, -1),
+            pathfind_goal_layer: ClassicPathLayer::Invalid,
+            move_out_of_way_1: INVALID_ID,
+            move_out_of_way_2: INVALID_ID,
+            repulsor1: INVALID_ID,
+            repulsor2: INVALID_ID,
+            ignore_obstacle_id: INVALID_ID,
+            ignore_collisions_until: 0,
+            queue_for_path_frame: 0,
+            path_timestamp: 0,
+            ai_dead: false,
+            is_blocked: false,
+            blocked_and_stuck: false,
+            blocked_frames: 0,
+            cur_max_blocked_speed: 0.0,
+            bump_speed_limit: FAST_AS_POSSIBLE,
+        }
+    }
+
+    pub fn apply_ai_update_module_data(
+        &mut self,
+        data: &crate::object::update::AIUpdateModuleData,
+    ) {
+        self.surrender_duration_frames = data.surrender_duration_frames();
+        self.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
+        self.mood_attack_check_rate_frames = data.mood_attack_check_rate();
+        self.forbid_player_commands = data.forbid_player_commands();
+        self.turrets_linked = data.turrets_linked();
+        self.turret_primary_data = data.turret_primary().cloned();
+        self.turret_secondary_data = data.turret_secondary().cloned();
+        self.locomotor_sets = data.locomotor_sets().clone();
+
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                let allow = (self.auto_acquire_enemies_when_idle
+                    & crate::object::update::AUTO_ACQUIRE_IDLE)
+                    != 0;
+                let deny = (self.auto_acquire_enemies_when_idle
+                    & crate::object::update::AUTO_ACQUIRE_IDLE_NO)
+                    != 0;
+                guard.auto_acquire_enemies = allow && !deny;
+                guard.auto_acquire_while_stealthed = (self.auto_acquire_enemies_when_idle
+                    & crate::object::update::AUTO_ACQUIRE_IDLE_STEALTHED)
+                    != 0;
+                guard.auto_acquire_not_while_attacking = (self.auto_acquire_enemies_when_idle
+                    & crate::object::update::AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING)
+                    != 0;
+                guard.auto_acquire_attack_buildings = (self.auto_acquire_enemies_when_idle
+                    & crate::object::update::AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS)
+                    != 0;
+                guard.mood_attack_check_rate_frames = data.mood_attack_check_rate();
+            }
+        }
+
+        if let Some(mut jet_ai) = self.jet_ai.take() {
+            jet_ai.on_object_created(self);
+            self.jet_ai = Some(jet_ai);
+        }
+
+        if self.turret_primary_data.is_some() {
+            let _ = self.ensure_turret_machine(TurretType::Primary);
+        }
+        if self.turret_secondary_data.is_some() {
+            let _ = self.ensure_turret_machine(TurretType::Secondary);
+        }
+
+        let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
+    }
+
+    fn queue_path_request_now(&self, destination: Coord3D) -> Result<(), String> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        let obj_guard = guard
+            .base_object
+            .read()
+            .map_err(|_| "unit base object lock poisoned".to_string())?;
+        let surfaces = guard
+            .get_locomotor_surface_mask()
+            .unwrap_or(crate::locomotor::SURFACE_GROUND);
+        let request = crate::ai::pathfind_complete::PathRequest {
+            object_id: obj_guard.get_id(),
+            from: *obj_guard.get_position(),
+            to: destination,
+            surfaces,
+            is_crusher: obj_guard.get_crusher_level() > 0,
+            unit_radius: obj_guard.get_geometry_info().get_major_radius(),
+            allow_partial: false,
+            move_allies: self.can_path_through_units,
+            ignore_obstacle_id: if self.ignore_obstacle_id == INVALID_ID {
+                None
+            } else {
+                Some(self.ignore_obstacle_id)
+            },
+        };
+
+        if let Some(ai) = THE_AI.read().ok() {
+            if let Some(pathfinder) = ai.pathfinder() {
+                pathfinder
+                    .read()
+                    .map_err(|_| "pathfinder lock poisoned".to_string())?
+                    .queue_for_path_request(request)
+                    .map_err(|err| err.to_string())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn ensure_turret_machine(&mut self, turret: TurretType) -> Option<&mut TurretStateMachine> {
+        match turret {
+            TurretType::Primary => {
+                if self.turret_primary_machine.is_none() {
+                    self.turret_primary_machine = self.build_turret_machine(TurretType::Primary);
+                }
+                self.turret_primary_machine.as_mut()
+            }
+            TurretType::Secondary => {
+                if self.turret_secondary_machine.is_none() {
+                    self.turret_secondary_machine =
+                        self.build_turret_machine(TurretType::Secondary);
+                }
+                self.turret_secondary_machine.as_mut()
+            }
+            TurretType::Invalid => None,
+        }
+    }
+
+    fn build_turret_machine(&self, turret: TurretType) -> Option<TurretStateMachine> {
+        let unit = self.unit.upgrade()?;
+        let base_object = unit.read().ok().map(|guard| guard.base_object())?;
+        let owner = Arc::downgrade(&base_object);
+        let turret_ai = Arc::new(Mutex::new(TurretAI::new(Arc::downgrade(&base_object))));
+        if let Ok(mut guard) = turret_ai.lock() {
+            let slot = match turret {
+                TurretType::Primary => WeaponSlotType::Primary,
+                TurretType::Secondary => WeaponSlotType::Secondary,
+                TurretType::Invalid => WeaponSlotType::Primary,
+            };
+            guard.set_weapon_slot(slot);
+            let mask = match slot {
+                WeaponSlotType::Primary => 1u32 << 0,
+                WeaponSlotType::Secondary => 1u32 << 1,
+                WeaponSlotType::Tertiary => 1u32 << 2,
+            };
+            let data = match turret {
+                TurretType::Primary => self.turret_primary_data.as_ref(),
+                TurretType::Secondary => self.turret_secondary_data.as_ref(),
+                TurretType::Invalid => None,
+            };
+
+            if let Some(data) = data {
+                data.apply_to(&mut guard);
+                if data.turret_weapon_slots == 0 {
+                    error!("TurretAIData missing ControlledWeaponSlots; applying slot fallback.");
+                    guard.set_turret_weapon_slots_mask(mask);
+                }
+            } else {
+                guard.set_turret_weapon_slots_mask(mask);
+            }
+        }
+        Some(TurretStateMachine::new(Some(turret_ai), owner, "TurretAI"))
+    }
+
+    fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
+        let unit = self.unit.upgrade().ok_or("unit no longer available")?;
+        let base_object = unit.read().map_err(|_| "unit lock poisoned")?.base_object();
+
+        let mut obj_guard = base_object
+            .write()
+            .map_err(|_| "base object lock poisoned")?;
+
+        if !obj_guard.is_kind_of(KindOf::CanRappel) {
+            return Err("unit cannot rappel".to_string());
+        }
+
+        obj_guard.set_model_condition_state(ModelConditionFlags::RAPPELLING);
+
+        if let Some(physics) = obj_guard.get_physics() {
+            physics.reset_dynamic_physics();
+        }
+
+        let mut target_is_bldg = false;
+        let mut target_valid = None;
+        if let Some(target_id) = target_id {
+            if let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
+                if let Ok(target_guard) = target.read() {
+                    if !target_guard.is_effectively_dead()
+                        && target_guard.is_kind_of(KindOf::Structure)
+                    {
+                        target_is_bldg = true;
+                        target_valid = Some(target_id);
+                    }
+                }
+            }
+        }
+
+        let Some(terrain) = TheTerrainLogic::get() else {
+            return Err("terrain logic unavailable".to_string());
+        };
+
+        let pos = *obj_guard.get_position();
+        let layer = terrain.get_highest_layer_for_destination(&pos);
+        let mut dest_z = terrain.get_layer_height(pos.x, pos.y, layer);
+
+        if target_is_bldg {
+            if let Some(target_id) = target_valid {
+                if let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+                {
+                    if let Ok(target_guard) = target.read() {
+                        dest_z += target_guard
+                            .get_geometry_info()
+                            .get_max_height_above_position();
+                    }
+                }
+            }
+        } else {
+            obj_guard.set_layer(layer);
+            obj_guard.set_destination_layer(layer);
+        }
+
+        let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
+        let rappel_rate = -self.desired_speed.min(max_rappel_rate);
+
+        self.rappel_state = Some(RappelState {
+            rappel_rate,
+            dest_z,
+            target_is_bldg,
+            target_id: target_valid,
+        });
+
+        Ok(())
+    }
+
+    fn finish_rappel_state(&mut self) {
+        let unit = self.unit.upgrade();
+        if let Some(unit) = unit {
+            let base = unit.read().ok().map(|guard| guard.base_object());
+            if let Some(base) = base {
+                if let Ok(mut obj_guard) = base.write() {
+                    obj_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                }
+            }
+        }
+        self.desired_speed = FAST_AS_POSSIBLE;
+        self.rappel_state = None;
+        if self.current_command == Some(crate::ai::AiCommandType::RappelInto) {
+            self.current_command = None;
+        }
+    }
+
+    fn update_rappel_state(&mut self) {
+        let Some(mut current_state) = self.rappel_state.take() else {
+            return;
+        };
+
+        let Some(unit) = self.unit.upgrade() else {
+            self.finish_rappel_state();
+            return;
+        };
+
+        let base_object = {
+            let unit_guard = unit.read().ok();
+            unit_guard.map(|guard| guard.base_object())
+        };
+
+        let Some(base_object) = base_object else {
+            self.finish_rappel_state();
+            return;
+        };
+
+        let mut obj_guard = match base_object.write() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.finish_rappel_state();
+                return;
+            }
+        };
+
+        if obj_guard.is_effectively_dead() {
+            drop(obj_guard);
+            self.finish_rappel_state();
+            return;
+        }
+
+        let Some(terrain) = TheTerrainLogic::get() else {
+            drop(obj_guard);
+            self.finish_rappel_state();
+            return;
+        };
+
+        if current_state.target_is_bldg {
+            let target_gone = current_state
+                .target_id
+                .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                .map(|target| {
+                    target
+                        .read()
+                        .ok()
+                        .map(|target_guard| {
+                            target_guard.is_effectively_dead()
+                                || !target_guard.is_kind_of(KindOf::Structure)
+                        })
+                        .unwrap_or(true)
+                })
+                .unwrap_or(true);
+            if target_gone {
+                current_state.target_is_bldg = false;
+                let pos = obj_guard.get_position();
+                current_state.dest_z = terrain.get_ground_height(pos.x, pos.y, None);
+            }
+        }
+
+        if let Some(physics) = obj_guard.get_physics() {
+            physics.scrub_velocity_2d(0.0);
+            physics.scrub_velocity_z(current_state.rappel_rate);
+        }
+
+        if !current_state.target_is_bldg {
+            let pos = obj_guard.get_position();
+            current_state.dest_z = terrain.get_layer_height(pos.x, pos.y, obj_guard.get_layer());
+        }
+
+        let pos = *obj_guard.get_position();
+        if pos.z <= current_state.dest_z {
+            let mut landing = pos;
+            landing.z = current_state.dest_z;
+            if let Err(err) = obj_guard.set_position(&landing) {
+                log::debug!(
+                    "Unit::update_rappel_state failed to set landing position for {}: {}",
+                    obj_guard.get_id(),
+                    err
+                );
+            }
+
+            if current_state.target_is_bldg {
+                let target_id = current_state.target_id;
+                if let Some(target_id) = target_id {
+                    let max_to_kill = 2;
+                    let num_killed =
+                        kill_enemies_in_container(obj_guard.get_id(), target_id, max_to_kill);
+                    if num_killed > 0 {
+                        if let Some(fx) = TheFXListStore::lookup_fx_list("CombatDropKillFX") {
+                            if let Some(target) =
+                                crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+                            {
+                                if let Err(err) = fx.do_fx_obj(&target, None) {
+                                    log::debug!(
+                                        "Unit::update_rappel_state CombatDropKillFX failed for target {}: {}",
+                                        target_id,
+                                        err
+                                    );
+                                }
+                            }
+                        } else {
+                            log::warn!("Unit::update_rappel_state unresolved FXList 'CombatDropKillFX'");
+                        }
+                    }
+
+                    if num_killed == max_to_kill {
+                        obj_guard.kill(None, None);
+                    } else {
+                        let target = crate::object::registry::OBJECT_REGISTRY.get_object(target_id);
+                        if let Some(target) = target {
+                            if let Ok(target_guard) = target.read() {
+                                if let Some(contain) = target_guard.get_contain() {
+                                    if contain.is_valid_container_for(&obj_guard, true) {
+                                        contain.add_to_contain(&obj_guard);
+                                    } else {
+                                        let exit_angle = target_guard.get_orientation();
+                                        let offset = obj_guard
+                                            .get_geometry_info()
+                                            .get_bounding_circle_radius()
+                                            .min(
+                                                target_guard
+                                                    .get_geometry_info()
+                                                    .get_bounding_circle_radius(),
+                                            );
+                                        let angle = get_game_logic_random_value_real(PI, 2.0 * PI);
+                                        let mut start_position = *target_guard.get_position();
+                                        start_position.x += offset * angle.cos();
+                                        start_position.y += offset * angle.sin();
+                                        start_position.z = terrain.get_ground_height(
+                                            start_position.x,
+                                            start_position.y,
+                                            None,
+                                        );
+
+                                        if let Err(err) = obj_guard.set_position(&start_position) {
+                                            log::debug!(
+                                                "Unit::update_rappel_state failed to set start position for {}: {}",
+                                                obj_guard.get_id(),
+                                                err
+                                            );
+                                        }
+                                        if let Err(err) = obj_guard.set_orientation(exit_angle) {
+                                            log::debug!(
+                                                "Unit::update_rappel_state failed to set exit orientation for {}: {}",
+                                                obj_guard.get_id(),
+                                                err
+                                            );
+                                        }
+
+                                        let mut options = FindPositionOptions::default();
+                                        options.start_angle = Some(1.5 * PI);
+                                        options.max_radius = 200.0;
+                                        let mut end_position = Coord3D::new(0.0, 0.0, 0.0);
+                                        let found_position = ThePartitionManager::get()
+                                            .map(|partition| {
+                                                partition.find_position_around_with_options(
+                                                    &start_position,
+                                                    &options,
+                                                    &mut end_position,
+                                                )
+                                            })
+                                            .unwrap_or(false);
+
+                                        if found_position {
+                                            let mut used_ai_path = false;
+                                            if let Ok(unit_guard) = unit.read() {
+                                                if let Some(ai) =
+                                                    unit_guard.get_ai_update_interface()
+                                                {
+                                                    ai.ai_follow_path(
+                                                        &[end_position],
+                                                        current_state.target_id,
+                                                        CommandSourceType::FromAi,
+                                                    );
+                                                    used_ai_path = true;
+                                                }
+                                            }
+                                            if !used_ai_path {
+                                                if let Ok(mut unit_guard) = unit.write() {
+                                                    if let Err(err) = unit_guard.give_move_order(
+                                                        end_position,
+                                                        Vec::new(),
+                                                        false,
+                                                        false,
+                                                    ) {
+                                                        log::debug!(
+                                                            "Unit::update_rappel_state give_move_order failed: {}",
+                                                            err
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            drop(obj_guard);
+            self.finish_rappel_state();
+            return;
+        }
+
+        self.rappel_state = Some(current_state);
+    }
+
+    fn clip_goal_position(
+        &self,
+        guard: &Unit,
+        mut pos: Coord3D,
+        cmd_source: CommandSourceType,
+    ) -> Coord3D {
+        if cmd_source != CommandSourceType::FromPlayer {
+            return pos;
+        }
+
+        let mut fudge = PATHFIND_CELL_SIZE_F * 0.5;
+        let is_aircraft = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.is_kind_of(KindOf::Aircraft))
+            .unwrap_or(false);
+        if is_aircraft {
+            let above_terrain = guard
+                .base_object
+                .read()
+                .ok()
+                .map(|obj| obj.is_significantly_above_terrain())
+                .unwrap_or(false);
+            if above_terrain {
+                let preferred = guard
+                    .current_locomotor
+                    .as_ref()
+                    .and_then(|loc| loc.lock().ok())
+                    .map(|loc| loc.preferred_height)
+                    .unwrap_or(0.0);
+                if preferred > fudge {
+                    fudge = preferred;
+                }
+            }
+        }
+
+        if let Ok(terrain_guard) = crate::terrain::get_terrain_logic().read() {
+            let extent = terrain_guard.get_maximum_pathfind_extent();
+            let min_x = extent.lo.x + fudge;
+            let max_x = extent.hi.x - fudge;
+            let min_y = extent.lo.y + fudge;
+            let max_y = extent.hi.y - fudge;
+            pos.x = pos.x.clamp(min_x, max_x);
+            pos.y = pos.y.clamp(min_y, max_y);
+        }
+
+        pos
+    }
+
+    fn compute_pathfind_radius_and_center(unit: &Unit) -> (i32, bool) {
+        let radius = unit
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
+            .unwrap_or(PATHFIND_CELL_SIZE_F * 0.5);
+        let mut diameter = 2.0 * radius;
+        if diameter > PATHFIND_CELL_SIZE_F && diameter < 2.0 * PATHFIND_CELL_SIZE_F {
+            diameter = 2.0 * PATHFIND_CELL_SIZE_F;
+        }
+
+        let mut radius = (diameter / PATHFIND_CELL_SIZE_F + 0.3).floor() as i32;
+        let mut center_in_cell = false;
+
+        if radius == 0 {
+            radius = 1;
+        }
+        if (radius & 1) != 0 {
+            center_in_cell = true;
+        }
+        radius /= 2;
+        if radius > 2 {
+            radius = 2;
+            center_in_cell = true;
+        }
+
+        (radius, center_in_cell)
+    }
+
+    fn compute_goal_cell(pos: &Coord3D, center_in_cell: bool) -> ICoord2D {
+        if center_in_cell {
+            ICoord2D::new(
+                (pos.x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (pos.y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            )
+        } else {
+            ICoord2D::new(
+                (0.5 + pos.x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (0.5 + pos.y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            )
+        }
+    }
+
+    fn remove_goal_cells(
+        &mut self,
+        pathfinder: &mut crate::ai::Pathfinder,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        if self.pathfind_goal_cell.x < 0 || self.pathfind_goal_cell.y < 0 {
+            self.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            self.pathfind_goal_layer = ClassicPathLayer::Invalid;
+            return;
+        }
+
+        let clear_ground = true;
+        let clear_layer = self.pathfind_goal_layer != ClassicPathLayer::Ground
+            && self.pathfind_goal_layer != ClassicPathLayer::Invalid;
+        pathfinder.clear_goal_cells(
+            unit_id,
+            self.pathfind_goal_cell,
+            radius,
+            center_in_cell,
+            self.pathfind_goal_layer,
+            clear_ground,
+            clear_layer,
+        );
+        pathfinder.clear_aircraft_goal_cells(
+            unit_id,
+            self.pathfind_goal_cell,
+            radius,
+            center_in_cell,
+        );
+
+        self.pathfind_goal_cell = ICoord2D::new(-1, -1);
+        self.pathfind_goal_layer = ClassicPathLayer::Invalid;
+    }
+
+    fn update_ground_goal_cells(
+        &mut self,
+        pathfinder: &mut crate::ai::Pathfinder,
+        unit_id: ObjectID,
+        new_cell: ICoord2D,
+        layer: ClassicPathLayer,
+        radius: i32,
+        center_in_cell: bool,
+        interacts_with_bridge_end: bool,
+    ) {
+        let layer_changed = self.pathfind_goal_layer != layer;
+        if !layer_changed
+            && self.pathfind_goal_cell.x == new_cell.x
+            && self.pathfind_goal_cell.y == new_cell.y
+        {
+            return;
+        }
+
+        self.remove_goal_cells(pathfinder, unit_id, radius, center_in_cell);
+
+        self.pathfind_goal_cell = new_cell;
+        self.pathfind_goal_layer = layer;
+
+        let mut do_ground = layer == ClassicPathLayer::Ground;
+        let mut do_layer = layer != ClassicPathLayer::Ground;
+        if do_layer && interacts_with_bridge_end {
+            do_ground = true;
+        }
+
+        pathfinder.set_goal_cells(
+            unit_id,
+            new_cell,
+            radius,
+            center_in_cell,
+            layer,
+            do_ground,
+            do_layer,
+        );
+    }
+
+    fn update_aircraft_goal_cells(
+        &mut self,
+        pathfinder: &mut crate::ai::Pathfinder,
+        unit_id: ObjectID,
+        new_cell: ICoord2D,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        self.remove_goal_cells(pathfinder, unit_id, radius, center_in_cell);
+
+        if !self.is_aircraft_that_adjusts_destination() {
+            return;
+        }
+
+        self.pathfind_goal_cell = new_cell;
+        self.pathfind_goal_layer = ClassicPathLayer::Ground;
+
+        pathfinder.set_aircraft_goal_cells(unit_id, new_cell, radius, center_in_cell);
+    }
+}
+
+impl AIUpdateInterface for UnitAIUpdate {
+    fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.is_blocked {
+            self.blocked_frames = self.blocked_frames.saturating_add(1);
+        } else if self.blocked_frames > 1 {
+            self.blocked_frames = 1;
+        } else {
+            self.blocked_frames = 0;
+            self.blocked_and_stuck = false;
+        }
+        self.is_blocked = false;
+        self.cur_max_blocked_speed = FAST_AS_POSSIBLE;
+
+        if self.rappel_state.is_some() {
+            self.update_rappel_state();
+        }
+
+        if self.demoralized_frames_left > 0 {
+            let next = self.demoralized_frames_left.saturating_sub(1);
+            self.set_demoralized(next);
+        }
+
+        if self.surrendered_frames_left > 0 {
+            self.surrendered_frames_left = self.surrendered_frames_left.saturating_sub(1);
+            if self.surrendered_frames_left == 0 {
+                self.surrendered_player_index = None;
+            }
+        }
+
+        #[cfg(feature = "allow_surrender")]
+        if let Some(mut pow_ai) = self.pow_truck_ai.take() {
+            let owner_id = self
+                .unit
+                .upgrade()
+                .and_then(|unit| unit.read().ok().map(|guard| guard.get_id()))
+                .unwrap_or(crate::common::INVALID_ID);
+            let _ = pow_ai.update(owner_id, self);
+            self.pow_truck_ai = Some(pow_ai);
+        }
+
+        if let Some(mut railed_ai) = self.railed_transport_ai.take() {
+            let _ = railed_ai.update(self);
+            self.railed_transport_ai = Some(railed_ai);
+        }
+
+        if let Some(mut hack_ai) = self.hack_internet_ai.take() {
+            let _ = hack_ai.update(self);
+            self.hack_internet_ai = Some(hack_ai);
+        }
+
+        if let Some(mut assault_ai) = self.assault_transport_ai.take() {
+            let _ = assault_ai.update(self);
+            self.assault_transport_ai = Some(assault_ai);
+        }
+
+        if let Some(mut deliver_ai) = self.deliver_payload_ai.take() {
+            let _ = deliver_ai.update(self);
+            self.deliver_payload_ai = Some(deliver_ai);
+        }
+
+        if let Some(mut deploy_ai) = self.deploy_style_ai.take() {
+            let _ = deploy_ai.update(self);
+            self.deploy_style_ai = Some(deploy_ai);
+        }
+
+        if let Some(mut chinook_ai) = self.chinook_ai.take() {
+            let _ = chinook_ai.update(self);
+            self.chinook_ai = Some(chinook_ai);
+        }
+
+        if let Some(mut supply_ai) = self.supply_truck_ai.take() {
+            supply_ai.update();
+            self.supply_truck_ai = Some(supply_ai);
+        }
+        if let Some(mut worker_ai) = self.worker_ai.take() {
+            worker_ai.update();
+            self.worker_ai = Some(worker_ai);
+        }
+
+        if let Some(mut wander_ai) = self.wander_ai.take() {
+            let _ = wander_ai.update(self);
+            self.wander_ai = Some(wander_ai);
+        }
+        if let Some(mut dozer_ai) = self.dozer_ai.take() {
+            dozer_ai.update();
+            self.dozer_ai = Some(dozer_ai);
+        }
+
+        if let Some(mut jet_ai) = self.jet_ai.take() {
+            jet_ai.update_with_ai(self);
+            self.jet_ai = Some(jet_ai);
+        }
+
+        if let Some(state_machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut machine) = state_machine.lock() {
+                if self.ai_dead && machine.get_current_state_id() != Some(AIStateType::Dead as u32)
+                {
+                    machine.clear();
+                    let _ = machine.set_state(AIStateType::Dead as u32);
+                    machine.lock();
+                }
+                let _ = machine.update_state_machine();
+            }
+        }
+
+        let now = TheGameLogic::get_frame();
+        if self.queue_for_path_frame != 0 && now >= self.queue_for_path_frame {
+            self.queue_for_path_frame = 0;
+            let target = self.unit.upgrade().and_then(|unit| {
+                unit.read().ok().and_then(|guard| {
+                    guard.target_position.or_else(|| {
+                        guard
+                            .path_following_state
+                            .as_ref()
+                            .map(|state| state.goal_position)
+                    })
+                })
+            });
+            if let Some(destination) = target {
+                let _ = self.queue_path_request_now(destination);
+            }
+        }
+
+        if let Some(machine) = self.turret_primary_machine.as_ref() {
+            let _ = machine.update();
+        }
+        if let Some(machine) = self.turret_secondary_machine.as_ref() {
+            let _ = machine.update();
+        }
+
+        if let Some(mut dock_machine) = self.dock_machine.take() {
+            let update_result = dock_machine
+                .state_machine
+                .lock()
+                .map(|mut machine| machine.update())
+                .unwrap_or(crate::state_machine::StateReturnType::Failure);
+
+            match update_result.convert_sleep_to_continue() {
+                crate::state_machine::StateReturnType::Continue
+                | crate::state_machine::StateReturnType::Blocked => {
+                    self.dock_machine = Some(dock_machine);
+                }
+                _ => {
+                    let _ = dock_machine.halt();
+                    let _ = self.set_can_path_through_units(false);
+                    if self.current_command == Some(crate::ai::AiCommandType::Dock) {
+                        self.current_command = None;
+                    }
+                }
+            }
+        }
+        let mut pending_params: Option<crate::ai::AiCommandParams> = None;
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            if jet_ai.has_pending_command()
+                && (self.current_command.is_none()
+                    || self.current_command == Some(crate::ai::AiCommandType::Idle))
+                && !self.is_reloading()
+            {
+                pending_params = Some(jet_ai.reconstitute_command_params());
+            }
+        }
+        if let Some(params) = pending_params {
+            if let Some(jet_ai) = self.jet_ai.as_mut() {
+                jet_ai.set_has_pending_command(false);
+            }
+            let _ = self.execute_command(&params);
+        }
+        if self.jet_ai.is_some()
+            && (self.current_command.is_none()
+                || self.current_command == Some(crate::ai::AiCommandType::Idle))
+            && !self
+                .jet_ai
+                .as_ref()
+                .map(|jet| jet.has_pending_command())
+                .unwrap_or(false)
+        {
+            self.pending_command = None;
+        }
+
+        let is_reloading = self.is_reloading();
+        let mut queued_enter_command: Option<crate::ai::AiCommandParams> = None;
+        if let Some(jet_ai) = self.jet_ai.as_mut() {
+            let takeoff = matches!(
+                self.current_command,
+                Some(crate::ai::AiCommandType::Exit)
+                    | Some(crate::ai::AiCommandType::FollowExitProductionPath)
+            );
+            let landing = matches!(
+                self.current_command,
+                Some(crate::ai::AiCommandType::Enter) | Some(crate::ai::AiCommandType::Dock)
+            );
+            let taxiing = takeoff || landing;
+            jet_ai.set_takeoff_in_progress(takeoff);
+            jet_ai.set_landing_in_progress(landing);
+            jet_ai.set_taxi_in_progress(taxiing);
+            if taxiing {
+                jet_ai.set_allow_air_loco(false);
+            }
+            jet_ai.set_has_pending_command(self.pending_command.is_some());
+            if jet_ai.allow_air_loco() && jet_ai.is_out_of_special_reload_ammo() {
+                jet_ai.set_use_special_return_loco(true);
+            } else if !jet_ai.allow_air_loco() {
+                jet_ai.set_use_special_return_loco(false);
+            }
+            if !jet_ai.has_pending_command()
+                && jet_ai.allow_air_loco()
+                && jet_ai.is_out_of_special_reload_ammo()
+                && !is_reloading
+                && !matches!(
+                    self.current_command,
+                    Some(crate::ai::AiCommandType::Enter) | Some(crate::ai::AiCommandType::Dock)
+                )
+            {
+                let producer_id = self
+                    .unit
+                    .upgrade()
+                    .and_then(|unit| unit.read().ok().map(|guard| guard.base_object()))
+                    .and_then(|obj| obj.read().ok().map(|guard| guard.get_producer_id()))
+                    .unwrap_or(crate::common::INVALID_ID);
+                if producer_id != crate::common::INVALID_ID {
+                    jet_ai.set_has_pending_command(true);
+                    jet_ai.set_suppress_command_store(true);
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::Enter,
+                        crate::ai::CommandSourceType::FromAi,
+                    );
+                    params.obj = Some(producer_id);
+                    queued_enter_command = Some(params);
+                }
+            }
+            if let Some(desired) = jet_ai.desired_locomotor_set() {
+                let _ = self.choose_locomotor_set(desired);
+            } else if jet_ai.allow_air_loco()
+                && self.current_locomotor_set == LocomotorSetType::Taxiing
+            {
+                let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
+            } else if !jet_ai.allow_air_loco()
+                && self.current_locomotor_set != LocomotorSetType::Taxiing
+            {
+                let _ = self.choose_locomotor_set(LocomotorSetType::Taxiing);
+            }
+        }
+        if let Some(params) = queued_enter_command {
+            let _ = self.execute_command(&params);
+        }
+        Ok(())
+    }
+
+    fn apply_bump_speed_limit(&mut self, mut desired_speed: Real, blocked: bool) -> Real {
+        if blocked && desired_speed > self.bump_speed_limit {
+            self.bump_speed_limit = desired_speed;
+            self.bump_speed_limit *= 0.95;
+            desired_speed = self.bump_speed_limit;
+        } else {
+            if self.bump_speed_limit < FAST_AS_POSSIBLE {
+                let min_limit = desired_speed * 0.2;
+                if self.bump_speed_limit < min_limit {
+                    self.bump_speed_limit = min_limit;
+                }
+                self.bump_speed_limit *= 1.05;
+            }
+            if desired_speed > self.bump_speed_limit {
+                desired_speed = self.bump_speed_limit;
+            }
+        }
+        desired_speed
+    }
+
+    fn is_attacking(&self) -> bool {
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                if guard.is_attack_state() {
+                    return true;
+                }
+            }
+        }
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING))
+            .unwrap_or(false)
+            || matches!(
+                guard.current_order,
+                Some(UnitOrder::Attack { .. }) | Some(UnitOrder::AttackMove { .. })
+            )
+            || guard.movement_state == MovementState::Attacking
+    }
+
+    fn get_enter_target(&self) -> Option<ObjectID> {
+        self.enter_target
+    }
+
+    fn set_demoralized(&mut self, duration_frames: UnsignedInt) {
+        let prev = self.demoralized_frames_left;
+        self.demoralized_frames_left = duration_frames;
+
+        if (prev == 0 && self.demoralized_frames_left > 0)
+            || (prev > 0 && self.demoralized_frames_left == 0)
+        {
+            self.evaluate_morale_bonus();
+        }
+    }
+
+    fn get_which_turret_for_cur_weapon(&self) -> TurretType {
+        if let Some(machine) = self.turret_primary_machine.as_ref() {
+            if let Some(ai) = machine.get_turret_ai() {
+                if ai
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.is_owners_cur_weapon_on_turret())
+                    .unwrap_or(false)
+                {
+                    return TurretType::Primary;
+                }
+            }
+        }
+        if let Some(machine) = self.turret_secondary_machine.as_ref() {
+            if let Some(ai) = machine.get_turret_ai() {
+                if ai
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.is_owners_cur_weapon_on_turret())
+                    .unwrap_or(false)
+                {
+                    return TurretType::Secondary;
+                }
+            }
+        }
+        TurretType::Invalid
+    }
+
+    fn get_which_turret_for_weapon_slot(&self, slot: WeaponSlotType) -> TurretType {
+        if let Some(machine) = self.turret_primary_machine.as_ref() {
+            if let Some(ai) = machine.get_turret_ai() {
+                if ai
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.is_weapon_slot_on_turret(slot))
+                    .unwrap_or(false)
+                {
+                    return TurretType::Primary;
+                }
+            }
+        }
+        if let Some(machine) = self.turret_secondary_machine.as_ref() {
+            if let Some(ai) = machine.get_turret_ai() {
+                if ai
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.is_weapon_slot_on_turret(slot))
+                    .unwrap_or(false)
+                {
+                    return TurretType::Secondary;
+                }
+            }
+        }
+        TurretType::Invalid
+    }
+
+    fn set_turret_enabled(&mut self, turret: TurretType, enabled: bool) {
+        match turret {
+            TurretType::Primary => {
+                self.turret_primary_enabled = enabled;
+                if let Some(machine) = self.turret_primary_machine.as_ref() {
+                    if let Some(ai) = machine.get_turret_ai() {
+                        if let Ok(mut guard) = ai.lock() {
+                            guard.set_turret_enabled(enabled);
+                        }
+                    }
+                }
+                if self.turrets_linked {
+                    self.turret_secondary_enabled = enabled;
+                    if let Some(machine) = self.turret_secondary_machine.as_ref() {
+                        if let Some(ai) = machine.get_turret_ai() {
+                            if let Ok(mut guard) = ai.lock() {
+                                guard.set_turret_enabled(enabled);
+                            }
+                        }
+                    }
+                }
+            }
+            TurretType::Secondary => {
+                self.turret_secondary_enabled = enabled;
+                if let Some(machine) = self.turret_secondary_machine.as_ref() {
+                    if let Some(ai) = machine.get_turret_ai() {
+                        if let Ok(mut guard) = ai.lock() {
+                            guard.set_turret_enabled(enabled);
+                        }
+                    }
+                }
+                if self.turrets_linked {
+                    self.turret_primary_enabled = enabled;
+                    if let Some(machine) = self.turret_primary_machine.as_ref() {
+                        if let Some(ai) = machine.get_turret_ai() {
+                            if let Ok(mut guard) = ai.lock() {
+                                guard.set_turret_enabled(enabled);
+                            }
+                        }
+                    }
+                }
+            }
+            TurretType::Invalid => {}
+        }
+    }
+
+    fn recenter_turret(&mut self, turret: TurretType) {
+        match turret {
+            TurretType::Primary => {
+                self.turret_primary_natural = true;
+                if let Some(machine) = self.turret_primary_machine.as_ref() {
+                    if let Some(ai) = machine.get_turret_ai() {
+                        if let Ok(mut guard) = ai.lock() {
+                            guard.recenter_turret();
+                        }
+                    }
+                }
+                if self.turrets_linked {
+                    self.turret_secondary_natural = true;
+                    if let Some(machine) = self.turret_secondary_machine.as_ref() {
+                        if let Some(ai) = machine.get_turret_ai() {
+                            if let Ok(mut guard) = ai.lock() {
+                                guard.recenter_turret();
+                            }
+                        }
+                    }
+                }
+            }
+            TurretType::Secondary => {
+                self.turret_secondary_natural = true;
+                if let Some(machine) = self.turret_secondary_machine.as_ref() {
+                    if let Some(ai) = machine.get_turret_ai() {
+                        if let Ok(mut guard) = ai.lock() {
+                            guard.recenter_turret();
+                        }
+                    }
+                }
+                if self.turrets_linked {
+                    self.turret_primary_natural = true;
+                    if let Some(machine) = self.turret_primary_machine.as_ref() {
+                        if let Some(ai) = machine.get_turret_ai() {
+                            if let Ok(mut guard) = ai.lock() {
+                                guard.recenter_turret();
+                            }
+                        }
+                    }
+                }
+            }
+            TurretType::Invalid => {}
+        }
+    }
+
+    fn is_turret_in_natural_position(&self, turret: TurretType) -> bool {
+        match turret {
+            TurretType::Primary => self
+                .turret_primary_machine
+                .as_ref()
+                .and_then(|machine| machine.get_turret_ai())
+                .and_then(|ai| {
+                    ai.lock()
+                        .ok()
+                        .map(|guard| guard.is_turret_in_natural_position())
+                })
+                .unwrap_or(false),
+            TurretType::Secondary => self
+                .turret_secondary_machine
+                .as_ref()
+                .and_then(|machine| machine.get_turret_ai())
+                .and_then(|ai| {
+                    ai.lock()
+                        .ok()
+                        .map(|guard| guard.is_turret_in_natural_position())
+                })
+                .unwrap_or(false),
+            TurretType::Invalid => false,
+        }
+    }
+
+    fn is_turret_enabled(&self, turret: TurretType) -> bool {
+        match turret {
+            TurretType::Primary => self
+                .turret_primary_machine
+                .as_ref()
+                .and_then(|machine| machine.get_turret_ai())
+                .and_then(|ai| ai.lock().ok().map(|guard| guard.is_turret_enabled()))
+                .unwrap_or(false),
+            TurretType::Secondary => self
+                .turret_secondary_machine
+                .as_ref()
+                .and_then(|machine| machine.get_turret_ai())
+                .and_then(|ai| ai.lock().ok().map(|guard| guard.is_turret_enabled()))
+                .unwrap_or(false),
+            TurretType::Invalid => false,
+        }
+    }
+
+    fn get_turret_rot_and_pitch(&self, turret: TurretType) -> Option<(Real, Real)> {
+        match turret {
+            TurretType::Primary => self
+                .turret_primary_machine
+                .as_ref()
+                .and_then(|machine| machine.get_turret_ai())
+                .and_then(|ai| {
+                    ai.lock()
+                        .ok()
+                        .map(|guard| (guard.get_turret_angle(), guard.get_turret_pitch()))
+                }),
+            TurretType::Secondary => self
+                .turret_secondary_machine
+                .as_ref()
+                .and_then(|machine| machine.get_turret_ai())
+                .and_then(|ai| {
+                    ai.lock()
+                        .ok()
+                        .map(|guard| (guard.get_turret_angle(), guard.get_turret_pitch()))
+                }),
+            TurretType::Invalid => None,
+        }
+    }
+
+    fn get_turret_angle(&self, turret: TurretType) -> Real {
+        self.get_turret_rot_and_pitch(turret)
+            .map(|(angle, _)| angle)
+            .unwrap_or(0.0)
+    }
+
+    fn get_turret_pitch(&self, turret: TurretType) -> Real {
+        self.get_turret_rot_and_pitch(turret)
+            .map(|(_, pitch)| pitch)
+            .unwrap_or(0.0)
+    }
+
+    fn is_weapon_slot_on_turret_and_aiming_at_target(
+        &self,
+        slot: WeaponSlotType,
+        target: ObjectID,
+    ) -> bool {
+        if let Some(machine) = self.turret_primary_machine.as_ref() {
+            if let Some(ai) = machine.get_turret_ai() {
+                if ai
+                    .lock()
+                    .ok()
+                    .map(|guard| {
+                        guard.is_weapon_slot_on_turret(slot)
+                            && guard.is_trying_to_aim_at_target(target)
+                    })
+                    .unwrap_or(false)
+                {
+                    return true;
+                }
+            }
+        }
+        if let Some(machine) = self.turret_secondary_machine.as_ref() {
+            if let Some(ai) = machine.get_turret_ai() {
+                if ai
+                    .lock()
+                    .ok()
+                    .map(|guard| {
+                        guard.is_weapon_slot_on_turret(slot)
+                            && guard.is_trying_to_aim_at_target(target)
+                    })
+                    .unwrap_or(false)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn is_moving(&self) -> bool {
+        if self.is_idle() {
+            return false;
+        }
+        self.unit
+            .upgrade()
+            .and_then(|unit| {
+                unit.read().ok().map(|guard| {
+                    guard.is_movement_active()
+                        || guard
+                            .path_following_state
+                            .as_ref()
+                            .map(|state| state.waiting_for_path)
+                            .unwrap_or(false)
+                        || guard.current_path.is_some()
+                        || guard.target_position.is_some()
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn is_idle(&self) -> bool {
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            if jet_ai.should_block_idle(self.pending_command) {
+                return false;
+            }
+        }
+        if let Some(hack_ai) = self.hack_internet_ai.as_ref() {
+            if hack_ai.has_pending_command() {
+                return false;
+            }
+        }
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                if !guard.is_idle() {
+                    return false;
+                }
+            }
+        }
+        self.unit
+            .upgrade()
+            .and_then(|unit| {
+                unit.read().ok().map(|guard| {
+                    guard.movement_state == MovementState::Idle
+                        && !guard
+                            .path_following_state
+                            .as_ref()
+                            .map(|state| state.waiting_for_path)
+                            .unwrap_or(false)
+                        && guard.current_path.is_none()
+                        && guard.target_position.is_none()
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn is_busy(&self) -> bool {
+        self.ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.lock().ok())
+            .map(|guard| guard.is_busy())
+            .unwrap_or(false)
+    }
+
+    fn set_attitude(
+        &mut self,
+        attitude: AIAttitudeType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.attitude = attitude;
+        Ok(())
+    }
+
+    fn get_attitude(&self) -> AIAttitudeType {
+        self.attitude
+    }
+
+    fn is_idle_unrestricted(&self) -> bool {
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                if !guard.is_idle() {
+                    return false;
+                }
+            }
+        }
+        self.unit
+            .upgrade()
+            .and_then(|unit| {
+                unit.read().ok().map(|guard| {
+                    guard.movement_state == MovementState::Idle
+                        && !guard
+                            .path_following_state
+                            .as_ref()
+                            .map(|state| state.waiting_for_path)
+                            .unwrap_or(false)
+                        && guard.current_path.is_none()
+                        && guard.target_position.is_none()
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn set_movement_target(&mut self, target: &Coord3D) -> Result<(), String> {
+        if let Some(path) = self.pending_safe_path.take() {
+            return self.set_path_from_coords(&path);
+        }
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+        guard
+            .give_move_order(*target, Vec::new(), false, false)
+            .map_err(|err| err.to_string())
+    }
+
+    fn set_current_goal_path_index(
+        &mut self,
+        index: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.current_goal_path_index = index;
+        Ok(())
+    }
+
+    fn get_current_goal_path_index(&self) -> i32 {
+        self.current_goal_path_index
+    }
+
+    fn set_can_path_through_units(
+        &mut self,
+        value: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.can_path_through_units = value;
+        if value {
+            self.blocked_and_stuck = false;
+        }
+        Ok(())
+    }
+
+    fn get_can_path_through_units(&self) -> bool {
+        self.can_path_through_units
+    }
+
+    fn is_blocked_and_stuck(&self) -> bool {
+        const BLOCKED_RECOMPUTE_THRESHOLD: u32 = 60;
+        if self.blocked_and_stuck {
+            return true;
+        }
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        guard.path_following_state.as_ref().map_or(false, |state| {
+            state.frames_blocked > BLOCKED_RECOMPUTE_THRESHOLD
+        })
+    }
+
+    fn set_is_blocked(&mut self, blocked: bool) {
+        self.is_blocked = blocked;
+    }
+
+    fn set_blocked_and_stuck(&mut self, blocked: bool) {
+        self.blocked_and_stuck = blocked;
+    }
+
+    fn get_num_frames_blocked(&self) -> u32 {
+        let mut frames = self.blocked_frames;
+        let Some(unit) = self.unit.upgrade() else {
+            return frames;
+        };
+        let Ok(guard) = unit.read() else {
+            return frames;
+        };
+        if let Some(state) = guard.path_following_state.as_ref() {
+            frames = frames.max(state.frames_blocked);
+        }
+        frames
+    }
+
+    fn destroy_path(&mut self) {
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.current_path = None;
+                guard.path_following_state = None;
+            }
+        }
+    }
+
+    fn clear_move_out_of_way(&mut self) {
+        self.move_out_of_way_1 = INVALID_ID;
+        self.move_out_of_way_2 = INVALID_ID;
+    }
+
+    fn execute_command(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.forbid_player_commands
+            && command.cmd_source == crate::ai::CommandSourceType::FromPlayer
+        {
+            return Ok(());
+        }
+
+        if let Some(deliver_ai) = self.deliver_payload_ai.as_ref() {
+            if !deliver_ai.is_allowed_to_respond_to_ai_commands() {
+                return Ok(());
+            }
+        }
+
+        if self.railed_transport_ai.is_some()
+            && command.cmd_source == crate::ai::CommandSourceType::FromPlayer
+            && !matches!(
+                command.cmd,
+                crate::ai::AiCommandType::ExecuteRailedTransport
+                    | crate::ai::AiCommandType::Evacuate
+            )
+        {
+            return Ok(());
+        }
+
+        if let Some(mut assault_ai) = self.assault_transport_ai.take() {
+            assault_ai.handle_command(command);
+            self.assault_transport_ai = Some(assault_ai);
+        }
+
+        if let Some(mut hack_ai) = self.hack_internet_ai.take() {
+            if hack_ai.handle_command(command, self) {
+                self.hack_internet_ai = Some(hack_ai);
+                return Ok(());
+            }
+            self.hack_internet_ai = Some(hack_ai);
+        }
+
+        if let Some(mut chinook_ai) = self.chinook_ai.take() {
+            if chinook_ai.handle_command(command, self) {
+                self.chinook_ai = Some(chinook_ai);
+                return Ok(());
+            }
+            self.chinook_ai = Some(chinook_ai);
+        }
+
+        if let Some(mut jet_ai) = self.jet_ai.take() {
+            if jet_ai.handle_command(command, self) {
+                self.jet_ai = Some(jet_ai);
+                return Ok(());
+            }
+            self.jet_ai = Some(jet_ai);
+        }
+
+        if let Some(jet_ai) = self.jet_ai.as_mut() {
+            if jet_ai.suppress_command_store() {
+                jet_ai.set_suppress_command_store(false);
+            } else {
+                jet_ai.store_most_recent_command(command);
+            }
+        }
+
+        self.last_command_source = command.cmd_source;
+        self.current_command = Some(command.cmd);
+        if self.jet_ai.is_some() {
+            self.pending_command = Some(command.cmd);
+        } else {
+            self.pending_command = None;
+        }
+        if let Some(supply_ai) = self.supply_truck_ai.as_mut() {
+            if command.cmd == crate::ai::AiCommandType::Idle {
+                supply_ai.private_idle(command.cmd_source);
+            }
+        }
+        if let Some(chinook_ai) = self.chinook_ai.as_mut() {
+            if command.cmd == crate::ai::AiCommandType::Idle {
+                chinook_ai.private_idle(command.cmd_source);
+            }
+        }
+        if let Some(worker_ai) = self.worker_ai.as_mut() {
+            if command.cmd == crate::ai::AiCommandType::Idle {
+                worker_ai.private_idle(command.cmd_source);
+            }
+        }
+        if command.cmd != crate::ai::AiCommandType::Enter {
+            self.enter_target = None;
+        }
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+
+        guard.forward_command_to_flight_deck(command);
+
+        match command.cmd {
+            crate::ai::AiCommandType::Repair => {
+                if let Some(target_id) = command.obj {
+                    if let Some(worker_ai) = self.worker_ai.as_mut() {
+                        worker_ai.set_repair_target(target_id, command.cmd_source);
+                    } else if let Some(dozer_ai) = self.dozer_ai.as_mut() {
+                        dozer_ai.set_repair_target(target_id, command.cmd_source);
+                    }
+                }
+            }
+            crate::ai::AiCommandType::ResumeConstruction => {
+                if let Some(target_id) = command.obj {
+                    if let Some(worker_ai) = self.worker_ai.as_mut() {
+                        worker_ai.set_resume_construction_target(target_id, command.cmd_source);
+                    } else if let Some(dozer_ai) = self.dozer_ai.as_mut() {
+                        dozer_ai.set_resume_construction_target(target_id, command.cmd_source);
+                    }
+                }
+            }
+            crate::ai::AiCommandType::MoveToPosition
+            | crate::ai::AiCommandType::MoveToPositionEvenIfSleeping
+            | crate::ai::AiCommandType::MoveToPositionAndEvacuate
+            | crate::ai::AiCommandType::MoveToPositionAndEvacuateAndExit => {
+                let clipped = self.clip_goal_position(&guard, command.pos, command.cmd_source);
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        if command.cmd_source == CommandSourceType::FromAi && !self.is_idle() {
+                            machine.set_goal_position(clipped);
+                            let _ = machine.set_temporary_state(
+                                AIStateType::MoveTo as u32,
+                                LOGICFRAMES_PER_SECOND * 20,
+                            );
+                        } else {
+                            let mut params = command.clone();
+                            params.pos = clipped;
+                            machine.clear();
+                            let _ = machine.ai_do_command(&params);
+                        }
+                        return Ok(());
+                    }
+                }
+
+                guard.give_move_order(clipped, Vec::new(), false, false)?;
+            }
+            crate::ai::AiCommandType::TightenToPosition => {
+                let is_mobile = guard.current_locomotor.is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let clipped = self.clip_goal_position(&guard, command.pos, command.cmd_source);
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let mut params = command.clone();
+                        params.pos = clipped;
+                        machine.clear();
+                        let _ = machine.ai_do_command(&params);
+                        return Ok(());
+                    }
+                }
+
+                guard.give_move_order(clipped, Vec::new(), false, false)?;
+            }
+            crate::ai::AiCommandType::RappelInto => {
+                let _ = self.start_rappel_state(command.obj);
+            }
+            crate::ai::AiCommandType::MoveToObject => {
+                if let Some(target_id) = command.obj {
+                    if let Some(target_arc) = get_legacy_object(target_id) {
+                        if let Ok(target_guard) = target_arc.read() {
+                            guard.give_move_order(
+                                *target_guard.get_position(),
+                                Vec::new(),
+                                false,
+                                false,
+                            )?;
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::MoveAwayFromUnit => {
+                if !self.is_allowed_to_move_away_from_unit() {
+                    return Ok(());
+                }
+                if self.is_ai_in_dead_state() {
+                    return Ok(());
+                }
+                let is_mobile = guard.current_locomotor.is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                if let Some(target_id) = command.obj {
+                    if (target_id == self.move_out_of_way_1 || target_id == self.move_out_of_way_2)
+                        && self.is_blocked_and_stuck()
+                    {
+                        self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
+                        return Ok(());
+                    }
+                    self.move_out_of_way_2 = self.move_out_of_way_1;
+                    self.move_out_of_way_1 = target_id;
+                    if let Some(target_arc) = get_legacy_object(target_id) {
+                        if let Ok(target_guard) = target_arc.read() {
+                            let my_pos = guard.get_position();
+                            let other_pos = target_guard.get_position();
+                            let mut dir =
+                                Coord3D::new(my_pos.x - other_pos.x, my_pos.y - other_pos.y, 0.0);
+                            let len = (dir.x * dir.x + dir.y * dir.y).sqrt();
+                            if len > 0.001 {
+                                dir.x /= len;
+                                dir.y /= len;
+                            } else {
+                                dir.x = 1.0;
+                                dir.y = 0.0;
+                            }
+                            let mut desired = my_pos;
+                            desired.x += dir.x * (PATHFIND_CELL_SIZE_F * 2.0);
+                            desired.y += dir.y * (PATHFIND_CELL_SIZE_F * 2.0);
+                            let clipped =
+                                self.clip_goal_position(&guard, desired, command.cmd_source);
+
+                            if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                                if let Ok(mut machine) = state_machine.lock() {
+                                    machine.set_goal_position(clipped);
+                                    let _ = machine.set_temporary_state(
+                                        AIStateType::MoveOutOfTheWay as u32,
+                                        LOGICFRAMES_PER_SECOND * 10,
+                                    );
+                                    return Ok(());
+                                }
+                            }
+
+                            guard.give_move_order(clipped, Vec::new(), false, false)?;
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::FollowPath
+            | crate::ai::AiCommandType::FollowExitProductionPath
+            | crate::ai::AiCommandType::FollowUserPath => {
+                let is_mobile = guard.current_locomotor.is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+
+                if command.coords.is_empty() {
+                    return Ok(());
+                }
+                let mut coords = command.coords.clone();
+                let first = coords.remove(0);
+                let waypoints = coords
+                    .iter()
+                    .map(|pos| Waypoint::new(INVALID_ID, *pos, String::new()))
+                    .collect::<Vec<_>>();
+                guard.give_move_order(first, waypoints, false, false)?;
+            }
+            crate::ai::AiCommandType::FollowPathAppend => {
+                let is_mobile = guard.current_locomotor.is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let effectively_moving = !self.is_idle() || self.is_waiting_for_path();
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_follow_path = matches!(
+                            machine.get_current_state_id(),
+                            Some(id) if id == AIStateType::FollowPath as u32
+                        );
+                        if is_follow_path && machine.get_goal_path_size() > 0 && effectively_moving
+                        {
+                            let _ = machine.ai_do_command(command);
+                            return Ok(());
+                        }
+                        if effectively_moving {
+                            if let Some(goal) = machine.get_goal_position() {
+                                let mut params = command.clone();
+                                params.cmd = crate::ai::AiCommandType::FollowPath;
+                                params.coords = vec![goal, command.pos];
+                                machine.clear();
+                                let _ = machine.ai_do_command(&params);
+                            }
+                            return Ok(());
+                        }
+                        let mut params = command.clone();
+                        params.cmd = crate::ai::AiCommandType::FollowPath;
+                        params.coords = vec![command.pos];
+                        machine.clear();
+                        let _ = machine.ai_do_command(&params);
+                        return Ok(());
+                    }
+                }
+
+                if effectively_moving {
+                    let mut coords = Vec::new();
+                    if let Some(goal) = guard
+                        .target_position
+                        .or_else(|| guard.path_following_state.as_ref().map(|s| s.goal_position))
+                    {
+                        coords.push(goal);
+                    }
+                    coords.push(command.pos);
+                    let first = coords.remove(0);
+                    let waypoints = coords
+                        .iter()
+                        .map(|pos| Waypoint::new(INVALID_ID, *pos, String::new()))
+                        .collect::<Vec<_>>();
+                    guard.give_move_order(first, waypoints, false, false)?;
+                } else {
+                    guard.give_move_order(command.pos, Vec::new(), false, false)?;
+                }
+            }
+            crate::ai::AiCommandType::AttackMoveToPosition => {
+                let clipped = self.clip_goal_position(&guard, command.pos, command.cmd_source);
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let mut params = command.clone();
+                        params.pos = clipped;
+                        machine.clear();
+                        let _ = machine.ai_do_command(&params);
+                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                            obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                        }
+                        return Ok(());
+                    }
+                }
+
+                guard.process_attack_move_order(clipped, true)?;
+                if let Ok(mut obj_guard) = guard.base_object.write() {
+                    obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                }
+            }
+            crate::ai::AiCommandType::AttackPosition => {
+                let base_object = guard.base_object.clone();
+                let mut local_pos =
+                    self.clip_goal_position(&guard, command.pos, command.cmd_source);
+                let mut max_shots = command.int_value;
+                let continue_range = base_object
+                    .read()
+                    .ok()
+                    .and_then(|obj_guard| {
+                        obj_guard
+                            .get_current_weapon()
+                            .map(|(weapon, _)| weapon.get_lock_on_range())
+                    })
+                    .unwrap_or(0.0);
+
+                if continue_range > 0.0 {
+                    if let Ok(mut obj_guard) = base_object.write() {
+                        obj_guard.set_status(ObjectStatusMaskType::IGNORING_STEALTH, true);
+                    }
+
+                    let target_id =
+                        crate::helpers::ThePartitionManager::get().and_then(|partition| {
+                            let obj_guard = base_object.read().ok()?;
+                            partition.get_closest_object(
+                                &command.pos,
+                                continue_range,
+                                |candidate| {
+                                    matches!(
+                                        ActionManager::get_can_attack_object(
+                                            &*obj_guard,
+                                            candidate,
+                                            command.cmd_source,
+                                            crate::attack::AbleToAttackType::CanAttackSpecific
+                                        ),
+                                        CanAttackResult::Possible
+                                            | CanAttackResult::PossibleAfterMoving
+                                    )
+                                },
+                            )
+                        });
+
+                    if let Ok(mut obj_guard) = base_object.write() {
+                        obj_guard.set_status(ObjectStatusMaskType::IGNORING_STEALTH, false);
+                    }
+
+                    if let Some(target_id) = target_id {
+                        if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                            if let Ok(mut machine) = state_machine.lock() {
+                                let mut attack_params = crate::ai::AiCommandParams::new(
+                                    crate::ai::AiCommandType::AttackObject,
+                                    command.cmd_source,
+                                );
+                                attack_params.obj = Some(target_id);
+                                attack_params.int_value = max_shots;
+                                machine.clear();
+                                let _ = machine.ai_do_command(&attack_params);
+                                if let Ok(mut obj_guard) = guard.base_object.write() {
+                                    obj_guard.set_current_weapon_max_shot_count(max_shots);
+                                }
+                                if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+                                    chinook_ai.private_attack_object(
+                                        target_id,
+                                        max_shots,
+                                        command.cmd_source,
+                                    );
+                                }
+                                if let Some(transport_ai) = self.transport_ai.as_ref() {
+                                    transport_ai.private_attack_object(
+                                        target_id,
+                                        max_shots,
+                                        command.cmd_source,
+                                    );
+                                }
+                                return Ok(());
+                            }
+                        }
+
+                        guard.give_attack_order(target_id, true, false)?;
+                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                            obj_guard.set_current_weapon_max_shot_count(max_shots);
+                        }
+                        if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+                            chinook_ai.private_attack_object(
+                                target_id,
+                                max_shots,
+                                command.cmd_source,
+                            );
+                        }
+                        if let Some(transport_ai) = self.transport_ai.as_ref() {
+                            transport_ai.private_attack_object(
+                                target_id,
+                                max_shots,
+                                command.cmd_source,
+                            );
+                        }
+                        return Ok(());
+                    }
+                    max_shots = 1;
+                }
+
+                let weapon_is_contact = base_object
+                    .read()
+                    .ok()
+                    .map(|obj_guard| {
+                        obj_guard
+                            .get_current_weapon()
+                            .map(|(weapon, _)| weapon.is_contact_weapon())
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if weapon_is_contact {
+                    let mut path_available = true;
+                    if let Some(locomotor) = guard.current_locomotor.as_ref().cloned() {
+                        if let Ok(loco_guard) = locomotor.lock() {
+                            if let Ok(ai_guard) = THE_AI.read() {
+                                if let Some(system) = ai_guard.pathfinding_system() {
+                                    if let Ok(mut system_guard) = system.write() {
+                                        let capabilities = loco_guard.to_movement_capabilities();
+                                        let unit_radius = base_object
+                                            .read()
+                                            .ok()
+                                            .map(|obj_guard| {
+                                                obj_guard.get_geometry_info().get_major_radius()
+                                            })
+                                            .unwrap_or(0.0);
+                                        let request = crate::ai::pathfinding_system::PathRequest {
+                                            requester: guard.get_id(),
+                                            start: guard.get_position(),
+                                            goal: local_pos,
+                                            capabilities,
+                                            unit_size: unit_radius,
+                                            priority: 0,
+                                            allow_partial: false,
+                                            frame_requested: TheGameLogic::get_frame(),
+                                            move_allies: self.can_path_through_units,
+                                            ignore_obstacle_id: if self.ignore_obstacle_id
+                                                == INVALID_ID
+                                            {
+                                                None
+                                            } else {
+                                                Some(self.ignore_obstacle_id)
+                                            },
+                                        };
+                                        path_available = matches!(
+                                            system_guard.find_path_immediate(&request),
+                                            crate::ai::pathfinding_system::PathResult::Success(_)
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !path_available {
+                        if let Some(partition) = ThePartitionManager::get() {
+                            let mut options = FindPositionOptions::default();
+                            options.min_radius = 0.0;
+                            options.max_radius = 100.0;
+                            options.source_to_path_to_dest_id = Some(guard.get_id());
+                            let mut adjusted = local_pos;
+                            if partition.find_position_around_with_options(
+                                &local_pos,
+                                &options,
+                                &mut adjusted,
+                            ) {
+                                local_pos = adjusted;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let mut params = command.clone();
+                        params.pos = local_pos;
+                        params.int_value = max_shots;
+                        machine.clear();
+                        let _ = machine.ai_do_command(&params);
+                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                            obj_guard.set_current_weapon_max_shot_count(max_shots);
+                        }
+                        if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+                            chinook_ai.private_attack_position(
+                                &local_pos,
+                                max_shots,
+                                command.cmd_source,
+                            );
+                        }
+                        if let Some(transport_ai) = self.transport_ai.as_ref() {
+                            transport_ai.private_attack_position(
+                                &local_pos,
+                                max_shots,
+                                command.cmd_source,
+                            );
+                        }
+                        return Ok(());
+                    }
+                }
+
+                guard.process_attack_move_order(local_pos, true)?;
+                if let Ok(mut obj_guard) = guard.base_object.write() {
+                    obj_guard.set_current_weapon_max_shot_count(max_shots);
+                }
+                if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+                    chinook_ai.private_attack_position(&local_pos, max_shots, command.cmd_source);
+                }
+                if let Some(transport_ai) = self.transport_ai.as_ref() {
+                    transport_ai.private_attack_position(&local_pos, max_shots, command.cmd_source);
+                }
+            }
+            crate::ai::AiCommandType::AttackObject
+            | crate::ai::AiCommandType::ForceAttackObject => {
+                if let Some(target_id) = command.obj {
+                    if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                        if let Ok(mut machine) = state_machine.lock() {
+                            machine.clear();
+                            let _ = machine.ai_do_command(command);
+                            if let Ok(mut obj_guard) = guard.base_object.write() {
+                                obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                            }
+                            if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+                                if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
+                                    chinook_ai.private_force_attack_object(
+                                        target_id,
+                                        command.int_value,
+                                        command.cmd_source,
+                                    );
+                                } else {
+                                    chinook_ai.private_attack_object(
+                                        target_id,
+                                        command.int_value,
+                                        command.cmd_source,
+                                    );
+                                }
+                            }
+                            if let Some(transport_ai) = self.transport_ai.as_ref() {
+                                if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
+                                    transport_ai.private_force_attack_object(
+                                        target_id,
+                                        command.int_value,
+                                        command.cmd_source,
+                                    );
+                                } else {
+                                    transport_ai.private_attack_object(
+                                        target_id,
+                                        command.int_value,
+                                        command.cmd_source,
+                                    );
+                                }
+                            }
+                            return Ok(());
+                        }
+                    }
+
+                    guard.give_attack_order(target_id, true, false)?;
+                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                        obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                    }
+                    if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+                        if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
+                            chinook_ai.private_force_attack_object(
+                                target_id,
+                                command.int_value,
+                                command.cmd_source,
+                            );
+                        } else {
+                            chinook_ai.private_attack_object(
+                                target_id,
+                                command.int_value,
+                                command.cmd_source,
+                            );
+                        }
+                    }
+                    if let Some(transport_ai) = self.transport_ai.as_ref() {
+                        if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
+                            transport_ai.private_force_attack_object(
+                                target_id,
+                                command.int_value,
+                                command.cmd_source,
+                            );
+                        } else {
+                            transport_ai.private_attack_object(
+                                target_id,
+                                command.int_value,
+                                command.cmd_source,
+                            );
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::AttackTeam => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        if let Ok(mut obj_guard) = guard.base_object.write() {
+                            obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                        }
+                        return Ok(());
+                    }
+                }
+
+                if let Some(team_name) = command.team.as_ref() {
+                    if let Ok(mut factory) = crate::team::get_team_factory().lock() {
+                        if let Some(team) = factory.find_team(team_name) {
+                            if let Ok(team_guard) = team.read() {
+                                let target_id = if team_guard.get_team_target_object() != INVALID_ID
+                                {
+                                    team_guard.get_team_target_object()
+                                } else {
+                                    team_guard
+                                        .get_members()
+                                        .first()
+                                        .copied()
+                                        .unwrap_or(INVALID_ID)
+                                };
+                                if target_id != INVALID_ID {
+                                    guard.give_attack_order(target_id, true, false)?;
+                                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                                        obj_guard
+                                            .set_current_weapon_max_shot_count(command.int_value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::GuardPosition => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let is_projectile = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                            .unwrap_or(false);
+                        if is_projectile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+
+                guard.current_order = Some(UnitOrder::Guard {
+                    position: command.pos,
+                    area_radius: guard.engagement_range,
+                });
+                guard.order_queue.clear();
+            }
+            crate::ai::AiCommandType::GuardObject => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let is_projectile = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                            .unwrap_or(false);
+                        if is_projectile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+
+                if let Some(target_id) = command.obj {
+                    if let Some(target_arc) = get_legacy_object(target_id) {
+                        if let Ok(target_guard) = target_arc.read() {
+                            guard.current_order = Some(UnitOrder::Guard {
+                                position: *target_guard.get_position(),
+                                area_radius: guard.engagement_range,
+                            });
+                            guard.order_queue.clear();
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::GuardArea => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let is_projectile = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                            .unwrap_or(false);
+                        if is_projectile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+                guard.current_order = Some(UnitOrder::Guard {
+                    position: command.pos,
+                    area_radius: guard.engagement_range,
+                });
+                guard.order_queue.clear();
+            }
+            crate::ai::AiCommandType::GuardTunnelNetwork => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let is_projectile = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                            .unwrap_or(false);
+                        if is_projectile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+            }
+            crate::ai::AiCommandType::GuardRetaliate => {
+                if let Some(target_id) = command.obj {
+                    if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                        if let Ok(mut machine) = state_machine.lock() {
+                            machine.clear();
+                            let _ = machine.ai_do_command(command);
+                            if let Ok(mut obj_guard) = guard.base_object.write() {
+                                obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                            }
+                            return Ok(());
+                        }
+                    }
+
+                    guard.current_order = Some(UnitOrder::Guard {
+                        position: command.pos,
+                        area_radius: guard.engagement_range,
+                    });
+                    guard.order_queue.clear();
+                    guard.give_attack_order(target_id, true, false)?;
+                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                        obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                    }
+                }
+            }
+            crate::ai::AiCommandType::Enter => {
+                self.enter_target = command.obj;
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        if command.obj.is_some() {
+                            machine.clear();
+                            let _ = machine.ai_do_command(command);
+                            return Ok(());
+                        }
+                    }
+                }
+                if let Some(container_id) = command.obj {
+                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
+                        if let Ok(mut container_guard) = container.write() {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(mut contain_guard) = contain.lock() {
+                                    if let Some(unit) = self.unit.upgrade() {
+                                        if let Ok(unit_guard) = unit.read() {
+                                            let base_arc = unit_guard.base_object();
+                                            drop(unit_guard);
+                                            let base_lock = base_arc.read();
+                                            if let Ok(base_guard) = base_lock {
+                                                let _ = contain_guard
+                                                    .on_object_wants_to_enter_or_exit(
+                                                        &base_guard,
+                                                        crate::modules::ContainWant::WantsToEnter,
+                                                    );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::Exit => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+
+                let container_id = command.obj.or_else(|| {
+                    self.unit.upgrade().and_then(|unit| {
+                        let unit_guard = unit.read().ok()?;
+                        let base_arc = unit_guard.base_object();
+                        drop(unit_guard);
+                        let base_guard = base_arc.read().ok()?;
+                        base_guard.get_contained_by()
+                    })
+                });
+                if let Some(container_id) = container_id {
+                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
+                        if let Ok(mut container_guard) = container.write() {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(mut contain_guard) = contain.lock() {
+                                    if let Some(unit) = self.unit.upgrade() {
+                                        if let Ok(unit_guard) = unit.read() {
+                                            let base_arc = unit_guard.base_object();
+                                            drop(unit_guard);
+                                            let base_lock = base_arc.read();
+                                            if let Ok(base_guard) = base_lock {
+                                                let _ = contain_guard
+                                                    .on_object_wants_to_enter_or_exit(
+                                                        &base_guard,
+                                                        crate::modules::ContainWant::WantsToExit,
+                                                    );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::ExitInstantly => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+                let container_id = command.obj.or_else(|| {
+                    self.unit.upgrade().and_then(|unit| {
+                        let unit_guard = unit.read().ok()?;
+                        let base_arc = unit_guard.base_object();
+                        drop(unit_guard);
+                        let base_guard = base_arc.read().ok()?;
+                        base_guard.get_contained_by()
+                    })
+                });
+                if let Some(container_id) = container_id {
+                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
+                        if let Ok(mut container_guard) = container.write() {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(mut contain_guard) = contain.lock() {
+                                    if let Some(unit) = self.unit.upgrade() {
+                                        if let Ok(unit_guard) = unit.read() {
+                                            let base_arc = unit_guard.base_object();
+                                            drop(unit_guard);
+                                            let base_lock = base_arc.read();
+                                            if let Ok(base_guard) = base_lock {
+                                                let _ = contain_guard
+                                                    .on_object_wants_to_enter_or_exit(
+                                                        &base_guard,
+                                                        crate::modules::ContainWant::WantsToExit,
+                                                    );
+                                                let _ = contain_guard
+                                                    .release_object(base_guard.get_id());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::Dock => {
+                if let Some(supply_ai) = self.supply_truck_ai.as_mut() {
+                    supply_ai.private_dock(command.obj, command.cmd_source);
+                }
+                if let Some(chinook_ai) = self.chinook_ai.as_mut() {
+                    chinook_ai.private_dock(command.obj, command.cmd_source);
+                }
+                if let Some(worker_ai) = self.worker_ai.as_mut() {
+                    worker_ai.private_dock(command.obj, command.cmd_source);
+                }
+                if let Some(mut existing) = self.dock_machine.take() {
+                    let _ = existing.halt();
+                }
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        if command.obj.is_some() {
+                            machine.clear();
+                            let _ = machine.ai_do_command(command);
+                            return Ok(());
+                        }
+                    }
+                }
+                if let Some(target_id) = command.obj {
+                    let target_arc = TheGameLogic::find_object_by_id(target_id);
+                    let Some(target_arc) = target_arc else {
+                        return Ok(());
+                    };
+
+                    let has_dock = target_arc
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.with_dock_update_interface(|_| true))
+                        .unwrap_or(false);
+                    if !has_dock {
+                        return Ok(());
+                    }
+
+                    if let Some(mut existing) = self.dock_machine.take() {
+                        let _ = existing.halt();
+                    }
+
+                    let owner_object = guard.base_object();
+                    let mut dock_machine =
+                        AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
+                    if let Ok(mut machine) = dock_machine.state_machine.lock() {
+                        machine.set_goal_object(Some(Arc::downgrade(&target_arc)));
+                        let _ = machine.init_default_state();
+                    }
+                    let _ = self.set_can_path_through_units(true);
+                    self.dock_machine = Some(dock_machine);
+                }
+            }
+            crate::ai::AiCommandType::ExecuteRailedTransport => {
+                if let Some(mut railed_ai) = self.railed_transport_ai.take() {
+                    let _ = railed_ai.handle_execute_railed_transport(command.cmd_source, self);
+                    self.railed_transport_ai = Some(railed_ai);
+                }
+            }
+            crate::ai::AiCommandType::HackInternet => {
+                if let Some(mut hack_ai) = self.hack_internet_ai.take() {
+                    hack_ai.hack_internet();
+                    self.hack_internet_ai = Some(hack_ai);
+                }
+            }
+            crate::ai::AiCommandType::Evacuate | crate::ai::AiCommandType::EvacuateInstantly => {
+                let instantly = command.cmd == crate::ai::AiCommandType::EvacuateInstantly;
+                if let Ok(mut obj_guard) = guard.base_object.write() {
+                    if let Some(contain) = obj_guard.get_contain() {
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            let _ = contain_guard
+                                .order_all_passengers_to_exit(command.cmd_source, instantly);
+                        }
+                    }
+                }
+                if let Some(mut railed_ai) = self.railed_transport_ai.take() {
+                    let _ = railed_ai.handle_evacuate(command.int_value, command.cmd_source, self);
+                    self.railed_transport_ai = Some(railed_ai);
+                }
+            }
+            crate::ai::AiCommandType::CombatDrop => {
+                if let Some(mut chinook_ai) = self.chinook_ai.take() {
+                    chinook_ai.private_combat_drop(
+                        command.obj,
+                        command.pos,
+                        command.cmd_source,
+                        self,
+                    );
+                    self.chinook_ai = Some(chinook_ai);
+                }
+            }
+            crate::ai::AiCommandType::GetHealed => {
+                if let Some(target_id) = command.obj {
+                    let can_heal = guard
+                        .base_object
+                        .read()
+                        .ok()
+                        .and_then(|base_guard| {
+                            let target = get_legacy_object(target_id)?;
+                            let target_guard = target.read().ok()?;
+                            Some(TheActionManager::can_get_healed_at(
+                                &*base_guard,
+                                &*target_guard,
+                                command.cmd_source,
+                            ))
+                        })
+                        .unwrap_or(false);
+                    if !can_heal {
+                        return Ok(());
+                    }
+
+                    let mut enter_params = command.clone();
+                    enter_params.cmd = crate::ai::AiCommandType::Enter;
+                    self.enter_target = enter_params.obj;
+                    if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                        if let Ok(mut machine) = state_machine.lock() {
+                            let is_mobile = guard.current_locomotor.is_some();
+                            if !is_mobile {
+                                return Ok(());
+                            }
+                            if enter_params.obj.is_some() {
+                                machine.clear();
+                                let _ = machine.ai_do_command(&enter_params);
+                                return Ok(());
+                            }
+                        }
+                    }
+                    if let Some(container_id) = enter_params.obj {
+                        if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
+                            if let Ok(mut container_guard) = container.write() {
+                                if let Some(contain) = container_guard.get_contain() {
+                                    if let Ok(mut contain_guard) = contain.lock() {
+                                        if let Some(unit) = self.unit.upgrade() {
+                                            if let Ok(unit_guard) = unit.read() {
+                                                let base_arc = unit_guard.base_object();
+                                                drop(unit_guard);
+                                                let base_lock = base_arc.read();
+                                                if let Ok(base_guard) = base_lock {
+                                                    let _ = contain_guard
+                                                        .on_object_wants_to_enter_or_exit(
+                                                        &base_guard,
+                                                        crate::modules::ContainWant::WantsToEnter,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            crate::ai::AiCommandType::GetRepaired => {
+                if let Some(target_id) = command.obj {
+                    if let Some(mut chinook_ai) = self.chinook_ai.take() {
+                        chinook_ai.private_get_repaired(target_id, command.cmd_source, self);
+                        self.chinook_ai = Some(chinook_ai);
+                        return Ok(());
+                    }
+                }
+
+                if let Some(target_id) = command.obj {
+                    let can_repair = guard
+                        .base_object
+                        .read()
+                        .ok()
+                        .and_then(|base_guard| {
+                            let target = get_legacy_object(target_id)?;
+                            let target_guard = target.read().ok()?;
+                            Some(TheActionManager::can_get_repaired_at(
+                                &*base_guard,
+                                &*target_guard,
+                                command.cmd_source,
+                            ))
+                        })
+                        .unwrap_or(false);
+                    if !can_repair {
+                        return Ok(());
+                    }
+
+                    let mut dock_params = command.clone();
+                    dock_params.cmd = crate::ai::AiCommandType::Dock;
+                    if let Some(supply_ai) = self.supply_truck_ai.as_mut() {
+                        supply_ai.private_dock(dock_params.obj, dock_params.cmd_source);
+                    }
+                    if let Some(chinook_ai) = self.chinook_ai.as_mut() {
+                        chinook_ai.private_dock(dock_params.obj, dock_params.cmd_source);
+                    }
+                    if let Some(worker_ai) = self.worker_ai.as_mut() {
+                        worker_ai.private_dock(dock_params.obj, dock_params.cmd_source);
+                    }
+                    if let Some(mut existing) = self.dock_machine.take() {
+                        let _ = existing.halt();
+                    }
+                    if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                        if let Ok(mut machine) = state_machine.lock() {
+                            let is_mobile = guard.current_locomotor.is_some();
+                            if !is_mobile {
+                                return Ok(());
+                            }
+                            if dock_params.obj.is_some() {
+                                machine.clear();
+                                let _ = machine.ai_do_command(&dock_params);
+                                return Ok(());
+                            }
+                        }
+                    }
+                    if let Some(target_id) = dock_params.obj {
+                        let target_arc = TheGameLogic::find_object_by_id(target_id);
+                        let Some(target_arc) = target_arc else {
+                            return Ok(());
+                        };
+
+                        let has_dock = target_arc
+                            .read()
+                            .ok()
+                            .and_then(|guard| guard.with_dock_update_interface(|_| true))
+                            .unwrap_or(false);
+                        if !has_dock {
+                            return Ok(());
+                        }
+
+                        if let Some(mut existing) = self.dock_machine.take() {
+                            let _ = existing.halt();
+                        }
+
+                        let owner_object = guard.base_object();
+                        let mut dock_machine = AIDockMachine::new(owner_object.clone())
+                            .map_err(|err| err.to_string())?;
+                        if let Ok(mut machine) = dock_machine.state_machine.lock() {
+                            machine.set_goal_object(Some(Arc::downgrade(&target_arc)));
+                            let _ = machine.init_default_state();
+                        }
+                        let _ = self.set_can_path_through_units(true);
+                        self.dock_machine = Some(dock_machine);
+                    }
+                }
+            }
+            #[cfg(feature = "allow_surrender")]
+            crate::ai::AiCommandType::PickUpPrisoner => {
+                if let (Some(prisoner_id), Some(mut pow_ai)) =
+                    (command.obj, self.pow_truck_ai.take())
+                {
+                    let owner_id = guard.get_id();
+                    let _ = pow_ai.handle_pick_up_prisoner(
+                        owner_id,
+                        prisoner_id,
+                        command.cmd_source,
+                        self,
+                    );
+                    self.pow_truck_ai = Some(pow_ai);
+                }
+            }
+            #[cfg(feature = "allow_surrender")]
+            crate::ai::AiCommandType::ReturnPrisoners => {
+                if let Some(mut pow_ai) = self.pow_truck_ai.take() {
+                    let owner_id = guard.get_id();
+                    let _ = pow_ai.handle_return_prisoners(
+                        owner_id,
+                        command.obj,
+                        command.cmd_source,
+                        self,
+                    );
+                    self.pow_truck_ai = Some(pow_ai);
+                }
+            }
+            crate::ai::AiCommandType::Idle => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+                guard.stop_movement();
+            }
+            crate::ai::AiCommandType::Busy => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+            }
+            crate::ai::AiCommandType::Hunt => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let is_projectile = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                            .unwrap_or(false);
+                        if is_projectile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+
+                guard.attack_target = None;
+                guard.auto_acquire_enemies = true;
+                guard.combat_mode = CombatMode::Aggressive;
+                guard.attack_move_active = true;
+            }
+            crate::ai::AiCommandType::AttackArea => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        let is_projectile = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                            .unwrap_or(false);
+                        if is_projectile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+            }
+            crate::ai::AiCommandType::FollowWaypointPath
+            | crate::ai::AiCommandType::FollowWaypointPathExact
+            | crate::ai::AiCommandType::FollowWaypointPathAsTeam
+            | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
+            | crate::ai::AiCommandType::AttackFollowWaypointPath
+            | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam => {
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        let is_mobile = guard.current_locomotor.is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        if matches!(
+                            command.cmd,
+                            crate::ai::AiCommandType::AttackFollowWaypointPath
+                                | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
+                        ) {
+                            if let Ok(mut obj_guard) = guard.base_object.write() {
+                                obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                            }
+                        }
+                        return Ok(());
+                    }
+                }
+
+                if matches!(
+                    command.cmd,
+                    crate::ai::AiCommandType::AttackFollowWaypointPath
+                        | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
+                ) {
+                    guard.combat_mode = CombatMode::Aggressive;
+                    guard.attack_move_active = true;
+                }
+
+                if let Some(start_id) = command.waypoint {
+                    let mut chain = Vec::new();
+                    if let Ok(terrain_guard) = crate::terrain::get_terrain_logic().read() {
+                        let mut current = terrain_guard.get_waypoint_by_id(start_id);
+                        while let Some(node) = current {
+                            chain.push(Waypoint::new(
+                                node.get_id(),
+                                *node.get_location(),
+                                String::new(),
+                            ));
+                            if node.get_num_links() > 1 {
+                                break;
+                            }
+                            current = node
+                                .get_link(0)
+                                .and_then(|next_id| terrain_guard.get_waypoint_by_id(next_id));
+                        }
+                    }
+
+                    if let Some(first) = chain.first().cloned() {
+                        let mut remaining = chain;
+                        remaining.remove(0);
+                        guard.give_move_order(first.position, remaining, false, false)?;
+                    }
+                }
+
+                if matches!(
+                    command.cmd,
+                    crate::ai::AiCommandType::AttackFollowWaypointPath
+                        | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
+                ) {
+                    if let Ok(mut obj_guard) = guard.base_object.write() {
+                        obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn get_preferred_height(&self) -> Option<Real> {
+        let locomotor = self.unit.upgrade().and_then(|unit| {
+            unit.read()
+                .ok()
+                .and_then(|guard| guard.current_locomotor.as_ref().cloned())
+        })?;
+        locomotor.lock().ok().map(|loc| loc.preferred_height)
+    }
+
+    fn is_allowed_to_adjust_destination(&self) -> bool {
+        if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+            let invalid_allowed = self
+                .unit
+                .upgrade()
+                .and_then(|unit| {
+                    let guard = unit.read().ok()?;
+                    let locomotor = guard.current_locomotor.as_ref()?.clone();
+                    drop(guard);
+                    let loc_guard = locomotor.lock().ok()?;
+                    Some(loc_guard.is_allowing_invalid_positions())
+                })
+                .unwrap_or(false);
+            if invalid_allowed {
+                return false;
+            }
+            chinook_ai.is_allowed_to_adjust_destination()
+        } else {
+            true
+        }
+    }
+
+    fn get_ai_free_to_exit(&self, exiter: &Object) -> crate::object::production::AIFreeToExitType {
+        if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+            chinook_ai.get_ai_free_to_exit(exiter)
+        } else {
+            crate::object::production::AIFreeToExitType::FreeToExit
+        }
+    }
+
+    fn set_path_extra_distance(
+        &mut self,
+        distance: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.path_extra_distance = distance;
+            }
+        }
+        Ok(())
+    }
+
+    fn set_path_from_waypoint(
+        &mut self,
+        waypoint: &crate::waypoint::Waypoint,
+        group_offset: &Coord2D,
+    ) -> Result<(), String> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+
+        let terrain = crate::terrain::get_terrain_logic()
+            .read()
+            .map_err(|_| "terrain lock poisoned".to_string())?;
+
+        // Build a chain following link 0 to match the classic path order.
+        let mut visited = std::collections::HashSet::new();
+        let mut waypoints = Vec::new();
+        let mut current = waypoint.clone();
+        for _ in 0..128 {
+            if !visited.insert(current.id) {
+                break;
+            }
+            let mut adjusted = current.clone();
+            adjusted.position.x += group_offset.x;
+            adjusted.position.y += group_offset.y;
+            adjusted.position.z =
+                terrain.get_ground_height(adjusted.position.x, adjusted.position.y, None);
+            waypoints.push(adjusted);
+
+            let Some(next_id) = current.get_link(0) else {
+                break;
+            };
+            let Some(next) = terrain.get_waypoint_by_id(next_id) else {
+                break;
+            };
+            current = crate::waypoint::Waypoint::from_terrain(next);
+        }
+
+        if waypoints.is_empty() {
+            return Ok(());
+        }
+
+        let first = waypoints.remove(0);
+        if let Ok(mut guard) = unit.write() {
+            guard.target_position = Some(first.position);
+            guard.movement_state = MovementState::Moving;
+            guard.current_speed = 0.0;
+            guard.current_path = None;
+            guard.path_index = 0;
+            guard.path_following_state = Some(PathFollowingState::new(first.position));
+            guard.waypoint_queue = waypoints;
+        }
+        self.blocked_frames = 0;
+        self.blocked_and_stuck = false;
+        self.path_timestamp = TheGameLogic::get_frame();
+
+        Ok(())
+    }
+
+    fn is_waypoint_queue_empty(&self) -> bool {
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(guard) = unit.read() {
+                return guard.waypoint_queue.is_empty();
+            }
+        }
+        true
+    }
+
+    fn is_waiting_for_path(&self) -> bool {
+        if self.queue_for_path_frame > TheGameLogic::get_frame() {
+            return true;
+        }
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(guard) = unit.read() {
+                return guard
+                    .path_following_state
+                    .as_ref()
+                    .map(|state| state.waiting_for_path)
+                    .unwrap_or(false);
+            }
+        }
+        false
+    }
+
+    fn append_goal_position_to_path(&mut self, goal: &Coord3D) -> Result<(), String> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(mut loc_guard) = locomotor.lock() {
+                if let Some(active_path) = loc_guard.active_path.as_mut() {
+                    active_path.append_waypoint(*goal);
+                    return Ok(());
+                }
+            }
+        }
+
+        if let Some(path) = guard.current_path.as_mut() {
+            path.push(Coord2D::new(goal.x, goal.y));
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    fn set_path_from_coords(&mut self, path: &[Coord3D]) -> Result<(), String> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+
+        if path.is_empty() {
+            return Err("set_path_from_coords missing path points".to_string());
+        }
+
+        let last = *path.last().unwrap();
+        guard.target_position = Some(last);
+        guard.movement_state = MovementState::Moving;
+        guard.current_speed = 0.0;
+        guard.path_index = 0;
+        guard.path_following_state = None;
+        guard.current_path = Some(path.iter().map(|pos| Coord2D::new(pos.x, pos.y)).collect());
+        self.blocked_frames = 0;
+        self.blocked_and_stuck = false;
+        self.path_timestamp = TheGameLogic::get_frame();
+
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(mut loc_guard) = locomotor.lock() {
+                loc_guard.clear_path();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn request_safe_path(&mut self, repulsor_id: ObjectID) -> Result<bool, String> {
+        if repulsor_id != self.repulsor1 {
+            self.repulsor2 = self.repulsor1;
+        }
+        self.repulsor1 = repulsor_id;
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
+            return Ok(false);
+        }
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        let obj_guard = guard
+            .base_object
+            .read()
+            .map_err(|_| "unit base object lock poisoned".to_string())?;
+        let owner_pos = *obj_guard.get_position();
+        let owner_id = obj_guard.get_id();
+        let owner_radius = obj_guard.get_geometry_info().get_major_radius();
+
+        let repulsor = get_legacy_object(repulsor_id)
+            .ok_or_else(|| "request_safe_path missing repulsor object".to_string())?;
+        let repulsor_guard = repulsor
+            .read()
+            .map_err(|_| "request_safe_path repulsor lock poisoned".to_string())?;
+        let repulsor_pos = *repulsor_guard.get_position();
+        let repulsor_radius = repulsor_guard
+            .get_geometry_info()
+            .get_bounding_circle_radius();
+
+        let locomotor_set = guard.locomotor_set.clone();
+
+        drop(repulsor_guard);
+        drop(obj_guard);
+        drop(guard);
+
+        let mut repulsor_pos2 = repulsor_pos;
+        if self.repulsor2 != INVALID_ID {
+            if let Some(repulsor2) = get_legacy_object(self.repulsor2) {
+                if let Ok(repulsor2_guard) = repulsor2.read() {
+                    repulsor_pos2 = *repulsor2_guard.get_position();
+                }
+            }
+        }
+
+        let mut away = Coord3D::new(
+            owner_pos.x - repulsor_pos.x + owner_pos.x - repulsor_pos2.x,
+            owner_pos.y - repulsor_pos.y + owner_pos.y - repulsor_pos2.y,
+            0.0,
+        );
+        if away.x * away.x + away.y * away.y < f32::EPSILON {
+            away = Coord3D::new(1.0, 0.0, 0.0);
+        }
+        let away_length = (away.x * away.x + away.y * away.y).sqrt().max(0.001);
+        let safe_distance = (repulsor_radius.max(PATHFIND_CELL_SIZE_F)
+            + owner_radius.max(PATHFIND_CELL_SIZE_F))
+            * 2.0;
+        let safe_destination = Coord3D::new(
+            owner_pos.x + (away.x / away_length) * safe_distance,
+            owner_pos.y + (away.y / away_length) * safe_distance,
+            owner_pos.z,
+        );
+
+        let mut safe_path_coords: Option<Vec<Coord3D>> = None;
+        if let Ok(ai_lock) = THE_AI.read() {
+            if let Some(pathfinder) = ai_lock.pathfinder() {
+                if let Ok(pathfinder_guard) = pathfinder.read() {
+                    safe_path_coords = pathfinder_guard.find_path_for_locomotor(
+                        owner_id,
+                        &locomotor_set,
+                        &owner_pos,
+                        &safe_destination,
+                    );
+                }
+            }
+        }
+
+        self.pending_safe_path = safe_path_coords;
+        if self.pending_safe_path.is_some() {
+            self.path_timestamp = TheGameLogic::get_frame();
+        }
+        Ok(self.pending_safe_path.is_some())
+    }
+
+    fn is_doing_ground_movement(&self) -> bool {
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            return jet_ai.is_doing_ground_movement();
+        }
+        let unit = self.unit.upgrade();
+        let Some(unit) = unit else {
+            return true;
+        };
+        let Ok(guard) = unit.read() else {
+            return true;
+        };
+        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+            return true;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return true;
+        };
+
+        !matches!(
+            loc_guard.get_appearance(),
+            LocomotorAppearance::Hover
+                | LocomotorAppearance::Thrust
+                | LocomotorAppearance::Wings
+                | LocomotorAppearance::Naval
+                | LocomotorAppearance::Tunnel
+        )
+    }
+
+    fn is_allowed_to_move_away_from_unit(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.is_allowed_to_move_away_from_unit())
+            .unwrap_or(true)
+    }
+
+    fn get_sneaky_targeting_offset(&self, offset: &mut Coord3D) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.get_sneaky_targeting_offset(offset))
+            .unwrap_or(false)
+    }
+
+    fn is_temporarily_preventing_aim_success(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.is_temporarily_preventing_aim_success())
+            .unwrap_or(false)
+    }
+
+    fn add_targeter(&mut self, id: ObjectID, add: bool) {
+        if let Some(jet_ai) = self.jet_ai.as_mut() {
+            jet_ai.add_targeter(id, add);
+        }
+    }
+
+    fn are_turrets_linked(&self) -> Bool {
+        self.turrets_linked
+    }
+
+    fn set_turret_target_object(
+        &mut self,
+        turret: TurretType,
+        target: Option<&Arc<RwLock<Object>>>,
+        force_attacking: bool,
+    ) {
+        if let Some(machine) = self.ensure_turret_machine(turret) {
+            if let Some(turret_ai) = machine.get_turret_ai() {
+                if let Ok(mut guard) = turret_ai.lock() {
+                    guard.set_current_target_with_force(target.cloned(), force_attacking);
+                }
+            }
+        }
+    }
+
+    fn set_turret_target_position(&mut self, turret: TurretType, pos: &Coord3D) {
+        if let Some(machine) = self.ensure_turret_machine(turret) {
+            if let Some(turret_ai) = machine.get_turret_ai() {
+                if let Ok(mut guard) = turret_ai.lock() {
+                    guard.set_target_position(Some(*pos));
+                }
+            }
+        }
+    }
+
+    fn is_out_of_special_reload_ammo(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.is_out_of_special_reload_ammo())
+            .unwrap_or(false)
+    }
+
+    fn get_treat_as_aircraft_for_loco_dist_to_goal(&self) -> bool {
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            return jet_ai.get_treat_as_aircraft_for_loco_dist_to_goal();
+        }
+        let Some(unit) = self.unit.upgrade() else {
+            return true;
+        };
+        let Ok(guard) = unit.read() else {
+            return true;
+        };
+
+        let mut treat_as_aircraft = !self.is_doing_ground_movement();
+        if guard.path_extra_distance > PATHFIND_CLOSE_ENOUGH {
+            treat_as_aircraft = true;
+        }
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(loc_guard) = locomotor.lock() {
+                if loc_guard.get_appearance() == LocomotorAppearance::Hover {
+                    treat_as_aircraft = true;
+                }
+            }
+        }
+        treat_as_aircraft
+    }
+
+    fn update_goal_position(
+        &mut self,
+        goal: &Coord3D,
+        layer: crate::common::PathfindLayerEnum,
+    ) -> Result<(), String> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+
+        let owner_id = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.get_id())
+            .unwrap_or(INVALID_ID);
+        let mut adjusted = *goal;
+        let mut interacts_with_bridge_end = false;
+        let terrain_layer = match layer {
+            crate::common::PathfindLayerEnum::Invalid => crate::path::PathfindLayerEnum::Invalid,
+            crate::common::PathfindLayerEnum::Ground => crate::path::PathfindLayerEnum::Ground,
+            crate::common::PathfindLayerEnum::Top => crate::path::PathfindLayerEnum::Top,
+            crate::common::PathfindLayerEnum::Bridge1 => crate::path::PathfindLayerEnum::Bridge1,
+            crate::common::PathfindLayerEnum::Bridge2 => crate::path::PathfindLayerEnum::Bridge2,
+            crate::common::PathfindLayerEnum::Bridge3 => crate::path::PathfindLayerEnum::Bridge3,
+            crate::common::PathfindLayerEnum::Bridge4 => crate::path::PathfindLayerEnum::Bridge4,
+            crate::common::PathfindLayerEnum::Wall => crate::path::PathfindLayerEnum::Wall,
+            crate::common::PathfindLayerEnum::Tunnel
+            | crate::common::PathfindLayerEnum::Water
+            | crate::common::PathfindLayerEnum::Air
+            | crate::common::PathfindLayerEnum::Last => crate::path::PathfindLayerEnum::Ground,
+        };
+        if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+            if layer == crate::common::PathfindLayerEnum::Wall {
+                adjusted.z = crate::ai::THE_AI
+                    .read()
+                    .ok()
+                    .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
+                    .unwrap_or(adjusted.z);
+            } else {
+                adjusted.z =
+                    terrain.get_layer_height(adjusted.x, adjusted.y, terrain_layer, None, true);
+            }
+
+            let mut dest_layer = layer;
+            if layer != crate::common::PathfindLayerEnum::Ground {
+                if let Ok(obj_guard) = guard.base_object.read() {
+                    interacts_with_bridge_end =
+                        terrain.object_interacts_with_bridge_layer(&obj_guard, terrain_layer, true);
+                }
+            }
+            if layer != crate::common::PathfindLayerEnum::Ground && !interacts_with_bridge_end {
+                dest_layer = crate::common::PathfindLayerEnum::Ground;
+            }
+            if let Ok(mut obj_guard) = guard.base_object.write() {
+                obj_guard.set_destination_layer(dest_layer);
+            }
+        }
+
+        guard.target_position = Some(adjusted);
+        if let Some(state) = guard.path_following_state.as_mut() {
+            state.goal_position = adjusted;
+            state.path_goal_position = adjusted;
+        }
+
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(mut loc_guard) = locomotor.lock() {
+                if let Some(active_path) = loc_guard.active_path.as_mut() {
+                    active_path.set_last_waypoint(adjusted);
+                }
+            }
+        }
+
+        let is_immobile = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.is_kind_of(KindOf::Immobile))
+            .unwrap_or(false);
+        if is_immobile {
+            return Ok(());
+        }
+
+        let path_layer = match layer {
+            crate::common::PathfindLayerEnum::Ground => ClassicPathLayer::Ground,
+            _ => ClassicPathLayer::Top,
+        };
+        let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
+        let new_cell = Self::compute_goal_cell(&adjusted, center_in_cell);
+        let is_unmanned_heli = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| {
+                obj.is_kind_of(KindOf::ProducedAtHelipad)
+                    && obj.is_disabled_by_type(crate::common::DisabledType::Unmanned)
+            })
+            .unwrap_or(false);
+        let is_ground_movement = self.is_doing_ground_movement();
+
+        if let Ok(ai_lock) = THE_AI.read() {
+            if let Some(pathfinder) = ai_lock.pathfinder() {
+                if let Ok(mut pf_guard) = pathfinder.write() {
+                    if !is_ground_movement && !is_unmanned_heli {
+                        self.update_aircraft_goal_cells(
+                            &mut pf_guard,
+                            owner_id,
+                            new_cell,
+                            radius,
+                            center_in_cell,
+                        );
+                    } else {
+                        self.update_ground_goal_cells(
+                            &mut pf_guard,
+                            owner_id,
+                            new_cell,
+                            path_layer,
+                            radius,
+                            center_in_cell,
+                            interacts_with_bridge_end,
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn adjust_destination(&mut self, goal: &mut Coord3D) -> bool {
+        let unit = self.unit.upgrade();
+        let Some(unit) = unit else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+            return false;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return false;
+        };
+
+        let caps = loc_guard.to_movement_capabilities();
+        let surfaces = loc_guard.get_legal_surfaces();
+        let mut is_crusher = false;
+        drop(loc_guard);
+        if let Ok(obj_guard) = guard.base_object.read() {
+            is_crusher = obj_guard.get_crusher_level() > 0;
+        }
+        let ignore_obstacle_id = if self.ignore_obstacle_id != INVALID_ID {
+            Some(self.ignore_obstacle_id)
+        } else {
+            None
+        };
+        let owner_id = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.get_id())
+            .unwrap_or(INVALID_ID);
+        let from_pos = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| *obj.get_position())
+            .unwrap_or(*goal);
+        let unit_radius = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
+            .unwrap_or(PATHFIND_CELL_SIZE_F * 0.5);
+        drop(guard);
+
+        let mut adjusted = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinding_system())
+            .and_then(|pathfinding| {
+                pathfinding
+                    .read()
+                    .ok()
+                    .and_then(|pf| pf.adjust_destination(goal, &caps))
+            });
+
+        if adjusted.is_none() {
+            let fallback_request = crate::ai::pathfind_complete::PathRequest {
+                object_id: owner_id,
+                from: from_pos,
+                to: *goal,
+                surfaces,
+                is_crusher,
+                unit_radius,
+                allow_partial: false,
+                move_allies: self.get_can_path_through_units(),
+                ignore_obstacle_id,
+            };
+            adjusted = THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .and_then(|pathfinder| {
+                    pathfinder
+                        .read()
+                        .ok()
+                        .map(|pf| pf.find_closest_path_result(fallback_request))
+                })
+                .and_then(|result| {
+                    if result.success {
+                        result.waypoints.last().copied()
+                    } else {
+                        None
+                    }
+                });
+        }
+
+        let Some(mut new_goal) = adjusted else {
+            return false;
+        };
+
+        if caps.layer == PfLayer::Ground {
+            if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+                new_goal.z = terrain.get_ground_height(new_goal.x, new_goal.y, None);
+            }
+        }
+
+        *goal = new_goal;
+        true
+    }
+
+    fn set_adjusts_destination(&mut self, adjust: bool) {
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.path_adjusts_destination = adjust;
+                if let Some(state) = guard.path_following_state.as_mut() {
+                    state.adjusts_destination = adjust;
+                }
+            }
+        }
+    }
+
+    fn set_allow_invalid_position(
+        &mut self,
+        allow: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(mut loc_guard) = locomotor.lock() {
+                loc_guard.set_allow_invalid_position(allow);
+            }
+        }
+        Ok(())
+    }
+
+    fn set_allow_chase(&mut self, allowed: bool) {
+        self.allow_chase = allowed;
+    }
+
+    fn set_locomotor_upgrade(
+        &mut self,
+        enabled: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.locomotor_upgraded = enabled;
+        if matches!(
+            self.current_locomotor_set,
+            LocomotorSetType::Normal | LocomotorSetType::NormalUpgraded
+        ) {
+            let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
+        }
+        Ok(())
+    }
+
+    fn choose_locomotor_set(
+        &mut self,
+        set: LocomotorSetType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut target_set = set;
+        if target_set == LocomotorSetType::Normal && self.locomotor_upgraded {
+            target_set = LocomotorSetType::NormalUpgraded;
+        }
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            if let Some(desired) = jet_ai.desired_locomotor_set() {
+                target_set = desired;
+            }
+        }
+
+        if target_set == self.current_locomotor_set {
+            return Ok(());
+        }
+
+        self.current_locomotor_set = target_set;
+
+        let Some(unit) = self.unit.upgrade() else {
+            return Ok(());
+        };
+        let Some(locomotors) = self.locomotor_sets.get(&target_set) else {
+            return Ok(());
+        };
+
+        let mut new_set = LocomotorSet::new();
+        for locomotor_name in locomotors {
+            if let Some(template) =
+                crate::locomotor::LOCOMOTOR_STORE.get_template(locomotor_name.as_str())
+            {
+                let loco = Arc::new(Mutex::new(Locomotor::new(template)));
+                new_set.add_locomotor(locomotor_name.as_str().to_string(), loco);
+            } else {
+                log::warn!("Locomotor template '{}' not found", locomotor_name.as_str());
+            }
+        }
+
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned")?;
+        let prev_locomotor = guard.current_locomotor.as_ref().cloned();
+        guard.locomotor_set = new_set;
+        guard.current_locomotor = guard.locomotor_set.get_default_locomotor();
+
+        if let (Some(prev), Some(current)) = (prev_locomotor, guard.current_locomotor.as_ref()) {
+            if !Arc::ptr_eq(&prev, current) {
+                if let Ok(mut loco_guard) = current.lock() {
+                    loco_guard.set_precise_z_pos(false);
+                    loco_guard.set_no_slow_down(false);
+                    loco_guard.set_ultra_accurate(false);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn set_ultra_accurate(
+        &mut self,
+        ultra: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(mut loc_guard) = locomotor.lock() {
+                loc_guard.set_ultra_accurate(ultra);
+            }
+        }
+        Ok(())
+    }
+
+    fn set_precise_z_pos(
+        &mut self,
+        precise: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        if let Some(locomotor) = guard.current_locomotor.as_ref() {
+            if let Ok(mut loc_guard) = locomotor.lock() {
+                loc_guard.set_precise_z_pos(precise);
+            }
+        }
+        Ok(())
+    }
+
+    fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
+        self.unit.upgrade().and_then(|unit| {
+            unit.read()
+                .ok()
+                .and_then(|guard| guard.current_locomotor.as_ref().cloned())
+        })
+    }
+
+    fn get_path_destination(&self) -> Option<Coord3D> {
+        let unit = self.unit.upgrade()?;
+        let guard = unit.read().ok()?;
+        if let Some(state) = guard.path_following_state.as_ref() {
+            return Some(state.goal_position);
+        }
+        if let Some(path) = guard.current_path.as_ref() {
+            let last = path.last()?;
+            let z = guard
+                .target_position
+                .map(|pos| pos.z)
+                .unwrap_or_else(|| guard.get_position().z);
+            return Some(Coord3D::new(last.x, last.y, z));
+        }
+        None
+    }
+
+    fn get_locomotor_distance_to_goal(&self) -> Real {
+        let Some(unit) = self.unit.upgrade() else {
+            return 0.0;
+        };
+        let Ok(guard) = unit.read() else {
+            return 0.0;
+        };
+        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+            return 0.0;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return 0.0;
+        };
+
+        let obj_pos = guard.get_position();
+        let is_projectile = guard
+            .base_object()
+            .read()
+            .ok()
+            .map(|obj| obj.is_kind_of(KindOf::Projectile))
+            .unwrap_or(false);
+        let mut treat_as_aircraft = guard.path_extra_distance > PATHFIND_CLOSE_ENOUGH
+            || loc_guard.get_appearance() == LocomotorAppearance::Hover;
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            treat_as_aircraft = jet_ai.get_treat_as_aircraft_for_loco_dist_to_goal();
+        }
+
+        if let Some(active_path) = loc_guard.active_path.as_ref() {
+            let last_waypoint = active_path.waypoints.last().copied();
+            let goal_pos = last_waypoint
+                .or(guard.target_position)
+                .or_else(|| {
+                    guard
+                        .path_following_state
+                        .as_ref()
+                        .map(|state| state.goal_position)
+                })
+                .unwrap_or(obj_pos);
+
+            if loc_guard.is_close_enough_dist_3d() || is_projectile {
+                return (goal_pos - obj_pos).length();
+            }
+
+            if treat_as_aircraft {
+                let delta = goal_pos - obj_pos;
+                let dist = delta.length();
+                let dist_sqr = delta.x * delta.x + delta.y * delta.y;
+                if dist * dist > dist_sqr {
+                    return dist_sqr.sqrt();
+                }
+                return dist;
+            }
+
+            let dist_remaining = active_path.distance_remaining().max(0.0);
+            let dist = if let Some(current_target) = active_path.current_target() {
+                let delta = current_target - obj_pos;
+                (delta.x * delta.x + delta.y * delta.y).sqrt() + dist_remaining
+            } else {
+                dist_remaining
+            };
+
+            let dx = goal_pos.x - obj_pos.x;
+            let dy = goal_pos.y - obj_pos.y;
+            let dist_sqr = dx * dx + dy * dy;
+            if dist < PATHFIND_CELL_SIZE_F || dist * dist < dist_sqr {
+                return dist_sqr.sqrt();
+            }
+            return dist;
+        }
+
+        if let Some(state) = guard.path_following_state.as_ref() {
+            let delta = state.goal_position - obj_pos;
+            return (delta.x * delta.x + delta.y * delta.y).sqrt();
+        }
+
+        0.0
+    }
+
+    fn get_speed(&self) -> f32 {
+        self.unit
+            .upgrade()
+            .and_then(|unit| unit.read().ok().map(|guard| guard.current_speed))
+            .unwrap_or(0.0)
+    }
+
+    fn get_last_command_source(&self) -> CommandSourceType {
+        self.last_command_source
+    }
+
+    fn set_last_command_source(&mut self, source: CommandSourceType) {
+        self.last_command_source = source;
+    }
+
+    fn get_current_command(&self) -> Option<crate::ai::AiCommandType> {
+        self.current_command
+    }
+
+    fn get_pending_command_type(&self) -> Option<crate::ai::AiCommandType> {
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            if let Some(cmd) = jet_ai.pending_command_type() {
+                return Some(cmd);
+            }
+        }
+        self.pending_command
+    }
+
+    fn purge_pending_command(&mut self) {
+        if let Some(jet_ai) = self.jet_ai.as_mut() {
+            jet_ai.set_has_pending_command(false);
+        }
+        self.pending_command = None;
+    }
+
+    fn is_taxiing_to_parking(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.is_taxiing_to_parking())
+            .unwrap_or(false)
+    }
+
+    fn is_reloading(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.is_reloading())
+            .unwrap_or(false)
+    }
+
+    fn is_clearing_mines(&self) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let obj = guard.base_object();
+        let Ok(obj_guard) = obj.read() else {
+            return false;
+        };
+        if !obj_guard.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING) {
+            return false;
+        }
+        let Some((weapon, _slot)) = obj_guard.get_current_weapon() else {
+            return false;
+        };
+        (weapon.get_anti_mask() & WeaponAntiMask::MINE) != 0
+    }
+
+    fn is_takeoff_or_landing_in_progress(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.is_takeoff_or_landing_in_progress())
+            .unwrap_or(false)
+    }
+
+    fn get_current_state_id(&self) -> Option<u32> {
+        self.ai_state_machine.as_ref().and_then(|machine| {
+            machine
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get_current_state_id())
+        })
+    }
+
+    fn get_parking_offset(&self) -> Real {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.parking_offset())
+            .unwrap_or(0.0)
+    }
+
+    fn keeps_parking_space_when_airborne(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .map(|jet| jet.keeps_parking_space_when_airborne())
+            .unwrap_or(true)
+    }
+
+    fn get_desired_speed(&self) -> Real {
+        self.desired_speed
+    }
+
+    fn set_desired_speed(&mut self, speed: Real) {
+        self.desired_speed = speed;
+    }
+
+    fn is_in_rappel_state(&self) -> bool {
+        self.rappel_state.is_some()
+    }
+
+    fn is_doing_combat_drop(&self) -> bool {
+        self.chinook_ai
+            .as_ref()
+            .map(|ai| ai.is_doing_combat_drop())
+            .unwrap_or(false)
+    }
+
+    fn is_aircraft_that_adjusts_destination(&self) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+            return false;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return false;
+        };
+        matches!(
+            loc_guard.get_appearance(),
+            LocomotorAppearance::Hover | LocomotorAppearance::Wings
+        )
+    }
+
+    fn is_moving_away_from(&self, obj_id: ObjectID) -> bool {
+        let is_temp_move_out = self
+            .ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.lock().ok())
+            .map(|guard| guard.get_temporary_state() == Some(AIStateType::MoveOutOfTheWay as u32))
+            .unwrap_or(false);
+        if !is_temp_move_out {
+            return false;
+        }
+        self.move_out_of_way_1 == obj_id || self.move_out_of_way_2 == obj_id
+    }
+
+    fn set_ignore_collision_time(&mut self, duration_frames: UnsignedInt) {
+        self.ignore_collisions_until = TheGameLogic::get_frame().saturating_add(duration_frames);
+    }
+
+    fn get_ignore_collisions_until(&self) -> UnsignedInt {
+        self.ignore_collisions_until
+    }
+
+    fn set_queue_for_path_time(&mut self, frames: UnsignedInt) {
+        self.queue_for_path_frame = if frames == 0 {
+            0
+        } else {
+            TheGameLogic::get_frame().saturating_add(frames)
+        };
+    }
+
+    fn ignore_obstacle(
+        &mut self,
+        obj: Option<&Arc<RwLock<Object>>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.ignore_obstacle_id = obj
+            .and_then(|handle| handle.read().ok().map(|guard| guard.get_id()))
+            .unwrap_or(INVALID_ID);
+        Ok(())
+    }
+
+    fn get_ignored_obstacle_id(&self) -> ObjectID {
+        self.ignore_obstacle_id
+    }
+
+    fn is_ai_in_dead_state(&self) -> bool {
+        self.ai_dead
+    }
+
+    fn mark_as_dead(&mut self) {
+        self.ai_dead = true;
+    }
+
+    fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+        let Some(machine) = self.ai_state_machine.as_ref() else {
+            return None;
+        };
+        let Ok(mut guard) = machine.lock() else {
+            return None;
+        };
+        guard.get_goal_object()
+    }
+
+    fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
+        let Some(machine) = self.ai_state_machine.as_ref() else {
+            return;
+        };
+        let Ok(mut guard) = machine.lock() else {
+            return;
+        };
+        let was_locked = guard.is_locked();
+        guard.unlock();
+        let obj_id = obj
+            .and_then(|handle| handle.read().ok().map(|o| o.get_id()))
+            .unwrap_or(INVALID_ID);
+        guard.set_goal_object(obj_id);
+        if was_locked {
+            guard.lock();
+        }
+    }
+
+    fn is_path_available(&self, destination: &Coord3D) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let Some(ai) = THE_AI.read().ok() else {
+            return false;
+        };
+        let Some(pathfinder) = ai.pathfinder() else {
+            return false;
+        };
+        let Ok(pf_guard) = pathfinder.read() else {
+            return false;
+        };
+        let pos = guard.get_position();
+        let ignore = if self.ignore_obstacle_id == INVALID_ID {
+            None
+        } else {
+            Some(self.ignore_obstacle_id)
+        };
+        pf_guard.client_safe_quick_does_path_exist_with_ignore(
+            &guard.locomotor_set,
+            &pos,
+            destination,
+            ignore,
+        )
+    }
+
+    fn request_path(&mut self, destination: &Coord3D, _is_final_goal: bool) -> Result<(), String> {
+        let _ = self.ignore_obstacle(None);
+        if self.can_compute_quick_path() {
+            self.compute_quick_path(destination);
+            return Ok(());
+        }
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+            if self.blocked_and_stuck {
+                self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
+                self.blocked_frames = 0;
+                self.is_blocked = false;
+                self.blocked_and_stuck = false;
+            }
+            return Ok(());
+        }
+        self.set_queue_for_path_time(0);
+        let _ = self.queue_path_request_now(*destination);
+        let _ = self.set_movement_target(destination);
+        self.path_timestamp = now;
+        Ok(())
+    }
+
+    fn request_attack_path(
+        &mut self,
+        victim_id: ObjectID,
+        victim_pos: &Coord3D,
+    ) -> Result<(), String> {
+        let victim = get_legacy_object(victim_id);
+        let _ = self.set_goal_object(victim.as_ref());
+        let _ = self.ignore_obstacle(victim.as_ref());
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
+            self.set_locomotor_goal_none();
+            return Ok(());
+        }
+        self.set_queue_for_path_time(0);
+        let _ = self.queue_path_request_now(*victim_pos);
+        let _ = self.set_movement_target(victim_pos);
+        self.path_timestamp = now;
+        Ok(())
+    }
+
+    fn request_approach_path(&mut self, destination: &Coord3D) -> Result<(), String> {
+        let _ = self.ignore_obstacle(None);
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
+            return Ok(());
+        }
+        self.set_queue_for_path_time(0);
+        let _ = self.queue_path_request_now(*destination);
+        let _ = self.set_movement_target(destination);
+        self.path_timestamp = now;
+        Ok(())
+    }
+
+    fn can_compute_quick_path(&self) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let locomotor = guard
+            .current_locomotor
+            .as_ref()
+            .cloned()
+            .or_else(|| guard.locomotor_set.get_default_locomotor());
+        let Some(locomotor) = locomotor else {
+            return false;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return false;
+        };
+        let surfaces = loc_guard.get_legal_surfaces();
+        let land_bound = (surfaces & SURFACE_AIR) == 0;
+        if land_bound {
+            return false;
+        }
+        !self.is_doing_ground_movement()
+    }
+
+    fn compute_quick_path(&mut self, destination: &Coord3D) -> bool {
+        if !self.can_compute_quick_path() {
+            return false;
+        }
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(mut guard) = unit.write() else {
+            return false;
+        };
+
+        if let Some(path) = guard.current_path.as_ref() {
+            if let Some(last) = path.last() {
+                let dx = destination.x - last.x;
+                let dy = destination.y - last.y;
+                let dz = destination.z - guard.get_position().z;
+                if dx * dx + dy * dy + dz * dz < 0.25 {
+                    return true;
+                }
+            }
+        }
+
+        guard.current_path = Some(vec![Coord2D::new(destination.x, destination.y)]);
+        guard.path_following_state = None;
+        guard.path_index = 0;
+        guard.target_position = Some(*destination);
+        guard.movement_state = MovementState::Moving;
+        guard.current_speed = 0.0;
+        self.blocked_frames = 0;
+        self.blocked_and_stuck = false;
+        self.path_timestamp = TheGameLogic::get_frame();
+        true
+    }
+
+    fn is_quick_path_available(&self, destination: &Coord3D) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let Some(ai) = THE_AI.read().ok() else {
+            return false;
+        };
+        let Some(pathfinder) = ai.pathfinder() else {
+            return false;
+        };
+        let Ok(pf_guard) = pathfinder.read() else {
+            return false;
+        };
+        let pos = guard.get_position();
+        pf_guard.client_safe_quick_does_path_exist_for_ui(&guard.locomotor_set, &pos, destination)
+    }
+
+    fn is_valid_locomotor_position(&self, pos: &Coord3D) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let Some(ai) = THE_AI.read().ok() else {
+            return false;
+        };
+        let Some(pathfinder) = ai.pathfinder() else {
+            return false;
+        };
+        let Ok(pf_guard) = pathfinder.read() else {
+            return false;
+        };
+        pf_guard.valid_movement_position(
+            &guard.locomotor_set,
+            guard.get_crusher_level() > 0,
+            pos,
+            if self.ignore_obstacle_id == INVALID_ID {
+                None
+            } else {
+                Some(self.ignore_obstacle_id)
+            },
+        )
+    }
+
+    fn need_to_rotate(&self) -> bool {
+        if self.is_waiting_for_path() {
+            return true;
+        }
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+            return false;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return false;
+        };
+        if loc_guard.template.wander_width_factor > 0.0 {
+            return false;
+        }
+        let Some(active_path) = loc_guard.active_path.as_ref() else {
+            return false;
+        };
+        let Some(target) = active_path.current_target() else {
+            return false;
+        };
+        let pos = guard.get_position();
+        let mut path_point = target;
+        if active_path.current_waypoint + 1 < active_path.waypoints.len() {
+            let start = active_path.waypoints[active_path.current_waypoint];
+            let end = active_path.waypoints[active_path.current_waypoint + 1];
+            let seg = Coord3D::new(end.x - start.x, end.y - start.y, 0.0);
+            let seg_len_sqr = seg.x * seg.x + seg.y * seg.y;
+            if seg_len_sqr > f32::EPSILON {
+                let to_pos = Coord3D::new(pos.x - start.x, pos.y - start.y, 0.0);
+                let mut t = (to_pos.x * seg.x + to_pos.y * seg.y) / seg_len_sqr;
+                if t < 0.0 {
+                    t = 0.0;
+                } else if t > 1.0 {
+                    t = 1.0;
+                }
+                path_point = Coord3D::new(start.x + seg.x * t, start.y + seg.y * t, pos.z);
+            }
+        }
+        let delta = path_point - pos;
+        if delta.length_squared() < f32::EPSILON {
+            return false;
+        }
+        let desired_angle = delta.y.atan2(delta.x);
+        let current_angle = guard.get_orientation();
+        let mut delta_angle = desired_angle - current_angle;
+        while delta_angle > std::f32::consts::PI {
+            delta_angle -= std::f32::consts::PI * 2.0;
+        }
+        while delta_angle < -std::f32::consts::PI {
+            delta_angle += std::f32::consts::PI * 2.0;
+        }
+        delta_angle.abs() > (std::f32::consts::PI / 30.0)
+    }
+
+    fn get_cur_locomotor_set_type(&self) -> LocomotorSetType {
+        self.current_locomotor_set
+    }
+
+    fn has_locomotor_for_surface(&self, surface: crate::common::LocomotorSurfaceTypeMask) -> bool {
+        let Some(entries) = self.locomotor_sets.get(&self.current_locomotor_set) else {
+            return false;
+        };
+        for name in entries {
+            if let Some(template) = crate::locomotor::LOCOMOTOR_STORE.get_template(name.as_str()) {
+                if (template.surfaces & surface) != 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn get_cur_locomotor_speed(&self) -> Real {
+        let Some(unit) = self.unit.upgrade() else {
+            return 0.0;
+        };
+        let Ok(guard) = unit.read() else {
+            return 0.0;
+        };
+        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+            return 0.0;
+        };
+        let Ok(loc_guard) = locomotor.lock() else {
+            return 0.0;
+        };
+        let body_state = guard
+            .base_object()
+            .read()
+            .ok()
+            .and_then(|obj| obj.get_body_module())
+            .and_then(|body| {
+                body.lock()
+                    .ok()
+                    .map(|b| to_locomotor_body_damage_type(b.get_damage_state()))
+            })
+            .unwrap_or(BodyDamageType::Pristine);
+        loc_guard.get_max_speed_for_condition(body_state)
+    }
+
+    fn get_cur_max_blocked_speed(&self) -> Real {
+        self.cur_max_blocked_speed
+    }
+
+    fn set_cur_max_blocked_speed(&mut self, speed: Real) {
+        self.cur_max_blocked_speed = speed;
+    }
+
+    fn set_locomotor_goal_none(&mut self) {
+        if let Some(jet_ai) = self.jet_ai.as_ref() {
+            if jet_ai.is_takeoff_or_landing_in_progress()
+                && jet_ai.allow_air_loco()
+                && !jet_ai.allow_circling()
+            {
+                if let Some(unit) = self.unit.upgrade() {
+                    if let Ok(guard) = unit.read() {
+                        let (dir_x, dir_y) = guard.get_unit_direction_vector_2d();
+                        let mut desired = guard.get_position();
+                        desired.x += dir_x * 1000.0;
+                        desired.y += dir_y * 1000.0;
+                        let _ = self.set_movement_target(&desired);
+                        return;
+                    }
+                }
+            }
+        }
+
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.stop_movement();
+            }
+        }
+    }
+
+    fn set_locomotor_goal_orientation(&mut self, angle: Real) {
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                let _ = guard.set_orientation(angle);
+            }
+        }
+    }
+
+    fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
+        let _ = self.set_movement_target(&pos);
+    }
+
+    fn friend_ending_move(&mut self) {
+        self.queue_for_path_frame = 0;
+        self.ignore_obstacle_id = INVALID_ID;
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.stop_movement();
+            }
+        }
+    }
+
+    fn friend_starting_move(&mut self) {
+        self.blocked_frames = 0;
+        self.blocked_and_stuck = false;
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.movement_state = MovementState::Moving;
+            }
+        }
+    }
+
+    fn evaluate_morale_bonus(&mut self) {
+        let Some(unit_arc) = self.unit.upgrade() else {
+            return;
+        };
+        let base_object = match unit_arc.read() {
+            Ok(guard) => guard.base_object(),
+            Err(_) => return,
+        };
+        let Ok(mut obj_guard) = base_object.write() else {
+            return;
+        };
+
+        let mut nationalism = false;
+        let mut fanaticism = false;
+        if let Some(player) = obj_guard.get_controlling_player() {
+            if let Ok(player_guard) = player.read() {
+                if let Ok(center) = get_upgrade_center().read() {
+                    if let Some(upgrade) = center.find_upgrade("Upgrade_Nationalism") {
+                        if player_guard.has_upgrade_complete(&upgrade) {
+                            nationalism = true;
+                        }
+                    }
+                    if let Some(upgrade) = center.find_upgrade("Upgrade_Fanaticism") {
+                        if player_guard.has_upgrade_complete(&upgrade) {
+                            fanaticism = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut horde = false;
+        let mut allow_nationalism = true;
+        obj_guard.with_horde_update_interface(|hui| {
+            if hui.is_in_horde() {
+                horde = true;
+                if !hui.is_allowed_nationalism() {
+                    allow_nationalism = false;
+                }
+            }
+        });
+
+        if !allow_nationalism {
+            nationalism = false;
+            fanaticism = false;
+        }
+
+        let demoralized = self.demoralized_frames_left > 0;
+
+        if !demoralized {
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Demoralized);
+        }
+
+        if horde {
+            obj_guard.set_weapon_bonus_condition(WeaponBonusConditionType::Horde);
+        } else {
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Horde);
+        }
+
+        if nationalism {
+            obj_guard.set_weapon_bonus_condition(WeaponBonusConditionType::Nationalism);
+            if fanaticism {
+                obj_guard.set_weapon_bonus_condition(WeaponBonusConditionType::Fanaticism);
+            } else {
+                obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Fanaticism);
+            }
+        } else {
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Nationalism);
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Fanaticism);
+        }
+
+        if demoralized {
+            obj_guard.set_weapon_bonus_condition(WeaponBonusConditionType::Demoralized);
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Horde);
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Nationalism);
+            obj_guard.clear_weapon_bonus_condition(WeaponBonusConditionType::Fanaticism);
+
+            if !obj_guard.is_kind_of(KindOf::PortableStructure) {
+                if let Some(drawable) = obj_guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.set_terrain_decal(TerrainDecalType::Demoralized);
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_surrendered(&mut self, to_object: Option<&Arc<RwLock<Object>>>, surrendered: bool) {
+        if surrendered {
+            self.surrendered_frames_left = self.surrender_duration_frames;
+            self.surrendered_player_index = to_object
+                .and_then(|obj| obj.read().ok())
+                .and_then(|guard| guard.get_controlling_player_id())
+                .map(|idx| idx as PlayerIndex);
+        } else {
+            self.surrendered_frames_left = 0;
+            self.surrendered_player_index = None;
+        }
+    }
+
+    fn is_surrendered(&self) -> bool {
+        self.surrendered_frames_left > 0
+    }
+
+    fn get_surrendered_player_index(&self) -> Option<PlayerIndex> {
+        self.surrendered_player_index
+    }
+
+    fn ai_move_to_position(
+        &mut self,
+        pos: &Coord3D,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+        guard.give_move_order(*pos, Vec::new(), false, false)?;
+        Ok(())
+    }
+
+    fn ai_idle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(state_machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut machine) = state_machine.lock() {
+                machine.clear();
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Idle,
+                    crate::ai::CommandSourceType::FromAi,
+                );
+                let _ = machine.ai_do_command(&params);
+                return Ok(());
+            }
+        }
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard.stop_movement();
+            }
+        }
+        Ok(())
+    }
+
+    fn ai_busy(
+        &mut self,
+        cmd_source: crate::ai::CommandSourceType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let params = crate::ai::AiCommandParams::new(crate::ai::AiCommandType::Busy, cmd_source);
+        self.execute_command(&params)
+    }
+
+    fn ai_attack_object(
+        &mut self,
+        target: &Arc<RwLock<Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let target_id = target
+            .read()
+            .map(|guard| guard.get_id())
+            .map_err(|_| "target lock poisoned")?;
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+        guard.give_attack_order(target_id, true, false)?;
+        Ok(())
+    }
+
+    fn ai_guard_position(
+        &mut self,
+        pos: &Coord3D,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+        guard.current_order = Some(UnitOrder::Guard {
+            position: *pos,
+            area_radius: guard.engagement_range,
+        });
+        guard.order_queue.clear();
+        Ok(())
+    }
+
+    fn get_crate_id(&self) -> ObjectID {
+        self.crate_created
+            .lock()
+            .map(|id| *id)
+            .unwrap_or(crate::common::INVALID_ID)
+    }
+
+    fn get_current_victim(&self) -> Option<ObjectID> {
+        let unit = self.unit.upgrade()?;
+        let guard = unit.read().ok()?;
+        guard.attack_target
+    }
+
+    fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
+        let crate_id = {
+            let Ok(mut guard) = self.crate_created.lock() else {
+                return None;
+            };
+            if *guard == crate::common::INVALID_ID {
+                return None;
+            }
+            let id = *guard;
+            *guard = crate::common::INVALID_ID;
+            id
+        };
+
+        get_legacy_object(crate_id)
+    }
+
+    fn get_next_mood_target(
+        &mut self,
+        use_existing_target: bool,
+        _ignore_attacked: bool,
+    ) -> Option<Arc<RwLock<Object>>> {
+        let unit = self.unit.upgrade()?;
+        let guard = unit.read().ok()?;
+        if !guard.can_auto_acquire_now() {
+            return None;
+        }
+
+        let max_range = guard.engagement_range;
+        if use_existing_target {
+            if let Some(existing_id) = guard.attack_target {
+                if let Some(existing_arc) =
+                    crate::object::registry::OBJECT_REGISTRY.get_object(existing_id)
+                {
+                    if let Ok(existing_guard) = existing_arc.read() {
+                        let relationship = guard
+                            .base_object
+                            .read()
+                            .ok()
+                            .map(|base| base.relationship_to(&existing_guard))
+                            .unwrap_or(Relationship::Neutral);
+                        if relationship == Relationship::Enemy {
+                            let target_pos = *existing_guard.get_position();
+                            let self_pos = guard.get_position();
+                            let dx = target_pos.x - self_pos.x;
+                            let dy = target_pos.y - self_pos.y;
+                            let dist = (dx * dx + dy * dy).sqrt();
+                            if dist <= max_range && guard.can_detect_target(&existing_guard, dist) {
+                                return Some(existing_arc.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let ai = THE_AI.read().ok()?;
+        let ai_data = ai.get_ai_data();
+        let ai_data_guard = ai_data.read().ok()?;
+
+        let mut qualifiers = search_qualifiers::CAN_ATTACK;
+        if ai_data_guard.attack_uses_line_of_sight {
+            qualifiers |= search_qualifiers::CAN_SEE;
+        }
+        if ai_data_guard.attack_ignore_insignificant_buildings {
+            qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
+        }
+        if guard.auto_acquire_attack_buildings {
+            qualifiers |= search_qualifiers::ATTACK_BUILDINGS;
+        }
+
+        let target_id = ai
+            .find_closest_enemy(guard.get_id(), max_range, qualifiers, None, None)
+            .ok()
+            .flatten()?;
+
+        get_legacy_object(target_id)
+    }
+
+    fn get_next_mood_check_time(&self) -> u32 {
+        let unit = self.unit.upgrade();
+        let Some(unit) = unit else {
+            return TheGameLogic::get_frame();
+        };
+        let Ok(guard) = unit.read() else {
+            return TheGameLogic::get_frame();
+        };
+        let interval = guard.mood_attack_check_rate_frames.max(1);
+        guard.last_target_scan_frame.saturating_add(interval)
+    }
+
+    fn reset_next_mood_check_time(&mut self) {
+        let Some(unit) = self.unit.upgrade() else {
+            return;
+        };
+        let Ok(mut guard) = unit.write() else {
+            return;
+        };
+        guard.last_target_scan_frame = TheGameLogic::get_frame();
+    }
+
+    fn set_next_mood_check_time(&mut self, frame: u32) {
+        let Some(unit) = self.unit.upgrade() else {
+            return;
+        };
+        let Ok(mut guard) = unit.write() else {
+            return;
+        };
+        let interval = guard.mood_attack_check_rate_frames.max(1);
+        guard.last_target_scan_frame = frame.saturating_sub(interval);
+    }
+
+    fn get_mood_matrix_value(&self) -> u32 {
+        if self.ai_state_machine.is_none() {
+            return 0;
+        }
+
+        let Some(unit_arc) = self.unit.upgrade() else {
+            return 0;
+        };
+        let Ok(unit_guard) = unit_arc.read() else {
+            return 0;
+        };
+        let owner_arc = unit_guard.base_object();
+        let Ok(owner_guard) = owner_arc.read() else {
+            return 0;
+        };
+        let Some(player_arc) = owner_guard.get_controlling_player() else {
+            return 0;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return 0;
+        };
+
+        let mut value = 0u32;
+        if player_guard.get_player_type() == crate::player::PlayerType::Human {
+            value |= mood_matrix_parameters::CONTROLLER_PLAYER;
+        } else {
+            value |= mood_matrix_parameters::CONTROLLER_AI;
+            value |= match self.attitude {
+                AIAttitudeType::Passive => mood_matrix_parameters::MOOD_PASSIVE,
+                AIAttitudeType::Defensive => mood_matrix_parameters::MOOD_ALERT,
+                AIAttitudeType::Aggressive => mood_matrix_parameters::MOOD_AGGRESSIVE,
+                AIAttitudeType::Sleep => mood_matrix_parameters::MOOD_SLEEP,
+                AIAttitudeType::Normal => mood_matrix_parameters::MOOD_NORMAL,
+            };
+        }
+
+        let is_air = unit_guard
+            .get_locomotor_surface_mask()
+            .map(|surfaces| (surfaces & SURFACE_AIR) != 0)
+            .unwrap_or(false);
+        if is_air {
+            value |= mood_matrix_parameters::UNITTYPE_AIR;
+        } else if self.turret_primary_machine.is_some() {
+            value |= mood_matrix_parameters::UNITTYPE_TURRETED;
+        } else {
+            value |= mood_matrix_parameters::UNITTYPE_NON_TURRETED;
+        }
+
+        value
+    }
+
+    fn get_mood_matrix_action_adjustment(&mut self, action: MoodMatrixAction) -> u32 {
+        let Some(unit_arc) = self.unit.upgrade() else {
+            return mood_matrix_adjustment::ACTION_OK;
+        };
+        let Ok(unit_guard) = unit_arc.read() else {
+            return mood_matrix_adjustment::ACTION_OK;
+        };
+        let owner_arc = unit_guard.base_object();
+        let Ok(owner_guard) = owner_arc.read() else {
+            return mood_matrix_adjustment::ACTION_OK;
+        };
+
+        // Mirror C++ mob-member special case that ignores mood conversions.
+        if owner_guard.is_kind_of(KindOf::Infantry) && owner_guard.is_kind_of(KindOf::IgnoredInGui)
+        {
+            return mood_matrix_adjustment::ACTION_OK;
+        }
+
+        let mood_matrix = self.get_mood_matrix_value();
+        if (mood_matrix & mood_matrix_parameters::CONTROLLER_PLAYER) != 0 {
+            return mood_matrix_adjustment::ACTION_OK;
+        }
+
+        match action {
+            MoodMatrixAction::Idle => match mood_matrix & mood_matrix_parameters::MOOD_BITMASK {
+                mood_matrix_parameters::MOOD_SLEEP => {
+                    mood_matrix_adjustment::ACTION_OK
+                        | mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL
+                }
+                mood_matrix_parameters::MOOD_PASSIVE => {
+                    mood_matrix_adjustment::ACTION_OK
+                        | mood_matrix_adjustment::AFFECT_RANGE_WAIT_FOR_ATTACK
+                }
+                mood_matrix_parameters::MOOD_ALERT => {
+                    mood_matrix_adjustment::ACTION_OK | mood_matrix_adjustment::AFFECT_RANGE_ALERT
+                }
+                mood_matrix_parameters::MOOD_AGGRESSIVE => {
+                    mood_matrix_adjustment::ACTION_OK
+                        | mood_matrix_adjustment::AFFECT_RANGE_AGGRESSIVE
+                }
+                _ => mood_matrix_adjustment::ACTION_OK,
+            },
+            MoodMatrixAction::Move => match mood_matrix & mood_matrix_parameters::MOOD_BITMASK {
+                mood_matrix_parameters::MOOD_SLEEP => {
+                    mood_matrix_adjustment::ACTION_TO_IDLE
+                        | mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL
+                }
+                mood_matrix_parameters::MOOD_PASSIVE => {
+                    mood_matrix_adjustment::ACTION_OK
+                        | mood_matrix_adjustment::AFFECT_RANGE_WAIT_FOR_ATTACK
+                }
+                mood_matrix_parameters::MOOD_ALERT => {
+                    mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE
+                        | mood_matrix_adjustment::AFFECT_RANGE_ALERT
+                }
+                mood_matrix_parameters::MOOD_AGGRESSIVE => {
+                    mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE
+                        | mood_matrix_adjustment::AFFECT_RANGE_AGGRESSIVE
+                }
+                _ => mood_matrix_adjustment::ACTION_OK,
+            },
+            MoodMatrixAction::Attack => match mood_matrix & mood_matrix_parameters::MOOD_BITMASK {
+                mood_matrix_parameters::MOOD_SLEEP => {
+                    mood_matrix_adjustment::ACTION_TO_IDLE
+                        | mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL
+                }
+                _ => mood_matrix_adjustment::ACTION_OK,
+            },
+            MoodMatrixAction::AttackMove => {
+                match mood_matrix & mood_matrix_parameters::MOOD_BITMASK {
+                    mood_matrix_parameters::MOOD_SLEEP => {
+                        mood_matrix_adjustment::ACTION_TO_IDLE
+                            | mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL
+                    }
+                    mood_matrix_parameters::MOOD_ALERT => {
+                        mood_matrix_adjustment::ACTION_OK
+                            | mood_matrix_adjustment::AFFECT_RANGE_ALERT
+                    }
+                    mood_matrix_parameters::MOOD_AGGRESSIVE => {
+                        mood_matrix_adjustment::ACTION_OK
+                            | mood_matrix_adjustment::AFFECT_RANGE_AGGRESSIVE
+                    }
+                    _ => mood_matrix_adjustment::ACTION_OK,
+                }
+            }
+        }
+    }
+
+    fn notify_fired(&mut self) {
+        // Placeholder: attack state machine in C++ uses this to track firing cadence.
+    }
+
+    fn notify_new_victim_chosen(&mut self, _victim: ObjectID) {
+        // Placeholder: attack state machine in C++ uses this to update target bookkeeping.
+    }
+
+    fn is_weapon_slot_ok_to_fire(&self, _wslot: WeaponSlotType) -> Bool {
+        if self.turrets_linked {
+            return true;
+        }
+
+        let has_primary = self.turret_primary_machine.is_some();
+        let has_secondary = self.turret_secondary_machine.is_some();
+        if !has_primary && !has_secondary {
+            return true;
+        }
+
+        match _wslot {
+            WeaponSlotType::Primary => has_primary && self.turret_primary_enabled,
+            WeaponSlotType::Secondary => has_secondary && self.turret_secondary_enabled,
+            WeaponSlotType::Tertiary => !has_primary && !has_secondary,
+        }
+    }
+
+    fn get_original_victim_pos(&self) -> Option<Coord3D> {
+        self.original_victim_pos
+    }
+
+    fn set_original_victim_pos(&mut self, pos: Option<Coord3D>) {
+        self.original_victim_pos = pos;
+    }
+
+    fn is_in_attack_state(&self) -> bool {
+        self.ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.lock().ok().map(|guard| guard.is_in_attack_state()))
+            .unwrap_or(false)
+    }
+
+    fn is_in_guard_idle_state(&self) -> bool {
+        self.ai_state_machine
+            .as_ref()
+            .and_then(|machine| {
+                machine
+                    .lock()
+                    .ok()
+                    .map(|guard| guard.is_in_guard_idle_state())
+            })
+            .unwrap_or(false)
+    }
+
+    fn set_temporary_state(&mut self, state: AIStateType, frame_limit: UnsignedInt) {
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                let _ = guard.set_temporary_state(state as u32, frame_limit);
+            }
+        }
+    }
+
+    fn notify_crate(&mut self, crate_id: ObjectID) {
+        if let Ok(mut guard) = self.crate_created.lock() {
+            *guard = crate_id;
+        }
+    }
+
+    fn notify_victim_is_dead(&mut self) {
+        if let Some(jet_ai) = self.jet_ai.as_mut() {
+            jet_ai.notify_victim_is_dead();
+        }
+    }
+
+    fn set_prior_waypoint_id(&mut self, waypoint_id: crate::waypoint::WaypointId) {
+        self.prior_waypoint_id = Some(waypoint_id);
+    }
+
+    fn set_current_waypoint_id(&mut self, waypoint_id: crate::waypoint::WaypointId) {
+        self.current_waypoint_id = Some(waypoint_id);
+    }
+
+    fn set_completed_waypoint_id(&mut self, waypoint_id: Option<crate::waypoint::WaypointId>) {
+        self.completed_waypoint_id = waypoint_id;
+    }
+
+    fn get_completed_waypoint_id(&self) -> Option<crate::waypoint::WaypointId> {
+        self.completed_waypoint_id
+    }
+
+    fn get_supply_truck_ai_interface(&self) -> Option<&dyn crate::modules::SupplyTruckAIInterface> {
+        if let Some(ai) = self.chinook_ai.as_ref() {
+            Some(ai as &dyn crate::modules::SupplyTruckAIInterface)
+        } else if let Some(ai) = self.supply_truck_ai.as_ref() {
+            Some(ai as &dyn crate::modules::SupplyTruckAIInterface)
+        } else {
+            self.worker_ai
+                .as_ref()
+                .map(|ai| ai as &dyn crate::modules::SupplyTruckAIInterface)
+        }
+    }
+
+    fn get_supply_truck_ai_interface_mut(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SupplyTruckAIInterface> {
+        if let Some(ai) = self.chinook_ai.as_mut() {
+            Some(ai as &mut dyn crate::modules::SupplyTruckAIInterface)
+        } else if let Some(ai) = self.supply_truck_ai.as_mut() {
+            Some(ai as &mut dyn crate::modules::SupplyTruckAIInterface)
+        } else {
+            self.worker_ai
+                .as_mut()
+                .map(|ai| ai as &mut dyn crate::modules::SupplyTruckAIInterface)
+        }
+    }
+
+    fn get_pow_truck_ai_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::POWTruckAIUpdateInterface> {
+        #[cfg(feature = "allow_surrender")]
+        {
+            return self
+                .pow_truck_ai
+                .as_mut()
+                .map(|ai| ai as &mut dyn crate::modules::POWTruckAIUpdateInterface);
+        }
+        #[cfg(not(feature = "allow_surrender"))]
+        {
+            None
+        }
+    }
+
+    fn get_hack_internet_ai_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::HackInternetAIUpdateInterface> {
+        self.hack_internet_ai
+            .as_mut()
+            .map(|ai| ai as &mut dyn crate::modules::HackInternetAIUpdateInterface)
+    }
+
+    fn get_assault_transport_ai_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::AssaultTransportAIUpdateInterface> {
+        self.assault_transport_ai
+            .as_mut()
+            .map(|ai| ai as &mut dyn crate::modules::AssaultTransportAIUpdateInterface)
+    }
+
+    fn get_worker_ai_update_interface_mut(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::WorkerAIUpdateInterface> {
+        self.worker_ai
+            .as_mut()
+            .map(|ai| ai as &mut dyn crate::modules::WorkerAIUpdateInterface)
+    }
+
+    fn get_dozer_ai_update_interface_mut(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::DozerAIUpdateInterface> {
+        self.dozer_ai
+            .as_mut()
+            .map(|ai| ai as &mut dyn crate::modules::DozerAIUpdateInterface)
+    }
+
+    fn get_deliver_payload_ai_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::DeliverPayloadAIUpdateInterface> {
+        self.deliver_payload_ai
+            .as_mut()
+            .map(|ai| ai as &mut dyn crate::modules::DeliverPayloadAIUpdateInterface)
+    }
+
+    fn ai_guard_object(
+        &mut self,
+        obj_to_guard: &Arc<RwLock<Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let target_pos = obj_to_guard
+            .read()
+            .map(|guard| *guard.get_position())
+            .map_err(|_| "target lock poisoned")?;
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+        guard.current_order = Some(UnitOrder::Guard {
+            position: target_pos,
+            area_radius: guard.engagement_range,
+        });
+        guard.order_queue.clear();
+        Ok(())
+    }
+
+    fn ai_go_prone(&mut self, damage_info: &DamageInfo, _cmd_source: crate::ai::CommandSourceType) {
+        let Some(unit) = self.unit.upgrade() else {
+            return;
+        };
+        let Ok(unit_guard) = unit.read() else {
+            return;
+        };
+        let obj_arc = unit_guard.base_object();
+        let module = {
+            let Ok(obj_guard) = obj_arc.read() else {
+                return;
+            };
+            obj_guard.find_update_module("ProneUpdate")
+        };
+        let Some(module) = module else {
+            return;
+        };
+        let damage = damage_info.output.actual_damage_dealt as i32;
+        let _ = module
+            .with_module_downcast::<crate::object::behavior::prone_update::ProneUpdateModule, _, _>(
+                |module| {
+                    module.behavior_mut().go_prone(damage);
+                },
+            );
+    }
+}
+
+impl Drop for UnitAIUpdate {
+    fn drop(&mut self) {
+        let Some(unit) = self.unit.upgrade() else {
+            return;
+        };
+        let Ok(guard) = unit.read() else {
+            return;
+        };
+        let owner_id = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.get_id())
+            .unwrap_or(INVALID_ID);
+        let is_immobile = guard
+            .base_object
+            .read()
+            .ok()
+            .map(|obj| obj.is_kind_of(KindOf::Immobile))
+            .unwrap_or(false);
+        if is_immobile {
+            return;
+        }
+        let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
+        drop(guard);
+
+        if let Ok(ai_lock) = THE_AI.read() {
+            if let Some(pathfinder) = ai_lock.pathfinder() {
+                if let Ok(mut pf_guard) = pathfinder.write() {
+                    self.remove_goal_cells(&mut pf_guard, owner_id, radius, center_in_cell);
+                }
+            }
+        }
+    }
+}
+
+// This would need to be implemented for the actual Object type
+// impl UnitExt for Object {
+//     fn as_unit(&self) -> Option<&Unit> {
+//         // Implementation would check if this object is actually a unit
+//         None
+//     }
+//
+//     fn as_unit_mut(&mut self) -> Option<&mut Unit> {
+//         // Implementation would check if this object is actually a unit
+//         None
+//     }
+// }

@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ww3d-core",
+    "crates/ww3d-assets",
+    "crates/ww3d-collision",
+    "crates/ww3d-animation",
+    "crates/ww3d-renderer-3d",
+    "crates/ww3d-render-2d",
+    "crates/ww3d-particles",
+    "crates/ww3d-effects",
+    "crates/ww3d-scene",
+    "crates/ww3d-scene-renderer",
+    "crates/ww3d-geometry",
+    "crates/ww3d-gpu",
+    "crates/ww3d-physics",
+    "crates/ww3d-engine",
+    "crates/ww3d-compat",
+    "validation",
+    "game",
+]
