@@ -1,0 +1,258 @@
+COMPREHENSIVE ANALYSIS: 6 Failing Rust GameNetwork Tests
+Analysis Date: November 1, 2025
+
+================================================================================
+EXECUTIVE SUMMARY
+================================================================================
+
+ROOT CAUSES IDENTIFIED: 5/6 tests (1 test name needs clarification)
+
+TEST RESULTS:
+  1. test_bandwidth_limiting (timeout.rs)          → LOGIC BUG (HIGH severity)
+  2. test_bandwidth_throttle_limit (bandwidth.rs)  → DESIGN ISSUE (C++ check needed)
+  3. test_try_acquire (bandwidth.rs)               → DESIGN ISSUE (linked to #2)
+  4. test_concurrent_acquisitions (bandwidth.rs)   → TEST DESIGN BUG (HIGH severity)
+  5. test_port_pattern_analysis (nat_traversal.rs)→ ENVIRONMENT BUG (HIGH severity)
+  6. test_multi_player_validator_desynchronized    → NOT FOUND (search needed)
+
+================================================================================
+TEST 1: test_bandwidth_limiting (timeout.rs:512-522)
+================================================================================
+ERROR: assertion failed: monitor.record_send(500).is_ok()
+
+ROOT CAUSE: IMPLEMENTATION LOGIC BUG
+- Uses "projected_bps" calculated as (bytes / elapsed_nanoseconds)
+- Dividing tiny bytes by microseconds = huge rate = always exceeds limit
+- First 500 bytes gets: 500 / 0.0001 = 5,000,000 bps (way over 1000 limit)
+
+IMPACT: Bandwidth monitor rejects ALL sends immediately
+
+FIX: Replace with token bucket or sliding window algorithm
+- Suggested: Copy pattern from BandwidthThrottle in file_transfer/bandwidth.rs
+- That implementation is correct; BandwidthMonitor should match
+
+PRIORITY: HIGH
+COMPLEXITY: HIGH (requires algorithm redesign)
+C++ COMPARISON: C++ uses token bucket (standard practice)
+
+CODE LOCATION:
+  File: src/connection/timeout.rs
+  Method: BandwidthMonitor::record_send() lines 318-334
+  Issue: Line 323 - elapsed calculation wrong
+
+================================================================================
+TEST 2: test_bandwidth_throttle_limit (bandwidth.rs:250-268)
+================================================================================
+ERROR: assertion failed: elapsed >= Duration::from_millis(200)
+        Expected throttling, took 0ns
+
+ROOT CAUSE: DESIGN DECISION (burst vs strict rate limiting)
+- Token bucket starts with full capacity (burst_multiplier=2.0)
+- 100KB/s with 2x burst = 200KB available immediately
+- Both 100KB operations succeed instantly instead of throttling
+
+KEY QUESTION: Does C++ allow burst or enforce strict rate?
+- If burst allowed: Test expectation is wrong (needs fixing)
+- If strict rate: Implementation is wrong (needs fixing)
+
+PRIORITY: MEDIUM (depends on C++ verification)
+COMPLEXITY: LOW (small fix once decision made)
+RECOMMENDATION: Check C++ FileTransfer.cpp bandwidth behavior first
+
+CODE LOCATION:
+  File: src/file_transfer/bandwidth.rs
+  Class: BandwidthThrottle
+  Lines: 29-36 (new method)
+  Issue: tokens initialized to capacity instead of 0 or capacity/2
+
+================================================================================
+TEST 3: test_try_acquire (bandwidth.rs:271-285)
+================================================================================
+ERROR: assertion failed: !throttle.try_acquire(1024)
+       at line 278
+
+ROOT CAUSE: SAME AS TEST 2
+- Burst multiplier 2.0 creates 2x capacity
+- First acquire(1024) leaves 1024 tokens (should be 0)
+- Second acquire(1024) succeeds when test expects failure
+
+PRIORITY: MEDIUM (linked to Test 2)
+COMPLEXITY: LOW
+RECOMMENDATION: Fix with Test 2 (same root cause)
+
+================================================================================
+TEST 4: test_concurrent_acquisitions (bandwidth.rs:360-380)
+================================================================================
+ERROR: panicked at 'can spawn tasks when LocalSet is not running'
+       at tokio::task::local::spawn_local_inner (line 420)
+
+ROOT CAUSE: TEST DESIGN BUG
+- Code spawns tasks with spawn_local() BEFORE LocalSet is running
+- Line 366-370: spawn_local called
+- Line 374: LocalSet created
+- Line 375: LocalSet.run_until() called
+- ERROR: Too late! LocalSet wasn't running during spawn
+
+TOKIO REQUIREMENT: spawn_local requires LocalSet to be running
+
+FIX OPTIONS:
+  A) Move task spawning inside run_until closure (PREFERRED)
+  B) Use tokio::spawn instead of spawn_local
+
+PRIORITY: HIGH
+COMPLEXITY: LOW (30-second fix)
+RECOMMENDATION: Option A (move spawns inside run_until)
+
+CODE LOCATION:
+  File: src/file_transfer/bandwidth.rs
+  Test: test_concurrent_acquisitions lines 360-380
+  Issue: spawn_local calls before LocalSet.run_until
+
+================================================================================
+TEST 5: test_port_pattern_analysis (nat_traversal.rs:817+)
+================================================================================
+ERROR: panicked at called `Result::unwrap()` on an `Err` value:
+       Nat { message: "Failed to bind UDP socket: Can't assign requested address 
+       (os error 49)" }
+
+ROOT CAUSE: ENVIRONMENT/PLATFORM BUG
+- Test hard-codes IP: Ipv4Addr::new(192, 168, 1, 100)
+- This IP doesn't exist on the test machine
+- Error 49 = EADDRNOTAVAIL = "Can't assign requested address"
+- Test only works on machines with that specific interface
+
+PLATFORM ISSUE: Fails on CI systems, most dev machines
+
+FIX OPTIONS:
+  A) Use localhost: 127.0.0.1 (RECOMMENDED)
+  B) Use 0.0.0.0 and let OS choose
+  C) Skip test on systems without that IP (#[ignore])
+  D) Mock the network interface
+
+PRIORITY: HIGH (blocks test suite on most systems)
+COMPLEXITY: LOW (one-line fix)
+RECOMMENDATION: Option A - use localhost (127.0.0.1)
+
+CODE LOCATION:
+  File: src/nat_traversal.rs
+  Test: test_port_pattern_analysis around line 822
+  Issue: Hardcoded IP 192.168.1.100 doesn't exist locally
+
+================================================================================
+TEST 6: test_multi_player_validator_desynchronized
+================================================================================
+STATUS: TEST NOT FOUND
+
+ACTION REQUIRED: Clarify test name/location
+
+SEARCH RESULTS:
+- Could not find test with exact name "test_multi_player_validator_desynchronized"
+- Found similar test: "test_multi_player_crc_validation" (line 629 in 
+  integration_desync_recovery.rs) - this appears to PASS
+
+INVESTIGATION NEEDED:
+  1. Confirm exact test name
+  2. Search in other test files
+  3. Check if test was renamed or removed
+  4. Verify it's actually failing
+
+COMMAND TO FIND:
+  grep -r "test_multi_player_validator_desynchronized" [project]
+  grep -r "desynchronized" tests/ --include="*.rs"
+
+PRIORITY: CRITICAL (clarify which test is actually failing)
+
+================================================================================
+RECOMMENDED FIX ORDER
+================================================================================
+
+1. TEST 6 FIRST
+   - Clarify exact test name and location
+   - Determine if test is actually failing
+
+2. TEST 4 SECOND
+   - Move spawn_local calls inside LocalSet.run_until
+   - Takes ~1 minute
+
+3. TEST 5 THIRD
+   - Change IP from 192.168.1.100 to 127.0.0.1
+   - Takes ~1 minute
+
+4. TEST 1 FOURTH
+   - Rewrite BandwidthMonitor algorithm
+   - Takes ~2-4 hours
+   - Or copy token bucket from BandwidthThrottle
+
+5. TESTS 2 & 3 TOGETHER
+   - Check C++ FileTransfer.cpp first
+   - Determine if burst should be allowed
+   - Fix tests or implementation accordingly
+   - Takes ~1-2 hours with C++ research
+
+================================================================================
+C++ COMPATIBILITY CHECKS NEEDED
+================================================================================
+
+Before fixing Tests 2 & 3, examine:
+
+FileTransfer.cpp:
+  - BandwidthThrottle::Acquire() behavior
+  - Is burst allowed on first operation?
+  - What is initial token count?
+  - How does window duration affect throttling?
+
+NAT.cpp:
+  - How does NAT binding handle network addresses?
+  - Does test suite use localhost or real IPs?
+  - Interface selection logic?
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+
+Test | Root Cause | Type | Severity | Fix Time | C++ Check?
+-----|-----------|------|----------|----------|----------
+  1  | Rate calc | Logic Bug | HIGH | 2-4 hrs | No
+  2  | Token init | Design | MEDIUM | 1-2 hrs | YES
+  3  | Token init | Design | MEDIUM | 1-2 hrs | YES (with #2)
+  4  | Async pattern | Test Bug | HIGH | 1 min | No
+  5  | Hardcoded IP | Platform | HIGH | 1 min | No
+  6  | Not found | Unknown | CRITICAL | 5 min | N/A
+
+================================================================================
+KEY INSIGHTS
+================================================================================
+
+1. BANDWIDTH TESTS HAVE CONFLICTING INTENTIONS
+   - Tests expect strict rate limiting (no burst)
+   - Implementation has token bucket (allows burst)
+   - C++ behavior is source of truth
+
+2. TOKEN BUCKET IS CORRECT PATTERN
+   - BandwidthThrottle implements it correctly
+   - BandwidthMonitor should follow same pattern
+   - Test expectations need alignment with C++
+
+3. PLATFORM ASSUMPTIONS
+   - Tests hard-code network addresses
+   - Should use localhost for unit tests
+   - Real network testing needs different setup
+
+4. ASYNC/AWAIT PATTERNS
+   - spawn_local has strict requirements
+   - Must spawn while LocalSet is running
+   - Common mistake in Rust async code
+
+================================================================================
+FILES ANALYZED
+================================================================================
+
+Analyzed:
+  - src/connection/timeout.rs (BandwidthMonitor class)
+  - src/file_transfer/bandwidth.rs (BandwidthThrottle class)
+  - src/nat_traversal.rs (NatTraversalManager class)
+  - tests/integration_desync_recovery.rs (desync tests)
+
+Report saved to:
+  TEST_FAILURE_ANALYSIS.md (in project root)
+

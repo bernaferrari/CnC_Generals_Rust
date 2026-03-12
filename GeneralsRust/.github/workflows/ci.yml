@@ -1,0 +1,184 @@
+name: Cross-Platform CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Pre-flight checks
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Check Cargo.toml
+      run: cargo check --workspace --all-features
+
+    - name: Run Clippy
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  build-all:
+    name: Build All Platforms
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows builds
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            profile: release
+
+          # macOS builds
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            profile: release
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            profile: release
+
+          # Linux builds
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            profile: release
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libx11-dev libxi-dev libxrandr-dev \
+          libasound2-dev libpulse-dev libudev-dev libvulkan-dev
+
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install llvm pkg-config
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build workspace
+      run: |
+        cargo build --workspace --all-features --release --target ${{ matrix.target }}
+
+    - name: Run tests
+      if: matrix.target == 'x86_64-pc-windows-msvc' || matrix.target == 'x86_64-unknown-linux-gnu' || (matrix.target == 'aarch64-apple-darwin' && runner.arch == 'ARM64') || (matrix.target == 'x86_64-apple-darwin' && runner.arch == 'X64')
+      run: |
+        cargo test --workspace --all-features --release --target ${{ matrix.target }}
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libx11-dev libxi-dev libxrandr-dev \
+          libasound2-dev libpulse-dev libudev-dev libvulkan-dev
+
+    - name: Install tarpaulin
+      run: cargo install cargo-tarpaulin
+
+    - name: Generate coverage
+      run: |
+        cargo tarpaulin --workspace --all-features --timeout 600 --out Xml
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./cobertura.xml
+        fail_ci_if_error: false
+
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libx11-dev libxi-dev libxrandr-dev \
+          libasound2-dev libpulse-dev libudev-dev libvulkan-dev
+
+    - name: Run benchmarks
+      run: |
+        cargo bench --workspace --all-features
+
+  success:
+    name: All checks passed
+    needs: [check, build-all, security-audit]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+    - name: Report success
+      run: echo "All CI checks passed successfully!"

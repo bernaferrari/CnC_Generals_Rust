@@ -1,0 +1,158 @@
+[package]
+name = "game_engine_device"
+version = "0.1.0"
+edition = "2021"
+authors = ["Westwood Studios <contact@ea.com>"]
+description = "GameEngineDevice - Complete hardware abstraction layer for C&C Generals Zero Hour"
+license = "GPL-3.0"
+repository = "https://github.com/EA/cnc-generals-zero-hour"
+
+[lib]
+name = "game_engine_device"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["platform-native", "debug"]
+audio = ["kira"]
+video = [
+    "wgpu",
+    "gpu-allocator",
+    "wgpu-profiler",
+    "winit",
+    "naga",
+    "raw-window-handle",
+    "bytemuck",
+    "glam",
+    "ww3d-gpu",
+]
+w3d = ["video", "wgpu", "gpu-allocator", "bytemuck", "glam"]
+input = ["gilrs"]
+platform-native = []
+debug = ["log"]
+
+[dependencies]
+# Single comprehensive audio library for games
+kira = { version = "0.8", features = ["symphonia", "wav", "ogg", "flac", "mp3"], optional = true }
+rubato = "0.14"  # Audio resampling (still needed for real-time processing)
+realfft = "3.5"  # FFT for audio analysis (still needed for effects)
+
+# Video and graphics dependencies  
+wgpu = { version = "27.0.1", features = ["wgsl", "spirv"], optional = true }
+gpu-allocator = { version = "0.25", optional = true, features = ["vulkan", "d3d12"] }
+wgpu-profiler = { version = "0.25.0", optional = true }
+winit = { version = "0.29", features = ["serde"], optional = true }
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
+glam = { version = "0.25", features = ["bytemuck", "serde"], optional = true }
+image = { version = "0.24", features = ["png", "jpeg", "tiff", "bmp"] }
+naga = { version = "0.19", features = ["wgsl-in", "spv-out"], optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+
+# Async runtime
+tokio = { version = "1.48", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Utility crates
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = "1.0"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+dashmap = "5.5"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+rayon = "1.11"
+bitflags = "2.10"  # For modifier key flags
+game_client = { path = "../GameClient", package = "game-client-rust" }
+ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu", optional = true }
+libc = { version = "0.2", optional = true } # Platform syscall bridge for legacy parity paths
+
+# File system operations
+walkdir = "2.5"        # Directory traversal
+ignore = "0.4"         # Advanced gitignore-style patterns
+memmap2 = "0.9"        # Memory-mapped files
+notify = "6.1"         # File system watching
+
+# Compression and archives
+flate2 = "1.1"  # Standard zlib
+zip = { version = "0.6", features = ["deflate"] }
+tar = "0.4"
+
+# 2025 Performance optimizations
+fastrand = "2.3"  # Modern, fast random number generation
+num_cpus = "1.17"  # CPU core detection
+
+# Logging and profiling
+log = { version = "0.4", optional = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Platform-specific dependencies
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_DirectSound", 
+    "Win32_System_Threading",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Storage_FileSystem",
+    "Win32_System_SystemServices",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Registry",
+    "Win32_System_IO",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_System_Performance",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_System_ProcessStatus",
+] }
+# Modern input handling for Windows
+gilrs = { version = "0.10", optional = true }  # Cross-platform gamepad support
+device_query = { version = "2.1", optional = true }  # Simple device query for fallback input
+
+# Cross-platform dependencies
+gpu-alloc = "0.6"
+
+# Note: cpal has been replaced with modern Kira-based audio system
+# cpal = "0.15" # Replaced with Kira audio system
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tokio-test = "0.4"
+tempfile = "3.23"
+proptest = "1.9"
+mockall = "0.12"
+
+# Internal dependencies (placeholder - will be implemented as needed)
+# wwaudio = { path = "../Libraries/Source/WWVegas/WWAudio" }
+# wpaudio_shared = { path = "../Libraries/Source/WPAudio/shared" }
+# ww3d = { path = "../Libraries/Source/WWVegas/WW3D" }
+# wwshade = { path = "../Libraries/Source/WWVegas/WWShade" }
+# wwmath = { path = "../Libraries/Source/WWVegas/WWMath" }
+
+
+[[example]]
+name = "audio_device_demo"
+required-features = ["audio"]
+
+[[example]]
+name = "video_device_demo"
+required-features = ["video"]
+
+[[example]]
+name = "w3d_device_demo"
+required-features = ["w3d"]
+
+[[example]]
+name = "input_device_demo"
+required-features = ["input"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

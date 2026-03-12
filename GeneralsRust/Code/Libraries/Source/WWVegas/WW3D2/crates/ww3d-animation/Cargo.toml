@@ -1,0 +1,23 @@
+[package]
+name = "ww3d-animation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ww3d-assets = { path = "../ww3d-assets" }
+ww3d-core = { path = "../ww3d-core" }
+glam = { version = "0.24", features = ["bytemuck"] }
+configparser = "1.0"
+log = "0.4"
+binrw = "0.11"
+thiserror = "1.0"
+bytemuck = { version = "1.14", features = ["derive"] }
+wgpu = { version = "0.19", optional = true }
+
+[features]
+default = []
+wgpu-renderer = ["wgpu"]
+renderer-3d = []
+
+[dev-dependencies]
+approx = "0.5"

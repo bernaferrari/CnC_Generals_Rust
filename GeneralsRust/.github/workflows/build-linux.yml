@@ -1,0 +1,211 @@
+name: Linux Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-linux:
+    name: Build on Linux
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+        profile:
+          - dev
+          - release
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-index-
+
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ matrix.profile }}-
+
+    - name: Install system dependencies (GNU)
+      if: contains(matrix.target, 'gnu')
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          pkg-config \
+          libx11-dev \
+          libxi-dev \
+          libxrandr-dev \
+          libxcursor-dev \
+          libxxf86vm-dev \
+          libasound2-dev \
+          libpulse-dev \
+          libudev-dev \
+          libvulkan-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libwayland-dev \
+          libxkbcommon-dev
+
+    - name: Install system dependencies (musl)
+      if: contains(matrix.target, 'musl')
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+
+    - name: Install cross-compilation tools (aarch64)
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+    - name: Check formatting
+      if: matrix.profile == 'dev' && matrix.target == 'x86_64-unknown-linux-gnu'
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy
+      if: matrix.profile == 'dev' && matrix.target == 'x86_64-unknown-linux-gnu'
+      run: cargo clippy --all-targets --all-features --target ${{ matrix.target }} -- -D warnings
+
+    - name: Build workspace (dev)
+      if: matrix.profile == 'dev'
+      run: |
+        cargo build --workspace --all-features --target ${{ matrix.target }}
+
+    - name: Build workspace (release)
+      if: matrix.profile == 'release'
+      run: |
+        cargo build --workspace --all-features --release --target ${{ matrix.target }}
+
+    - name: Run tests
+      # Only run tests on native x86_64-gnu target
+      if: matrix.target == 'x86_64-unknown-linux-gnu'
+      run: |
+        cargo test --workspace --all-features --target ${{ matrix.target }} ${{ matrix.profile == 'release' && '--release' || '' }}
+
+    - name: Build main executable
+      run: |
+        cargo build --package generals_main --all-features --target ${{ matrix.target }} ${{ matrix.profile == 'release' && '--release' || '' }}
+
+    - name: Strip binary (release)
+      if: matrix.profile == 'release'
+      run: |
+        strip target/${{ matrix.target }}/release/generals || true
+
+    - name: Create Linux package
+      if: matrix.profile == 'release'
+      run: |
+        mkdir -p generals-rust-linux
+        cp target/${{ matrix.target }}/release/generals generals-rust-linux/
+        cp -r assets generals-rust-linux/ || true
+
+        # Create desktop entry
+        cat > generals-rust-linux/generals.desktop << EOF
+        [Desktop Entry]
+        Type=Application
+        Name=Generals Rust
+        Comment=Command & Conquer Generals Zero Hour Rust Port
+        Exec=./generals
+        Icon=generals
+        Terminal=false
+        Categories=Game;
+        EOF
+
+    - name: Upload artifacts
+      if: matrix.profile == 'release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: generals-rust-linux-${{ matrix.target }}
+        path: |
+          generals-rust-linux/
+        retention-days: 30
+
+  test-linux:
+    name: Test on Linux
+    runs-on: ubuntu-latest
+    needs: build-linux
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          pkg-config \
+          libx11-dev \
+          libxi-dev \
+          libxrandr-dev \
+          libasound2-dev \
+          libpulse-dev \
+          libudev-dev \
+          libvulkan-dev
+
+    - name: Run unit tests
+      run: cargo test --lib --all-features
+
+    - name: Run integration tests
+      run: cargo test --test '*' --all-features
+
+    - name: Run doc tests
+      run: cargo test --doc --all-features
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      run: |
+        docker build -t generals-rust:latest .
+
+    - name: Test Docker image
+      run: |
+        docker run --rm generals-rust:latest cargo test --lib

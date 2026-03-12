@@ -1,0 +1,16 @@
+[package]
+name = "ww3d-render-2d"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
+ww3d-assets = { path = "../ww3d-assets" }
+glam = { version = "0.24", features = ["bytemuck"] }
+wgpu = "27.0.1"
+tokio = { version = "1.0", features = ["full"] }
+bytemuck = { version = "1.14", features = ["derive"] }
+thiserror = "1.0"
+anyhow = "1.0"
+ab_glyph = "0.2"
+image = { version = "0.24", features = ["png", "jpeg", "tga", "bmp"] }

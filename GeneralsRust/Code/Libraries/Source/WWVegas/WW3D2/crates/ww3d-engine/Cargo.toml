@@ -1,0 +1,17 @@
+[package]
+name = "ww3d-engine"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+ww3d-gpu = { path = "../ww3d-gpu" }
+ww3d-core = { path = "../ww3d-core" }
+once_cell = "1.21"
+parking_lot = "0.12"
+thiserror = "1.0"
+log = "0.4"
+pollster = "0.3"
+png = "0.17"
+glam = "0.29"

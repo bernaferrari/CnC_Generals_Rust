@@ -1,0 +1,10 @@
+[package]
+name = "ww3d-scene-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
+ww3d-scene = { path = "../ww3d-scene" }
+ww3d-core = { path = "../ww3d-core" }
+glam = "0.24"

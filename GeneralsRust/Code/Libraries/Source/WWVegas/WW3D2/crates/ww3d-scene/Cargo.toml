@@ -1,0 +1,17 @@
+[package]
+name = "ww3d-scene"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
+ww3d-assets = { path = "../ww3d-assets" }
+ww3d-collision = { path = "../ww3d-collision" }
+# ww3d-animation = { path = "../ww3d-animation" }  # Temporarily disabled for testing
+glam = { version = "0.24", features = ["bytemuck"] }
+rayon = "1.11"
+crossbeam = "0.8"
+num_cpus = "1.17"
+
+[dev-dependencies]
+approx = "0.5"

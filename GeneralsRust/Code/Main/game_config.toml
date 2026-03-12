@@ -1,0 +1,61 @@
+# Command & Conquer Generals Zero Hour Configuration
+# This file configures asset paths and game settings
+
+[assets]
+# Path to original C&C Generals Zero Hour installation
+# Update this to point to your game directory (relative paths work)
+cnc_install_path = "../CnC_Generals_Zero_Hour"
+
+# Alternative paths to try (in order of preference)  
+fallback_paths = [
+    "../CnC_Generals_Zero_Hour-main",
+    "./assets",  # Local assets directory  
+    "../assets",
+    "../../CnC_Generals_Zero_Hour",
+    "C:\\Program Files (x86)\\Command and Conquer Generals Zero Hour",  # Windows
+    "/mnt/c/Program Files (x86)/Command and Conquer Generals Zero Hour",  # WSL
+]
+
+# Required BIG files (in order of priority)
+required_archives = [
+    "W3DZH.big",           # 3D models and animations
+    "TexturesZH.big",      # Textures
+    "AudioZH.big",         # Audio files
+    "Data.big",            # Game data
+    "Maps.big",            # Maps
+    "Speech.big",          # Voice acting
+    "Music.big",           # Music
+    "W3DEnglishZH.big",    # English W3D content
+    "EnglishZH.big",       # English text/UI
+]
+
+# Optional BIG files (nice to have but not required)
+optional_archives = [
+    "Strings.big",
+    "Fonts.big",
+    "Interface.big"
+]
+
+[game]
+# Game window settings
+window_width = 1024
+window_height = 768
+fullscreen = false
+
+# Performance settings
+max_units = 200
+max_effects = 100
+texture_quality = "high"  # low, medium, high, ultra
+shadow_quality = "medium"
+particle_quality = "high"
+
+[network]
+# Multiplayer settings
+default_port = 8086
+max_players = 8
+enable_lan = true
+
+[logging]
+# Logging configuration
+level = "info"  # trace, debug, info, warn, error
+log_file = "generals.log"

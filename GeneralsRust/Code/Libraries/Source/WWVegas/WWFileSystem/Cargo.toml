@@ -1,0 +1,10 @@
+[package]
+name = "ww_file_system"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[lib]
+name = "ww_file_system"
+path = "src/lib.rs"

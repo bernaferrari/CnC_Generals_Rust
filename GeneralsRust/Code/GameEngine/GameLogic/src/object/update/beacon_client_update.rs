@@ -1,0 +1,249 @@
+// BeaconClientUpdate - client-side beacon pulses and smoke.
+// Ported from C++ BeaconClientUpdate.cpp/.h.
+
+use crate::common::{Coord3D, ObjectID, Real, UnsignedInt, LOGICFRAMES_PER_SECOND};
+use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::object::drawable::DrawableArcExt;
+use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::radar::{
+    get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
+};
+use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use std::any::Any;
+use std::sync::Arc;
+
+#[derive(Debug, Clone)]
+pub struct BeaconClientUpdateModuleData {
+    pub module_tag_name_key: NameKeyType,
+    pub frames_between_radar_pulses: UnsignedInt,
+    pub radar_pulse_duration: UnsignedInt,
+}
+
+impl Default for BeaconClientUpdateModuleData {
+    fn default() -> Self {
+        Self {
+            module_tag_name_key: 0,
+            frames_between_radar_pulses: 30,
+            radar_pulse_duration: 15,
+        }
+    }
+}
+
+impl BeaconClientUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, BEACON_CLIENT_UPDATE_FIELDS)
+    }
+}
+
+impl Snapshotable for BeaconClientUpdateModuleData {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+crate::impl_legacy_module_data_with_key_field!(BeaconClientUpdateModuleData, module_tag_name_key);
+
+fn parse_radar_pulse_frequency(
+    _ini: &mut INI,
+    data: &mut BeaconClientUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .copied()
+        .find(|t| *t != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.frames_between_radar_pulses = INI::parse_duration_unsigned_int(value)?;
+    Ok(())
+}
+
+fn parse_radar_pulse_duration(
+    _ini: &mut INI,
+    data: &mut BeaconClientUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .copied()
+        .find(|t| *t != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.radar_pulse_duration = INI::parse_duration_unsigned_int(value)?;
+    Ok(())
+}
+
+const BEACON_CLIENT_UPDATE_FIELDS: &[FieldParse<BeaconClientUpdateModuleData>] = &[
+    FieldParse {
+        token: "RadarPulseFrequency",
+        parse: parse_radar_pulse_frequency,
+    },
+    FieldParse {
+        token: "RadarPulseDuration",
+        parse: parse_radar_pulse_duration,
+    },
+];
+
+pub struct BeaconClientUpdateModule {
+    module_name_key: NameKeyType,
+    module_data: Arc<BeaconClientUpdateModuleData>,
+    owner_id: ObjectID,
+    particle_system_id: Option<u32>,
+    last_radar_pulse: UnsignedInt,
+}
+
+impl BeaconClientUpdateModule {
+    pub fn new(
+        module_name_key: NameKeyType,
+        module_data: Arc<BeaconClientUpdateModuleData>,
+        owner_id: ObjectID,
+    ) -> Self {
+        Self {
+            module_name_key,
+            module_data,
+            owner_id,
+            particle_system_id: None,
+            last_radar_pulse: TheGameLogic::get_frame(),
+        }
+    }
+
+    pub fn hide_beacon(&mut self) {
+        let Some(object) = TheGameLogic::find_object_by_id(self.owner_id) else {
+            return;
+        };
+        let Ok(obj_guard) = object.read() else {
+            return;
+        };
+        if let Some(drawable) = obj_guard.get_drawable() {
+            drawable.set_drawable_hidden(true);
+            drawable.set_shadows_enabled(false);
+        }
+
+        if let Some(system_id) = self.particle_system_id.take() {
+            if let Some(ps_manager) = TheParticleSystemManager::get() {
+                ps_manager.destroy_particle_system(system_id);
+            }
+        }
+    }
+
+    pub fn client_update(&mut self) {
+        let Some(object) = TheGameLogic::find_object_by_id(self.owner_id) else {
+            return;
+        };
+        let Ok(obj_guard) = object.read() else {
+            return;
+        };
+        let Some(drawable) = obj_guard.get_drawable() else {
+            return;
+        };
+
+        if self.particle_system_id.is_none() {
+            self.particle_system_id =
+                self.create_particle_system(&drawable, obj_guard.get_indicator_color());
+        }
+
+        if drawable.is_drawable_effectively_hidden() {
+            return;
+        }
+
+        let now = TheGameLogic::get_frame();
+        if now > self.last_radar_pulse + self.module_data.frames_between_radar_pulses {
+            if let Ok(mut radar) = get_radar_system().write() {
+                let pos = drawable
+                    .read()
+                    .ok()
+                    .map(|guard| guard.get_position())
+                    .unwrap_or(Coord3D::ZERO);
+                let duration =
+                    self.module_data.radar_pulse_duration as Real / LOGICFRAMES_PER_SECOND as Real;
+                let radar_pos = RadarCoord3D {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                };
+                radar.create_event(&radar_pos, RadarEventType::BeaconPulse, duration);
+            }
+
+            self.last_radar_pulse = now;
+        }
+    }
+
+    fn create_particle_system(
+        &self,
+        drawable: &Arc<std::sync::RwLock<crate::object::drawable::Drawable>>,
+        color: crate::common::Color,
+    ) -> Option<u32> {
+        let Some(ps_manager) = TheParticleSystemManager::get() else {
+            return None;
+        };
+
+        let rgb = ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
+        let template = format!("BeaconSmoke{:06X}", rgb);
+        let system_id = ps_manager.create_particle_system(Some(&template))?;
+        ps_manager.attach_particle_system_to_drawable(system_id, self.owner_id);
+
+        if let Ok(draw_guard) = drawable.read() {
+            ps_manager.set_particle_system_position(system_id, &draw_guard.get_position());
+        }
+
+        Some(system_id)
+    }
+}
+
+impl Module for BeaconClientUpdateModule {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.module_data.as_ref()
+    }
+}
+
+impl Snapshotable for BeaconClientUpdateModule {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_radar_pulse_fields_accept_duration_suffixes() {
+        let mut ini = INI::new();
+        let mut data = BeaconClientUpdateModuleData::default();
+        parse_radar_pulse_frequency(&mut ini, &mut data, &["1.5s"]).expect("frequency");
+        parse_radar_pulse_duration(&mut ini, &mut data, &["500ms"]).expect("duration");
+        assert_eq!(data.frames_between_radar_pulses, 45);
+        assert_eq!(data.radar_pulse_duration, 15);
+    }
+}

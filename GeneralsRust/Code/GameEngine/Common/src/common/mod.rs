@@ -1,0 +1,46 @@
+// Common game engine modules
+pub mod ascii_string;
+pub mod audio;
+pub mod basic_audio_manager;
+pub mod bezier;
+pub mod ini;
+pub mod resource_manager;
+pub mod rts;
+pub mod system;
+pub mod thing;
+
+// Root level modules
+pub mod bit_flags;
+pub mod command_line;
+pub mod crc;
+pub mod crc_debug;
+pub mod damage_fx;
+pub mod dict;
+pub mod discrete_circle;
+pub mod frame_clock;
+pub mod game_common;
+pub mod game_engine;
+pub mod game_lod;
+pub mod game_main;
+pub mod global_data;
+pub mod language;
+pub mod message_stream;
+pub mod mini_log;
+pub mod multiplayer_settings;
+pub mod name_key_generator;
+pub mod os_display;
+pub mod partition_solver;
+pub mod perf_timer;
+pub mod preferences;
+pub mod random_value;
+pub mod recorder;
+pub mod skirmish_battle_honors;
+pub mod state_machine;
+pub mod stats_collector;
+pub mod system_info;
+pub mod terrain_types;
+pub mod threading;
+pub mod time;
+pub mod user_preferences;
+pub mod version;
+pub mod well_known_keys;

@@ -1,0 +1,55 @@
+[package]
+name = "image_packer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# UI Framework (simplified for now)
+# ui_framework = { path = "../UIFramework" }
+
+# Core dependencies
+egui = { workspace = true }
+eframe = { workspace = true }
+winit = { workspace = true }
+
+# Image processing and texture packing
+image = { workspace = true }
+texture_packer = { workspace = true }
+walkdir = { workspace = true }
+
+# File handling
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml = { workspace = true }
+rfd = { workspace = true }
+
+# Compression
+zip = { workspace = true }
+flate2 = { workspace = true }
+lz4 = { workspace = true }
+
+# Utilities
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# Game engine integration (placeholder)
+# wwlib-rust = { workspace = true }
+# game_engine = { workspace = true }
+
+# Threading
+rayon = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[[bin]]
+name = "image_packer"
+path = "src/main.rs"
+
+[features]
+default = ["atlas_generation", "texture_compression", "metadata_export"]
+atlas_generation = []
+texture_compression = []
+metadata_export = []

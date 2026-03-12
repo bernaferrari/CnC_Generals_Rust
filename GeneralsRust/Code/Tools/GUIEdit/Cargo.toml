@@ -1,0 +1,51 @@
+[package]
+name = "gui_edit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core dependencies
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# UI Framework
+egui = { workspace = true }
+eframe = { workspace = true }
+winit = { workspace = true }
+
+# File handling
+rfd = { workspace = true }
+toml = { workspace = true }
+
+# Image processing
+image = { workspace = true }
+
+# Game engine integration (placeholder)
+# wwlib = { workspace = true }
+# game_engine = { workspace = true }
+
+# Async
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+# Windows-specific GUI (placeholder)
+# [target.'cfg(windows)'.dependencies]
+# winapi = { version = "0.3", features = ["winuser", "wingdi"] }
+# user32-sys = "0.2"
+
+[[bin]]
+name = "gui_edit"
+path = "src/win_main.rs"
+
+[features]
+default = ["hierarchy_view", "properties_panel", "layout_editing"]
+hierarchy_view = []
+properties_panel = []
+layout_editing = []
+color_picker = []
+advanced_properties = []

@@ -1,0 +1,77 @@
+[package]
+name = "zlib_compression"
+version = "2.0.0"
+edition = "2021"
+authors = ["GeneralsRust Team"]
+description = "Modern Rust implementation of ZLib compression with DEFLATE/INFLATE algorithms"
+license = "GPL-3.0"
+repository = "https://github.com/GeneralsRust/ZLib"
+
+[features]
+default = ["simd", "parallel", "streaming"]
+simd = ["wide"]
+parallel = ["rayon"]
+streaming = ["tokio"]
+benchmarks = ["criterion"]
+gpu_acceleration = ["wgpu", "bytemuck"]
+custom_dictionary = ["lz4_flex"]
+internal = []
+
+[dependencies]
+# Core dependencies
+thiserror = "2.0"
+anyhow = "1.0"
+byteorder = "1.5"
+crc32fast = "1.4"
+adler32 = "1.2"
+memmap2 = "0.9"
+
+# SIMD optimizations
+wide = { version = "0.7", optional = true }
+
+# Parallel processing
+rayon = { version = "1.10", optional = true }
+
+# Async streaming
+tokio = { version = "1.40", features = ["full"], optional = true }
+futures = "0.3"
+
+# Advanced compression
+lz4_flex = { version = "0.11", optional = true }
+
+# GPU acceleration
+wgpu = { version = "27.0.1", optional = true }
+bytemuck = { version = "1.17", features = ["derive"], optional = true }
+
+# Benchmarking
+criterion = { version = "0.5", optional = true }
+
+# Utilities
+log = "0.4"
+env_logger = "0.11"
+bit-vec = "0.6"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+tempfile = "3.8"
+rand = "0.8"
+
+[[bench]]
+name = "zlib_benchmarks"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "deflate_benchmarks"
+harness = false
+required-features = ["benchmarks", "simd"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+debug = true

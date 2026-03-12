@@ -1,0 +1,20 @@
+[package]
+name = "ww3d-effects"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = { version = "0.24", features = ["bytemuck"] }
+ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
+ww3d-core = { path = "../ww3d-core" }
+wgpu = "27.0.1"
+winit = "0.29"
+tokio = { version = "1.0", features = ["full"] }
+bytemuck = { version = "1.14", features = ["derive"] }
+thiserror = "1.0"
+anyhow = "1.0"
+rand = "0.8"
+configparser = "1.0"
+
+[dev-dependencies]
+pollster = "0.3"

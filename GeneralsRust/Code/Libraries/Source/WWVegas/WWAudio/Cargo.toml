@@ -1,0 +1,93 @@
+[package]
+name = "wp-audio"
+version = "0.1.0"
+edition = "2021"
+authors = ["Westwood Studios", "Community Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-repo/cnc-generals-zero-hour"
+description = "WestWood Studios Audio Library - Rust conversion of the original WPAudio C++ library"
+keywords = ["audio", "gaming", "westwood", "cnc", "directsound"]
+categories = ["multimedia::audio", "game-development"]
+readme = "README.md"
+
+[lib]
+name = "wp_audio"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[features]
+default = []
+examples = []
+internal = []
+
+# Audio backend features
+directsound = ["dep:windows", "dep:winapi"]
+alsa = ["dep:alsa"]
+pulseaudio = ["dep:pulse"] 
+coreaudio = ["dep:coreaudio-rs", "dep:core-foundation"]
+
+# Codec features  
+mp3 = ["symphonia/mp3"]
+wav = ["symphonia/wav"]
+adpcm = []
+
+# Platform features
+windows-native = ["dep:windows", "dep:winapi"]
+debug-output = []
+profiling = []
+
+[dependencies]
+# Workspace dependencies
+wpaudio-shared = { path = "../../WPAudio/shared" }
+cpal = "0.15"
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+crossbeam-channel = "0.5"
+num_cpus = "1.16"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+directories = "5.0"
+thiserror = "1.0"
+anyhow = "1.0"
+log = "0.4"
+
+# Audio-specific dependencies
+symphonia = { version = "0.5", features = ["wav", "mp3"] }
+parking_lot = "0.12"
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.52", optional = true, features = [
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+    "Win32_Media",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_Foundation"
+]}
+winapi = { version = "0.3", optional = true, features = ["winuser", "mmsystem", "dsound"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+alsa = { version = "0.8", optional = true }
+pulse = { version = "0.5", optional = true }
+libc = { version = "0.2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+coreaudio-rs = { version = "0.11", optional = true }
+core-foundation = { version = "0.9", optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.0"
+mockall = "0.11"
+tokio-test = "0.4"
+
+[[bench]]
+name = "audio_benchmarks"
+harness = false
+
+[build-dependencies]
+cc = "1.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

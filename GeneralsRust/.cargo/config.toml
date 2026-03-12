@@ -1,0 +1,113 @@
+# Cargo configuration for cross-platform builds
+
+# Build settings
+[build]
+# Increase parallelism
+jobs = 8
+# Force a single shared build directory for the entire workspace.
+target-dir = "target"
+
+# Target-specific configurations
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=/STACK:8388608",  # 8MB stack
+]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    "-C", "link-arg=-Wl,--stack,8388608",
+]
+
+# macOS stack size is handled at runtime, not via linker flags
+# (linker -stack_size only works for main executables, breaks proc-macros)
+[target.x86_64-apple-darwin]
+rustflags = []
+
+[target.aarch64-apple-darwin]
+rustflags = []
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "link-arg=-Wl,-z,stack-size=8388608",
+]
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-Wl,-z,stack-size=8388608",
+]
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+rustflags = [
+    "-C", "link-arg=-Wl,-z,stack-size=8388608",
+]
+
+# Profile configurations for better builds
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+# Keep disk usage bounded in this large workspace.
+incremental = false
+
+[profile.dev.package."*"]
+opt-level = 2  # Optimize dependencies in dev mode
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = false
+debug = false
+panic = "abort"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+
+[profile.bench]
+inherits = "release"
+debug = true
+
+# Feature resolver
+[unstable]
+# Enable new feature resolver
+# resolver = "2"  # Already set in Cargo.toml
+
+# Environment variables for builds
+[env]
+# Set RUST_BACKTRACE for better error messages during builds
+RUST_BACKTRACE = "1"
+# Keep all Cargo artifacts in the workspace-wide target directory even
+# when commands are run from nested crate directories.
+CARGO_TARGET_DIR = { value = "target", relative = true }
+
+# Alias commands
+[alias]
+# Quick checks
+check-all = "check --workspace --all-features --all-targets"
+test-all = "test --workspace --all-features"
+clippy-all = "clippy --workspace --all-targets --all-features -- -D warnings"
+
+# Build commands
+build-dev = "build --workspace --all-features"
+build-rel = "build --workspace --all-features --release"
+
+# Cross-platform builds
+build-windows = "build --target x86_64-pc-windows-msvc --release"
+build-macos-x86 = "build --target x86_64-apple-darwin --release"
+build-macos-arm = "build --target aarch64-apple-darwin --release"
+build-linux = "build --target x86_64-unknown-linux-gnu --release"
+build-linux-musl = "build --target x86_64-unknown-linux-musl --release"
+
+# Test commands
+test-quick = "test --lib --all-features"
+test-integration = "test --test '*' --all-features"
+
+# Clean commands
+clean-all = "clean --workspace"
+clean-dev = "clean --profile dev"

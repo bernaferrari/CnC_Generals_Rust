@@ -1,0 +1,48 @@
+[package]
+name = "ww3d-renderer-3d"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ww3d-core = { path = "../ww3d-core" }
+ww3d-assets = { path = "../ww3d-assets" }
+ww3d-collision = { path = "../ww3d-collision" }
+ww3d-gpu = { path = "../ww3d-gpu" }
+ww3d-engine = { path = "../ww3d-engine" }
+ww3d-geometry = { path = "../ww3d-geometry" }
+ww3d-particles = { path = "../ww3d-particles" }
+ww3d-animation = { path = "../ww3d-animation" }
+math_utilities = { path = "../../../WWMath" }
+glam = { version = "0.24", features = ["bytemuck"] }
+wgpu = "27.0.1"
+pollster = "0.3"
+bytemuck = { version = "1.24", features = ["derive"] }
+bcdec_rs = "0.2"
+binrw = "0.11"
+lazy_static = "1.5"
+crc32fast = "1.5"
+bitflags = "2.10"
+image = "0.24"
+raw-window-handle = "0.5"
+thiserror = "1.0"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+naga = { version = "0.13", default-features = false, features = ["spv-in", "wgsl-out"] }
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["full"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+default = []
+serde_support = ["serde", "serde_json"]
+debug_logging = []
+
+[[bench]]
+name = "rendering_effects_bench"
+harness = false
+
+[[bench]]
+name = "uv_mapper_bench"
+harness = false

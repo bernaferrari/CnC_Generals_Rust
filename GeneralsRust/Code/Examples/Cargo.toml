@@ -1,0 +1,87 @@
+[package]
+name = "examples"
+version = "0.1.0"
+edition = "2021"
+description = "Comprehensive examples showcasing C&C Generals Zero Hour Rust engine capabilities"
+license = "GPL-3.0"
+authors = ["Claude Code"]
+
+[dependencies]
+# Internal workspace crates
+integration = { path = "../Integration" }
+game_engine = { path = "../GameEngine/rust_game_engine" }
+game_client = { path = "../GameEngine/GameClient" }
+game_logic = { path = "../GameEngine/GameLogic" }
+game_network = { path = "../GameEngine/GameNetwork" }
+game_engine_device = { path = "../GameEngine/GameEngineDevice" }
+
+# WWVegas Libraries
+ww3d_rust = { path = "../Libraries/Source/WWVegas/WW3D" }
+wwshade_rust = { path = "../Libraries/Source/WWVegas/WWShade" }
+wwlib_rust = { path = "../Libraries/Source/WWVegas/WWLib" }
+math_utilities = { path = "../Libraries/Source/WWVegas/WWMath" }
+wwaudio = { path = "../Libraries/Source/WWVegas/WWAudio" }
+
+# Core dependencies
+tokio = { version = "1.0", features = ["full"] }
+winit = "0.29"
+wgpu = "27.0.1"
+glam = "0.24"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Audio
+rodio = "0.17"
+
+# Async runtime
+futures = "0.3"
+async-trait = "0.1"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+instant = "0.1"
+
+# Utilities
+parking_lot = "0.12"
+
+[[bin]]
+name = "simple_game"
+path = "src/simple_game.rs"
+
+[[bin]]
+name = "multiplayer_demo"
+path = "src/multiplayer_demo.rs"
+
+[[bin]]
+name = "modding_example"
+path = "src/modding_example.rs"
+
+[[bin]]
+name = "performance_demo"
+path = "src/performance_demo.rs"
+
+[[bin]]
+name = "graphics_showcase"
+path = "src/graphics_showcase.rs"
+
+[[bin]]
+name = "audio_demo"
+path = "src/audio_demo.rs"
+
+[[bin]]
+name = "ai_showcase"
+path = "src/ai_showcase.rs"
+
+[[bin]]
+name = "stress_test"
+path = "src/stress_test.rs"

@@ -1,0 +1,57 @@
+# Cargo configuration for GameNetwork testing
+
+[build]
+# Enable all features by default for comprehensive testing
+rustflags = [
+    "-W", "unused_crate_dependencies",
+    "-W", "rust_2018_idioms"
+]
+
+[env]
+# Test environment configuration
+RUST_BACKTRACE = "1"
+RUST_LOG = "game_network=debug,info"
+
+[alias]
+# Convenient test aliases
+test-all = "test --all-features --workspace"
+test-unit = "test --lib --bins"
+test-integration = "test --test '*' -- --test-threads=1"
+test-doc = "test --doc"
+test-load = "test --test '*load*' --release -- --test-threads=1 --nocapture"
+test-network-sim = "test --test '*simulation*' -- --test-threads=1"
+test-property = "test --test '*property*' -- --test-threads=1"
+test-coverage = "test --all-features"
+bench-all = "bench"
+bench-fast = "bench --bench network_benchmarks -- --quick"
+
+# Linting and formatting
+lint = "clippy --all-targets --all-features -- -D warnings"
+fmt-check = "fmt -- --check"
+doc-check = "doc --no-deps --document-private-items"
+
+# Cross-compilation testing
+test-cross-linux = "test --target x86_64-unknown-linux-musl"
+test-cross-windows = "test --target x86_64-pc-windows-gnu"
+
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+
+[profile.test]
+# Optimized test profile for better performance in integration tests
+opt-level = 1
+debug = true
+overflow-checks = true
+lto = false
+incremental = true
+codegen-units = 256
+
+[profile.bench]
+# Benchmark profile for accurate performance measurements
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+incremental = false
+codegen-units = 1
+panic = "abort"

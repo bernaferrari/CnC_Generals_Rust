@@ -1,0 +1,62 @@
+[package]
+name = "wwshade"
+version = "0.1.0"
+edition = "2021"
+authors = ["Converted from C++ WWShade library"]
+description = "Rust port of the WWShade graphics/shader library from Command & Conquer Generals Zero Hour"
+license = "GPL-3.0"
+
+[dependencies]
+# Graphics and math libraries
+wgpu = { version = "27.0.1", features = ["wgsl"] }
+ww3d-gpu = { path = "../WW3D2/crates/ww3d-gpu" }
+bytemuck = { version = "1.14", features = ["derive"] }
+glam = { version = "0.25", features = ["serde"] }
+bitflags = "2.4"
+
+# String and container utilities
+thiserror = "1.0"
+anyhow = "1.0"
+log = "0.4"
+
+# Serialization for save/load functionality
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+
+# Memory management
+parking_lot = "0.12"
+once_cell = "1.19"
+# Async support
+async-trait = "0.1"
+
+# For including shader source files
+include_dir = "0.7"
+
+# Window management (optional)
+winit = { version = "0.29", optional = true }
+
+# Modern async runtime (optional, for examples)
+tokio = { version = "1.0", features = ["full"], optional = true }
+
+# Logging
+env_logger = { version = "0.10", optional = true }
+
+[dev-dependencies]
+env_logger = "0.10"
+tokio = { version = "1.0", features = ["full"] }
+
+[features]
+default = []
+examples = ["tokio", "env_logger"]  # Example dependencies
+
+[[example]]
+name = "modern_rendering"
+required-features = ["examples"]
+
+[[example]]
+name = "api_compatibility"
+required-features = ["examples"]
+
+[[example]]
+name = "shader_access"
+path = "examples/shader_access.rs"

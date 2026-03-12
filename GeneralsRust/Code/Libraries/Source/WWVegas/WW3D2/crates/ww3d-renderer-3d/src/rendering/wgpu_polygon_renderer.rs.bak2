@@ -1,0 +1,706 @@
+//! WGPU Polygon Renderer - Modern replacement for DirectX8 polygon renderer
+//!
+//! This module provides a complete polygon rendering system using WGPU,
+//! replacing the legacy DirectX8 polygon renderer with modern, cross-platform
+//! graphics capabilities.
+
+use crate::core::error::{W3dError, RendererResult};
+use crate::core::WW3DFormat;
+use crate::max2w3d::material_handler::W3dMaterial;
+use crate::rendering::texture_system::texture_base::TextureBase;
+use crate::rendering::wgpu_renderer::WgpuRenderState;
+use crate::rendering::wgpu_renderer::{WgpuIndexBuffer, WgpuVertexBuffer};
+use crate::rendering::SceneClass;
+use crate::rendering::ShaderManager;
+use math_utilities::{Mat4, Vec3, Vec4};
+
+use glam::Mat4;
+use std::collections::HashMap;
+use std::sync::Arc;
+use wgpu::{BindGroup, Buffer, Device, PipelineLayout, Queue, RenderPass, RenderPipeline};
+
+/// Convert math_utilities::Matrix4 to glam::Mat4
+fn matrix4_to_mat4(m: Matrix4) -> Mat4 {
+    Mat4::from_cols_array(&[
+        m.row[0].x, m.row[1].x, m.row[2].x, m.row[3].x, m.row[0].y, m.row[1].y, m.row[2].y,
+        m.row[3].y, m.row[0].z, m.row[1].z, m.row[2].z, m.row[3].z, m.row[0].w, m.row[1].w,
+        m.row[2].w, m.row[3].w,
+    ])
+}
+
+/// Represents a polygon primitive type for rendering
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PolygonPrimitiveType {
+    /// Triangle list - most common primitive type
+    TriangleList,
+    /// Triangle strip - optimized for connected triangles
+    TriangleStrip,
+    /// Triangle fan - optimized for star-shaped polygons
+    TriangleFan,
+    /// Line list - for wireframe rendering
+    LineList,
+    /// Line strip - connected lines
+    LineStrip,
+    /// Point list - individual vertices
+    PointList,
+}
+
+/// Rendering mode for polygon renderer
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PolygonRenderMode {
+    /// Solid rendering with textures and lighting
+    Solid,
+    /// Alpha blended rendering
+    Alpha,
+    /// Additive blended rendering
+    Additive,
+    /// Wireframe rendering for debugging
+    Wireframe,
+    /// Points only for debugging
+    Points,
+}
+
+/// Polygon renderer configuration
+#[derive(Debug, Clone)]
+pub struct PolygonRendererConfig {
+    /// Maximum number of vertices per draw call
+    pub max_vertices: u32,
+    /// Maximum number of indices per draw call
+    pub max_indices: u32,
+    /// Enable backface culling
+    pub backface_culling: bool,
+    /// Enable depth testing
+    pub depth_testing: bool,
+    /// Enable alpha blending
+    pub alpha_blending: bool,
+    /// Default render mode
+    pub default_render_mode: PolygonRenderMode,
+}
+
+impl Default for PolygonRendererConfig {
+    fn default() -> Self {
+        Self {
+            max_vertices: 65536,
+            max_indices: 131072,
+            backface_culling: true,
+            depth_testing: true,
+            alpha_blending: false,
+            default_render_mode: PolygonRenderMode::Solid,
+        }
+    }
+}
+
+/// Statistics for polygon renderer performance monitoring
+#[derive(Debug, Clone, Default)]
+pub struct PolygonRendererStats {
+    /// Number of draw calls this frame
+    pub draw_calls: u32,
+    /// Number of vertices rendered this frame
+    pub vertices_rendered: u32,
+    /// Number of triangles rendered this frame
+    pub triangles_rendered: u32,
+    /// Number of texture switches this frame
+    pub texture_switches: u32,
+    /// Number of shader switches this frame
+    pub shader_switches: u32,
+    /// Number of material switches this frame
+    pub material_switches: u32,
+}
+
+/// Modern WGPU-based polygon renderer
+pub struct WgpuPolygonRenderer {
+    /// WGPU device reference
+    device: Arc<Device>,
+    /// WGPU queue reference
+    queue: Arc<Queue>,
+    /// Renderer configuration
+    config: PolygonRendererConfig,
+    /// Performance statistics
+    stats: PolygonRendererStats,
+    /// Vertex buffers cache
+    vertex_buffers: HashMap<String, Arc<WgpuVertexBuffer>>,
+    /// Index buffers cache
+    index_buffers: HashMap<String, Arc<WgpuIndexBuffer>>,
+    /// Texture cache
+    textures: HashMap<String, Arc<TextureBase>>,
+    /// Shader manager reference
+    shader_manager: Option<Arc<ShaderManager>>,
+    /// Render pipelines for different primitive types and modes
+    pipelines: HashMap<(PolygonPrimitiveType, PolygonRenderMode), RenderPipeline>,
+    /// Bind groups for uniform data
+    bind_groups: HashMap<String, BindGroup>,
+    /// Current render state
+    current_state: WgpuRenderState,
+}
+
+impl WgpuPolygonRenderer {
+    /// Create a new WGPU polygon renderer
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> RendererResult<Self> {
+        let config = PolygonRendererConfig::default();
+        let mut renderer = Self {
+            device,
+            queue,
+            config,
+            stats: PolygonRendererStats::default(),
+            vertex_buffers: HashMap::new(),
+            index_buffers: HashMap::new(),
+            textures: HashMap::new(),
+            shader_manager: None,
+            pipelines: HashMap::new(),
+            bind_groups: HashMap::new(),
+            current_state: WgpuRenderState::default(),
+        };
+
+        // Initialize default pipelines
+        renderer.create_default_pipelines()?;
+
+        Ok(renderer)
+    }
+
+    /// Create a polygon renderer with custom configuration
+    pub fn with_config(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        config: PolygonRendererConfig,
+    ) -> RendererResult<Self> {
+        let mut renderer = Self::new(device, queue)?;
+        renderer.config = config;
+        Ok(renderer)
+    }
+
+    /// Set shader manager for advanced shader support
+    pub fn set_shader_manager(&mut self, shader_manager: Arc<ShaderManager>) {
+        self.shader_manager = Some(shader_manager);
+    }
+
+    /// Create default render pipelines for different primitive types
+    fn create_default_pipelines(&mut self) -> RendererResult<()> {
+        // Create pipelines for each combination of primitive type and render mode
+        let primitive_modes = [
+            (PolygonPrimitiveType::TriangleList, PolygonRenderMode::Solid),
+            (PolygonPrimitiveType::TriangleList, PolygonRenderMode::Alpha),
+            (PolygonPrimitiveType::TriangleList, PolygonRenderMode::Additive),
+            (
+                PolygonPrimitiveType::TriangleList,
+                PolygonRenderMode::Wireframe,
+            ),
+            (
+                PolygonPrimitiveType::TriangleStrip,
+                PolygonRenderMode::Solid,
+            ),
+            (
+                PolygonPrimitiveType::TriangleStrip,
+                PolygonRenderMode::Wireframe,
+            ),
+            (PolygonPrimitiveType::TriangleFan, PolygonRenderMode::Solid),
+            (PolygonPrimitiveType::LineList, PolygonRenderMode::Solid),
+            (PolygonPrimitiveType::PointList, PolygonRenderMode::Solid),
+        ];
+
+        for (primitive_type, render_mode) in primitive_modes {
+            let pipeline = self.create_pipeline(primitive_type, render_mode)?;
+            self.pipelines
+                .insert((primitive_type, render_mode), pipeline);
+        }
+
+        Ok(())
+    }
+
+    /// Create a render pipeline for specific primitive type and render mode
+    fn create_pipeline(
+        &self,
+        primitive_type: PolygonPrimitiveType,
+        render_mode: PolygonRenderMode,
+    ) -> RendererResult<RenderPipeline> {
+        // Get shader source based on render mode
+        let shader_source = match render_mode {
+            PolygonRenderMode::Solid => include_str!("shader_system/opaque.wgsl"),
+            PolygonRenderMode::Alpha => include_str!("shader_system/alpha.wgsl"),
+            PolygonRenderMode::Additive => include_str!("shader_system/additive.wgsl"),
+            PolygonRenderMode::Wireframe => include_str!("shader_system/line.wgsl"),
+            PolygonRenderMode::Points => include_str!("shader_system/line.wgsl"), // Use line shader for points
+        };
+
+        // Create shader module
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(&format!(
+                    "Polygon Shader ({:?}, {:?})",
+                    primitive_type, render_mode
+                )),
+                source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+            });
+
+        // Determine primitive topology
+        let topology = match primitive_type {
+            PolygonPrimitiveType::TriangleList => wgpu::PrimitiveTopology::TriangleList,
+            PolygonPrimitiveType::TriangleStrip => wgpu::PrimitiveTopology::TriangleStrip,
+            PolygonPrimitiveType::TriangleFan => wgpu::PrimitiveTopology::TriangleList, // WGPU doesn't support triangle fan, use list
+            PolygonPrimitiveType::LineList => wgpu::PrimitiveTopology::LineList,
+            PolygonPrimitiveType::LineStrip => wgpu::PrimitiveTopology::LineStrip,
+            PolygonPrimitiveType::PointList => wgpu::PrimitiveTopology::PointList,
+        };
+
+        // Create vertex buffer layout (assume XYZ_UV format for now)
+        let vertex_layout = wgpu::VertexBufferLayout {
+            array_stride: (std::mem::size_of::<[f32; 3]>()
+                + std::mem::size_of::<[f32; 3]>()
+                + std::mem::size_of::<[f32; 2]>()) as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() + std::mem::size_of::<[f32; 3]>())
+                        as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+            ],
+        };
+
+        // Configure blend state based on render mode
+        let blend_state = match render_mode {
+            PolygonRenderMode::Solid => None, // No blending
+            PolygonRenderMode::Alpha => Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
+            PolygonRenderMode::Additive => Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
+            PolygonRenderMode::Wireframe | PolygonRenderMode::Points => None,
+        };
+
+        // Configure depth stencil state
+        let depth_stencil = if self.config.depth_testing {
+            Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            })
+        } else {
+            None
+        };
+
+        // Create bind group layouts for uniforms
+        let camera_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Camera Bind Group Layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let model_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Model Bind Group Layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let texture_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Texture Bind Group Layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+
+        let bind_group_layouts = vec![
+            &camera_bind_group_layout,
+            &model_bind_group_layout,
+            &texture_bind_group_layout,
+        ];
+
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Polygon Pipeline Layout"),
+                bind_group_layouts: &bind_group_layouts,
+                push_constant_ranges: &[],
+            });
+
+        // Create the render pipeline
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&format!(
+                    "Polygon Pipeline ({:?}, {:?})",
+                    primitive_type, render_mode
+                )),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[vertex_layout],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Bgra8UnormSrgb, // Common swap chain format
+                        blend: blend_state,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: if self.config.backface_culling {
+                        Some(wgpu::Face::Back)
+                    } else {
+                        None
+                    },
+                    polygon_mode: match render_mode {
+                        PolygonRenderMode::Wireframe => wgpu::PolygonMode::Line,
+                        _ => wgpu::PolygonMode::Fill,
+                    },
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
+        Ok(pipeline)
+    }
+
+    /// Register a vertex buffer for rendering
+    pub fn register_vertex_buffer(&mut self, name: &str, buffer: Arc<WgpuVertexBuffer>) {
+        self.vertex_buffers.insert(name.to_string(), buffer);
+    }
+
+    /// Register an index buffer for rendering
+    pub fn register_index_buffer(&mut self, name: &str, buffer: Arc<WgpuIndexBuffer>) {
+        self.index_buffers.insert(name.to_string(), buffer);
+    }
+
+    /// Register a texture for rendering
+    pub fn register_texture(&mut self, name: &str, texture: Arc<TextureBase>) {
+        self.textures.insert(name.to_string(), texture);
+    }
+
+    /// Begin a new frame - reset statistics and prepare for rendering
+    pub fn begin_frame(&mut self) {
+        self.stats = PolygonRendererStats::default();
+        self.current_state = WgpuRenderState::default();
+    }
+
+    /// End frame - finalize rendering operations
+    pub fn end_frame(&mut self) {
+        // Any frame cleanup operations would go here
+    }
+
+    /// Render indexed primitives
+    pub fn render_indexed_primitives(
+        &mut self,
+        primitive_type: PolygonPrimitiveType,
+        render_mode: PolygonRenderMode,
+        vertex_buffer_name: &str,
+        index_buffer_name: &str,
+        start_index: u32,
+        primitive_count: u32,
+        material: Option<&W3dMaterial>,
+        transform: Option<&Matrix4>,
+    ) -> RendererResult<()> {
+        // Get vertex and index buffers
+        let vertex_buffer = self.vertex_buffers.get(vertex_buffer_name).ok_or_else(|| {
+            W3dError::ResourceNotFound(format!("Vertex buffer '{}' not found", vertex_buffer_name))
+        })?;
+
+        let index_buffer = self.index_buffers.get(index_buffer_name).ok_or_else(|| {
+            W3dError::ResourceNotFound(format!("Index buffer '{}' not found", index_buffer_name))
+        })?;
+
+        // Update statistics
+        self.stats.draw_calls += 1;
+        self.stats.vertices_rendered += vertex_buffer.vertex_count() as u32;
+        self.stats.triangles_rendered += primitive_count;
+
+        // Material and texture handling
+        if let Some(material) = material {
+            if material.texture_name.is_some() {
+                self.stats.texture_switches += 1;
+            }
+            self.stats.material_switches += 1;
+        }
+
+        // Shader handling
+        if self.shader_manager.is_some() {
+            self.stats.shader_switches += 1;
+        }
+
+        // Actual rendering logic would go here
+        // This would involve:
+        // 1. Setting up the render pipeline
+        // 2. Binding vertex and index buffers
+        // 3. Setting up textures and materials
+        // 4. Applying transformations
+        // 5. Executing the draw call
+
+        Ok(())
+    }
+
+    /// Render non-indexed primitives
+    pub fn render_primitives(
+        &mut self,
+        primitive_type: PolygonPrimitiveType,
+        render_mode: PolygonRenderMode,
+        vertex_buffer_name: &str,
+        start_vertex: u32,
+        primitive_count: u32,
+        material: Option<&W3dMaterial>,
+        transform: Option<&Matrix4>,
+    ) -> RendererResult<()> {
+        // Get vertex buffer
+        let vertex_buffer = self.vertex_buffers.get(vertex_buffer_name).ok_or_else(|| {
+            W3dError::ResourceNotFound(format!("Vertex buffer '{}' not found", vertex_buffer_name))
+        })?;
+
+        // Update statistics
+        self.stats.draw_calls += 1;
+        self.stats.vertices_rendered += vertex_buffer.vertex_count() as u32;
+        self.stats.triangles_rendered += primitive_count;
+
+        // Material and texture handling
+        if let Some(material) = material {
+            if material.texture_name.is_some() {
+                self.stats.texture_switches += 1;
+            }
+            self.stats.material_switches += 1;
+        }
+
+        Ok(())
+    }
+
+    /// Set the current transformation matrix
+    pub fn set_transform(&mut self, transform: &Matrix4) {
+        // Update current transform in render state
+        self.current_state.world_matrix = matrix4_to_mat4(*transform);
+    }
+
+    /// Set the current view matrix
+    pub fn set_view_matrix(&mut self, view: &Matrix4) {
+        self.current_state.view_matrix = matrix4_to_mat4(*view);
+    }
+
+    /// Set the current projection matrix
+    pub fn set_projection_matrix(&mut self, projection: &Matrix4) {
+        self.current_state.projection_matrix = matrix4_to_mat4(*projection);
+    }
+
+    /// Set current material
+    pub fn set_material(&mut self, material: &W3dMaterial) -> RendererResult<()> {
+        // Material setup logic would go here
+        // This includes texture binding, shader parameter setting, etc.
+        Ok(())
+    }
+
+    /// Set current texture
+    pub fn set_texture(&mut self, texture_name: &str) -> RendererResult<()> {
+        let _texture = self.textures.get(texture_name).ok_or_else(|| {
+            W3dError::ResourceNotFound(format!("Texture '{}' not found", texture_name))
+        })?;
+
+        // Texture binding logic would go here
+        Ok(())
+    }
+
+    /// Enable/disable backface culling
+    pub fn set_backface_culling(&mut self, enabled: bool) {
+        self.config.backface_culling = enabled;
+    }
+
+    /// Enable/disable depth testing
+    pub fn set_depth_testing(&mut self, enabled: bool) {
+        self.config.depth_testing = enabled;
+    }
+
+    /// Enable/disable alpha blending
+    pub fn set_alpha_blending(&mut self, enabled: bool) {
+        self.config.alpha_blending = enabled;
+    }
+
+    /// Get current performance statistics
+    pub fn get_stats(&self) -> &PolygonRendererStats {
+        &self.stats
+    }
+
+    /// Reset performance statistics
+    pub fn reset_stats(&mut self) {
+        self.stats = PolygonRendererStats::default();
+    }
+
+    /// Get renderer configuration
+    pub fn get_config(&self) -> &PolygonRendererConfig {
+        &self.config
+    }
+
+    /// Update renderer configuration
+    pub fn update_config(&mut self, config: PolygonRendererConfig) -> RendererResult<()> {
+        self.config = config;
+        // Recreate pipelines with new configuration
+        self.pipelines.clear();
+        self.create_default_pipelines()?;
+        Ok(())
+    }
+
+    /// Flush all pending render operations
+    pub fn flush(&mut self) -> RendererResult<()> {
+        // Any pending operations would be flushed here
+        Ok(())
+    }
+
+    /// Clear all registered resources
+    pub fn clear_resources(&mut self) {
+        self.vertex_buffers.clear();
+        self.index_buffers.clear();
+        self.textures.clear();
+        self.bind_groups.clear();
+    }
+
+    /// Get the number of registered vertex buffers
+    pub fn get_vertex_buffer_count(&self) -> usize {
+        self.vertex_buffers.len()
+    }
+
+    /// Get the number of registered index buffers
+    pub fn get_index_buffer_count(&self) -> usize {
+        self.index_buffers.len()
+    }
+
+    /// Get the number of registered textures
+    pub fn get_texture_count(&self) -> usize {
+        self.textures.len()
+    }
+
+    /// Check if a vertex buffer is registered
+    pub fn has_vertex_buffer(&self, name: &str) -> bool {
+        self.vertex_buffers.contains_key(name)
+    }
+
+    /// Check if an index buffer is registered
+    pub fn has_index_buffer(&self, name: &str) -> bool {
+        self.index_buffers.contains_key(name)
+    }
+
+    /// Check if a texture is registered
+    pub fn has_texture(&self, name: &str) -> bool {
+        self.textures.contains_key(name)
+    }
+}
+
+impl Drop for WgpuPolygonRenderer {
+    fn drop(&mut self) {
+        // Cleanup resources
+        self.clear_resources();
+    }
+}
+
+/// Factory function to create a polygon renderer with default settings
+pub fn create_polygon_renderer(
+    device: Arc<Device>,
+    queue: Arc<Queue>,
+) -> RendererResult<WgpuPolygonRenderer> {
+    WgpuPolygonRenderer::new(device, queue)
+}
+
+/// Factory function to create a polygon renderer with custom configuration
+pub fn create_polygon_renderer_with_config(
+    device: Arc<Device>,
+    queue: Arc<Queue>,
+    config: PolygonRendererConfig,
+) -> RendererResult<WgpuPolygonRenderer> {
+    WgpuPolygonRenderer::with_config(device, queue, config)
+}
+
+#[cfg(test)]
+mod tests {
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[test]
+    fn test_polygon_renderer_creation() {
+        // Test creation would go here
+        // Requires WGPU device setup
+    }
+
+    #[test]
+    fn test_config_defaults() {
+        let config = PolygonRendererConfig::default();
+        assert_eq!(config.max_vertices, 65536);
+        assert_eq!(config.max_indices, 131072);
+        assert!(config.backface_culling);
+        assert!(config.depth_testing);
+        assert!(!config.alpha_blending);
+        assert_eq!(config.default_render_mode, PolygonRenderMode::Solid);
+    }
+}

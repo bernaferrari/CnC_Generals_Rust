@@ -1,0 +1,20 @@
+//! Auto-generated module list for W3DDevice compatibility
+pub mod wthree_d_debris_draw;
+pub mod wthree_d_default_draw;
+pub mod wthree_d_dependency_model_draw;
+pub mod wthree_d_laser_draw;
+pub mod wthree_d_model_draw;
+pub mod wthree_d_overlord_aircraft_draw;
+pub mod wthree_d_overlord_tank_draw;
+pub mod wthree_d_overlord_truck_draw;
+pub mod wthree_d_police_car_draw;
+pub mod wthree_d_projectile_stream_draw;
+pub mod wthree_d_prop_draw;
+pub mod wthree_d_rope_draw;
+pub mod wthree_d_science_model_draw;
+pub mod wthree_d_supply_draw;
+pub mod wthree_d_tank_draw;
+pub mod wthree_d_tank_truck_draw;
+pub mod wthree_d_tracer_draw;
+pub mod wthree_d_tree_draw;
+pub mod wthree_d_truck_draw;
