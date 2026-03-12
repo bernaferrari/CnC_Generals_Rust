@@ -114,9 +114,20 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
         let bytes = ascii_string_data.as_bytes();
-        let mut len = bytes.len() as u32;
-        self.xfer_unsigned_int(&mut len)?;
-        self.writer.write_all(bytes)
+        // C++ uses UnsignedByte (u8) for string length, max 255 chars
+        // Matches C++ XferSave.cpp lines 219-232
+        if bytes.len() > 255 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "XferSave cannot save this ascii string because it's too long (max 255)",
+            ));
+        }
+        let mut len = bytes.len() as u8;
+        self.xfer_unsigned_byte(&mut len)?;
+        if len > 0 {
+            self.writer.write_all(bytes)?;
+        }
+        Ok(())
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {

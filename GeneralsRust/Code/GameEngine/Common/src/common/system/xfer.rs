@@ -14,7 +14,9 @@ use super::snapshot::Snapshot;
 use std::io::{self, Read, Write};
 
 /// Type alias for XferVersion - matches C++ line 29
-pub type XferVersion = u32;
+/// C++ Reference: typedef UnsignedByte XferVersion (1 byte)
+/// CRITICAL: Must remain u8 for binary compatibility with C++ save files
+pub type XferVersion = u8;
 
 /// Xfer mode enumeration - matches C++ Xfer.h lines 33-42
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -506,8 +508,27 @@ pub trait Xfer {
     }
 
     /// Xfer object ID (ObjectID is serialized as unsigned int in modern paths)
+    /// Matches C++ Xfer.cpp lines 357-362
     fn xfer_object_id(&mut self, object_id: &mut u32) -> io::Result<()> {
-        self.xfer_unsigned_int(object_id)
+        // SAFETY: object_id is a valid reference
+        unsafe {
+            self.xfer_implementation(
+                object_id as *mut u32 as *mut u8,
+                std::mem::size_of::<u32>(),
+            )
+        }
+    }
+
+    /// Xfer drawable ID (DrawableID is serialized same size as ObjectID)
+    /// Matches C++ Xfer.cpp lines 366-371
+    fn xfer_drawable_id(&mut self, drawable_id: &mut u32) -> io::Result<()> {
+        // SAFETY: drawable_id is a valid reference
+        unsafe {
+            self.xfer_implementation(
+                drawable_id as *mut u32 as *mut u8,
+                std::mem::size_of::<u32>(),
+            )
+        }
     }
 
     /// Xfer Matrix3D - matches C++ Xfer.cpp lines 818-843
