@@ -1,0 +1,16 @@
+[package]
+name = "memory_system"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base_types = { path = "../base_types" }
+log = "0.4"
+parking_lot = "0.12"
+
+[features]
+default = []
+debug = []
+checkpointing = ["debug"]
+stacktrace = ["debug"]
+bounding_wall = ["debug"]

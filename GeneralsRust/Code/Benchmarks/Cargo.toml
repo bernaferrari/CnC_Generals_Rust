@@ -1,0 +1,89 @@
+[package]
+name = "benchmarks"
+version = "0.1.0"
+edition = "2021"
+description = "Comprehensive benchmark suite for C&C Generals Zero Hour Rust engine"
+license = "GPL-3.0"
+authors = ["Claude Code"]
+
+[dependencies]
+# Internal workspace crates
+integration = { path = "../Integration" }
+game_engine = { path = "../GameEngine/rust_game_engine" }
+game_client = { path = "../GameEngine/GameClient" }
+game_logic = { path = "../GameEngine/GameLogic" }
+game_network = { path = "../GameEngine/GameNetwork" }
+game_engine_device = { path = "../GameEngine/GameEngineDevice" }
+
+
+# WWVegas Libraries
+ww3d_rust = { path = "../Libraries/Source/WWVegas/WW3D" }
+wwshade_rust = { path = "../Libraries/Source/WWVegas/WWShade" }
+wwlib_rust = { path = "../Libraries/Source/WWVegas/WWLib" }
+math_utilities = { path = "../Libraries/Source/WWVegas/WWMath" }
+wwaudio = { path = "../Libraries/Source/WWVegas/WWAudio" }
+wwdebug = { path = "../Libraries/Source/WWVegas/WWDebug" }
+
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports", "csv_output"], optional = true }
+pprof = { version = "0.13", features = ["flamegraph", "protobuf-codec"] }
+
+# Performance measurement
+perf-event = "0.4"
+iai = { version = "0.1", optional = true }
+
+# Utilities
+rayon = "1.7"
+tokio = { version = "1.0", features = ["full"] }
+rand = { version = "0.8", features = ["small_rng"] }
+glam = "0.24"
+
+# Memory profiling
+jemallocator = { version = "0.5", optional = true }
+
+[features]
+default = ["criterion-benchmarks"]
+criterion-benchmarks = ["criterion"]
+iai-benchmarks = ["iai"]
+memory-profiling = ["jemallocator"]
+
+[[bench]]
+name = "engine_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+[[bench]]
+name = "graphics_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+[[bench]]
+name = "network_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+[[bench]]
+name = "integration_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+[[bench]]
+name = "math_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+[[bench]]
+name = "audio_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+[[bench]]
+name = "memory_benchmarks"
+harness = false
+required-features = ["criterion-benchmarks"]
+
+# Instruction count benchmarks
+[[bench]]
+name = "iai_benchmarks"
+harness = false
+required-features = ["iai-benchmarks"]

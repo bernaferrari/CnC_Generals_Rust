@@ -1,0 +1,374 @@
+[package]
+name = "generals_main"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# Default features for a standard game build
+default = ["game_client"]
+
+# Core features
+game_client = ["dep:game_client"]
+network = ["dep:game_network"]
+
+# Platform-specific features
+windows = []
+macos = []
+linux = []
+
+# Development tools and debugging
+dev-tools = []
+debug-ui = ["dev-tools"]
+debug-rendering = ["dev-tools"]
+debug-physics = ["dev-tools"]
+profiling = []
+
+# Internal development flags
+internal = []
+allow_anim_inquiries = []
+load_test_assets = []
+allow_surrender = []
+
+# Integration and testing
+integration-tests = []
+integration-diagnostics = ["integration"]
+native-dialog = ["dep:native-dialog"]
+
+# Graphics backends
+vulkan = []
+metal = []
+dx12 = []
+opengl = []
+
+# Optional components
+multiplayer = ["network"]
+single-player = []
+map-editor = ["dev-tools"]
+mod-support = []
+copy-protection = []
+
+# Performance options
+simd = []
+parallel = []
+lto = []
+
+# Asset loading
+hot-reload = []
+compressed-assets = []
+
+[dependencies]
+# Core game engine dependencies
+game_engine = { path = "../GameEngine/Common" }
+gamelogic = { path = "../GameEngine/GameLogic" }
+integration = { path = "../Integration", optional = true }
+game_client = { path = "../GameEngine/GameClient", package = "game-client-rust", optional = true }
+game_engine_device = { path = "../GameEngine/GameEngineDevice", optional = true }
+game_network = { path = "../GameEngine/GameNetwork", optional = true }
+
+# Graphics and window management
+winit = "0.29"
+wgpu = { version = "27.0.1", features = ["webgpu", "webgl"] }
+raw-window-handle = "0.6"
+
+# Audio
+rodio = "0.17"
+
+# Error handling and logging
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.10"
+
+# Async runtime
+tokio = { version = "1.48", features = ["full"] }
+async-trait = "0.1"
+libc = "0.2"
+
+# Math
+glam = { version = "0.24", features = ["serde"] }
+glam028 = { package = "glam", version = "0.28", features = ["serde"] }
+
+# Additional dependencies for complete integration
+ww3d_renderer_3d = { package = "ww3d-renderer-3d", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }
+ww3d-gpu = { path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
+ww3d_engine = { package = "ww3d-engine", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
+ww3d_assets = { package = "ww3d-assets", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
+ww3d_core = { package = "ww3d-core", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
+pollster = "0.3"
+bytemuck = { version = "1.24", features = ["derive"] }
+fastrand = "2.3"
+
+# BIG file and asset loading dependencies
+image = "0.24"
+
+# Crossbeam for concurrent data structures
+crossbeam = "0.8"
+
+# Rayon for parallel processing
+rayon = "1.11"
+
+# Futures for async utilities
+futures = "0.3"
+
+# Random number generation for AI behavior
+rand = "0.8"
+
+# Network dependencies
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+crc32fast = "1.5"
+thiserror = "1.0"
+serde_json = { workspace = true }
+parking_lot = { workspace = true }
+once_cell = "1.21"
+
+# Save/Load system dependencies
+lz4_flex = "0.11"
+lazy_static = "1.5"
+
+# Compression / chunk decoding
+generals_compression = { path = "../Libraries/Source/Compression" }
+
+# Configuration system
+toml = "0.8"
+
+# CLI dependencies
+clap = "2.34"
+
+# UI framework dependencies
+egui = "0.33.2"
+egui-wgpu = "0.33.2"
+egui-winit = "0.33.2"
+bitflags = "2.10"
+font8x8 = "0.3"
+native-dialog = { version = "0.7", optional = true }
+
+[lib]
+name = "generals_main"
+path = "src/lib.rs"
+
+[[bin]]
+name = "generals"
+path = "src/main.rs"
+
+[[bin]]
+name = "ui_demo"
+path = "src/ui_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "wgpu_ui_demo"
+path = "src/bin/wgpu_ui_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "big_inspector"
+path = "src/bin/big_inspector.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "ui_layout_demo"
+path = "src/bin/ui_layout_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "input_demo"
+path = "src/bin/input_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "simple_render_demo"
+path = "src/bin/simple_render_demo.rs"
+
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "network_demo"
+path = "src/bin/network_demo.rs"
+required-features = ["dev-tools", "network"]
+
+[[bin]]
+name = "save_load_demo"
+path = "src/bin/save_load_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "simple_save_demo"
+path = "src/bin/simple_save_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "search_big_files"
+path = "src/bin/search_big_files.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "audio_test"
+path = "src/bin/audio_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "big_file_inspector"
+path = "src/bin/big_file_inspector.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "copy_protection_demo"
+path = "src/bin/copy_protection_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "extract_ini_files"
+path = "src/bin/extract_ini_files.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "find_china_models"
+path = "src/bin/find_china_models.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "minimal_wgpu_test"
+path = "src/bin/minimal_wgpu_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "model_test"
+path = "src/bin/model_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "mouse_selection_test"
+path = "src/bin/mouse_selection_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "multi_model_test"
+path = "src/bin/multi_model_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "platform_message_test"
+path = "src/bin/platform_message_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "quick_model_test"
+path = "src/bin/quick_model_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "search_china_buildings"
+path = "src/bin/search_china_buildings.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "search_config_files"
+path = "src/bin/search_config_files.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "search_music_files"
+path = "src/bin/search_music_files.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "simple_model_test"
+path = "src/bin/simple_model_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "simple_window_test"
+path = "src/bin/simple_window_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "test_model_names"
+path = "src/bin/test_model_names.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "test_music_loading"
+path = "src/bin/test_music_loading.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "test_simple"
+path = "src/bin/test_simple.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "unit_control_demo"
+path = "src/bin/unit_control_demo.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "unit_finder"
+path = "src/bin/unit_finder.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_deep_analyzer"
+path = "src/bin/w3d_deep_analyzer.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_explorer"
+path = "src/bin/w3d_explorer.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_final_search"
+path = "src/bin/w3d_final_search.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_mesh_finder"
+path = "src/bin/w3d_mesh_finder.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_mesh_scanner"
+path = "src/bin/w3d_mesh_scanner.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_mesh_tester"
+path = "src/bin/w3d_mesh_tester.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_parse_test"
+path = "src/bin/w3d_parse_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "w3d_texture_audit"
+path = "src/bin/w3d_texture_audit.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "window_test"
+path = "src/bin/window_test.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "playability_audit"
+path = "src/bin/playability_audit.rs"
+
+[[bin]]
+name = "verify_ini_parsing"
+path = "src/bin/verify_ini_parsing.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "list_loaded_objects"
+path = "src/bin/list_loaded_objects.rs"
+required-features = ["dev-tools"]
+
+[[example]]
+name = "telemetry_bridge"
+path = "examples/telemetry_bridge.rs"
+required-features = ["integration-diagnostics"]
+
+[dev-dependencies]
+tempfile = "3.23"

@@ -1,0 +1,98 @@
+[workspace]
+members = [
+    "WorldBuilder",
+    "ParticleEditor",
+    # "Babylon",  # Missing Cargo.toml
+    "ImagePacker",
+    "DebugWindow",
+    # "AssetTools",  # Missing Cargo.toml
+    "UIFramework",
+    "GUIEdit",
+    "MapCacheBuilder",
+    "w3d_to_gltf",
+    "Launcher",
+    "big_unpack",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Modern UI Frameworks
+egui = "0.33.2"
+eframe = "0.33.2"
+egui-wgpu = "0.33.2"
+egui-winit = "0.33.2"
+tauri = { version = "2.1", features = ["shell-open"] }
+tauri-build = "2.0"
+iced = "0.13"
+winit = "0.29"
+
+# 3D Graphics and Rendering  
+wgpu = "27.0.1"
+bytemuck = { version = "1.20", features = ["derive"] }
+glam = "0.29"
+three-d = "0.18"
+bevy_ecs = "0.15"
+lyon = "1.0"
+
+# Asset Processing
+image = "0.25"
+texture_packer = "0.27"
+rfd = "0.15"
+walkdir = "2.5"
+zip = "2.2"
+flate2 = "1.0"
+lz4 = "1.28"
+
+# Serialization and File Formats
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+bincode = "1.3"
+ron = "0.8"
+
+# Localization and Text Processing
+fluent = "0.16"
+unic-langid = "0.9"
+rust-i18n = "3.1"
+csv = "1.3"
+
+# Networking and Threading
+tokio = { version = "1.42", features = ["full"] }
+rayon = "1.10"
+crossbeam = "0.8"
+parking_lot = "0.12"
+
+# Utilities
+log = "0.4"
+env_logger = "0.11"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "1.0"
+uuid = { version = "1.11", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5.0"
+rand = { version = "0.8", features = ["std_rng"] }
+
+# Hot reload
+notify = "6.1"
+hot-lib-reloader = "0.8"
+
+# Game engine integration
+# Note: Temporarily commented out missing dependencies
+# wwlib = { path = "../Libraries/Source/WWVegas/WWLib" }
+# ww3d = { path = "../Libraries/Source/WWVegas/WW3D" }
+# wwmath = { path = "../Libraries/Source/WWVegas/WWMath" }
+# game_engine = { path = "../rust_game_engine" }
+# game_client = { path = "../GameClient" }
+
+[profile.dev]
+opt-level = 1
+debug = true
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
+panic = 'abort'

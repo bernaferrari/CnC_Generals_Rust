@@ -1,0 +1,54 @@
+[package]
+name = "map_cache_builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core dependencies
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# File handling
+rfd = { workspace = true }
+walkdir = { workspace = true }
+toml = { workspace = true }
+
+# CRC calculation
+crc32fast = "1.4"
+
+# Game engine integration (placeholder)
+# wwlib = { workspace = true }
+# ww3d = { workspace = true }
+# wwmath = { workspace = true }
+# game_engine = { workspace = true }
+
+# Async and threading
+tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
+rayon = { workspace = true }
+
+# Compression
+flate2 = { workspace = true }
+lz4 = { workspace = true }
+
+# Image processing (for map previews)
+image = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[[bin]]
+name = "map_cache_builder"
+path = "src/win_main.rs"
+
+[features]
+default = ["compression", "parallel_processing", "preview_generation"]
+compression = []
+parallel_processing = []
+preview_generation = []
+debug_output = []

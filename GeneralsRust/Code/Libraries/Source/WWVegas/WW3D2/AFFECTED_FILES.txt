@@ -1,0 +1,136 @@
+WW3D-RENDERER-3D COMPILATION ANALYSIS - AFFECTED FILES
+======================================================
+
+CRITICAL (Fix First):
+=====================
+
+1. /crates/ww3d-renderer-3d/src/lib.rs
+   - Line 48: Hidden glob re-export (AssetManager)
+   - Line 305: Unused variable shader_module
+   Status: Fix blocking glob re-export, prefix shader_module with underscore
+
+2. /crates/ww3d-renderer-3d/src/rendering/mesh_system.rs
+   - Line 174: Unused function w3d_to_mu_vec3()
+   - Line 1211: Unused method create_polygon_renderers()
+   - Line 2476: Unused parameter data in load_w3d()
+   - Line 2688: Unused variable model
+   - Line 2701: Unused parameter textures_only
+   - Line 3167: Unused variable prev_pass
+   - Line 3325: Unused fields texture_2d, texture_cube
+   - Line 3358: Unused method clear()
+   - Line 4400: Unused parameter rinfo
+   - Line 4414: Unused parameter rinfo
+   - Line 4494: Unused parameter boxtest
+   - Line 4498: Unused variable model
+   Status: HIGH - Multiple incomplete implementations
+
+3. /crates/ww3d-renderer-3d/src/rendering/post_process.rs
+   - Line 281: Unused variable settings (color_grading)
+   - Line 302: Unused variable settings (fxaa)
+   - Line 101, 114-116: Unused fields queue, bright_pass_bind_group, etc.
+   Status: HIGH - Post-processing pipeline partially implemented
+
+4. /crates/ww3d-renderer-3d/src/rendering/reflection_system.rs
+   - Line 80: Unused variable reflected_pos
+   - Line 140: Unused field device
+   - Line 265: Unused field fresnel_bias
+   Status: HIGH - Water reflection system incomplete
+
+MEDIUM PRIORITY:
+================
+
+5. /crates/ww3d-renderer-3d/src/rendering/dynamic_mesh.rs
+   - Line 9: Unused import RenderObjClass
+   - Line 57: Unused field vertex_materials
+   - Line 265-270: Unused fields cur_vertex_color, multi_vertex_color, sort_level
+   Status: Dynamic vertex coloring not implemented
+
+6. /crates/ww3d-renderer-3d/src/rendering/box_render_obj.rs
+   - Line 7: Unused import RenderObjClass
+   - Line 227: Unused variable world_center
+   Status: Clean up import, prefix variable
+
+7. /crates/ww3d-renderer-3d/src/rendering/debug_render_modes.rs
+   - Line 85-86: Unused fields device, queue
+   - Line 209: Unused parameter color
+   - Line 342: Unused field device
+   Status: Debug rendering not fully used
+
+8. /crates/ww3d-renderer-3d/src/rendering/sphere_render_obj.rs
+   - Line 15: Unused constant SPHERE_HIGHEST_LOD
+   - Line 62-66: Unused fields radius, slices, stacks
+   - Line 223: Unused field orientation
+   Status: Sphere mesh generation incomplete
+
+9. /crates/ww3d-renderer-3d/src/rendering/mesh_mat_desc.rs
+   - Line 457: Unused parameter create
+   Status: UV array creation logic incomplete
+
+10. /crates/ww3d-renderer-3d/src/rendering/texture_system/texfcach.rs
+    - Line 289: Unused method reopen_file()
+    Status: Texture file caching incomplete
+
+11. /crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/wgpu_wrapper.rs
+    - Line 102: Unused field texture in DepthResources
+    - Line 108-109: Unused fields instance, adapter in WgpuWrapper
+    Status: RAII pattern - may be intentional
+
+12. /crates/ww3d-renderer-3d/src/rendering/sort_system.rs
+    - Line 94: Unused field is_filling
+    Status: Sort list feature incomplete
+
+13. /crates/ww3d-renderer-3d/src/rendering/render_state.rs
+    - Line 440: Unused field texture_handles
+    Status: State batch implementation incomplete
+
+14. /crates/ww3d-renderer-3d/src/rendering/mesh_geometry.rs
+    - Line 119: Unused field w3d_attributes
+    Status: Geometry attributes not used
+
+15. /crates/ww3d-renderer-3d/src/rendering/mesh_model.rs
+    - Line 69: Unused field parent_poly_count
+    Status: Gap filler structure incomplete
+
+DEPENDENCY WARNINGS (Lower Priority):
+======================================
+
+16. /crates/ww3d-core/src/w3d_io.rs
+    - Line 396: Unused parameter size
+    - Line 402: Unused import std::io::Read
+    Status: Particle emitter reader incomplete
+
+17. /crates/ww3d-scene/src/lib.rs
+    - Line 488: Unused variable pass_index
+    Status: Rendering pass iteration incomplete
+
+18. /crates/ww3d-scene/src/scene_ext.rs
+    - Line 14: Unused import Vec3
+    - Line 138: Unused method ray_sphere_intersection_test()
+    - Line 323: Unused function ray_box_intersection()
+    Status: Picking/raycasting not implemented
+
+19. /crates/ww3d-scene/src/htree.rs
+    - Line 13: Unused constant W3D_NAME_LEN
+    Status: Format parsing constant (intentional?)
+
+20. /crates/ww3d-scene/src/light.rs
+    - Line 224-228: Unused fields in InputLight
+    Status: Point light system not implemented
+
+FILE IMPACT SUMMARY:
+====================
+
+Total Files Affected: 20
+- Critical: 4 files
+- Medium: 11 files
+- Low: 5 files
+
+Critical File Count by Category:
+- mesh_system.rs: 12 warnings (needs major review)
+- post_process.rs: 5 warnings (feature incomplete)
+- reflection_system.rs: 3 warnings (feature incomplete)
+- lib.rs: 2 warnings (API issue + cleanup)
+
+Lines of Code to Review: ~15,000+ lines
+Estimated Review Time: 4-6 hours
+Estimated Fix Time: 7-18 hours depending on depth

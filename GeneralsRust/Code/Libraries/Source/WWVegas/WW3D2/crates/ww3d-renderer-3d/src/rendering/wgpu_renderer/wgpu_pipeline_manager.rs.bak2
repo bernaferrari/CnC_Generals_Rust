@@ -1,0 +1,578 @@
+//! WGPU pipeline manager bridging WW3D shader/material state to wgpu::RenderPipeline
+use crate::rendering::shader_system::shader::{
+    DepthCompareType, DepthMaskType, DstBlendFuncType, ShaderClass, SrcBlendFuncType,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
+use ww3d_gpu::device::GpuDevice;
+
+/// Maximum number of texture stages that the fixed-function compatibility shaders support.
+///
+/// The classic renderer exposed eight texture stages. The WGSL pipelines mirror that layout by
+/// packing two stages per bind group (2×2D + 2×cube + samplers).
+pub const MAX_TEXTURE_STAGES: usize = 8;
+pub const TEXTURES_PER_GROUP: usize = 2;
+pub const MAX_TEXTURE_STAGE_GROUPS: usize =
+    (MAX_TEXTURE_STAGES + TEXTURES_PER_GROUP - 1) / TEXTURES_PER_GROUP;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VertexFormat {
+    Basic,   // position, normal, texture coordinates
+    Skinned, // position, normal, texture coordinates, bone indices, bone weights
+    Line,    // position, color
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct PipelineKey {
+    pub shader_bits: u32,
+    pub skinned: bool,
+    pub has_lighting: bool,
+    pub has_fog: bool,
+    pub primitive_topology: u8, // 0=TriangleList, 1=LineList, 2=TriangleStrip
+    pub color_format: wgpu::TextureFormat,
+    pub depth_format: Option<wgpu::TextureFormat>,
+    pub vertex_format: u8, // 0=basic (pos,normal,uv), 1=skinned, 2=line (pos,color)
+    pub depth_bias: i32,
+    pub force_two_sided: bool,
+}
+
+#[derive(Debug)]
+pub struct WgpuPipelineManager {
+    gpu_device: Arc<GpuDevice>,
+    cache: HashMap<PipelineKey, Arc<wgpu::RenderPipeline>>,
+}
+
+impl WgpuPipelineManager {
+    pub fn new(gpu_device: Arc<GpuDevice>) -> Self {
+        Self {
+            gpu_device,
+            cache: HashMap::new(),
+        }
+    }
+
+    pub fn get_or_create(
+        &mut self,
+        shader: &ShaderClass,
+        _texture_stage_mask: u8,
+        skinned: bool,
+        has_lighting: bool,
+        has_fog: bool,
+        primitive_topology: wgpu::PrimitiveTopology,
+        vertex_format: VertexFormat,
+        color_format: wgpu::TextureFormat,
+        depth_format: Option<wgpu::TextureFormat>,
+        depth_bias: i32,
+        force_two_sided: bool,
+    ) -> Arc<wgpu::RenderPipeline> {
+        let topology_id = match primitive_topology {
+            wgpu::PrimitiveTopology::TriangleList => 0,
+            wgpu::PrimitiveTopology::LineList => 1,
+            wgpu::PrimitiveTopology::TriangleStrip => 2,
+            _ => 0,
+        };
+
+        let vertex_format_id = match vertex_format {
+            VertexFormat::Basic => 0,
+            VertexFormat::Skinned => 1,
+            VertexFormat::Line => 2,
+        };
+
+        let key = PipelineKey {
+            shader_bits: shader.get_bits(),
+            skinned,
+            has_lighting,
+            has_fog,
+            primitive_topology: topology_id,
+            color_format,
+            depth_format,
+            vertex_format: vertex_format_id,
+            depth_bias,
+            force_two_sided,
+        };
+        if let Some(p) = self.cache.get(&key) {
+            return p.clone();
+        }
+
+        // Load WGSL based on shader flags and vertex format
+        let device = self.gpu_device.wgpu_device();
+
+        let shader_source = match vertex_format {
+            VertexFormat::Line => include_str!("../shader_system/line.wgsl"),
+            VertexFormat::Skinned => include_str!("../shader_system/skinned.wgsl"),
+            VertexFormat::Basic => {
+                if shader.get_src_blend_func() == SrcBlendFuncType::SrcAlpha
+                    && shader.get_dst_blend_func() == DstBlendFuncType::InvSrcAlpha
+                {
+                    include_str!("../shader_system/alpha.wgsl")
+                } else if shader.get_src_blend_func() == SrcBlendFuncType::One
+                    && shader.get_dst_blend_func() == DstBlendFuncType::One
+                {
+                    include_str!("../shader_system/additive.wgsl")
+                } else if shader.get_depth_compare() == DepthCompareType::Always
+                    && shader.get_depth_mask() == DepthMaskType::Disable
+                {
+                    include_str!("../shader_system/decal.wgsl")
+                } else {
+                    include_str!("../shader_system/opaque.wgsl")
+                }
+            }
+        };
+
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("WW3D Shader Module"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
+
+        // Bind group layouts: 0 camera, 1 model+lighting, 2 bones (optional), 3 texture (optional)
+        let camera_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Camera BGL"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Model BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bones_bgl = if matches!(vertex_format, VertexFormat::Skinned) {
+            Some(
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Bones BGL"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                }),
+            )
+        } else {
+            None
+        };
+        let texture_bgls: Vec<wgpu::BindGroupLayout> =
+            if matches!(vertex_format, VertexFormat::Line) {
+                Vec::new()
+            } else {
+                (0..MAX_TEXTURE_STAGE_GROUPS)
+                    .map(|group_index| {
+                        let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
+                        for i in 0..TEXTURES_PER_GROUP {
+                            let binding_base = (i * 3) as u32;
+                            entries.push(wgpu::BindGroupLayoutEntry {
+                                binding: binding_base,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Texture {
+                                    multisampled: false,
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                    sample_type: wgpu::TextureSampleType::Float {
+                                        filterable: true,
+                                    },
+                                },
+                                count: None,
+                            });
+                            entries.push(wgpu::BindGroupLayoutEntry {
+                                binding: binding_base + 1,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Texture {
+                                    multisampled: false,
+                                    view_dimension: wgpu::TextureViewDimension::Cube,
+                                    sample_type: wgpu::TextureSampleType::Float {
+                                        filterable: true,
+                                    },
+                                },
+                                count: None,
+                            });
+                            entries.push(wgpu::BindGroupLayoutEntry {
+                                binding: binding_base + 2,
+                                visibility: wgpu::ShaderStages::FRAGMENT,
+                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                                count: None,
+                            });
+                        }
+                        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                            label: Some(&format!("Texture BGL Group {group_index}")),
+                            entries: &entries,
+                        })
+                    })
+                    .collect()
+            };
+
+        let color_bgl = if matches!(vertex_format, VertexFormat::Line) {
+            None
+        } else {
+            Some(
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Vertex Color BGL"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
+                }),
+            )
+        };
+
+        let mut bgls: Vec<&wgpu::BindGroupLayout> = vec![&camera_bgl, &model_bgl];
+        if let Some(ref b) = bones_bgl {
+            bgls.push(b);
+        }
+        for texture_layout in &texture_bgls {
+            bgls.push(texture_layout);
+        }
+        if let Some(ref color_layout) = color_bgl {
+            bgls.push(color_layout);
+        }
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("WW3D Pipeline Layout"),
+            bind_group_layouts: &bgls,
+            push_constant_ranges: &[],
+        });
+
+        // Vertex formats based on vertex format type
+        let vertex_layout = match vertex_format {
+            VertexFormat::Line => {
+                wgpu::VertexBufferLayout {
+                    array_stride: (std::mem::size_of::<[f32; 3]>()
+                        + std::mem::size_of::<[f32; 4]>()) as u64, // pos + color
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 12,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                    ],
+                }
+            }
+            VertexFormat::Skinned => {
+                let stride_bytes =
+                    (3 + 3 + (MAX_TEXTURE_STAGES * 2) + 4 + 4) * std::mem::size_of::<f32>();
+                wgpu::VertexBufferLayout {
+                    array_stride: stride_bytes as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 12,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 24,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 32,
+                            shader_location: 3,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 40,
+                            shader_location: 4,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 48,
+                            shader_location: 5,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 56,
+                            shader_location: 6,
+                            format: wgpu::VertexFormat::Uint32x4,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 72,
+                            shader_location: 7,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                    ],
+                }
+            }
+            VertexFormat::Basic => {
+                let stride_bytes = (3 + 3 + (MAX_TEXTURE_STAGES * 2)) * std::mem::size_of::<f32>();
+                wgpu::VertexBufferLayout {
+                    array_stride: stride_bytes as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 12,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x3,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 24,
+                            shader_location: 2,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 32,
+                            shader_location: 3,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 40,
+                            shader_location: 4,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 48,
+                            shader_location: 5,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                    ],
+                }
+            }
+        };
+
+        let blend = create_blend_state_from_shader(shader);
+        let bias_state = if depth_bias != 0 {
+            wgpu::DepthBiasState {
+                constant: depth_bias,
+                slope_scale: 0.0,
+                clamp: 0.0,
+            }
+        } else {
+            wgpu::DepthBiasState::default()
+        };
+
+        let depth_format = depth_format.unwrap_or(wgpu::TextureFormat::Depth32Float);
+        let depth_stencil = Some(create_depth_stencil_state_from_shader(
+            shader,
+            depth_format,
+            bias_state,
+        ));
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("WW3D Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: "vs_main",
+                buffers: &[vertex_layout],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(blend),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: primitive_topology,
+                strip_index_format: if matches!(
+                    primitive_topology,
+                    wgpu::PrimitiveTopology::TriangleStrip
+                ) {
+                    Some(wgpu::IndexFormat::Uint16)
+                } else {
+                    None
+                },
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: if force_two_sided
+                    || shader.get_cull_mode()
+                        != crate::rendering::shader_system::shader::CullModeType::Enable
+                {
+                    None
+                } else {
+                    Some(wgpu::Face::Back)
+                },
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        let arc = Arc::new(pipeline);
+        self.cache.insert(key, arc.clone());
+        arc
+    }
+}
+
+/// Create WGPU blend state from shader configuration with validation and fallback logic
+///
+/// Reference: GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/shader.cpp lines 438-463
+///
+/// This function mirrors the C++ Apply() method's blend state logic:
+/// 1. Extract source and destination blend functions from shader bits
+/// 2. Check if color mask is disabled (forces ZERO, ONE for safety)
+/// 3. Apply blend enable logic: blending is enabled if (src != ONE || dst != ZERO)
+/// 4. Handle alpha channel separately from color channels
+///
+/// # Validation Rules (from C++ lines 455-463)
+/// - If color mask is disabled: force src=ZERO, dst=ONE to prevent writes
+/// - If src==ONE and dst==ZERO: blending is considered disabled (opaque)
+/// - Otherwise: blending is enabled
+fn create_blend_state_from_shader(shader: &ShaderClass) -> wgpu::BlendState {
+    let mut src_func = shader.get_src_blend_func();
+    let mut dst_func = shader.get_dst_blend_func();
+
+    // Validation: If color mask is disabled, force safe blend mode
+    // Reference: shader.cpp lines 442-446
+    if shader.get_color_mask() == crate::rendering::shader_system::shader::ColorMaskType::Disable {
+        src_func = SrcBlendFuncType::Zero;
+        dst_func = DstBlendFuncType::One;
+    }
+
+    // Convert source blend function to WGPU
+    let src = match src_func {
+        SrcBlendFuncType::Zero => wgpu::BlendFactor::Zero,
+        SrcBlendFuncType::One => wgpu::BlendFactor::One,
+        SrcBlendFuncType::SrcColor => wgpu::BlendFactor::Src,
+        SrcBlendFuncType::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
+        SrcBlendFuncType::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
+        SrcBlendFuncType::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
+        _ => {
+            // Fallback for invalid values
+            log::warn!("Invalid source blend function, defaulting to One");
+            wgpu::BlendFactor::One
+        }
+    };
+
+    // Convert destination blend function to WGPU
+    let dst = match dst_func {
+        DstBlendFuncType::Zero => wgpu::BlendFactor::Zero,
+        DstBlendFuncType::One => wgpu::BlendFactor::One,
+        DstBlendFuncType::SrcColor => wgpu::BlendFactor::Src,
+        DstBlendFuncType::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
+        DstBlendFuncType::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
+        DstBlendFuncType::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
+        DstBlendFuncType::DstAlpha => wgpu::BlendFactor::DstAlpha,
+        DstBlendFuncType::InvDstAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
+        DstBlendFuncType::DstColor => wgpu::BlendFactor::Dst,
+        DstBlendFuncType::InvDstColor => wgpu::BlendFactor::OneMinusDst,
+        _ => {
+            // Fallback for invalid values
+            log::warn!("Invalid destination blend function, defaulting to Zero");
+            wgpu::BlendFactor::Zero
+        }
+    };
+
+    // Check if blending should be enabled
+    // Reference: shader.cpp lines 455-463
+    // "if(sf != D3DBLEND_ONE || df != D3DBLEND_ZERO) { blendOn = TRUE; }"
+    let blend_enabled = src != wgpu::BlendFactor::One || dst != wgpu::BlendFactor::Zero;
+
+    if !blend_enabled {
+        // Opaque rendering: use REPLACE blend mode
+        wgpu::BlendState::REPLACE
+    } else {
+        // Transparent rendering: configure blend state
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: src,
+                dst_factor: dst,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                // Alpha channel typically uses same factors as color
+                // but could be configured differently for special effects
+                src_factor: src,
+                dst_factor: dst,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }
+    }
+}
+
+fn to_compare_func(cmp: DepthCompareType) -> wgpu::CompareFunction {
+    match cmp {
+        DepthCompareType::Never => wgpu::CompareFunction::Never,
+        DepthCompareType::Less => wgpu::CompareFunction::Less,
+        DepthCompareType::Equal => wgpu::CompareFunction::Equal,
+        DepthCompareType::Lequal => wgpu::CompareFunction::LessEqual,
+        DepthCompareType::Greater => wgpu::CompareFunction::Greater,
+        DepthCompareType::Notequal => wgpu::CompareFunction::NotEqual,
+        DepthCompareType::Gequal => wgpu::CompareFunction::GreaterEqual,
+        DepthCompareType::Always => wgpu::CompareFunction::Always,
+        _ => wgpu::CompareFunction::LessEqual,
+    }
+}
+
+fn create_depth_stencil_state_from_shader(
+    shader: &ShaderClass,
+    format: wgpu::TextureFormat,
+    bias: wgpu::DepthBiasState,
+) -> wgpu::DepthStencilState {
+    wgpu::DepthStencilState {
+        format,
+        depth_write_enabled: shader.get_depth_mask() == DepthMaskType::Enable,
+        depth_compare: to_compare_func(shader.get_depth_compare()),
+        stencil: wgpu::StencilState::default(),
+        bias,
+    }
+}

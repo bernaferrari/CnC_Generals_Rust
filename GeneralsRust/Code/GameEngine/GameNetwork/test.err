@@ -1,0 +1,837 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/Cargo.toml
+workspace: /Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Cargo.toml
+warning: `panic` setting is ignored for `bench` profile
+warning: extern crate `atomic` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use atomic as _;` to the crate root
+  = note: requested on the command line with `-W unused-crate-dependencies`
+
+warning: extern crate `crossbeam` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use crossbeam as _;` to the crate root
+
+warning: extern crate `ed25519_dalek` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use ed25519_dalek as _;` to the crate root
+
+warning: extern crate `toml` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use toml as _;` to the crate root
+
+warning: extern crate `tungstenite` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use tungstenite as _;` to the crate root
+
+warning: extern crate `x25519_dalek` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use x25519_dalek as _;` to the crate root
+
+warning: unused import: `SystemTime`
+  --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:61:27
+   |
+61 | use std::time::{Duration, SystemTime};
+   |                           ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `timeout`
+  --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:63:19
+   |
+63 | use tokio::time::{timeout, Instant};
+   |                   ^^^^^^^
+
+warning: unused import: `uuid::Uuid`
+  --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:65:5
+   |
+65 | use uuid::Uuid;
+   |     ^^^^^^^^^^
+
+warning: unused import: `Mutex`
+  --> Code/GameEngine/GameNetwork/src/lan_api/chat.rs:14:25
+   |
+14 | use tokio::sync::{mpsc, Mutex, RwLock};
+   |                         ^^^^^
+
+warning: unused import: `timeout`
+  --> Code/GameEngine/GameNetwork/src/lan_api/discovery.rs:21:29
+   |
+21 | use tokio::time::{interval, timeout};
+   |                             ^^^^^^^
+
+warning: unused import: `error`
+  --> Code/GameEngine/GameNetwork/src/lan_api/discovery.rs:22:22
+   |
+22 | use tracing::{debug, error, info, trace, warn};
+   |                      ^^^^^
+
+warning: unused import: `PlayerState`
+ --> Code/GameEngine/GameNetwork/src/lan_api/game_info.rs:6:50
+  |
+6 | use crate::lan_api::{DiscoveryMethod, LanPlayer, PlayerState};
+  |                                                  ^^^^^^^^^^^
+
+warning: unused imports: `LanMessageType`, `MessagePayload`, `PlayerRole`, and `PlayerState`
+  --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:13:17
+   |
+13 |     LanMessage, LanMessageType, LanPlayer, MessagePayload, PlayerRole, PlayerState,
+   |                 ^^^^^^^^^^^^^^             ^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:17:5
+   |
+17 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Mutex`
+  --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:22:25
+   |
+22 | use tokio::sync::{mpsc, Mutex, RwLock};
+   |                         ^^^^^
+
+warning: unused import: `error`
+  --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:24:22
+   |
+24 | use tracing::{debug, error, info, trace, warn};
+   |                      ^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> Code/GameEngine/GameNetwork/src/lan_api/messages.rs:8:5
+  |
+8 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::net::SocketAddr`
+  --> Code/GameEngine/GameNetwork/src/matchmaking/mod.rs:10:5
+   |
+10 | use std::net::SocketAddr;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `debug`, `error`, and `warn`
+  --> Code/GameEngine/GameNetwork/src/matchmaking/mod.rs:13:15
+   |
+13 | use tracing::{debug, error, info, warn};
+   |               ^^^^^  ^^^^^        ^^^^
+
+warning: unused import: `mpsc`
+  --> Code/GameEngine/GameNetwork/src/matchmaking/lobby.rs:12:30
+   |
+12 | use tokio::sync::{broadcast, mpsc, RwLock};
+   |                              ^^^^
+
+warning: unused import: `timeout`
+  --> Code/GameEngine/GameNetwork/src/matchmaking/lobby.rs:14:19
+   |
+14 | use tokio::time::{timeout, Duration};
+   |                   ^^^^^^^
+
+warning: unused import: `error`
+  --> Code/GameEngine/GameNetwork/src/matchmaking/lobby.rs:15:22
+   |
+15 | use tracing::{debug, error, info, warn};
+   |                      ^^^^^
+
+warning: unused imports: `CommandPayload` and `NetCommandType`
+  --> Code/GameEngine/GameNetwork/src/net_packet.rs:24:23
+   |
+24 | use crate::commands::{CommandPayload, NetCommand, NetCommandType};
+   |                       ^^^^^^^^^^^^^^              ^^^^^^^^^^^^^^
+
+warning: unused import: `crate::transport::TransportProtocol`
+  --> Code/GameEngine/GameNetwork/src/net_packet.rs:26:5
+   |
+26 | use crate::transport::TransportProtocol;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `WriteBytesExt`
+  --> Code/GameEngine/GameNetwork/src/net_packet.rs:27:56
+   |
+27 | use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+   |                                                        ^^^^^^^^^^^^^
+
+warning: unused import: `Write`
+  --> Code/GameEngine/GameNetwork/src/net_packet.rs:28:29
+   |
+28 | use std::io::{Cursor, Read, Write};
+   |                             ^^^^^
+
+warning: unused imports: `debug`, `trace`, and `warn`
+  --> Code/GameEngine/GameNetwork/src/net_packet.rs:29:15
+   |
+29 | use tracing::{debug, trace, warn};
+   |               ^^^^^  ^^^^^  ^^^^
+
+warning: unused imports: `Context`, `Span`, `debug`, `instrument`, `trace::TraceContextExt`, `trace`, and `warn`
+  --> Code/GameEngine/GameNetwork/src/observability/mod.rs:21:21
+   |
+21 |     opentelemetry::{trace::TraceContextExt, Context, KeyValue},
+   |                     ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^
+...
+24 |     tracing::{debug, error, info, instrument, trace, warn, Span},
+   |               ^^^^^               ^^^^^^^^^^  ^^^^^  ^^^^  ^^^^
+
+warning: unused imports: `debug` and `warn`
+ --> Code/GameEngine/GameNetwork/src/utils/mod.rs:9:15
+  |
+9 | use tracing::{debug, warn};
+  |               ^^^^^  ^^^^
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/lib.rs:392:21
+    |
+392 |                 let mut connection_manager = self.connection_manager.write().await;
+    |                     ----^^^^^^^^^^^^^^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/lib.rs:403:21
+    |
+403 |                 let mut frame_manager = self.frame_manager.write().await;
+    |                     ----^^^^^^^^^^^^^
+    |                     |
+    |                     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/lib.rs:427:17
+    |
+427 |             let mut connection_manager = self.connection_manager.write().await;
+    |                 ----^^^^^^^^^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/lib.rs:431:17
+    |
+431 |             let mut frame_manager = self.frame_manager.write().await;
+    |                 ----^^^^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable `last_queue_size` is assigned to, but never used
+   --> Code/GameEngine/GameNetwork/src/connection/mod.rs:559:17
+    |
+559 |         let mut last_queue_size = 0usize;
+    |                 ^^^^^^^^^^^^^^^
+    |
+    = note: consider using `_last_queue_size` instead
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: value assigned to `last_queue_size` is never read
+   --> Code/GameEngine/GameNetwork/src/connection/mod.rs:663:21
+    |
+663 |                     last_queue_size = queue_size;
+    |                     ^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: unused variable: `keepalive`
+   --> Code/GameEngine/GameNetwork/src/connection/mod.rs:700:29
+    |
+700 |                         let keepalive = NetCommand::keep_alive(player_id);
+    |                             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_keepalive`
+
+warning: value assigned to `removed_idle` is never read
+   --> Code/GameEngine/GameNetwork/src/connection/pool.rs:510:17
+    |
+510 |         let mut removed_idle = 0;
+    |                 ^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: unused variable: `ack`
+   --> Code/GameEngine/GameNetwork/src/connection/reliability.rs:380:17
+    |
+380 |             let ack = NetCommand::ack(
+    |                 ^^^ help: if this is intentional, prefix it with an underscore: `_ack`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/gamespy/mod.rs:257:17
+    |
+257 |             let mut storage = self.storage.write().await;
+    |                 ----^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/gamespy/mod.rs:298:13
+    |
+298 |         let mut buddy = self.buddy.write().await;
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/gamespy/mod.rs:304:13
+    |
+304 |         let mut buddy = self.buddy.write().await;
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/gamespy/mod.rs:353:13
+    |
+353 |         let mut game_results = self.game_results.write().await;
+    |             ----^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unreachable pattern
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1073:13
+     |
+1073 |             _ => {
+     |             ^ no value can reach this
+     |
+note: multiple earlier patterns match some of the same values
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1073:13
+     |
+662  |             LanMessageType::RequestLocations => {
+     |             -------------------------------- matches some of the same values
+...
+692  |             LanMessageType::LobbyAnnounce => {
+     |             ----------------------------- matches some of the same values
+...
+701  |             LanMessageType::GameAnnounce => {
+     |             ---------------------------- matches some of the same values
+...
+754  |             LanMessageType::RequestJoin => {
+     |             --------------------------- matches some of the same values
+...
+1073 |             _ => {
+     |             ^ ...and 13 other patterns collectively make this unreachable
+     = note: `#[warn(unreachable_patterns)]` on by default
+
+warning: variable does not need to be mutable
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1157:13
+     |
+1157 |         let mut lobby = self.lobby.write().await;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1182:13
+     |
+1182 |         let mut lobby = self.lobby.write().await;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1189:13
+     |
+1189 |         let mut lobby = self.lobby.write().await;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1290:13
+     |
+1290 |         let mut lobby = self.lobby.write().await;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:1321:13
+     |
+1321 |         let mut lobby = self.lobby.write().await;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: unused variable: `game`
+   --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:985:29
+    |
+985 |                 if let Some(game) = self.current_game.read().await.as_ref() {
+    |                             ^^^^ help: if this is intentional, prefix it with an underscore: `_game`
+
+warning: value assigned to `announce_after` is never read
+    --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:1063:17
+     |
+1063 |         let mut announce_after = None;
+     |                 ^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: unused variable: `event_tx`
+   --> Code/GameEngine/GameNetwork/src/matchmaking/lobby.rs:191:13
+    |
+191 |         let event_tx = self.event_tx.clone();
+    |             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_event_tx`
+
+warning: unused import: `ReadBytesExt`
+  --> Code/GameEngine/GameNetwork/src/net_packet.rs:27:42
+   |
+27 | use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+   |                                          ^^^^^^^^^^^^
+
+warning: unused variable: `id`
+   --> Code/GameEngine/GameNetwork/src/lan_api/player.rs:541:31
+    |
+541 |         self.players.retain(|&id, player| {
+    |                               ^^ help: if this is intentional, prefix it with an underscore: `_id`
+
+warning: unused variable: `command_type_byte`
+   --> Code/GameEngine/GameNetwork/src/net_packet.rs:604:17
+    |
+604 |             let command_type_byte = {
+    |                 ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_command_type_byte`
+
+warning: type `InternalMessage` is more private than the item `LanChat::new`
+   --> Code/GameEngine/GameNetwork/src/lan_api/chat.rs:337:5
+    |
+337 | /     pub async fn new(
+338 | |         max_message_length: usize,
+339 | |         internal_tx: mpsc::UnboundedSender<InternalMessage>,
+340 | |     ) -> NetworkResult<Self> {
+    | |____________________________^ associated function `LanChat::new` is reachable at visibility `pub`
+    |
+note: but type `InternalMessage` is only usable at visibility `pub(self)`
+   --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:259:1
+    |
+259 | enum InternalMessage {
+    | ^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `InternalMessage` is more private than the item `GameDiscovery::new`
+   --> Code/GameEngine/GameNetwork/src/lan_api/discovery.rs:200:5
+    |
+200 | /     pub async fn new(
+201 | |         config: DiscoveryConfig,
+202 | |         internal_tx: mpsc::UnboundedSender<InternalMessage>,
+203 | |     ) -> NetworkResult<Self> {
+    | |____________________________^ associated function `GameDiscovery::new` is reachable at visibility `pub`
+    |
+note: but type `InternalMessage` is only usable at visibility `pub(self)`
+   --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:259:1
+    |
+259 | enum InternalMessage {
+    | ^^^^^^^^^^^^^^^^^^^^
+
+warning: type `InternalMessage` is more private than the item `LanLobby::new`
+   --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:131:5
+    |
+131 | /     pub async fn new(
+132 | |         config: LanConfig,
+133 | |         discovery: Arc<GameDiscovery>,
+134 | |         internal_tx: mpsc::UnboundedSender<InternalMessage>,
+135 | |     ) -> NetworkResult<Self> {
+    | |____________________________^ associated function `LanLobby::new` is reachable at visibility `pub`
+    |
+note: but type `InternalMessage` is only usable at visibility `pub(self)`
+   --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:259:1
+    |
+259 | enum InternalMessage {
+    | ^^^^^^^^^^^^^^^^^^^^
+
+warning: multiple fields are never read
+   --> Code/GameEngine/GameNetwork/src/lib.rs:127:5
+    |
+119 | pub struct NetworkInterface {
+    |            ---------------- fields in this struct
+...
+127 |     game_frame: u32,
+    |     ^^^^^^^^^^
+128 |     execution_frame: u32,
+    |     ^^^^^^^^^^^^^^^
+129 |     run_ahead: u32,
+    |     ^^^^^^^^^
+130 |     frame_rate: u32,
+    |     ^^^^^^^^^^
+131 |     packet_arrival_cushion: u32,
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+132 |     network_enabled: bool,
+    |     ^^^^^^^^^^^^^^^
+133 |     saw_crc_mismatch: bool,
+    |     ^^^^^^^^^^^^^^^^
+134 |     ping_frame: u32,
+    |     ^^^^^^^^^^
+135 |     pings_sent: i32,
+    |     ^^^^^^^^^^
+136 |     pings_received: i32,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: fields `sequence_counter` and `last_received_sequence` are never read
+   --> Code/GameEngine/GameNetwork/src/connection/mod.rs:158:5
+    |
+133 | pub struct Connection {
+    |            ---------- fields in this struct
+...
+158 |     sequence_counter: AtomicU64,
+    |     ^^^^^^^^^^^^^^^^
+159 |     last_received_sequence: Arc<RwLock<u64>>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `first_sent` is never read
+  --> Code/GameEngine/GameNetwork/src/connection/reliability.rs:88:5
+   |
+82 | struct PendingMessage {
+   |        -------------- field in this struct
+...
+88 |     first_sent: Instant,
+   |     ^^^^^^^^^^
+   |
+   = note: `PendingMessage` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `retry_queue` and `retry_notify` are never read
+   --> Code/GameEngine/GameNetwork/src/connection/reliability.rs:247:5
+    |
+230 | pub struct ReliabilityLayer {
+    |            ---------------- fields in this struct
+...
+247 |     retry_queue: RwLock<VecDeque<NetCommand>>,
+    |     ^^^^^^^^^^^
+...
+251 |     retry_notify: mpsc::Sender<NetCommand>,
+    |     ^^^^^^^^^^^^
+
+warning: variant `Leave` is never constructed
+   --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:214:5
+    |
+210 | enum PendingAction {
+    |      ------------- variant in this enum
+...
+214 |     Leave,
+    |     ^^^^^
+    |
+    = note: `PendingAction` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: variant `Timeout` is never constructed
+   --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:261:5
+    |
+259 | enum InternalMessage {
+    |      --------------- variant in this enum
+260 |     NetworkMessage(LanMessage, SocketAddr),
+261 |     Timeout(PendingAction),
+    |     ^^^^^^^
+    |
+    = note: `InternalMessage` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `target_ip` is never read
+  --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:83:5
+   |
+81 | struct JoinRequest {
+   |        ----------- field in this struct
+82 |     game: LanGameInfo,
+83 |     target_ip: Option<IpAddr>,
+   |     ^^^^^^^^^
+   |
+   = note: `JoinRequest` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `get_rate` is never used
+   --> Code/GameEngine/GameNetwork/src/security/mod.rs:206:8
+    |
+187 | impl CommandRateTracker {
+    | ----------------------- method in this implementation
+...
+206 |     fn get_rate(&self) -> u32 {
+    |        ^^^^^^^^
+
+warning: field `hmac_key` is never read
+   --> Code/GameEngine/GameNetwork/src/security/mod.rs:233:5
+    |
+212 | pub struct SecurityManager {
+    |            --------------- field in this struct
+...
+233 |     hmac_key: hmac::Key,
+    |     ^^^^^^^^
+
+warning: unused implementer of `std::future::Future` that must be used
+   --> Code/GameEngine/GameNetwork/src/gamespy/mod.rs:207:17
+    |
+207 |                 ladder.update_player_stats(player_id.clone(), stats);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: futures do nothing unless you `.await` or poll them
+    = note: `#[warn(unused_must_use)]` on by default
+
+warning: `game_network` (lib) generated 68 warnings (run `cargo fix --lib -p game_network` to apply 37 suggestions)
+   Compiling game_network v0.1.0 (/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameNetwork)
+warning: extern crate `async_trait` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use async_trait as _;` to the crate root
+  = note: requested on the command line with `-W unused-crate-dependencies`
+
+warning: extern crate `atomic` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use atomic as _;` to the crate root
+
+warning: extern crate `bincode` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use bincode as _;` to the crate root
+
+warning: extern crate `byteorder` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use byteorder as _;` to the crate root
+
+warning: extern crate `chrono` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use chrono as _;` to the crate root
+
+warning: extern crate `config` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use config as _;` to the crate root
+
+warning: extern crate `console_subscriber` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use console_subscriber as _;` to the crate root
+
+warning: extern crate `crc32fast` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use crc32fast as _;` to the crate root
+
+warning: extern crate `criterion` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use criterion as _;` to the crate root
+
+warning: extern crate `crossbeam` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use crossbeam as _;` to the crate root
+
+warning: extern crate `ed25519_dalek` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use ed25519_dalek as _;` to the crate root
+
+warning: extern crate `flate2` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use flate2 as _;` to the crate root
+
+warning: extern crate `hex` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use hex as _;` to the crate root
+
+warning: extern crate `hyper` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use hyper as _;` to the crate root
+
+warning: extern crate `lz4_flex` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use lz4_flex as _;` to the crate root
+
+warning: extern crate `metrics` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use metrics as _;` to the crate root
+
+warning: extern crate `metrics_exporter_prometheus` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use metrics_exporter_prometheus as _;` to the crate root
+
+warning: extern crate `once_cell` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use once_cell as _;` to the crate root
+
+warning: extern crate `opentelemetry` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use opentelemetry as _;` to the crate root
+
+warning: extern crate `opentelemetry_otlp` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use opentelemetry_otlp as _;` to the crate root
+
+warning: extern crate `opentelemetry_sdk` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use opentelemetry_sdk as _;` to the crate root
+
+warning: extern crate `parking_lot` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use parking_lot as _;` to the crate root
+
+warning: extern crate `proptest` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use proptest as _;` to the crate root
+
+warning: extern crate `quinn` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use quinn as _;` to the crate root
+
+warning: extern crate `rand` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use rand as _;` to the crate root
+
+warning: extern crate `rayon` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use rayon as _;` to the crate root
+
+warning: extern crate `rcgen` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use rcgen as _;` to the crate root
+
+warning: extern crate `ring` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use ring as _;` to the crate root
+
+warning: extern crate `rmp_serde` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use rmp_serde as _;` to the crate root
+
+warning: extern crate `serde` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use serde as _;` to the crate root
+
+warning: extern crate `serde_json` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use serde_json as _;` to the crate root
+
+warning: extern crate `sha2` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use sha2 as _;` to the crate root
+
+warning: extern crate `thiserror` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use thiserror as _;` to the crate root
+
+warning: extern crate `tokio_test` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use tokio_test as _;` to the crate root
+
+warning: extern crate `tokio_tungstenite` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use tokio_tungstenite as _;` to the crate root
+
+warning: extern crate `toml` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use toml as _;` to the crate root
+
+warning: extern crate `tracing` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use tracing as _;` to the crate root
+
+warning: extern crate `tracing_subscriber` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use tracing_subscriber as _;` to the crate root
+
+warning: extern crate `tungstenite` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use tungstenite as _;` to the crate root
+
+warning: extern crate `uuid` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use uuid as _;` to the crate root
+
+warning: extern crate `wiremock` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use wiremock as _;` to the crate root
+
+warning: extern crate `x25519_dalek` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use x25519_dalek as _;` to the crate root
+
+warning: extern crate `zstd` is unused in crate `transport_flow`
+  |
+  = help: remove the dependency or add `use zstd as _;` to the crate root
+
+warning: `game_network` (test "transport_flow") generated 43 warnings
+error[E0422]: cannot find struct, variant or union type `DiscoveryConfig` in this scope
+    --> Code/GameEngine/GameNetwork/src/lan_api/lobby.rs:1273:17
+     |
+1273 |                 DiscoveryConfig {
+     |                 ^^^^^^^^^^^^^^^ not found in this scope
+     |
+help: consider importing this struct through its public re-export
+     |
+1266 +     use crate::DiscoveryConfig;
+     |
+
+warning: extern crate `criterion` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use criterion as _;` to the crate root
+
+warning: extern crate `proptest` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use proptest as _;` to the crate root
+
+warning: extern crate `rayon` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use rayon as _;` to the crate root
+
+warning: extern crate `tokio_test` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use tokio_test as _;` to the crate root
+
+warning: extern crate `wiremock` is unused in crate `game_network`
+  |
+  = help: remove the dependency or add `use wiremock as _;` to the crate root
+
+warning: unused import: `CommandPayload`
+   --> Code/GameEngine/GameNetwork/src/commands/validation.rs:410:27
+    |
+410 |     use crate::commands::{CommandPayload, NetCommand};
+    |                           ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `IpAddr` and `Ipv4Addr`
+   --> Code/GameEngine/GameNetwork/src/connection/pool.rs:684:20
+    |
+684 |     use std::net::{IpAddr, Ipv4Addr};
+    |                    ^^^^^^  ^^^^^^^^
+
+warning: unused import: `CommandPayload`
+   --> Code/GameEngine/GameNetwork/src/connection/reliability.rs:571:27
+    |
+571 |     use crate::commands::{CommandPayload, NetCommand};
+    |                           ^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+   --> Code/GameEngine/GameNetwork/src/connection/reliability.rs:572:9
+    |
+572 |     use std::collections::HashMap;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `SystemTime`
+  --> Code/GameEngine/GameNetwork/src/lan_api/mod.rs:61:27
+   |
+61 | use std::time::{Duration, SystemTime};
+   |                           ^^^^^^^^^^
+
+warning: unused variable: `transport`
+   --> Code/GameEngine/GameNetwork/src/connection/pool.rs:717:13
+    |
+717 |         let transport = create_test_transport();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_transport`
+
+warning: unused variable: `large_data`
+    --> Code/GameEngine/GameNetwork/src/net_packet.rs:1053:13
+     |
+1053 |         let large_data = vec![0u8; 2000]; // Larger than MAX_SIZE
+     |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_large_data`
+
+warning: unused variable: `packet`
+    --> Code/GameEngine/GameNetwork/src/net_packet.rs:1058:17
+     |
+1058 |         let mut packet = NetPacket::new(PacketType::Command, 1, 0, payload);
+     |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_packet`
+
+warning: variable does not need to be mutable
+    --> Code/GameEngine/GameNetwork/src/net_packet.rs:1058:13
+     |
+1058 |         let mut packet = NetPacket::new(PacketType::Command, 1, 0, payload);
+     |             ----^^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: unused variable: `now`
+   --> Code/GameEngine/GameNetwork/src/security/mod.rs:836:13
+    |
+836 |         let now = Utc::now();
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: variable does not need to be mutable
+   --> Code/GameEngine/GameNetwork/src/transport.rs:882:13
+    |
+882 |         let mut server = Transport::with_config(server_config.clone()).await.unwrap();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+For more information about this error, try `rustc --explain E0422`.
+warning: `game_network` (lib test) generated 69 warnings (53 duplicates)
+error: could not compile `game_network` (lib test) due to 1 previous error; 69 warnings emitted

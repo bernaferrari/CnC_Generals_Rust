@@ -1,0 +1,24 @@
+[package]
+name = "ww3d-geometry"
+version = "0.1.0"
+edition = "2021"
+description = "WW3D Geometry Engine - Mesh geometry, collision detection, and spatial partitioning"
+
+[dependencies]
+ww3d-core = { path = "../ww3d-core" }
+glam = { version = "0.24", features = ["bytemuck"] }
+bytemuck = { version = "1.24", features = ["derive"] }
+thiserror = "1.0"
+bitflags = "2.10"
+ww3d-assets = { path = "../ww3d-assets", optional = true }
+binrw = "0.11"
+rand = "0.8"
+
+[dependencies.wgpu]
+version = "0.19"
+optional = true
+
+[features]
+default = []
+wgpu = ["dep:wgpu"]
+assets-bridge = ["dep:ww3d-assets"]

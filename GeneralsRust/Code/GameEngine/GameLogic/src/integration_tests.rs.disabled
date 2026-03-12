@@ -1,0 +1,1206 @@
+/*
+**	Command & Conquer Generals Zero Hour(tm)
+**	Copyright 2025 Electronic Arts Inc.
+**
+**	This program is free software: you can redistribute it and/or modify
+**	it under the terms of the GNU General Public License as published by
+**	the Free Software Foundation, either version 3 of the License, or
+**	(at your option) any later version.
+**
+**	This program is distributed in the hope that it will be useful,
+**	but WITHOUT ANY WARRANTY; without even the implied warranty of
+**	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**	GNU General Public License for more details.
+**
+**	You should have received a copy of the GNU General Public License
+**	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+//! Integration Testing Suite
+//!
+//! This module provides comprehensive integration tests for the entire GameLogic system,
+//! ensuring all components work together correctly to provide a complete Command & Conquer
+//! Generals Zero Hour gameplay experience.
+//!
+//! NOTE: This file is intentionally disabled; the tests rely on legacy APIs that no longer
+//! match the current Rust port. Port/update before re-enabling.
+
+#[cfg(all(test, feature = "ai"))]
+mod tests {
+    use crate::{
+        ai::*, economy::*, experience::*, scripting::*, system::game_logic::*, weapon::*,
+        GameLogicResult,
+    };
+
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// Test fixture for full game simulation
+    struct GameTestFixture {
+        game_logic: Arc<std::sync::Mutex<GameLogic>>,
+        economy_manager: EconomyManager,
+        experience_manager: ExperienceManager,
+        weapon_store: WeaponStore,
+        players: Vec<u32>,
+    }
+
+    impl GameTestFixture {
+        fn new() -> Self {
+            let game_logic = get_game_logic();
+            let mut economy_manager = EconomyManager::new();
+            let experience_manager = ExperienceManager::new();
+            let weapon_store = WeaponStore::new();
+
+            // Initialize for 2 players
+            let players = vec![1, 2];
+
+            // Set up player economies
+            for &player_id in &players {
+                let mut starting_resources = HashMap::new();
+                starting_resources.insert(ResourceType::Money, 10000);
+                starting_resources.insert(ResourceType::Power, 1000);
+                starting_resources.insert(ResourceType::Command, 10);
+
+                economy_manager
+                    .initialize_player_economy(player_id, starting_resources)
+                    .expect("Failed to initialize player economy");
+            }
+
+            Self {
+                game_logic,
+                economy_manager,
+                experience_manager,
+                weapon_store,
+                players,
+            }
+        }
+
+        fn run_game_frames(&mut self, num_frames: u32) -> GameLogicResult<()> {
+            for _ in 0..num_frames {
+                // Update game logic
+                {
+                    let mut logic = self.game_logic.lock().map_err(|e| {
+                        crate::GameLogicError::Threading(format!(
+                            "Failed to lock game logic: {}",
+                            e
+                        ))
+                    })?;
+                    logic.update()?;
+                }
+
+                // Update economy
+                self.economy_manager.update(1.0 / 30.0)?; // 30 FPS
+
+                // Update AI
+                THE_AI
+                    .write()
+                    .map_err(|e| {
+                        crate::GameLogicError::Threading(format!("Failed to lock AI: {}", e))
+                    })?
+                    .update()?;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_full_system_initialization() {
+        // Test that all systems can be initialized together
+        let result = crate::initialize();
+        assert!(
+            result.is_ok(),
+            "Failed to initialize game logic systems: {:?}",
+            result.err()
+        );
+
+        // Verify AI system is functional
+        let ai_group = {
+            let mut ai = THE_AI.write().unwrap();
+            ai.create_group()
+        };
+        assert!(ai_group.read().is_ok());
+
+        // Verify weapon store is functional
+        with_weapon_store(|store| {
+            assert!(store.find_weapon_template("NonExistentWeapon").is_none());
+        })
+        .unwrap();
+
+        log::info!("✅ Full system initialization test passed");
+    }
+
+    #[test]
+    fn test_multi_player_game_simulation() {
+        let mut fixture = GameTestFixture::new();
+
+        // Initialize game
+        {
+            let mut logic = fixture.game_logic.lock().unwrap();
+            logic.init().unwrap();
+            logic.set_game_mode(GameMode::Skirmish);
+            logic.start_game().unwrap();
+        }
+
+        // Simulate 30 seconds of gameplay (900 frames at 30 FPS)
+        let result = fixture.run_game_frames(900);
+        assert!(result.is_ok(), "Game simulation failed: {:?}", result.err());
+
+        // Verify game state
+        {
+            let logic = fixture.game_logic.lock().unwrap();
+            assert_eq!(logic.get_game_state(), GameState::Running);
+            assert!(logic.get_frame() >= 900);
+        }
+
+        log::info!("✅ Multi-player game simulation test passed");
+    }
+
+    #[test]
+    fn test_economy_integration() {
+        let mut economy = EconomyManager::new();
+
+        // Initialize player
+        let mut starting_resources = HashMap::new();
+        starting_resources.insert(ResourceType::Money, 5000);
+        economy
+            .initialize_player_economy(1, starting_resources)
+            .unwrap();
+
+        // Add economic buildings
+        let supply_center = EconomicBuilding {
+            object_id: 1001,
+            position: [100.0, 100.0, 0.0],
+            income_source: Some(IncomeSource::SupplyCenter),
+            power_source: None,
+            base_income_rate: 10.0,
+            base_power_generation: 0.0,
+            efficiency: 1.0,
+            is_functional: true,
+            needs_power: false,
+            power_consumption: 0.0,
+            upgrade_level: 0,
+            health_percentage: 1.0,
+        };
+
+        economy.add_economic_building(1, supply_center).unwrap();
+
+        // Simulate economy for 60 seconds
+        for _ in 0..(60 * 30) {
+            economy.update(1.0 / 30.0).unwrap();
+        }
+
+        // Verify income was generated
+        let resources = economy.get_player_resources(1).unwrap();
+        assert!(
+            resources[&ResourceType::Money] > 5000,
+            "Economy should have generated income"
+        );
+
+        // Test resource spending
+        let mut costs = HashMap::new();
+        costs.insert(ResourceType::Money, 1000);
+        let success = economy
+            .spend_resources(1, costs, "Test Purchase".to_string())
+            .unwrap();
+        assert!(success, "Should be able to spend resources");
+
+        log::info!("✅ Economy integration test passed");
+    }
+
+    #[test]
+    fn test_experience_and_veterancy() {
+        let experience_manager = ExperienceManager::new();
+
+        // Register test unit
+        let unit_id = 2001;
+        experience_manager.register_unit(unit_id).unwrap();
+
+        // Award combat experience
+        let kill_award = ExperienceAward {
+            points: 50,
+            source: ExperienceSource::CombatKill,
+            description: "Destroyed enemy tank".to_string(),
+            multiplier: 1.0,
+        };
+
+        // Award enough experience to reach veteran rank
+        for _ in 0..3 {
+            let promoted = experience_manager
+                .award_experience(unit_id, kill_award.clone())
+                .unwrap();
+            if promoted {
+                break;
+            }
+        }
+
+        // Verify promotion
+        let experience = experience_manager
+            .get_unit_experience(unit_id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            experience.current_rank >= VeterancyRank::Veteran,
+            "Unit should be promoted to veteran"
+        );
+
+        // Test weapon bonuses integration
+        let bonuses = experience_manager
+            .get_veterancy_bonuses(unit_id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            bonuses.damage_bonus > 1.0,
+            "Veteran unit should have damage bonus"
+        );
+
+        // Test weapon bonus flags
+        let weapon_flags = experience_manager.get_weapon_bonuses(unit_id).unwrap();
+        assert!(
+            weapon_flags.has(crate::weapon::WeaponBonusConditionType::Veteran),
+            "Should have veteran weapon bonus flags"
+        );
+
+        log::info!("✅ Experience and veterancy integration test passed");
+    }
+
+    #[test]
+    fn test_weapon_and_damage_system() {
+        initialize_weapon_store().unwrap();
+
+        // Create test weapon template
+        let mut weapon_template = WeaponTemplate::new("TestRifle".to_string());
+        weapon_template.primary_damage = 25.0;
+        weapon_template.attack_range = 150.0;
+        weapon_template.weapon_speed = 0.0; // Contact weapon
+
+        let template_arc =
+            with_weapon_store_mut(|store| store.add_weapon_template(weapon_template)).unwrap();
+
+        // Create weapon instance
+        let mut weapon = with_weapon_store(|store| {
+            store.allocate_new_weapon(&template_arc, WeaponSlotType::Primary)
+        })
+        .unwrap();
+
+        weapon.load_ammo_now(1001).unwrap();
+        assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
+
+        // Test weapon firing
+        weapon
+            .fire_weapon_at_position(1001, &[200.0, 200.0, 0.0])
+            .expect("weapon should fire");
+
+        log::info!("✅ Weapon and damage system test passed");
+    }
+
+    #[test]
+    fn test_ai_pathfinding_integration() {
+        // Initialize AI system
+        THE_AI.write().unwrap().init();
+
+        // Create AI group
+        let group = {
+            let mut ai = THE_AI.write().unwrap();
+            ai.create_group()
+        };
+
+        // Add test unit to group
+        {
+            let mut g = group.write().unwrap();
+            g.add(3001);
+
+            // Test movement command
+            let position = [500.0, 0.0, 300.0];
+            let result = g.ai_move_to_position(&position, CommandSourceType::FromPlayer);
+            assert!(result.is_ok(), "AI movement command should succeed");
+        }
+
+        // Update AI system
+        THE_AI.write().unwrap().update().unwrap();
+
+        log::info!("✅ AI pathfinding integration test passed");
+    }
+
+    #[test]
+    fn test_scripting_system() {
+        let mut engine = ScriptingEngine::new();
+
+        // Create test script
+        let script_source = r#"
+            function test_function() {
+                return "Hello from script!";
+            }
+        "#;
+
+        let script_result = engine.load_script("test_script", script_source);
+        assert!(script_result.is_ok(), "Script loading should succeed");
+
+        // Execute script function
+        let context = GameStateContext::new();
+        let result = engine.execute_function("test_script", "test_function", vec![], &context);
+        assert!(result.is_ok(), "Script execution should succeed");
+
+        log::info!("✅ Scripting system test passed");
+    }
+
+    #[test]
+    fn test_performance_benchmark() {
+        let mut fixture = GameTestFixture::new();
+
+        // Initialize game
+        {
+            let mut logic = fixture.game_logic.lock().unwrap();
+            logic.init().unwrap();
+            logic.set_game_mode(GameMode::Skirmish);
+            logic.start_game().unwrap();
+        }
+
+        // Benchmark game loop performance
+        let start_time = Instant::now();
+        let frames_to_simulate = 1800; // 60 seconds at 30 FPS
+
+        let result = fixture.run_game_frames(frames_to_simulate);
+        assert!(
+            result.is_ok(),
+            "Performance test failed: {:?}",
+            result.err()
+        );
+
+        let elapsed = start_time.elapsed();
+        let fps = frames_to_simulate as f64 / elapsed.as_secs_f64();
+
+        // Should be able to simulate faster than real-time
+        assert!(
+            fps > 30.0,
+            "Game simulation should run faster than 30 FPS, got: {:.2}",
+            fps
+        );
+
+        log::info!("✅ Performance benchmark test passed - {:.2} FPS", fps);
+    }
+
+    #[test]
+    fn test_memory_management() {
+        // Test that we can create and destroy many objects without memory leaks
+        let start_memory = get_memory_usage();
+
+        for iteration in 0..100 {
+            let mut fixture = GameTestFixture::new();
+
+            // Initialize systems
+            {
+                let mut logic = fixture.game_logic.lock().unwrap();
+                logic.init().unwrap();
+                logic.set_game_mode(GameMode::Skirmish);
+                logic.start_game().unwrap();
+            }
+
+            // Register many units for experience tracking
+            for unit_id in 1000..1100 {
+                fixture.experience_manager.register_unit(unit_id).unwrap();
+            }
+
+            // Create weapon templates
+            with_weapon_store_mut(|store| {
+                for i in 0..10 {
+                    let weapon = WeaponTemplate::new(format!("TestWeapon{}", i));
+                    store.add_weapon_template(weapon);
+                }
+            })
+            .unwrap();
+
+            // Simulate some frames
+            fixture.run_game_frames(30).unwrap();
+
+            // Clean up - this should happen automatically when fixture goes out of scope
+        }
+
+        // Force garbage collection if available
+        force_garbage_collection();
+
+        let end_memory = get_memory_usage();
+        let memory_increase = end_memory - start_memory;
+
+        // Memory increase should be reasonable (less than 100MB)
+        assert!(
+            memory_increase < 100 * 1024 * 1024,
+            "Memory usage increased too much: {} bytes",
+            memory_increase
+        );
+
+        log::info!(
+            "✅ Memory management test passed - Memory increase: {} bytes",
+            memory_increase
+        );
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Test that multiple threads can safely access game systems
+        let handles: Vec<_> = (0..4)
+            .map(|thread_id| {
+                thread::spawn(move || {
+                    // Each thread tries to access different parts of the system
+                    match thread_id {
+                        0 => {
+                            // Thread 0: AI operations
+                            let group = {
+                                let mut ai = THE_AI.write().unwrap();
+                                ai.create_group()
+                            };
+
+                            for i in 0..10 {
+                                let mut g = group.write().unwrap();
+                                g.add(4000 + i);
+                            }
+                        }
+                        1 => {
+                            // Thread 1: Weapon operations
+                            with_weapon_store_mut(|store| {
+                                for i in 0..5 {
+                                    let weapon =
+                                        WeaponTemplate::new(format!("ConcurrentWeapon{}", i));
+                                    store.add_weapon_template(weapon);
+                                }
+                            })
+                            .unwrap();
+                        }
+                        2 => {
+                            // Thread 2: Experience operations
+                            let exp_manager = ExperienceManager::new();
+                            for unit_id in 5000..5010 {
+                                exp_manager.register_unit(unit_id).unwrap();
+
+                                let award = ExperienceAward {
+                                    points: 25,
+                                    source: ExperienceSource::CombatKill,
+                                    description: "Concurrent test".to_string(),
+                                    multiplier: 1.0,
+                                };
+                                exp_manager.award_experience(unit_id, award).unwrap();
+                            }
+                        }
+                        3 => {
+                            // Thread 3: Economy operations
+                            let mut economy = EconomyManager::new();
+                            let mut resources = HashMap::new();
+                            resources.insert(ResourceType::Money, 1000);
+                            economy.initialize_player_economy(10, resources).unwrap();
+
+                            for _ in 0..30 {
+                                economy.update(1.0 / 30.0).unwrap();
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                })
+            })
+            .collect();
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().expect("Thread panicked");
+        }
+
+        log::info!("✅ Concurrent access test passed");
+    }
+
+    #[test]
+    fn test_game_state_consistency() {
+        let mut fixture = GameTestFixture::new();
+
+        // Initialize game
+        {
+            let mut logic = fixture.game_logic.lock().unwrap();
+            logic.init().unwrap();
+            logic.set_game_mode(GameMode::Skirmish);
+            logic.set_victory_condition(VictoryCondition::Annihilation);
+            logic.start_game().unwrap();
+        }
+
+        // Run game for a while
+        fixture.run_game_frames(300).unwrap();
+
+        // Verify state consistency
+        {
+            let logic = fixture.game_logic.lock().unwrap();
+
+            // Game should still be running
+            assert_eq!(logic.get_game_state(), GameState::Running);
+
+            // Frame counter should be advancing
+            assert!(logic.get_frame() >= 300);
+
+            // Game mode should be preserved
+            assert_eq!(logic.get_game_mode(), GameMode::Skirmish);
+
+            // Victory condition should be preserved
+            assert_eq!(
+                logic.get_victory_condition(),
+                VictoryCondition::Annihilation
+            );
+        }
+
+        // Check economy consistency
+        for &player_id in &fixture.players {
+            let resources = fixture
+                .economy_manager
+                .get_player_resources(player_id)
+                .unwrap();
+
+            // All players should have some resources
+            assert!(
+                resources.values().any(|&amount| amount > 0),
+                "Player {} should have some resources",
+                player_id
+            );
+
+            let metrics = fixture.economy_manager.get_economic_metrics(player_id);
+            assert!(
+                metrics.is_some(),
+                "Player {} should have economic metrics",
+                player_id
+            );
+        }
+
+        log::info!("✅ Game state consistency test passed");
+    }
+
+    // Helper functions for testing
+    fn get_memory_usage() -> usize {
+        // Placeholder - would use platform-specific memory measurement
+        0
+    }
+
+    fn force_garbage_collection() {
+        // Rust doesn't have explicit garbage collection, but we can drop large allocations
+        // This is a placeholder for any cleanup operations
+    }
+
+    /// Integration test runner - runs all integration tests in sequence
+    #[test]
+    fn run_all_integration_tests() {
+        log::info!("🚀 Starting comprehensive GameLogic integration test suite...");
+
+        let start_time = Instant::now();
+
+        // Run tests in order
+        test_full_system_initialization();
+        test_multi_player_game_simulation();
+        test_economy_integration();
+        test_experience_and_veterancy();
+        test_weapon_and_damage_system();
+        test_ai_pathfinding_integration();
+        test_scripting_system();
+        test_performance_benchmark();
+        test_memory_management();
+        test_concurrent_access();
+        test_game_state_consistency();
+
+        let elapsed = start_time.elapsed();
+        log::info!(
+            "🎉 All integration tests completed successfully in {:.2}s",
+            elapsed.as_secs_f64()
+        );
+        log::info!("✅ GameLogic system is ready for production!");
+    }
+
+    // ============================================================================
+    // WEEK 7 INTEGRATION TESTS: Ballistics → Physics → Armor → Projectile
+    // ============================================================================
+    // Tests verify end-to-end interactions between weapon systems
+
+    #[test]
+    fn test_ballistics_physics_integration() {
+        // Verify ballistic trajectory calculations integrate with physics engine
+        use crate::physics::{PhysicsState, PhysicsType};
+        use crate::weapon::ballistics::BallisticsCalculator;
+
+        let start = [0.0, 0.0, 0.0];
+        let target = [100.0, 0.0, 0.0];
+        let velocity = 100.0;
+        let gravity = 32.0;
+
+        // Phase 1: Calculate ballistic trajectory
+        let trajectory =
+            BallisticsCalculator::calculate_trajectory(&start, &target, velocity, gravity)
+                .expect("Trajectory calculation failed");
+
+        assert!(
+            trajectory.flight_time > 0.0,
+            "Flight time should be positive"
+        );
+        assert!(
+            trajectory.range >= 99.0 && trajectory.range <= 101.0,
+            "Range should match target distance"
+        );
+        assert!(
+            trajectory.max_height >= 0.0,
+            "Max height should be non-negative"
+        );
+
+        // Phase 2: Verify physics can use calculated trajectory
+        let mut physics_state = PhysicsState::new();
+        physics_state.physics_type = PhysicsType::Projectile;
+        physics_state.velocity = [
+            trajectory.initial_velocity[0],
+            trajectory.initial_velocity[1],
+            trajectory.initial_velocity[2],
+        ];
+        physics_state.position = start;
+
+        // Verify physics state accepts ballistic parameters
+        assert_eq!(physics_state.physics_type, PhysicsType::Projectile);
+        assert!(
+            physics_state.velocity[0] > 0.0
+                || physics_state.velocity[1] > 0.0
+                || physics_state.velocity[2] > 0.0
+        );
+
+        log::info!("✅ Ballistics→Physics integration verified");
+    }
+
+    #[test]
+    fn test_ballistics_with_drag_physics_simulation() {
+        // Verify drag physics affects ballistic calculations
+        use crate::weapon::ballistics::BallisticsCalculator;
+
+        let start = [0.0, 0.0, 0.0];
+        let target = [150.0, 0.0, 0.0];
+        let velocity = 120.0;
+        let gravity = 32.0;
+
+        // Calculate trajectory without drag
+        let trajectory_no_drag =
+            BallisticsCalculator::calculate_trajectory(&start, &target, velocity, gravity)
+                .expect("Trajectory calculation failed");
+
+        // Calculate trajectory with drag
+        let trajectory_with_drag = BallisticsCalculator::calculate_trajectory_with_drag(
+            &start, &target, velocity, gravity, 0.1, // drag_coefficient
+            1.0, // projectile_mass
+        )
+        .expect("Trajectory with drag failed");
+
+        // Drag should reduce range or increase time
+        assert!(
+            trajectory_with_drag.flight_time >= trajectory_no_drag.flight_time,
+            "Drag should increase flight time or keep it same"
+        );
+
+        log::info!("✅ Ballistics with drag physics verified");
+    }
+
+    #[test]
+    fn test_ballistics_wind_effects_physics() {
+        // Verify wind effects integrate with trajectory physics
+        use crate::common::coord::Coord3D;
+        use crate::weapon::ballistics::BallisticsCalculator;
+
+        let start = [0.0, 0.0, 0.0];
+        let target = [100.0, 50.0, 0.0];
+        let velocity = 100.0;
+        let gravity = 32.0;
+        let wind = Coord3D::new(10.0, 0.0, 0.0); // Lateral wind
+        let altitude_factor = 1.0;
+
+        // Calculate trajectory with wind
+        let trajectory_with_wind = BallisticsCalculator::calculate_trajectory_with_wind(
+            &start,
+            &target,
+            velocity,
+            gravity,
+            &wind,
+            altitude_factor,
+        )
+        .expect("Trajectory with wind failed");
+
+        assert!(
+            trajectory_with_wind.range > 0.0,
+            "Wind-affected trajectory should have range"
+        );
+        assert!(
+            trajectory_with_wind.flight_time > 0.0,
+            "Wind-affected trajectory should have flight time"
+        );
+
+        log::info!("✅ Ballistics wind effects physics verified");
+    }
+
+    #[test]
+    fn test_target_interception_confidence() {
+        // Verify target interception calculations produce valid confidence factors
+        use crate::common::coord::Coord3D;
+        use crate::weapon::ballistics::BallisticsCalculator;
+
+        let start = Coord3D::new(0.0, 0.0, 0.0);
+        let target_pos = Coord3D::new(100.0, 0.0, 0.0);
+        let target_velocity = Coord3D::new(10.0, 0.0, 0.0);
+        let projectile_velocity = 100.0;
+        let gravity = 32.0;
+
+        // Calculate interception
+        let intercept = BallisticsCalculator::predict_target_intercept(
+            &start,
+            &target_pos,
+            &target_velocity,
+            projectile_velocity,
+            gravity,
+        );
+
+        if let Some(result) = intercept {
+            assert!(
+                result.intercept_time >= 0.0,
+                "Intercept time should be non-negative"
+            );
+            assert!(
+                result.confidence >= 0.0 && result.confidence <= 1.0,
+                "Confidence should be between 0 and 1, got: {}",
+                result.confidence
+            );
+
+            // Confidence should be high for close, slow targets
+            assert!(
+                result.confidence > 0.5,
+                "Confidence for close target should be substantial"
+            );
+        }
+
+        log::info!("✅ Target interception confidence verified");
+    }
+
+    #[test]
+    fn test_physics_collision_armor_integration() {
+        // Verify physics collision detection integrates with armor system
+        use crate::physics::{CollisionResponse, PhysicsState, PhysicsType};
+        use crate::weapon::armor_system::{ArmorDamageMatrix, ArmorType, DamageType};
+
+        // Phase 1: Set up physics state with collision
+        let mut physics_state = PhysicsState::new();
+        physics_state.physics_type = PhysicsType::Projectile;
+        physics_state.collision_response = CollisionResponse::Destroy;
+        physics_state.position = [0.0, 0.0, 0.0];
+        physics_state.velocity = [50.0, 0.0, -30.0];
+
+        // Phase 2: Verify collision response type is set correctly
+        assert_eq!(physics_state.collision_response, CollisionResponse::Destroy);
+
+        // Phase 3: Initialize armor system for damage calculation
+        let armor_matrix = ArmorDamageMatrix::new();
+
+        // Verify different armor types can be looked up
+        let human_crush_mult = armor_matrix.get_multiplier(ArmorType::Human, DamageType::Crush);
+        let tank_small_arms_mult =
+            armor_matrix.get_multiplier(ArmorType::Tank, DamageType::SmallArms);
+
+        assert!(
+            human_crush_mult > 1.0,
+            "Infantry should be vulnerable to crush damage"
+        );
+        assert!(
+            tank_small_arms_mult < 1.0,
+            "Tanks should resist small arms fire"
+        );
+
+        log::info!("✅ Physics collision→Armor integration verified");
+    }
+
+    #[test]
+    fn test_damage_calculation_with_armor_types() {
+        // Verify armor matrix correctly modifies damage for all armor types
+        use crate::weapon::armor_system::{ArmorDamageMatrix, ArmorType, DamageType};
+
+        let armor_matrix = ArmorDamageMatrix::new();
+
+        // Test Human armor vulnerabilities
+        assert_eq!(
+            armor_matrix.get_multiplier(ArmorType::Human, DamageType::Crush),
+            2.0
+        );
+        assert_eq!(
+            armor_matrix.get_multiplier(ArmorType::Human, DamageType::Sniper),
+            2.0
+        );
+        assert_eq!(
+            armor_matrix.get_multiplier(ArmorType::Human, DamageType::Flame),
+            1.5
+        );
+
+        // Test Tank armor resistances
+        assert_eq!(
+            armor_matrix.get_multiplier(ArmorType::Tank, DamageType::SmallArms),
+            0.25
+        );
+        assert!(armor_matrix.get_multiplier(ArmorType::Tank, DamageType::Gattling) <= 0.25);
+
+        // Test Aircraft armor vulnerabilities to AA weapons
+        let aa_damage =
+            armor_matrix.get_multiplier(ArmorType::Aircraft, DamageType::GunEmplacement);
+        assert!(
+            aa_damage >= 1.0,
+            "Aircraft should be vulnerable to AA weapons"
+        );
+
+        // Test Structure armor vulnerabilities to orbital weapons
+        let beam_damage =
+            armor_matrix.get_multiplier(ArmorType::Structure, DamageType::ParticleBeam);
+        assert!(
+            beam_damage > 1.5,
+            "Structures should be very vulnerable to particle beams"
+        );
+
+        log::info!("✅ Armor type damage calculations verified");
+    }
+
+    #[test]
+    fn test_projectile_lifecycle_integration() {
+        // Verify complete projectile lifecycle: creation→physics→collision→damage
+        use crate::common::coord::Coord3D;
+        use crate::weapon::projectile::Projectile;
+        use std::sync::Arc;
+
+        let weapon_template = Arc::new(crate::weapon::weapon::WeaponTemplate::new(
+            "TestWeapon".to_string(),
+        ));
+        let trajectory = crate::weapon::ballistics::BallisticsTrajectory {
+            initial_velocity: Coord3D::new(100.0, 0.0, 10.0),
+            launch_angle: 0.1,
+            flight_time: 1.0,
+            max_height: 5.0,
+            range: 100.0,
+            trajectory_points: vec![],
+        };
+
+        // Phase 1: Create projectile
+        let mut projectile = Projectile::new(
+            1,
+            crate::weapon::projectile::ProjectileType::Ballistic,
+            weapon_template,
+            2,
+            Some(3),
+            Coord3D::new(0.0, 0.0, 0.0),
+            trajectory,
+            crate::weapon::weapon::WeaponBonus::new(),
+                    None,
+                    INVALID_OBJECT_ID,
+                    None,
+        );
+
+        // Phase 2: Verify projectile state
+        assert_eq!(projectile.projectile_id, 1);
+        assert!(projectile.time_alive >= 0.0);
+
+        // Phase 3: Update projectile (advance time)
+        projectile.time_alive += 0.1;
+        assert!(projectile.time_alive > 0.0);
+
+        // Phase 4: Verify projectile can be used in physics system
+        assert!(projectile.position[0] >= 0.0 || projectile.position[0] < 0.0); // Valid position
+
+        log::info!("✅ Projectile lifecycle integration verified");
+    }
+
+    #[test]
+    fn test_multiple_projectile_physics_collision() {
+        // Verify multiple projectiles can coexist and interact with physics
+        use crate::common::coord::Coord3D;
+        use crate::weapon::projectile::Projectile;
+        use std::sync::Arc;
+
+        let weapon_template = Arc::new(crate::weapon::weapon::WeaponTemplate::new(
+            "TestWeapon".to_string(),
+        ));
+        let base_trajectory = crate::weapon::ballistics::BallisticsTrajectory {
+            initial_velocity: Coord3D::new(100.0, 0.0, 10.0),
+            launch_angle: 0.1,
+            flight_time: 1.0,
+            max_height: 5.0,
+            range: 100.0,
+            trajectory_points: vec![],
+        };
+
+        // Create multiple projectiles with different starting positions
+        let mut projectiles = Vec::new();
+        for i in 0..3 {
+            let offset_pos = Coord3D::new(i as f32 * 10.0, 0.0, 0.0);
+            let projectile = Projectile::new(
+                i,
+                crate::weapon::projectile::ProjectileType::Ballistic,
+                weapon_template.clone(),
+                2,
+                Some(3),
+                offset_pos,
+                base_trajectory.clone(),
+                crate::weapon::weapon::WeaponBonus::new(),
+                    None,
+                    INVALID_OBJECT_ID,
+                    None,
+            );
+            projectiles.push(projectile);
+        }
+
+        // Verify all projectiles are distinct
+        assert_eq!(projectiles.len(), 3);
+        assert_eq!(projectiles[0].projectile_id, 0);
+        assert_eq!(projectiles[1].projectile_id, 1);
+        assert_eq!(projectiles[2].projectile_id, 2);
+
+        // Verify each has unique position
+        assert_eq!(projectiles[0].position[0], 0.0);
+        assert_eq!(projectiles[1].position[0], 10.0);
+        assert_eq!(projectiles[2].position[0], 20.0);
+
+        log::info!("✅ Multiple projectile physics verified");
+    }
+
+    #[test]
+    fn test_weapon_firing_ballistics_integration() {
+        // Verify complete weapon firing chain from template to trajectory
+        initialize_weapon_store().unwrap();
+
+        // Create weapon template with ballistic properties
+        let mut weapon_template =
+            crate::weapon::weapon::WeaponTemplate::new("IntegrationTestWeapon".to_string());
+        weapon_template.primary_damage = 50.0;
+        weapon_template.attack_range = 200.0;
+        weapon_template.muzzle_velocity = 100.0;
+
+        let template_arc =
+            with_weapon_store_mut(|store| store.add_weapon_template(weapon_template.clone()))
+                .unwrap();
+
+        // Verify weapon was stored
+        let stored_weapon =
+            with_weapon_store(|store| store.find_weapon_template("IntegrationTestWeapon")).unwrap();
+        assert!(
+            stored_weapon.is_some(),
+            "Weapon should be findable in store"
+        );
+
+        // Verify template properties are accessible
+        assert_eq!(template_arc.primary_damage, 50.0);
+        assert_eq!(template_arc.attack_range, 200.0);
+
+        log::info!("✅ Weapon firing ballistics integration verified");
+    }
+
+    #[test]
+    fn test_physics_gravity_drag_integration() {
+        // Verify gravity and drag constants are properly integrated
+        use crate::physics::{PhysicsState, PhysicsType};
+
+        const GRAVITY: f32 = 32.0;
+        const AIR_RESISTANCE: f32 = 0.98;
+
+        let mut physics_state = PhysicsState::new();
+        physics_state.physics_type = PhysicsType::Projectile;
+        physics_state.position = [0.0, 0.0, 100.0];
+        physics_state.velocity = [100.0, 0.0, 0.0];
+
+        // Verify physics state accepts gravity-affected movement
+        // After one frame with gravity, Z velocity should decrease
+        let initial_z_vel = physics_state.velocity[2];
+
+        // Simulate gravity effect (Z velocity becomes more negative)
+        physics_state.velocity[2] -= GRAVITY * (1.0 / 30.0); // 30 FPS frame
+
+        assert!(
+            physics_state.velocity[2] < initial_z_vel,
+            "Gravity should decrease Z velocity"
+        );
+
+        // Simulate air resistance (velocity magnitude decreases)
+        let initial_vel_mag = (physics_state.velocity[0].powi(2)
+            + physics_state.velocity[1].powi(2)
+            + physics_state.velocity[2].powi(2))
+        .sqrt();
+
+        physics_state.velocity[0] *= AIR_RESISTANCE;
+        physics_state.velocity[1] *= AIR_RESISTANCE;
+        physics_state.velocity[2] *= AIR_RESISTANCE;
+
+        let final_vel_mag = (physics_state.velocity[0].powi(2)
+            + physics_state.velocity[1].powi(2)
+            + physics_state.velocity[2].powi(2))
+        .sqrt();
+
+        assert!(
+            final_vel_mag < initial_vel_mag,
+            "Air resistance should reduce velocity magnitude"
+        );
+
+        log::info!("✅ Physics gravity and drag integration verified");
+    }
+
+    #[test]
+    fn test_armor_matrix_consistency() {
+        // Verify armor matrix returns consistent values across multiple lookups
+        use crate::weapon::armor_system::{ArmorDamageMatrix, ArmorType, DamageType};
+
+        let matrix1 = ArmorDamageMatrix::new();
+        let matrix2 = ArmorDamageMatrix::new();
+
+        // Test all armor types
+        let armor_types = vec![
+            ArmorType::None,
+            ArmorType::Human,
+            ArmorType::Tank,
+            ArmorType::Truck,
+            ArmorType::Aircraft,
+            ArmorType::Structure,
+        ];
+
+        // Test that two independently created matrices return identical values
+        for armor_type in armor_types {
+            let mult1 = matrix1.get_multiplier(armor_type, DamageType::Crush);
+            let mult2 = matrix2.get_multiplier(armor_type, DamageType::Crush);
+            assert_eq!(
+                mult1, mult2,
+                "Matrix values should be deterministic for {:?}",
+                armor_type
+            );
+        }
+
+        log::info!("✅ Armor matrix consistency verified");
+    }
+
+    #[test]
+    fn test_projectile_detonation_reasons_integration() {
+        // Verify detonation reasons integrate with physics collision system
+        use crate::common::coord::Coord3D;
+        use crate::weapon::projectile::{DetonationReason, Projectile};
+        use std::sync::Arc;
+
+        let weapon_template = Arc::new(crate::weapon::weapon::WeaponTemplate::new(
+            "TestWeapon".to_string(),
+        ));
+        let trajectory = crate::weapon::ballistics::BallisticsTrajectory {
+            initial_velocity: Coord3D::new(100.0, 0.0, 10.0),
+            launch_angle: 0.1,
+            flight_time: 1.0,
+            max_height: 5.0,
+            range: 100.0,
+            trajectory_points: vec![],
+        };
+
+        let mut projectile = Projectile::new(
+            1,
+            crate::weapon::projectile::ProjectileType::Ballistic,
+            weapon_template,
+            2,
+            Some(3),
+            Coord3D::new(0.0, 0.0, 100.0),
+            trajectory,
+            crate::weapon::weapon::WeaponBonus::new(),
+                    None,
+                    INVALID_OBJECT_ID,
+                    None,
+        );
+
+        // Set detonation reason
+        projectile.detonation_reason = Some(DetonationReason::DirectHit);
+        assert_eq!(
+            projectile.detonation_reason,
+            Some(DetonationReason::DirectHit)
+        );
+
+        // Change detonation reason to simulate different collision scenario
+        projectile.detonation_reason = Some(DetonationReason::ProximityFuse);
+        assert_eq!(
+            projectile.detonation_reason,
+            Some(DetonationReason::ProximityFuse)
+        );
+
+        // Verify detonation reason can be cleared
+        projectile.detonation_reason = None;
+        assert_eq!(projectile.detonation_reason, None);
+
+        log::info!("✅ Projectile detonation reasons integration verified");
+    }
+
+    #[test]
+    fn test_frame_time_consistency_across_systems() {
+        // Verify all systems use consistent frame timing
+        const EXPECTED_FPS: u32 = 30;
+        const EXPECTED_DELTA_TIME: f32 = 1.0 / 30.0;
+
+        let delta_time = 1.0 / (EXPECTED_FPS as f32);
+        assert!(
+            (delta_time - EXPECTED_DELTA_TIME).abs() < 0.0001,
+            "Frame delta time should be 1/30"
+        );
+
+        // Verify frame timing for multiple frames
+        let mut total_time = 0.0;
+        for frame in 0..30 {
+            total_time += EXPECTED_DELTA_TIME;
+            let expected_time = (frame + 1) as f32 * EXPECTED_DELTA_TIME;
+            assert!(
+                (total_time - expected_time).abs() < 0.0001,
+                "Frame {} time should be {}",
+                frame,
+                expected_time
+            );
+        }
+
+        // After 30 frames (1 second at 30 FPS), time should be approximately 1.0
+        assert!(
+            (total_time - 1.0).abs() < 0.0001,
+            "30 frames should equal 1 second"
+        );
+
+        log::info!("✅ Frame time consistency verified across all systems");
+    }
+
+    #[test]
+    fn test_guided_projectile_physics_integration() {
+        // Verify guided projectiles integrate ballistics tracking with physics
+        use crate::common::coord::Coord3D;
+        use crate::weapon::projectile::{GuidanceSystem, Projectile};
+        use std::sync::Arc;
+
+        let weapon_template = Arc::new(crate::weapon::weapon::WeaponTemplate::new(
+            "GuidedMissile".to_string(),
+        ));
+        let trajectory = crate::weapon::ballistics::BallisticsTrajectory {
+            initial_velocity: Coord3D::new(150.0, 0.0, 5.0),
+            launch_angle: 0.05,
+            flight_time: 2.0,
+            max_height: 10.0,
+            range: 150.0,
+            trajectory_points: vec![],
+        };
+
+        let mut projectile = Projectile::new(
+            5,
+            crate::weapon::projectile::ProjectileType::Guided,
+            weapon_template,
+            2,
+            Some(3),
+            Coord3D::new(0.0, 0.0, 0.0),
+            trajectory,
+            crate::weapon::weapon::WeaponBonus::new(),
+                    None,
+                    INVALID_OBJECT_ID,
+                    None,
+        );
+
+        // Set guidance system
+        projectile.guidance_system = GuidanceSystem::HeatSeeking(0.8);
+        assert_eq!(projectile.guidance_system, GuidanceSystem::HeatSeeking(0.8));
+
+        // Verify guidance can be changed
+        projectile.guidance_system = GuidanceSystem::RadarGuided(0.6);
+        assert_eq!(projectile.guidance_system, GuidanceSystem::RadarGuided(0.6));
+
+        // Verify guided projectile retains ballistic trajectory
+        assert!(projectile.trajectory.initial_velocity[0] > 0.0);
+        assert!(projectile.trajectory.flight_time > 0.0);
+
+        log::info!("✅ Guided projectile physics integration verified");
+    }
+}

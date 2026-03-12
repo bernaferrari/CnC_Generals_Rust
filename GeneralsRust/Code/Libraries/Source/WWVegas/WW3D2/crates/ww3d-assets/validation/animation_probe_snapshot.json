@@ -1,0 +1,269 @@
+[
+  {
+    "prefix": "AISTNG",
+    "hierarchy": "AISTNG_SKL",
+    "hint": "AISTNG_SKIN",
+    "selected": "AISTNG_IDA",
+    "candidates": [
+      "AISTNG_ADTF1",
+      "AISTNG_ADTF2",
+      "AISTNG_ADTF3",
+      "AISTNG_ATA",
+      "AISTNG_ATA2",
+      "AISTNG_CHA",
+      "AISTNG_DR1",
+      "AISTNG_DR2",
+      "AISTNG_DTA",
+      "AISTNG_DTB",
+      "AISTNG_DTC",
+      "AISTNG_IDA",
+      "AISTNG_IDB",
+      "AISTNG_PFL",
+      "AISTNG_PHG",
+      "AISTNG_POP",
+      "AISTNG_PTD",
+      "AISTNG_RD1",
+      "AISTNG_RD2",
+      "AISTNG_RNA",
+      "AISTNG_SST",
+      "AISTNG_STA",
+      "AISTNG_SUR"
+    ]
+  },
+  {
+    "prefix": "CIMILT1",
+    "hierarchy": "CIMILT1_SKL",
+    "hint": "CIMILT1_SKIN",
+    "selected": "CIMILT1_IDA",
+    "candidates": [
+      "CIMILT1_ATA",
+      "CIMILT1_CHA",
+      "CIMILT1_DTA",
+      "CIMILT1_DTB",
+      "CIMILT1_IDA",
+      "CIMILT1_IDB",
+      "CIMILT1_PFL",
+      "CIMILT1_PHG",
+      "CIMILT1_POP",
+      "CIMILT1_PTD",
+      "CIMILT1_RNA",
+      "CIMILT1_SST",
+      "CIMILT1_STA",
+      "CIMILT1_SUR"
+    ]
+  },
+  {
+    "prefix": "CIOX",
+    "hierarchy": "CIOX_SKL",
+    "hint": "CVOXPL_SKIN",
+    "selected": "CIOX_IDL",
+    "candidates": [
+      "CIOX_DTA",
+      "CIOX_IDL",
+      "CIOX_RUN",
+      "CIOX_STD",
+      "CIOX_WKA"
+    ]
+  },
+  {
+    "prefix": "CIPOW",
+    "hierarchy": "CIPOW_SKL",
+    "hint": "CIPOW_SKIN",
+    "selected": "CIPOW_IDA",
+    "candidates": [
+      "CIPOW_IDA",
+      "CIPOW_IDB",
+      "CIPOW_RNA",
+      "CIPOW_STA",
+      "CIPOW_WKA"
+    ]
+  },
+  {
+    "prefix": "CIEFMR1",
+    "hierarchy": "CIEFMR1_SKL",
+    "hint": "CIEFMR1_SKIN",
+    "selected": "CIEFMR1_IDA",
+    "candidates": [
+      "CIEFMR1_ATDT1",
+      "CIEFMR1_ATDT2",
+      "CIEFMR1_ATDT3",
+      "CIEFMR1_DTA",
+      "CIEFMR1_DTB",
+      "CIEFMR1_IDA",
+      "CIEFMR1_IDB",
+      "CIEFMR1_PNA",
+      "CIEFMR1_ST2WK",
+      "CIEFMR1_STA",
+      "CIEFMR1_WKA"
+    ]
+  },
+  {
+    "prefix": "CVHRSE",
+    "hierarchy": "CVHRSE_SKL",
+    "hint": "CART",
+    "selected": "CVHRSE_IDA",
+    "candidates": [
+      "CVHRSE_DEA",
+      "CVHRSE_DTA",
+      "CVHRSE_IDA",
+      "CVHRSE_IDL",
+      "CVHRSE_STA",
+      "CVHRSE_WAL",
+      "CVHRSE_WKA"
+    ]
+  },
+  {
+    "prefix": "CVRKSH",
+    "hierarchy": "CVRKSH_SKL",
+    "hint": "CHASSIS",
+    "selected": "CVRKSH_IDL",
+    "candidates": [
+      "CVRKSH_DEA",
+      "CVRKSH_IDL",
+      "CVRKSH_MOV",
+      "CVRKSH_STA"
+    ]
+  },
+  {
+    "prefix": "CVSCTR",
+    "hierarchy": "CVSCTR_SKL",
+    "hint": "CHASSIS",
+    "selected": "CVSCTR_IDL",
+    "candidates": [
+      "CVSCTR_DEA",
+      "CVSCTR_IDL",
+      "CVSCTR_MOV",
+      "CVSCTR_STA"
+    ]
+  },
+  {
+    "prefix": "UIPART",
+    "hierarchy": "UIPART_SKL",
+    "hint": "MUZZLEFX02",
+    "selected": "UIPART_IDA",
+    "candidates": [
+      "UIPART_ADTD1",
+      "UIPART_ADTD2",
+      "UIPART_ADTD3",
+      "UIPART_ATA",
+      "UIPART_CHA",
+      "UIPART_DTA",
+      "UIPART_DTB",
+      "UIPART_IDA",
+      "UIPART_IDB",
+      "UIPART_PFL",
+      "UIPART_PHG",
+      "UIPART_POP",
+      "UIPART_PTD",
+      "UIPART_RNA",
+      "UIPART_SST",
+      "UIPART_STA",
+      "UIPART_SUR"
+    ]
+  },
+  {
+    "prefix": "UIPART2",
+    "hierarchy": "UIPART2_SKL",
+    "hint": "MUZZLEFX01",
+    "selected": "UIPART2_IDA",
+    "candidates": [
+      "UIPART2_ADTC1",
+      "UIPART2_ADTC2",
+      "UIPART2_ADTC3",
+      "UIPART2_ATA",
+      "UIPART2_CHA",
+      "UIPART2_DTA",
+      "UIPART2_DTB",
+      "UIPART2_IDA",
+      "UIPART2_IDB",
+      "UIPART2_PFL",
+      "UIPART2_PHG",
+      "UIPART2_POP",
+      "UIPART2_PTD",
+      "UIPART2_RNA",
+      "UIPART2_SST",
+      "UIPART2_STA",
+      "UIPART2_SUR"
+    ]
+  },
+  {
+    "prefix": "UIPRTSN3",
+    "hierarchy": "UIPRTSN3_SKL",
+    "hint": "MUZZLEFX01",
+    "selected": "UIPRTSN3_IDA",
+    "candidates": [
+      "UIPRTSN3_ADTA1",
+      "UIPRTSN3_ADTA2",
+      "UIPRTSN3_ADTA3",
+      "UIPRTSN3_ATA",
+      "UIPRTSN3_CHA",
+      "UIPRTSN3_DTA",
+      "UIPRTSN3_DTB",
+      "UIPRTSN3_IDA",
+      "UIPRTSN3_IDB",
+      "UIPRTSN3_PFL",
+      "UIPRTSN3_PHG",
+      "UIPRTSN3_POP",
+      "UIPRTSN3_PTD",
+      "UIPRTSN3_RNA",
+      "UIPRTSN3_SST",
+      "UIPRTSN3_STA",
+      "UIPRTSN3_SUR"
+    ]
+  },
+  {
+    "prefix": "NIAGNT",
+    "hierarchy": "NIAGNT_SKL",
+    "hint": "NIAGNT_SKIN",
+    "selected": "NIAGNT_IDA",
+    "candidates": [
+      "NIAGNT_ADTE1",
+      "NIAGNT_ADTE2",
+      "NIAGNT_ADTE3",
+      "NIAGNT_ATA",
+      "NIAGNT_ATA2",
+      "NIAGNT_ATB",
+      "NIAGNT_ATB2",
+      "NIAGNT_CHA",
+      "NIAGNT_DTA",
+      "NIAGNT_DTB",
+      "NIAGNT_IDA",
+      "NIAGNT_IDB",
+      "NIAGNT_PFL",
+      "NIAGNT_PHG",
+      "NIAGNT_POP",
+      "NIAGNT_PTD",
+      "NIAGNT_RNA",
+      "NIAGNT_SST",
+      "NIAGNT_STA",
+      "NIAGNT_SUR"
+    ]
+  },
+  {
+    "prefix": "NIOFCR",
+    "hierarchy": "NIOFCR_SKL",
+    "hint": "GUN_SKIN",
+    "selected": "NIOFCR_IDA",
+    "candidates": [
+      "NIOFCR_ADTE1",
+      "NIOFCR_ADTE2",
+      "NIOFCR_ADTE3",
+      "NIOFCR_ATAED",
+      "NIOFCR_ATALP",
+      "NIOFCR_ATAST",
+      "NIOFCR_CHA",
+      "NIOFCR_DTA",
+      "NIOFCR_DTB",
+      "NIOFCR_IDA",
+      "NIOFCR_IDB",
+      "NIOFCR_PHG",
+      "NIOFCR_POP",
+      "NIOFCR_PTD",
+      "NIOFCR_RNA",
+      "NIOFCR_SLP",
+      "NIOFCR_SST",
+      "NIOFCR_SWKLP",
+      "NIOFCR_SWKST"
+    ]
+  }
+]

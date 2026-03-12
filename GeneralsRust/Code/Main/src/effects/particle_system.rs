@@ -1,0 +1,1234 @@
+use bytemuck::{Pod, Zeroable};
+use fastrand;
+use glam::{Mat4, Vec3};
+use log::{debug, info, warn};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::assets::archive::ArchiveFileSystem;
+use crate::game_logic::ObjectId;
+
+/// Maximum number of keyframes per particle (matching C++)
+const MAX_KEYFRAMES: usize = 8;
+
+/// Maximum volume particle depth
+const MAX_VOLUME_PARTICLE_DEPTH: u32 = 16;
+const OPTIMUM_VOLUME_PARTICLE_DEPTH: u32 = 6;
+
+/// Particle priorities matching original C++ enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ParticlePriority {
+    WeaponExplosion = 1,
+    Scorchmark = 2,
+    DustTrail = 3,
+    Buildup = 4,
+    DebrisTrail = 5,
+    UnitDamageFX = 6,
+    DeathExplosion = 7,
+    SemiConstant = 8,
+    Constant = 9,
+    Ambient = 10,
+    WeaponTrail = 11,
+    AreaEffect = 12,
+    Critical = 13,
+    AlwaysRender = 14,
+}
+
+/// Particle shader types matching C++
+#[derive(Debug, Clone, Copy)]
+pub enum ParticleShaderType {
+    Additive,
+    Alpha,
+    AlphaTest,
+    Multiply,
+}
+
+/// Particle types matching C++
+#[derive(Debug, Clone, Copy)]
+pub enum ParticleType {
+    Particle,
+    Drawable,
+    Streak,
+    VolumeParticle,
+    Smudge,
+}
+
+/// Emission velocity types matching C++
+#[derive(Debug, Clone, Copy)]
+pub enum EmissionVelocityType {
+    Ortho,
+    Spherical,
+    Hemispherical,
+    Cylindrical,
+    Outward,
+}
+
+/// Emission volume types matching C++
+#[derive(Debug, Clone, Copy)]
+pub enum EmissionVolumeType {
+    Point,
+    Line,
+    Box,
+    Sphere,
+    Cylinder,
+}
+
+/// Wind motion types matching C++
+#[derive(Debug, Clone, Copy)]
+pub enum WindMotion {
+    NotUsed,
+    PingPong,
+    Circular,
+}
+
+/// Keyframe for particle animation
+#[derive(Debug, Clone)]
+pub struct Keyframe {
+    pub value: f32,
+    pub frame: u32,
+}
+
+/// RGB color keyframe
+#[derive(Debug, Clone)]
+pub struct RGBColorKeyframe {
+    pub color: Vec3, // RGB
+    pub frame: u32,
+}
+
+/// Random variable for particle parameters
+#[derive(Debug, Clone)]
+pub struct RandomVariable {
+    pub low: f32,
+    pub high: f32,
+    pub type_field: u32, // For different random distributions
+}
+
+impl RandomVariable {
+    pub fn new(value: f32) -> Self {
+        Self {
+            low: value,
+            high: value,
+            type_field: 0,
+        }
+    }
+
+    pub fn new_range(low: f32, high: f32) -> Self {
+        Self {
+            low,
+            high,
+            type_field: 0,
+        }
+    }
+
+    pub fn get_value(&self) -> f32 {
+        if self.low == self.high {
+            self.low
+        } else {
+            fastrand::f32() * (self.high - self.low) + self.low
+        }
+    }
+}
+
+/// Particle system template (matching C++ ParticleSystemTemplate)
+#[derive(Debug, Clone)]
+pub struct ParticleSystemTemplate {
+    pub name: String,
+
+    // System properties
+    pub is_one_shot: bool,
+    pub shader_type: ParticleShaderType,
+    pub particle_type: ParticleType,
+    pub particle_type_name: String, // Texture or drawable name
+    pub priority: ParticlePriority,
+
+    // Timing
+    pub system_lifetime: u32,
+    pub initial_delay: RandomVariable,
+    pub burst_delay: RandomVariable,
+    pub burst_count: RandomVariable,
+
+    // Particle properties
+    pub lifetime: RandomVariable,
+    pub start_size: RandomVariable,
+    pub start_size_rate: RandomVariable,
+    pub size_rate: RandomVariable,
+    pub size_rate_damping: RandomVariable,
+
+    // Angular properties
+    pub angle_z: RandomVariable,
+    pub angular_rate_z: RandomVariable,
+    pub angular_damping: RandomVariable,
+
+    // Physics
+    pub vel_damping: RandomVariable,
+    pub gravity: f32,
+    pub drift_velocity: Vec3,
+
+    // Color and alpha
+    pub alpha_keyframes: Vec<Keyframe>,
+    pub color_keyframes: Vec<RGBColorKeyframe>,
+    pub color_scale: RandomVariable,
+
+    // Emission properties
+    pub emission_velocity_type: EmissionVelocityType,
+    pub emission_volume_type: EmissionVolumeType,
+
+    // Emission velocity parameters
+    pub ortho_velocity: Option<(RandomVariable, RandomVariable, RandomVariable)>, // x, y, z
+    pub spherical_speed: Option<RandomVariable>,
+    pub cylindrical_params: Option<(RandomVariable, RandomVariable)>, // radial, normal
+    pub outward_params: Option<(RandomVariable, RandomVariable)>,     // speed, other_speed
+
+    // Emission volume parameters
+    pub line_params: Option<(Vec3, Vec3)>, // start, end
+    pub box_params: Option<Vec3>,          // half_size
+    pub sphere_radius: Option<f32>,
+    pub cylinder_params: Option<(f32, f32)>, // radius, length
+
+    // Volume properties
+    pub is_emission_volume_hollow: bool,
+    pub is_ground_aligned: bool,
+    pub is_emit_above_ground_only: bool,
+    pub is_particle_up_towards_emitter: bool,
+    pub volume_particle_depth: u32,
+
+    // Wind properties
+    pub wind_motion: WindMotion,
+    pub wind_angle: f32,
+    pub wind_angle_change: f32,
+    pub wind_angle_change_min: f32,
+    pub wind_angle_change_max: f32,
+    pub wind_motion_start_angle: f32,
+    pub wind_motion_end_angle: f32,
+    pub wind_motion_moving_to_end: bool,
+
+    // Slave and attached systems
+    pub slave_system_name: Option<String>,
+    pub slave_pos_offset: Vec3,
+    pub attached_system_name: Option<String>,
+}
+
+impl Default for ParticleSystemTemplate {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            is_one_shot: false,
+            shader_type: ParticleShaderType::Additive,
+            particle_type: ParticleType::Particle,
+            particle_type_name: String::new(),
+            priority: ParticlePriority::WeaponExplosion,
+            system_lifetime: 0,
+            initial_delay: RandomVariable::new(0.0),
+            burst_delay: RandomVariable::new(1.0),
+            burst_count: RandomVariable::new(1.0),
+            lifetime: RandomVariable::new(30.0),
+            start_size: RandomVariable::new(1.0),
+            start_size_rate: RandomVariable::new(0.0),
+            size_rate: RandomVariable::new(0.0),
+            size_rate_damping: RandomVariable::new(1.0),
+            angle_z: RandomVariable::new(0.0),
+            angular_rate_z: RandomVariable::new(0.0),
+            angular_damping: RandomVariable::new(1.0),
+            vel_damping: RandomVariable::new(0.99),
+            gravity: 0.0,
+            drift_velocity: Vec3::ZERO,
+            alpha_keyframes: vec![
+                Keyframe {
+                    value: 1.0,
+                    frame: 0,
+                },
+                Keyframe {
+                    value: 0.0,
+                    frame: 30,
+                },
+            ],
+            color_keyframes: vec![RGBColorKeyframe {
+                color: Vec3::ONE,
+                frame: 0,
+            }],
+            color_scale: RandomVariable::new(1.0),
+            emission_velocity_type: EmissionVelocityType::Spherical,
+            emission_volume_type: EmissionVolumeType::Point,
+            ortho_velocity: None,
+            spherical_speed: Some(RandomVariable::new_range(1.0, 3.0)),
+            cylindrical_params: None,
+            outward_params: None,
+            line_params: None,
+            box_params: None,
+            sphere_radius: None,
+            cylinder_params: None,
+            is_emission_volume_hollow: false,
+            is_ground_aligned: false,
+            is_emit_above_ground_only: false,
+            is_particle_up_towards_emitter: false,
+            volume_particle_depth: 0,
+            wind_motion: WindMotion::NotUsed,
+            wind_angle: 0.0,
+            wind_angle_change: 0.0,
+            wind_angle_change_min: 0.0,
+            wind_angle_change_max: 0.0,
+            wind_motion_start_angle: 0.0,
+            wind_motion_end_angle: 0.0,
+            wind_motion_moving_to_end: false,
+            slave_system_name: None,
+            slave_pos_offset: Vec3::ZERO,
+            attached_system_name: None,
+        }
+    }
+}
+
+/// Individual particle data
+#[derive(Debug, Clone)]
+pub struct ParticleInfo {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub emitter_pos: Vec3,
+    pub acceleration: Vec3,
+
+    pub angle_z: f32,
+    pub angular_rate_z: f32,
+    pub angular_damping: f32,
+    pub vel_damping: f32,
+
+    pub lifetime: u32,
+    pub lifetime_left: u32,
+    pub create_timestamp: u32,
+
+    pub size: f32,
+    pub size_rate: f32,
+    pub size_rate_damping: f32,
+
+    pub alpha: f32,
+    pub alpha_rate: f32,
+    pub alpha_target_key: usize,
+
+    pub color: Vec3,
+    pub color_rate: Vec3,
+    pub color_target_key: usize,
+    pub color_scale: f32,
+
+    pub wind_randomness: f32,
+    pub particle_up_towards_emitter: bool,
+    pub personality: u32,
+    pub is_culled: bool,
+}
+
+/// GPU particle data for compute shader
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct GPUParticle {
+    position: [f32; 4],      // Vec3 + padding
+    velocity: [f32; 4],      // Vec3 + padding
+    color: [f32; 4],         // RGB + alpha
+    size_angle: [f32; 4],    // size, angle, size_rate, angular_rate
+    lifetime_data: [u32; 4], // lifetime_left, create_timestamp, personality, flags
+}
+
+/// Individual particle (matching C++ Particle class)
+pub struct Particle {
+    pub info: ParticleInfo,
+    pub gpu_data: GPUParticle,
+    pub system_id: usize,
+    pub is_active: bool,
+}
+
+impl Particle {
+    pub fn new(info: ParticleInfo, system_id: usize, frame_count: u32) -> Self {
+        let gpu_data = GPUParticle {
+            position: [info.position.x, info.position.y, info.position.z, 0.0],
+            velocity: [info.velocity.x, info.velocity.y, info.velocity.z, 0.0],
+            color: [info.color.x, info.color.y, info.color.z, info.alpha],
+            size_angle: [info.size, info.angle_z, info.size_rate, info.angular_rate_z],
+            lifetime_data: [
+                info.lifetime_left,
+                frame_count,
+                info.personality,
+                if info.is_culled { 1 } else { 0 },
+            ],
+        };
+
+        Self {
+            info,
+            gpu_data,
+            system_id,
+            is_active: true,
+        }
+    }
+
+    pub fn update(&mut self, _frame_count: u32, wind_angle: f32) -> bool {
+        if self.info.lifetime_left == 0 {
+            self.is_active = false;
+            return false;
+        }
+
+        // Update lifetime
+        self.info.lifetime_left = self.info.lifetime_left.saturating_sub(1);
+
+        // Update physics
+        self.info.velocity += self.info.acceleration;
+        self.info.velocity *= self.info.vel_damping;
+        self.info.position += self.info.velocity;
+
+        // Update angular motion
+        self.info.angular_rate_z *= self.info.angular_damping;
+        self.info.angle_z += self.info.angular_rate_z;
+
+        // Update size
+        self.info.size_rate *= self.info.size_rate_damping;
+        self.info.size += self.info.size_rate;
+
+        // Update alpha (simplified - would need keyframe interpolation)
+        let life_progress = 1.0 - (self.info.lifetime_left as f32) / (self.info.lifetime as f32);
+        self.info.alpha = (1.0 - life_progress).max(0.0);
+
+        // Wind motion (simplified)
+        if wind_angle != 0.0 {
+            let wind_force = Vec3::new(
+                wind_angle.cos() * self.info.wind_randomness,
+                wind_angle.sin() * self.info.wind_randomness,
+                0.0,
+            ) * 0.1;
+            self.info.velocity += wind_force;
+        }
+
+        // Update GPU data
+        self.sync_to_gpu();
+
+        true
+    }
+
+    fn sync_to_gpu(&mut self) {
+        self.gpu_data.position = [
+            self.info.position.x,
+            self.info.position.y,
+            self.info.position.z,
+            0.0,
+        ];
+        self.gpu_data.velocity = [
+            self.info.velocity.x,
+            self.info.velocity.y,
+            self.info.velocity.z,
+            0.0,
+        ];
+        self.gpu_data.color = [
+            self.info.color.x,
+            self.info.color.y,
+            self.info.color.z,
+            self.info.alpha,
+        ];
+        self.gpu_data.size_angle = [
+            self.info.size,
+            self.info.angle_z,
+            self.info.size_rate,
+            self.info.angular_rate_z,
+        ];
+        self.gpu_data.lifetime_data[0] = self.info.lifetime_left;
+        self.gpu_data.lifetime_data[3] = if self.info.is_culled { 1 } else { 0 };
+    }
+}
+
+/// Particle system instance (matching C++ ParticleSystem class)
+pub struct ParticleSystem {
+    pub id: usize,
+    pub template: Arc<ParticleSystemTemplate>,
+    pub particles: Vec<Particle>,
+    pub position: Vec3,
+    pub transform: Mat4,
+    pub local_transform: Mat4,
+
+    // Timing
+    pub start_timestamp: u32,
+    pub system_lifetime_left: u32,
+    pub burst_delay_left: u32,
+    pub initial_delay_left: u32,
+
+    // State
+    pub is_stopped: bool,
+    pub is_destroyed: bool,
+    pub is_forever: bool,
+    pub skip_parent_transform: bool,
+
+    // Coefficients
+    pub velocity_multiplier: Vec3,
+    pub burst_count_multiplier: f32,
+    pub burst_delay_multiplier: f32,
+    pub size_multiplier: f32,
+
+    // Attachment
+    pub attached_object_id: Option<ObjectId>,
+
+    // Wind
+    pub wind_angle: f32,
+    pub wind_motion_state: bool,
+
+    // Personality counter
+    pub personality_counter: u32,
+}
+
+impl ParticleSystem {
+    pub fn new(id: usize, template: Arc<ParticleSystemTemplate>, frame_count: u32) -> Self {
+        let system_lifetime = if template.system_lifetime == 0 {
+            u32::MAX // Forever
+        } else {
+            template.system_lifetime
+        };
+
+        let initial_delay = template.initial_delay.get_value() as u32;
+        let wind_angle = template.wind_angle;
+        let wind_motion_state = template.wind_motion_moving_to_end;
+
+        Self {
+            id,
+            template,
+            particles: Vec::new(),
+            position: Vec3::ZERO,
+            transform: Mat4::IDENTITY,
+            local_transform: Mat4::IDENTITY,
+            start_timestamp: frame_count,
+            system_lifetime_left: system_lifetime,
+            burst_delay_left: 0,
+            initial_delay_left: initial_delay,
+            is_stopped: false,
+            is_destroyed: false,
+            is_forever: system_lifetime == u32::MAX,
+            skip_parent_transform: false,
+            velocity_multiplier: Vec3::ONE,
+            burst_count_multiplier: 1.0,
+            burst_delay_multiplier: 1.0,
+            size_multiplier: 1.0,
+            attached_object_id: None,
+            wind_angle,
+            wind_motion_state,
+            personality_counter: 0,
+        }
+    }
+
+    pub fn update(&mut self, frame_count: u32) -> bool {
+        if self.is_destroyed && self.particles.is_empty() {
+            return false;
+        }
+
+        // Update system lifetime
+        if !self.is_forever && self.system_lifetime_left > 0 {
+            self.system_lifetime_left -= 1;
+            if self.system_lifetime_left == 0 {
+                self.is_destroyed = true;
+            }
+        }
+
+        // Handle initial delay
+        if self.initial_delay_left > 0 {
+            self.initial_delay_left -= 1;
+            return true;
+        }
+
+        // Update wind motion
+        self.update_wind_motion();
+
+        // Emit particles if not stopped
+        if !self.is_stopped && !self.is_destroyed {
+            if self.burst_delay_left == 0 {
+                self.emit_particles(frame_count);
+                self.burst_delay_left =
+                    (self.template.burst_delay.get_value() * self.burst_delay_multiplier) as u32;
+            } else {
+                self.burst_delay_left -= 1;
+            }
+        }
+
+        // Update existing particles
+        self.particles
+            .retain_mut(|particle| particle.update(frame_count, self.wind_angle));
+
+        true
+    }
+
+    fn emit_particles(&mut self, frame_count: u32) {
+        let burst_count =
+            (self.template.burst_count.get_value() * self.burst_count_multiplier) as u32;
+
+        for _ in 0..burst_count {
+            if let Some(particle_info) = self.generate_particle_info() {
+                let particle = Particle::new(particle_info, self.id, frame_count);
+                self.particles.push(particle);
+            }
+        }
+    }
+
+    fn generate_particle_info(&mut self) -> Option<ParticleInfo> {
+        // Generate position based on emission volume
+        let position = self.compute_particle_position();
+        let velocity = self.compute_particle_velocity(&position);
+
+        // Generate other properties
+        let lifetime = self.template.lifetime.get_value() as u32;
+        let size = self.template.start_size.get_value() * self.size_multiplier;
+        let size_rate = self.template.size_rate.get_value();
+
+        self.personality_counter += 1;
+
+        Some(ParticleInfo {
+            position,
+            velocity,
+            emitter_pos: self.position,
+            acceleration: Vec3::new(0.0, 0.0, -self.template.gravity),
+            angle_z: self.template.angle_z.get_value(),
+            angular_rate_z: self.template.angular_rate_z.get_value(),
+            angular_damping: self.template.angular_damping.get_value(),
+            vel_damping: self.template.vel_damping.get_value(),
+            lifetime,
+            lifetime_left: lifetime,
+            create_timestamp: 0, // Will be set by Particle constructor
+            size,
+            size_rate,
+            size_rate_damping: self.template.size_rate_damping.get_value(),
+            alpha: 1.0, // Will be computed from keyframes
+            alpha_rate: 0.0,
+            alpha_target_key: 0,
+            color: self
+                .template
+                .color_keyframes
+                .first()
+                .map(|k| k.color)
+                .unwrap_or(Vec3::ONE),
+            color_rate: Vec3::ZERO,
+            color_target_key: 0,
+            color_scale: self.template.color_scale.get_value(),
+            wind_randomness: fastrand::f32(),
+            particle_up_towards_emitter: self.template.is_particle_up_towards_emitter,
+            personality: self.personality_counter,
+            is_culled: false,
+        })
+    }
+
+    fn compute_particle_position(&self) -> Vec3 {
+        let local_pos = match self.template.emission_volume_type {
+            EmissionVolumeType::Point => Vec3::ZERO,
+            EmissionVolumeType::Box => {
+                if let Some(half_size) = self.template.box_params {
+                    Vec3::new(
+                        (fastrand::f32() - 0.5) * 2.0 * half_size.x,
+                        (fastrand::f32() - 0.5) * 2.0 * half_size.y,
+                        (fastrand::f32() - 0.5) * 2.0 * half_size.z,
+                    )
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVolumeType::Sphere => {
+                if let Some(radius) = self.template.sphere_radius {
+                    let theta = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let phi = fastrand::f32() * std::f32::consts::PI;
+                    let r = if self.template.is_emission_volume_hollow {
+                        radius
+                    } else {
+                        fastrand::f32() * radius
+                    };
+
+                    Vec3::new(
+                        r * phi.sin() * theta.cos(),
+                        r * phi.sin() * theta.sin(),
+                        r * phi.cos(),
+                    )
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVolumeType::Cylinder => {
+                if let Some((radius, length)) = self.template.cylinder_params {
+                    let angle = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let r = if self.template.is_emission_volume_hollow {
+                        radius
+                    } else {
+                        fastrand::f32() * radius
+                    };
+                    let z = (fastrand::f32() - 0.5) * length;
+
+                    Vec3::new(r * angle.cos(), r * angle.sin(), z)
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVolumeType::Line => {
+                if let Some((start, end)) = self.template.line_params {
+                    let t = fastrand::f32();
+                    start.lerp(end, t)
+                } else {
+                    Vec3::ZERO
+                }
+            }
+        };
+
+        // Transform to world space
+        self.position + self.local_transform.transform_point3(local_pos)
+    }
+
+    fn compute_particle_velocity(&self, position: &Vec3) -> Vec3 {
+        let velocity = match self.template.emission_velocity_type {
+            EmissionVelocityType::Ortho => {
+                if let Some((x, y, z)) = self.template.ortho_velocity.as_ref() {
+                    Vec3::new(x.get_value(), y.get_value(), z.get_value())
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVelocityType::Spherical => {
+                if let Some(speed) = self.template.spherical_speed.as_ref() {
+                    let theta = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let phi = fastrand::f32() * std::f32::consts::PI;
+                    let speed_value = speed.get_value();
+
+                    Vec3::new(
+                        speed_value * phi.sin() * theta.cos(),
+                        speed_value * phi.sin() * theta.sin(),
+                        speed_value * phi.cos(),
+                    )
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVelocityType::Hemispherical => {
+                if let Some(speed) = self.template.spherical_speed.as_ref() {
+                    let theta = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let phi = fastrand::f32() * std::f32::consts::PI * 0.5; // Hemisphere
+                    let speed_value = speed.get_value();
+
+                    Vec3::new(
+                        speed_value * phi.sin() * theta.cos(),
+                        speed_value * phi.sin() * theta.sin(),
+                        speed_value * phi.cos().abs(), // Always upward
+                    )
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVelocityType::Cylindrical => {
+                if let Some((radial, normal)) = self.template.cylindrical_params.as_ref() {
+                    let angle = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let radial_speed = radial.get_value();
+                    let normal_speed = normal.get_value();
+
+                    Vec3::new(
+                        radial_speed * angle.cos(),
+                        radial_speed * angle.sin(),
+                        normal_speed,
+                    )
+                } else {
+                    Vec3::ZERO
+                }
+            }
+            EmissionVelocityType::Outward => {
+                if let Some((speed, other_speed)) = self.template.outward_params.as_ref() {
+                    let direction = (*position - self.position).normalize_or_zero();
+                    direction * speed.get_value() + Vec3::Z * other_speed.get_value()
+                } else {
+                    Vec3::ZERO
+                }
+            }
+        };
+
+        // Apply velocity multiplier and drift
+        velocity * self.velocity_multiplier + self.template.drift_velocity
+    }
+
+    fn update_wind_motion(&mut self) {
+        match self.template.wind_motion {
+            WindMotion::NotUsed => {}
+            WindMotion::PingPong => {
+                let change = self.template.wind_angle_change;
+                if self.wind_motion_state {
+                    // Moving towards end angle
+                    self.wind_angle += change;
+                    if self.wind_angle >= self.template.wind_motion_end_angle {
+                        self.wind_angle = self.template.wind_motion_end_angle;
+                        self.wind_motion_state = false;
+                    }
+                } else {
+                    // Moving towards start angle
+                    self.wind_angle -= change;
+                    if self.wind_angle <= self.template.wind_motion_start_angle {
+                        self.wind_angle = self.template.wind_motion_start_angle;
+                        self.wind_motion_state = true;
+                    }
+                }
+            }
+            WindMotion::Circular => {
+                self.wind_angle += self.template.wind_angle_change;
+                if self.wind_angle >= 2.0 * std::f32::consts::PI {
+                    self.wind_angle -= 2.0 * std::f32::consts::PI;
+                }
+            }
+        }
+    }
+
+    pub fn set_position(&mut self, position: Vec3) {
+        self.position = position;
+        self.update_transform();
+    }
+
+    pub fn set_local_transform(&mut self, transform: Mat4) {
+        self.local_transform = transform;
+        self.update_transform();
+    }
+
+    fn update_transform(&mut self) {
+        self.transform = Mat4::from_translation(self.position) * self.local_transform;
+    }
+
+    pub fn start(&mut self) {
+        self.is_stopped = false;
+    }
+
+    pub fn stop(&mut self) {
+        self.is_stopped = true;
+    }
+
+    pub fn destroy(&mut self) {
+        self.is_destroyed = true;
+        self.is_stopped = true;
+    }
+
+    pub fn trigger(&mut self) {
+        self.burst_delay_left = 0;
+        self.initial_delay_left = 0;
+    }
+
+    pub fn get_particle_count(&self) -> usize {
+        self.particles.len()
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.is_destroyed && self.particles.is_empty()
+    }
+}
+
+/// GPU particle compute shader binding
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct ParticleUniforms {
+    view_proj: [[f32; 4]; 4],
+    time: f32,
+    delta_time: f32,
+    gravity: f32,
+    _padding: f32,
+}
+
+/// Particle system manager (matching C++ ParticleSystemManager)
+pub struct ParticleSystemManager {
+    templates: HashMap<String, Arc<ParticleSystemTemplate>>,
+    systems: HashMap<usize, ParticleSystem>,
+    next_system_id: usize,
+    frame_count: u32,
+
+    // GPU resources
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    particle_buffer: Option<wgpu::Buffer>,
+    uniform_buffer: wgpu::Buffer,
+    compute_pipeline: wgpu::ComputePipeline,
+    render_pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+
+    // Performance limits
+    max_particles: usize,
+    max_systems: usize,
+    particle_count: usize,
+
+    // LOD settings
+    enable_lod: bool,
+    camera_position: Vec3,
+    lod_distance_scale: f32,
+}
+
+impl ParticleSystemManager {
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, max_particles: usize) -> Self {
+        let max_systems = max_particles / 100; // Estimate
+
+        // Create uniform buffer
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Particle Uniforms"),
+            size: std::mem::size_of::<ParticleUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Create compute shader
+        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Particle Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../shaders/particle_compute.wgsl").into(),
+            ),
+        });
+
+        // Create render shader
+        let render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Particle Render Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../shaders/particle_render.wgsl").into(),
+            ),
+        });
+
+        // Create bind group layout
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Particle Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        // Create compute pipeline
+        let compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Particle Compute Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Particle Compute Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        // Create render pipeline
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Particle Render Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Particle Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &render_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &render_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            cache: None,
+            multiview: None,
+        });
+
+        // Create initial particle buffer
+        let particle_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Particle Buffer"),
+            size: (max_particles * std::mem::size_of::<GPUParticle>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Create bind group
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Particle Bind Group"),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        Self {
+            templates: HashMap::new(),
+            systems: HashMap::new(),
+            next_system_id: 1,
+            frame_count: 0,
+            device,
+            queue,
+            particle_buffer: Some(particle_buffer),
+            uniform_buffer,
+            compute_pipeline,
+            render_pipeline,
+            bind_group,
+            max_particles,
+            max_systems,
+            particle_count: 0,
+            enable_lod: true,
+            camera_position: Vec3::ZERO,
+            lod_distance_scale: 100.0,
+        }
+    }
+
+    pub fn add_template(&mut self, template: ParticleSystemTemplate) {
+        let name = template.name.clone();
+        self.templates.insert(name, Arc::new(template));
+    }
+
+    pub fn create_system(&mut self, template_name: &str) -> Option<usize> {
+        if let Some(template) = self.templates.get(template_name) {
+            let system_id = self.next_system_id;
+            self.next_system_id += 1;
+
+            let system = ParticleSystem::new(system_id, template.clone(), self.frame_count);
+            self.systems.insert(system_id, system);
+
+            info!(
+                "Created particle system '{}' with ID {}",
+                template_name, system_id
+            );
+            Some(system_id)
+        } else {
+            warn!("Particle system template '{}' not found", template_name);
+            None
+        }
+    }
+
+    pub fn destroy_system(&mut self, system_id: usize) {
+        if let Some(system) = self.systems.get_mut(&system_id) {
+            system.destroy();
+            debug!("Destroyed particle system {}", system_id);
+        }
+    }
+
+    pub fn get_system_mut(&mut self, system_id: usize) -> Option<&mut ParticleSystem> {
+        self.systems.get_mut(&system_id)
+    }
+
+    pub fn update(&mut self, view_projection: Mat4, camera_pos: Vec3, delta_time: f32) {
+        self.frame_count += 1;
+        self.camera_position = camera_pos;
+
+        // Update all particle systems
+        let mut finished_systems = Vec::new();
+        self.particle_count = 0;
+
+        for (id, system) in &mut self.systems {
+            if !system.update(self.frame_count) {
+                finished_systems.push(*id);
+            } else {
+                self.particle_count += system.get_particle_count();
+            }
+        }
+
+        // Remove finished systems
+        for id in finished_systems {
+            self.systems.remove(&id);
+            debug!("Removed finished particle system {}", id);
+        }
+
+        // Update GPU uniforms
+        let uniforms = ParticleUniforms {
+            view_proj: view_projection.to_cols_array_2d(),
+            time: self.frame_count as f32,
+            delta_time,
+            gravity: -9.81,
+            _padding: 0.0,
+        };
+
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+
+        // Update particle buffer
+        self.update_gpu_particles();
+    }
+
+    fn update_gpu_particles(&mut self) {
+        let mut gpu_particles = Vec::with_capacity(self.particle_count);
+
+        for system in self.systems.values() {
+            for particle in &system.particles {
+                gpu_particles.push(particle.gpu_data);
+                if gpu_particles.len() >= self.max_particles {
+                    break;
+                }
+            }
+            if gpu_particles.len() >= self.max_particles {
+                break;
+            }
+        }
+
+        if !gpu_particles.is_empty() {
+            self.queue.write_buffer(
+                self.particle_buffer.as_ref().unwrap(),
+                0,
+                bytemuck::cast_slice(&gpu_particles),
+            );
+        }
+    }
+
+    pub fn render(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+    ) {
+        if self.particle_count == 0 {
+            return;
+        }
+
+        // Compute pass to update particles
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Particle Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            compute_pass.set_pipeline(&self.compute_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group, &[]);
+
+            let workgroup_size = 64;
+            let num_workgroups = self.particle_count.div_ceil(workgroup_size) as u32;
+            compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
+        }
+
+        // Render pass to draw particles
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Particle Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.bind_group, &[]);
+
+            // Draw particles as instanced quads
+            let vertices_per_particle = 6; // Two triangles per quad
+            render_pass.draw(0..vertices_per_particle, 0..self.particle_count as u32);
+        }
+    }
+
+    pub fn get_system_count(&self) -> usize {
+        self.systems.len()
+    }
+
+    pub fn get_particle_count(&self) -> usize {
+        self.particle_count
+    }
+
+    pub fn set_lod_enabled(&mut self, enabled: bool) {
+        self.enable_lod = enabled;
+    }
+}
+
+/// Load particle system templates from INI-style configuration
+pub async fn load_particle_templates(
+    _archive_system: &mut ArchiveFileSystem,
+    template_file: &str,
+) -> Result<Vec<ParticleSystemTemplate>, Box<dyn std::error::Error>> {
+    info!("Loading particle system templates from {}", template_file);
+
+    // For now, create some default C&C-style templates
+    // In a full implementation, this would parse INI files from the archive
+    let mut templates = Vec::new();
+
+    // Explosion effect template
+    let mut explosion_template = ParticleSystemTemplate::default();
+    explosion_template.name = "TankExplosion".to_string();
+    explosion_template.priority = ParticlePriority::DeathExplosion;
+    explosion_template.shader_type = ParticleShaderType::Additive;
+    explosion_template.particle_type = ParticleType::Particle;
+    explosion_template.particle_type_name = "ExplosionFlame".to_string();
+    explosion_template.is_one_shot = true;
+    explosion_template.system_lifetime = 180; // 3 seconds at 60fps
+    explosion_template.burst_count = RandomVariable::new_range(20.0, 40.0);
+    explosion_template.burst_delay = RandomVariable::new(1.0);
+    explosion_template.lifetime = RandomVariable::new_range(30.0, 90.0);
+    explosion_template.start_size = RandomVariable::new_range(2.0, 8.0);
+    explosion_template.size_rate = RandomVariable::new_range(0.1, 0.3);
+    explosion_template.spherical_speed = Some(RandomVariable::new_range(5.0, 15.0));
+    explosion_template.emission_velocity_type = EmissionVelocityType::Spherical;
+    explosion_template.gravity = 2.0;
+    templates.push(explosion_template);
+
+    // Muzzle flash template
+    let mut muzzle_flash = ParticleSystemTemplate::default();
+    muzzle_flash.name = "MuzzleFlash".to_string();
+    muzzle_flash.priority = ParticlePriority::WeaponTrail;
+    muzzle_flash.shader_type = ParticleShaderType::Additive;
+    muzzle_flash.is_one_shot = true;
+    muzzle_flash.system_lifetime = 15; // Very short
+    muzzle_flash.burst_count = RandomVariable::new_range(5.0, 10.0);
+    muzzle_flash.lifetime = RandomVariable::new_range(3.0, 8.0);
+    muzzle_flash.start_size = RandomVariable::new_range(0.5, 1.5);
+    muzzle_flash.size_rate = RandomVariable::new(-0.1);
+    muzzle_flash.spherical_speed = Some(RandomVariable::new_range(1.0, 3.0));
+    templates.push(muzzle_flash);
+
+    // Dust trail template
+    let mut dust_trail = ParticleSystemTemplate::default();
+    dust_trail.name = "DustTrail".to_string();
+    dust_trail.priority = ParticlePriority::DustTrail;
+    dust_trail.shader_type = ParticleShaderType::Alpha;
+    dust_trail.system_lifetime = 0; // Continuous
+    dust_trail.burst_count = RandomVariable::new_range(2.0, 5.0);
+    dust_trail.burst_delay = RandomVariable::new_range(5.0, 10.0);
+    dust_trail.lifetime = RandomVariable::new_range(60.0, 120.0);
+    dust_trail.start_size = RandomVariable::new_range(1.0, 3.0);
+    dust_trail.size_rate = RandomVariable::new(0.05);
+    dust_trail.spherical_speed = Some(RandomVariable::new_range(0.5, 2.0));
+    dust_trail.emission_velocity_type = EmissionVelocityType::Hemispherical;
+    templates.push(dust_trail);
+
+    info!("Loaded {} particle system templates", templates.len());
+    Ok(templates)
+}

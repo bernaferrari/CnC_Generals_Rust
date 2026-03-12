@@ -1,0 +1,1302 @@
+//! Open Contain Module
+//!
+//! The base OpenContainer ContainModule allows objects to be contained inside of other
+//! objects. This provides the fundamental containment functionality that is common to
+//! all container modules.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, RwLock, Weak};
+
+use super::{ContainerIniParse, ContainerInterface};
+use crate::common::audio::AudioEventRts;
+use crate::common::{
+    GameResult, KindOfMaskType, ObjectID, PlayerMaskType, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
+};
+use crate::damage::DamageInfo;
+use crate::error::GameLogicError as GameError;
+use crate::helpers::{TheAudio, TheGameLogic};
+use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
+use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
+use crate::object::die::{
+    parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens, DieMuxData,
+};
+use crate::object::Object;
+use game_engine::common::ini::{FieldParse, INIError, INI};
+
+type ObjectId = ObjectID;
+
+/// Constant for unlimited contain capacity
+pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
+
+/// Configuration data for OpenContain module
+#[derive(Debug, Clone)]
+pub struct OpenContainModuleData {
+    /// Die mux data for filtering on death
+    pub die_mux_data: DieMuxData,
+    /// Maximum number of contained objects (-1 = unlimited)
+    pub contain_max: i32,
+    /// Sound to play when entering container
+    pub enter_sound: Option<AudioEventRts>,
+    /// Sound to play when exiting container
+    pub exit_sound: Option<AudioEventRts>,
+    /// Can passengers shoot out of container
+    pub passengers_allowed_to_fire: bool,
+    /// Firepoint bones are in turret, not chassis
+    pub passengers_in_turret: bool,
+    /// Number of exit paths to alternate through
+    pub number_of_exit_paths: i32,
+    /// Damage percentage passed to contained units
+    pub damage_percentage_to_units: f32,
+    /// Turn off hardcoded burn death for contained units
+    pub is_burned_death_to_units: bool,
+    /// Door open time in frames
+    pub door_open_time: u32,
+    /// Objects must have at least one of these kind bits to be contained
+    pub allow_inside_kind_of: KindOfMaskType,
+    /// Objects must have NONE of these kind bits to be contained
+    pub forbid_inside_kind_of: KindOfMaskType,
+    /// Do passengers get container's weapon bonuses
+    pub weapon_bonus_passed_to_passengers: bool,
+    /// Allow allies inside container
+    pub allow_allies_inside: bool,
+    /// Allow enemies inside container
+    pub allow_enemies_inside: bool,
+    /// Allow neutral units inside container
+    pub allow_neutral_inside: bool,
+}
+
+impl Default for OpenContainModuleData {
+    fn default() -> Self {
+        Self {
+            die_mux_data: DieMuxData::default(),
+            contain_max: CONTAIN_MAX_UNKNOWN,
+            enter_sound: None,
+            exit_sound: None,
+            passengers_allowed_to_fire: false,
+            passengers_in_turret: false,
+            number_of_exit_paths: 1,
+            damage_percentage_to_units: 0.0,
+            is_burned_death_to_units: true,
+            door_open_time: 1,
+            allow_inside_kind_of: 0,
+            forbid_inside_kind_of: 0,
+            weapon_bonus_passed_to_passengers: false,
+            allow_allies_inside: true,
+            allow_enemies_inside: false,
+            allow_neutral_inside: false,
+        }
+    }
+}
+
+impl OpenContainModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, OPEN_CONTAIN_FIELDS)
+    }
+
+    pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
+        super::parse_with_fields_allow_unknown(config, self, OPEN_CONTAIN_FIELDS)
+    }
+}
+
+impl ContainerIniParse for OpenContainModuleData {
+    fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
+        OpenContainModuleData::parse_from_config(self, config)
+    }
+}
+
+fn parse_contain_max(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.contain_max = INI::parse_int(token)?;
+    Ok(())
+}
+
+fn parse_enter_sound(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    if token.eq_ignore_ascii_case("NONE") {
+        data.enter_sound = None;
+    } else {
+        data.enter_sound = Some(AudioEventRts::new(*token));
+    }
+    Ok(())
+}
+
+fn parse_exit_sound(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    if token.eq_ignore_ascii_case("NONE") {
+        data.exit_sound = None;
+    } else {
+        data.exit_sound = Some(AudioEventRts::new(*token));
+    }
+    Ok(())
+}
+
+fn parse_damage_percent_to_units(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.damage_percentage_to_units = INI::parse_percent_to_real(token)?;
+    Ok(())
+}
+
+fn parse_burned_death_to_units(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.is_burned_death_to_units = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_allow_inside_kind_of(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.allow_inside_kind_of = parse_kind_of_mask(tokens);
+    Ok(())
+}
+
+fn parse_forbid_inside_kind_of(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.forbid_inside_kind_of = parse_kind_of_mask(tokens);
+    Ok(())
+}
+
+fn parse_passengers_allowed_to_fire(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.passengers_allowed_to_fire = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_passengers_in_turret(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.passengers_in_turret = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_number_of_exit_paths(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.number_of_exit_paths = INI::parse_int(token)?;
+    Ok(())
+}
+
+fn parse_door_open_time(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.door_open_time = INI::parse_duration_unsigned_int(token)?;
+    Ok(())
+}
+
+fn parse_weapon_bonus_passed_to_passengers(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.weapon_bonus_passed_to_passengers = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_allow_allies_inside(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.allow_allies_inside = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_allow_enemies_inside(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.allow_enemies_inside = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_allow_neutral_inside(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.allow_neutral_inside = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_death_types(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.death_types = parse_death_type_flags_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_veterancy_levels(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.veterancy_levels = parse_veterancy_level_flags_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_exempt_status(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.exempt_status = parse_object_status_mask_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_required_status(
+    _ini: &mut INI,
+    data: &mut OpenContainModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.required_status = parse_object_status_mask_tokens(tokens)?;
+    Ok(())
+}
+
+const OPEN_CONTAIN_FIELDS: &[FieldParse<OpenContainModuleData>] = &[
+    FieldParse {
+        token: "ContainMax",
+        parse: parse_contain_max,
+    },
+    FieldParse {
+        token: "EnterSound",
+        parse: parse_enter_sound,
+    },
+    FieldParse {
+        token: "ExitSound",
+        parse: parse_exit_sound,
+    },
+    FieldParse {
+        token: "DamagePercentToUnits",
+        parse: parse_damage_percent_to_units,
+    },
+    FieldParse {
+        token: "BurnedDeathToUnits",
+        parse: parse_burned_death_to_units,
+    },
+    FieldParse {
+        token: "AllowInsideKindOf",
+        parse: parse_allow_inside_kind_of,
+    },
+    FieldParse {
+        token: "ForbidInsideKindOf",
+        parse: parse_forbid_inside_kind_of,
+    },
+    FieldParse {
+        token: "PassengersAllowedToFire",
+        parse: parse_passengers_allowed_to_fire,
+    },
+    FieldParse {
+        token: "PassengersInTurret",
+        parse: parse_passengers_in_turret,
+    },
+    FieldParse {
+        token: "NumberOfExitPaths",
+        parse: parse_number_of_exit_paths,
+    },
+    FieldParse {
+        token: "DoorOpenTime",
+        parse: parse_door_open_time,
+    },
+    FieldParse {
+        token: "WeaponBonusPassedToPassengers",
+        parse: parse_weapon_bonus_passed_to_passengers,
+    },
+    FieldParse {
+        token: "AllowAlliesInside",
+        parse: parse_allow_allies_inside,
+    },
+    FieldParse {
+        token: "AllowEnemiesInside",
+        parse: parse_allow_enemies_inside,
+    },
+    FieldParse {
+        token: "AllowNeutralInside",
+        parse: parse_allow_neutral_inside,
+    },
+    FieldParse {
+        token: "DeathTypes",
+        parse: parse_death_types,
+    },
+    FieldParse {
+        token: "VeterancyLevels",
+        parse: parse_veterancy_levels,
+    },
+    FieldParse {
+        token: "ExemptStatus",
+        parse: parse_exempt_status,
+    },
+    FieldParse {
+        token: "RequiredStatus",
+        parse: parse_required_status,
+    },
+];
+
+/// Open contain module - base functionality for all containers
+#[derive(Debug)]
+pub struct OpenContain {
+    /// Reference to the owning object
+    object: Weak<RwLock<Object>>,
+    /// List of contained objects
+    contained_objects: Vec<Arc<RwLock<Object>>>,
+    /// Cached IDs for ContainModuleInterface access.
+    contained_object_ids: Vec<ObjectID>,
+    /// Track objects requesting enter/exit to support container-specific gating.
+    object_enter_exit_info: HashMap<ObjectID, ContainWant>,
+    /// Player mask for the last player that entered this container.
+    player_who_entered: PlayerMaskType,
+    /// Last frame a load sound played.
+    last_load_sound_frame: UnsignedInt,
+    /// Last frame an unload sound played.
+    last_unload_sound_frame: UnsignedInt,
+    /// Whether load sounds are enabled.
+    load_sounds_enabled: bool,
+    /// Frames remaining before door closes (0 when idle).
+    door_close_countdown: AtomicU32,
+    /// Module configuration data
+    module_data: OpenContainModuleData,
+}
+
+impl OpenContain {
+    /// Create a new OpenContain module
+    pub fn new(
+        object: Weak<RwLock<Object>>,
+        module_data: &OpenContainModuleData,
+    ) -> GameResult<Self> {
+        Ok(Self {
+            object,
+            contained_objects: Vec::new(),
+            contained_object_ids: Vec::new(),
+            object_enter_exit_info: HashMap::new(),
+            player_who_entered: PlayerMaskType::none(),
+            last_load_sound_frame: 0,
+            last_unload_sound_frame: 0,
+            load_sounds_enabled: true,
+            door_close_countdown: AtomicU32::new(0),
+            module_data: module_data.clone(),
+        })
+    }
+
+    /// Get the object this module belongs to
+    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+        self.object.upgrade()
+    }
+
+    /// Update method called once per frame
+    pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        self.player_who_entered = PlayerMaskType::none();
+        let countdown = self.door_close_countdown.load(Ordering::Relaxed);
+        if countdown > 0 {
+            let next = countdown.saturating_sub(1);
+            self.door_close_countdown.store(next, Ordering::Relaxed);
+            if next == 0 {
+                if let Some(owner) = self.get_object() {
+                    if let Ok(mut owner_guard) = owner.write() {
+                        let _ = owner_guard.clear_and_set_model_condition_flags(
+                            MODELCONDITION_DOOR_1_OPENING,
+                            MODELCONDITION_DOOR_1_CLOSING,
+                        );
+                    }
+                }
+            }
+        }
+        if !self.object_enter_exit_info.is_empty() {
+            self.prune_dead_wanters();
+        }
+        Ok(UpdateSleepTime::None)
+    }
+
+    /// Check if this container is valid for the given object
+    pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
+        // Check kind restrictions
+        let obj_kind = obj.get_kind_of();
+
+        // Must have at least one allowed kind bit
+        if self.module_data.allow_inside_kind_of != 0
+            && (obj_kind & self.module_data.allow_inside_kind_of) == 0
+        {
+            return false;
+        }
+
+        // Must have none of the forbidden kind bits
+        if (obj_kind & self.module_data.forbid_inside_kind_of) != 0 {
+            return false;
+        }
+
+        // Check capacity if requested
+        if check_capacity && self.module_data.contain_max != CONTAIN_MAX_UNKNOWN {
+            if self.contained_objects.len() >= self.module_data.contain_max as usize {
+                return false;
+            }
+        }
+
+        // Check ally/enemy restrictions
+        if let Some(owner_obj) = self.get_object() {
+            if let (Ok(owner), Ok(candidate)) = (owner_obj.read(), obj.try_read()) {
+                let relationship = owner.get_relationship_to(&candidate);
+                match relationship {
+                    ObjectRelationship::Ally => return self.module_data.allow_allies_inside,
+                    ObjectRelationship::Enemy => return self.module_data.allow_enemies_inside,
+                    ObjectRelationship::Neutral => return self.module_data.allow_neutral_inside,
+                    _ => return false,
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Add object to containment
+    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        if let Some(owner) = self.get_object() {
+            if let (Ok(owner_guard), Ok(obj_guard)) = (owner.read(), obj.read()) {
+                if owner_guard.check_and_detonate_booby_trap(Some(&*obj_guard)) {
+                    if owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead() {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        let was_selected = obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_drawable())
+            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .unwrap_or(false);
+
+        let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+        if !self.is_valid_container_for(&*obj_guard, true) {
+            return Err("Object not valid for this container".into());
+        }
+        if obj_guard.get_contained_by().is_some() {
+            return Ok(());
+        }
+        drop(obj_guard);
+
+        self.add_to_contain_list(obj.clone())?;
+
+        if let Ok(obj_guard) = obj.read() {
+            if self.is_enclosing_container_for(&*obj_guard) {
+                let _ = self.add_or_remove_obj_from_world(obj.clone(), false);
+            }
+        }
+
+        self.redeploy_occupants()?;
+        self.on_containing(obj, was_selected)?;
+
+        Ok(())
+    }
+
+    /// Add object to contain list (can be overridden by inheritors)
+    pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
+        self.contained_objects.push(obj);
+        self.contained_object_ids.push(obj_id);
+        Ok(())
+    }
+
+    /// Remove object from contain list without triggering containment callbacks.
+    pub fn remove_from_contain_list(&mut self, object_id: ObjectID) {
+        if let Some(id_pos) = self
+            .contained_object_ids
+            .iter()
+            .position(|id| *id == object_id)
+        {
+            self.contained_object_ids.remove(id_pos);
+        }
+
+        if let Some(pos) = self
+            .contained_objects
+            .iter()
+            .position(|obj| obj.read().ok().map(|guard| guard.get_id()) == Some(object_id))
+        {
+            self.contained_objects.remove(pos);
+        }
+    }
+
+    /// Remove object from containment
+    pub fn remove_from_contain(
+        &mut self,
+        obj: Arc<RwLock<Object>>,
+        expose_stealth_units: bool,
+    ) -> GameResult<()> {
+        // Only allow removal if this object is actually contained by us (C++ safety check).
+        if let Some(owner) = self.get_object() {
+            let owner_id = owner.read().ok().map(|guard| guard.get_id());
+            if let (Some(owner_id), Ok(obj_guard)) = (owner_id, obj.read()) {
+                if obj_guard.get_contained_by() != Some(owner_id) {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Find and remove object from list
+        if let Some(pos) = self
+            .contained_objects
+            .iter()
+            .position(|x| Arc::ptr_eq(x, &obj))
+        {
+            let obj_id = self
+                .contained_objects
+                .get(pos)
+                .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()));
+            self.contained_objects.remove(pos);
+            if expose_stealth_units {
+                if let Ok(obj_guard) = obj.read() {
+                    if let Some(stealth) = obj_guard.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.lock() {
+                            stealth_guard.mark_as_detected();
+                        }
+                    }
+                }
+            }
+            self.do_unload_sound();
+            self.on_removing(obj.clone())?;
+            if let Some(obj_id) = obj_id {
+                if let Some(id_pos) = self
+                    .contained_object_ids
+                    .iter()
+                    .position(|id| *id == obj_id)
+                {
+                    self.contained_object_ids.remove(id_pos);
+                }
+            }
+
+            if let Ok(obj_guard) = obj.read() {
+                if self.is_enclosing_container_for(&*obj_guard) {
+                    let _ = self.add_or_remove_obj_from_world(obj.clone(), true);
+                    if let Some(owner) = self.get_object() {
+                        if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
+                            if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
+                                log::warn!(
+                                    "OpenContain::remove_from_contain failed to place object {}: {}",
+                                    obj_guard.get_id(),
+                                    err
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(owner) = self.get_object() {
+                if let Ok(owner_guard) = owner.read() {
+                    if let Ok(mut obj_guard) = obj.write() {
+                        obj_guard.set_layer(owner_guard.get_layer());
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Remove all contained objects
+    pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
+        let objects = self.contained_objects.clone();
+        for obj in objects {
+            self.remove_from_contain(obj, expose_stealth_units)?;
+        }
+        Ok(())
+    }
+
+    /// Kill all contained objects.
+    /// Matches C++ OpenContain::killAllContained.
+    pub fn kill_all_contained(&mut self) -> GameResult<()> {
+        while let Some(obj) = self.contained_objects.first().cloned() {
+            self.remove_from_contain(obj.clone(), true)?;
+            if let Ok(mut guard) = obj.write() {
+                guard.kill(None, None);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Force all contained objects to exit and apply damage.
+    /// Matches C++ OpenContain::harmAndForceExitAllContained.
+    pub fn harm_and_force_exit_all_contained(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> GameResult<()> {
+        while let Some(obj) = self.contained_objects.first().cloned() {
+            self.remove_from_contain(obj.clone(), true)?;
+            if let Ok(mut guard) = obj.write() {
+                let _ = guard.attempt_damage(damage_info);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Called when this object starts containing another object
+    pub fn on_containing(
+        &mut self,
+        obj: Arc<RwLock<Object>>,
+        was_selected: bool,
+    ) -> GameResult<()> {
+        let _ = was_selected;
+
+        // Object-level containment processing (matches C++ Object::onContainedBy).
+        let container = self
+            .get_object()
+            .ok_or_else(|| GameError::ModuleError("OpenContain has no owning object".into()))?;
+        if let Ok(mut contained) = obj.write() {
+            contained
+                .on_contained_by(container)
+                .map_err(|e| GameError::ModuleError(e.to_string()))?;
+
+            if let Some(player) = contained.get_controlling_player() {
+                if let Ok(player_guard) = player.read() {
+                    self.player_who_entered = player_guard.get_player_mask();
+                }
+            }
+        }
+
+        // Play enter sound
+        self.do_load_sound();
+
+        Ok(())
+    }
+
+    /// Called when removing an object from containment
+    pub fn on_removing(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        // Object-level containment removal processing (matches C++ Object::onRemovedFrom).
+        let container = self
+            .get_object()
+            .ok_or_else(|| GameError::ModuleError("OpenContain has no owning object".into()))?;
+        if let Ok(mut contained) = obj.write() {
+            contained
+                .on_removed_from(container)
+                .map_err(|e| GameError::ModuleError(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+
+    /// Enable or disable load sounds.
+    pub fn enable_load_sounds(&mut self, enabled: bool) {
+        self.load_sounds_enabled = enabled;
+    }
+
+    /// Play a load sound (once per frame when enabled).
+    pub fn do_load_sound(&mut self) {
+        if !self.load_sounds_enabled {
+            return;
+        }
+        let Some(enter_sound) = &self.module_data.enter_sound else {
+            return;
+        };
+        let now = TheGameLogic::get_frame();
+        if now == self.last_load_sound_frame {
+            return;
+        }
+
+        let object_id = self
+            .get_object()
+            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
+            .unwrap_or(0);
+
+        let mut event = AudioEventRts::new(enter_sound.get_event_name());
+        if object_id != 0 {
+            event.set_object_id(object_id);
+        }
+        if let Some(audio) = TheAudio::get() {
+            audio.add_audio_event(&event);
+        }
+
+        self.last_load_sound_frame = now;
+    }
+
+    /// Handle death event
+    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        // Handle contained units on death
+        self.remove_all_contained(true)?;
+        Ok(())
+    }
+
+    /// Track objects that want to enter/exit (C++ OpenContain::onObjectWantsToEnterOrExit).
+    pub fn on_object_wants_to_enter_or_exit(&mut self, obj: &Object, want: ContainWant) {
+        let id = obj.get_id();
+        if matches!(want, ContainWant::WantsNeither) {
+            self.object_enter_exit_info.remove(&id);
+        } else {
+            self.object_enter_exit_info.insert(id, want);
+        }
+    }
+
+    /// Prune dead wanters (C++ OpenContain::pruneDeadWanters).
+    pub fn prune_dead_wanters(&mut self) {
+        self.object_enter_exit_info.retain(|id, _| {
+            if let Some(obj) = TheGameLogic::find_object_by_id(*id) {
+                if let Ok(obj_guard) = obj.read() {
+                    return !obj_guard.is_effectively_dead();
+                }
+            }
+            false
+        });
+    }
+
+    /// Handle damage event
+    pub fn on_damage(&mut self, info: &mut DamageInfo) -> GameResult<()> {
+        // Distribute damage to contained units if configured
+        if self.module_data.damage_percentage_to_units > 0.0 {
+            let damage_to_units = info.input.amount * self.module_data.damage_percentage_to_units;
+
+            for obj in &self.contained_objects {
+                if let Ok(contained) = obj.read() {
+                    // Apply damage to contained unit
+                    let mut unit_damage = info.clone();
+                    unit_damage.input.amount = damage_to_units;
+                    unit_damage.sync_from_input();
+                    // contained.apply_damage(&unit_damage)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Iterate contained objects with callback
+    pub fn iterate_contained<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
+    where
+        F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
+    {
+        if reverse {
+            for obj in self.contained_objects.iter().rev() {
+                func(obj.clone())?;
+            }
+        } else {
+            for obj in &self.contained_objects {
+                func(obj.clone())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get count of contained objects
+    pub fn get_contain_count(&self) -> u32 {
+        self.contained_object_ids.len() as u32
+    }
+
+    /// Get maximum containment capacity
+    pub fn get_contain_max(&self) -> i32 {
+        self.module_data.contain_max
+    }
+
+    /// Get list of contained items
+    pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
+        Ok(self.contained_objects.clone())
+    }
+
+    /// Check if passenger is allowed to fire
+    pub fn is_passenger_allowed_to_fire(&self, id: Option<ObjectId>) -> bool {
+        self.module_data.passengers_allowed_to_fire
+    }
+
+    /// Whether passengers inherit the container's weapon bonus flags.
+    pub fn passes_weapon_bonus_to_passengers(&self) -> bool {
+        self.module_data.weapon_bonus_passed_to_passengers
+    }
+
+    /// Toggle whether passengers may fire from this container.
+    pub fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
+        self.module_data.passengers_allowed_to_fire = allowed;
+    }
+
+    /// Check if this is an enclosing container
+    pub fn is_enclosing_container_for(&self, obj: &Object) -> bool {
+        true // Most containers enclose their contents
+    }
+
+    /// Whether any objects are requesting enter/exit.
+    /// Matches C++ OpenContain::hasObjectsWantingToEnterOrExit
+    pub fn has_objects_wanting_to_enter_or_exit(&self) -> bool {
+        !self.object_enter_exit_info.is_empty()
+    }
+
+    /// Reserve door for exit
+    pub fn reserve_door_for_exit(
+        &self,
+        obj_type: &ObjectTemplate,
+        specific_object: &Object,
+    ) -> GameResult<ExitDoorType> {
+        let _ = (obj_type, specific_object);
+        if self.module_data.door_open_time > 0 {
+            if let Some(owner) = self.get_object() {
+                if let Ok(mut owner_guard) = owner.write() {
+                    let _ = owner_guard.clear_and_set_model_condition_flags(
+                        MODELCONDITION_DOOR_1_CLOSING,
+                        MODELCONDITION_DOOR_1_OPENING,
+                    );
+                }
+            }
+        }
+        Ok(ExitDoorType::Primary)
+    }
+
+    /// Unreserve door for exit
+    pub fn unreserve_door_for_exit(&self, exit_door: ExitDoorType) -> GameResult<()> {
+        let _ = exit_door;
+        if self.module_data.door_open_time > 0 {
+            self.door_close_countdown
+                .store(self.module_data.door_open_time, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    /// Check if exit is currently busy
+    pub fn is_exit_busy(&self) -> bool {
+        // Implementation would check if exit paths are busy
+        false
+    }
+
+    /// Get container pips info for UI
+    pub fn get_container_pips_info(&self) -> (i32, i32) {
+        let total = if self.module_data.contain_max == CONTAIN_MAX_UNKNOWN {
+            10
+        } else {
+            self.module_data.contain_max
+        };
+        let full = self.contained_objects.len() as i32;
+        (total, full)
+    }
+
+    /// Redeploy occupants (can be overridden)
+    pub fn redeploy_occupants(&mut self) -> GameResult<()> {
+        let Some(owner) = self.get_object() else {
+            return Ok(());
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return Ok(());
+        };
+        let owner_pos = *owner_guard.get_position();
+        for obj in &self.contained_objects {
+            if let Ok(mut guard) = obj.write() {
+                if let Err(err) = guard.set_position(&owner_pos) {
+                    log::warn!(
+                        "OpenContain::redeploy_occupants failed to place object {}: {}",
+                        guard.get_id(),
+                        err
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn add_or_remove_obj_from_world(
+        &mut self,
+        obj: Arc<RwLock<Object>>,
+        add: bool,
+    ) -> GameResult<()> {
+        if add {
+            if let Ok(mut guard) = obj.write() {
+                let _ = guard.register_in_partition_manager();
+                if let Some(drawable) = guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        let _ = draw_guard.set_drawable_hidden(false);
+                    }
+                }
+            }
+        } else {
+            if let Ok(mut guard) = obj.write() {
+                guard.leave_group();
+                if let Some(drawable) = guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        let _ = draw_guard.set_drawable_hidden(true);
+                    }
+                }
+            }
+        }
+
+        let contained_ids = {
+            let guard = obj.read().map_err(|_| GameError::LockError)?;
+            if let Some(contain) = guard.get_contain() {
+                if let Ok(contain_guard) = contain.lock() {
+                    contain_guard.get_contained_objects().to_vec()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        };
+
+        for object_id in contained_ids {
+            if let Some(child) = TheGameLogic::find_object_by_id(object_id) {
+                let should_recurse = {
+                    let child_guard = child.read().map_err(|_| GameError::LockError)?;
+                    let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+                    if let Some(contain) = obj_guard.get_contain() {
+                        if let Ok(contain_guard) = contain.lock() {
+                            !contain_guard.is_enclosing_container_for(&*child_guard)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+                if should_recurse {
+                    let _ = self.add_or_remove_obj_from_world(child, add);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Serialize state for save/load
+    pub fn save_state(&self) -> GameResult<HashMap<String, Vec<u8>>> {
+        let mut state = HashMap::new();
+
+        // Save contained object IDs
+        let ids_bytes: Vec<u8> = self
+            .contained_object_ids
+            .iter()
+            .flat_map(|id| id.to_le_bytes())
+            .collect();
+
+        state.insert("contained_objects".to_string(), ids_bytes);
+
+        Ok(state)
+    }
+
+    /// Deserialize state for save/load
+    pub fn load_state(&mut self, state: &HashMap<String, Vec<u8>>) -> GameResult<()> {
+        if let Some(data) = state.get("contained_objects") {
+            // Implementation would reconstruct contained objects from IDs
+            // This requires access to object lookup system
+        }
+
+        Ok(())
+    }
+
+    /// Calculate CRC for network synchronization
+    pub fn calculate_crc(&self) -> u32 {
+        // Implementation would calculate CRC of relevant state
+        0
+    }
+
+    /// Post-process after loading
+    pub fn load_post_process(&mut self) -> GameResult<()> {
+        // Base implementation - nothing special needed
+        Ok(())
+    }
+
+    /// Flash selected for visible contained units.
+    /// Matches C++ OpenContain::clientVisibleContainedFlashAsSelected
+    pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
+        for obj in &self.contained_objects {
+            if let Ok(obj_guard) = obj.read() {
+                if self.is_enclosing_container_for(&*obj_guard) {
+                    continue;
+                }
+                if let Some(drawable) = obj_guard.get_drawable() {
+                    if let Ok(mut drawable_guard) = drawable.write() {
+                        drawable_guard.flash_as_selected();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Play unload sound.
+    /// Stub implementation - matches C++ OpenContain::doUnloadSound
+    pub fn do_unload_sound(&mut self) {
+        let Some(exit_sound) = &self.module_data.exit_sound else {
+            return;
+        };
+
+        let now = TheGameLogic::get_frame();
+        if now == self.last_unload_sound_frame {
+            return;
+        }
+
+        let object_id = self
+            .get_object()
+            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
+            .unwrap_or(0);
+
+        let mut event = AudioEventRts::new(exit_sound.get_event_name());
+        if object_id != 0 {
+            event.set_object_id(object_id);
+        }
+
+        if let Some(audio) = TheAudio::get() {
+            audio.add_audio_event(&event);
+        }
+
+        self.last_unload_sound_frame = now;
+    }
+}
+
+impl ContainModuleInterface for OpenContain {
+    fn can_contain(&self, object_id: ObjectID) -> bool {
+        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(obj_guard) = obj.read() {
+                return OpenContain::is_valid_container_for(self, &*obj_guard, true);
+            }
+        }
+        false
+    }
+
+    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        let obj = TheGameLogic::find_object_by_id(object_id)
+            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
+        self.add_to_contain(obj).map_err(|e| e.to_string())
+    }
+
+    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        let obj = match TheGameLogic::find_object_by_id(object_id) {
+            Some(obj) => obj,
+            None => return Ok(()),
+        };
+        self.remove_from_contain(obj, false)
+            .map_err(|e| e.to_string())
+    }
+
+    fn get_contained_objects(&self) -> &[ObjectID] {
+        &self.contained_object_ids
+    }
+
+    fn get_contained_count(&self) -> usize {
+        self.contained_object_ids.len()
+    }
+
+    fn get_max_capacity(&self) -> usize {
+        if self.module_data.contain_max < 0 {
+            usize::MAX
+        } else {
+            self.module_data.contain_max as usize
+        }
+    }
+
+    fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::update(self).map_err(|e| e.into())
+    }
+
+    fn on_damage(
+        &mut self,
+        info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_damage(self, info).map_err(|e| e.into())
+    }
+
+    fn on_die(
+        &mut self,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_die(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
+        OpenContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn add_to_contain(
+        &mut self,
+        obj: &Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.contain_object(obj.get_id()).map_err(|e| e.into())
+    }
+
+    fn enable_load_sounds(
+        &mut self,
+        enabled: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::enable_load_sounds(self, enabled);
+        Ok(())
+    }
+
+    fn on_object_wants_to_enter_or_exit(
+        &mut self,
+        obj: &Object,
+        want: ContainWant,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_object_wants_to_enter_or_exit(self, obj, want);
+        Ok(())
+    }
+
+    fn is_immune_to_clear_building_attacks(&self) -> bool {
+        true
+    }
+
+    fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {
+        OpenContain::is_passenger_allowed_to_fire(self, id)
+    }
+
+    fn passes_weapon_bonus_to_passengers(&self) -> bool {
+        self.passes_weapon_bonus_to_passengers()
+    }
+
+    fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
+        OpenContain::set_passenger_allowed_to_fire(self, allowed);
+    }
+
+    fn has_objects_wanting_to_enter_or_exit(&self) -> bool {
+        self.has_objects_wanting_to_enter_or_exit()
+    }
+
+    fn on_containing(
+        &mut self,
+        obj: Arc<RwLock<Object>>,
+        was_selected: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_containing(self, obj, was_selected).map_err(|e| e.into())
+    }
+
+    fn get_player_who_entered(&self) -> PlayerMaskType {
+        self.player_who_entered
+    }
+
+    fn on_removing(
+        &mut self,
+        obj: Arc<RwLock<Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_removing(self, obj).map_err(|e| e.into())
+    }
+
+    fn remove_all_contained(
+        &mut self,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::remove_all_contained(self, expose_stealth).map_err(|e| e.into())
+    }
+
+    fn harm_and_force_exit_all_contained(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::harm_and_force_exit_all_contained(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::kill_all_contained(self).map_err(|e| e.into())
+    }
+
+    fn client_visible_contained_flash_as_selected(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::client_visible_contained_flash_as_selected(self).map_err(|e| e.into())
+    }
+}
+
+impl ContainerInterface for OpenContain {
+    fn can_contain(&self, obj: &Object) -> bool {
+        self.is_valid_container_for(obj, true)
+    }
+
+    fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        self.add_to_contain(obj)
+    }
+
+    fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        self.remove_from_contain(obj, false)
+    }
+
+    fn get_usage(&self) -> (u32, u32) {
+        let current = self.get_contain_count();
+        let max = match self.get_contain_max() {
+            CONTAIN_MAX_UNKNOWN => u32::MAX,
+            value if value < 0 => u32::MAX,
+            value => value as u32,
+        };
+        (current, max)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectRelationship {
+    Ally,
+    Enemy,
+    Neutral,
+    Self_,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectTemplate {
+    // Implementation would be defined elsewhere
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_open_contain_creation() {
+        let module_data = OpenContainModuleData {
+            contain_max: 5,
+            passengers_allowed_to_fire: true,
+            ..Default::default()
+        };
+
+        assert_eq!(module_data.contain_max, 5);
+        assert_eq!(module_data.passengers_allowed_to_fire, true);
+    }
+
+    #[test]
+    fn test_contain_max_unknown() {
+        assert_eq!(CONTAIN_MAX_UNKNOWN, -1);
+    }
+
+    #[test]
+    fn parse_door_open_time_accepts_duration_suffixes() {
+        let mut data = OpenContainModuleData::default();
+        let mut ini = INI::new();
+
+        parse_door_open_time(&mut ini, &mut data, &["1500ms"]).expect("duration");
+        assert_eq!(data.door_open_time, 45);
+
+        parse_door_open_time(&mut ini, &mut data, &["1.5s"]).expect("duration");
+        assert_eq!(data.door_open_time, 45);
+    }
+}

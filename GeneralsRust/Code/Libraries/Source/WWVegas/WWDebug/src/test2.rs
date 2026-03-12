@@ -1,0 +1,12 @@
+pub const IDR_MAINFRAME: i32 = 128;
+pub const IDD_TEST2_DIALOG: i32 = 102;
+pub const IDD_ABOUTBOX: i32 = 103;
+pub const IDS_APP_TITLE: i32 = 103;
+pub const IDM_ABOUT: i32 = 104;
+pub const IDM_EXIT: i32 = 105;
+pub const IDS_HELLO: i32 = 106;
+pub const IDI_TEST2: i32 = 107;
+pub const IDI_SMALL: i32 = 108;
+pub const IDC_TEST2: i32 = 109;
+pub const IDC_MYICON: i32 = 2;
+pub const IDC_STATIC: i32 = -1;

@@ -1,0 +1,48 @@
+[package]
+name = "debug_window"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# UI Framework (simplified for now)
+# ui_framework = { path = "../UIFramework" }
+
+# Core dependencies
+egui = { workspace = true }
+eframe = { workspace = true }
+winit = { workspace = true }
+
+# System monitoring
+sysinfo = "0.30"
+
+# File handling
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+rfd = { workspace = true }
+
+# Utilities
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+
+# Game engine integration (placeholder)
+# wwlib-rust = { workspace = true }
+# game_engine = { workspace = true }
+
+# Threading and async
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync"] }
+parking_lot = { workspace = true }
+
+[[bin]]
+name = "debug_window"
+path = "src/main.rs"
+
+[features]
+default = ["system_monitor", "memory_profiler", "performance_graphs"]
+system_monitor = []
+memory_profiler = []
+performance_graphs = []
+advanced_debugging = []

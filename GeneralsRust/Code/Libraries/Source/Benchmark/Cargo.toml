@@ -1,0 +1,127 @@
+[package]
+name = "benchmark_suite"
+version = "1.0.0"
+edition = "2021"
+authors = ["GeneralsRust Team"]
+description = "Comprehensive benchmark suite for performance testing all GeneralsRust libraries"
+license = "GPL-3.0"
+repository = "https://github.com/GeneralsRust/BenchmarkSuite"
+
+[features]
+default = ["cpu", "gpu", "memory", "network", "ai", "graphics", "compression"]
+cpu = ["sysinfo", "num_cpus", "rayon"]
+gpu = ["wgpu", "modern_graphics"]
+memory = ["sysinfo", "memmap2"]
+network = ["modern_networking", "tokio"]
+ai = ["candle", "tch"]
+graphics = ["modern_graphics"]
+compression = ["eac_compression", "lzh_compression", "zlib_compression"]
+profiling = ["tracy-client", "pprof", "flame"]
+visualization = ["plotters", "egui"]
+
+[dependencies]
+# Core benchmarking
+criterion = { version = "0.5", features = ["html_reports", "csv_output"] }
+pprof = { version = "0.13", features = ["flamegraph", "criterion"], optional = true }
+
+# System information
+sysinfo = { version = "0.32", optional = true }
+num_cpus = { version = "1.16", optional = true }
+
+# Parallel processing
+rayon = { version = "1.10", optional = true }
+tokio = { version = "1.40", features = ["full"], optional = true }
+
+# Memory management
+memmap2 = { version = "0.9", optional = true }
+
+# Graphics testing
+wgpu = { version = "27.0.1", optional = true }
+modern_graphics = { path = "../ModernGraphics", optional = true }
+
+# Network testing
+modern_networking = { path = "../ModernNetworking", optional = true }
+
+# Compression testing
+eac_compression = { path = "../Compression/EAC", optional = true }
+lzh_compression = { path = "../Compression/LZHCompress", optional = true }
+zlib_compression = { path = "../Compression/ZLib", optional = true }
+
+# AI/ML testing
+candle = { version = "0.6", optional = true }
+tch = { version = "0.16", optional = true }
+
+# Profiling tools
+tracy-client = { version = "0.17", optional = true }
+flame = { version = "0.2", optional = true }
+
+# Visualization
+plotters = { version = "0.3", optional = true }
+egui = { version = "0.33.2", optional = true }
+
+# Utilities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+rand = "0.8"
+uuid = { version = "1.10", features = ["v4"] }
+futures = "0.3"
+
+# Mathematical operations (used across multiple features)
+glam = "0.28"
+ndarray = { version = "0.16", optional = true }
+
+# File I/O
+zip = "2.1"
+tar = "0.4"
+flate2 = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+approx = "0.5"
+
+[[bench]]
+name = "cpu_benchmarks"
+harness = false
+required-features = ["cpu"]
+
+[[bench]]
+name = "gpu_benchmarks"
+harness = false
+required-features = ["gpu"]
+
+[[bench]]
+name = "memory_benchmarks"
+harness = false
+required-features = ["memory"]
+
+[[bench]]
+name = "network_benchmarks"
+harness = false
+required-features = ["network"]
+
+[[bench]]
+name = "ai_benchmarks"
+harness = false
+required-features = ["ai"]
+
+[[bench]]
+name = "compression_benchmarks"
+harness = false
+required-features = ["compression"]
+
+[[bench]]
+name = "integrated_benchmarks"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+debug = 1  # Keep some debug info for profiling
+
+[profile.bench]
+debug = 2

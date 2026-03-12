@@ -1,0 +1,8 @@
+[package]
+name = "wwutil"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+math_utilities = { path = "../WWMath" }
+wwlib_rust = { path = "../WWLib" }

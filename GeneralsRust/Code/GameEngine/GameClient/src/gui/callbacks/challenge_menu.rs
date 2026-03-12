@@ -1,0 +1,432 @@
+//! ChallengeMenu.cpp callback port.
+
+use crate::display::image::get_mapped_image_collection;
+use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
+use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
+use crate::gui::game_window::Image as WindowImage;
+use crate::gui::{
+    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowStatus,
+};
+use game_engine::common::ini::get_global_data;
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+const KEY_ESC: u32 = 0x1B;
+const KEY_STATE_UP: u32 = 0x0001;
+const GGM_LEFT_DRAG: u32 = 16384;
+const GBM_MOUSE_ENTERING: u32 = GGM_LEFT_DRAG + 6;
+const GBM_MOUSE_LEAVING: u32 = GGM_LEFT_DRAG + 7;
+
+#[derive(Default)]
+struct ChallengeMenuState {
+    parent_id: i32,
+    button_play_id: i32,
+    button_back_id: i32,
+    bio_parent_id: i32,
+    bio_portrait_id: i32,
+    bio_name_entry_id: i32,
+    bio_dob_entry_id: i32,
+    bio_birthplace_entry_id: i32,
+    bio_strategy_entry_id: i32,
+    general_button_ids: [i32; NUM_GENERALS],
+    parent: Option<Rc<RefCell<GameWindow>>>,
+    button_play: Option<Rc<RefCell<GameWindow>>>,
+    bio_parent: Option<Rc<RefCell<GameWindow>>>,
+    bio_portrait: Option<Rc<RefCell<GameWindow>>>,
+    bio_name_entry: Option<Rc<RefCell<GameWindow>>>,
+    bio_dob_entry: Option<Rc<RefCell<GameWindow>>>,
+    bio_birthplace_entry: Option<Rc<RefCell<GameWindow>>>,
+    bio_strategy_entry: Option<Rc<RefCell<GameWindow>>>,
+    just_entered: bool,
+    initial_gadget_delay: i32,
+    is_shutting_down: bool,
+    selected_general: Option<usize>,
+    hovered_general: Option<usize>,
+    bio_lines: [String; 4],
+    bio_readout: [String; 4],
+    bio_text_position: usize,
+    bio_total_length: usize,
+}
+
+thread_local! {
+    static CHALLENGE_MENU_STATE: Arc<Mutex<ChallengeMenuState>> =
+        Arc::new(Mutex::new(ChallengeMenuState::default()));
+}
+
+fn challenge_menu_state() -> Arc<Mutex<ChallengeMenuState>> {
+    CHALLENGE_MENU_STATE.with(|state| state.clone())
+}
+
+fn name_to_id(name: &str) -> i32 {
+    NameKeyGenerator::name_to_key(name) as i32
+}
+
+fn challenge_to_campaign_difficulty(diff: GameDifficulty) -> CampaignDifficulty {
+    match diff {
+        GameDifficulty::Easy => CampaignDifficulty::Easy,
+        GameDifficulty::Normal => CampaignDifficulty::Normal,
+        GameDifficulty::Hard => CampaignDifficulty::Hard,
+    }
+}
+
+fn challenge_to_logic_difficulty(diff: GameDifficulty) -> i32 {
+    match diff {
+        GameDifficulty::Easy => 0,
+        GameDifficulty::Normal => 1,
+        GameDifficulty::Hard => 2,
+    }
+}
+
+fn set_window_text(window: &Option<Rc<RefCell<GameWindow>>>, text: &str) {
+    if let Some(window) = window.as_ref() {
+        let _ = window.borrow_mut().set_text(text);
+    }
+}
+
+fn set_window_hidden(window: &Option<Rc<RefCell<GameWindow>>>, hidden: bool) {
+    if let Some(window) = window.as_ref() {
+        let _ = window.borrow_mut().hide(hidden);
+    }
+}
+
+fn set_window_image(window: &Option<Rc<RefCell<GameWindow>>>, image_name: Option<&str>) {
+    let Some(window) = window.as_ref() else {
+        return;
+    };
+    let Some(image_name) = image_name else {
+        return;
+    };
+    if image_name.is_empty() {
+        return;
+    }
+
+    let (width, height) = if let Some(collection) = get_mapped_image_collection().try_read() {
+        if let Some(found) = collection.find_image_by_name(image_name) {
+            let size = found.get_image_size();
+            (size.x, size.y)
+        } else {
+            (0, 0)
+        }
+    } else {
+        (0, 0)
+    };
+
+    let image = WindowImage {
+        name: image_name.to_string(),
+        width,
+        height,
+    };
+
+    let mut guard = window.borrow_mut();
+    if guard.set_enabled_image(0, image).is_ok() {
+        guard.set_status(WindowStatus::IMAGE);
+    }
+}
+
+fn sync_bio_text(state: &ChallengeMenuState) {
+    set_window_text(&state.bio_name_entry, &state.bio_readout[0]);
+    set_window_text(&state.bio_dob_entry, &state.bio_readout[1]);
+    set_window_text(&state.bio_birthplace_entry, &state.bio_readout[2]);
+    set_window_text(&state.bio_strategy_entry, &state.bio_readout[3]);
+}
+
+fn find_general_button(state: &ChallengeMenuState, control_id: i32) -> Option<usize> {
+    state
+        .general_button_ids
+        .iter()
+        .position(|button_id| *button_id == control_id)
+}
+
+fn set_general_bio(state: &mut ChallengeMenuState, general_index: Option<usize>) {
+    let Some(general_index) = general_index else {
+        return;
+    };
+
+    let Some(generals) = get_challenge_generals_mut() else {
+        return;
+    };
+    if general_index >= NUM_GENERALS {
+        return;
+    }
+
+    let general = &generals.challenge_generals()[general_index];
+    set_window_hidden(&state.bio_parent, false);
+    set_window_image(&state.bio_portrait, general.bio_portrait_small());
+
+    state.bio_lines[0] = general.bio_name().to_string();
+    state.bio_lines[1] = general.bio_rank().to_string();
+    state.bio_lines[2] = general.bio_branch().to_string();
+    state.bio_lines[3] = general.bio_strategy().to_string();
+    state.bio_readout = Default::default();
+    state.bio_text_position = 0;
+    state.bio_total_length = state.bio_lines.iter().map(String::len).sum();
+    sync_bio_text(state);
+}
+
+fn update_bio(state: &mut ChallengeMenuState, frames: usize) {
+    for _ in 0..frames {
+        if state.bio_text_position >= state.bio_total_length {
+            break;
+        }
+
+        let line0_len = state.bio_lines[0].len();
+        let line1_len = state.bio_lines[1].len();
+        let line2_len = state.bio_lines[2].len();
+
+        if state.bio_text_position < line0_len {
+            if let Some(ch) = state.bio_lines[0].chars().nth(state.bio_text_position) {
+                state.bio_readout[0].push(ch);
+            }
+        } else if state.bio_text_position < line0_len + line1_len {
+            let pos = state.bio_text_position - line0_len;
+            if let Some(ch) = state.bio_lines[1].chars().nth(pos) {
+                state.bio_readout[1].push(ch);
+            }
+        } else if state.bio_text_position < line0_len + line1_len + line2_len {
+            let pos = state.bio_text_position - line0_len - line1_len;
+            if let Some(ch) = state.bio_lines[2].chars().nth(pos) {
+                state.bio_readout[2].push(ch);
+            }
+        } else {
+            let pos = state.bio_text_position - line0_len - line1_len - line2_len;
+            if let Some(ch) = state.bio_lines[3].chars().nth(pos) {
+                state.bio_readout[3].push(ch);
+            }
+        }
+
+        state.bio_text_position += 1;
+    }
+
+    sync_bio_text(state);
+}
+
+fn start_challenge_game() {
+    let Some(generals) = get_challenge_generals_mut() else {
+        return;
+    };
+    let state_handle = challenge_menu_state();
+    let state = state_handle
+        .lock()
+        .expect("challenge menu state lock poisoned");
+    let Some(selected_index) = state.selected_general else {
+        return;
+    };
+    let general = &generals.challenge_generals()[selected_index];
+    let difficulty = generals.current_difficulty();
+    let campaign_name = general.campaign().to_string();
+    drop(state);
+
+    let (current_map, rank_points) = {
+        let mut campaign_manager = get_campaign_manager();
+        campaign_manager.set_campaign(&campaign_name);
+        campaign_manager.set_game_difficulty(challenge_to_campaign_difficulty(difficulty));
+        (
+            campaign_manager.get_current_map().unwrap_or_default(),
+            campaign_manager.get_rank_points(),
+        )
+    };
+
+    if current_map.is_empty() {
+        return;
+    }
+
+    if let Some(data) = get_global_data() {
+        data.write().pending_file = current_map;
+    }
+    TheScriptEngine::set_global_difficulty(challenge_to_logic_difficulty(difficulty));
+    let _ = get_shell().hide_shell();
+    TheGameLogic::prepare_new_game(
+        GAME_SINGLE_PLAYER,
+        challenge_to_logic_difficulty(difficulty),
+        rank_points,
+    );
+}
+
+pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle
+        .lock()
+        .expect("challenge menu state lock poisoned");
+
+    state.parent_id = name_to_id("ChallengeMenu.wnd:ParentChallengeMenu");
+    state.button_play_id = name_to_id("ChallengeMenu.wnd:ButtonPlay");
+    state.button_back_id = name_to_id("ChallengeMenu.wnd:ButtonBack");
+    state.bio_parent_id = name_to_id("ChallengeMenu.wnd:GeneralsBioParent");
+    state.bio_portrait_id = name_to_id("ChallengeMenu.wnd:BioPortrait");
+    state.bio_name_entry_id = name_to_id("ChallengeMenu.wnd:BioNameEntry");
+    state.bio_dob_entry_id = name_to_id("ChallengeMenu.wnd:BioDOBEntry");
+    state.bio_birthplace_entry_id = name_to_id("ChallengeMenu.wnd:BioBirthplaceEntry");
+    state.bio_strategy_entry_id = name_to_id("ChallengeMenu.wnd:BioStrategyEntry");
+    for i in 0..NUM_GENERALS {
+        state.general_button_ids[i] = name_to_id(&format!("ChallengeMenu.wnd:GeneralPosition{i}"));
+    }
+
+    with_window_manager(|manager| {
+        state.parent = manager.get_window_by_id(state.parent_id);
+        state.button_play = manager.get_window_by_id(state.button_play_id);
+        state.bio_parent = manager.get_window_by_id(state.bio_parent_id);
+        state.bio_portrait = manager.get_window_by_id(state.bio_portrait_id);
+        state.bio_name_entry = manager.get_window_by_id(state.bio_name_entry_id);
+        state.bio_dob_entry = manager.get_window_by_id(state.bio_dob_entry_id);
+        state.bio_birthplace_entry = manager.get_window_by_id(state.bio_birthplace_entry_id);
+        state.bio_strategy_entry = manager.get_window_by_id(state.bio_strategy_entry_id);
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = manager.set_focus(Some(parent));
+        }
+    });
+
+    set_window_hidden(&state.bio_parent, true);
+    set_window_hidden(&state.button_play, true);
+    state.just_entered = true;
+    state.initial_gadget_delay = 2;
+    state.is_shutting_down = false;
+    state.selected_general = None;
+    state.hovered_general = None;
+    state.bio_lines = Default::default();
+    state.bio_readout = Default::default();
+    state.bio_text_position = 0;
+    state.bio_total_length = 0;
+
+    if let Some(generals) = get_challenge_generals_mut() {
+        with_window_manager(|manager| {
+            for (index, button_id) in state.general_button_ids.iter().enumerate() {
+                if let Some(button) = manager.get_window_by_id(*button_id) {
+                    let enabled = generals.challenge_generals()[index].is_starting_enabled();
+                    let _ = button.borrow_mut().enable(enabled);
+                    let _ = button.borrow_mut().hide(!enabled);
+                }
+            }
+        });
+    }
+
+    get_shell().show_shell_map(true);
+    layout.hide(false);
+}
+
+pub fn challenge_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle
+        .lock()
+        .expect("challenge menu state lock poisoned");
+
+    if state.just_entered {
+        if state.initial_gadget_delay == 1 {
+            with_window_manager(|manager| manager.transition_set_group("ChallengeMenuFade", false));
+            state.initial_gadget_delay = 2;
+            state.just_entered = false;
+        } else {
+            state.initial_gadget_delay -= 1;
+        }
+    }
+
+    update_bio(&mut state, 2);
+
+    if state.is_shutting_down
+        && get_shell().is_anim_finished()
+        && with_window_manager(|manager| manager.transitions_finished())
+    {
+        state.is_shutting_down = false;
+        let _ = get_shell().shutdown_complete(None, false);
+    }
+}
+
+pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
+    let pop_immediate = user_data
+        .and_then(|data| data.downcast_ref::<bool>())
+        .copied()
+        .unwrap_or(false);
+
+    if pop_immediate {
+        layout.hide(true);
+        let _ = get_shell().shutdown_complete(None, false);
+        return;
+    }
+
+    with_window_manager(|manager| manager.transition_reverse("ChallengeMenuFade"));
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle
+        .lock()
+        .expect("challenge menu state lock poisoned");
+    state.is_shutting_down = true;
+    state.selected_general = None;
+    state.hovered_general = None;
+}
+
+pub fn challenge_menu_system(
+    _window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    _data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let state_handle = challenge_menu_state();
+    let mut state = state_handle
+        .lock()
+        .expect("challenge menu state lock poisoned");
+
+    match msg {
+        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::User(code) if code == GBM_MOUSE_ENTERING => {
+            let control_id = data1 as i32;
+            if let Some(index) = find_general_button(&state, control_id) {
+                state.hovered_general = Some(index);
+                if state.selected_general != Some(index) {
+                    set_general_bio(&mut state, Some(index));
+                }
+                return WindowMsgHandled::Handled;
+            }
+            WindowMsgHandled::Ignored
+        }
+        WindowMessage::User(code) if code == GBM_MOUSE_LEAVING => {
+            let control_id = data1 as i32;
+            if let Some(index) = find_general_button(&state, control_id) {
+                if state.selected_general != Some(index) {
+                    let selected_general = state.selected_general;
+                    set_general_bio(&mut state, selected_general);
+                }
+                state.hovered_general = None;
+                return WindowMsgHandled::Handled;
+            }
+            WindowMsgHandled::Ignored
+        }
+        WindowMessage::GadgetSelected => {
+            let control_id = data1 as i32;
+            if let Some(index) = find_general_button(&state, control_id) {
+                state.selected_general = Some(index);
+                set_general_bio(&mut state, Some(index));
+                set_window_hidden(&state.button_play, false);
+                return WindowMsgHandled::Handled;
+            }
+            if control_id == state.button_play_id {
+                drop(state);
+                start_challenge_game();
+                return WindowMsgHandled::Handled;
+            }
+            if control_id == state.button_back_id {
+                drop(state);
+                let _ = get_shell().pop();
+                return WindowMsgHandled::Handled;
+            }
+            WindowMsgHandled::Handled
+        }
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+pub fn challenge_menu_input(
+    _window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
+        let _ = get_shell().pop();
+        return WindowMsgHandled::Handled;
+    }
+
+    WindowMsgHandled::Ignored
+}

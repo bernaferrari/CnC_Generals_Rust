@@ -1,0 +1,1111 @@
+//! Selection Translator - Port of C++ SelectionXlat system
+//!
+//! This module handles:
+//! - Mouse click → object selection logic (single and box selection)
+//! - Drag selection implementation
+//! - Keyboard shortcuts for control groups (0-9)
+//! - Selection filtering (CanSelectDrawable logic from C++)
+//! - Double-click for selecting all of same type
+
+use log::{debug, warn};
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
+
+use super::game_message::*;
+use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
+use crate::display::view::{with_tactical_view_ref, IPoint2, Point3};
+use crate::input::{KeyCode, KeyModifiers};
+use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType};
+use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::player::{player_list, PLAYER_INDEX_INVALID};
+
+/// Maximum number of units that can be selected at once
+/// Matches C++ InGameUI maxSelectCount configuration
+pub const MAX_SELECTION_COUNT: usize = 40;
+
+/// Drag tolerance in pixels before starting area selection
+/// Matches C++ Mouse.cpp m_dragTolerance
+pub const DRAG_TOLERANCE: i32 = 5;
+
+/// Drag tolerance in 3D units
+/// Matches C++ Mouse.cpp m_dragTolerance3D
+pub const DRAG_TOLERANCE_3D: f32 = 5.0;
+
+/// World-space selection radius for click picking
+const PICK_RADIUS_WORLD: f32 = 12.0;
+
+/// Drag tolerance in milliseconds
+/// Matches C++ Mouse.cpp m_dragToleranceMS
+pub const DRAG_TOLERANCE_MS: u64 = 250;
+
+/// Double-click time window (milliseconds)
+/// Matches C++ SelectionXlat.cpp double-tap logic
+pub const DOUBLE_CLICK_TIME_MS: u64 = 500;
+
+/// Drawable selection state
+/// Matches C++ Drawable selection flags
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionState {
+    NotSelected,
+    Selected,
+    Highlighted,
+}
+
+/// Drawable information for selection
+/// Mirrors C++ Drawable class minimal info needed for selection
+#[derive(Debug, Clone)]
+pub struct SelectableDrawable {
+    pub id: DrawableID,
+    pub object_id: ObjectID,
+    pub position: Coord3D,
+    pub is_structure: bool,
+    pub is_selectable: bool,
+    pub is_dead: bool,
+    pub is_hidden: bool,
+    pub is_local_controlled: bool,
+    pub kind_of_flags: u32,
+    pub status_bits: u32,
+}
+
+impl SelectableDrawable {
+    /// Check if this drawable can be selected
+    /// Port of C++ CanSelectDrawable() from SelectionXlat.cpp:104-191
+    pub fn can_select(&self, drag_selecting: bool) -> bool {
+        // Can't select if no object
+        if self.object_id == 0 {
+            return false;
+        }
+
+        // Don't select dead/dying units unless KINDOF_ALWAYS_SELECTABLE
+        // Matches C++ SelectionXlat.cpp:113-117
+        if self.is_dead && !self.has_kindof(KINDOF_ALWAYS_SELECTABLE) {
+            return false;
+        }
+
+        // Added support for attacking cargo planes without being able to select them
+        // Matches C++ SelectionXlat.cpp:119-127
+        if !self.has_kindof(KINDOF_SELECTABLE) && self.has_kindof(KINDOF_FORCEATTACKABLE) {
+            return false;
+        }
+
+        // Hidden objects cannot be selected
+        // Matches C++ SelectionXlat.cpp:129-132
+        if self.is_hidden {
+            return false;
+        }
+
+        // Structures cannot be selected by drag select
+        // Matches C++ SelectionXlat.cpp:156-169
+        if drag_selecting && self.is_structure {
+            return false;
+        }
+
+        // Cannot select if OBJECT_STATUS_UNSELECTABLE or OBJECT_STATUS_MASKED
+        // Matches C++ SelectionXlat.cpp:171-175
+        if self.has_status(OBJECT_STATUS_UNSELECTABLE) || self.has_status(OBJECT_STATUS_MASKED) {
+            return false;
+        }
+
+        // Additional isSelectable() check
+        // Matches C++ SelectionXlat.cpp:177-180
+        if !self.is_selectable {
+            return false;
+        }
+
+        // Drag selecting only works for locally controlled units
+        // Matches C++ SelectionXlat.cpp:182-186
+        if drag_selecting && !self.is_local_controlled {
+            return false;
+        }
+
+        // Now we can select anything that is selectable
+        // Matches C++ SelectionXlat.cpp:188-189
+        true
+    }
+
+    /// Check if drawable has a specific KINDOF flag
+    fn has_kindof(&self, flag: u32) -> bool {
+        (self.kind_of_flags & flag) != 0
+    }
+
+    /// Check if drawable has a specific status bit
+    fn has_status(&self, status: u32) -> bool {
+        (self.status_bits & status) != 0
+    }
+
+    /// Check if drawable is mass selectable (for double-click selection)
+    /// Matches C++ Drawable::isMassSelectable()
+    pub fn is_mass_selectable(&self) -> bool {
+        self.has_kindof(KINDOF_INFANTRY)
+            || self.has_kindof(KINDOF_VEHICLE)
+            || self.has_kindof(KINDOF_AIRCRAFT)
+    }
+}
+
+// KINDOF flags from C++ ThingTemplate.h
+pub const KINDOF_SELECTABLE: u32 = 0x00000001;
+pub const KINDOF_FORCEATTACKABLE: u32 = 0x00000002;
+pub const KINDOF_ALWAYS_SELECTABLE: u32 = 0x00000004;
+pub const KINDOF_STRUCTURE: u32 = 0x00000008;
+pub const KINDOF_INFANTRY: u32 = 0x00000010;
+pub const KINDOF_VEHICLE: u32 = 0x00000020;
+pub const KINDOF_AIRCRAFT: u32 = 0x00000040;
+
+// Object status bits from C++ Object.h
+pub const OBJECT_STATUS_UNSELECTABLE: u32 = 0x00000001;
+pub const OBJECT_STATUS_MASKED: u32 = 0x00000002;
+
+/// Click tracking for double-click detection
+/// Matches C++ SelectionXlat.cpp click tracking
+#[derive(Debug, Clone)]
+struct ClickInfo {
+    position: ICoord2D,
+    timestamp: Instant,
+    button: MouseButton,
+}
+
+/// Mouse button enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+/// Selection count by template (for selection feedback)
+/// Matches C++ SelectionXlat.cpp SelectCountMap
+type SelectCountMap = HashMap<String, usize>;
+
+/// Selection Translator - Port of C++ SelectionTranslator
+/// Original: GeneralsMD/Code/GameEngine/Include/GameClient/SelectionXlat.h:17-58
+pub struct SelectionTranslator {
+    // Mouse state tracking
+    // Matches C++ SelectionXlat.h:24-25
+    left_mouse_button_is_down: bool,
+    drag_selecting: bool,
+
+    // Group selection tracking
+    // Matches C++ SelectionXlat.h:26-27
+    last_group_sel_time: Instant,
+    last_group_sel_group: i32,
+
+    // Feedback anchor points
+    // Matches C++ SelectionXlat.h:28-29
+    select_feedback_anchor: ICoord2D,
+    deselect_feedback_anchor: ICoord2D,
+
+    // Click detection
+    // Matches C++ SelectionXlat.h:31
+    last_click: Instant,
+    last_click_info: Option<ClickInfo>,
+
+    // Camera position for right-click detection
+    // Matches C++ SelectionXlat.h:35
+    deselect_down_camera_position: Coord3D,
+
+    // Selection warning state
+    // Matches C++ SelectionXlat.h:30
+    displayed_max_warning: bool,
+
+    // Selection count map
+    // Matches C++ SelectionXlat.h:33
+    select_count_map: SelectCountMap,
+
+    // Control groups (0-9)
+    // Matches C++ player squad hotkey system
+    control_groups: [Vec<ObjectID>; 10],
+
+    // Current selection
+    current_selection: HashSet<ObjectID>,
+
+    // Drawable registry (would be provided by game client in real implementation)
+    drawable_registry: HashMap<DrawableID, SelectableDrawable>,
+}
+
+impl SelectionTranslator {
+    pub fn new() -> Self {
+        Self {
+            left_mouse_button_is_down: false,
+            drag_selecting: false,
+            last_group_sel_time: Instant::now(),
+            last_group_sel_group: -1,
+            select_feedback_anchor: ICoord2D::default(),
+            deselect_feedback_anchor: ICoord2D::default(),
+            last_click: Instant::now(),
+            last_click_info: None,
+            deselect_down_camera_position: Coord3D::default(),
+            displayed_max_warning: false,
+            select_count_map: HashMap::new(),
+            control_groups: Default::default(),
+            current_selection: HashSet::new(),
+            drawable_registry: HashMap::new(),
+        }
+    }
+
+    /// Register a drawable for selection
+    pub fn register_drawable(&mut self, drawable: SelectableDrawable) {
+        self.drawable_registry.insert(drawable.id, drawable);
+    }
+
+    /// Collect selectable drawables from the registry if present, otherwise build from GameLogic objects.
+    fn collect_drawables(&self) -> Vec<SelectableDrawable> {
+        if !self.drawable_registry.is_empty() {
+            return self.drawable_registry.values().cloned().collect();
+        }
+
+        let local_player_index = player_list()
+            .read()
+            .ok()
+            .map(|list| list.get_local_player_index())
+            .unwrap_or(PLAYER_INDEX_INVALID);
+
+        let mut drawables = Vec::new();
+        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(obj) = obj_ref.read() else {
+                continue;
+            };
+
+            let shroud = obj.get_shrouded_status(local_player_index);
+            let is_hidden = matches!(
+                shroud,
+                ObjectShroudStatus::Fogged
+                    | ObjectShroudStatus::Shrouded
+                    | ObjectShroudStatus::InvalidButPreviousValid
+            );
+
+            let status = obj.get_status_bits();
+            let mut status_bits = 0u32;
+            if status.contains(ObjectStatusMaskType::UNSELECTABLE) {
+                status_bits |= OBJECT_STATUS_UNSELECTABLE;
+            }
+            if status.contains(ObjectStatusMaskType::MASKED) {
+                status_bits |= OBJECT_STATUS_MASKED;
+            }
+
+            let mut kind_of_flags = 0u32;
+            if obj.is_kind_of(KindOf::Selectable) {
+                kind_of_flags |= KINDOF_SELECTABLE;
+            }
+            if obj.is_kind_of(KindOf::AlwaysSelectable) {
+                kind_of_flags |= KINDOF_ALWAYS_SELECTABLE;
+            }
+            if obj.is_kind_of(KindOf::Structure) {
+                kind_of_flags |= KINDOF_STRUCTURE;
+            }
+            if obj.is_kind_of(KindOf::Infantry) {
+                kind_of_flags |= KINDOF_INFANTRY;
+            }
+            if obj.is_kind_of(KindOf::Vehicle) {
+                kind_of_flags |= KINDOF_VEHICLE;
+            }
+            if obj.is_kind_of(KindOf::Aircraft) {
+                kind_of_flags |= KINDOF_AIRCRAFT;
+            }
+
+            let pos = obj.get_position();
+            drawables.push(SelectableDrawable {
+                id: obj.get_id() as u32,
+                object_id: obj.get_id(),
+                position: Coord3D::new(pos.x, pos.y, pos.z),
+                is_structure: obj.is_structure(),
+                is_selectable: obj.is_selectable(),
+                is_dead: obj.is_effectively_dead() || obj.is_destroyed(),
+                is_hidden,
+                is_local_controlled: obj.is_locally_controlled(),
+                kind_of_flags,
+                status_bits,
+            });
+        }
+
+        drawables
+    }
+
+    fn screen_to_world(&self, screen: &ICoord2D) -> Option<Coord3D> {
+        let screen_pt = IPoint2::new(screen.x, screen.y);
+        with_tactical_view_ref(|view| {
+            view.screen_to_world(&screen_pt)
+                .ok()
+                .map(|pt| Coord3D::new(pt.x, pt.y, pt.z))
+        })
+    }
+
+    fn world_to_screen(&self, world: &Coord3D) -> Option<(f32, f32)> {
+        let point = Point3::new(world.x, world.y, world.z);
+        with_tactical_view_ref(|view| {
+            view.world_to_screen(&point)
+                .map(|pt| (pt.x as f32, pt.y as f32))
+        })
+    }
+
+    /// Deselect all drawables
+    /// Port of C++ deselectAll() from SelectionXlat.cpp:205-210
+    fn deselect_all(&mut self) {
+        debug!("Deselecting all units");
+        self.current_selection.clear();
+        self.select_count_map.clear();
+        self.displayed_max_warning = false;
+    }
+
+    /// Select a single drawable without sound
+    /// Port of C++ selectSingleDrawableWithoutSound() from SelectionXlat.cpp:217-235
+    fn select_single_drawable_without_sound(&mut self, drawable_id: DrawableID) -> bool {
+        // Deselect everything else
+        self.deselect_all();
+
+        // Select the drawable
+        if let Some(drawable) = self
+            .collect_drawables()
+            .into_iter()
+            .find(|drawable| drawable.id == drawable_id)
+        {
+            if drawable.can_select(false) {
+                self.current_selection.insert(drawable.object_id);
+                debug!("Selected single drawable: {}", drawable_id);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if mouse click was within drag tolerance
+    /// Port of C++ Mouse::isClick() from Mouse.cpp:372-388
+    fn is_click(
+        &self,
+        anchor: &ICoord2D,
+        dest: &ICoord2D,
+        previous_time: Instant,
+        current_time: Instant,
+    ) -> bool {
+        let delta_x = (anchor.x - dest.x).abs();
+        let delta_y = (anchor.y - dest.y).abs();
+        let duration = current_time.duration_since(previous_time);
+
+        // Check if mouse hasn't moved further than tolerance distance
+        // or the click took less than tolerance duration
+        // Matches C++ Mouse.cpp:381-386
+        if delta_x > DRAG_TOLERANCE
+            || delta_y > DRAG_TOLERANCE
+            || duration.as_millis() > DRAG_TOLERANCE_MS as u128
+        {
+            return false;
+        }
+
+        true
+    }
+
+    /// Handle left mouse button down
+    /// Port of C++ MSG_RAW_MOUSE_LEFT_BUTTON_DOWN from SelectionXlat.cpp:893-899
+    fn handle_left_button_down(&mut self, position: ICoord2D) {
+        // Cannot actually start area selection yet - have to wait for cursor to move a bit
+        // Matches C++ SelectionXlat.cpp:895-897
+        self.left_mouse_button_is_down = true;
+        self.select_feedback_anchor = position;
+    }
+
+    /// Handle mouse position updates
+    /// Port of C++ MSG_RAW_MOUSE_POSITION from SelectionXlat.cpp:383-450
+    fn handle_mouse_position(&mut self, position: ICoord2D) {
+        if self.left_mouse_button_is_down {
+            let delta_x = (position.x - self.select_feedback_anchor.x).abs();
+            let delta_y = (position.y - self.select_feedback_anchor.y).abs();
+
+            // If mouse has moved while left button is down, begin drag selection
+            // Matches C++ SelectionXlat.cpp:399-408
+            if delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE {
+                if !self.drag_selecting {
+                    self.drag_selecting = true;
+                    debug!(
+                        "Started drag selection at {:?}",
+                        self.select_feedback_anchor
+                    );
+                }
+            }
+
+            // Create "hint" messages defining selection region under construction
+            // Matches C++ SelectionXlat.cpp:410-420
+            if self.drag_selecting {
+                // Would create MSG_AREA_SELECTION_HINT here in full implementation
+                debug!(
+                    "Drag selecting: {:?} to {:?}",
+                    self.select_feedback_anchor, position
+                );
+            }
+        }
+    }
+
+    /// Handle left mouse button up (click or drag selection)
+    /// Port of C++ MSG_RAW_MOUSE_LEFT_BUTTON_UP from SelectionXlat.cpp:905-950
+    fn handle_left_button_up(
+        &mut self,
+        position: ICoord2D,
+        modifiers: KeyModifiers,
+    ) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        self.left_mouse_button_is_down = false;
+        let add_to_group = modifiers.contains(KeyModifiers::SHIFT);
+
+        if self.drag_selecting {
+            // Stop drag selecting
+            // Matches C++ SelectionXlat.cpp:909-915
+            self.drag_selecting = false;
+            debug!("Ended drag selection");
+
+            let region = self.build_region(&self.select_feedback_anchor, &position);
+            let picked = self.find_drawables_in_region(&region, true);
+
+            if picked.is_empty() {
+                return messages;
+            }
+
+            if !add_to_group {
+                self.deselect_all();
+            }
+
+            let mut selected_ids = Vec::new();
+            for drawable in picked {
+                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                    if !self.displayed_max_warning {
+                        warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
+                        self.displayed_max_warning = true;
+                    }
+                    break;
+                }
+
+                if self.current_selection.insert(drawable.object_id) {
+                    selected_ids.push(drawable.object_id);
+                }
+            }
+
+            if !selected_ids.is_empty() {
+                messages.push(GameMessageType::CreateSelectedGroup(
+                    !add_to_group,
+                    selected_ids,
+                ));
+            }
+        } else {
+            // Left click behavior (not drag)
+            // Matches C++ SelectionXlat.cpp:924-946
+            let Some(clicked) = self.find_drawable_at_position(&position) else {
+                if !add_to_group && !self.current_selection.is_empty() {
+                    self.deselect_all();
+                    messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
+                }
+                return messages;
+            };
+
+            if add_to_group && self.current_selection.contains(&clicked.object_id) {
+                self.current_selection.remove(&clicked.object_id);
+                messages.push(GameMessageType::RemoveFromSelectedGroup(vec![
+                    clicked.object_id,
+                ]));
+                return messages;
+            }
+
+            if !add_to_group {
+                self.deselect_all();
+            }
+
+            if self.current_selection.len() < MAX_SELECTION_COUNT
+                && self.current_selection.insert(clicked.object_id)
+            {
+                messages.push(GameMessageType::CreateSelectedGroup(
+                    !add_to_group,
+                    vec![clicked.object_id],
+                ));
+            } else if self.current_selection.len() >= MAX_SELECTION_COUNT
+                && !self.displayed_max_warning
+            {
+                warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
+                self.displayed_max_warning = true;
+            }
+        }
+
+        messages
+    }
+
+    /// Handle right mouse button down
+    /// Port of C++ MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN from SelectionXlat.cpp:953-964
+    fn handle_right_button_down(
+        &mut self,
+        position: ICoord2D,
+        time: u32,
+        camera_position: Coord3D,
+    ) {
+        // Track position for click detection
+        // Matches C++ SelectionXlat.cpp:959-961
+        self.deselect_feedback_anchor = position;
+        self.last_click = Instant::now();
+        self.deselect_down_camera_position = camera_position;
+    }
+
+    /// Handle right mouse button up
+    /// Port of C++ MSG_RAW_MOUSE_RIGHT_BUTTON_UP from SelectionXlat.cpp:966-1028
+    fn handle_right_button_up(
+        &mut self,
+        position: ICoord2D,
+        camera_position: Coord3D,
+    ) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        let delta_x = (self.deselect_feedback_anchor.x - position.x).abs();
+        let delta_y = (self.deselect_feedback_anchor.y - position.y).abs();
+        let current_time = Instant::now();
+
+        // Calculate camera movement
+        // Matches C++ SelectionXlat.cpp:973-974
+        let camera_delta = Coord3D {
+            x: camera_position.x - self.deselect_down_camera_position.x,
+            y: camera_position.y - self.deselect_down_camera_position.y,
+            z: camera_position.z - self.deselect_down_camera_position.z,
+        };
+        let camera_distance = (camera_delta.x * camera_delta.x
+            + camera_delta.y * camera_delta.y
+            + camera_delta.z * camera_delta.z)
+            .sqrt();
+
+        // Check if this was a click or drag
+        // Matches C++ SelectionXlat.cpp:982-1000
+        let mut is_click = true;
+
+        if delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE {
+            is_click = false;
+        }
+
+        if current_time.duration_since(self.last_click).as_millis() > DRAG_TOLERANCE_MS as u128 {
+            is_click = false;
+        }
+
+        if camera_distance > DRAG_TOLERANCE_3D {
+            is_click = false;
+        }
+
+        // Right click behavior (not right drag)
+        // Matches C++ SelectionXlat.cpp:1002-1025
+        if is_click {
+            // Would handle GUI command cancellation here
+            // Matches C++ SelectionXlat.cpp:1007-1014
+
+            // Deselect all in regular mouse mode
+            // Matches C++ SelectionXlat.cpp:1016-1023
+            // This would check !TheGlobalData->m_useAlternateMouse in C++
+        }
+
+        messages
+    }
+
+    /// Handle double-click selection
+    /// Port of C++ MSG_MOUSE_LEFT_DOUBLE_CLICK from SelectionXlat.cpp:453-522
+    fn handle_double_click(
+        &mut self,
+        position: ICoord2D,
+        modifiers: KeyModifiers,
+    ) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        // Double-click selects all units of same type
+        // Matches C++ SelectionXlat.cpp:458-520
+
+        // Find drawable at click position
+        if let Some(clicked_drawable) = self.find_drawable_at_position(&position) {
+            if !clicked_drawable.is_mass_selectable() {
+                return messages;
+            }
+
+            // Select all matching units
+            // Matches C++ SelectionXlat.cpp:488-501
+            let select_across_map = modifiers.contains(KeyModifiers::ALT);
+            let add_to_group = modifiers.contains(KeyModifiers::SHIFT);
+
+            let matching = if select_across_map {
+                self.collect_matching_across_map(clicked_drawable.object_id)
+            } else {
+                self.collect_matching_across_screen(clicked_drawable.object_id)
+            };
+
+            if matching.is_empty() {
+                return messages;
+            }
+
+            if !add_to_group {
+                self.deselect_all();
+            }
+
+            let mut added = Vec::new();
+            for id in matching {
+                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                    if !self.displayed_max_warning {
+                        warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
+                        self.displayed_max_warning = true;
+                    }
+                    break;
+                }
+                if self.current_selection.insert(id) {
+                    added.push(id);
+                }
+            }
+
+            if !added.is_empty() {
+                messages.push(GameMessageType::CreateSelectedGroup(!add_to_group, added));
+            }
+        }
+
+        messages
+    }
+
+    /// Handle control group creation (Ctrl+0-9)
+    /// Port of C++ MSG_META_CREATE_TEAM0-9 from SelectionXlat.cpp:1031-1060
+    fn handle_create_control_group(&mut self, group: u8) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        if group < 10 {
+            debug!("Creating control group {}", group);
+
+            // Assign selected items to a group
+            // Matches C++ SelectionXlat.cpp:1045-1056
+            let drawables = self.collect_drawables();
+            let selected: Vec<_> = self
+                .current_selection
+                .iter()
+                .copied()
+                .filter(|object_id| {
+                    // C++ only adds locally-controlled objects (drawables can be selected even if not
+                    // locally controlled in edge cases, but squads are local-player hotkeys).
+                    drawables
+                        .iter()
+                        .find(|d| d.object_id == *object_id)
+                        .map(|d| d.is_local_controlled)
+                        .unwrap_or(true)
+                })
+                .collect();
+            self.control_groups[group as usize] = selected.clone();
+
+            messages.push(GameMessageType::CreateTeamSlot(group));
+        }
+
+        messages
+    }
+
+    /// Handle control group selection (0-9)
+    /// Port of C++ MSG_META_SELECT_TEAM0-9 from SelectionXlat.cpp:1063-1134
+    fn handle_select_control_group(&mut self, group: u8) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        if group < 10 {
+            debug!("Selecting control group {}", group);
+
+            let now = Instant::now();
+            let time_since_last = now.duration_since(self.last_group_sel_time);
+
+            // Check for double-press to jump view
+            // Matches C++ SelectionXlat.cpp:1086-1103
+            if time_since_last.as_millis() < DOUBLE_CLICK_TIME_MS as u128
+                && group as i32 == self.last_group_sel_group
+            {
+                debug!("Double-tap select control group {}", group);
+                // Would jump camera to group location here
+                // Matches C++ SelectionXlat.cpp:1100
+            } else {
+                // Deselect all and select group
+                // Matches C++ SelectionXlat.cpp:1107-1127
+                self.deselect_all();
+
+                // Select all objects in the group
+                let mut selected_ids = Vec::new();
+                for object_id in &self.control_groups[group as usize] {
+                    if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                        break;
+                    }
+                    if self.current_selection.insert(*object_id) {
+                        selected_ids.push(*object_id);
+                    }
+                }
+
+                if !selected_ids.is_empty() {
+                    messages.push(GameMessageType::CreateSelectedGroup(true, selected_ids));
+                } else {
+                    messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
+                }
+                messages.push(GameMessageType::SelectTeamSlot(group));
+            }
+
+            self.last_group_sel_time = now;
+            self.last_group_sel_group = group as i32;
+        }
+
+        messages
+    }
+
+    /// Handle adding a control group to current selection (Shift+0-9)
+    /// Port of C++ MSG_META_ADD_TEAM0-9 from SelectionXlat.cpp:1136-1214
+    fn handle_add_control_group(&mut self, group: u8) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        if group >= 10 {
+            return messages;
+        }
+
+        debug!("Adding control group {} to selection", group);
+
+        // If a structure is selected, clear selection before adding (C++ exploit guard).
+        let drawables = self.collect_drawables();
+        let has_structure_selected = self.current_selection.iter().any(|id| {
+            drawables
+                .iter()
+                .find(|d| d.object_id == *id)
+                .is_some_and(|d| d.is_structure)
+        });
+        if has_structure_selected {
+            self.deselect_all();
+        }
+
+        let mut added = Vec::new();
+        for object_id in &self.control_groups[group as usize] {
+            if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                break;
+            }
+            if self.current_selection.insert(*object_id) {
+                added.push(*object_id);
+            }
+        }
+
+        if !added.is_empty() {
+            messages.push(GameMessageType::CreateSelectedGroup(false, added));
+        }
+        messages.push(GameMessageType::AddTeamSlot(group));
+
+        self.last_group_sel_time = Instant::now();
+        self.last_group_sel_group = group as i32;
+
+        messages
+    }
+
+    /// Build a rectangular region from two points
+    /// Matches C++ buildRegion() helper function
+    fn build_region(&self, anchor: &ICoord2D, point: &ICoord2D) -> IRegion2D {
+        let min_x = anchor.x.min(point.x);
+        let min_y = anchor.y.min(point.y);
+        let max_x = anchor.x.max(point.x);
+        let max_y = anchor.y.max(point.y);
+
+        IRegion2D {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        }
+    }
+
+    /// Find drawable at screen position.
+    fn find_drawable_at_position(&self, position: &ICoord2D) -> Option<SelectableDrawable> {
+        let world = self.screen_to_world(position)?;
+        let max_dist_sq = PICK_RADIUS_WORLD * PICK_RADIUS_WORLD;
+
+        self.collect_drawables()
+            .into_iter()
+            .filter(|d| d.can_select(false))
+            .filter_map(|d| {
+                let dx = d.position.x - world.x;
+                let dy = d.position.y - world.y;
+                let dist_sq = dx * dx + dy * dy;
+                (dist_sq <= max_dist_sq).then_some((dist_sq, d))
+            })
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(_, d)| d)
+    }
+
+    fn collect_matching_across_map(&self, template_object_id: ObjectID) -> Vec<ObjectID> {
+        let drawables = self.collect_drawables();
+        let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
+            return Vec::new();
+        };
+        let reference_kind_of_flags = reference.kind_of_flags;
+
+        let mut matching: Vec<ObjectID> = drawables
+            .into_iter()
+            .filter(|d| d.can_select(false))
+            .filter(|d| d.is_local_controlled)
+            .filter(|d| d.is_mass_selectable())
+            .filter(|d| d.kind_of_flags == reference_kind_of_flags)
+            .map(|d| d.object_id)
+            .collect();
+
+        matching.sort_unstable();
+        matching
+    }
+
+    fn collect_matching_across_screen(&self, template_object_id: ObjectID) -> Vec<ObjectID> {
+        let (screen_w, screen_h) = with_tactical_view_ref(|view| (view.width(), view.height()));
+        let drawables = self.collect_drawables();
+        let Some(reference) = drawables.iter().find(|d| d.object_id == template_object_id) else {
+            return Vec::new();
+        };
+        let reference_kind_of_flags = reference.kind_of_flags;
+
+        let mut matching: Vec<ObjectID> = drawables
+            .into_iter()
+            .filter(|d| d.can_select(false))
+            .filter(|d| d.is_local_controlled)
+            .filter(|d| d.is_mass_selectable())
+            .filter(|d| d.kind_of_flags == reference_kind_of_flags)
+            .filter(|d| {
+                self.world_to_screen(&d.position)
+                    .map(|(sx, sy)| {
+                        sx >= 0.0 && sy >= 0.0 && sx <= screen_w as f32 && sy <= screen_h as f32
+                    })
+                    .unwrap_or(false)
+            })
+            .map(|d| d.object_id)
+            .collect();
+
+        matching.sort_unstable();
+        matching
+    }
+
+    fn find_drawables_in_region(
+        &self,
+        region: &IRegion2D,
+        drag_selecting: bool,
+    ) -> Vec<SelectableDrawable> {
+        let min_x = region.x.min(region.x + region.width);
+        let min_y = region.y.min(region.y + region.height);
+        let max_x = region.x.max(region.x + region.width);
+        let max_y = region.y.max(region.y + region.height);
+
+        let mut out: Vec<SelectableDrawable> = self
+            .collect_drawables()
+            .into_iter()
+            .filter(|d| d.can_select(drag_selecting))
+            .filter(|d| {
+                self.world_to_screen(&d.position)
+                    .map(|(x, y)| {
+                        let x = x as i32;
+                        let y = y as i32;
+                        x >= min_x && x <= max_x && y >= min_y && y <= max_y
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        out.sort_by_key(|d| d.id);
+        out
+    }
+
+    /// Public accessors for control bar integration
+    /// Matches C++ SelectionXlat.h:48-51
+    pub fn set_drag_selecting(&mut self, drag_select: bool) {
+        self.drag_selecting = drag_select;
+    }
+
+    pub fn set_left_mouse_button(&mut self, state: bool) {
+        self.left_mouse_button_is_down = state;
+    }
+
+    pub fn is_hand_of_god_selection_mode(&self) -> bool {
+        // Debug mode for instantly killing units by clicking
+        // Matches C++ SelectionXlat.h:54-55
+        false
+    }
+}
+
+impl Default for SelectionTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameMessageTranslator for SelectionTranslator {
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        let new_messages = match msg.get_type() {
+            // Mouse position tracking
+            GameMessageType::RawMousePosition(pos) => {
+                self.handle_mouse_position(pos.clone());
+                Vec::new()
+            }
+
+            // Left mouse button
+            GameMessageType::RawMouseLeftButtonDown(pos, modifiers, _time) => {
+                let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
+                let _ = modifiers;
+                self.handle_left_button_down(pos.clone());
+                Vec::new()
+            }
+
+            GameMessageType::RawMouseLeftButtonUp(pos, modifiers, _time) => {
+                let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
+                self.handle_left_button_up(pos.clone(), modifiers)
+            }
+
+            GameMessageType::MouseLeftDoubleClick(region, modifiers) => {
+                let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
+                let pos = ICoord2D {
+                    x: region.x,
+                    y: region.y,
+                };
+                self.handle_double_click(pos, modifiers)
+            }
+
+            // Right mouse button
+            GameMessageType::RawMouseRightButtonDown(pos, _modifiers, time) => {
+                self.handle_right_button_down(pos.clone(), *time, Coord3D::default());
+                Vec::new()
+            }
+
+            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, _time) => {
+                self.handle_right_button_up(pos.clone(), Coord3D::default())
+            }
+
+            // Control group creation (Ctrl+0-9)
+            GameMessageType::MetaCreateTeam(group) => self.handle_create_control_group(*group),
+
+            // Control group selection (0-9)
+            GameMessageType::MetaSelectTeam(group) => self.handle_select_control_group(*group),
+
+            // Control group add (Shift+0-9)
+            GameMessageType::MetaAddTeam(group) => self.handle_add_control_group(*group),
+
+            // Pass through other messages
+            _ => {
+                return GameMessageDisposition::KeepMessage;
+            }
+        };
+
+        // Dispatch translated messages into the message stream.
+        for new_msg in new_messages {
+            emit_message(GameMessage::new(new_msg));
+        }
+
+        // Raw input messages are destroyed after processing
+        GameMessageDisposition::DestroyMessage
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_can_select_drawable() {
+        let drawable = SelectableDrawable {
+            id: 1,
+            object_id: 100,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        };
+
+        // Can select normally
+        assert!(drawable.can_select(false));
+        assert!(drawable.can_select(true));
+
+        // Can't select dead units
+        let mut dead = drawable.clone();
+        dead.is_dead = true;
+        assert!(!dead.can_select(false));
+
+        // Can't drag-select structures
+        let mut structure = drawable.clone();
+        structure.is_structure = true;
+        assert!(structure.can_select(false)); // Can click-select
+        assert!(!structure.can_select(true)); // Can't drag-select
+
+        // Can't select hidden units
+        let mut hidden = drawable.clone();
+        hidden.is_hidden = true;
+        assert!(!hidden.can_select(false));
+    }
+
+    #[test]
+    fn test_selection_translator_creation() {
+        let translator = SelectionTranslator::new();
+        assert!(!translator.left_mouse_button_is_down);
+        assert!(!translator.drag_selecting);
+        assert_eq!(translator.current_selection.len(), 0);
+    }
+
+    #[test]
+    fn test_drag_selection_start() {
+        let mut translator = SelectionTranslator::new();
+
+        // Simulate mouse down
+        let down_pos = ICoord2D { x: 100, y: 100 };
+        translator.handle_left_button_down(down_pos);
+
+        assert!(translator.left_mouse_button_is_down);
+        assert!(!translator.drag_selecting); // Not dragging yet
+
+        // Move mouse beyond drag tolerance
+        let drag_pos = ICoord2D { x: 120, y: 120 };
+        translator.handle_mouse_position(drag_pos);
+
+        assert!(translator.drag_selecting); // Now dragging
+    }
+
+    #[test]
+    fn test_control_group_management() {
+        let mut translator = SelectionTranslator::new();
+
+        // Add some units to selection
+        translator.current_selection.insert(100);
+        translator.current_selection.insert(101);
+        translator.current_selection.insert(102);
+
+        // Create control group 1
+        translator.handle_create_control_group(1);
+
+        assert_eq!(translator.control_groups[1].len(), 3);
+
+        // Clear selection
+        translator.deselect_all();
+        assert_eq!(translator.current_selection.len(), 0);
+
+        // Select control group 1
+        translator.handle_select_control_group(1);
+
+        assert_eq!(translator.current_selection.len(), 3);
+        assert_eq!(translator.last_group_sel_group, 1);
+    }
+
+    #[test]
+    fn test_is_click_tolerance() {
+        let translator = SelectionTranslator::new();
+
+        let anchor = ICoord2D { x: 100, y: 100 };
+        let start_time = Instant::now();
+
+        // Within tolerance
+        let near = ICoord2D { x: 102, y: 102 };
+        assert!(translator.is_click(&anchor, &near, start_time, start_time));
+
+        // Outside distance tolerance
+        let far = ICoord2D { x: 120, y: 120 };
+        assert!(!translator.is_click(&anchor, &far, start_time, start_time));
+
+        // Would test time tolerance but can't easily mock time in test
+    }
+
+    #[test]
+    fn test_build_region() {
+        let translator = SelectionTranslator::new();
+
+        let p1 = ICoord2D { x: 100, y: 100 };
+        let p2 = ICoord2D { x: 200, y: 150 };
+
+        let region = translator.build_region(&p1, &p2);
+
+        assert_eq!(region.x, 100);
+        assert_eq!(region.y, 100);
+        assert_eq!(region.width, 100);
+        assert_eq!(region.height, 50);
+
+        // Test reverse order
+        let region2 = translator.build_region(&p2, &p1);
+        assert_eq!(region, region2);
+    }
+}

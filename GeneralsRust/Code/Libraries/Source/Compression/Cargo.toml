@@ -1,0 +1,56 @@
+[package]
+name = "generals_compression"
+version = "2.0.0"
+edition = "2021"
+authors = ["GeneralsRust Team"]
+description = "Modern Rust implementation of Command & Conquer Generals Zero Hour compression algorithms"
+license = "GPL-3.0"
+repository = "https://github.com/GeneralsRust/Compression"
+
+[features]
+default = ["parallel", "benchmarks"]
+parallel = ["rayon"]
+benchmarks = ["criterion"]
+
+[dependencies]
+# All compression algorithms now use battle-tested libraries - no custom implementations!
+
+# Core dependencies
+thiserror = "2.0"
+anyhow = "1.0"
+byteorder = "1.5"
+rayon = { version = "1.11", optional = true }
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+
+# Battle-tested compression libraries
+lz4_flex = "0.11"     # Fast LZ4 compression (replaces RefPack)
+flate2 = "1.1"        # DEFLATE/INFLATE (replaces custom ZLib)
+zstd = "0.13"         # Zstandard (replaces BTree)
+brotli = "6.0"        # Brotli (replaces Huffman)
+eac_compression = { path = "EAC" }
+lzh_compression = { path = "LZHCompress" }
+
+# Benchmarking
+criterion = { version = "0.5", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.9"
+tempfile = "3.23"
+rand = "0.8"
+
+[[bench]]
+name = "compression_benchmarks"
+harness = false
+required-features = ["benchmarks"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+debug = true

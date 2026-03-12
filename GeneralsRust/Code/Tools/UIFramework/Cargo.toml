@@ -1,0 +1,40 @@
+[package]
+name = "ui_framework"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Core UI
+egui = { workspace = true }
+eframe = { workspace = true }
+winit = { workspace = true }
+
+# 3D Rendering
+wgpu = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+glam = { workspace = true }
+three-d = { workspace = true }
+
+# Utilities
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+# Hot reload
+notify = { workspace = true }
+
+# Asset loading
+rfd = { workspace = true }
+image = { workspace = true }
+
+[features]
+default = ["3d_viewport", "asset_browser", "property_panels"]
+3d_viewport = []
+asset_browser = []
+property_panels = []
+hot_reload = []

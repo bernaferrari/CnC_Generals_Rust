@@ -1,0 +1,19 @@
+[package]
+name = "ww3d"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.18"
+bytemuck = { version = "1.14", features = ["derive"] }
+cgmath = "0.18"
+thiserror = "1.0"
+bitflags = "2.4"
+
+[dependencies.nalgebra]
+version = "0.32"
+features = ["std"]
+
+[lib]
+name = "ww3d"
+path = "src/lib.rs"

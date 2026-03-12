@@ -1,0 +1,630 @@
+use super::*;
+use glam::Vec3;
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
+
+/// Grid-based pathfinding node
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct GridPos {
+    pub x: i32,
+    pub y: i32,
+}
+
+impl GridPos {
+    pub fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    pub fn to_world_pos(&self, grid_size: f32) -> Vec3 {
+        Vec3::new(self.x as f32 * grid_size, 0.0, self.y as f32 * grid_size)
+    }
+
+    pub fn from_world_pos(world_pos: Vec3, grid_size: f32) -> Self {
+        Self {
+            x: (world_pos.x / grid_size).round() as i32,
+            y: (world_pos.z / grid_size).round() as i32,
+        }
+    }
+
+    pub fn distance(&self, other: GridPos) -> f32 {
+        let dx = (self.x - other.x) as f32;
+        let dy = (self.y - other.y) as f32;
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    pub fn manhattan_distance(&self, other: GridPos) -> i32 {
+        (self.x - other.x).abs() + (self.y - other.y).abs()
+    }
+
+    pub fn neighbors(&self) -> Vec<GridPos> {
+        vec![
+            GridPos::new(self.x + 1, self.y),
+            GridPos::new(self.x - 1, self.y),
+            GridPos::new(self.x, self.y + 1),
+            GridPos::new(self.x, self.y - 1),
+            // Diagonal neighbors
+            GridPos::new(self.x + 1, self.y + 1),
+            GridPos::new(self.x + 1, self.y - 1),
+            GridPos::new(self.x - 1, self.y + 1),
+            GridPos::new(self.x - 1, self.y - 1),
+        ]
+    }
+}
+
+/// A* pathfinding node
+#[derive(Debug, Clone)]
+struct PathNode {
+    pos: GridPos,
+    g_cost: f32, // Cost from start
+    h_cost: f32, // Heuristic cost to goal
+    parent: Option<GridPos>,
+}
+
+impl PathNode {
+    fn new(pos: GridPos, g_cost: f32, h_cost: f32, parent: Option<GridPos>) -> Self {
+        Self {
+            pos,
+            g_cost,
+            h_cost,
+            parent,
+        }
+    }
+
+    fn f_cost(&self) -> f32 {
+        self.g_cost + self.h_cost
+    }
+}
+
+impl PartialEq for PathNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.pos == other.pos
+    }
+}
+
+impl Eq for PathNode {}
+
+impl PartialOrd for PathNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PathNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse ordering for min-heap behavior
+        other
+            .f_cost()
+            .partial_cmp(&self.f_cost())
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
+/// Pathfinding grid
+#[derive(Debug, Clone)]
+pub struct PathfindingGrid {
+    width: i32,
+    height: i32,
+    grid_size: f32,
+    origin: Vec3,
+    blocked: HashSet<GridPos>,
+    dynamic_blocked: HashSet<GridPos>, // Temporarily blocked by units
+}
+
+impl PathfindingGrid {
+    pub fn new(world_width: f32, world_height: f32, grid_size: f32) -> Self {
+        Self::new_with_origin(Vec3::ZERO, world_width, world_height, grid_size)
+    }
+
+    pub fn new_with_origin(
+        origin: Vec3,
+        world_width: f32,
+        world_height: f32,
+        grid_size: f32,
+    ) -> Self {
+        Self {
+            width: (world_width / grid_size).ceil() as i32,
+            height: (world_height / grid_size).ceil() as i32,
+            grid_size,
+            origin,
+            blocked: HashSet::new(),
+            dynamic_blocked: HashSet::new(),
+        }
+    }
+
+    pub fn is_valid_pos(&self, pos: GridPos) -> bool {
+        pos.x >= 0 && pos.x < self.width && pos.y >= 0 && pos.y < self.height
+    }
+
+    pub fn origin(&self) -> Vec3 {
+        self.origin
+    }
+
+    pub fn world_to_grid(&self, world_pos: Vec3) -> GridPos {
+        GridPos {
+            x: ((world_pos.x - self.origin.x) / self.grid_size).round() as i32,
+            y: ((world_pos.z - self.origin.z) / self.grid_size).round() as i32,
+        }
+    }
+
+    pub fn grid_to_world(&self, pos: GridPos) -> Vec3 {
+        Vec3::new(
+            self.origin.x + pos.x as f32 * self.grid_size,
+            0.0,
+            self.origin.z + pos.y as f32 * self.grid_size,
+        )
+    }
+
+    pub fn is_blocked(&self, pos: GridPos) -> bool {
+        self.blocked.contains(&pos) || self.dynamic_blocked.contains(&pos)
+    }
+
+    pub fn is_static_blocked(&self, pos: GridPos) -> bool {
+        self.blocked.contains(&pos)
+    }
+
+    pub fn set_blocked(&mut self, pos: GridPos, blocked: bool) {
+        if blocked {
+            self.blocked.insert(pos);
+        } else {
+            self.blocked.remove(&pos);
+        }
+    }
+
+    pub fn clear_static_blocks(&mut self) {
+        self.blocked.clear();
+    }
+
+    pub fn export_static_block_mask(&self) -> Vec<bool> {
+        let mut mask = vec![false; (self.width.max(0) * self.height.max(0)) as usize];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let idx = (y * self.width + x) as usize;
+                mask[idx] = self.is_static_blocked(GridPos::new(x, y));
+            }
+        }
+        mask
+    }
+
+    pub fn import_static_block_mask(&mut self, width: i32, height: i32, mask: &[bool]) -> bool {
+        if width != self.width || height != self.height {
+            return false;
+        }
+
+        let expected_len = (self.width * self.height) as usize;
+        if mask.len() != expected_len {
+            return false;
+        }
+
+        self.clear_static_blocks();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let idx = (y * self.width + x) as usize;
+                if mask[idx] {
+                    self.set_blocked(GridPos::new(x, y), true);
+                }
+            }
+        }
+        true
+    }
+
+    pub fn grid_size(&self) -> f32 {
+        self.grid_size
+    }
+
+    pub fn width(&self) -> i32 {
+        self.width
+    }
+
+    pub fn height(&self) -> i32 {
+        self.height
+    }
+
+    pub fn set_dynamic_blocked(&mut self, pos: GridPos, blocked: bool) {
+        if blocked {
+            self.dynamic_blocked.insert(pos);
+        } else {
+            self.dynamic_blocked.remove(&pos);
+        }
+    }
+
+    pub fn clear_dynamic_blocks(&mut self) {
+        self.dynamic_blocked.clear();
+    }
+
+    /// Find path using A* algorithm
+    pub fn find_path(&self, start: GridPos, goal: GridPos) -> Option<Vec<Vec3>> {
+        if !self.is_valid_pos(start) || !self.is_valid_pos(goal) || self.is_blocked(goal) {
+            return None;
+        }
+
+        let mut open_set = BinaryHeap::new();
+        let mut came_from: HashMap<GridPos, GridPos> = HashMap::new();
+        let mut g_score: HashMap<GridPos, f32> = HashMap::new();
+
+        g_score.insert(start, 0.0);
+        open_set.push(PathNode::new(start, 0.0, start.distance(goal), None));
+
+        while let Some(current) = open_set.pop() {
+            if current.pos == goal {
+                // Reconstruct path
+                return Some(self.reconstruct_path(&came_from, current.pos));
+            }
+
+            for neighbor in current.pos.neighbors() {
+                if !self.is_valid_pos(neighbor) || self.is_blocked(neighbor) {
+                    continue;
+                }
+
+                // Calculate movement cost (diagonal moves cost more)
+                let movement_cost = if (neighbor.x - current.pos.x).abs() == 1
+                    && (neighbor.y - current.pos.y).abs() == 1
+                {
+                    1.414_213_5 // sqrt(2) for diagonal movement
+                } else {
+                    1.0
+                };
+
+                let tentative_g_score = current.g_cost + movement_cost;
+
+                if tentative_g_score < *g_score.get(&neighbor).unwrap_or(&f32::INFINITY) {
+                    came_from.insert(neighbor, current.pos);
+                    g_score.insert(neighbor, tentative_g_score);
+
+                    open_set.push(PathNode::new(
+                        neighbor,
+                        tentative_g_score,
+                        neighbor.distance(goal),
+                        Some(current.pos),
+                    ));
+                }
+            }
+        }
+
+        None // No path found
+    }
+
+    fn reconstruct_path(
+        &self,
+        came_from: &HashMap<GridPos, GridPos>,
+        mut current: GridPos,
+    ) -> Vec<Vec3> {
+        let mut path = vec![self.grid_to_world(current)];
+
+        while let Some(&parent) = came_from.get(&current) {
+            current = parent;
+            path.push(self.grid_to_world(current));
+        }
+
+        path.reverse();
+        path
+    }
+
+    /// Update dynamic obstacles based on unit positions
+    pub fn update_dynamic_obstacles(&mut self, objects: &HashMap<ObjectId, Object>) {
+        self.clear_dynamic_blocks();
+
+        for obj in objects.values() {
+            if obj.is_alive()
+                && (obj.is_kind_of(KindOf::Vehicle) || obj.is_kind_of(KindOf::Structure))
+            {
+                let grid_pos = self.world_to_grid(obj.get_position());
+
+                // Vehicles and structures block pathfinding
+                self.set_dynamic_blocked(grid_pos, true);
+
+                // Large units might block multiple grid cells
+                if obj.is_kind_of(KindOf::Structure) {
+                    // Block a 3x3 area for buildings
+                    for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            let blocked_pos = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
+                            self.set_dynamic_blocked(blocked_pos, true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Flow field pathfinding for RTS-style unit movement
+#[derive(Debug, Clone)]
+pub struct FlowField {
+    width: i32,
+    height: i32,
+    grid_size: f32,
+    origin: Vec3,
+    integration_field: HashMap<GridPos, f32>,
+    flow_field: HashMap<GridPos, Vec3>,
+}
+
+impl FlowField {
+    pub fn new(world_width: f32, world_height: f32, grid_size: f32) -> Self {
+        Self::new_with_origin(Vec3::ZERO, world_width, world_height, grid_size)
+    }
+
+    pub fn new_with_origin(
+        origin: Vec3,
+        world_width: f32,
+        world_height: f32,
+        grid_size: f32,
+    ) -> Self {
+        Self {
+            width: (world_width / grid_size).ceil() as i32,
+            height: (world_height / grid_size).ceil() as i32,
+            grid_size,
+            origin,
+            integration_field: HashMap::new(),
+            flow_field: HashMap::new(),
+        }
+    }
+
+    /// Generate flow field toward a goal
+    pub fn generate_flow_field(&mut self, goal: GridPos, pathfinding_grid: &PathfindingGrid) {
+        self.integration_field.clear();
+        self.flow_field.clear();
+
+        // Initialize integration field
+        let mut open_set = BinaryHeap::new();
+        self.integration_field.insert(goal, 0.0);
+        open_set.push((0, goal)); // (negative cost, position) for min-heap
+
+        // Dijkstra's algorithm to fill integration field
+        while let Some((neg_cost, current)) = open_set.pop() {
+            let current_cost = (-neg_cost) as f32;
+
+            if current_cost
+                > *self
+                    .integration_field
+                    .get(&current)
+                    .unwrap_or(&f32::INFINITY)
+            {
+                continue;
+            }
+
+            for neighbor in current.neighbors() {
+                if !pathfinding_grid.is_valid_pos(neighbor) || pathfinding_grid.is_blocked(neighbor)
+                {
+                    continue;
+                }
+
+                let movement_cost =
+                    if (neighbor.x - current.x).abs() == 1 && (neighbor.y - current.y).abs() == 1 {
+                        1.414_213_5
+                    } else {
+                        1.0
+                    };
+
+                let new_cost = current_cost + movement_cost;
+
+                if new_cost
+                    < *self
+                        .integration_field
+                        .get(&neighbor)
+                        .unwrap_or(&f32::INFINITY)
+                {
+                    self.integration_field.insert(neighbor, new_cost);
+                    open_set.push((-((new_cost * 1000.0) as i32), neighbor));
+                }
+            }
+        }
+
+        // Generate flow vectors
+        for (&pos, &cost) in &self.integration_field {
+            let mut best_neighbor = pos;
+            let mut best_cost = cost;
+
+            for neighbor in pos.neighbors() {
+                if let Some(&neighbor_cost) = self.integration_field.get(&neighbor) {
+                    if neighbor_cost < best_cost {
+                        best_cost = neighbor_cost;
+                        best_neighbor = neighbor;
+                    }
+                }
+            }
+
+            if best_neighbor != pos {
+                let direction = Vec3::new(
+                    (best_neighbor.x - pos.x) as f32,
+                    0.0,
+                    (best_neighbor.y - pos.y) as f32,
+                )
+                .normalize_or_zero();
+
+                self.flow_field.insert(pos, direction);
+            }
+        }
+    }
+
+    /// Get flow direction at world position
+    pub fn get_flow_direction(&self, world_pos: Vec3) -> Vec3 {
+        let grid_pos = GridPos {
+            x: ((world_pos.x - self.origin.x) / self.grid_size).round() as i32,
+            y: ((world_pos.z - self.origin.z) / self.grid_size).round() as i32,
+        };
+        self.flow_field
+            .get(&grid_pos)
+            .copied()
+            .unwrap_or(Vec3::ZERO)
+    }
+}
+
+/// Main pathfinding system
+#[derive(Debug)]
+pub struct PathfindingSystem {
+    pub grid: PathfindingGrid,
+    flow_fields: HashMap<ObjectId, FlowField>, // Flow fields for different goals
+}
+
+impl PathfindingSystem {
+    pub fn new(world_width: f32, world_height: f32) -> Self {
+        Self::new_with_origin(Vec3::ZERO, world_width, world_height)
+    }
+
+    pub fn new_with_origin(origin: Vec3, world_width: f32, world_height: f32) -> Self {
+        const GRID_SIZE: f32 = 10.0; // 10 units per grid cell
+
+        Self {
+            grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
+            flow_fields: HashMap::new(),
+        }
+    }
+
+    pub fn clear_static_blocks(&mut self) {
+        self.grid.clear_static_blocks();
+    }
+
+    /// Find path between two world positions asynchronously
+    pub fn find_path(
+        &mut self,
+        start: Vec3,
+        goal: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+    ) -> Option<Vec<Vec3>> {
+        // Spawn async task for pathfinding to avoid blocking
+        // Update dynamic obstacles
+        self.grid.update_dynamic_obstacles(objects);
+
+        let start_grid = self.grid.world_to_grid(start);
+        let goal_grid = self.grid.world_to_grid(goal);
+
+        self.grid.find_path(start_grid, goal_grid)
+    }
+
+    /// Move unit along path
+    pub fn move_unit_along_path(
+        &self,
+        object_id: ObjectId,
+        objects: &mut HashMap<ObjectId, Object>,
+        dt: f32,
+    ) -> bool {
+        if let Some(unit) = objects.get_mut(&object_id) {
+            if unit.movement.path.is_empty()
+                || unit.movement.current_path_index >= unit.movement.path.len()
+            {
+                unit.stop_moving();
+                return false;
+            }
+
+            let target_waypoint = unit.movement.path[unit.movement.current_path_index];
+            let current_pos = unit.get_position();
+            let distance_to_waypoint = current_pos.distance(target_waypoint);
+
+            if distance_to_waypoint < 5.0 {
+                // Reached waypoint, move to next
+                unit.movement.current_path_index += 1;
+                if unit.movement.current_path_index >= unit.movement.path.len() {
+                    // Reached final destination
+                    unit.stop_moving();
+                    return true;
+                }
+                return false; // Continue to next waypoint
+            }
+
+            // Move toward waypoint
+            let direction = (target_waypoint - current_pos).normalize_or_zero();
+            let move_distance = unit.movement.max_speed * dt;
+            let new_position = current_pos + direction * move_distance;
+
+            unit.set_position(new_position);
+            unit.set_orientation((-direction.z).atan2(direction.x));
+
+            false
+        } else {
+            false
+        }
+    }
+
+    /// Set up flow field for group movement
+    pub fn create_flow_field(
+        &mut self,
+        goal_object_id: ObjectId,
+        goal_pos: Vec3,
+        objects: &HashMap<ObjectId, Object>,
+    ) {
+        // Update obstacles and create flow field
+        self.grid.update_dynamic_obstacles(objects);
+
+        let goal_grid = self.grid.world_to_grid(goal_pos);
+        let mut flow_field = FlowField::new_with_origin(
+            self.grid.origin(),
+            self.grid.width as f32 * self.grid.grid_size,
+            self.grid.height as f32 * self.grid.grid_size,
+            self.grid.grid_size,
+        );
+
+        flow_field.generate_flow_field(goal_grid, &self.grid);
+        self.flow_fields.insert(goal_object_id, flow_field);
+    }
+
+    /// Move group of units using flow field
+    pub fn move_group_with_flow_field(
+        &self,
+        goal_object_id: ObjectId,
+        unit_ids: &[ObjectId],
+        objects: &mut HashMap<ObjectId, Object>,
+        dt: f32,
+    ) {
+        if let Some(flow_field) = self.flow_fields.get(&goal_object_id) {
+            // Calculate movements
+            let movements: Vec<(ObjectId, Vec3, f32)> = unit_ids
+                .iter()
+                .filter_map(|&unit_id| {
+                    if let Some(unit) = objects.get(&unit_id) {
+                        let flow_direction = flow_field.get_flow_direction(unit.get_position());
+
+                        if flow_direction.length() > 0.1 {
+                            let move_distance = unit.movement.max_speed * dt;
+                            let new_position = unit.get_position() + flow_direction * move_distance;
+                            let new_orientation = (-flow_direction.z).atan2(flow_direction.x);
+
+                            Some((unit_id, new_position, new_orientation))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Apply movements directly
+
+            // Apply movements
+            for (unit_id, new_position, new_orientation) in movements {
+                if let Some(unit) = objects.get_mut(&unit_id) {
+                    unit.set_position(new_position);
+                    unit.set_orientation(new_orientation);
+                }
+            }
+        }
+    }
+
+    /// Clean up flow fields
+    pub fn cleanup_flow_field(&mut self, goal_object_id: ObjectId) {
+        self.flow_fields.remove(&goal_object_id);
+    }
+
+    /// Batch pathfinding for multiple units
+    pub fn find_paths_batch(
+        &mut self,
+        path_requests: Vec<(ObjectId, Vec3, Vec3)>, // (unit_id, start, goal)
+        objects: &HashMap<ObjectId, Object>,
+    ) -> Vec<(ObjectId, Option<Vec<Vec3>>)> {
+        self.grid.update_dynamic_obstacles(objects);
+
+        // Process all pathfinding requests sequentially
+        let mut results = Vec::new();
+
+        for (unit_id, start, goal) in path_requests {
+            let start_grid = self.grid.world_to_grid(start);
+            let goal_grid = self.grid.world_to_grid(goal);
+
+            let path = self.grid.find_path(start_grid, goal_grid);
+            results.push((unit_id, path));
+        }
+
+        results
+    }
+}
