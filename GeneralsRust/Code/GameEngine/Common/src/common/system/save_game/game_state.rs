@@ -53,10 +53,10 @@ impl GameState {
     pub fn xfer<X: Xfer>(&mut self, xfer: &mut X) -> io::Result<()> {
         // Note: GameState uses u32 for version but Xfer trait uses u8
         // We convert between them here
-        let mut version_u8 = self.version as u8;
-        let current_version = version_u8;
-        xfer.xfer_version(&mut version_u8, current_version)?;
-        self.version = version_u8 as u32;
+        let mut version_u32 = self.version as u32;
+        let current_version = version_u32;
+        xfer.xfer_version(&mut version_u32, current_version)?;
+        self.version = version_u32;
 
         xfer.xfer_u64(&mut self.timestamp)?;
 

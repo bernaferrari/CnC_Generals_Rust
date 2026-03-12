@@ -5,10 +5,41 @@
 //! Purpose: Parse a control Bar Scheme
 
 use super::ini::{FieldParse, INIError, INIResult, INI};
+use super::ini_mapped_image::ICoord2D;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Maximum control bar scheme image layers (matches C++ MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS)
+const MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS: usize = 6;
+/// Foreground image layer boundary (layers 0-2 are foreground, 3-5 are background)
+const CONTROL_BAR_SCHEME_FOREGROUND_IMAGE_LAYERS: usize = 3;
+
+/// Represents a single image entry within a control bar scheme layer
+#[derive(Debug, Clone)]
+pub struct SchemeImage {
+    /// Name of the image (resolved via mapped image collection at draw time)
+    pub image_name: String,
+    /// Draw position offset
+    pub position: ICoord2D,
+    /// Draw size
+    pub size: ICoord2D,
+    /// Layer index (0-5, 0 = top/foreground, 5 = bottom/background)
+    pub layer: i32,
+}
+
+/// Draw function callback type: (image_name, start_x, start_y, end_x, end_y) -> ()
+pub type SchemeDrawFunc = fn(&str, i32, i32, i32, i32);
+
+/// Global draw function for scheme images (set once from the rendering layer)
+static SCHEME_DRAW_FUNC: OnceCell<SchemeDrawFunc> = OnceCell::new();
+
+/// Set the global draw callback for scheme image rendering.
+/// Must be called once before any scheme drawing occurs.
+pub fn set_scheme_draw_func(func: SchemeDrawFunc) {
+    let _ = SCHEME_DRAW_FUNC.set(func);
+}
 
 /// Control bar scheme structure for UI layout configuration
 #[derive(Debug, Clone)]
@@ -70,6 +101,10 @@ pub struct ControlBarScheme {
     pub highlight_color_g: f32,
     pub highlight_color_b: f32,
     pub highlight_color_a: f32,
+    /// Image layers (6 layers total, 0-2 foreground, 3-5 background)
+    pub scheme_images: Vec<SchemeImage>,
+    /// Screen creation resolution (matches C++ m_ScreenCreationRes)
+    pub screen_creation_res: ICoord2D,
 }
 
 impl Default for ControlBarScheme {
@@ -132,6 +167,8 @@ impl Default for ControlBarScheme {
             highlight_color_g: 1.0,
             highlight_color_b: 0.0,
             highlight_color_a: 1.0,
+            scheme_images: Vec::new(),
+            screen_creation_res: ICoord2D { x: 800, y: 600 },
         }
     }
 }
@@ -312,6 +349,11 @@ impl ControlBarScheme {
 pub struct ControlBarSchemeManager {
     schemes: HashMap<String, ControlBarScheme>,
     active_scheme: Option<String>,
+    background_marker_pos: ICoord2D,
+    foreground_marker_pos: ICoord2D,
+    /// Multiplier for scheme image positions (screen_size / creation_res)
+    multiplier_x: f32,
+    multiplier_y: f32,
 }
 
 impl ControlBarSchemeManager {
@@ -320,7 +362,110 @@ impl ControlBarSchemeManager {
         Self {
             schemes: HashMap::new(),
             active_scheme: None,
+            background_marker_pos: ICoord2D { x: 0, y: 0 },
+            foreground_marker_pos: ICoord2D { x: 0, y: 0 },
+            multiplier_x: 1.0,
+            multiplier_y: 1.0,
         }
+    }
+
+    /// Set the background marker position (called from INI parsing)
+    pub fn set_background_marker_pos(&mut self, x: i32, y: i32) {
+        self.background_marker_pos = ICoord2D { x, y };
+    }
+
+    /// Set the foreground marker position (called from INI parsing)
+    pub fn set_foreground_marker_pos(&mut self, x: i32, y: i32) {
+        self.foreground_marker_pos = ICoord2D { x, y };
+    }
+
+    /// Get the background marker base position
+    pub fn get_background_marker_pos(&self) -> ICoord2D {
+        self.background_marker_pos
+    }
+
+    /// Get the foreground marker base position
+    pub fn get_foreground_marker_pos(&self) -> ICoord2D {
+        self.foreground_marker_pos
+    }
+
+    /// Draw the background layers at the given offset
+    /// Layers 3-5 are background (matches C++ ControlBarScheme::drawBackground)
+    pub fn draw_background(&self, offset: ICoord2D) {
+        let Some(scheme) = self.get_active_scheme() else {
+            return;
+        };
+        let Some(draw) = SCHEME_DRAW_FUNC.get() else {
+            return;
+        };
+        // Background layers: iterate layers 5 down to 3 (matches C++ loop)
+        for layer_idx in (CONTROL_BAR_SCHEME_FOREGROUND_IMAGE_LAYERS as i32
+            ..MAX_CONTROL_BAR_SCHEME_IMAGE_LAYERS as i32)
+            .rev()
+        {
+            for image in &scheme.scheme_images {
+                if image.layer != layer_idx {
+                    continue;
+                }
+                if image.image_name.is_empty() {
+                    continue;
+                }
+                let sx = (image.position.x as f32 * self.multiplier_x) as i32 + offset.x;
+                let sy = (image.position.y as f32 * self.multiplier_y) as i32 + offset.y;
+                let ex = ((image.position.x + image.size.x) as f32 * self.multiplier_x) as i32
+                    + offset.x;
+                let ey = ((image.position.y + image.size.y) as f32 * self.multiplier_y) as i32
+                    + offset.y;
+                (draw)(&image.image_name, sx, sy, ex, ey);
+            }
+        }
+    }
+
+    /// Draw the foreground layers at the given offset
+    /// Layers 0-2 are foreground (matches C++ ControlBarScheme::drawForeground)
+    pub fn draw_foreground(&self, offset: ICoord2D) {
+        let Some(scheme) = self.get_active_scheme() else {
+            return;
+        };
+        let Some(draw) = SCHEME_DRAW_FUNC.get() else {
+            return;
+        };
+        // Foreground layers: iterate layers 2 down to 0 (matches C++ loop)
+        for layer_idx in (0..CONTROL_BAR_SCHEME_FOREGROUND_IMAGE_LAYERS as i32).rev() {
+            for image in &scheme.scheme_images {
+                if image.layer != layer_idx {
+                    continue;
+                }
+                if image.image_name.is_empty() {
+                    continue;
+                }
+                let sx = (image.position.x as f32 * self.multiplier_x) as i32 + offset.x;
+                let sy = (image.position.y as f32 * self.multiplier_y) as i32 + offset.y;
+                let ex = ((image.position.x + image.size.x) as f32 * self.multiplier_x) as i32
+                    + offset.x;
+                let ey = ((image.position.y + image.size.y) as f32 * self.multiplier_y) as i32
+                    + offset.y;
+                (draw)(&image.image_name, sx, sy, ex, ey);
+            }
+        }
+    }
+
+    /// Add a scheme image to the active scheme
+    pub fn add_scheme_image(&mut self, image: SchemeImage) {
+        if let Some(scheme) = self.get_active_scheme_mut() {
+            scheme.scheme_images.push(image);
+        }
+    }
+
+    /// Set the position/size multiplier (screen_size / creation_res)
+    pub fn set_multiplier(&mut self, x: f32, y: f32) {
+        self.multiplier_x = x;
+        self.multiplier_y = y;
+    }
+
+    /// Get the current multiplier
+    pub fn get_multiplier(&self) -> (f32, f32) {
+        (self.multiplier_x, self.multiplier_y)
     }
 
     /// Find a control bar scheme by name

@@ -1609,6 +1609,66 @@ impl TerrainLogic {
         false
     }
 
+    /// Gets the attack points for a bridge.
+    ///
+    /// Bridges have two targetable points at either end. This method calculates
+    /// those points based on the bridge's geometry.
+    ///
+    /// Reference: TerrainLogic.cpp lines 1905-1934 getBridgeAttackPoints()
+    pub fn get_bridge_attack_points(
+        &self,
+        bridge_id: ObjectID,
+        attack_info: &mut BridgeAttackInfo,
+    ) {
+        let mut current = self.bridge_list_head.as_deref();
+        while let Some(bridge) = current {
+            let info = bridge.get_bridge_info();
+            if info.bridge_object_id == bridge_id {
+                // Found the right bridge - calculate attack points
+                // C++ lines 1914-1926
+
+                // Calculate direction vector from 'from' to 'to' (normalized)
+                let mut delta = Coord3D::new(
+                    info.to.x - info.from.x,
+                    info.to.y - info.from.y,
+                    info.to.z - info.from.z,
+                );
+                let delta_len = delta.length();
+                if delta_len > f32::EPSILON {
+                    delta.x /= delta_len;
+                    delta.y /= delta_len;
+                    delta.z /= delta_len;
+                }
+
+                // Calculate width vector to get half-width offset
+                let width = Coord3D::new(
+                    info.from_right.x - info.from_left.x,
+                    info.from_right.y - info.from_left.y,
+                    info.from_right.z - info.from_left.z,
+                );
+                let half_width = width.length() / 2.0;
+
+                // Attack point 1: at 'from' end, offset by half-width along bridge direction
+                attack_info.attack_point1.x = info.from.x + delta.x * half_width;
+                attack_info.attack_point1.y = info.from.y + delta.y * half_width;
+                attack_info.attack_point1.z = info.from.z + delta.z * half_width;
+
+                // Attack point 2: at 'to' end, offset by half-width back along bridge direction
+                attack_info.attack_point2.x = info.to.x - delta.x * half_width;
+                attack_info.attack_point2.y = info.to.y - delta.y * half_width;
+                attack_info.attack_point2.z = info.to.z - delta.z * half_width;
+
+                return;
+            }
+            current = bridge.next.as_deref();
+        }
+
+        // Fallback: if bridge not found, use object position for both points
+        // C++ lines 1930-1932
+        attack_info.attack_point1 = Coord3D::origin();
+        attack_info.attack_point2 = Coord3D::origin();
+    }
+
     /// Calculate terrain slope at position
     /// Reference: TerrainLogic.cpp lines 190-234 getTerrainSlope()
     ///

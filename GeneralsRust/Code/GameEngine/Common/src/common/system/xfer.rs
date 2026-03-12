@@ -14,7 +14,7 @@ use super::snapshot::Snapshot;
 use std::io::{self, Read, Write};
 
 /// Type alias for XferVersion - matches C++ line 29
-pub type XferVersion = u8;
+pub type XferVersion = u32;
 
 /// Xfer mode enumeration - matches C++ Xfer.h lines 33-42
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

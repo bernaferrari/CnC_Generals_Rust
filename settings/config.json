@@ -1,0 +1,14 @@
+{
+  "type": "town-settings",
+  "version": 1,
+  "default_agent": "droid-hunter",
+  "agents": {
+    "droid-hunter": {
+      "command": "droid",
+      "args": [
+        "--model",
+        "custom:openrouter/hunter-alpha"
+      ]
+    }
+  }
+}

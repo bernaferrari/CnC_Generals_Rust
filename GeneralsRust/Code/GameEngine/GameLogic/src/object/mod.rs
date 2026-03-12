@@ -3660,6 +3660,16 @@ impl Object {
         self.weapon_set.is_out_of_ammo()
     }
 
+    /// Check if this object shares reload time across all weapons
+    ///
+    /// When true, firing any weapon sets the cooldown on all weapons.
+    /// Used by multi-weapon units like aircraft to prevent simultaneous firing.
+    ///
+    /// Matches C++ Object::isReloadTimeShared() from Object.h
+    pub fn is_reload_time_shared(&self) -> bool {
+        self.weapon_set.is_shared_reload_time()
+    }
+
     pub fn get_able_to_attack_specific_object(
         &self,
         attack_type: AbleToAttackType,

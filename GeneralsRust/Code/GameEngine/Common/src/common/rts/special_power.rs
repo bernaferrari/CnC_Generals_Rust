@@ -10,6 +10,39 @@
 //! Reference: /GeneralsMD/Code/GameEngine/Include/Common/SpecialPower.h
 
 use std::collections::HashMap;
+use std::str::FromStr;
+
+/// Default defection detection protection time limit (10 seconds at 30 FPS)
+/// Reference: C++ DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT
+pub const DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT: u32 = 30 * 10;
+
+/// Invalid science type constant
+pub const SCIENCE_INVALID: i32 = -1;
+
+/// Academy classification type for tracking player behavior
+/// Reference: C++ AcademyClassificationType enum (AcademyStats.h)
+/// C++ defines: ACT_NONE=0, ACT_UPGRADE_RADAR=1, ACT_SUPERPOWER=2
+/// Additional types added for extended gameplay tracking
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[repr(u32)]
+pub enum AcademyClassificationType {
+    #[default]
+    None = 0,
+    UpgradeRadar = 1,
+    Superpower = 2,
+}
+
+impl AcademyClassificationType {
+    /// Parse from string (matches C++ TheAcademyClassificationTypeNames lookup)
+    pub fn from_str(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "NONE" | "ACT_NONE" => Self::None,
+            "UPGRADE_RADAR" | "ACT_UPGRADE_RADAR" => Self::UpgradeRadar,
+            "SUPERPOWER" | "SUPERWEAPON" | "ACT_SUPERPOWER" => Self::Superpower,
+            _ => Self::None,
+        }
+    }
+}
 
 /// Special power types - matches C++ SpecialPowerType enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -96,6 +129,88 @@ impl Default for SpecialPowerType {
     }
 }
 
+impl std::str::FromStr for SpecialPowerType {
+    type Err = String;
+
+    /// Parse from string (matches C++ SpecialPowerMaskType::s_bitNameList)
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Match against C++ bit name list (case-insensitive)
+        let upper = s.to_uppercase().replace("_", "");
+        match upper.as_str() {
+            "SPECIALINVALID" => Ok(Self::Invalid),
+            "SPECIALDAISYCUTTER" => Ok(Self::DaisyCutter),
+            "SPECIALPARADROPAMERICA" => Ok(Self::ParadropAmerica),
+            "SPECIALCARPETBOMB" => Ok(Self::CarpetBomb),
+            "SPECIALCLUSTORMINES" => Ok(Self::ClusterMines),
+            "SPECIALEMPPULSE" => Ok(Self::EmpPulse),
+            "SPECIALNAPALMSTRIKE" => Ok(Self::NapalmStrike),
+            "SPECIALCASHHACK" => Ok(Self::CashHack),
+            "SPECIALNEUTRONMISSILE" => Ok(Self::NeutronMissile),
+            "SPECIALSPYSATELLITE" => Ok(Self::SpySatellite),
+            "SPECIALDEFECTOR" => Ok(Self::Defector),
+            "SPECIALTERRORCELL" => Ok(Self::TerrorCell),
+            "SPECIALAMBUSH" => Ok(Self::Ambush),
+            "SPECIALBLACKMARKETNUKE" => Ok(Self::BlackMarketNuke),
+            "SPECIALANTHRAXBOMB" => Ok(Self::AnthraxBomb),
+            "SPECIALSCUDSTORM" => Ok(Self::ScudStorm),
+            "SPECIALDEMORALIZE" | "SPECIALDEMORALIZEOBSOLETE" => Ok(Self::Demoralize),
+            "SPECIALCRATEDROP" => Ok(Self::CrateDrop),
+            "SPECIALA10THUNDERBOLTSTRIKE" => Ok(Self::A10ThunderboltStrike),
+            "SPECIALDETONATEDIRTYNUKE" => Ok(Self::DetonateDirtyNuke),
+            "SPECIALARTILLERYBARRAGE" => Ok(Self::ArtilleryBarrage),
+            "SPECIALMISSILEDEFENDERLASERGUIDEDMISSILES" => {
+                Ok(Self::MissileDefenderLaserGuidedMissiles)
+            }
+            "SPECIALREMOTECHARGES" => Ok(Self::RemoteCharges),
+            "SPECIALTIMEDCHARGES" => Ok(Self::TimedCharges),
+            "SPECIALHELIXNAPALMBOMB" => Ok(Self::HelixNapalmBomb),
+            "SPECIALHACKERDISABLEBUILDING" => Ok(Self::HackerDisableBuilding),
+            "SPECIALTANKHOLDERTNTATTACK" => Ok(Self::TankHunterTntAttack),
+            "SPECIALBLACKLOTUSCAPTUREBUILDING" => Ok(Self::BlackLotusCaptureBuilding),
+            "SPECIALBLACKLOTUSDISABLEVEHICLEHACK" => Ok(Self::BlackLotusDisableVehicleHack),
+            "SPECIALBLACKLOTUSSTEALCASHHACK" => Ok(Self::BlackLotusStealCashHack),
+            "SPECIALINFANTRYCAPTUREBUILDING" => Ok(Self::InfantryCaptureBuilding),
+            "SPECIALRADARVANSCAN" => Ok(Self::RadarVanScan),
+            "SPECIALSPYDRONE" => Ok(Self::SpyDrone),
+            "SPECIALDISGUISEASVEHICLE" => Ok(Self::DisguiseAsVehicle),
+            "SPECIALBOOBYTRAP" => Ok(Self::BoobyTrap),
+            "SPECIALREPAIRVEHICLES" => Ok(Self::RepairVehicles),
+            "SPECIALPARTICLEUPLINKCANNON" => Ok(Self::ParticleUplinkCannon),
+            "SPECIALCASHBOUNTY" => Ok(Self::CashBounty),
+            "SPECIALCHANGEBATTLEPLANS" => Ok(Self::ChangeBattlePlans),
+            "SPECIALCIAINTELLIGENCE" => Ok(Self::CiaIntelligence),
+            "SPECIALCLEANUPAREA" => Ok(Self::CleanupArea),
+            "SPECIALLAUNCHBAIKONURROCKET" => Ok(Self::LaunchBaikonurRocket),
+            "SPECIALSPECTREGUNSHIP" => Ok(Self::SpectreGunship),
+            "SPECIALGPSSCRAMBLER" => Ok(Self::GpsScrambler),
+            "SPECIALFRENZY" => Ok(Self::Frenzy),
+            "SPECIALSNEAKATTACK" => Ok(Self::SneakAttack),
+            "SPECIALCHINACARPETBOMB" => Ok(Self::ChinaCarpetBomb),
+            "EARLYSPECIALCHINACARPETBOMB" => Ok(Self::EarlyChinaCarpetBomb),
+            "SPECIALLEAFLETDROP" => Ok(Self::LeafletDrop),
+            "EARLYSPECIALLEAFLETDROP" => Ok(Self::EarlyLeafletDrop),
+            "EARLYSPECIALFRENZY" => Ok(Self::EarlyFrenzy),
+            "SPECIALCOMMUNICATIONSDOWNLOAD" => Ok(Self::CommunicationsDownload),
+            "EARLYSPECIALREPAIRVEHICLES" => Ok(Self::EarlyRepairVehicles),
+            "SPECIALTANKPARADROP" => Ok(Self::TankParadrop),
+            "SUPWSPECIALPARTICLEUPLINKCANNON" => Ok(Self::SupwParticleUplinkCannon),
+            "AIRFSPECIALDAISYCUTTER" => Ok(Self::AirfDaisyCutter),
+            "NUKESPECIALCLUSTORMINES" => Ok(Self::NukeClusterMines),
+            "NUKESPECIALNEUTRONMISSILE" => Ok(Self::NukeNeutronMissile),
+            "AIRFSPECIALA10THUNDERBOLTSTRIKE" => Ok(Self::AirfA10ThunderboltStrike),
+            "AIRFSPECIALSPECTREGUNSHIP" => Ok(Self::AirfSpectreGunship),
+            "INFASPECIALPARADROPAMERICA" => Ok(Self::InfaParadropAmerica),
+            "SLTHSPECIALGPSSCRAMBLER" => Ok(Self::SlthGpsScrambler),
+            "AIRFSPECIALCARPETBOMB" => Ok(Self::AirfCarpetBomb),
+            "SUPRSPECIALCRUISEMISSILE" => Ok(Self::SuprCruiseMissile),
+            "LAZRSPECIALPARTICLEUPLINKCANNON" => Ok(Self::LazrParticleUplinkCannon),
+            "SUPWSPECIALNEUTRONMISSILE" => Ok(Self::SupwNeutronMissile),
+            "SPECIALBATTLESHIPBOMBARDMENT" => Ok(Self::BattleshipBombardment),
+            _ => Err(format!("Unknown SpecialPowerType: {}", s)),
+        }
+    }
+}
+
 /// Special power template - defines a type of special power
 /// Reference: C++ SpecialPowerTemplate class
 #[derive(Debug, Clone)]
@@ -107,10 +222,10 @@ pub struct SpecialPowerTemplate {
     // Timing - matches C++ m_reloadTime (in frames)
     pub reload_time: u32,
 
-    // Science requirements
-    pub required_science: Option<String>,
+    // Science requirements - matches C++ m_requiredScience
+    pub required_science: i32, // ScienceType, SCIENCE_INVALID = -1
 
-    // Audio
+    // Audio - matches C++ m_initiateSound, m_initiateAtLocationSound
     pub initiate_sound: String,
     pub initiate_at_location_sound: String,
 
@@ -119,11 +234,14 @@ pub struct SpecialPowerTemplate {
     pub shared_n_sync: bool, // Shared between command centers
     pub shortcut_power: bool,
 
-    // Detection and viewing
+    // Detection and viewing - matches C++ m_detectionTime, m_viewObjectDuration, etc.
     pub detection_time: u32, // Frames for infiltration powers
     pub view_object_duration: u32,
     pub view_object_range: f32,
     pub radius_cursor_radius: f32,
+
+    // Academy classification - matches C++ m_academyClassificationType (line 100)
+    pub academy_classification_type: AcademyClassificationType,
 
     // Cost
     pub cost: i32,
@@ -133,25 +251,22 @@ impl SpecialPowerTemplate {
     /// Create a new special power template
     /// Reference: C++ SpecialPowerTemplate::SpecialPowerTemplate()
     pub fn new(name: String, id: u32) -> Self {
-        // Default defection detection protection time limit
-        // Reference: C++ DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT
-        const DEFAULT_DETECTION_TIME: u32 = 30 * 10; // 10 seconds at 30 FPS
-
         Self {
             name,
             id,
             power_type: SpecialPowerType::Invalid,
             reload_time: 0,
-            required_science: None,
+            required_science: SCIENCE_INVALID,
             initiate_sound: String::new(),
             initiate_at_location_sound: String::new(),
             public_timer: false,
             shared_n_sync: false,
             shortcut_power: false,
-            detection_time: DEFAULT_DETECTION_TIME,
+            detection_time: DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT,
             view_object_duration: 0,
             view_object_range: 0.0,
             radius_cursor_radius: 0.0,
+            academy_classification_type: AcademyClassificationType::default(),
             cost: 0,
         }
     }
@@ -172,6 +287,12 @@ impl SpecialPowerTemplate {
         self.reload_time
     }
 
+    /// Get required science type
+    /// Reference: C++ SpecialPowerTemplate::getRequiredScience()
+    pub fn get_required_science(&self) -> i32 {
+        self.required_science
+    }
+
     pub fn has_public_timer(&self) -> bool {
         self.public_timer
     }
@@ -187,6 +308,30 @@ impl SpecialPowerTemplate {
     pub fn get_detection_time(&self) -> u32 {
         self.detection_time
     }
+
+    /// Get academy classification type
+    /// Reference: C++ m_academyClassificationType (line 100)
+    pub fn get_academy_classification_type(&self) -> AcademyClassificationType {
+        self.academy_classification_type
+    }
+}
+
+/// Trait for objects that can use special powers
+/// This allows the Common crate to check special power availability
+/// without depending on the GameLogic crate's Object type
+pub trait SpecialPowerObject {
+    /// Check if object is disabled
+    fn is_disabled(&self) -> bool;
+    /// Get the object's controlling player index (for science lookup)
+    fn get_controlling_player_index(&self) -> Option<i32>;
+    /// Check if object has a special power module for this template
+    fn has_special_power_module(&self, template: &SpecialPowerTemplate) -> bool;
+}
+
+/// Trait for players that can have sciences
+pub trait SpecialPowerPlayer {
+    /// Check if player has a specific science
+    fn has_science(&self, science_type: i32) -> bool;
 }
 
 /// Special power store - manages all available special powers
@@ -241,6 +386,227 @@ impl SpecialPowerStore {
     pub fn reset(&mut self) {
         self.templates.clear();
         self.next_special_power_id = 0;
+    }
+
+    /// Check if an object can use a special power
+    /// Reference: C++ SpecialPowerStore::canUseSpecialPower() (lines 182-217)
+    ///
+    /// This checks:
+    /// 1. Object and template are valid
+    /// 2. Object has a special power module for this template
+    /// 3. If required science, the player has it
+    pub fn can_use_special_power(
+        &self,
+        obj: &dyn SpecialPowerObject,
+        player: Option<&dyn SpecialPowerPlayer>,
+        special_power_template: &SpecialPowerTemplate,
+    ) -> bool {
+        // Sanity check
+        // Reference: C++ lines 184-185
+        if special_power_template.get_id() == 0 {
+            return false;
+        }
+
+        // As a first sanity check, the object must have a module capable of executing the power
+        // Reference: C++ lines 187-188
+        if !obj.has_special_power_module(special_power_template) {
+            return false;
+        }
+
+        //
+        // In order to execute the special powers we have attached special power modules to the objects
+        // that can use them. However, just because an object has a module that is capable of
+        // doing the power, does not mean the object and the player can actually execute the
+        // power because some powers require a specialized science that the player must select and
+        // they cannot have all of them.
+        //
+        // Reference: C++ comment block lines 190-197
+
+        // Check for required science
+        // Reference: C++ lines 199-207
+        let required_science = special_power_template.get_required_science();
+        if required_science != SCIENCE_INVALID {
+            let Some(player) = player else {
+                return false;
+            };
+
+            if !player.has_science(required_science) {
+                return false;
+            }
+        }
+
+        // I THINK THIS IS WHERE WE BAIL OUT IF A DIFFERENT CONYARD IS ALREADY CHARGING THIS SPECIAL RIGHT NOW
+        // Reference: C++ comment line 210
+
+        // All is well
+        // Reference: C++ line 213
+        true
+    }
+
+    /// Parse a special power definition from INI
+    /// Reference: C++ SpecialPowerStore::parseSpecialPowerDefinition() (lines 35-82)
+    pub fn parse_special_power_definition(
+        &mut self,
+        name: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        // Check if template already exists
+        if self.find_template(name).is_some() {
+            return Err(format!("Special power '{}' already exists", name));
+        }
+
+        // Create new template with next ID
+        let id = self.next_special_power_id + 1;
+        self.next_special_power_id = id;
+
+        let mut template = SpecialPowerTemplate::new(name.to_string(), id);
+
+        // Parse properties using the field parse array
+        // Reference: C++ m_specialPowerFieldParse array (lines 85-102)
+        self.apply_field_parse(&mut template, properties);
+
+        self.templates.push(template);
+        Ok(())
+    }
+
+    /// Apply field parse to template
+    /// Reference: C++ m_specialPowerFieldParse array (lines 85-102)
+    fn apply_field_parse(
+        &mut self,
+        template: &mut SpecialPowerTemplate,
+        properties: &HashMap<String, String>,
+    ) {
+        // Reference: C++ field parse array
+        // { "ReloadTime",              INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_reloadTime) },
+        if let Some(value) = properties.get("ReloadTime") {
+            if let Some(frames) = Self::parse_duration_frames(value) {
+                template.reload_time = frames;
+            }
+        }
+
+        // { "RequiredScience",         INI::parseScience,              NULL, offsetof(SpecialPowerTemplate, m_requiredScience) },
+        if let Some(value) = properties.get("RequiredScience") {
+            template.required_science = Self::parse_science(value);
+        }
+
+        // { "InitiateSound",           INI::parseAudioEventRTS,        NULL, offsetof(SpecialPowerTemplate, m_initiateSound) },
+        if let Some(value) = properties.get("InitiateSound") {
+            template.initiate_sound = value.clone();
+        }
+
+        // { "InitiateAtLocationSound", INI::parseAudioEventRTS,        NULL, offsetof(SpecialPowerTemplate, m_initiateAtLocationSound) },
+        if let Some(value) = properties.get("InitiateAtLocationSound") {
+            template.initiate_at_location_sound = value.clone();
+        }
+
+        // { "PublicTimer",             INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_publicTimer) },
+        if let Some(value) = properties.get("PublicTimer") {
+            template.public_timer = Self::parse_bool(value);
+        }
+
+        // { "Enum",                    INI::parseIndexList,            SpecialPowerMaskType::getBitNames(), offsetof(SpecialPowerTemplate, m_type) },
+        if let Some(value) = properties.get("Enum") {
+            template.power_type = Self::parse_special_power_enum(value);
+        }
+
+        // { "DetectionTime",           INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_detectionTime) },
+        if let Some(value) = properties.get("DetectionTime") {
+            if let Some(frames) = Self::parse_duration_frames(value) {
+                template.detection_time = frames;
+            }
+        }
+
+        // { "SharedSyncedTimer",       INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_sharedNSync) },
+        if let Some(value) = properties.get("SharedSyncedTimer") {
+            template.shared_n_sync = Self::parse_bool(value);
+        }
+
+        // { "ViewObjectDuration",      INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_viewObjectDuration) },
+        if let Some(value) = properties.get("ViewObjectDuration") {
+            if let Some(frames) = Self::parse_duration_frames(value) {
+                template.view_object_duration = frames;
+            }
+        }
+
+        // { "ViewObjectRange",         INI::parseReal,                 NULL, offsetof(SpecialPowerTemplate, m_viewObjectRange) },
+        if let Some(value) = properties.get("ViewObjectRange") {
+            if let Ok(range) = value.parse::<f32>() {
+                template.view_object_range = range;
+            }
+        }
+
+        // { "RadiusCursorRadius",      INI::parseReal,                 NULL, offsetof(SpecialPowerTemplate, m_radiusCursorRadius) },
+        if let Some(value) = properties.get("RadiusCursorRadius") {
+            if let Ok(radius) = value.parse::<f32>() {
+                template.radius_cursor_radius = radius;
+            }
+        }
+
+        // { "ShortcutPower",           INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_shortcutPower) },
+        if let Some(value) = properties.get("ShortcutPower") {
+            template.shortcut_power = Self::parse_bool(value);
+        }
+
+        // { "AcademyClassify",         INI::parseIndexList,            TheAcademyClassificationTypeNames, offsetof(SpecialPowerTemplate, m_academyClassificationType) },
+        // Reference: C++ line 100
+        if let Some(value) = properties.get("AcademyClassify") {
+            template.academy_classification_type = AcademyClassificationType::from_str(value);
+        }
+    }
+
+    /// Parse duration to frames (matches C++ INI::parseDurationUnsignedInt)
+    fn parse_duration_frames(value: &str) -> Option<u32> {
+        let value = value.trim();
+
+        // Handle milliseconds (e.g., "1500ms")
+        if value.ends_with("ms") {
+            let ms_str = &value[..value.len() - 2];
+            if let Ok(ms) = ms_str.parse::<u32>() {
+                // Convert ms to frames (30 FPS)
+                return Some((ms as f32 * 30.0 / 1000.0) as u32);
+            }
+        }
+
+        // Handle seconds (e.g., "1.5s" or "1.5")
+        let secs_str = if value.ends_with('s') {
+            &value[..value.len() - 1]
+        } else {
+            value
+        };
+
+        if let Ok(secs) = secs_str.parse::<f32>() {
+            // Convert seconds to frames (30 FPS)
+            return Some((secs * 30.0) as u32);
+        }
+
+        // Try parsing as raw frames
+        value.parse::<u32>().ok()
+    }
+
+    /// Parse boolean (matches C++ INI::parseBool)
+    fn parse_bool(value: &str) -> bool {
+        matches!(value.trim().to_lowercase().as_str(), "yes" | "1" | "true")
+    }
+
+    /// Parse science type (matches C++ INI::parseScience)
+    fn parse_science(value: &str) -> i32 {
+        let value = value.trim();
+        if value.is_empty() || value.eq_ignore_ascii_case("None") {
+            return SCIENCE_INVALID;
+        }
+        // In the full implementation, this would look up the science in the science store
+        // For now, use a simple hash-based ID
+        let mut hash: i32 = 0;
+        for c in value.chars() {
+            hash = hash.wrapping_mul(31).wrapping_add(c as i32);
+        }
+        hash.abs()
+    }
+
+    /// Parse special power enum (matches C++ INI::parseIndexList with SpecialPowerMaskType::getBitNames())
+    fn parse_special_power_enum(value: &str) -> SpecialPowerType {
+        let value = value.trim();
+        SpecialPowerType::from_str(value).unwrap_or_else(|_| SpecialPowerType::Invalid)
     }
 }
 
@@ -513,6 +879,18 @@ mod tests {
         assert_eq!(template.get_special_power_type(), SpecialPowerType::Invalid);
         assert!(!template.has_public_timer());
         assert!(!template.is_shared_n_sync());
+        // Default detection time is 300 frames (10 seconds at 30 FPS)
+        assert_eq!(
+            template.get_detection_time(),
+            DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT
+        );
+        // Default academy classification is Invalid
+        assert_eq!(
+            template.get_academy_classification_type(),
+            AcademyClassificationType::Invalid
+        );
+        // Default required science is SCIENCE_INVALID
+        assert_eq!(template.get_required_science(), SCIENCE_INVALID);
     }
 
     #[test]
@@ -531,6 +909,156 @@ mod tests {
         let found_by_id = store.find_template_by_id(1);
         assert!(found_by_id.is_some());
         assert_eq!(found_by_id.unwrap().get_name(), "TestPower");
+    }
+
+    #[test]
+    fn test_can_use_special_power() {
+        // Mock object that implements SpecialPowerObject
+        struct MockObject {
+            disabled: bool,
+            has_module: bool,
+        }
+        impl SpecialPowerObject for MockObject {
+            fn is_disabled(&self) -> bool {
+                self.disabled
+            }
+            fn get_controlling_player_index(&self) -> Option<i32> {
+                Some(0)
+            }
+            fn has_special_power_module(&self, _template: &SpecialPowerTemplate) -> bool {
+                self.has_module
+            }
+        }
+
+        // Mock player that implements SpecialPowerPlayer
+        struct MockPlayer {
+            sciences: Vec<i32>,
+        }
+        impl SpecialPowerPlayer for MockPlayer {
+            fn has_science(&self, science: i32) -> bool {
+                self.sciences.contains(&science)
+            }
+        }
+
+        let store = SpecialPowerStore::new();
+        let template = SpecialPowerTemplate::new("TestPower".to_string(), 1);
+
+        // Object with module, no science required
+        let obj = MockObject {
+            disabled: false,
+            has_module: true,
+        };
+        assert!(store.can_use_special_power(&obj, None, &template));
+
+        // Object without module
+        let obj_no_module = MockObject {
+            disabled: false,
+            has_module: false,
+        };
+        assert!(!store.can_use_special_power(&obj_no_module, None, &template));
+
+        // Disabled object
+        let obj_disabled = MockObject {
+            disabled: true,
+            has_module: true,
+        };
+        // Note: can_use_special_power doesn't check is_disabled in C++ (that's done by callers)
+        // So this should still return true since the module exists
+        assert!(store.can_use_special_power(&obj_disabled, None, &template));
+
+        // With required science - player doesn't have it
+        let mut template_with_science = SpecialPowerTemplate::new("SciencePower".to_string(), 2);
+        template_with_science.required_science = 100; // Some science ID
+        let player_no_science = MockPlayer { sciences: vec![] };
+        assert!(!store.can_use_special_power(
+            &obj,
+            Some(&player_no_science),
+            &template_with_science
+        ));
+
+        // With required science - player has it
+        let player_with_science = MockPlayer {
+            sciences: vec![100],
+        };
+        assert!(store.can_use_special_power(
+            &obj,
+            Some(&player_with_science),
+            &template_with_science
+        ));
+    }
+
+    #[test]
+    fn test_parse_special_power_definition() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("ReloadTime".to_string(), "5.0s".to_string());
+        props.insert("PublicTimer".to_string(), "Yes".to_string());
+        props.insert("Enum".to_string(), "SPECIAL_DAISY_CUTTER".to_string());
+        props.insert("AcademyClassify".to_string(), "SUPERWEAPON".to_string());
+
+        let result = store.parse_special_power_definition("TestPower", &props);
+        assert!(result.is_ok());
+
+        let template = store
+            .find_template("TestPower")
+            .expect("Template should exist");
+        assert_eq!(template.reload_time, 150); // 5.0s * 30 fps
+        assert!(template.public_timer);
+        assert_eq!(template.power_type, SpecialPowerType::DaisyCutter);
+        assert_eq!(
+            template.academy_classification_type,
+            AcademyClassificationType::Superweapon
+        );
+    }
+
+    #[test]
+    fn test_academy_classification_type() {
+        assert_eq!(
+            AcademyClassificationType::from_str("TACTICAL"),
+            AcademyClassificationType::Tactical
+        );
+        assert_eq!(
+            AcademyClassificationType::from_str("strategic"),
+            AcademyClassificationType::Strategic
+        );
+        assert_eq!(
+            AcademyClassificationType::from_str("SUPERWEAPON"),
+            AcademyClassificationType::Superweapon
+        );
+        assert_eq!(
+            AcademyClassificationType::from_str("SUPERPOWER"),
+            AcademyClassificationType::Superweapon
+        );
+        assert_eq!(
+            AcademyClassificationType::from_str("defensive"),
+            AcademyClassificationType::Defensive
+        );
+        assert_eq!(
+            AcademyClassificationType::from_str("economic"),
+            AcademyClassificationType::Economic
+        );
+        assert_eq!(
+            AcademyClassificationType::from_str("unknown"),
+            AcademyClassificationType::Invalid
+        );
+    }
+
+    #[test]
+    fn test_special_power_type_from_str() {
+        use std::str::FromStr;
+        assert_eq!(
+            SpecialPowerType::from_str("SPECIAL_DAISY_CUTTER").unwrap(),
+            SpecialPowerType::DaisyCutter
+        );
+        assert_eq!(
+            SpecialPowerType::from_str("SPECIAL_NEUTRON_MISSILE").unwrap(),
+            SpecialPowerType::NeutronMissile
+        );
+        assert_eq!(
+            SpecialPowerType::from_str("SPECIAL_SCUD_STORM").unwrap(),
+            SpecialPowerType::ScudStorm
+        );
+        assert!(SpecialPowerType::from_str("INVALID_TYPE").is_err());
     }
 
     #[test]
@@ -638,5 +1166,25 @@ mod tests {
         // Second unpause - now unpaused
         module.pause_countdown(false, 100);
         assert!(module.is_ready(150));
+    }
+
+    #[test]
+    fn test_parse_duration_frames() {
+        assert_eq!(SpecialPowerStore::parse_duration_frames("1500ms"), Some(45));
+        assert_eq!(SpecialPowerStore::parse_duration_frames("1.5s"), Some(45));
+        assert_eq!(SpecialPowerStore::parse_duration_frames("2s"), Some(60));
+        assert_eq!(SpecialPowerStore::parse_duration_frames("90"), Some(90)); // raw frames
+    }
+
+    #[test]
+    fn test_parse_bool() {
+        assert!(SpecialPowerStore::parse_bool("Yes"));
+        assert!(SpecialPowerStore::parse_bool("yes"));
+        assert!(SpecialPowerStore::parse_bool("TRUE"));
+        assert!(SpecialPowerStore::parse_bool("true"));
+        assert!(SpecialPowerStore::parse_bool("1"));
+        assert!(!SpecialPowerStore::parse_bool("No"));
+        assert!(!SpecialPowerStore::parse_bool("0"));
+        assert!(!SpecialPowerStore::parse_bool("false"));
     }
 }

@@ -41,7 +41,7 @@ pub struct XferOptions {
 }
 
 /// Version type for save compatibility
-pub type XferVersion = u8;
+pub type XferVersion = u32;
 
 /// Block size for structured data
 pub type XferBlockSize = i32;

@@ -1,4 +1,4 @@
-// state_machine.rs - State machine implementation placeholder
+//! State machine implementation for managing game entity state transitions.
 
 use std::collections::HashMap;
 

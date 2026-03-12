@@ -1,4 +1,4 @@
-// mini_log.rs - Minimal logging system placeholder
+//! Minimal logging system for game engine diagnostics.
 
 use std::fs::File;
 use std::io::Write;
@@ -30,7 +30,6 @@ impl MiniLog {
             let _ = writeln!(file, "{}", message);
             let _ = file.flush();
         }
-        println!("{}", message);
     }
 }
 

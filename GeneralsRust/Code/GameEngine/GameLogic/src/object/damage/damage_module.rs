@@ -3,15 +3,17 @@
 //! Original C++ location: GameLogic/Module/DamageModule.h/.cpp
 //! Original C++ Author: Colin Day, September 2002
 //! Rust conversion: 2025
+//!
+//! The C++ DamageModule base class only extends BehaviorModule and adds
+//! version-tracked xfer.  No damage-specific virtuals exist at this level;
+//! derived modules (like SlowDeathBehaviorModule) override xfer/loadPostProcess.
 
-use crate::common::{ModuleData, NameKeyType, XferExt};
-use crate::damage::DamageInfo;
+use crate::common::{ModuleData, NameKeyType};
 use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 
-/// Base data for all damage modules
-/// (Matches C++ DamageModuleData)
+/// Base data for all damage modules (matches C++ DamageModuleData).
 #[derive(Debug, Clone)]
 pub struct DamageModuleData {
     pub module_tag_name_key: NameKeyType,
@@ -26,69 +28,28 @@ impl Default for DamageModuleData {
 }
 
 impl Snapshotable for DamageModuleData {
-    /// CRC calculation for damage module data
-    /// (Matches C++ DamageModule::crc at line 14)
+    /// CRC for damage module data (C++ DamageModule::crc).
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Base implementation - extend in derived classes
         Ok(())
     }
 
-    /// Serialize/deserialize damage module data
-    /// (Matches C++ DamageModule::xfer at line 25)
+    /// Serialize/deserialize damage module data (C++ DamageModule::xfer, version 1).
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Version tracking
-        let current_version: u32 = 1;
-
-        // Xfer version
-        if xfer.is_loading() {
-            let version = xfer.xfer_version_read();
-            if version > current_version {
-                return Err(format!(
-                    "DamageModule version {} > current version {}",
-                    version, current_version
-                ));
-            }
-        } else {
-            xfer.xfer_version_write(current_version);
-        }
-
-        // No additional data in base class
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        let _ = xfer.xfer_version(&mut version, CURRENT_VERSION);
         Ok(())
     }
 
-    /// Post-process after loading
-    /// (Matches C++ DamageModule::loadPostProcess at line 41)
+    /// Post-process after loading (C++ DamageModule::loadPostProcess).
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Base implementation - extend in derived classes
         Ok(())
     }
 }
 
 crate::impl_legacy_module_data_with_key_field!(DamageModuleData, module_tag_name_key);
 
-/// Base trait for all damage modules
-/// (Matches C++ DamageModuleInterface)
-pub trait DamageModuleInterface: Send + Sync + std::fmt::Debug {
-    /// Called before damage is applied to the object
-    /// Returns modified damage info or None to cancel damage
-    fn on_damage_received(
-        &mut self,
-        object: &mut Object,
-        damage_info: &mut DamageInfo,
-    ) -> Option<DamageInfo>;
-
-    /// Called after damage has been applied
-    fn on_damage_applied(&mut self, object: &mut Object, damage_info: &DamageInfo);
-
-    /// Get the module's priority for damage processing
-    /// Lower numbers process first
-    fn get_priority(&self) -> i32 {
-        100 // Default priority
-    }
-}
-
-/// Base struct for damage modules with common functionality
-/// (Matches C++ DamageModule)
+/// Base struct for damage modules with common functionality (matches C++ DamageModule).
 #[derive(Debug)]
 pub struct DamageModule<T: ModuleData> {
     pub module_data: Arc<T>,
@@ -96,7 +57,6 @@ pub struct DamageModule<T: ModuleData> {
 }
 
 impl<T: ModuleData> DamageModule<T> {
-    /// Create a new damage module
     pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
         Self {
             module_data,
@@ -104,15 +64,11 @@ impl<T: ModuleData> DamageModule<T> {
         }
     }
 
-    /// Get the module data
     pub fn get_module_data(&self) -> &T {
         &self.module_data
     }
 
-    /// Get the object this module is attached to
     pub fn get_object(&self) -> Arc<RwLock<Object>> {
         Arc::clone(&self.object)
     }
 }
-
-// Mock-based tests removed to avoid mocks in fidelity-critical code.

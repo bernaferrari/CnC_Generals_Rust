@@ -4,8 +4,11 @@
 //! C++ W3D device layer to modern Rust with enhanced performance and cross-platform support.
 
 pub mod graphics_context;
+pub mod material_system;
+pub mod model_loader;
 pub mod performance_optimizer;
 pub mod renderer;
+pub mod shadow_system;
 pub mod texture_manager;
 pub mod w3d_c_api;
 pub mod w3d_device;
@@ -14,6 +17,15 @@ pub mod w3d_device;
 pub use graphics_context::{ContextState, GraphicsContext};
 pub use renderer::{RenderBatch, RenderState, W3DRenderer};
 pub use w3d_device::{W3DConfig, W3DDevice};
+
+// Texture manager re-exports for parity with C++ W3DAssetManager
+pub use texture_manager::{
+    generate_team_color_palette_16bit, generate_team_color_palette_32bit, hsv_to_rgb,
+    recolor_texture_16bit_hue_shift, recolor_texture_32bit_hue_shift, rgb_to_hsv,
+    CompressionQuality, CompressionSettings, MipCountType, StreamRequest, TextureInactivationState,
+    TextureManagerStats, TextureSource, W3DTextureGpu, W3DTextureManager, WW3DFormat,
+    DEFAULT_INACTIVATION_TIME_MS, HOUSE_COLOR_SCALE, TEAM_COLOR_PALETTE_SIZE,
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

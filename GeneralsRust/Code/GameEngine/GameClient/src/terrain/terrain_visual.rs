@@ -600,7 +600,7 @@ impl TerrainVisualImpl {
         }
         self.loaded_terrain_sources = sources;
 
-        let using_placeholder_defaults = !self.texture_rules.is_empty()
+        let using_fallback_defaults = !self.texture_rules.is_empty()
             && self.texture_rules.iter().all(|rule| {
                 self.texture_system
                     .get_texture(rule.texture_id)
@@ -608,7 +608,7 @@ impl TerrainVisualImpl {
                     .unwrap_or(false)
             });
 
-        if using_placeholder_defaults {
+        if using_fallback_defaults {
             self.texture_rules.clear();
             self.chunk_texture_bindings.clear();
             self.chunk_meshes.clear();

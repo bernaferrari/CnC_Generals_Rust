@@ -5,473 +5,483 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // FILE: streaming_archive_file.rs /////////////////////////////////////////////
-// Streaming archive file system for large archives
+// Streaming archive file - a view into a portion of an existing file.
+// Port of Common/StreamingArchiveFile.cpp
 ///////////////////////////////////////////////////////////////////////////////
 
-use flate2::read::ZlibDecoder;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
-use std::path::Path;
+use std::io;
 
-/// Archive file entry information
-#[derive(Debug, Clone)]
-pub struct ArchiveEntry {
-    pub name: String,
-    pub offset: u64,
-    pub size: u64,
-    pub compressed_size: u64,
-    pub is_compressed: bool,
-    pub checksum: u32,
-}
+use crate::common::{
+    ascii_string::AsciiString,
+    system::file::{BaseFile, File, FileAccess, SeekMode},
+};
 
-/// Streaming archive file reader
+/// StreamingArchiveFile - A file abstraction that provides a view into a portion
+/// of an existing archive file.
+///
+/// This is a port of the C++ StreamingArchiveFile class which inherits from RAMFile.
+/// It wraps an existing File and provides access to a sub-range of that file
+/// defined by an offset and size.
+///
+/// Key characteristics:
+/// - Read-only access
+/// - Cannot write (returns error)
+/// - Seek operations are relative to the virtual file boundaries
+/// - Scan/nextLine operations should not be used (will return errors)
 pub struct StreamingArchiveFile {
-    file: File,
-    entries: HashMap<String, ArchiveEntry>,
-    header_size: u64,
-    is_open: bool,
+    /// Base file state (name, access flags, open status)
+    base: BaseFile,
+    /// The archive file that this streaming file came from
+    file: Option<Box<dyn File>>,
+    /// Starting position in the archive (offset)
+    starting_pos: i32,
+    /// Length of this virtual file
+    size: i32,
+    /// Current position within the virtual file (0 to size)
+    cur_pos: i32,
 }
 
 impl StreamingArchiveFile {
-    /// Open an archive file
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let mut file = File::open(path)?;
-        let (entries, header_size) = Self::read_directory(&mut file)?;
-
-        Ok(Self {
-            file,
-            entries,
-            header_size,
-            is_open: true,
-        })
+    /// Create a new StreamingArchiveFile instance
+    pub fn new() -> Self {
+        Self {
+            base: BaseFile::new(),
+            file: None,
+            starting_pos: 0,
+            size: 0,
+            cur_pos: 0,
+        }
     }
 
-    /// Read archive directory
-    fn read_directory(file: &mut File) -> io::Result<(HashMap<String, ArchiveEntry>, u64)> {
-        file.seek(SeekFrom::Start(0))?;
-        let mut magic = [0u8; 4];
-        file.read_exact(&mut magic)?;
-
-        if &magic == b"BIGF" || &magic == b"BIG4" {
-            return Self::read_big_directory(file);
+    /// Open a streaming file from an archive file at a specific offset and size.
+    ///
+    /// This is the primary constructor for StreamingArchiveFile, corresponding to
+    /// `StreamingArchiveFile::openFromArchive` in the C++ code.
+    ///
+    /// # Arguments
+    /// * `archive_file` - The archive file to read from (ownership is taken)
+    /// * `filename` - The name to associate with this virtual file
+    /// * `offset` - The starting position in the archive file
+    /// * `size` - The size of the virtual file
+    ///
+    /// # Returns
+    /// `true` if successful, `false` otherwise
+    pub fn open_from_archive(
+        &mut self,
+        mut archive_file: Box<dyn File>,
+        filename: &AsciiString,
+        offset: i32,
+        size: i32,
+    ) -> bool {
+        // Initialize base file state
+        if !self.base_open(
+            filename.as_str(),
+            FileAccess::READ
+                .combine(FileAccess::BINARY)
+                .combine(FileAccess::STREAMING),
+        ) {
+            return false;
         }
 
+        // Verify the archive can seek to the expected positions
+        if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
+            self.base.close_base();
+            return false;
+        }
+
+        // Verify the size is accessible
+        if archive_file.seek(size, SeekMode::Current).unwrap_or(-1) != offset + size {
+            self.base.close_base();
+            return false;
+        }
+
+        // Seek back to the starting position
+        if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
+            self.base.close_base();
+            return false;
+        }
+
+        self.file = Some(archive_file);
+        self.starting_pos = offset;
+        self.size = size;
+        self.cur_pos = 0;
+
+        true
+    }
+
+    /// Open from a mutable reference to a file (for compatibility)
+    ///
+    /// This method is less common but matches the C++ API where File* is passed.
+    pub fn open_from_archive_ref<F: File + 'static>(
+        &mut self,
+        archive_file: &mut F,
+        filename: &AsciiString,
+        offset: i32,
+        size: i32,
+    ) -> bool {
+        // Initialize base file state
+        if !self.base_open(
+            filename.as_str(),
+            FileAccess::READ
+                .combine(FileAccess::BINARY)
+                .combine(FileAccess::STREAMING),
+        ) {
+            return false;
+        }
+
+        // Verify the archive can seek to the expected positions
+        if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
+            self.base.close_base();
+            return false;
+        }
+
+        // Verify the size is accessible
+        if archive_file.seek(size, SeekMode::Current).unwrap_or(-1) != offset + size {
+            self.base.close_base();
+            return false;
+        }
+
+        // Seek back to the starting position
+        if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
+            self.base.close_base();
+            return false;
+        }
+
+        // Note: We don't take ownership in this variant
+        // This is for cases where the caller retains ownership
+        self.file = None; // No ownership taken
+        self.starting_pos = offset;
+        self.size = size;
+        self.cur_pos = 0;
+
+        // Store reference info for later use - but this requires a different approach
+        // For now, this is a placeholder that won't work without ownership
+        self.base.close_base();
+        false
+    }
+
+    /// Base implementation of open functionality
+    fn base_open(&mut self, filename: &str, access: FileAccess) -> bool {
+        // Use the BaseFile's validation
+        match self.base.open_base(filename, access) {
+            Ok(()) => true,
+            Err(_) => false,
+        }
+    }
+
+    /// Get the starting position in the archive
+    pub fn starting_pos(&self) -> i32 {
+        self.starting_pos
+    }
+
+    /// Get the size of this virtual file
+    pub fn virtual_size(&self) -> i32 {
+        self.size
+    }
+
+    /// Get the current position within the virtual file
+    pub fn virtual_position(&self) -> i32 {
+        self.cur_pos
+    }
+}
+
+impl Default for StreamingArchiveFile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl File for StreamingArchiveFile {
+    /// Open a file by filename - uses TheFileSystem to open the file first,
+    /// then wraps it as a streaming file.
+    ///
+    /// Note: This matches the C++ behavior where `open(filename, access)` calls
+    /// `TheFileSystem->openFile()` internally.
+    fn open(&mut self, filename: &str, access: FileAccess) -> Result<(), io::Error> {
+        // In the C++ code, this opens via TheFileSystem and then calls open(file)
+        // For now, this is a stub that returns an error since we need a FileSystem
+        // implementation to properly support this.
         Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Unsupported archive format",
+            io::ErrorKind::Unsupported,
+            "StreamingArchiveFile::open requires FileSystem - use open_from_archive instead",
         ))
     }
 
-    fn read_big_directory(file: &mut File) -> io::Result<(HashMap<String, ArchiveEntry>, u64)> {
-        let mut entries = HashMap::new();
-        let mut header_data = [0u8; 12];
-        file.read_exact(&mut header_data)?;
-
-        let _total_size = u32::from_le_bytes([
-            header_data[0],
-            header_data[1],
-            header_data[2],
-            header_data[3],
-        ]) as u64;
-        let num_entries = u32::from_le_bytes([
-            header_data[4],
-            header_data[5],
-            header_data[6],
-            header_data[7],
-        ]) as usize;
-        let _first_file_offset = u32::from_le_bytes([
-            header_data[8],
-            header_data[9],
-            header_data[10],
-            header_data[11],
-        ]) as u64;
-
-        let file_len = file.metadata()?.len();
-
-        for _ in 0..num_entries {
-            let mut entry_data = [0u8; 8];
-            file.read_exact(&mut entry_data)?;
-
-            let offset =
-                u32::from_le_bytes([entry_data[0], entry_data[1], entry_data[2], entry_data[3]])
-                    as u64;
-            let size =
-                u32::from_le_bytes([entry_data[4], entry_data[5], entry_data[6], entry_data[7]])
-                    as u64;
-
-            let end = offset.checked_add(size).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "Archive entry offset overflow")
-            })?;
-            if end > file_len {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Archive entry exceeds file bounds",
-                ));
-            }
-
-            let mut name_bytes = Vec::new();
-            loop {
-                let mut byte = [0u8; 1];
-                file.read_exact(&mut byte)?;
-                if byte[0] == 0 {
-                    break;
-                }
-                name_bytes.push(byte[0]);
-            }
-
-            let name = String::from_utf8(name_bytes).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid archive entry name: {}", err),
-                )
-            })?;
-
-            entries.insert(
-                name.clone(),
-                ArchiveEntry {
-                    name: name.clone(),
-                    offset,
-                    size,
-                    compressed_size: size,
-                    is_compressed: false,
-                    checksum: crc32fast::hash(name.as_bytes()),
-                },
-            );
-        }
-
-        let header_size = file.stream_position()?;
-        Ok((entries, header_size))
+    /// Close the streaming file
+    fn close(&mut self) {
+        // Drop the reference to the archive file
+        self.file = None;
+        self.starting_pos = 0;
+        self.size = 0;
+        self.cur_pos = 0;
+        self.base.close_base();
     }
 
-    fn get_entry(&self, filename: &str) -> Option<&ArchiveEntry> {
-        if let Some(entry) = self.entries.get(filename) {
-            return Some(entry);
-        }
+    /// Read data from the streaming file
+    ///
+    /// If buffer is null (empty slice), just advances the current position by `bytes`.
+    /// Otherwise, reads up to `buffer.len()` bytes into the buffer.
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, io::Error> {
+        let Some(ref mut file) = self.file else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "No archive file",
+            ));
+        };
 
-        self.entries.iter().find_map(|(name, entry)| {
-            if name.eq_ignore_ascii_case(filename) {
-                Some(entry)
-            } else {
-                None
-            }
-        })
-    }
+        // Seek to the correct position in the archive
+        file.seek(self.starting_pos + self.cur_pos, SeekMode::Start)?;
 
-    /// Get list of files in the archive
-    pub fn get_file_list(&self) -> Vec<&String> {
-        self.entries.keys().collect()
-    }
-
-    /// Check if a file exists in the archive
-    pub fn contains_file(&self, filename: &str) -> bool {
-        self.get_entry(filename).is_some()
-    }
-
-    /// Get file entry information
-    pub fn get_file_info(&self, filename: &str) -> Option<&ArchiveEntry> {
-        self.get_entry(filename)
-    }
-
-    fn read_entry_data(&mut self, entry: &ArchiveEntry) -> io::Result<Vec<u8>> {
-        self.file.seek(SeekFrom::Start(entry.offset))?;
-        let mut raw = vec![0u8; entry.compressed_size as usize];
-        self.file.read_exact(&mut raw)?;
-
-        if entry.is_compressed {
-            self.decompress_data(&raw, entry.size as usize)
+        // Calculate how many bytes we can read
+        let bytes_available = self.size - self.cur_pos;
+        let bytes_to_read = if buffer.is_empty() {
+            // Just advance position if buffer is empty
+            let advance = bytes_available.min(buffer.len() as i32);
+            self.cur_pos += advance;
+            return Ok(0);
         } else {
-            if raw.len() != entry.size as usize {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Archive entry size mismatch",
-                ));
-            }
-            Ok(raw)
-        }
-    }
+            buffer.len().min(bytes_available as usize) as i32
+        };
 
-    /// Extract a file to a buffer
-    pub fn extract_file(&mut self, filename: &str) -> io::Result<Vec<u8>> {
-        let entry = self
-            .get_entry(filename)
-            .cloned()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found in archive"))?;
-
-        self.read_entry_data(&entry)
-    }
-
-    /// Stream a file (returns a reader)
-    pub fn stream_file(&mut self, filename: &str) -> io::Result<ArchiveFileReader<'_>> {
-        let entry = self
-            .get_entry(filename)
-            .cloned()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found in archive"))?;
-        let buffer = self.read_entry_data(&entry)?;
-
-        Ok(ArchiveFileReader {
-            archive: self,
-            entry,
-            position: 0,
-            buffer,
-        })
-    }
-
-    /// Decompress data
-    fn decompress_data(
-        &self,
-        compressed_data: &[u8],
-        uncompressed_size: usize,
-    ) -> io::Result<Vec<u8>> {
-        if uncompressed_size == 0 {
-            return Ok(Vec::new());
-        }
-
-        let mut decoder = ZlibDecoder::new(compressed_data);
-        let mut output = Vec::with_capacity(uncompressed_size);
-        match decoder.read_to_end(&mut output) {
-            Ok(_) if output.len() == uncompressed_size => Ok(output),
-            Ok(_) => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "Decompressed size mismatch: expected {}, got {}",
-                    uncompressed_size,
-                    output.len()
-                ),
-            )),
-            Err(_) if compressed_data.len() == uncompressed_size => {
-                // Legacy payloads may be flagged compressed but already raw.
-                Ok(compressed_data.to_vec())
-            }
-            Err(err) => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to decompress archive data: {}", err),
-            )),
-        }
-    }
-
-    /// Get archive statistics
-    pub fn get_stats(&self) -> ArchiveStats {
-        let total_files = self.entries.len();
-        let total_size = self.entries.values().map(|e| e.size).sum();
-        let compressed_size = self.entries.values().map(|e| e.compressed_size).sum();
-        let compressed_files = self.entries.values().filter(|e| e.is_compressed).count();
-
-        ArchiveStats {
-            total_files,
-            compressed_files,
-            total_size,
-            compressed_size,
-            compression_ratio: if total_size > 0 {
-                (compressed_size as f64) / (total_size as f64)
-            } else {
-                0.0
-            },
-        }
-    }
-
-    /// Get parsed archive header size.
-    pub fn header_size(&self) -> u64 {
-        self.header_size
-    }
-
-    /// Check if archive is open.
-    pub fn is_open(&self) -> bool {
-        self.is_open
-    }
-
-    /// Close the archive
-    pub fn close(&mut self) {
-        self.is_open = false;
-        self.entries.clear();
-    }
-}
-
-/// Statistics about an archive
-#[derive(Debug)]
-pub struct ArchiveStats {
-    pub total_files: usize,
-    pub compressed_files: usize,
-    pub total_size: u64,
-    pub compressed_size: u64,
-    pub compression_ratio: f64,
-}
-
-/// Reader for streaming individual files from archive
-pub struct ArchiveFileReader<'a> {
-    archive: &'a mut StreamingArchiveFile,
-    entry: ArchiveEntry,
-    position: u64,
-    buffer: Vec<u8>,
-}
-
-impl<'a> ArchiveFileReader<'a> {
-    /// Get the size of the file
-    pub fn size(&self) -> u64 {
-        self.entry.size
-    }
-
-    /// Get current position
-    pub fn position(&self) -> u64 {
-        self.position
-    }
-
-    /// Check if at end of file
-    pub fn is_eof(&self) -> bool {
-        self.position >= self.entry.size
-    }
-}
-
-impl<'a> Read for ArchiveFileReader<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let _ = &self.archive;
-        if self.is_eof() {
+        if bytes_to_read <= 0 {
             return Ok(0);
         }
 
-        let start = self.position as usize;
-        let available = self.buffer.len().saturating_sub(start);
-        if available == 0 {
-            self.position = self.entry.size;
-            return Ok(0);
+        // Read from the underlying file
+        let bytes_read = file.read(&mut buffer[..bytes_to_read as usize])?;
+        self.cur_pos += bytes_read as i32;
+
+        Ok(bytes_read)
+    }
+
+    /// Write is not supported for streaming files
+    fn write(&mut self, _buffer: &[u8]) -> Result<usize, io::Error> {
+        // C++ code: DEBUG_CRASH(("Cannot write to streaming files.\n"));
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Cannot write to streaming files",
+        ))
+    }
+
+    /// Seek within the virtual file
+    ///
+    /// The seek position is relative to the virtual file boundaries (0 to size).
+    /// Positions outside this range are clamped to [0, size].
+    fn seek(&mut self, pos: i32, mode: SeekMode) -> Result<i32, io::Error> {
+        let new_pos = match mode {
+            SeekMode::Start => pos,
+            SeekMode::Current => self.cur_pos + pos,
+            SeekMode::End => {
+                // C++ asserts pos <= 0 for END mode
+                if pos > 0 {
+                    // DEBUG_ASSERTCRASH in C++, we return error
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Position should be <= 0 for seek from end",
+                    ));
+                }
+                self.size + pos
+            }
+        };
+
+        // Clamp to valid range [0, size]
+        let clamped_pos = if new_pos < 0 {
+            0
+        } else if new_pos > self.size {
+            self.size
+        } else {
+            new_pos
+        };
+
+        self.cur_pos = clamped_pos;
+        Ok(self.cur_pos)
+    }
+
+    /// Next line is not supported for streaming files
+    fn next_line(&mut self, _buf: Option<&mut Vec<u8>>, _buf_size: Option<usize>) {
+        // C++ code: DEBUG_CRASH(("Should not call nextLine on a streaming file.\n"))
+        // In Rust, we silently do nothing rather than crash
+    }
+
+    /// Scan int is not supported for streaming files
+    fn scan_int(&mut self) -> Result<i32, io::Error> {
+        // C++ code: DEBUG_CRASH(("Should not call scanInt on a streaming file.\n"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Should not call scanInt on a streaming file",
+        ))
+    }
+
+    /// Scan real is not supported for streaming files
+    fn scan_real(&mut self) -> Result<f32, io::Error> {
+        // C++ code: DEBUG_CRASH(("Should not call scanReal on a streaming file.\n"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Should not call scanReal on a streaming file",
+        ))
+    }
+
+    /// Scan string is not supported for streaming files
+    fn scan_string(&mut self) -> Result<AsciiString, io::Error> {
+        // C++ code: DEBUG_CRASH(("Should not call scanString on a streaming file.\n"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Should not call scanString on a streaming file",
+        ))
+    }
+
+    /// Print is not supported for streaming files
+    fn print(&mut self, _text: &str) -> Result<bool, io::Error> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Cannot write to streaming files",
+        ))
+    }
+
+    /// Get the size of the virtual file
+    fn size(&self) -> i32 {
+        self.size
+    }
+
+    /// Get current position within the virtual file
+    fn position(&self) -> i32 {
+        self.cur_pos
+    }
+
+    /// Check if at end of virtual file
+    fn eof(&self) -> bool {
+        self.cur_pos >= self.size
+    }
+
+    /// Get the filename
+    fn get_name(&self) -> &str {
+        self.base.get_name()
+    }
+
+    /// Set the filename
+    fn set_name(&mut self, name: &str) {
+        self.base.set_name(name);
+    }
+
+    /// Get access flags
+    fn get_access(&self) -> FileAccess {
+        self.base.get_access()
+    }
+
+    /// Read entire file and close is not recommended for streaming files
+    fn read_entire_and_close(&mut self) -> Result<Vec<u8>, io::Error> {
+        // C++ code: DEBUG_CRASH(("Are you sure you meant to readEntireAndClose on a streaming file?"))
+        // We implement it anyway since it can be useful, but with a warning semantics
+        let size = self.size as usize;
+        let mut buffer = vec![0u8; size];
+
+        // Seek to start
+        self.seek(0, SeekMode::Start)?;
+
+        // Read all data
+        let mut total_read = 0;
+        while total_read < size {
+            let read = self.read(&mut buffer[total_read..])?;
+            if read == 0 {
+                break;
+            }
+            total_read += read;
         }
 
-        let bytes_to_copy = buf.len().min(available);
-        let end = start + bytes_to_copy;
-        buf[..bytes_to_copy].copy_from_slice(&self.buffer[start..end]);
-        self.position += bytes_to_copy as u64;
-        Ok(bytes_to_copy)
+        buffer.truncate(total_read);
+        self.close();
+        Ok(buffer)
+    }
+}
+
+impl Drop for StreamingArchiveFile {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::write::ZlibEncoder;
-    use flate2::Compression;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
 
-    fn create_test_big_archive(filename: &str, payload: &[u8]) -> io::Result<NamedTempFile> {
-        let mut temp_file = NamedTempFile::new()?;
-        let name_bytes = filename.as_bytes();
-        let directory_size = 8 + name_bytes.len() + 1;
-        let first_file_offset = 16 + directory_size;
-        let total_size = first_file_offset + payload.len();
-
-        temp_file.write_all(b"BIGF")?;
-        temp_file.write_all(&(total_size as u32).to_le_bytes())?;
-        temp_file.write_all(&(1u32).to_le_bytes())?;
-        temp_file.write_all(&(first_file_offset as u32).to_le_bytes())?;
-        temp_file.write_all(&(first_file_offset as u32).to_le_bytes())?;
-        temp_file.write_all(&(payload.len() as u32).to_le_bytes())?;
-        temp_file.write_all(name_bytes)?;
-        temp_file.write_all(&[0])?;
-        temp_file.write_all(payload)?;
-        temp_file.flush()?;
-
-        Ok(temp_file)
+    #[test]
+    fn test_streaming_archive_file_creation() {
+        let file = StreamingArchiveFile::new();
+        assert_eq!(file.size(), 0);
+        assert_eq!(file.position(), 0);
+        assert!(file.get_name().is_empty() || file.get_name() == "<no file>");
     }
 
     #[test]
-    fn test_open_big_archive_and_extract_file() {
-        let payload = b"This is test file content for the archive system.";
-        let temp_archive = create_test_big_archive("example.dat", payload).expect("archive");
+    fn test_seek_modes() {
+        let mut file = StreamingArchiveFile::new();
+        file.size = 100;
+        file.cur_pos = 50;
 
-        let mut archive = StreamingArchiveFile::open(temp_archive.path()).expect("open");
-        assert!(archive.is_open());
-        assert!(archive.header_size() > 0);
-        assert!(archive.contains_file("example.dat"));
+        // Seek from start
+        assert_eq!(file.seek(25, SeekMode::Start).unwrap(), 25);
+        assert_eq!(file.cur_pos, 25);
 
-        let extracted = archive.extract_file("example.dat").expect("extract");
-        assert_eq!(extracted, payload);
+        // Seek from current
+        assert_eq!(file.seek(10, SeekMode::Current).unwrap(), 35);
+        assert_eq!(file.cur_pos, 35);
+
+        // Seek from end (negative offset)
+        assert_eq!(file.seek(-10, SeekMode::End).unwrap(), 90);
+        assert_eq!(file.cur_pos, 90);
     }
 
     #[test]
-    fn test_stream_file_reads_full_payload() {
-        let payload = b"stream me through archive reader";
-        let temp_archive = create_test_big_archive("stream.dat", payload).expect("archive");
+    fn test_seek_clamping() {
+        let mut file = StreamingArchiveFile::new();
+        file.size = 100;
+        file.cur_pos = 50;
 
-        let mut archive = StreamingArchiveFile::open(temp_archive.path()).expect("open");
-        let mut reader = archive.stream_file("stream.dat").expect("stream");
-        let mut output = Vec::new();
-        reader.read_to_end(&mut output).expect("read");
+        // Seek beyond end - should clamp to size
+        assert_eq!(file.seek(200, SeekMode::Start).unwrap(), 100);
+        assert_eq!(file.cur_pos, 100);
 
-        assert_eq!(output, payload);
-        assert!(reader.is_eof());
-        assert_eq!(reader.position(), payload.len() as u64);
+        // Seek before start - should clamp to 0
+        assert_eq!(file.seek(-50, SeekMode::Start).unwrap(), 0);
+        assert_eq!(file.cur_pos, 0);
     }
 
     #[test]
-    fn test_archive_stats() {
-        let mut entries = HashMap::new();
-        entries.insert(
-            "file1.dat".to_string(),
-            ArchiveEntry {
-                name: "file1.dat".to_string(),
-                offset: 0,
-                size: 1000,
-                compressed_size: 800,
-                is_compressed: true,
-                checksum: 0,
-            },
-        );
-        entries.insert(
-            "file2.dat".to_string(),
-            ArchiveEntry {
-                name: "file2.dat".to_string(),
-                offset: 800,
-                size: 500,
-                compressed_size: 500,
-                is_compressed: false,
-                checksum: 0,
-            },
-        );
+    fn test_seek_from_end_positive_is_error() {
+        let mut file = StreamingArchiveFile::new();
+        file.size = 100;
 
-        let total_size: u64 = entries.values().map(|e| e.size).sum();
-        let compressed_size: u64 = entries.values().map(|e| e.compressed_size).sum();
-
-        assert_eq!(total_size, 1500);
-        assert_eq!(compressed_size, 1300);
+        // Positive offset from END should error
+        assert!(file.seek(10, SeekMode::End).is_err());
     }
 
     #[test]
-    fn test_decompress_data_accepts_legacy_uncompressed_payload() {
-        let temp_archive = NamedTempFile::new().expect("temp");
-        let file = File::open(temp_archive.path()).expect("open");
-        let archive = StreamingArchiveFile {
-            file,
-            entries: HashMap::new(),
-            header_size: 0,
-            is_open: true,
-        };
-
-        let payload = b"raw-data";
-        let decompressed = archive
-            .decompress_data(payload, payload.len())
-            .expect("legacy payload should be accepted");
-        assert_eq!(decompressed, payload);
+    fn test_write_returns_error() {
+        let mut file = StreamingArchiveFile::new();
+        let data = b"test data";
+        assert!(file.write(data).is_err());
     }
 
     #[test]
-    fn test_decompress_data_zlib_payload() {
-        let temp_archive = NamedTempFile::new().expect("temp");
-        let file = File::open(temp_archive.path()).expect("open");
-        let archive = StreamingArchiveFile {
-            file,
-            entries: HashMap::new(),
-            header_size: 0,
-            is_open: true,
-        };
+    fn test_scan_operations_return_error() {
+        let mut file = StreamingArchiveFile::new();
 
-        let payload = b"compressed archive payload";
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(payload).expect("write");
-        let compressed = encoder.finish().expect("finish");
+        assert!(file.scan_int().is_err());
+        assert!(file.scan_real().is_err());
+        assert!(file.scan_string().is_err());
+    }
 
-        let decompressed = archive
-            .decompress_data(&compressed, payload.len())
-            .expect("zlib decode");
-        assert_eq!(decompressed, payload);
+    #[test]
+    fn test_eof_detection() {
+        let mut file = StreamingArchiveFile::new();
+        file.size = 100;
+        file.cur_pos = 50;
+        assert!(!file.eof());
+
+        file.cur_pos = 100;
+        assert!(file.eof());
+
+        file.cur_pos = 150;
+        assert!(file.eof());
     }
 }
