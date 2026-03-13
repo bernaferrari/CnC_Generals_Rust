@@ -237,24 +237,16 @@ pub struct ShellState {
 
 impl WindowLayoutState {
     pub fn preview_for(screen_name: &str) -> Self {
-        let title = match screen_name {
-            "MainMenu" => "Main Menu",
-            "SinglePlayerMenu" => "Single Player",
-            "OptionsMenu" => "Options",
-            "SkirmishGameOptionsMenu" => "Skirmish Setup",
-            "LanLobbyMenu" => "LAN Lobby",
-            "ReplayMenu" => "Replay Browser",
-            _ => screen_name,
-        };
+        let spec = preview_spec(screen_name);
 
         Self {
-            filename: format!("Data/English/{}.wnd", screen_name),
+            filename: format!("Data/English/{}.wnd", spec.filename),
             hidden: false,
             windows: vec![
                 LegacyWindowNode {
                     id: 1000,
-                    title: title.to_string(),
-                    tooltip: "Top-level layout window".to_string(),
+                    title: spec.title.to_string(),
+                    tooltip: format!("Top-level {} layout window", spec.title),
                     rect: LegacyRect {
                         x: 96,
                         y: 64,
@@ -266,31 +258,161 @@ impl WindowLayoutState {
                 },
                 LegacyWindowNode {
                     id: 1100,
-                    title: "Primary Action".to_string(),
-                    tooltip: "Representative push button".to_string(),
-                    rect: LegacyRect {
-                        x: 128,
-                        y: 610,
-                        width: 280,
-                        height: 48,
-                    },
-                    status: WindowStatus::ENABLED | WindowStatus::IMAGE,
-                    style: GadgetWindowStyle::PUSH_BUTTON,
+                    title: spec.primary_title.to_string(),
+                    tooltip: spec.primary_tooltip.to_string(),
+                    rect: spec.primary_rect,
+                    status: spec.primary_status,
+                    style: spec.primary_style,
                 },
                 LegacyWindowNode {
                     id: 1200,
-                    title: "Secondary Panel".to_string(),
-                    tooltip: "Representative list or detail panel".to_string(),
-                    rect: LegacyRect {
-                        x: 756,
-                        y: 152,
-                        width: 300,
-                        height: 428,
-                    },
-                    status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
-                    style: GadgetWindowStyle::SCROLL_LISTBOX,
+                    title: spec.secondary_title.to_string(),
+                    tooltip: spec.secondary_tooltip.to_string(),
+                    rect: spec.secondary_rect,
+                    status: spec.secondary_status,
+                    style: spec.secondary_style,
                 },
             ],
         }
+    }
+}
+
+struct PreviewSpec {
+    filename: &'static str,
+    title: &'static str,
+    primary_title: &'static str,
+    primary_tooltip: &'static str,
+    primary_rect: LegacyRect,
+    primary_status: WindowStatus,
+    primary_style: GadgetWindowStyle,
+    secondary_title: &'static str,
+    secondary_tooltip: &'static str,
+    secondary_rect: LegacyRect,
+    secondary_status: WindowStatus,
+    secondary_style: GadgetWindowStyle,
+}
+
+fn preview_spec(screen_name: &str) -> PreviewSpec {
+    match screen_name {
+        "MainMenu" => PreviewSpec {
+            filename: "MainMenu",
+            title: "Main Menu",
+            primary_title: "ButtonSinglePlayer",
+            primary_tooltip: "Enter the single-player shell flow",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 610,
+                width: 280,
+                height: 48,
+            },
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE,
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            secondary_title: "MainMenuDefaultPanel",
+            secondary_tooltip: "Primary main-menu button stack",
+            secondary_rect: LegacyRect {
+                x: 756,
+                y: 152,
+                width: 300,
+                height: 428,
+            },
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_style: GadgetWindowStyle::USER_WINDOW,
+        },
+        "ReplayMenu" => PreviewSpec {
+            filename: "ReplayMenu",
+            title: "Replay Browser",
+            primary_title: "ButtonLoadReplay",
+            primary_tooltip: "Load the currently selected replay",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 610,
+                width: 240,
+                height: 48,
+            },
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE,
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            secondary_title: "ListboxReplayFiles",
+            secondary_tooltip: "Replay list with version, map, and date columns",
+            secondary_rect: LegacyRect {
+                x: 706,
+                y: 142,
+                width: 350,
+                height: 450,
+            },
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_style: GadgetWindowStyle::SCROLL_LISTBOX,
+        },
+        "LanLobbyMenu" => PreviewSpec {
+            filename: "LanLobbyMenu",
+            title: "LAN Lobby",
+            primary_title: "TextEntryChat",
+            primary_tooltip: "Chat entry for LAN lobby communication",
+            primary_rect: LegacyRect {
+                x: 132,
+                y: 628,
+                width: 520,
+                height: 32,
+            },
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE | WindowStatus::TAB_STOP,
+            primary_style: GadgetWindowStyle::ENTRY_FIELD,
+            secondary_title: "ListboxPlayers",
+            secondary_tooltip: "Lobby player roster",
+            secondary_rect: LegacyRect {
+                x: 770,
+                y: 160,
+                width: 286,
+                height: 398,
+            },
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_style: GadgetWindowStyle::SCROLL_LISTBOX,
+        },
+        "OptionsMenu" => PreviewSpec {
+            filename: "OptionsMenu",
+            title: "Options",
+            primary_title: "ButtonOptionsAccept",
+            primary_tooltip: "Apply option changes",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 614,
+                width: 220,
+                height: 44,
+            },
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE,
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            secondary_title: "OptionsTabs",
+            secondary_tooltip: "Tabbed audio, video, and gameplay settings",
+            secondary_rect: LegacyRect {
+                x: 700,
+                y: 136,
+                width: 356,
+                height: 470,
+            },
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_style: GadgetWindowStyle::TAB_CONTROL,
+        },
+        _ => PreviewSpec {
+            filename: "MappedScreen",
+            title: "Mapped Screen",
+            primary_title: "PrimaryControl",
+            primary_tooltip: "Primary layout action",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 610,
+                width: 280,
+                height: 48,
+            },
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE,
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            secondary_title: "DetailPanel",
+            secondary_tooltip: "Secondary screen panel",
+            secondary_rect: LegacyRect {
+                x: 756,
+                y: 152,
+                width: 300,
+                height: 428,
+            },
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_style: GadgetWindowStyle::SCROLL_LISTBOX,
+        },
     }
 }

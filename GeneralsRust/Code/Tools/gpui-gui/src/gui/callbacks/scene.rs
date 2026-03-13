@@ -1,33 +1,53 @@
 use gpui::{div, prelude::*, px, rgb, AnyElement};
 
+use crate::gui::callbacks::control_bar_callback::ControlBarCallbackPort;
 use crate::gui::callbacks::control_bar_popup_description::{
     ControlBarPopupDescriptionPort, TooltipSubjectPort,
 };
+use crate::gui::callbacks::diplomacy::DiplomacyPort;
+use crate::gui::callbacks::generals_exp_points::GeneralsExpPointsPort;
 use crate::gui::callbacks::ime_candidate::ImeCandidateWindowPort;
 use crate::gui::callbacks::in_game_chat::{
     ChatParticipantPort, InGameChatPort, InGameChatTypePort,
 };
+use crate::gui::callbacks::in_game_popup_message::InGamePopupMessagePort;
 use crate::gui::callbacks::message_box::{MessageBoxButtonPort, MessageBoxStatePort};
 use crate::gui::callbacks::replay_controls::{ReplayControlsPort, ReplayPlaybackStatePort};
-use crate::gui::gadget::{
-    gadget_check_box, gadget_horizontal_slider, gadget_list_box, gadget_progress_bar,
-    gadget_push_button, gadget_static_text, gadget_text_entry,
-};
 use crate::gui::ime_manager::ImeManagerPort;
 use crate::gui::source_catalog::CallbackPort;
 
 pub fn render_port(port: &CallbackPort) -> AnyElement {
     match port.record.cpp_relative_path {
-        "GUICallbacks/ControlBarCallback.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/ControlBarCallback.cpp" => callback_card(port.label, {
+            let state = ControlBarCallbackPort::sample();
             vec![
-                gadget_static_text::render_demo(
-                    "Command Routing",
-                    "Dispatches command-button events into gameplay-side control bar handlers.",
+                static_text(
+                    "Focus",
+                    if state.handle_input_focus(true) {
+                        "Accepted".to_string()
+                    } else {
+                        "Ignored".to_string()
+                    },
                 ),
-                gadget_push_button::render_demo("Fire Callback"),
-            ],
-        ),
+                static_text(
+                    "Last Routed",
+                    state
+                        .last_routed
+                        .map(|message| {
+                            format!("{} -> {}", message.control_name, message.gameplay_handler)
+                        })
+                        .unwrap_or_else(|| "none".to_string()),
+                ),
+                command_list(
+                    "Messages",
+                    state
+                        .routed_messages
+                        .into_iter()
+                        .map(|message| format!("{:?}: {}", message.message, message.control_name))
+                        .collect(),
+                ),
+            ]
+        }),
         "GUICallbacks/ControlBarPopupDescription.cpp" => callback_card(port.label, {
             let mut tooltip = ControlBarPopupDescriptionPort::default();
             let _ = tooltip.show_build_tooltip_layout(22, 350, 1000);
@@ -53,16 +73,29 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                 static_text("Height", tooltip.panel_height.to_string()),
             ]
         }),
-        "GUICallbacks/Diplomacy.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/Diplomacy.cpp" => callback_card(port.label, {
+            let diplomacy = DiplomacyPort::sample();
             vec![
-                gadget_list_box::render_demo(
-                    &["USA - Allied", "China - Neutral", "GLA - Enemy"],
-                    "USA - Allied",
+                command_list(
+                    "Players",
+                    diplomacy
+                        .players
+                        .iter()
+                        .map(|player| {
+                            format!(
+                                "{} / {} / team {} / {}{}",
+                                player.name,
+                                player.side,
+                                player.team,
+                                player.relation.label(),
+                                if player.muted { " / muted" } else { "" }
+                            )
+                        })
+                        .collect(),
                 ),
-                gadget_check_box::render_demo("Share resources", false),
-            ],
-        ),
+                command_list("Briefing", diplomacy.solo_briefing_lines),
+            ]
+        }),
         "GUICallbacks/ExtendedMessageBox.cpp" | "GUICallbacks/MessageBox.cpp" => {
             let mut message_box = MessageBoxStatePort::yes_no(
                 "Overwrite Save",
@@ -84,21 +117,33 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                             .collect::<Vec<_>>()
                             .join(" / "),
                     ),
-                    gadget_check_box::render_demo("Accepts keyboard focus", wants_focus),
-                    gadget_check_box::render_demo(
-                        "Destroyed after selection",
-                        message_box.destroyed,
-                    ),
+                    static_bool("Accepts keyboard focus", wants_focus),
+                    static_bool("Destroyed after selection", message_box.destroyed),
                 ],
             )
         }
-        "GUICallbacks/GeneralsExpPoints.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/GeneralsExpPoints.cpp" => callback_card(port.label, {
+            let points = GeneralsExpPointsPort::sample();
             vec![
-                gadget_progress_bar::render_demo("Promotion progress", 0.58),
-                gadget_static_text::render_demo("Current Rank", "General Rank 3"),
-            ],
-        ),
+                static_text(
+                    "Current Rank",
+                    format!("General Rank {}", points.current_rank),
+                ),
+                static_text(
+                    "Points",
+                    format!(
+                        "{} earned / {} spent / {} available",
+                        points.earned_points,
+                        points.spent_points,
+                        points.available_points()
+                    ),
+                ),
+                static_text(
+                    "Promotion Progress",
+                    format!("{}%", points.progress_to_next_rank_pct),
+                ),
+            ]
+        }),
         "GUICallbacks/IMECandidate.cpp" => callback_card(port.label, {
             let mut ime = ImeManagerPort::default();
             ime.update_candidate_list(
@@ -179,16 +224,16 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                         })
                         .unwrap_or_else(|| "none".to_string()),
                 ),
-                gadget_text_entry::render_demo("Type team message..."),
+                static_text("Entry", "Type team message..."),
             ]
         }),
-        "GUICallbacks/InGamePopupMessage.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/InGamePopupMessage.cpp" => callback_card(port.label, {
+            let popup = InGamePopupMessagePort::sample();
             vec![
-                gadget_static_text::render_demo("Popup", "General promotion available"),
-                gadget_progress_bar::render_demo("Fade lifetime", 0.72),
-            ],
-        ),
+                static_text("Popup", popup.message.clone()),
+                static_text("Fade Lifetime", format!("{:.0}%", popup.progress() * 100.0)),
+            ]
+        }),
         "GUICallbacks/ReplayControls.cpp" => callback_card(port.label, {
             let mut replay = ReplayControlsPort::default();
             replay.play();
@@ -203,15 +248,15 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                     },
                 ),
                 static_text("Speed", format!("{}x", replay.speed_multiplier)),
-                gadget_horizontal_slider::render_demo("Replay position", replay.timeline_position),
+                static_text(
+                    "Replay Position",
+                    format!("{:.0}%", replay.timeline_position * 100.0),
+                ),
             ]
         }),
         _ => callback_card(
             port.label,
-            vec![gadget_static_text::render_demo(
-                "Callback Surface",
-                port.summary,
-            )],
+            vec![static_text("Callback Surface", port.summary)],
         ),
     }
 }
@@ -240,6 +285,10 @@ fn static_text(label: &str, body: impl Into<String>) -> AnyElement {
         .child(label.to_string())
         .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(body.into()))
         .into_any_element()
+}
+
+fn static_bool(label: &str, value: bool) -> AnyElement {
+    static_text(label, if value { "Yes" } else { "No" })
 }
 
 fn command_list(label: &str, entries: Vec<String>) -> AnyElement {
