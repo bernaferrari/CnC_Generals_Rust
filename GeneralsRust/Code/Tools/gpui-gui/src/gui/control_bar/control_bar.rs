@@ -16,6 +16,33 @@ pub const PORT: ControlBarPort = ControlBarPort::new(
     "Owns command-set population, UI dirtying, and shell/HUD coordination.",
 );
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControlBarCorePort {
+    pub current_context: String,
+    pub command_set_dirty: bool,
+    pub shell_hidden: bool,
+    pub radar_enabled: bool,
+    pub selected_group_size: u8,
+}
+
+impl Default for ControlBarCorePort {
+    fn default() -> Self {
+        Self::sample()
+    }
+}
+
+impl ControlBarCorePort {
+    pub fn sample() -> Self {
+        Self {
+            current_context: "USA Command Center".to_string(),
+            command_set_dirty: true,
+            shell_hidden: false,
+            radar_enabled: true,
+            selected_group_size: 3,
+        }
+    }
+}
+
 pub fn demo_buttons() -> Vec<LegacyCommandButton> {
     super::control_bar_command::demo_buttons()
 }

@@ -1,19 +1,53 @@
-use gpui::{div, prelude::*, px, rgb, AnyElement};
+use gpui::{div, prelude::*, rgb, AnyElement};
 
+use crate::gui::callbacks::menus::challenge_menu::ChallengeMenuPort;
+use crate::gui::callbacks::menus::credits_menu::CreditsMenuPort;
+use crate::gui::callbacks::menus::difficulty_select::{DifficultyChoicePort, DifficultySelectPort};
+use crate::gui::callbacks::menus::disconnect_window::DisconnectWindowPort;
+use crate::gui::callbacks::menus::download_menu::DownloadMenuPort;
+use crate::gui::callbacks::menus::establish_connections_window::EstablishConnectionsWindowPort;
+use crate::gui::callbacks::menus::game_info_window::GameInfoWindowPort;
+use crate::gui::callbacks::menus::keyboard_options_menu::{
+    KeyboardCategoryPort, KeyboardOptionsMenuPort,
+};
+use crate::gui::callbacks::menus::lan_game_options_menu::LanGameOptionsMenuPort;
 use crate::gui::callbacks::menus::lan_lobby_menu::LanLobbyMenuPort;
+use crate::gui::callbacks::menus::lan_map_select_menu::LanMapSelectMenuPort;
 use crate::gui::callbacks::menus::main_menu::{
     CampaignSidePort, MainMenuDropdownPort, MainMenuPort,
 };
 use crate::gui::callbacks::menus::map_select_menu::MapSelectMenuPort;
+use crate::gui::callbacks::menus::network_direct_connect::NetworkDirectConnectPort;
 use crate::gui::callbacks::menus::options_menu::{OptionsMenuPort, OptionsTabPort};
+use crate::gui::callbacks::menus::popup_communicator::PopupCommunicatorPort;
+use crate::gui::callbacks::menus::popup_host_game::PopupHostGamePort;
+use crate::gui::callbacks::menus::popup_join_game::PopupJoinGamePort;
+use crate::gui::callbacks::menus::popup_ladder_select::PopupLadderSelectPort;
+use crate::gui::callbacks::menus::popup_player_info::PopupPlayerInfoPort;
+use crate::gui::callbacks::menus::popup_replay::PopupReplayPort;
+use crate::gui::callbacks::menus::popup_save_load::{PopupSaveLoadPort, SaveLoadModalPort};
+use crate::gui::callbacks::menus::quit_menu::QuitMenuPort;
 use crate::gui::callbacks::menus::replay_menu::{ReplayMenuPort, ReplayPromptPort};
+use crate::gui::callbacks::menus::score_screen::ScoreScreenPort;
 use crate::gui::callbacks::menus::single_player_menu::SinglePlayerMenuPort;
+use crate::gui::callbacks::menus::skirmish_game_options_menu::SkirmishGameOptionsMenuPort;
+use crate::gui::callbacks::menus::skirmish_map_select_menu::SkirmishMapSelectMenuPort;
+use crate::gui::callbacks::menus::wol_buddy_overlay::WolBuddyOverlayPort;
+use crate::gui::callbacks::menus::wol_custom_score_screen::WolCustomScoreScreenPort;
+use crate::gui::callbacks::menus::wol_game_setup_menu::WolGameSetupMenuPort;
+use crate::gui::callbacks::menus::wol_ladder_screen::WolLadderScreenPort;
+use crate::gui::callbacks::menus::wol_lobby_menu::WolLobbyMenuPort;
+use crate::gui::callbacks::menus::wol_locale_select_popup::WolLocaleSelectPopupPort;
 use crate::gui::callbacks::menus::wol_login_menu::WolLoginMenuPort;
-use crate::gui::gadget;
+use crate::gui::callbacks::menus::wol_map_select_menu::WolMapSelectMenuPort;
+use crate::gui::callbacks::menus::wol_message_window::WolMessageWindowPort;
+use crate::gui::callbacks::menus::wol_qm_score_screen::WolQmScoreScreenPort;
+use crate::gui::callbacks::menus::wol_quick_match_menu::WolQuickMatchMenuPort;
+use crate::gui::callbacks::menus::wol_status_menu::WolStatusMenuPort;
+use crate::gui::callbacks::menus::wol_welcome_menu::WolWelcomeMenuPort;
 use crate::gui::gadget::{
-    gadget_check_box, gadget_combo_box, gadget_horizontal_slider, gadget_list_box,
-    gadget_progress_bar, gadget_push_button, gadget_radio_button, gadget_static_text,
-    gadget_tab_control, gadget_text_entry, gadget_vertical_slider,
+    gadget_check_box, gadget_combo_box, gadget_horizontal_slider, gadget_progress_bar,
+    gadget_text_entry, gadget_vertical_slider,
 };
 use crate::gui::source_catalog::MenuScreenPort;
 
@@ -22,142 +56,49 @@ pub fn render_screen(screen: MenuScreenPort) -> AnyElement {
         "MainMenu" => render_main_menu_screen(screen),
         "SinglePlayerMenu" => render_single_player_screen(screen),
         "OptionsMenu" => render_options_screen(screen),
-        "KeyboardOptionsMenu" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![
-                gadget_list_box::render_demo(
-                    &["Attack Move", "Force Fire", "Select All War Factories", "Guard"],
-                    "Attack Move",
-                ),
-                gadget_text_entry::render_demo("A"),
-                gadget_check_box::render_demo("Allow conflicting binds", false),
-            ],
-        ),
-        "MapSelectMenu" | "SkirmishMapSelectMenu" | "LanMapSelectMenu" | "WOLMapSelectMenu" =>
-            render_map_select_screen(screen),
+        "KeyboardOptionsMenu" => render_keyboard_options_screen(screen),
+        "MapSelectMenu" | "SkirmishMapSelectMenu" | "LanMapSelectMenu" | "WOLMapSelectMenu" => {
+            render_map_select_screen(screen)
+        }
         "ReplayMenu" => render_replay_menu_screen(screen),
-        "ChallengeMenu" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![
-                gadget_radio_button::render_demo(
-                    &[
-                        "General Leang",
-                        "General Kwai",
-                        "General Alexander",
-                        "General Townes",
-                    ],
-                    "General Alexander",
-                ),
-                gadget_progress_bar::render_demo("Challenge ladder", 0.37),
-            ],
-        ),
-        "SkirmishGameOptionsMenu" | "LanGameOptionsMenu" | "WOLGameSetupMenu" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![
-                gadget_tab_control::render_demo(&["Map", "Army", "Rules"], "Army"),
-                div()
-                    .flex()
-                    .gap_4()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .child(gadget_combo_box::render_demo("USA"))
-                            .child(gadget_text_entry::render_demo("AI Slot 2"))
-                            .child(gadget_check_box::render_demo("Superweapons", false))
-                            .child(gadget_check_box::render_demo("Crates", true)),
-                    )
-                    .child(gadget_radio_button::render_demo(
-                        &["Easy", "Medium", "Hard"],
-                        "Hard",
-                    ))
-                    .into_any_element(),
-            ],
-        ),
+        "ChallengeMenu" => render_challenge_screen(screen),
+        "SkirmishGameOptionsMenu" | "LanGameOptionsMenu" | "WOLGameSetupMenu" => {
+            render_skirmish_setup_screen(screen)
+        }
         "LanLobbyMenu" | "WOLLobbyMenu" => render_lobby_screen(screen),
         "WOLLoginMenu" => render_wol_login_screen(screen),
-        "WOLWelcomeMenu" | "WOLStatusMenu" | "WOLLadderScreen" | "WOLQuickMatchMenu"
-        | "WOLMessageWindow" | "WOLBuddyOverlay" | "WOLCustomScoreScreen"
-        | "WOLQMScoreScreen" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![
-                gadget_static_text::render_demo(
-                    "Online Surface",
-                    "This GPUI screen replaces the legacy callback screen with a clearer compositional layer while preserving subsystem boundaries.",
-                ),
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_3()
-                    .children(gadget::ports().iter().take(4).map(render_gadget_card))
-                    .into_any_element(),
-            ],
-        ),
-        "PopupCommunicator"
-        | "PopupHostGame"
-        | "PopupJoinGame"
-        | "PopupLadderSelect"
-        | "PopupPlayerInfo"
-        | "PopupReplay"
-        | "SaveLoadMenu"
-        | "DifficultySelect"
-        | "DisconnectWindow"
-        | "EstablishConnectionsWindow"
-        | "GameInfoWindow"
-        | "WOLLocaleSelect" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![
-                popup_surface(screen),
-                div()
-                    .flex()
-                    .gap_2()
-                    .children([
-                        gadget_push_button::render_demo("Confirm"),
-                        gadget_push_button::render_demo("Cancel"),
-                    ])
-                    .into_any_element(),
-            ],
-        ),
-        "ScoreScreen" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![
-                div()
-                    .flex()
-                    .gap_2()
-                    .children([
-                        stat_card("Units Lost", "54"),
-                        stat_card("Units Destroyed", "88"),
-                        stat_card("Structures", "12"),
-                        stat_card("Cash Float", "$3,412"),
-                    ])
-                    .into_any_element(),
-                gadget_progress_bar::render_demo("Overall rating", 0.74),
-            ],
-        ),
-        "CreditsMenu" => screen_frame(
-            screen.title,
-            screen.summary,
-            vec![gadget_static_text::render_demo(
-                "Credits Roll",
-                "Engineering\nDesign\nAudio\nQuality Assurance\nCommunity",
-            )],
-        ),
+        "WOLWelcomeMenu" => render_wol_welcome_screen(screen),
+        "WOLStatusMenu" => render_wol_status_screen(screen),
+        "WOLMessageWindow" => render_wol_message_screen(screen),
+        "WOLLadderScreen" => render_wol_ladder_screen(screen),
+        "WOLQuickMatchMenu" => render_wol_quick_match_screen(screen),
+        "WOLBuddyOverlay" => render_wol_buddy_overlay_screen(screen),
+        "WOLCustomScoreScreen" => render_wol_custom_score_screen(screen),
+        "WOLQMScoreScreen" => render_wol_qm_score_screen(screen),
+        "SaveLoadMenu" => render_save_load_screen(screen),
+        "PopupHostGame" => render_popup_host_game_screen(screen),
+        "PopupJoinGame" => render_popup_join_game_screen(screen),
+        "PopupCommunicator" => render_popup_communicator_screen(screen),
+        "PopupLadderSelect" => render_popup_ladder_select_screen(screen),
+        "PopupPlayerInfo" => render_popup_player_info_screen(screen),
+        "PopupReplay" => render_popup_replay_screen(screen),
+        "DifficultySelect" => render_difficulty_select_screen(screen),
+        "DisconnectWindow" => render_disconnect_window_screen(screen),
+        "EstablishConnectionsWindow" => render_establish_connections_screen(screen),
+        "GameInfoWindow" => render_game_info_screen(screen),
+        "WOLLocaleSelect" => render_wol_locale_select_screen(screen),
+        "ScoreScreen" => render_score_screen(screen),
+        "CreditsMenu" => render_credits_screen(screen),
+        "DownloadMenu" => render_download_screen(screen),
+        "QuitMenu" => render_quit_menu_screen(screen),
+        "NetworkDirectConnect" => render_network_direct_connect_screen(screen),
         _ => screen_frame(
             screen.title,
             screen.summary,
             vec![
-                gadget_static_text::render_demo(
-                    "Mapped Screen",
-                    "This callback file has a dedicated Rust module and is now routed through the shared GPUI menu scene system.",
-                ),
-                default_scene_by_group(screen.group),
+                static_text("C++ Source", screen.record.cpp_relative_path),
+                static_text("Rust Module", screen.record.rust_module_path),
+                static_text("Summary", screen.summary),
             ],
         ),
     }
@@ -218,6 +159,66 @@ fn render_main_menu_screen(screen: MenuScreenPort) -> AnyElement {
                 .into_any_element(),
             render_main_menu_flow(&state),
             render_main_menu_recent_saves(&state),
+        ],
+    )
+}
+
+fn render_keyboard_options_screen(screen: MenuScreenPort) -> AnyElement {
+    let mut state = KeyboardOptionsMenuPort::sample();
+    state.select_category(KeyboardCategoryPort::Control);
+    state.press_modifier("Ctrl");
+    state.assign_key("F");
+
+    let selected = state.selected_command();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            div()
+                .flex()
+                .gap_2()
+                .children([
+                    menu_button(
+                        "Control",
+                        state.selected_category == KeyboardCategoryPort::Control,
+                    ),
+                    menu_button(
+                        "Unit",
+                        state.selected_category == KeyboardCategoryPort::Unit,
+                    ),
+                    menu_button(
+                        "Interface",
+                        state.selected_category == KeyboardCategoryPort::Interface,
+                    ),
+                    menu_button(
+                        "Camera",
+                        state.selected_category == KeyboardCategoryPort::Camera,
+                    ),
+                ])
+                .into_any_element(),
+            command_list(
+                "Commands",
+                state
+                    .commands
+                    .iter()
+                    .filter(|command| command.category == state.selected_category)
+                    .map(|command| format!("{} [{}]", command.command_name, command.current_hotkey))
+                    .collect(),
+            ),
+            static_text(
+                "Selected Command",
+                selected
+                    .map(|command| command.command_name.clone())
+                    .unwrap_or_else(|| "None".to_string()),
+            ),
+            static_text(
+                "Description",
+                selected
+                    .map(|command| command.description.clone())
+                    .unwrap_or_else(|| "No description".to_string()),
+            ),
+            static_text("Assign Hotkey", state.assign_text),
         ],
     )
 }
@@ -285,6 +286,44 @@ fn render_single_player_screen(screen: MenuScreenPort) -> AnyElement {
                 "Escape Routing",
                 "ESC simulates GBM_SELECTED on ButtonBack, matching the original shell callback.",
             ),
+        ],
+    )
+}
+
+fn render_challenge_screen(screen: MenuScreenPort) -> AnyElement {
+    let mut state = ChallengeMenuPort::sample();
+    state.update_bio(4, 2);
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            command_list(
+                "Generals",
+                state
+                    .generals
+                    .iter()
+                    .enumerate()
+                    .map(|(index, general)| {
+                        format!(
+                            "{}{}{}",
+                            if index == state.selected_general {
+                                "* "
+                            } else {
+                                ""
+                            },
+                            general.name,
+                            if general.enabled { "" } else { " (locked)" }
+                        )
+                    })
+                    .collect(),
+            ),
+            static_text(
+                "Campaign",
+                state.generals[state.selected_general].campaign.clone(),
+            ),
+            static_text("Bio Readout", state.current_readout()),
+            static_text("Play Enabled", if state.can_play { "Yes" } else { "No" }),
         ],
     )
 }
@@ -408,6 +447,93 @@ fn render_options_screen(screen: MenuScreenPort) -> AnyElement {
     )
 }
 
+fn render_skirmish_setup_screen(screen: MenuScreenPort) -> AnyElement {
+    let (state, setup_type, extra_lines) = match screen.key {
+        "LanGameOptionsMenu" => {
+            let state = LanGameOptionsMenuPort::sample();
+            (
+                state.setup,
+                "LAN Setup".to_string(),
+                vec![format!("Local Address: {}", state.local_address)],
+            )
+        }
+        "WOLGameSetupMenu" => {
+            let state = WolGameSetupMenuPort::sample();
+            (
+                state.setup,
+                "WOL Setup".to_string(),
+                vec![
+                    format!(
+                        "Ladder Game: {}",
+                        if state.ladder_game { "Yes" } else { "No" }
+                    ),
+                    format!(
+                        "Stats Reporting: {}",
+                        if state.stats_reporting {
+                            "Enabled"
+                        } else {
+                            "Disabled"
+                        }
+                    ),
+                ],
+            )
+        }
+        _ => (
+            SkirmishGameOptionsMenuPort::sample(),
+            "Skirmish Setup".to_string(),
+            Vec::new(),
+        ),
+    };
+
+    let mut body = vec![
+        static_text("Setup Type", setup_type),
+        static_text("Map", state.map_name),
+        static_text("Player Name", state.player_name),
+        static_text("Game Speed", format!("{}%", state.game_speed)),
+        static_text("Starting Cash", format!("${}", state.starting_cash)),
+        static_text(
+            "Superweapons",
+            if state.superweapons_restricted {
+                "Restricted"
+            } else {
+                "Enabled"
+            },
+        ),
+        command_list(
+            "Slots",
+            state
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(index, slot)| {
+                    format!(
+                        "{}{} / {} / {} / team {} / start {}",
+                        if index == state.selected_slot {
+                            "* "
+                        } else {
+                            ""
+                        },
+                        slot.player_name,
+                        slot.faction,
+                        slot.color,
+                        slot.team,
+                        slot.start_pos
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "Random".to_string())
+                    )
+                })
+                .collect(),
+        ),
+    ];
+    body.extend(
+        extra_lines
+            .into_iter()
+            .map(|line| static_text("Session", line)),
+    );
+
+    screen_frame(screen.title, screen.summary, body)
+}
+
 fn render_replay_menu_screen(screen: MenuScreenPort) -> AnyElement {
     let mut state = ReplayMenuPort::sample();
     let _ = state.select_index(2);
@@ -493,170 +619,239 @@ fn render_replay_menu_screen(screen: MenuScreenPort) -> AnyElement {
 }
 
 fn render_map_select_screen(screen: MenuScreenPort) -> AnyElement {
-    let mut state = MapSelectMenuPort::sample();
+    let (mut state, selection_type, extra_lines) = match screen.key {
+        "SkirmishMapSelectMenu" => {
+            let state = SkirmishMapSelectMenuPort::sample();
+            (
+                state.map_select,
+                "Skirmish".to_string(),
+                vec![format!(
+                    "Official Maps Only: {}",
+                    if state.official_maps_only {
+                        "Yes"
+                    } else {
+                        "No"
+                    }
+                )],
+            )
+        }
+        "LanMapSelectMenu" => {
+            let state = LanMapSelectMenuPort::sample();
+            (
+                state.map_select,
+                "LAN".to_string(),
+                vec![state.direct_connect_hint],
+            )
+        }
+        "WOLMapSelectMenu" => {
+            let state = WolMapSelectMenuPort::sample();
+            (
+                state.map_select,
+                "WOL".to_string(),
+                vec![format!("Rotation: {}", state.rotation_name)],
+            )
+        }
+        _ => (
+            MapSelectMenuPort::sample(),
+            "Campaign".to_string(),
+            Vec::new(),
+        ),
+    };
     let _ = state.select_map(1);
     state.set_difficulty(crate::gui::callbacks::menus::main_menu::GameDifficultyPort::Hard);
 
-    screen_frame(
-        screen.title,
-        screen.summary,
-        vec![
-            div()
-                .flex()
-                .gap_4()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(section_title("Available Maps"))
-                        .children(state.maps.iter().enumerate().map(|(index, map)| {
-                            let meta = format!(
-                                "{} players · {}",
-                                map.player_count,
-                                if map.official { "Official" } else { "User Map" }
-                            );
-                            div()
-                                .px_3()
-                                .py_2()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(if state.selected_index == Some(index) {
-                                    rgb(0xd1a65d)
-                                } else {
-                                    rgb(0x22303f)
-                                })
-                                .bg(if state.selected_index == Some(index) {
-                                    rgb(0x1f1910)
-                                } else {
-                                    rgb(0x101720)
-                                })
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .child(map.display_name.clone())
-                                .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(meta))
-                        }))
-                        .into_any_element(),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(section_title("Selection State"))
-                        .child(status_row(
-                            "Map Directory",
-                            if state.uses_system_map_dir {
-                                "System Maps".to_string()
+    let mut body = vec![
+        static_text("Selection Type", selection_type),
+        div()
+            .flex()
+            .gap_4()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Available Maps"))
+                    .children(state.maps.iter().enumerate().map(|(index, map)| {
+                        let meta = format!(
+                            "{} players · {}",
+                            map.player_count,
+                            if map.official { "Official" } else { "User Map" }
+                        );
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(if state.selected_index == Some(index) {
+                                rgb(0xd1a65d)
                             } else {
-                                "User Maps".to_string()
-                            },
-                        ))
-                        .child(status_row(
-                            "AI Difficulty",
-                            state.ai_difficulty.label().to_string(),
-                        ))
-                        .child(status_row(
-                            "Pending File",
-                            state
-                                .pending_file
-                                .clone()
-                                .unwrap_or_else(|| "Nothing staged".to_string()),
-                        ))
-                        .child(gadget_check_box::render_demo(
-                            "Solo maps",
-                            state.show_solo_maps,
-                        ))
-                        .child(gadget_check_box::render_demo(
-                            "Back requested",
-                            state.pop_requested,
-                        )),
-                )
-                .into_any_element(),
-            div()
-                .flex()
-                .gap_2()
-                .children([
-                    menu_button("Back", false),
-                    menu_button("OK", false),
-                    menu_button("Easy", false),
-                    menu_button("Medium", false),
-                    menu_button("Hard", true),
-                ])
-                .into_any_element(),
-        ],
-    )
+                                rgb(0x22303f)
+                            })
+                            .bg(if state.selected_index == Some(index) {
+                                rgb(0x1f1910)
+                            } else {
+                                rgb(0x101720)
+                            })
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(map.display_name.clone())
+                            .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(meta))
+                    }))
+                    .into_any_element(),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Selection State"))
+                    .child(status_row(
+                        "Map Directory",
+                        if state.uses_system_map_dir {
+                            "System Maps".to_string()
+                        } else {
+                            "User Maps".to_string()
+                        },
+                    ))
+                    .child(status_row(
+                        "AI Difficulty",
+                        state.ai_difficulty.label().to_string(),
+                    ))
+                    .child(status_row(
+                        "Pending File",
+                        state
+                            .pending_file
+                            .clone()
+                            .unwrap_or_else(|| "Nothing staged".to_string()),
+                    ))
+                    .child(gadget_check_box::render_demo(
+                        "Solo maps",
+                        state.show_solo_maps,
+                    ))
+                    .child(gadget_check_box::render_demo(
+                        "Back requested",
+                        state.pop_requested,
+                    )),
+            )
+            .into_any_element(),
+    ];
+    body.extend(
+        extra_lines
+            .into_iter()
+            .map(|line| static_text("Notes", line)),
+    );
+    body.push(
+        div()
+            .flex()
+            .gap_2()
+            .children([
+                menu_button("Back", false),
+                menu_button("OK", false),
+                menu_button("Easy", false),
+                menu_button("Medium", false),
+                menu_button("Hard", true),
+            ])
+            .into_any_element(),
+    );
+
+    screen_frame(screen.title, screen.summary, body)
 }
 
 fn render_lobby_screen(screen: MenuScreenPort) -> AnyElement {
-    let mut state = LanLobbyMenuPort::sample();
+    let (mut state, lobby_type, extra_lines) = match screen.key {
+        "WOLLobbyMenu" => {
+            let state = WolLobbyMenuPort::sample();
+            (
+                state.lobby,
+                "WOL Lobby".to_string(),
+                vec![
+                    state.room_id,
+                    format!(
+                        "Ranked Room: {}",
+                        if state.ranked_room { "Yes" } else { "No" }
+                    ),
+                ],
+            )
+        }
+        _ => (
+            LanLobbyMenuPort::sample(),
+            "LAN Lobby".to_string(),
+            Vec::new(),
+        ),
+    };
     state.chat_entry = "ready when you are".to_string();
     let _ = state.send_chat();
     state.update();
     state.update();
 
-    screen_frame(
-        screen.title,
-        screen.summary,
-        vec![
-            div()
-                .flex()
-                .gap_4()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(section_title("Players"))
-                        .children(state.players.iter().enumerate().map(|(index, player)| {
-                            selectable_row(
-                                index == state.selected_player.unwrap_or(usize::MAX),
-                                &player.name,
-                                format!(
-                                    "{} · {} · {}",
-                                    player.faction,
-                                    player.color,
-                                    if player.ready { "Ready" } else { "Waiting" }
-                                ),
-                            )
-                        }))
-                        .into_any_element(),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(section_title("Lobby Chat"))
-                        .children(state.chat_history.iter().map(|line| {
-                            div()
-                                .text_sm()
-                                .text_color(rgb(0x8ea2b4))
-                                .child(line.clone())
-                        }))
-                        .child(gadget_text_entry::render_demo("ready when you are"))
-                        .child(status_row(
-                            "Transition",
-                            state
-                                .active_transition_group
-                                .clone()
-                                .unwrap_or_else(|| "LanLobbyMenuFade pending".to_string()),
-                        )),
-                )
-                .into_any_element(),
-            div()
-                .flex()
-                .gap_2()
-                .children([
-                    menu_button("Host", false),
-                    menu_button("Join", false),
-                    menu_button("Direct Connect", false),
-                    menu_button("Back", false),
-                ])
-                .into_any_element(),
-        ],
-    )
+    let mut body = vec![
+        static_text("Lobby Type", lobby_type),
+        div()
+            .flex()
+            .gap_4()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Players"))
+                    .children(state.players.iter().enumerate().map(|(index, player)| {
+                        selectable_row(
+                            index == state.selected_player.unwrap_or(usize::MAX),
+                            &player.name,
+                            format!(
+                                "{} · {} · {}",
+                                player.faction,
+                                player.color,
+                                if player.ready { "Ready" } else { "Waiting" }
+                            ),
+                        )
+                    }))
+                    .into_any_element(),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Lobby Chat"))
+                    .children(state.chat_history.iter().map(|line| {
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x8ea2b4))
+                            .child(line.clone())
+                    }))
+                    .child(gadget_text_entry::render_demo("ready when you are"))
+                    .child(status_row(
+                        "Transition",
+                        state
+                            .active_transition_group
+                            .clone()
+                            .unwrap_or_else(|| "LanLobbyMenuFade pending".to_string()),
+                    )),
+            )
+            .into_any_element(),
+    ];
+    body.extend(
+        extra_lines
+            .into_iter()
+            .map(|line| static_text("Lobby", line)),
+    );
+    body.push(
+        div()
+            .flex()
+            .gap_2()
+            .children([
+                menu_button("Host", false),
+                menu_button("Join", false),
+                menu_button("Direct Connect", false),
+                menu_button("Back", false),
+            ])
+            .into_any_element(),
+    );
+
+    screen_frame(screen.title, screen.summary, body)
 }
 
 fn render_wol_login_screen(screen: MenuScreenPort) -> AnyElement {
@@ -714,77 +909,653 @@ fn render_wol_login_screen(screen: MenuScreenPort) -> AnyElement {
     )
 }
 
-fn default_scene_by_group(group: &str) -> AnyElement {
-    match group {
-        "Popup" => div()
-            .flex()
-            .gap_2()
-            .children([
-                gadget_text_entry::render_demo("Input / selection field"),
-                gadget_push_button::render_demo("Apply"),
-            ])
-            .into_any_element(),
-        "LAN" => div()
-            .flex()
-            .gap_4()
-            .child(gadget_list_box::render_demo(
-                &["Local match", "Custom game", "Direct IP"],
-                "Local match",
-            ))
-            .child(gadget_text_entry::render_demo("LAN player name"))
-            .into_any_element(),
-        "WOL" => div()
-            .flex()
-            .gap_4()
-            .child(gadget_text_entry::render_demo("Online nick"))
-            .child(gadget_combo_box::render_demo("Ranked 1v1"))
-            .child(gadget_check_box::render_demo("Appear online", true))
-            .into_any_element(),
-        _ => div()
-            .flex()
-            .flex_wrap()
-            .gap_3()
-            .children(gadget::ports().iter().take(6).map(render_gadget_card))
-            .into_any_element(),
-    }
+fn render_wol_welcome_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolWelcomeMenuPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Server", state.server_name),
+            static_text("Players Online", state.players_online.to_string()),
+            static_text(
+                "Ladder",
+                format!(
+                    "{}W {}L / {} pts / rank {} / disconnects {}",
+                    state.ladder_wins,
+                    state.ladder_losses,
+                    state.ladder_points,
+                    state.ladder_rank,
+                    state.disconnects
+                ),
+            ),
+            command_list("Info", state.info_items),
+        ],
+    )
 }
 
-fn popup_surface(screen: MenuScreenPort) -> AnyElement {
-    div()
-        .max_w(px(520.))
-        .p_4()
-        .rounded_lg()
-        .border_1()
-        .border_color(rgb(0x35506b))
-        .bg(rgb(0x101922))
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(screen.title.to_string())
-        .child(
+fn render_wol_status_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolStatusMenuPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Service", state.service_name),
+            command_list("Status", state.status_lines),
+            static_text(
+                "Can Disconnect",
+                if state.can_disconnect { "Yes" } else { "No" },
+            ),
+        ],
+    )
+}
+
+fn render_wol_message_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolMessageWindowPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![command_list(
+            "Inbox",
+            state
+                .messages
+                .iter()
+                .enumerate()
+                .map(|(index, message)| {
+                    format!(
+                        "{}{} - {}",
+                        if state.selected_message == Some(index) {
+                            "* "
+                        } else {
+                            ""
+                        },
+                        message.from,
+                        message.subject
+                    )
+                })
+                .collect(),
+        )],
+    )
+}
+
+fn render_save_load_screen(screen: MenuScreenPort) -> AnyElement {
+    let mut state = PopupSaveLoadPort::sample();
+    let _ = state.request_load();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            command_list(
+                "Saves",
+                state
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| {
+                        format!(
+                            "{}{} - {}",
+                            if state.selected_index == Some(index) { "* " } else { "" },
+                            entry.filename,
+                            entry.description
+                        )
+                    })
+                    .collect(),
+            ),
+            static_text(
+                "Mode",
+                match state.layout_type {
+                    crate::gui::callbacks::menus::popup_save_load::SaveLoadLayoutTypePort::SaveAndLoad => {
+                        "Save and Load"
+                    }
+                    crate::gui::callbacks::menus::popup_save_load::SaveLoadLayoutTypePort::LoadOnly => {
+                        "Load Only"
+                    }
+                },
+            ),
+            static_text(
+                "Save Enabled",
+                if state.can_save() { "Yes" } else { "No" },
+            ),
+            static_text(
+                "Load Enabled",
+                if state.can_load() { "Yes" } else { "No" },
+            ),
+            static_text(
+                "Active Modal",
+                match state.active_modal {
+                    SaveLoadModalPort::None => "None",
+                    SaveLoadModalPort::OverwriteConfirm => "Overwrite Confirm",
+                    SaveLoadModalPort::LoadConfirm => "Load Confirm",
+                    SaveLoadModalPort::SaveDescription => "Save Description",
+                    SaveLoadModalPort::DeleteConfirm => "Delete Confirm",
+                },
+            ),
+        ],
+    )
+}
+
+fn render_popup_host_game_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = PopupHostGamePort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Game Name", state.game_name),
+            static_text("Description", state.game_description),
+            static_text("Ladder", state.selected_ladder),
+            static_text("Game Password", state.game_password),
+            static_text(
+                "Allow Observers",
+                if state.allow_observers { "Yes" } else { "No" },
+            ),
+            static_text("Use Stats", if state.use_stats { "Yes" } else { "No" }),
+            static_text(
+                "Limit Armies",
+                if state.limit_armies { "Yes" } else { "No" },
+            ),
+        ],
+    )
+}
+
+fn render_popup_join_game_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = PopupJoinGamePort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Game Name", state.game_name),
+            static_text("Password", state.password),
+            static_text("Can Join", if state.can_join { "Yes" } else { "No" }),
+        ],
+    )
+}
+
+fn render_popup_communicator_screen(screen: MenuScreenPort) -> AnyElement {
+    let mut state = PopupCommunicatorPort::sample();
+    let _ = state.send();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Recipient", state.recipient),
+            command_list("Conversation", state.history),
+            static_text(
+                "Draft",
+                if state.message_entry.is_empty() {
+                    "Sent"
+                } else {
+                    "Pending"
+                },
+            ),
+        ],
+    )
+}
+
+fn render_popup_ladder_select_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = PopupLadderSelectPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            command_list(
+                "Ladders",
+                state
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| {
+                        format!(
+                            "{}{} - {}",
+                            if index == state.selected_index {
+                                "* "
+                            } else {
+                                ""
+                            },
+                            entry.name,
+                            entry.description
+                        )
+                    })
+                    .collect(),
+            ),
+            static_text(
+                "Selection",
+                state
+                    .current()
+                    .map(|entry| entry.name.clone())
+                    .unwrap_or_else(|| "None".to_string()),
+            ),
+        ],
+    )
+}
+
+fn render_popup_player_info_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = PopupPlayerInfoPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Player", state.player_name),
+            static_text(
+                "Faction / Clan",
+                format!("{} / {}", state.faction, state.clan),
+            ),
+            static_text(
+                "Record",
+                format!(
+                    "{} wins / {} losses / {} disconnects",
+                    state.wins, state.losses, state.disconnects
+                ),
+            ),
+            static_text("Status", state.online_status),
+        ],
+    )
+}
+
+fn render_popup_replay_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = PopupReplayPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Replay Name", state.replay_name),
+            static_text("Description", state.description),
+            static_text(
+                "Overwrite Existing",
+                if state.overwrite_existing {
+                    "Yes"
+                } else {
+                    "No"
+                },
+            ),
+            static_text("Can Save", if state.can_save { "Yes" } else { "No" }),
+        ],
+    )
+}
+
+fn render_difficulty_select_screen(screen: MenuScreenPort) -> AnyElement {
+    let mut state = DifficultySelectPort::sample();
+    state.confirm();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
             div()
-                .text_sm()
-                .text_color(rgb(0x8ea2b4))
-                .child(screen.summary.to_string()),
-        )
-        .child(gadget_text_entry::render_demo("Input / selection field"))
-        .into_any_element()
+                .flex()
+                .gap_2()
+                .children([
+                    menu_button("Easy", state.selected == DifficultyChoicePort::Easy),
+                    menu_button("Medium", state.selected == DifficultyChoicePort::Medium),
+                    menu_button("Hard", state.selected == DifficultyChoicePort::Hard),
+                ])
+                .into_any_element(),
+            static_text("Selected", state.selected.label()),
+            static_text("Last Confirmed", state.last_confirmed.label()),
+            command_list("Effects", state.description),
+        ],
+    )
 }
 
-fn render_gadget_card(port: &crate::gui::source_catalog::GadgetPort) -> AnyElement {
-    div()
-        .w(px(240.))
-        .p_3()
-        .rounded_lg()
-        .border_1()
-        .border_color(rgb(0x22303f))
-        .bg(rgb(0x0e1620))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(port.label)
-        .child(gadget::render_port(port))
-        .into_any_element()
+fn render_disconnect_window_screen(screen: MenuScreenPort) -> AnyElement {
+    let mut state = DisconnectWindowPort::sample();
+    state.tick(500);
+    let timed_out = state.timed_out();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Headline", state.headline),
+            static_text("Reason", state.reason),
+            static_text(
+                "Reconnect Allowed",
+                if state.reconnect_allowed { "Yes" } else { "No" },
+            ),
+            static_text(
+                "Timeout",
+                format!(
+                    "{} / {} ms{}",
+                    state.elapsed_ms,
+                    state.timeout_ms,
+                    if timed_out { " expired" } else { "" }
+                ),
+            ),
+        ],
+    )
+}
+
+fn render_establish_connections_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = EstablishConnectionsWindowPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text(
+                "Peers",
+                format!(
+                    "{}/{} connected",
+                    state.peers_connected, state.expected_peers
+                ),
+            ),
+            command_list(
+                "Steps",
+                state
+                    .steps
+                    .iter()
+                    .map(|step| {
+                        format!(
+                            "{}{}",
+                            if step.completed { "[x] " } else { "[ ] " },
+                            step.label
+                        )
+                    })
+                    .collect(),
+            ),
+            static_text(
+                "Cancel Requested",
+                if state.cancel_requested { "Yes" } else { "No" },
+            ),
+        ],
+    )
+}
+
+fn render_game_info_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = GameInfoWindowPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Game", state.game_name),
+            static_text("Map", state.map_name),
+            static_text("Host", state.host_name),
+            static_text(
+                "Players",
+                format!("{}/{}", state.player_counts.0, state.player_counts.1),
+            ),
+            command_list("Rules", state.rule_lines),
+            static_text(
+                "Download Required",
+                if state.download_required { "Yes" } else { "No" },
+            ),
+        ],
+    )
+}
+
+fn render_wol_locale_select_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolLocaleSelectPopupPort::sample();
+    let selected = state.selected_locale().unwrap_or("None").to_string();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            command_list("Locales", state.locales),
+            static_text("Selected", selected),
+            static_text("Route Region", state.route_region),
+        ],
+    )
+}
+
+fn render_score_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = ScoreScreenPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            div()
+                .flex()
+                .gap_2()
+                .children(
+                    state
+                        .metrics
+                        .iter()
+                        .map(|metric| stat_card(&metric.label, &metric.value)),
+                )
+                .into_any_element(),
+            gadget_progress_bar::render_demo("Overall rating", state.rating),
+            static_text("Player", state.player_name),
+            static_text("Match Result", state.result),
+        ],
+    )
+}
+
+fn render_credits_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = CreditsMenuPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Scroll Offset", state.scroll_offset.to_string()),
+            command_list(
+                "Credits",
+                state
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .map(|(index, line)| {
+                        format!(
+                            "{}{}",
+                            if index == state.highlighted_line {
+                                "* "
+                            } else {
+                                ""
+                            },
+                            line
+                        )
+                    })
+                    .collect(),
+            ),
+        ],
+    )
+}
+
+fn render_download_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = DownloadMenuPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Patch Server", state.patch_server),
+            command_list(
+                "Queue",
+                state
+                    .queue
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| {
+                        format!(
+                            "{}{} - {} ({}%)",
+                            if index == state.selected_download {
+                                "* "
+                            } else {
+                                ""
+                            },
+                            entry.label,
+                            entry.status,
+                            entry.progress_pct
+                        )
+                    })
+                    .collect(),
+            ),
+            static_text("Overall Progress", format!("{}%", state.total_progress_pct)),
+            static_text("Can Cancel", if state.can_cancel { "Yes" } else { "No" }),
+            command_list("Notes", state.notes),
+        ],
+    )
+}
+
+fn render_quit_menu_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = QuitMenuPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Prompt", state.confirmation_text),
+            static_text("In Match", if state.in_match { "Yes" } else { "No" }),
+            static_text(
+                "Unsaved Progress",
+                if state.has_unsaved_progress {
+                    "Yes"
+                } else {
+                    "No"
+                },
+            ),
+            static_text("Default Focus", state.default_focus.label()),
+        ],
+    )
+}
+
+fn render_network_direct_connect_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = NetworkDirectConnectPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Host IP", state.host_ip),
+            static_text("Port", state.port.to_string()),
+            static_text("Nickname", state.nickname),
+            static_text("Status", state.status_message),
+        ],
+    )
+}
+
+fn render_wol_ladder_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolLadderScreenPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Season", state.season_label),
+            static_text("Local Rank", state.local_rank.to_string()),
+            command_list(
+                "Standings",
+                state
+                    .standings
+                    .iter()
+                    .map(|entry| {
+                        format!("#{} {} ({})", entry.rank, entry.player_name, entry.points)
+                    })
+                    .collect(),
+            ),
+        ],
+    )
+}
+
+fn render_wol_quick_match_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolQuickMatchMenuPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text("Preferred Faction", state.preferred_faction),
+            command_list("Map Pool", state.map_pool),
+            static_text("Queue State", state.queue_state),
+            static_text(
+                "Estimated Wait",
+                format!("{} sec", state.estimated_wait_seconds),
+            ),
+        ],
+    )
+}
+
+fn render_wol_buddy_overlay_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolBuddyOverlayPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![command_list(
+            "Buddies",
+            state
+                .buddies
+                .iter()
+                .enumerate()
+                .map(|(index, buddy)| {
+                    format!(
+                        "{}{} - {}{}",
+                        if index == state.selected_index {
+                            "* "
+                        } else {
+                            ""
+                        },
+                        buddy.name,
+                        buddy.status,
+                        if buddy.unread_messages == 0 {
+                            String::new()
+                        } else {
+                            format!(" / {} unread", buddy.unread_messages)
+                        }
+                    )
+                })
+                .collect(),
+        )],
+    )
+}
+
+fn render_wol_custom_score_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolCustomScoreScreenPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text(
+                "Result",
+                format!(
+                    "{} vs {}: {}",
+                    state.player_name, state.opponent_name, state.result
+                ),
+            ),
+            command_list(
+                "Score Lines",
+                state
+                    .score_lines
+                    .iter()
+                    .map(|line| format!("{}: {}", line.label, line.value))
+                    .collect(),
+            ),
+        ],
+    )
+}
+
+fn render_wol_qm_score_screen(screen: MenuScreenPort) -> AnyElement {
+    let state = WolQmScoreScreenPort::sample();
+
+    screen_frame(
+        screen.title,
+        screen.summary,
+        vec![
+            static_text(
+                "Rating",
+                format!(
+                    "{} -> {} ({:+})",
+                    state.rating_before,
+                    state.rating_after,
+                    state.rating_delta()
+                ),
+            ),
+            static_text("Streak", state.streak.to_string()),
+            command_list("Summary", state.summary_lines),
+        ],
+    )
 }
 
 fn stat_card(label: &str, value: &str) -> AnyElement {
@@ -1100,5 +1871,20 @@ fn static_text(label: &str, body: impl Into<String>) -> AnyElement {
         .gap_1()
         .child(label.to_string())
         .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(body.into()))
+        .into_any_element()
+}
+
+fn command_list(label: &str, entries: Vec<String>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(label.to_string())
+        .children(entries.into_iter().map(|entry| {
+            div()
+                .text_sm()
+                .text_color(rgb(0x8ea2b4))
+                .child(format!("• {entry}"))
+        }))
         .into_any_element()
 }
