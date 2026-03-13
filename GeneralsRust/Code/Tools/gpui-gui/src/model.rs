@@ -216,8 +216,8 @@ pub struct LegacyRect {
 #[derive(Clone, Debug)]
 pub struct LegacyWindowNode {
     pub id: i32,
-    pub title: &'static str,
-    pub tooltip: &'static str,
+    pub title: String,
+    pub tooltip: String,
     pub rect: LegacyRect,
     pub status: WindowStatus,
     pub style: GadgetWindowStyle,
@@ -253,8 +253,8 @@ impl WindowLayoutState {
             windows: vec![
                 LegacyWindowNode {
                     id: 1000,
-                    title,
-                    tooltip: "Top-level layout window",
+                    title: title.to_string(),
+                    tooltip: "Top-level layout window".to_string(),
                     rect: LegacyRect {
                         x: 96,
                         y: 64,
@@ -266,8 +266,8 @@ impl WindowLayoutState {
                 },
                 LegacyWindowNode {
                     id: 1100,
-                    title: "Primary Action",
-                    tooltip: "Representative push button",
+                    title: "Primary Action".to_string(),
+                    tooltip: "Representative push button".to_string(),
                     rect: LegacyRect {
                         x: 128,
                         y: 610,
@@ -279,8 +279,8 @@ impl WindowLayoutState {
                 },
                 LegacyWindowNode {
                     id: 1200,
-                    title: "Secondary Panel",
-                    tooltip: "Representative list or detail panel",
+                    title: "Secondary Panel".to_string(),
+                    tooltip: "Representative list or detail panel".to_string(),
                     rect: LegacyRect {
                         x: 756,
                         y: 152,
