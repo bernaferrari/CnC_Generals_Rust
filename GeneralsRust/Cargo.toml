@@ -60,6 +60,7 @@ members = [
     "Code/Tools/big_unpack",
     "Code/Tools/w3d_to_gltf",
     "Code/Tools/UIFramework",
+    "Code/Tools/gpui-gui",
     "Code/Tools/WorldBuilder",
     "Code/Tools/ParticleEditor",
     "Code/Tools/GUIEdit",
