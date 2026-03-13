@@ -17,6 +17,53 @@ pub const PORT: GadgetPort = GadgetPort::new(
     GadgetKind::StaticText,
 );
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StaticTextAction {
+    NextTab,
+    PrevTab,
+    Ignored,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StaticTextState {
+    pub label: String,
+    pub body: String,
+    pub font_name: Option<String>,
+}
+
+impl StaticTextState {
+    pub fn new(label: impl Into<String>, body: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            body: body.into(),
+            font_name: None,
+        }
+    }
+
+    pub fn set_text(&mut self, body: impl Into<String>) {
+        self.body = body.into();
+    }
+
+    pub fn get_text(&self) -> &str {
+        &self.body
+    }
+
+    pub fn set_font(&mut self, font_name: impl Into<String>) {
+        self.font_name = Some(font_name.into());
+    }
+
+    pub fn key_press(&self, key: &str, down: bool) -> StaticTextAction {
+        if !down {
+            return StaticTextAction::Ignored;
+        }
+        match key {
+            "Down" | "Right" | "Tab" => StaticTextAction::NextTab,
+            "Up" | "Left" => StaticTextAction::PrevTab,
+            _ => StaticTextAction::Ignored,
+        }
+    }
+}
+
 pub fn render_demo(label: &str, body: &str) -> AnyElement {
     div()
         .flex()
@@ -30,4 +77,16 @@ pub fn render_demo(label: &str, body: &str) -> AnyElement {
                 .child(body.to_string()),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_text_replaces_body() {
+        let mut state = StaticTextState::new("Label", "Body");
+        state.set_text("Next");
+        assert_eq!(state.get_text(), "Next");
+    }
 }
