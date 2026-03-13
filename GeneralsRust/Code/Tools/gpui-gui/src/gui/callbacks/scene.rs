@@ -1,10 +1,19 @@
 use gpui::{div, prelude::*, px, rgb, AnyElement};
 
+use crate::gui::callbacks::control_bar_popup_description::{
+    ControlBarPopupDescriptionPort, TooltipSubjectPort,
+};
+use crate::gui::callbacks::ime_candidate::ImeCandidateWindowPort;
+use crate::gui::callbacks::in_game_chat::{
+    ChatParticipantPort, InGameChatPort, InGameChatTypePort,
+};
 use crate::gui::callbacks::message_box::{MessageBoxButtonPort, MessageBoxStatePort};
+use crate::gui::callbacks::replay_controls::{ReplayControlsPort, ReplayPlaybackStatePort};
 use crate::gui::gadget::{
     gadget_check_box, gadget_horizontal_slider, gadget_list_box, gadget_progress_bar,
     gadget_push_button, gadget_static_text, gadget_text_entry,
 };
+use crate::gui::ime_manager::ImeManagerPort;
 use crate::gui::source_catalog::CallbackPort;
 
 pub fn render_port(port: &CallbackPort) -> AnyElement {
@@ -19,16 +28,31 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                 gadget_push_button::render_demo("Fire Callback"),
             ],
         ),
-        "GUICallbacks/ControlBarPopupDescription.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/ControlBarPopupDescription.cpp" => callback_card(port.label, {
+            let mut tooltip = ControlBarPopupDescriptionPort::default();
+            let _ = tooltip.show_build_tooltip_layout(22, 350, 1000);
+            let _ = tooltip.show_build_tooltip_layout(22, 350, 1400);
+            tooltip.populate_command_tooltip(
+                "Scorpion Tank",
+                Some(600),
+                "Fast anti-armor unit with upgrade hooks.",
+                &["Arms Dealer"],
+                Some("Not enough money to build"),
+            );
+            tooltip.populate_generic_tooltip(TooltipSubjectPort::PowerWindow, 153, 128);
             vec![
-                gadget_static_text::render_demo(
-                    "Tooltip Preview",
-                    "Build Scorpion Tank\nFast anti-armor unit with upgrade hooks.",
+                static_text("Title", tooltip.content.name),
+                static_text(
+                    "Cost",
+                    tooltip
+                        .content
+                        .cost
+                        .unwrap_or_else(|| "No direct cost".to_string()),
                 ),
-                gadget_progress_bar::render_demo("Tooltip delay", 0.35),
-            ],
-        ),
+                static_text("Description", tooltip.content.description),
+                static_text("Height", tooltip.panel_height.to_string()),
+            ]
+        }),
         "GUICallbacks/Diplomacy.cpp" => callback_card(
             port.label,
             vec![
@@ -75,26 +99,89 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                 gadget_static_text::render_demo("Current Rank", "General Rank 3"),
             ],
         ),
-        "GUICallbacks/IMECandidate.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/IMECandidate.cpp" => callback_card(port.label, {
+            let mut ime = ImeManagerPort::default();
+            ime.update_candidate_list(
+                vec![
+                    "Candidate 1".to_string(),
+                    "Candidate 2".to_string(),
+                    "Candidate 3".to_string(),
+                ],
+                3,
+                0,
+                1,
+            );
+            let mut candidate_window = ImeCandidateWindowPort::default();
+            candidate_window.on_create();
+            candidate_window.sync_from_ime(&ime);
             vec![
-                gadget_list_box::render_demo(
-                    &["Candidate 1", "Candidate 2", "Candidate 3"],
-                    "Candidate 1",
+                command_list(
+                    "Candidates",
+                    candidate_window
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            if row.selected {
+                                format!("{} {}", row.number_label, row.candidate)
+                            } else {
+                                format!("{} {}", row.number_label, row.candidate)
+                            }
+                        })
+                        .collect(),
                 ),
-                gadget_text_entry::render_demo("IME composition"),
-            ],
-        ),
-        "GUICallbacks/InGameChat.cpp" => callback_card(
-            port.label,
+                static_text(
+                    "Display String",
+                    candidate_window.display_string_allocated.to_string(),
+                ),
+            ]
+        }),
+        "GUICallbacks/InGameChat.cpp" => callback_card(port.label, {
+            let mut chat = InGameChatPort::default();
+            let _ = chat.show(false, false, false);
+            chat.set_chat_type(InGameChatTypePort::Allies, true);
+            chat.current_text = "ally hold center".to_string();
+            let dispatch = chat.submit_message(
+                &[
+                    ChatParticipantPort {
+                        slot: 0,
+                        active: true,
+                        muted: false,
+                        allied_with_local: true,
+                    },
+                    ChatParticipantPort {
+                        slot: 1,
+                        active: true,
+                        muted: false,
+                        allied_with_local: true,
+                    },
+                    ChatParticipantPort {
+                        slot: 2,
+                        active: true,
+                        muted: false,
+                        allied_with_local: false,
+                    },
+                ],
+                0,
+                true,
+                0,
+                0,
+            );
             vec![
-                gadget_static_text::render_demo(
-                    "Chat Log",
-                    "ally: need power\nbernardo: building supply\nenemy spotted east",
+                static_text("Channel", chat.chat_type_label),
+                static_text(
+                    "Last Dispatch",
+                    dispatch
+                        .map(|dispatch| {
+                            format!(
+                                "mask={:#05b} {}",
+                                dispatch.player_mask, dispatch.filtered_message
+                            )
+                        })
+                        .unwrap_or_else(|| "none".to_string()),
                 ),
                 gadget_text_entry::render_demo("Type team message..."),
-            ],
-        ),
+            ]
+        }),
         "GUICallbacks/InGamePopupMessage.cpp" => callback_card(
             port.label,
             vec![
@@ -102,21 +189,23 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                 gadget_progress_bar::render_demo("Fade lifetime", 0.72),
             ],
         ),
-        "GUICallbacks/ReplayControls.cpp" => callback_card(
-            port.label,
+        "GUICallbacks/ReplayControls.cpp" => callback_card(port.label, {
+            let mut replay = ReplayControlsPort::default();
+            replay.play();
+            replay.set_speed(2);
+            replay.seek(0.46);
             vec![
-                div()
-                    .flex()
-                    .gap_2()
-                    .children([
-                        gadget_push_button::render_demo("Play"),
-                        gadget_push_button::render_demo("Pause"),
-                        gadget_push_button::render_demo("2x"),
-                    ])
-                    .into_any_element(),
-                gadget_horizontal_slider::render_demo("Replay position", 0.46),
-            ],
-        ),
+                static_text(
+                    "Playback",
+                    match replay.playback_state {
+                        ReplayPlaybackStatePort::Playing => "Playing".to_string(),
+                        ReplayPlaybackStatePort::Paused => "Paused".to_string(),
+                    },
+                ),
+                static_text("Speed", format!("{}x", replay.speed_multiplier)),
+                gadget_horizontal_slider::render_demo("Replay position", replay.timeline_position),
+            ]
+        }),
         _ => callback_card(
             port.label,
             vec![gadget_static_text::render_demo(
@@ -150,5 +239,20 @@ fn static_text(label: &str, body: impl Into<String>) -> AnyElement {
         .gap_1()
         .child(label.to_string())
         .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(body.into()))
+        .into_any_element()
+}
+
+fn command_list(label: &str, entries: Vec<String>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(label.to_string())
+        .children(entries.into_iter().map(|entry| {
+            div()
+                .text_sm()
+                .text_color(rgb(0x8ea2b4))
+                .child(format!("• {entry}"))
+        }))
         .into_any_element()
 }
