@@ -256,7 +256,11 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
         }),
         _ => callback_card(
             port.label,
-            vec![static_text("Callback Surface", port.summary)],
+            vec![
+                static_text("C++ Source", port.record.cpp_relative_path),
+                static_text("Rust Module", port.record.rust_module_path),
+                static_text("Summary", port.summary),
+            ],
         ),
     }
 }
