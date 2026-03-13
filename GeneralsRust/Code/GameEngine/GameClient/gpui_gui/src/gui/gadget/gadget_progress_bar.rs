@@ -17,8 +17,32 @@ pub const PORT: GadgetPort = GadgetPort::new(
     GadgetKind::ProgressBar,
 );
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProgressBarState {
+    pub progress: u8,
+}
+
+impl ProgressBarState {
+    pub fn new(progress: u8) -> Self {
+        Self { progress }
+    }
+
+    pub fn set_progress(&mut self, progress: i32) -> bool {
+        if !(0..=100).contains(&progress) {
+            return false;
+        }
+        self.progress = progress as u8;
+        true
+    }
+
+    pub fn normalized(&self) -> f32 {
+        self.progress as f32 / 100.0
+    }
+}
+
 pub fn render_demo(label: &str, progress: f32) -> AnyElement {
-    let width = 144.0_f32 * progress.clamp(0.0, 1.0);
+    let state = ProgressBarState::new((progress.clamp(0.0, 1.0) * 100.0).round() as u8);
+    let width = 144.0_f32 * state.normalized();
     div()
         .flex()
         .flex_col()
@@ -39,4 +63,18 @@ pub fn render_demo(label: &str, progress: f32) -> AnyElement {
                 .child(label.to_string()),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_progress_is_ignored() {
+        let mut state = ProgressBarState::new(40);
+        assert!(!state.set_progress(101));
+        assert_eq!(state.progress, 40);
+        assert!(state.set_progress(100));
+        assert_eq!(state.progress, 100);
+    }
 }
