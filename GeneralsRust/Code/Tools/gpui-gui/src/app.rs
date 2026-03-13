@@ -122,7 +122,7 @@ impl StandaloneGuiApp {
             .copied()
     }
 
-    fn render_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_navigation(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .w(px(320.))
             .flex()
@@ -203,14 +203,13 @@ impl StandaloneGuiApp {
                         }),
                 ),
             )
-            .into_any_element()
     }
 
     fn render_active_screen(&self) -> AnyElement {
         menus::render_screen(self.selected_screen)
     }
 
-    fn render_mapping_panel(&self) -> AnyElement {
+    fn render_mapping_panel(&self) -> impl IntoElement {
         let current_screen = self.current_screen();
         let lifecycle = legacy::screen_by_name(self.selected_screen);
         let current_layout = self.shell.top();
@@ -328,7 +327,6 @@ impl StandaloneGuiApp {
                         .unwrap_or_default(),
                 ),
             )
-            .into_any_element()
     }
 }
 
@@ -410,7 +408,7 @@ impl Render for StandaloneGuiApp {
     }
 }
 
-fn render_gadget_card(port: &crate::gui::source_catalog::GadgetPort) -> AnyElement {
+fn render_gadget_card(port: &crate::gui::source_catalog::GadgetPort) -> impl IntoElement {
     div()
         .w(px(260.))
         .p_3()
@@ -429,10 +427,9 @@ fn render_gadget_card(port: &crate::gui::source_catalog::GadgetPort) -> AnyEleme
                 .child(port.record.cpp_relative_path),
         )
         .child(gadget::render_port(port))
-        .into_any_element()
 }
 
-fn render_layout_window(window: &GameWindowPort) -> AnyElement {
+fn render_layout_window(window: &GameWindowPort) -> impl IntoElement {
     div()
         .p_3()
         .rounded_lg()
@@ -453,10 +450,9 @@ fn render_layout_window(window: &GameWindowPort) -> AnyElement {
                 .text_color(rgb(0x8ea2b4))
                 .child(window.tooltip.clone()),
         )
-        .into_any_element()
 }
 
-fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) -> AnyElement {
+fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) -> impl IntoElement {
     div()
         .p_2()
         .rounded_md()
@@ -475,18 +471,19 @@ fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) ->
                 )
                 .child(value.into()),
         )
-        .into_any_element()
 }
 
-fn section_title(label: impl Into<SharedString>) -> AnyElement {
+fn section_title(label: impl Into<SharedString>) -> impl IntoElement {
     div()
         .text_sm()
         .text_color(rgb(0xd1a65d))
         .child(label.into())
-        .into_any_element()
 }
 
-fn section_card(title: impl Into<SharedString>, metrics: Vec<AnyElement>) -> AnyElement {
+fn section_card<E: IntoElement>(
+    title: impl Into<SharedString>,
+    metrics: Vec<E>,
+) -> impl IntoElement {
     div()
         .p_3()
         .rounded_lg()
@@ -498,7 +495,6 @@ fn section_card(title: impl Into<SharedString>, metrics: Vec<AnyElement>) -> Any
         .gap_2()
         .child(title.into())
         .children(metrics)
-        .into_any_element()
 }
 
 fn action_chip(label: &'static str, active: bool) -> gpui::Stateful<gpui::Div> {

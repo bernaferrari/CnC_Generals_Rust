@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, px, rgb, AnyElement, SharedString};
+use gpui::{div, prelude::*, px, rgb, SharedString};
 
 use crate::gui::source_catalog::{ControlBarPort, GuiPortRecord};
 use crate::model::{CommandOption, GuiCommandType, LegacyCommandButton};
@@ -107,7 +107,7 @@ pub fn demo_buttons() -> Vec<LegacyCommandButton> {
     CommandBarStatePort::default().buttons
 }
 
-pub fn render_command_strip(state: &CommandBarStatePort) -> AnyElement {
+pub fn render_command_strip(state: &CommandBarStatePort) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
@@ -131,10 +131,9 @@ pub fn render_command_strip(state: &CommandBarStatePort) -> AnyElement {
                 .gap_2()
                 .children(state.buttons.iter().map(render_command_button)),
         )
-        .into_any_element()
 }
 
-fn render_command_button(button: &LegacyCommandButton) -> AnyElement {
+fn render_command_button(button: &LegacyCommandButton) -> impl IntoElement {
     div()
         .w(px(168.))
         .p_2()
@@ -163,10 +162,9 @@ fn render_command_button(button: &LegacyCommandButton) -> AnyElement {
                 .text_color(rgb(0x6f8190))
                 .child(format!("{:?}", button.options)),
         )
-        .into_any_element()
 }
 
-fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) -> AnyElement {
+fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) -> impl IntoElement {
     div()
         .p_2()
         .rounded_md()
@@ -185,15 +183,13 @@ fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) ->
                 )
                 .child(value.into()),
         )
-        .into_any_element()
 }
 
-fn progress_bar(progress: f32, fill_color: gpui::Rgba) -> AnyElement {
+fn progress_bar(progress: f32, fill_color: gpui::Rgba) -> impl IntoElement {
     let width = 152.0_f32 * progress.clamp(0.0, 1.0);
     div()
         .h(px(10.))
         .rounded_full()
         .bg(rgb(0x1e2935))
         .child(div().w(px(width)).h(px(10.)).rounded_full().bg(fill_color))
-        .into_any_element()
 }
