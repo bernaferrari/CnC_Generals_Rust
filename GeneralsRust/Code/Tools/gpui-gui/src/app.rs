@@ -7,6 +7,8 @@ use crate::gui::callbacks as callback_ports;
 use crate::gui::callbacks::menus;
 use crate::gui::control_bar as control_bar_ports;
 use crate::gui::control_bar::control_bar as control_bar_core;
+use crate::gui::control_bar::control_bar_command::CommandBarStatePort;
+use crate::gui::control_bar::control_bar_multi_select::MultiSelectPort;
 use crate::gui::gadget;
 use crate::gui::game_window::GameWindowPort;
 use crate::gui::game_window_manager::GameWindowManagerPort;
@@ -14,7 +16,6 @@ use crate::gui::shell::shell::ShellPort;
 use crate::gui::source_catalog::MenuScreenPort;
 use crate::gui::system_scene;
 use crate::legacy;
-use crate::model::LegacyCommandButton;
 
 pub fn run() -> anyhow::Result<()> {
     Application::new().run(|cx: &mut App| {
@@ -39,7 +40,7 @@ struct StandaloneGuiApp {
     selected_screen: &'static str,
     shell: ShellPort,
     window_manager: GameWindowManagerPort,
-    command_buttons: Vec<LegacyCommandButton>,
+    command_bar: CommandBarStatePort,
 }
 
 impl StandaloneGuiApp {
@@ -64,12 +65,15 @@ impl StandaloneGuiApp {
             );
         }
 
+        let mut command_bar = CommandBarStatePort::default();
+        command_bar.buttons = MultiSelectPort::sample().visible_commands();
+
         Self {
             selected_menu_group,
             selected_screen,
             shell,
             window_manager,
-            command_buttons: control_bar_core::demo_buttons(),
+            command_bar,
         }
     }
 
@@ -381,9 +385,7 @@ impl Render for StandaloneGuiApp {
                                     .children(system_scene::render_system_cards()),
                             )
                             .child(section_title("Control Bar"))
-                            .child(control_bar_core::render_command_strip(
-                                &self.command_buttons,
-                            ))
+                            .child(control_bar_core::render_command_strip(&self.command_bar))
                             .child(
                                 div().flex().flex_wrap().gap_3().children(
                                     control_bar_ports::ports()
