@@ -1,15 +1,19 @@
 use gpui::{div, prelude::*, px, rgb, AnyElement};
 
+use crate::gui::control_bar::control_bar_beacon::ControlBarBeaconPort;
 use crate::gui::control_bar::control_bar_command::CommandBarStatePort;
 use crate::gui::control_bar::control_bar_command_processing::{
     CommandDispatchPort, CommandDispatchStatusPort,
 };
 use crate::gui::control_bar::control_bar_multi_select::MultiSelectPort;
+use crate::gui::control_bar::control_bar_observer::ControlBarObserverPort;
+use crate::gui::control_bar::control_bar_ocl_timer::ControlBarOclTimerPort;
+use crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsPort;
+use crate::gui::control_bar::control_bar_resizer::ControlBarResizerPort;
+use crate::gui::control_bar::control_bar_scheme::ControlBarSchemePort;
+use crate::gui::control_bar::control_bar_structure_inventory::ControlBarStructureInventoryPort;
 use crate::gui::control_bar::control_bar_under_construction::UnderConstructionPort;
-use crate::gui::gadget::{
-    gadget_check_box, gadget_horizontal_slider, gadget_list_box, gadget_progress_bar,
-    gadget_push_button, gadget_static_text,
-};
+use crate::gui::gadget::gadget_progress_bar;
 use crate::gui::source_catalog::ControlBarPort;
 use crate::model::{CommandOption, GuiCommandType, LegacyCommandButton};
 
@@ -17,57 +21,20 @@ pub fn render_port(port: &ControlBarPort) -> AnyElement {
     match port.record.cpp_relative_path {
         "ControlBar/ControlBarCommand.cpp" => render_command_panel(port.label),
         "ControlBar/ControlBarCommandProcessing.cpp" => render_dispatch_panel(port.label),
-        "ControlBar/ControlBarStructureInventory.cpp" => panel(
-            port.label,
-            vec![gadget_list_box::render_demo(
-                &["Passenger 1", "Passenger 2", "Drone Slot"],
-                "Passenger 1",
-            )],
-        ),
+        "ControlBar/ControlBarStructureInventory.cpp" => {
+            render_structure_inventory_panel(port.label)
+        }
         "ControlBar/ControlBarUnderConstruction.cpp" => render_under_construction_panel(port.label),
-        "ControlBar/ControlBarBeacon.cpp" => panel(
-            port.label,
-            vec![
-                gadget_push_button::render_demo("Place Beacon"),
-                gadget_push_button::render_demo("Delete Beacon"),
-            ],
-        ),
+        "ControlBar/ControlBarBeacon.cpp" => render_beacon_panel(port.label),
         "ControlBar/ControlBarMultiSelect.cpp" => render_multi_select_panel(port.label),
-        "ControlBar/ControlBarObserver.cpp" => panel(
-            port.label,
-            vec![gadget_static_text::render_demo(
-                "Observer HUD",
-                "Selection commands suppressed; camera and scoreboard remain active.",
-            )],
-        ),
-        "ControlBar/ControlBarOCLTimer.cpp" => panel(
-            port.label,
-            vec![gadget_progress_bar::render_demo("OCL cooldown", 0.41)],
-        ),
-        "ControlBar/ControlBarResizer.cpp" => panel(
-            port.label,
-            vec![gadget_horizontal_slider::render_demo(
-                "Anchoring blend",
-                0.52,
-            )],
-        ),
-        "ControlBar/ControlBarScheme.cpp" => panel(
-            port.label,
-            vec![gadget_static_text::render_demo(
-                "Faction Theme",
-                "USA / China / GLA art layers, colors, and overlays.",
-            )],
-        ),
-        "ControlBar/ControlBarPrintPositions.cpp" => panel(
-            port.label,
-            vec![gadget_static_text::render_demo(
-                "Debug Anchors",
-                "ButtonGrid=(64,768) Radar=(1048,706) Money=(148,704)",
-            )],
-        ),
+        "ControlBar/ControlBarObserver.cpp" => render_observer_panel(port.label),
+        "ControlBar/ControlBarOCLTimer.cpp" => render_ocl_timer_panel(port.label),
+        "ControlBar/ControlBarResizer.cpp" => render_resizer_panel(port.label),
+        "ControlBar/ControlBarScheme.cpp" => render_scheme_panel(port.label),
+        "ControlBar/ControlBarPrintPositions.cpp" => render_positions_panel(port.label),
         _ => panel(
             port.label,
-            vec![gadget_static_text::render_demo("Subsystem", port.summary)],
+            vec![static_text("Subsystem", port.summary.to_string())],
         ),
     }
 }
@@ -135,7 +102,7 @@ fn render_dispatch_panel(title: &str) -> AnyElement {
                     .clone()
                     .unwrap_or_else(|| "none".to_string()),
             ),
-            gadget_check_box::render_demo(
+            static_bool(
                 "Targeting mode armed",
                 target_status == CommandDispatchStatusPort::EnterTargetMode,
             ),
@@ -187,9 +154,153 @@ fn render_under_construction_panel(title: &str) -> AnyElement {
                 "Build progress",
                 state.construction_percent as f32 / 100.0,
             ),
-            gadget_check_box::render_demo("Rally point visible", state.rally_point_visible),
+            static_bool("Rally point visible", state.rally_point_visible),
             static_text("Cancel Command", state.cancel_command.label.to_string()),
         ],
+    )
+}
+
+fn render_structure_inventory_panel(title: &str) -> AnyElement {
+    let inventory = ControlBarStructureInventoryPort::sample();
+    panel(
+        title,
+        vec![command_list(
+            "Slots",
+            inventory
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(index, slot)| {
+                    format!(
+                        "{}{} ({}%, {})",
+                        if inventory.selected_slot == Some(index) {
+                            "* "
+                        } else {
+                            ""
+                        },
+                        slot.occupant_name,
+                        slot.health_pct,
+                        if slot.exiting { "exiting" } else { "holding" }
+                    )
+                })
+                .collect(),
+        )],
+    )
+}
+
+fn render_beacon_panel(title: &str) -> AnyElement {
+    let beacon = ControlBarBeaconPort::sample();
+    panel(
+        title,
+        vec![
+            static_bool("Targeting Active", beacon.targeting_active),
+            static_text("Beacon Count", beacon.beacon_count.to_string()),
+            static_text(
+                "Selected Beacon",
+                beacon.selected_beacon.unwrap_or_else(|| "None".to_string()),
+            ),
+        ],
+    )
+}
+
+fn render_observer_panel(title: &str) -> AnyElement {
+    let observer = ControlBarObserverPort::sample();
+    let current = observer.current_player();
+    panel(
+        title,
+        vec![
+            command_list(
+                "Players",
+                observer
+                    .players
+                    .iter()
+                    .map(|player| player.name.clone())
+                    .collect(),
+            ),
+            static_text(
+                "Look At",
+                current
+                    .map(|player| player.name.clone())
+                    .unwrap_or_else(|| "No observer target".to_string()),
+            ),
+            static_text(
+                "Stats",
+                current
+                    .map(|player| {
+                        format!(
+                            "{} units / {} buildings / {} killed / {} lost",
+                            player.units, player.buildings, player.units_killed, player.units_lost
+                        )
+                    })
+                    .unwrap_or_else(|| "No player selected".to_string()),
+            ),
+        ],
+    )
+}
+
+fn render_ocl_timer_panel(title: &str) -> AnyElement {
+    let timer = ControlBarOclTimerPort::sample();
+    panel(
+        title,
+        vec![
+            static_text("Timer", timer.timer_name.clone()),
+            gadget_progress_bar::render_demo("Cooldown", timer.progress()),
+            static_text("Remaining Frames", timer.remaining_frames.to_string()),
+        ],
+    )
+}
+
+fn render_resizer_panel(title: &str) -> AnyElement {
+    let mut resizer = ControlBarResizerPort::sample();
+    resizer.apply_stage_offset(24, -32);
+    panel(
+        title,
+        vec![
+            static_text(
+                "Resolution",
+                format!("{}x{}", resizer.screen_width, resizer.screen_height),
+            ),
+            static_text(
+                "Position",
+                format!("{}, {}", resizer.current_x, resizer.current_y),
+            ),
+        ],
+    )
+}
+
+fn render_scheme_panel(title: &str) -> AnyElement {
+    let scheme = ControlBarSchemePort::sample();
+    panel(
+        title,
+        vec![
+            static_text("Side", scheme.side),
+            static_text("Right HUD", scheme.right_hud_image),
+            static_text(
+                "Borders",
+                format!(
+                    "command {} / build {} / action {}",
+                    scheme.command_bar_border_color,
+                    scheme.build_border_color,
+                    scheme.action_border_color
+                ),
+            ),
+            static_text("Beacon Button", scheme.beacon_button_image),
+        ],
+    )
+}
+
+fn render_positions_panel(title: &str) -> AnyElement {
+    let positions = ControlBarPrintPositionsPort::sample();
+    panel(
+        title,
+        vec![command_list(
+            "Anchors",
+            positions
+                .anchors
+                .iter()
+                .map(|anchor| format!("{}=({}, {})", anchor.label, anchor.x, anchor.y))
+                .collect(),
+        )],
     )
 }
 
@@ -217,6 +328,10 @@ fn static_text(label: &str, body: String) -> AnyElement {
         .child(label.to_string())
         .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(body))
         .into_any_element()
+}
+
+fn static_bool(label: &str, value: bool) -> AnyElement {
+    static_text(label, if value { "Yes" } else { "No" }.to_string())
 }
 
 fn command_list(label: &str, entries: Vec<String>) -> AnyElement {
