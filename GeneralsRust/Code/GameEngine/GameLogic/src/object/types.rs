@@ -165,7 +165,7 @@ impl Snapshot for ObjectTypes {
         }
 
         // Transfer list name.
-        let _ = xfer.xfer_string(self.list_name.as_mut_string());
+        let _ = xfer.xfer_string(self.list_name.as_mut_string_buffer());
 
         // Transfer vector size and elements.
         let mut count = self.object_types.len() as u16;
@@ -173,7 +173,7 @@ impl Snapshot for ObjectTypes {
 
         if !xfer.is_loading() {
             for name in &mut self.object_types {
-                let _ = xfer.xfer_string(name.as_mut_string());
+                let _ = xfer.xfer_string(name.as_mut_string_buffer());
             }
         } else {
             if !self.object_types.is_empty() {
@@ -185,7 +185,7 @@ impl Snapshot for ObjectTypes {
             self.object_types.clear();
             for _ in 0..count {
                 let mut name = AsciiString::from("");
-                let _ = xfer.xfer_string(name.as_mut_string());
+                let _ = xfer.xfer_string(name.as_mut_string_buffer());
                 self.object_types.push(name);
             }
         }

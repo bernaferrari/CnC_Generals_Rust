@@ -12,6 +12,26 @@ use std::collections::HashMap;
 pub struct Object;
 pub struct ThingTemplate;
 
+/// Trait for objects that can be scored.
+/// This allows ScoreKeeper (in Common) to work with Object (in GameLogic)
+/// without creating circular dependencies.
+///
+/// C++ Reference: ScoreKeeper methods take `const Object*` directly.
+pub trait ScoreableObject {
+    /// Get the template name for this object
+    fn get_score_template_name(&self) -> &str;
+
+    /// Get the KindOf mask for this object
+    fn get_score_kindof_mask(&self) -> KindOfMaskType;
+
+    /// Get the controlling player index for this object
+    /// Returns None if no controlling player
+    fn get_score_controlling_player_index(&self) -> Option<i32>;
+
+    /// Check if this object is under construction
+    fn is_score_under_construction(&self) -> bool;
+}
+
 /// Maximum number of players
 /// Matches C++ ScoreKeeper.h line 89
 pub const MAX_PLAYER_COUNT: usize = 8;
@@ -485,6 +505,86 @@ impl ScoreKeeper {
                 .entry(template_name.to_string())
                 .or_insert(0) += 1;
         }
+    }
+
+    // =========================================================
+    // Object-based convenience methods
+    // These methods take a ScoreableObject trait object and extract
+    // the necessary information internally, matching the C++ API.
+    // =========================================================
+
+    /// Add an object that was destroyed by this player.
+    /// Convenience method that extracts information from the object.
+    /// Matches C++ ScoreKeeper::addObjectDestroyed(const Object* o)
+    ///
+    /// # Arguments
+    /// * `object` - The object that was destroyed
+    pub fn add_object_destroyed_obj(&mut self, object: &dyn ScoreableObject) {
+        let template_name = object.get_score_template_name();
+        let kind_of_mask = object.get_score_kindof_mask();
+        let owner_player_index = object.get_score_controlling_player_index().unwrap_or(0) as usize;
+        let under_construction = object.is_score_under_construction();
+
+        self.add_object_destroyed(
+            template_name,
+            &kind_of_mask,
+            owner_player_index,
+            under_construction,
+        );
+    }
+
+    /// Add an object that was lost by this player.
+    /// Convenience method that extracts information from the object.
+    /// Matches C++ ScoreKeeper::addObjectLost(const Object* o)
+    ///
+    /// # Arguments
+    /// * `object` - The object that was lost
+    pub fn add_object_lost_obj(&mut self, object: &dyn ScoreableObject) {
+        let template_name = object.get_score_template_name();
+        let kind_of_mask = object.get_score_kindof_mask();
+        let under_construction = object.is_score_under_construction();
+
+        self.add_object_lost(template_name, &kind_of_mask, under_construction);
+    }
+
+    /// Add an object that was built by this player.
+    /// Convenience method that extracts information from the object.
+    /// Matches C++ ScoreKeeper::addObjectBuilt(const Object* o)
+    ///
+    /// # Arguments
+    /// * `object` - The object that was built
+    pub fn add_object_built_obj(&mut self, object: &dyn ScoreableObject) {
+        let template_name = object.get_score_template_name();
+        let kind_of_mask = object.get_score_kindof_mask();
+        let under_construction = object.is_score_under_construction();
+
+        self.add_object_built(template_name, &kind_of_mask, under_construction);
+    }
+
+    /// Add an object that was captured by this player.
+    /// Convenience method that extracts information from the object.
+    /// Matches C++ ScoreKeeper::addObjectCaptured(const Object* o)
+    ///
+    /// # Arguments
+    /// * `object` - The object that was captured
+    pub fn add_object_captured_obj(&mut self, object: &dyn ScoreableObject) {
+        let template_name = object.get_score_template_name();
+        let kind_of_mask = object.get_score_kindof_mask();
+
+        self.add_object_captured(template_name, &kind_of_mask);
+    }
+
+    /// Remove an object from the built count (for cancelled/destroyed during construction).
+    /// Convenience method that extracts information from the object.
+    /// Matches C++ ScoreKeeper::removeObjectBuilt(const Object* o)
+    ///
+    /// # Arguments
+    /// * `object` - The object to remove from built count
+    pub fn remove_object_built_obj(&mut self, object: &dyn ScoreableObject) {
+        let template_name = object.get_score_template_name();
+        let kind_of_mask = object.get_score_kindof_mask();
+
+        self.remove_object_built(template_name, &kind_of_mask);
     }
 
     /// Add money to earned total

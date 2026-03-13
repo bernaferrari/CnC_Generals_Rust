@@ -554,7 +554,7 @@ impl Snapshot for DamageInfoInput {
             } else {
                 AsciiString::TheEmptyString()
             };
-            let _ = xfer.xfer_string(thing_name.as_mut_string());
+            let _ = xfer.xfer_string(thing_name.as_mut_string_buffer());
             if xfer.is_loading() {
                 self.source_template = crate::helpers::TheThingFactory::find_template(&thing_name);
             }

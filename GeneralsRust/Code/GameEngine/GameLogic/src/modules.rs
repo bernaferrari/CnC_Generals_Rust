@@ -68,6 +68,10 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     fn get_module_name(&self) -> &str {
         std::any::type_name::<Self>()
     }
+    /// Get the module name key (used for module lookups by name)
+    fn get_module_name_key(&self) -> NameKeyType {
+        0
+    }
     /// Optional typed query used by callers that need disguise-owner context.
     fn get_disguised_player_index(&self) -> Option<Int> {
         None
@@ -644,6 +648,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn is_special_overlord_style_container(&self) -> bool {
         false
     }
+
+    /// Get the rider ID for Overlord-style containers (alias for friend_get_rider).
+    fn get_rider_id(&self) -> Option<ObjectID> {
+        self.friend_get_rider()
+    }
 }
 
 /// Extension trait for Arc<Mutex<dyn ContainModuleInterface>> to provide convenient methods
@@ -663,6 +672,7 @@ pub trait ContainModuleInterfaceExt {
     fn set_override_destination(&self, pos: &Coord3D);
     fn has_objects_wanting_to_enter_or_exit(&self) -> bool;
     fn is_special_overlord_style_container(&self) -> bool;
+    fn get_rider_id(&self) -> Option<ObjectID>;
     fn friend_get_rider(&self) -> Option<ObjectID>;
     fn order_all_passengers_to_exit(
         &self,
@@ -775,6 +785,14 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
             guard.is_special_overlord_style_container()
         } else {
             false
+        }
+    }
+
+    fn get_rider_id(&self) -> Option<ObjectID> {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.get_rider_id()
+        } else {
+            None
         }
     }
 
@@ -3336,12 +3354,19 @@ pub trait SlowDeathBehaviorInterface: Send + Sync {
     fn get_slow_death_phase(&self) -> u32;
 }
 
-/// Spawn behavior interface  
+/// Spawn behavior interface
 pub trait SpawnBehaviorInterface: Send + Sync {
     /// Get number of spawned objects
     fn get_spawn_count(&self) -> u32;
     /// Get spawn object by index
     fn get_spawn_object(&self, index: u32) -> Option<ObjectID>;
+    /// Order slaves to clear the specified disabled type
+    fn order_slaves_to_clear_disabled(
+        &mut self,
+        _disabled_type: DisabledType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
 }
 
 /// Horde update interface (API used by group behavior and modules)
@@ -3639,6 +3664,85 @@ pub trait SpecialPowerModuleInterface: Send + Sync {
         _waypoint: &Waypoint,
         _command_options: SpecialPowerCommandOptions,
     ) {
+    }
+}
+
+/// Extension trait for Arc<Mutex<dyn SpecialPowerModuleInterface>> to provide convenient methods
+pub trait SpecialPowerModuleInterfaceExt {
+    fn pause_countdown(&self, pause: bool);
+    fn is_ready(&self) -> bool;
+    fn get_percent_ready(&self) -> f32;
+    fn get_power_name(&self) -> String;
+}
+
+impl SpecialPowerModuleInterfaceExt for Arc<Mutex<dyn SpecialPowerModuleInterface>> {
+    fn pause_countdown(&self, pause: bool) {
+        if let Ok(mut guard) = self.try_lock() {
+            SpecialPowerModuleInterface::pause_countdown(&mut *guard, pause);
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.is_ready()
+        } else {
+            false
+        }
+    }
+
+    fn get_percent_ready(&self) -> f32 {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.get_percent_ready()
+        } else {
+            0.0
+        }
+    }
+
+    fn get_power_name(&self) -> String {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.get_power_name()
+        } else {
+            String::from("Unknown")
+        }
+    }
+}
+
+/// Extension trait for Arc<Mutex<dyn SpawnBehaviorInterface>> to provide convenient methods
+pub trait SpawnBehaviorInterfaceExt {
+    fn order_slaves_to_clear_disabled(
+        &self,
+        disabled_type: DisabledType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn get_spawn_count(&self) -> u32;
+    fn get_spawn_object(&self, index: u32) -> Option<ObjectID>;
+}
+
+impl SpawnBehaviorInterfaceExt for Arc<Mutex<dyn SpawnBehaviorInterface>> {
+    fn order_slaves_to_clear_disabled(
+        &self,
+        disabled_type: DisabledType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.order_slaves_to_clear_disabled(disabled_type)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn get_spawn_count(&self) -> u32 {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.get_spawn_count()
+        } else {
+            0
+        }
+    }
+
+    fn get_spawn_object(&self, index: u32) -> Option<ObjectID> {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.get_spawn_object(index)
+        } else {
+            None
+        }
     }
 }
 

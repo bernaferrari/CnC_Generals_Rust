@@ -11,6 +11,9 @@
 //! - AI behavior
 //! - Team management
 //! - Radar and battle plans
+//! - Build list and production
+//! - Squad system (hotkey squads and current selection)
+//! - Resource gathering management
 
 use crate::common::rts::{
     AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle, Relationship, ScienceType,
@@ -18,6 +21,414 @@ use crate::common::rts::{
 };
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock, Weak};
+
+/// Object ID type used throughout the game engine
+pub type ObjectID = u32;
+
+/// Invalid object ID constant
+pub const INVALID_OBJECT_ID: ObjectID = 0xFFFFFFFF;
+
+/// Invalid hotkey squad constant (matches C++ NO_HOTKEY_SQUAD)
+pub const NO_HOTKEY_SQUAD: i32 = -1;
+
+// =========================================================
+// Forward Declarations / Trait Definitions
+// These are placeholder traits for AI and related systems
+// that are defined in GameLogic but referenced here for type safety
+// =========================================================
+
+/// Trait for objects that can be killed for bounty.
+/// This allows Player (in Common) to work with Object (in GameLogic)
+/// without creating circular dependencies.
+///
+/// C++ Reference: Player::doBountyForKill takes `const Object* killer, const Object* victim`
+pub trait BountyObject {
+    /// Get the cost to build this object (used for bounty calculation)
+    fn get_build_cost(&self) -> i32;
+
+    /// Check if this object is under construction (no bounty for under-construction)
+    fn is_under_construction(&self) -> bool;
+}
+
+/// Trait for objects that provide skill points when killed.
+/// C++ Reference: Player::addSkillPointsForKill takes `const Object* killer, const Object* victim`
+pub trait SkillPointObject {
+    /// Get the skill point value for killing this object
+    fn get_skill_point_value(&self, killer: &dyn SkillPointObject) -> i32;
+
+    /// Get the veterancy level of this object
+    fn get_veterancy_level(&self) -> i32;
+}
+
+/// Trait for AI player functionality
+/// The actual AIPlayer struct is defined in GameLogic/src/ai/ai_player.rs
+/// This trait allows Player to reference AI functionality without direct dependency
+pub trait AIPlayerInterface: std::fmt::Debug + Send + Sync {
+    /// Update the AI player
+    fn update(&mut self) -> Result<(), String>;
+    
+    /// Called when a new map is loaded
+    fn new_map(&mut self);
+    
+    /// Check if this is a skirmish AI
+    fn is_skirmish_ai(&self) -> bool;
+    
+    /// Get the current enemy target
+    fn get_ai_enemy(&self) -> Option<i32>;
+    
+    /// Check bridges for pathfinding
+    fn check_bridges(&self, _unit_id: ObjectID, _waypoint: i32) -> bool {
+        false
+    }
+    
+    /// Repair a structure
+    fn repair_structure(&mut self, _structure_id: ObjectID) {}
+    
+    /// Get base center position
+    fn get_base_center(&self) -> Option<Coord3D> {
+        None
+    }
+    
+    /// Called when a unit is produced
+    fn on_unit_produced(&mut self, _factory_id: ObjectID, _unit_id: ObjectID) {}
+    
+    /// Called when a structure is produced
+    fn on_structure_produced(&mut self, _factory_id: ObjectID, _structure_id: ObjectID) {}
+    
+    /// Set the AI difficulty
+    fn set_ai_difficulty(&mut self, _difficulty: GameDifficulty);
+    
+    /// Get the AI difficulty
+    fn get_ai_difficulty(&self) -> GameDifficulty;
+}
+
+/// Game difficulty enumeration
+/// C++ Reference: GameDifficulty enum in GameType.h
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GameDifficulty {
+    #[default]
+    Normal,
+    Easy,
+    Hard,
+    Brutal,
+}
+
+/// 3D Coordinate type for positions
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Coord3D {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl Coord3D {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
+    
+    pub fn origin() -> Self {
+        Self::new(0.0, 0.0, 0.0)
+    }
+}
+
+// =========================================================
+// BuildListInfo - Build list entry for AI construction
+// C++ Reference: BuildListInfo class in SidesList.h
+// =========================================================
+
+/// Build list information for AI construction
+/// C++ Reference: BuildListInfo class
+#[derive(Debug, Clone)]
+pub struct BuildListInfo {
+    /// Template name of the building to construct
+    template_name: String,
+    /// Location to build at
+    location: Coord3D,
+    /// Angle of the building
+    angle: f32,
+    /// Object ID if building exists
+    object_id: ObjectID,
+    /// Number of times to rebuild (0xFFFF_FFFF = unlimited)
+    num_rebuilds: u32,
+    /// Whether this is a priority build
+    priority_build: bool,
+    /// Whether currently under construction
+    under_construction: bool,
+    /// Timestamp when object was created
+    object_timestamp: u32,
+    /// Next entry in the linked list
+    next: Option<Box<BuildListInfo>>,
+}
+
+impl BuildListInfo {
+    /// Unlimited rebuilds constant
+    pub const UNLIMITED_REBUILDS: u32 = 0xFFFF_FFFF;
+    
+    /// Create a new build list info entry
+    pub fn new(template_name: String, location: Coord3D, angle: f32) -> Self {
+        Self {
+            template_name,
+            location,
+            angle,
+            object_id: INVALID_OBJECT_ID,
+            num_rebuilds: 0,
+            priority_build: false,
+            under_construction: false,
+            object_timestamp: 0,
+            next: None,
+        }
+    }
+    
+    /// Get the template name
+    pub fn get_template_name(&self) -> &str {
+        &self.template_name
+    }
+    
+    /// Get the location
+    pub fn get_location(&self) -> &Coord3D {
+        &self.location
+    }
+    
+    /// Get the angle
+    pub fn get_angle(&self) -> f32 {
+        self.angle
+    }
+    
+    /// Get the object ID
+    pub fn get_object_id(&self) -> ObjectID {
+        self.object_id
+    }
+    
+    /// Set the object ID
+    pub fn set_object_id(&mut self, id: ObjectID) {
+        self.object_id = id;
+    }
+    
+    /// Get number of rebuilds remaining
+    pub fn get_num_rebuilds(&self) -> u32 {
+        self.num_rebuilds
+    }
+    
+    /// Set number of rebuilds
+    pub fn set_num_rebuilds(&mut self, num: u32) {
+        self.num_rebuilds = num;
+    }
+    
+    /// Mark as priority build
+    pub fn mark_priority_build(&mut self) {
+        self.priority_build = true;
+    }
+    
+    /// Check if priority build
+    pub fn is_priority_build(&self) -> bool {
+        self.priority_build
+    }
+    
+    /// Set under construction flag
+    pub fn set_under_construction(&mut self, under_construction: bool) {
+        self.under_construction = under_construction;
+    }
+    
+    /// Check if under construction
+    pub fn is_under_construction(&self) -> bool {
+        self.under_construction
+    }
+    
+    /// Check if buildable (rebuilds remaining)
+    pub fn is_buildable(&self) -> bool {
+        self.num_rebuilds > 0 || self.num_rebuilds == Self::UNLIMITED_REBUILDS
+    }
+    
+    /// Decrement rebuild count
+    pub fn decrement_num_rebuilds(&mut self) {
+        if self.num_rebuilds > 0 && self.num_rebuilds != Self::UNLIMITED_REBUILDS {
+            self.num_rebuilds -= 1;
+        }
+    }
+    
+    /// Get next entry
+    pub fn get_next(&self) -> Option<&BuildListInfo> {
+        self.next.as_deref()
+    }
+    
+    /// Get mutable next entry
+    pub fn get_next_mut(&mut self) -> Option<&mut BuildListInfo> {
+        self.next.as_deref_mut()
+    }
+    
+    /// Set next entry
+    pub fn set_next(&mut self, next: Option<Box<BuildListInfo>>) {
+        self.next = next;
+    }
+}
+
+impl Default for BuildListInfo {
+    fn default() -> Self {
+        Self::new(String::new(), Coord3D::origin(), 0.0)
+    }
+}
+
+// =========================================================
+// Squad - Collection of objects for hotkey groups
+// C++ Reference: Squad class in Squad.h
+// =========================================================
+
+/// Squad represents a collection of objects for hotkey groups and current selection
+/// C++ Reference: Squad class in GameLogic/Squad.h
+#[derive(Debug, Clone, Default)]
+pub struct Squad {
+    /// Object IDs in this squad
+    object_ids: Vec<ObjectID>,
+}
+
+impl Squad {
+    /// Create a new empty squad
+    pub fn new() -> Self {
+        Self {
+            object_ids: Vec::new(),
+        }
+    }
+    
+    /// Add an object to the squad
+    pub fn add_object(&mut self, object_id: ObjectID) {
+        if !self.object_ids.contains(&object_id) {
+            self.object_ids.push(object_id);
+        }
+    }
+    
+    /// Remove an object from the squad
+    pub fn remove_object(&mut self, object_id: ObjectID) {
+        self.object_ids.retain(|&id| id != object_id);
+    }
+    
+    /// Clear all objects from the squad
+    pub fn clear(&mut self) {
+        self.object_ids.clear();
+    }
+    
+    /// Check if an object is in the squad
+    pub fn contains(&self, object_id: ObjectID) -> bool {
+        self.object_ids.contains(&object_id)
+    }
+    
+    /// Get the number of objects in the squad
+    pub fn len(&self) -> usize {
+        self.object_ids.len()
+    }
+    
+    /// Check if the squad is empty
+    pub fn is_empty(&self) -> bool {
+        self.object_ids.is_empty()
+    }
+    
+    /// Get all object IDs
+    pub fn get_object_ids(&self) -> &[ObjectID] {
+        &self.object_ids
+    }
+    
+    /// Get mutable access to object IDs
+    pub fn get_object_ids_mut(&mut self) -> &mut Vec<ObjectID> {
+        &mut self.object_ids
+    }
+
+    /// Clear squad (alias for clear())
+    pub fn clear_squad(&mut self) {
+        self.clear();
+    }
+
+    /// Add object ID
+    pub fn add_object_id(&mut self, object_id: ObjectID) {
+        self.add_object(object_id);
+    }
+
+    /// Check if object is on squad (alias for contains)
+    pub fn is_on_squad(&self, object_id: ObjectID) -> bool {
+        self.contains(object_id)
+    }
+
+    /// Get object IDs for iteration
+    pub fn get_live_objects(&self) -> Vec<ObjectID> {
+        self.object_ids.clone()
+    }
+}
+
+// =========================================================
+// UpgradeInfo - Upgrade tracking for player
+// C++ Reference: Upgrade class in Upgrade.h
+// =========================================================
+
+/// Upgrade status enumeration
+/// C++ Reference: UpgradeStatusType enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpgradeStatus {
+    /// Upgrade is in production
+    InProduction,
+    /// Upgrade is complete
+    Complete,
+    /// Upgrade is pending
+    Pending,
+}
+
+/// Information about an upgrade the player has
+#[derive(Debug, Clone)]
+pub struct UpgradeInfo {
+    /// Name of the upgrade
+    name: String,
+    /// Status of the upgrade
+    status: UpgradeStatus,
+    /// Frame when upgrade started
+    start_frame: u32,
+    /// Frame when upgrade will complete (if in production)
+    complete_frame: u32,
+}
+
+impl UpgradeInfo {
+    /// Create a new upgrade info
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            status: UpgradeStatus::Pending,
+            start_frame: 0,
+            complete_frame: 0,
+        }
+    }
+    
+    /// Get the upgrade name
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+    
+    /// Get the upgrade status
+    pub fn get_status(&self) -> UpgradeStatus {
+        self.status
+    }
+    
+    /// Set the upgrade status
+    pub fn set_status(&mut self, status: UpgradeStatus) {
+        self.status = status;
+    }
+    
+    /// Set the start frame
+    pub fn set_start_frame(&mut self, frame: u32) {
+        self.start_frame = frame;
+    }
+    
+    /// Set the complete frame
+    pub fn set_complete_frame(&mut self, frame: u32) {
+        self.complete_frame = frame;
+    }
+    
+    /// Check if upgrade is in production
+    pub fn is_in_production(&self) -> bool {
+        self.status == UpgradeStatus::InProduction
+    }
+    
+    /// Check if upgrade is complete
+    pub fn is_complete(&self) -> bool {
+        self.status == UpgradeStatus::Complete
+    }
+}
 
 /// Maximum number of hotkey squads (matches C++ NUM_HOTKEY_SQUADS)
 pub const NUM_HOTKEY_SQUADS: usize = 10;
@@ -406,6 +817,87 @@ pub struct Player {
     /// Last frame attacked
     /// C++: m_attackedFrame (Player.h line 379)
     attacked_frame: u32,
+
+    // =========================================================
+    // AI System Integration (C++ Player.h line 339)
+    // =========================================================
+    /// AI player reference - weak reference to avoid circular dependencies
+    /// C++: m_ai (Player.h line 339)
+    /// The actual AIPlayer struct lives in GameLogic, so we use a weak ref
+    ai: Option<Weak<dyn AIPlayerInterface>>,
+    /// Current difficulty setting (for both human and AI players)
+    /// C++: obtained via m_ai->getAIDifficulty() or from scripts
+    difficulty: GameDifficulty,
+
+    // =========================================================
+    // Build List Management (C++ Player.h line 335)
+    // =========================================================
+    /// Build list for AI construction
+    /// C++: m_pBuildList (Player.h line 335)
+    build_list: Option<Box<BuildListInfo>>,
+
+    // =========================================================
+    // Resource Gathering Manager (C++ Player.h line 340)
+    // =========================================================
+    /// Resource gathering manager for supply centers/warehouses
+    /// C++: m_resourceGatheringManager (Player.h line 340)
+    /// Stores supply center and warehouse IDs for AI/harvester pathfinding
+    supply_centers: Vec<ObjectID>,
+    supply_warehouses: Vec<ObjectID>,
+
+    // =========================================================
+    // Squad System (C++ Player.h lines 382-383)
+    // =========================================================
+    /// Hotkey squads (0-9 for control groups)
+    /// C++: m_squads[NUM_HOTKEY_SQUADS] (Player.h line 382)
+    hotkey_squads: [Squad; NUM_HOTKEY_SQUADS],
+    /// Current selection squad
+    /// C++: m_currentSelection (Player.h line 383)
+    current_selection: Squad,
+
+    // =========================================================
+    // Upgrade List Management (C++ Player.h line 336)
+    // =========================================================
+    /// List of upgrades this player has (linked list in C++)
+    /// C++: m_upgradeList (Player.h line 336)
+    upgrade_list: Vec<UpgradeInfo>,
+    /// Bitmask of upgrades in progress
+    /// C++: m_upgradesInProgress (Player.h line 348)
+    upgrades_in_progress: u64,
+    /// Bitmask of completed upgrades
+    /// C++: m_upgradesCompleted (Player.h line 349)
+    upgrades_completed: u64,
+
+    // =========================================================
+    // Team Prototype List (C++ Player.h line 375)
+    // =========================================================
+    /// List of team prototypes this player owns
+    /// C++: m_playerTeamPrototypes (Player.h line 375)
+    team_prototypes: Vec<String>,
+
+    // =========================================================
+    // Tunnel System (C++ Player.h line 341)
+    // =========================================================
+    /// Tunnel system tracker
+    /// C++: m_tunnelSystem (Player.h line 341)
+    tunnel_entrances: Vec<ObjectID>,
+
+    // =========================================================
+    // Production Cost Changes (C++ Player.h lines 351-353)
+    // =========================================================
+    /// Production cost change percentages by thing name
+    /// C++: m_productionCostChanges (Player.h line 351)
+    production_cost_changes: HashMap<String, f32>,
+    /// Production time change percentages by thing name
+    /// C++: m_productionTimeChanges (Player.h line 352)
+    production_time_changes: HashMap<String, f32>,
+
+    // =========================================================
+    // Special Power Ready Timers (C++ Player.h lines 392-393)
+    // =========================================================
+    /// Special power ready timers for shared cooldowns
+    /// C++: m_specialPowerReadyTimerList (Player.h line 392)
+    special_power_timers: HashMap<u32, u32>, // template_id -> ready_frame
 }
 
 impl Player {
@@ -470,6 +962,30 @@ impl Player {
             cash_bounty_percent: 0.0,
             attacked_by,
             attacked_frame,
+            // AI System
+            ai: None,
+            difficulty: GameDifficulty::Normal,
+            // Build List
+            build_list: None,
+            // Resource Gathering
+            supply_centers: Vec::new(),
+            supply_warehouses: Vec::new(),
+            // Squad System - initialize with empty squads
+            hotkey_squads: Default::default(),
+            current_selection: Squad::new(),
+            // Upgrade System
+            upgrade_list: Vec::new(),
+            upgrades_in_progress: 0,
+            upgrades_completed: 0,
+            // Team prototypes
+            team_prototypes: Vec::new(),
+            // Tunnel system
+            tunnel_entrances: Vec::new(),
+            // Production changes
+            production_cost_changes: HashMap::new(),
+            production_time_changes: HashMap::new(),
+            // Special power timers
+            special_power_timers: HashMap::new(),
         };
 
         // C++ lines 236-239: Initialize components with player handle
@@ -855,6 +1371,16 @@ impl Player {
         self.attacked_frame
     }
 
+    /// Get the attacked-by array (for save/load)
+    pub fn get_attacked_by_array(&self) -> &[bool] {
+        &self.attacked_by
+    }
+
+    /// Set the attacked-by array (for load)
+    pub fn set_attacked_by_array(&mut self, attacked: Vec<bool>) {
+        self.attacked_by = attacked;
+    }
+
     // =========================================================
     // Player State Queries (C++ Player.h lines 398-412)
     // =========================================================
@@ -876,10 +1402,27 @@ impl Player {
         self.observer
     }
 
+    /// Set observer mode
+    /// C++ Reference: Player::init() sets m_observer (Player.cpp line 320)
+    pub fn set_observer(&mut self, observer: bool) {
+        self.observer = observer;
+        // Observers are considered "dead" for gameplay purposes
+        if observer {
+            self.is_player_dead = true;
+        }
+    }
+
     /// Check if player is active (not dead and not observer)
     /// C++ Reference: Player::isPlayerActive() (Player.h line 409)
     pub fn is_player_active(&self) -> bool {
         !self.observer && !self.is_player_dead
+    }
+
+    /// Check if this is a playable side
+    /// C++ Reference: Player::isPlayableSide() (Player.cpp lines 3185-3190)
+    pub fn is_playable_side(&self) -> bool {
+        // Would check player template - simplified
+        !self.observer && !self.side.is_empty()
     }
 
     /// Check if player preordered
@@ -936,6 +1479,220 @@ impl Player {
     /// Set can build base
     pub fn set_can_build_base(&mut self, can_build: bool) {
         self.can_build_base = can_build;
+    }
+
+    // =========================================================
+    // Kill Player and Related (C++ Player.cpp lines 1597-1650)
+    // =========================================================
+
+    /// Kill this player - remove all units and mark as dead
+    /// C++ Reference: Player::killPlayer() (Player.cpp lines 1597-1650)
+    pub fn kill_player(&mut self) {
+        // Mark player as dead first (so OCLs don't spawn useful units)
+        self.is_player_dead = true;
+
+        // Clear all team prototypes (would evacuate containers in full impl)
+        self.team_prototypes.clear();
+
+        // Clear all hotkey squads
+        for squad in &mut self.hotkey_squads {
+            squad.clear();
+        }
+
+        // Clear current selection
+        self.current_selection.clear();
+
+        // Clear build list
+        self.build_list = None;
+
+        // Clear supply centers and warehouses
+        self.supply_centers.clear();
+        self.supply_warehouses.clear();
+
+        // Clear tunnel entrances
+        self.tunnel_entrances.clear();
+
+        // Force money to 0
+        let all_money = self.money.count_money();
+        if all_money > 0 {
+            self.money.withdraw(all_money, false);
+        }
+    }
+
+    /// Transfer all assets from another player to this one
+    /// C++ Reference: Player::transferAssetsFromThat() (Player.cpp lines 1666-1701)
+    pub fn transfer_assets_from(&mut self, other: &mut Player) {
+        // Transfer all money
+        let all_money = other.get_money().count_money();
+        if all_money > 0 {
+            other.get_money_mut().withdraw(all_money, false);
+            self.money.deposit(all_money, false);
+        }
+
+        // In full implementation, would also transfer all objects
+        // to this player's default team
+    }
+
+    /// Garrison all units
+    /// C++ Reference: Player::garrisonAllUnits() (Player.cpp lines 1704-1751)
+    pub fn garrison_all_units(&mut self) {
+        // Would iterate all units and find garrisonable structures
+        // Simplified: just mark intent
+    }
+
+    /// Ungarrison all units
+    /// C++ Reference: Player::ungarrisonAllUnits() (Player.cpp lines 1754-1784)
+    pub fn ungarrison_all_units(&mut self) {
+        // Would iterate all structures and tell them to evacuate
+        // Simplified: just mark intent
+    }
+
+    /// Set units to idle or resume
+    /// C++ Reference: Player::setUnitsShouldIdleOrResume() (Player.cpp lines 1788-1827)
+    pub fn set_units_should_idle_or_resume(&mut self, idle: bool) {
+        // Would iterate all units and set their idle state
+        // Simplified: no-op
+        let _ = idle;
+    }
+
+    /// Sell everything under the sun
+    /// C++ Reference: Player::sellEverythingUnderTheSun() (Player.cpp lines 1832-1839)
+    pub fn sell_everything(&mut self) {
+        // Would iterate and sell all faction structures
+        // Simplified: just clear build list
+        self.build_list = None;
+    }
+
+    /// Set objects enabled/disabled by template
+    /// C++ Reference: Player::setObjectsEnabled() (Player.cpp lines 1653-1663)
+    pub fn set_objects_enabled(&mut self, _template_name: &str, _enable: bool) {
+        // Would iterate all objects matching template and enable/disable them
+        // Simplified: no-op
+    }
+
+    // =========================================================
+    // Build Prerequisites and Permissions (C++ Player.cpp lines 1842-2061)
+    // =========================================================
+
+    /// Check if allowed to build a thing (basic check)
+    /// C++ Reference: Player::allowedToBuild() (Player.cpp lines 1842-1855)
+    pub fn allowed_to_build(&self, is_structure: bool) -> bool {
+        if !self.can_build_base && is_structure {
+            return false;
+        }
+        if !self.can_build_units && !is_structure {
+            return false;
+        }
+        true
+    }
+
+    /// Check if can build a thing (includes prereqs)
+    /// C++ Reference: Player::canBuild() (Player.cpp lines 1990-2061)
+    pub fn can_build(&self, _template_name: &str, is_structure: bool) -> bool {
+        // Basic check
+        if !self.allowed_to_build(is_structure) {
+            return false;
+        }
+
+        // In full implementation, would check:
+        // - Buildable status
+        // - Prerequisites
+        // - Max simultaneous of type
+        
+        true
+    }
+
+    /// Check if can afford to build
+    /// C++ Reference: Player::canAffordBuild() (Player.cpp lines 2064-2073)
+    pub fn can_afford_build(&self, cost: i32) -> bool {
+        self.money.count_money() >= cost as u32
+    }
+
+    /// Check if can build more of a specific type
+    /// C++ Reference: Player::canBuildMoreOfType() (Player.cpp lines 1907-1950)
+    pub fn can_build_more_of_type(&self, _template_name: &str, max_simultaneous: u32) -> bool {
+        // 0 means unlimited
+        if max_simultaneous == 0 {
+            return true;
+        }
+        // Would count existing units and queued units
+        // Simplified: assume can build
+        true
+    }
+
+    // =========================================================
+    // AI Build Commands (C++ Player.cpp lines 1858-1960)
+    // =========================================================
+
+    /// Build specific team (AI command)
+    /// C++ Reference: Player::buildSpecificTeam() (Player.cpp lines 1858-1864)
+    pub fn build_specific_team(&mut self, team_name: &str) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, team_name); // Would call AI build method
+        }
+    }
+
+    /// Build base defense (AI command)
+    /// C++ Reference: Player::buildBaseDefense() (Player.cpp lines 1867-1873)
+    pub fn build_base_defense(&mut self, flank: bool) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, flank); // Would call AI build method
+        }
+    }
+
+    /// Build base defense structure (AI command)
+    /// C++ Reference: Player::buildBaseDefenseStructure() (Player.cpp lines 1876-1882)
+    pub fn build_base_defense_structure(&mut self, thing_name: &str, flank: bool) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, thing_name, flank); // Would call AI build method
+        }
+    }
+
+    /// Build specific building (AI command)
+    /// C++ Reference: Player::buildSpecificBuilding() (Player.cpp lines 1885-1891)
+    pub fn build_specific_building(&mut self, thing_name: &str) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, thing_name); // Would call AI build method
+        }
+    }
+
+    /// Build by supplies (AI command)
+    /// C++ Reference: Player::buildBySupplies() (Player.cpp lines 1894-1900)
+    pub fn build_by_supplies(&mut self, minimum_cash: i32, thing_name: &str) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, minimum_cash, thing_name); // Would call AI build method
+        }
+    }
+
+    /// Build specific building nearest team (AI command)
+    /// C++ Reference: Player::buildSpecificBuildingNearestTeam() (Player.cpp lines 1903-1907)
+    pub fn build_specific_building_nearest_team(&mut self, thing_name: &str, _team_id: i32) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, thing_name); // Would call AI build method
+        }
+    }
+
+    /// Build upgrade (AI command)
+    /// C++ Reference: Player::buildUpgrade() (Player.cpp lines 1910-1916)
+    pub fn build_upgrade(&mut self, upgrade_name: &str) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, upgrade_name); // Would call AI build method
+        }
+    }
+
+    /// Recruit specific team (AI command)
+    /// C++ Reference: Player::recruitSpecificTeam() (Player.cpp lines 1919-1925)
+    pub fn recruit_specific_team(&mut self, team_name: &str, recruit_radius: f32) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, team_name, recruit_radius); // Would call AI recruit method
+        }
+    }
+
+    /// Calculate closest construction zone location
+    /// C++ Reference: Player::calcClosestConstructionZoneLocation() (Player.cpp lines 1929-1939)
+    pub fn calc_closest_construction_zone(&self, _template_name: &str) -> Option<Coord3D> {
+        // Would query AI for construction zone
+        self.get_ai().and_then(|_| None)
     }
 
     // =========================================================
@@ -1110,7 +1867,80 @@ impl Player {
     /// Add science purchase points
     /// C++ Reference: Player::addSciencePurchasePoints() (Player.h line 339)
     pub fn add_science_purchase_points(&mut self, delta: i32) {
+        let old_points = self.science_purchase_points;
         self.science_purchase_points += delta;
+        if self.science_purchase_points < 0 {
+            self.science_purchase_points = 0;
+        }
+        
+        // Notify UI if changed (would notify control bar in full impl)
+        let _ = old_points; // Just to note we track the change
+    }
+
+    /// Add skill points for kill
+    /// C++ Reference: Player::addSkillPointsForKill() (Player.cpp lines 2104-2115)
+    pub fn add_skill_points_for_kill(&mut self, victim_level: i32, skill_value: i32) -> bool {
+        let _ = victim_level; // Would affect calculation based on victim's veterancy
+        self.add_skill_points(skill_value)
+    }
+
+    /// Add skill points for kill using trait objects.
+    /// C++ Reference: Player::addSkillPointsForKill(const Object* killer, const Object* victim)
+    ///
+    /// # Arguments
+    /// * `killer` - The object that made the kill (unused in basic implementation)
+    /// * `victim` - The object that was killed
+    pub fn add_skill_points_for_kill_obj(
+        &mut self,
+        killer: &dyn SkillPointObject,
+        victim: &dyn SkillPointObject,
+    ) -> bool {
+        let victim_level = victim.get_veterancy_level();
+        let skill_value = victim.get_skill_point_value(killer);
+        self.add_skill_points_for_kill(victim_level, skill_value)
+    }
+
+    /// Complete rank reset to initial state
+    /// C++ Reference: Player::resetRank() (Player.cpp lines 2142-2163)
+    pub fn reset_rank_full(&mut self) {
+        self.rank_level = 1;
+        self.skill_points = 0;
+        self.level_up = 100; // Would get from RankInfo
+        self.level_down = 0;
+        self.sciences.clear();
+        self.science_purchase_points = 0; // Would get from player template
+        self.general_name = "General".to_string();
+        self.reset_sciences();
+    }
+
+    /// Get all sciences
+    pub fn get_sciences(&self) -> &HashSet<ScienceType> {
+        &self.sciences
+    }
+
+    /// Get all disabled sciences
+    pub fn get_sciences_disabled(&self) -> &HashSet<ScienceType> {
+        &self.sciences_disabled
+    }
+
+    /// Get all hidden sciences
+    pub fn get_sciences_hidden(&self) -> &HashSet<ScienceType> {
+        &self.sciences_hidden
+    }
+
+    /// Set sciences directly (for save/load)
+    pub fn set_sciences(&mut self, sciences: HashSet<ScienceType>) {
+        self.sciences = sciences;
+    }
+
+    /// Set disabled sciences directly (for save/load)
+    pub fn set_sciences_disabled(&mut self, sciences: HashSet<ScienceType>) {
+        self.sciences_disabled = sciences;
+    }
+
+    /// Set hidden sciences directly (for save/load)
+    pub fn set_sciences_hidden(&mut self, sciences: HashSet<ScienceType>) {
+        self.sciences_hidden = sciences;
     }
 
     // =========================================================
@@ -1127,6 +1957,46 @@ impl Player {
     /// C++ Reference: Player::setCashBounty() (Player.h line 424)
     pub fn set_cash_bounty_percent(&mut self, percent: f32) {
         self.cash_bounty_percent = percent;
+    }
+
+    /// Do bounty for kill - awards cash when player kills an enemy
+    /// C++ Reference: Player::doBountyForKill() (Player.cpp lines 1963-1989)
+    pub fn do_bounty_for_kill(&mut self, killer_cost: i32) -> i32 {
+        // Calculate bounty based on victim's cost and our cash bounty percent
+        let bounty = ((killer_cost as f32) * self.cash_bounty_percent).ceil() as i32;
+
+        if bounty > 0 {
+            if let Ok(amount) = u32::try_from(bounty) {
+                self.money.deposit(amount, false);
+            }
+            self.score_keeper.add_money_earned(bounty);
+        }
+
+        bounty
+    }
+
+    /// Do bounty for kill using trait objects.
+    /// C++ Reference: Player::doBountyForKill(const Object* killer, const Object* victim)
+    ///
+    /// # Arguments
+    /// * `_killer` - The object that made the kill (unused in basic implementation)
+    /// * `victim` - The object that was killed
+    ///
+    /// Returns the bounty amount awarded.
+    pub fn do_bounty_for_kill_obj(
+        &mut self,
+        _killer: &dyn BountyObject,
+        victim: &dyn BountyObject,
+    ) -> i32 {
+        // C++ lines 1968-1970: Don't award bounty for under-construction objects
+        if victim.is_under_construction() {
+            return 0;
+        }
+
+        // C++ line 1972: Get victim's build cost for bounty calculation
+        let killer_cost = victim.get_build_cost();
+
+        self.do_bounty_for_kill(killer_cost)
     }
 
     // =========================================================
@@ -1217,6 +2087,657 @@ impl Player {
     /// Check if a science is hidden
     pub fn is_science_hidden(&self, science: ScienceType) -> bool {
         self.sciences_hidden.contains(&science)
+    }
+
+    /// Set science availability
+    /// C++ Reference: Player::setScienceAvailability() (Player.cpp lines 2273-2307)
+    pub fn set_science_availability(&mut self, science: ScienceType, available: bool) {
+        if available {
+            // Remove from disabled and hidden lists
+            self.sciences_disabled.remove(&science);
+            self.sciences_hidden.remove(&science);
+        } else {
+            // Add to disabled list
+            self.sciences_disabled.insert(science);
+        }
+    }
+
+    /// Check if has prerequisites for science
+    /// C++ Reference: Player::hasPrereqsForScience() (Player.cpp lines 1992-1995)
+    pub fn has_prereqs_for_science(&self, science: ScienceType) -> bool {
+        if science == SCIENCE_INVALID {
+            return false;
+        }
+        // In full implementation, would check TheScienceStore
+        // Simplified: always true
+        true
+    }
+
+    /// Check if capable of purchasing science
+    /// C++ Reference: Player::isCapableOfPurchasingScience() (Player.cpp lines 2226-2254)
+    pub fn is_capable_of_purchasing_science(&self, science: ScienceType) -> bool {
+        if science == SCIENCE_INVALID {
+            return false;
+        }
+
+        // Already have it?
+        if self.has_science(science) {
+            return false;
+        }
+
+        // Is it disabled or hidden?
+        if self.is_science_disabled(science) || self.is_science_hidden(science) {
+            return false;
+        }
+
+        // Has prereqs?
+        if !self.has_prereqs_for_science(science) {
+            return false;
+        }
+
+        // Check cost (simplified: assume cost of 1)
+        let cost = 1; // Would query TheScienceStore->getSciencePurchaseCost()
+        if cost == 0 || cost > self.science_purchase_points {
+            return false;
+        }
+
+        true
+    }
+
+    /// Attempt to purchase a science
+    /// C++ Reference: Player::attemptToPurchaseScience() (Player.cpp lines 2204-2223)
+    pub fn attempt_to_purchase_science(&mut self, science: ScienceType) -> bool {
+        if !self.is_capable_of_purchasing_science(science) {
+            return false;
+        }
+
+        // Deduct cost (simplified: 1 point)
+        let cost = 1;
+        self.science_purchase_points -= cost;
+        if self.science_purchase_points < 0 {
+            self.science_purchase_points = 0;
+        }
+
+        // Add the science
+        self.grant_science(science);
+
+        // Record in academy stats
+        self.academy_stats.record_generals_points_spent(cost);
+
+        true
+    }
+
+    /// Grant a science (bypassing purchase system)
+    /// C++ Reference: Player::grantScience() (Player.cpp lines 2195-2201)
+    pub fn grant_science_with_check(&mut self, science: ScienceType) -> bool {
+        // In full implementation, would check TheScienceStore->isScienceGrantable()
+        self.grant_science(science);
+        true
+    }
+
+    /// Reset sciences to default state
+    /// C++ Reference: Player::resetSciences() (Player.cpp lines 2118-2140)
+    pub fn reset_sciences_full(&mut self) {
+        self.sciences.clear();
+        self.sciences_disabled.clear();
+        self.sciences_hidden.clear();
+
+        // In full implementation, would grant intrinsic sciences from player template
+        // and rank sciences from RankInfo
+    }
+
+    // =========================================================
+    // AI System Integration (C++ Player.cpp lines 695-712)
+    // =========================================================
+
+    /// Set the AI player reference
+    /// C++ Reference: Player::setPlayerType() creates and assigns m_ai
+    pub fn set_ai(&mut self, ai: Option<Arc<dyn AIPlayerInterface>>) {
+        self.ai = ai.map(|arc| Arc::downgrade(&arc));
+    }
+
+    /// Get the AI player reference
+    /// Returns None if player is human or AI has been destroyed
+    pub fn get_ai(&self) -> Option<Arc<dyn AIPlayerInterface>> {
+        self.ai.as_ref().and_then(|weak| weak.upgrade())
+    }
+
+    /// Check if this player has an AI controller
+    /// C++ Reference: m_ai != NULL checks throughout Player.cpp
+    pub fn has_ai(&self) -> bool {
+        self.ai.as_ref().map_or(false, |weak| weak.strong_count() > 0)
+    }
+
+    /// Get player difficulty
+    /// C++ Reference: Player::getPlayerDifficulty() (Player.cpp lines 1500-1505)
+    pub fn get_player_difficulty(&self) -> GameDifficulty {
+        self.difficulty
+    }
+
+    /// Set player difficulty
+    pub fn set_player_difficulty(&mut self, difficulty: GameDifficulty) {
+        self.difficulty = difficulty;
+        // Also update AI if present
+        if let Some(ai) = self.get_ai() {
+            // AI would be updated via write access - skipped here for simplicity
+            let _ = ai;
+        }
+    }
+
+    /// Check if this is a skirmish AI player
+    /// C++ Reference: Player::isSkirmishAIPlayer() (Player.cpp lines 1491-1494)
+    pub fn is_skirmish_ai_player(&self) -> bool {
+        self.get_ai().map_or(false, |ai| ai.is_skirmish_ai())
+    }
+
+    /// Get current enemy for AI
+    /// C++ Reference: Player::getCurrentEnemy() (Player.cpp lines 1486-1489)
+    pub fn get_current_enemy(&self) -> Option<i32> {
+        self.get_ai().and_then(|ai| ai.get_ai_enemy())
+    }
+
+    // =========================================================
+    // Build List Management (C++ Player.cpp lines 592-636)
+    // =========================================================
+
+    /// Set the build list
+    /// C++ Reference: Player::setBuildList() (Player.cpp lines 592-598)
+    pub fn set_build_list(&mut self, build_list: Option<Box<BuildListInfo>>) {
+        self.build_list = build_list;
+    }
+
+    /// Get the build list
+    /// C++ Reference: Player::getBuildList() (Player.h line 316)
+    pub fn get_build_list(&self) -> Option<&BuildListInfo> {
+        self.build_list.as_deref()
+    }
+
+    /// Get mutable build list
+    pub fn get_build_list_mut(&mut self) -> Option<&mut BuildListInfo> {
+        self.build_list.as_deref_mut()
+    }
+
+    /// Add an object to the build list
+    /// C++ Reference: Player::addToBuildList() (Player.cpp lines 601-610)
+    pub fn add_to_build_list(&mut self, object_id: ObjectID, template_name: String, location: Coord3D, angle: f32) {
+        let mut new_info = Box::new(BuildListInfo::new(template_name, location, angle));
+        new_info.set_object_id(object_id);
+        new_info.set_num_rebuilds(0); // Can't rebuild
+        new_info.set_next(self.build_list.take());
+        self.build_list = Some(new_info);
+    }
+
+    /// Add to priority build list
+    /// C++ Reference: Player::addToPriorityBuildList() (Player.cpp lines 613-623)
+    pub fn add_to_priority_build_list(&mut self, template_name: String, location: Coord3D, angle: f32) {
+        let mut new_info = Box::new(BuildListInfo::new(template_name, location, angle));
+        new_info.mark_priority_build();
+        new_info.set_num_rebuilds(1); // Build once
+        new_info.set_next(self.build_list.take());
+        self.build_list = Some(new_info);
+    }
+
+    // =========================================================
+    // Resource Gathering Manager (C++ ResourceGatheringManager.h)
+    // =========================================================
+
+    /// Add a supply center
+    /// C++ Reference: ResourceGatheringManager::addSupplyCenter()
+    pub fn add_supply_center(&mut self, center_id: ObjectID) {
+        if !self.supply_centers.contains(&center_id) {
+            self.supply_centers.push(center_id);
+        }
+    }
+
+    /// Remove a supply center
+    /// C++ Reference: ResourceGatheringManager::removeSupplyCenter()
+    pub fn remove_supply_center(&mut self, center_id: ObjectID) {
+        self.supply_centers.retain(|&id| id != center_id);
+    }
+
+    /// Add a supply warehouse
+    /// C++ Reference: ResourceGatheringManager::addSupplyWarehouse()
+    pub fn add_supply_warehouse(&mut self, warehouse_id: ObjectID) {
+        if !self.supply_warehouses.contains(&warehouse_id) {
+            self.supply_warehouses.push(warehouse_id);
+        }
+    }
+
+    /// Remove a supply warehouse
+    /// C++ Reference: ResourceGatheringManager::removeSupplyWarehouse()
+    pub fn remove_supply_warehouse(&mut self, warehouse_id: ObjectID) {
+        self.supply_warehouses.retain(|&id| id != warehouse_id);
+    }
+
+    /// Get all supply centers
+    pub fn get_supply_centers(&self) -> &[ObjectID] {
+        &self.supply_centers
+    }
+
+    /// Get all supply warehouses
+    pub fn get_supply_warehouses(&self) -> &[ObjectID] {
+        &self.supply_warehouses
+    }
+
+    /// Find best supply warehouse for a query object
+    /// C++ Reference: ResourceGatheringManager::findBestSupplyWarehouse()
+    pub fn find_best_supply_warehouse(&self, _query_object_id: ObjectID) -> Option<ObjectID> {
+        // Simplified: return first available warehouse
+        // Full implementation would check distances and validity
+        self.supply_warehouses.first().copied()
+    }
+
+    /// Find best supply center for a query object
+    /// C++ Reference: ResourceGatheringManager::findBestSupplyCenter()
+    pub fn find_best_supply_center(&self, _query_object_id: ObjectID) -> Option<ObjectID> {
+        // Simplified: return first available center
+        self.supply_centers.first().copied()
+    }
+
+    // =========================================================
+    // Squad System - Hotkey Squads (C++ Player.h line 382)
+    // =========================================================
+
+    /// Get a hotkey squad by number
+    /// C++ Reference: Player::getHotkeySquad() (Player.h line 429)
+    pub fn get_hotkey_squad(&mut self, squad_number: i32) -> Option<&mut Squad> {
+        if squad_number >= 0 && (squad_number as usize) < NUM_HOTKEY_SQUADS {
+            Some(&mut self.hotkey_squads[squad_number as usize])
+        } else {
+            None
+        }
+    }
+
+    /// Get hotkey squad (const access)
+    pub fn get_hotkey_squad_const(&self, squad_number: i32) -> Option<&Squad> {
+        if squad_number >= 0 && (squad_number as usize) < NUM_HOTKEY_SQUADS {
+            Some(&self.hotkey_squads[squad_number as usize])
+        } else {
+            None
+        }
+    }
+
+    /// Get the squad number for an object, or NO_HOTKEY_SQUAD if not in any
+    /// C++ Reference: Player::getSquadNumberForObject() (Player.cpp)
+    pub fn get_squad_number_for_object(&self, object_id: ObjectID) -> i32 {
+        for (i, squad) in self.hotkey_squads.iter().enumerate() {
+            if squad.contains(object_id) {
+                return i as i32;
+            }
+        }
+        NO_HOTKEY_SQUAD
+    }
+
+    /// Remove an object from all hotkey squads
+    /// C++ Reference: Player::removeObjectFromHotkeySquad() (Player.cpp)
+    pub fn remove_object_from_hotkey_squad(&mut self, object_id: ObjectID) {
+        for squad in &mut self.hotkey_squads {
+            squad.remove_object(object_id);
+        }
+    }
+
+    /// Clear a specific hotkey squad
+    pub fn clear_hotkey_squad(&mut self, squad_number: i32) {
+        if let Some(squad) = self.get_hotkey_squad(squad_number) {
+            squad.clear();
+        }
+    }
+
+    // =========================================================
+    // Current Selection Tracking (C++ Player.h line 383)
+    // =========================================================
+
+    /// Get the current selection squad
+    /// C++ Reference: m_currentSelection usage throughout Player.cpp
+    pub fn get_current_selection(&self) -> &Squad {
+        &self.current_selection
+    }
+
+    /// Get mutable current selection
+    pub fn get_current_selection_mut(&mut self) -> &mut Squad {
+        &mut self.current_selection
+    }
+
+    /// Clear current selection
+    pub fn clear_current_selection(&mut self) {
+        self.current_selection.clear();
+    }
+
+    /// Add object to current selection
+    pub fn add_to_current_selection(&mut self, object_id: ObjectID) {
+        self.current_selection.add_object(object_id);
+    }
+
+    /// Remove object from current selection
+    pub fn remove_from_current_selection(&mut self, object_id: ObjectID) {
+        self.current_selection.remove_object(object_id);
+    }
+
+    /// Check if object is in current selection
+    pub fn is_in_current_selection(&self, object_id: ObjectID) -> bool {
+        self.current_selection.contains(object_id)
+    }
+
+    /// Get current selection size
+    pub fn get_current_selection_size(&self) -> usize {
+        self.current_selection.len()
+    }
+
+    // =========================================================
+    // Upgrade List Management (C++ Player.h line 336)
+    // =========================================================
+
+    /// Add an upgrade to the player's list
+    /// C++ Reference: Player::addUpgrade() (Player.cpp)
+    pub fn add_upgrade(&mut self, upgrade_name: String, status: UpgradeStatus) {
+        // Check if already exists
+        if let Some(existing) = self.upgrade_list.iter_mut().find(|u| u.get_name() == upgrade_name) {
+            existing.set_status(status);
+        } else {
+            let mut upgrade = UpgradeInfo::new(upgrade_name);
+            upgrade.set_status(status);
+            self.upgrade_list.push(upgrade);
+        }
+    }
+
+    /// Remove an upgrade from the player's list
+    /// C++ Reference: Player::removeUpgrade() (Player.cpp)
+    pub fn remove_upgrade(&mut self, upgrade_name: &str) {
+        self.upgrade_list.retain(|u| u.get_name() != upgrade_name);
+    }
+
+    /// Find an upgrade by name
+    /// C++ Reference: Player::findUpgrade() (Player.h line 163)
+    pub fn find_upgrade(&self, upgrade_name: &str) -> Option<&UpgradeInfo> {
+        self.upgrade_list.iter().find(|u| u.get_name() == upgrade_name)
+    }
+
+    /// Find mutable upgrade by name
+    pub fn find_upgrade_mut(&mut self, upgrade_name: &str) -> Option<&mut UpgradeInfo> {
+        self.upgrade_list.iter_mut().find(|u| u.get_name() == upgrade_name)
+    }
+
+    /// Check if player has an upgrade complete
+    /// C++ Reference: Player::hasUpgradeComplete() (Player.h line 157)
+    pub fn has_upgrade_complete(&self, upgrade_name: &str) -> bool {
+        self.upgrade_list.iter().any(|u| u.get_name() == upgrade_name && u.is_complete())
+    }
+
+    /// Check if player has an upgrade in production
+    /// C++ Reference: Player::hasUpgradeInProduction() (Player.h line 160)
+    pub fn has_upgrade_in_production(&self, upgrade_name: &str) -> bool {
+        self.upgrade_list.iter().any(|u| u.get_name() == upgrade_name && u.is_in_production())
+    }
+
+    /// Get completed upgrade mask
+    /// C++ Reference: Player::getCompletedUpgradeMask() (Player.h line 159)
+    pub fn get_completed_upgrade_mask(&self) -> u64 {
+        self.upgrades_completed
+    }
+
+    /// Set upgrade in progress bit
+    pub fn set_upgrade_in_progress(&mut self, bit: u32) {
+        if bit < 64 {
+            self.upgrades_in_progress |= 1 << bit;
+        }
+    }
+
+    /// Clear upgrade in progress bit
+    pub fn clear_upgrade_in_progress(&mut self, bit: u32) {
+        if bit < 64 {
+            self.upgrades_in_progress &= !(1 << bit);
+        }
+    }
+
+    /// Set upgrade completed bit
+    pub fn set_upgrade_completed(&mut self, bit: u32) {
+        if bit < 64 {
+            self.upgrades_completed |= 1 << bit;
+            // Clear from in-progress when completed
+            self.upgrades_in_progress &= !(1 << bit);
+        }
+    }
+
+    /// Clear upgrade completed bit
+    pub fn clear_upgrade_completed(&mut self, bit: u32) {
+        if bit < 64 {
+            self.upgrades_completed &= !(1 << bit);
+        }
+    }
+
+    // =========================================================
+    // Team Prototype List (C++ Player.h line 375)
+    // =========================================================
+
+    /// Add a team prototype to the player's list
+    /// C++ Reference: Player::addTeamToList() (Player.cpp lines 974-982)
+    pub fn add_team_prototype(&mut self, team_name: String) {
+        if !self.team_prototypes.contains(&team_name) {
+            self.team_prototypes.push(team_name);
+        }
+    }
+
+    /// Remove a team prototype from the player's list
+    /// C++ Reference: Player::removeTeamFromList() (Player.cpp lines 985-995)
+    pub fn remove_team_prototype(&mut self, team_name: &str) {
+        self.team_prototypes.retain(|name| name != team_name);
+    }
+
+    /// Get all team prototypes
+    pub fn get_team_prototypes(&self) -> &[String] {
+        &self.team_prototypes
+    }
+
+    // =========================================================
+    // Tunnel System (C++ Player.h line 341)
+    // =========================================================
+
+    /// Add a tunnel entrance
+    pub fn add_tunnel_entrance(&mut self, entrance_id: ObjectID) {
+        if !self.tunnel_entrances.contains(&entrance_id) {
+            self.tunnel_entrances.push(entrance_id);
+        }
+    }
+
+    /// Remove a tunnel entrance
+    pub fn remove_tunnel_entrance(&mut self, entrance_id: ObjectID) {
+        self.tunnel_entrances.retain(|&id| id != entrance_id);
+    }
+
+    /// Get all tunnel entrances
+    pub fn get_tunnel_entrances(&self) -> &[ObjectID] {
+        &self.tunnel_entrances
+    }
+
+    // =========================================================
+    // Production Cost/Time Changes (C++ Player.h lines 351-353)
+    // =========================================================
+
+    /// Set production cost change for a thing
+    /// C++ Reference: Player production cost modifiers
+    pub fn set_production_cost_change(&mut self, thing_name: String, percent: f32) {
+        self.production_cost_changes.insert(thing_name, percent);
+    }
+
+    /// Get production cost change for a thing
+    /// C++ Reference: Player::getProductionCostChangePercent() (Player.cpp)
+    pub fn get_production_cost_change(&self, thing_name: &str) -> f32 {
+        self.production_cost_changes.get(thing_name).copied().unwrap_or(1.0)
+    }
+
+    /// Set production time change for a thing
+    pub fn set_production_time_change(&mut self, thing_name: String, percent: f32) {
+        self.production_time_changes.insert(thing_name, percent);
+    }
+
+    /// Get production time change for a thing
+    /// C++ Reference: Player::getProductionTimeChangePercent() (Player.cpp)
+    pub fn get_production_time_change(&self, thing_name: &str) -> f32 {
+        self.production_time_changes.get(thing_name).copied().unwrap_or(1.0)
+    }
+
+    // =========================================================
+    // Special Power Timers (C++ Player.h line 392)
+    // =========================================================
+
+    /// Set special power ready frame
+    pub fn set_special_power_ready_frame(&mut self, template_id: u32, ready_frame: u32) {
+        self.special_power_timers.insert(template_id, ready_frame);
+    }
+
+    /// Get special power ready frame
+    pub fn get_special_power_ready_frame(&self, template_id: u32) -> Option<u32> {
+        self.special_power_timers.get(&template_id).copied()
+    }
+
+    /// Remove special power timer
+    pub fn remove_special_power_timer(&mut self, template_id: u32) {
+        self.special_power_timers.remove(&template_id);
+    }
+
+    // =========================================================
+    // Vision Spied (C++ Player.cpp lines 3138-3152)
+    // =========================================================
+
+    /// Set units vision spied status
+    /// C++ Reference: Player::setUnitsVisionSpied() (Player.cpp lines 3138-3152)
+    pub fn set_units_vision_spied(&mut self, _setting: bool, _by_whom: i32) {
+        // Would iterate all objects and set their vision spied status
+        // Simplified: no-op
+    }
+
+    // =========================================================
+    // Retaliation Mode (C++ Player.cpp lines 573-590)
+    // =========================================================
+
+    /// Get logical retaliation mode enabled
+    /// C++ Reference: Player::isLogicalRetaliationModeEnabled() (Player.h line 391)
+    pub fn is_logical_retaliation_mode_enabled(&self) -> bool {
+        self.logical_retaliation_mode_enabled
+    }
+
+    /// Set logical retaliation mode enabled
+    /// C++ Reference: Player::setLogicalRetaliationModeEnabled() 
+    pub fn set_logical_retaliation_mode_enabled(&mut self, enabled: bool) {
+        self.logical_retaliation_mode_enabled = enabled;
+    }
+
+    // =========================================================
+    // Default Team (C++ Player.h line 321)
+    // =========================================================
+
+    /// Get default team
+    /// C++ Reference: Player::getDefaultTeam() (Player.h line 322)
+    pub fn get_default_team(&self) -> Option<TeamID> {
+        self.default_team
+    }
+
+    /// Set default team
+    /// C++ Reference: Player::setDefaultTeam() (Player.cpp lines 715-725)
+    pub fn set_default_team(&mut self, team_id: TeamID) {
+        self.default_team = Some(team_id);
+    }
+
+    // =========================================================
+    // Side Information (C++ Player.h lines 289-290)
+    // =========================================================
+
+    /// Set player side
+    pub fn set_side(&mut self, side: String) {
+        self.side = side;
+    }
+
+    /// Set player base side
+    pub fn set_base_side(&mut self, base_side: String) {
+        self.base_side = base_side;
+    }
+
+    /// Set player display name
+    pub fn set_player_display_name(&mut self, name: String) {
+        self.player_display_name = name;
+    }
+
+    /// Set player name
+    pub fn set_player_name(&mut self, name: String) {
+        self.player_name = name;
+    }
+
+    // =========================================================
+    // Debug/Cheat Methods (C++ #if _DEBUG sections)
+    // =========================================================
+
+    /// Check if ignores prereqs (debug only)
+    /// C++ Reference: Player::ignoresPrereqs() (Player.cpp)
+    #[cfg(debug_assertions)]
+    pub fn ignores_prereqs(&self) -> bool {
+        // Would return m_DEMO_ignorePrereqs in debug builds
+        false
+    }
+
+    /// Check if free build (debug only)
+    /// C++ Reference: Player::isFreeBuild() (Player.cpp)
+    #[cfg(debug_assertions)]
+    pub fn is_free_build(&self) -> bool {
+        // Would return m_DEMO_freeBuild in debug builds
+        false
+    }
+
+    /// Check if instant build (debug only)
+    /// C++ Reference: Player::isInstantBuild() (Player.cpp)
+    #[cfg(debug_assertions)]
+    pub fn is_instant_build(&self) -> bool {
+        // Would return m_DEMO_instantBuild in debug builds
+        false
+    }
+
+    // =========================================================
+    // Skillset (C++ Player.cpp line 1928)
+    // =========================================================
+
+    /// Set AI skillset (friend function for AI)
+    /// C++ Reference: Player::friend_setSkillset() (Player.cpp line 1928)
+    pub fn set_skillset(&mut self, skillset: i32) {
+        if let Some(ai) = self.get_ai() {
+            let _ = (ai, skillset); // Would call ai.selectSkillset()
+        }
+    }
+
+    // =========================================================
+    // Score Methods (C++ ScoreKeeper integration)
+    // =========================================================
+
+    /// Add object built to score
+    pub fn score_add_object_built(&mut self, cost: i32) {
+        self.score_keeper.add_money_spent(cost);
+    }
+
+    /// Get score keeper reference
+    pub fn get_score_keeper_mut_ref(&mut self) -> &mut ScoreKeeper {
+        &mut self.score_keeper
+    }
+
+    // =========================================================
+    // Supply Box Value (C++ Player.cpp lines 1928-1933)
+    // =========================================================
+
+    /// Get supply box value
+    /// C++ Reference: Player::getSupplyBoxValue() (Player.cpp lines 1928-1933)
+    pub fn get_supply_box_value(&self) -> u32 {
+        // Would return TheGlobalData->m_baseValuePerSupplyBox
+        // Simplified: return a default value
+        100
+    }
+
+    // =========================================================
+    // New Map (C++ Player.cpp lines 592-595)
+    // =========================================================
+
+    /// Called when a new map is loaded
+    /// C++ Reference: Player::newMap() (Player.cpp lines 592-595)
+    pub fn new_map(&mut self) {
+        if let Some(ai) = self.get_ai() {
+            let _ = ai; // Would call ai.new_map()
+        }
     }
 }
 
@@ -1363,42 +2884,34 @@ impl Snapshotable for Player {
 
         // Version 8+: Disabled and hidden sciences
         if version >= 8 {
-            // For now, we store sciences as a simple count + list of science types
             let mut disabled_count = self.sciences_disabled.len() as u16;
             let mut hidden_count = self.sciences_hidden.len() as u16;
 
-            xfer.xfer_unsigned_short(&mut disabled_count)
-                .map_err(|e| format!("disabled_count xfer failed: {}", e))?;
-            xfer.xfer_unsigned_short(&mut hidden_count)
-                .map_err(|e| format!("hidden_count xfer failed: {}", e))?;
+            xfer.xfer_unsigned_short(&mut disabled_count).map_err(|e| format!("disabled_count xfer failed: {}", e))?;
+            xfer.xfer_unsigned_short(&mut hidden_count).map_err(|e| format!("hidden_count xfer failed: {}", e))?;
 
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
                     for &science in &self.sciences_disabled {
                         let mut sci = science;
-                        xfer.xfer_int(&mut sci)
-                            .map_err(|e| format!("disabled science xfer failed: {}", e))?;
+                        xfer.xfer_int(&mut sci).map_err(|e| format!("disabled science xfer failed: {}", e))?;
                     }
                     for &science in &self.sciences_hidden {
                         let mut sci = science;
-                        xfer.xfer_int(&mut sci)
-                            .map_err(|e| format!("hidden science xfer failed: {}", e))?;
+                        xfer.xfer_int(&mut sci).map_err(|e| format!("hidden science xfer failed: {}", e))?;
                     }
                 }
                 XferMode::Load => {
                     self.sciences_disabled.clear();
                     self.sciences_hidden.clear();
-
                     for _ in 0..disabled_count {
                         let mut science = 0i32;
-                        xfer.xfer_int(&mut science)
-                            .map_err(|e| format!("load disabled science failed: {}", e))?;
+                        xfer.xfer_int(&mut science).map_err(|e| format!("load disabled science failed: {}", e))?;
                         self.sciences_disabled.insert(science);
                     }
                     for _ in 0..hidden_count {
                         let mut science = 0i32;
-                        xfer.xfer_int(&mut science)
-                            .map_err(|e| format!("load hidden science failed: {}", e))?;
+                        xfer.xfer_int(&mut science).map_err(|e| format!("load hidden science failed: {}", e))?;
                         self.sciences_hidden.insert(science);
                     }
                 }
@@ -1406,11 +2919,248 @@ impl Snapshotable for Player {
             }
         }
 
+        // Upgrade list count
+        let mut upgrade_count = self.upgrade_list.len() as u16;
+        xfer.xfer_unsigned_short(&mut upgrade_count).map_err(|e| format!("upgrade_count xfer failed: {}", e))?;
+
+        match xfer.get_xfer_mode() {
+            XferMode::Save => {
+                for upgrade in &self.upgrade_list {
+                    let mut name_bytes: Vec<i8> = upgrade.get_name().bytes().map(|b| b as i8).collect();
+                    let mut name_len = name_bytes.len() as u16;
+                    xfer.xfer_unsigned_short(&mut name_len).map_err(|e| format!("upgrade name len failed: {}", e))?;
+                    for byte in &mut name_bytes { xfer.xfer_byte(byte).map_err(|e| format!("upgrade name byte failed: {}", e))?; }
+                    let mut status = upgrade.get_status() as i32;
+                    xfer.xfer_int(&mut status).map_err(|e| format!("upgrade status failed: {}", e))?;
+                }
+            }
+            XferMode::Load => {
+                self.upgrade_list.clear();
+                for _ in 0..upgrade_count {
+                    let mut name_len = 0u16;
+                    xfer.xfer_unsigned_short(&mut name_len).map_err(|e| format!("load upgrade name len failed: {}", e))?;
+                    let mut name_bytes = vec![0i8; name_len as usize];
+                    for byte in &mut name_bytes { xfer.xfer_byte(byte).map_err(|e| format!("load upgrade name byte failed: {}", e))?; }
+                    let name: String = name_bytes.iter().map(|&b| b as u8 as char).collect();
+                    let mut status = 0i32;
+                    xfer.xfer_int(&mut status).map_err(|e| format!("load upgrade status failed: {}", e))?;
+                    let status = match status { 0 => UpgradeStatus::Pending, 1 => UpgradeStatus::InProduction, _ => UpgradeStatus::Complete };
+                    let mut upgrade = UpgradeInfo::new(name);
+                    upgrade.set_status(status);
+                    self.upgrade_list.push(upgrade);
+                }
+            }
+            _ => {}
+        }
+
+        // Radar info
+        xfer.xfer_int(&mut self.radar_count).map_err(|e| format!("radar_count xfer failed: {}", e))?;
+        xfer.xfer_int(&mut self.disable_proof_radar_count).map_err(|e| format!("disable_proof_radar_count failed: {}", e))?;
+        xfer.xfer_bool(&mut self.radar_disabled).map_err(|e| format!("radar_disabled xfer failed: {}", e))?;
+
+        // Upgrades in progress and completed (store as two u32s each since u64 may not be directly supported)
+        let mut upgrades_in_progress_lo = (self.upgrades_in_progress & 0xFFFFFFFF) as u32;
+        let mut upgrades_in_progress_hi = ((self.upgrades_in_progress >> 32) & 0xFFFFFFFF) as u32;
+        let mut upgrades_completed_lo = (self.upgrades_completed & 0xFFFFFFFF) as u32;
+        let mut upgrades_completed_hi = ((self.upgrades_completed >> 32) & 0xFFFFFFFF) as u32;
+        xfer.xfer_unsigned_int(&mut upgrades_in_progress_lo).map_err(|e| format!("upgrades_in_progress_lo failed: {}", e))?;
+        xfer.xfer_unsigned_int(&mut upgrades_in_progress_hi).map_err(|e| format!("upgrades_in_progress_hi failed: {}", e))?;
+        xfer.xfer_unsigned_int(&mut upgrades_completed_lo).map_err(|e| format!("upgrades_completed_lo failed: {}", e))?;
+        xfer.xfer_unsigned_int(&mut upgrades_completed_hi).map_err(|e| format!("upgrades_completed_hi failed: {}", e))?;
+        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.upgrades_in_progress = ((upgrades_in_progress_hi as u64) << 32) | (upgrades_in_progress_lo as u64);
+            self.upgrades_completed = ((upgrades_completed_hi as u64) << 32) | (upgrades_completed_lo as u64);
+        }
+
+        // Team prototypes
+        let mut prototype_count = self.team_prototypes.len() as u16;
+        xfer.xfer_unsigned_short(&mut prototype_count).map_err(|e| format!("prototype_count failed: {}", e))?;
+        match xfer.get_xfer_mode() {
+            XferMode::Save => {
+                for prototype_name in &self.team_prototypes {
+                    let mut name_bytes: Vec<i8> = prototype_name.bytes().map(|b| b as i8).collect();
+                    let mut name_len = name_bytes.len() as u16;
+                    xfer.xfer_unsigned_short(&mut name_len).map_err(|e| format!("prototype name len failed: {}", e))?;
+                    for byte in &mut name_bytes { xfer.xfer_byte(byte).map_err(|e| format!("prototype name byte failed: {}", e))?; }
+                }
+            }
+            XferMode::Load => {
+                self.team_prototypes.clear();
+                for _ in 0..prototype_count {
+                    let mut name_len = 0u16;
+                    xfer.xfer_unsigned_short(&mut name_len).map_err(|e| format!("load prototype name len failed: {}", e))?;
+                    let mut name_bytes = vec![0i8; name_len as usize];
+                    for byte in &mut name_bytes { xfer.xfer_byte(byte).map_err(|e| format!("load prototype name byte failed: {}", e))?; }
+                    let name: String = name_bytes.iter().map(|&b| b as u8 as char).collect();
+                    self.team_prototypes.push(name);
+                }
+            }
+            _ => {}
+        }
+
+        // Build list count
+        let mut build_list_count = 0u16;
+        let mut current: Option<&BuildListInfo> = self.build_list.as_deref();
+        while let Some(info) = current { build_list_count += 1; current = info.get_next(); }
+        xfer.xfer_unsigned_short(&mut build_list_count).map_err(|e| format!("build_list_count failed: {}", e))?;
+
+        match xfer.get_xfer_mode() {
+            XferMode::Save => {
+                current = self.build_list.as_deref();
+                while let Some(info) = current {
+                    let mut template_bytes: Vec<i8> = info.get_template_name().bytes().map(|b| b as i8).collect();
+                    let mut len = template_bytes.len() as u16;
+                    xfer.xfer_unsigned_short(&mut len).map_err(|e| format!("build template len failed: {}", e))?;
+                    for byte in &mut template_bytes { xfer.xfer_byte(byte).map_err(|e| format!("build template byte failed: {}", e))?; }
+                    let mut x = info.get_location().x; let mut y = info.get_location().y; let mut z = info.get_location().z;
+                    let mut angle = info.get_angle(); let mut object_id = info.get_object_id();
+                    let mut num_rebuilds = info.get_num_rebuilds(); let mut priority = info.is_priority_build() as i32;
+                    xfer.xfer_real(&mut x).map_err(|e| format!("x failed: {}", e))?;
+                    xfer.xfer_real(&mut y).map_err(|e| format!("y failed: {}", e))?;
+                    xfer.xfer_real(&mut z).map_err(|e| format!("z failed: {}", e))?;
+                    xfer.xfer_real(&mut angle).map_err(|e| format!("angle failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut object_id).map_err(|e| format!("object_id failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut num_rebuilds).map_err(|e| format!("num_rebuilds failed: {}", e))?;
+                    xfer.xfer_int(&mut priority).map_err(|e| format!("priority failed: {}", e))?;
+                    current = info.get_next();
+                }
+            }
+            XferMode::Load => {
+                self.build_list = None;
+                for _ in 0..build_list_count {
+                    let mut len = 0u16;
+                    xfer.xfer_unsigned_short(&mut len).map_err(|e| format!("load build template len failed: {}", e))?;
+                    let mut template_bytes = vec![0i8; len as usize];
+                    for byte in &mut template_bytes { xfer.xfer_byte(byte).map_err(|e| format!("load build template byte failed: {}", e))?; }
+                    let template_name: String = template_bytes.iter().map(|&b| b as u8 as char).collect();
+                    let mut x = 0.0f32; let mut y = 0.0f32; let mut z = 0.0f32; let mut angle = 0.0f32;
+                    let mut object_id = 0u32; let mut num_rebuilds = 0u32; let mut priority = 0i32;
+                    xfer.xfer_real(&mut x).map_err(|e| format!("load x failed: {}", e))?;
+                    xfer.xfer_real(&mut y).map_err(|e| format!("load y failed: {}", e))?;
+                    xfer.xfer_real(&mut z).map_err(|e| format!("load z failed: {}", e))?;
+                    xfer.xfer_real(&mut angle).map_err(|e| format!("load angle failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut object_id).map_err(|e| format!("load object_id failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut num_rebuilds).map_err(|e| format!("load num_rebuilds failed: {}", e))?;
+                    xfer.xfer_int(&mut priority).map_err(|e| format!("load priority failed: {}", e))?;
+                    let mut info = Box::new(BuildListInfo::new(template_name, Coord3D::new(x, y, z), angle));
+                    info.set_object_id(object_id); info.set_num_rebuilds(num_rebuilds);
+                    if priority != 0 { info.mark_priority_build(); }
+                    info.set_next(self.build_list.take());
+                    self.build_list = Some(info);
+                }
+            }
+            _ => {}
+        }
+
+        // AI present flag
+        let mut ai_present = self.ai.is_some();
+        xfer.xfer_bool(&mut ai_present).map_err(|e| format!("ai_present xfer failed: {}", e))?;
+
+        // Resource manager and tunnel present flags
+        let mut resource_manager_present = !self.supply_centers.is_empty() || !self.supply_warehouses.is_empty();
+        let mut tunnel_present = !self.tunnel_entrances.is_empty();
+        xfer.xfer_bool(&mut resource_manager_present).map_err(|e| format!("resource_manager_present failed: {}", e))?;
+        xfer.xfer_bool(&mut tunnel_present).map_err(|e| format!("tunnel_present xfer failed: {}", e))?;
+
+        // Default team
+        let mut default_team_id = self.default_team.unwrap_or(0) as i32;
+        xfer.xfer_int(&mut default_team_id).map_err(|e| format!("default_team_id xfer failed: {}", e))?;
+        if matches!(xfer.get_xfer_mode(), XferMode::Load) { self.default_team = if default_team_id != 0 { Some(default_team_id as u32) } else { None }; }
+
+        // Sciences
+        let mut science_count = self.sciences.len() as u16;
+        xfer.xfer_unsigned_short(&mut science_count).map_err(|e| format!("science_count xfer failed: {}", e))?;
+        match xfer.get_xfer_mode() {
+            XferMode::Save => { for &science in &self.sciences { let mut sci = science; xfer.xfer_int(&mut sci).map_err(|e| format!("science xfer failed: {}", e))?; } }
+            XferMode::Load => { self.sciences.clear(); for _ in 0..science_count { let mut science = 0i32; xfer.xfer_int(&mut science).map_err(|e| format!("load science failed: {}", e))?; self.sciences.insert(science); } }
+            _ => {}
+        }
+
+        // Level up/down
+        xfer.xfer_int(&mut self.level_up).map_err(|e| format!("level_up xfer failed: {}", e))?;
+        xfer.xfer_int(&mut self.level_down).map_err(|e| format!("level_down xfer failed: {}", e))?;
+
+        // General name
+        let mut general_name_bytes: Vec<i8> = self.general_name.bytes().map(|b| b as i8).collect();
+        let mut general_name_len = general_name_bytes.len() as u16;
+        xfer.xfer_unsigned_short(&mut general_name_len).map_err(|e| format!("general_name_len failed: {}", e))?;
+        match xfer.get_xfer_mode() {
+            XferMode::Save => { for byte in &mut general_name_bytes { xfer.xfer_byte(byte).map_err(|e| format!("general_name byte failed: {}", e))?; } }
+            XferMode::Load => { let mut name_bytes = vec![0i8; general_name_len as usize]; for byte in &mut name_bytes { xfer.xfer_byte(byte).map_err(|e| format!("load general_name byte failed: {}", e))?; } self.general_name = name_bytes.iter().map(|&b| b as u8 as char).collect(); }
+            _ => {}
+        }
+
+        // Can build flags
+        xfer.xfer_bool(&mut self.can_build_units).map_err(|e| format!("can_build_units xfer failed: {}", e))?;
+        xfer.xfer_bool(&mut self.can_build_base).map_err(|e| format!("can_build_base xfer failed: {}", e))?;
+
+        // Version 2+: Skill point modifier
+        if version >= 2 { xfer.xfer_real(&mut self.skill_points_modifier).map_err(|e| format!("skill_points_modifier xfer failed: {}", e))?; }
+
+        // Version 3+: List in score screen
+        if version >= 3 { xfer.xfer_bool(&mut self.list_in_score_screen).map_err(|e| format!("list_in_score_screen xfer failed: {}", e))?; }
+
+        // Attacked by array
+        for i in 0..self.attacked_by.len() {
+            let mut attacked = self.attacked_by[i];
+            xfer.xfer_bool(&mut attacked).map_err(|e| format!("attacked_by[{}] xfer failed: {}", i, e))?;
+            if matches!(xfer.get_xfer_mode(), XferMode::Load) { self.attacked_by[i] = attacked; }
+        }
+
+        // Version 4+: Special power timers
+        if version >= 4 {
+            let mut timer_count = self.special_power_timers.len() as u16;
+            xfer.xfer_unsigned_short(&mut timer_count).map_err(|e| format!("timer_count xfer failed: {}", e))?;
+            match xfer.get_xfer_mode() {
+                XferMode::Save => { for (&template_id, &ready_frame) in &self.special_power_timers { let mut tid = template_id; let mut rf = ready_frame; xfer.xfer_unsigned_int(&mut tid).map_err(|e| format!("timer template_id failed: {}", e))?; xfer.xfer_unsigned_int(&mut rf).map_err(|e| format!("timer ready_frame failed: {}", e))?; } }
+                XferMode::Load => { self.special_power_timers.clear(); for _ in 0..timer_count { let mut template_id = 0u32; let mut ready_frame = 0u32; xfer.xfer_unsigned_int(&mut template_id).map_err(|e| format!("load timer template_id failed: {}", e))?; xfer.xfer_unsigned_int(&mut ready_frame).map_err(|e| format!("load timer ready_frame failed: {}", e))?; self.special_power_timers.insert(template_id, ready_frame); } }
+                _ => {}
+            }
+        }
+
+        // Squads
+        let squad_count = NUM_HOTKEY_SQUADS as u16;
+        let mut squad_count_xfer = squad_count;
+        xfer.xfer_unsigned_short(&mut squad_count_xfer).map_err(|e| format!("squad_count xfer failed: {}", e))?;
+
+        for i in 0..NUM_HOTKEY_SQUADS {
+            let mut obj_count = self.hotkey_squads[i].len() as u16;
+            xfer.xfer_unsigned_short(&mut obj_count).map_err(|e| format!("squad[{}] obj_count failed: {}", i, e))?;
+            match xfer.get_xfer_mode() {
+                XferMode::Save => { for &obj_id in self.hotkey_squads[i].get_object_ids() { let mut id = obj_id; xfer.xfer_unsigned_int(&mut id).map_err(|e| format!("squad[{}] obj_id failed: {}", i, e))?; } }
+                XferMode::Load => { self.hotkey_squads[i].clear(); for _ in 0..obj_count { let mut obj_id = 0u32; xfer.xfer_unsigned_int(&mut obj_id).map_err(|e| format!("load squad[{}] obj_id failed: {}", i, e))?; self.hotkey_squads[i].add_object(obj_id); } }
+                _ => {}
+            }
+        }
+
+        // Current selection
+        let mut selection_present = true;
+        xfer.xfer_bool(&mut selection_present).map_err(|e| format!("selection_present xfer failed: {}", e))?;
+        if selection_present {
+            let mut obj_count = self.current_selection.len() as u16;
+            xfer.xfer_unsigned_short(&mut obj_count).map_err(|e| format!("current_selection obj_count failed: {}", e))?;
+            match xfer.get_xfer_mode() {
+                XferMode::Save => { for &obj_id in self.current_selection.get_object_ids() { let mut id = obj_id; xfer.xfer_unsigned_int(&mut id).map_err(|e| format!("current_selection obj_id failed: {}", e))?; } }
+                XferMode::Load => { self.current_selection.clear(); for _ in 0..obj_count { let mut obj_id = 0u32; xfer.xfer_unsigned_int(&mut obj_id).map_err(|e| format!("load current_selection obj_id failed: {}", e))?; self.current_selection.add_object(obj_id); } }
+                _ => {}
+            }
+        }
+
+        // Battle plan counts
+        xfer.xfer_int(&mut self.bombard_battle_plans).map_err(|e| format!("bombard_battle_plans xfer failed: {}", e))?;
+        xfer.xfer_int(&mut self.hold_the_line_battle_plans).map_err(|e| format!("hold_the_line_battle_plans xfer failed: {}", e))?;
+        xfer.xfer_int(&mut self.search_and_destroy_battle_plans).map_err(|e| format!("search_and_destroy_battle_plans xfer failed: {}", e))?;
+
+        // Version 6+: Units should hunt
+        if version >= 6 { xfer.xfer_bool(&mut self.units_should_hunt).map_err(|e| format!("units_should_hunt xfer failed: {}", e))?; }
+
+        // Version 7+: Preorder
+        if version >= 7 { xfer.xfer_bool(&mut self.is_preorder).map_err(|e| format!("is_preorder xfer failed: {}", e))?; }
+
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // No post-processing needed for basic player data
         Ok(())
     }
 }
@@ -1504,5 +3254,280 @@ mod tests {
         // Invalid science should be ignored
         player.grant_science(SCIENCE_INVALID);
         assert!(!player.has_science(SCIENCE_INVALID));
+    }
+
+    // =========================================================
+    // New Tests for AI, Build List, Squads, Upgrades
+    // =========================================================
+
+    #[test]
+    fn test_build_list_management() {
+        let mut player = Player::new(0);
+
+        // Initially no build list
+        assert!(player.get_build_list().is_none());
+
+        // Add to build list
+        let location = Coord3D::new(100.0, 200.0, 0.0);
+        player.add_to_build_list(1, "AmericaCommandCenter".to_string(), location, 0.5);
+        
+        // Verify build list exists
+        assert!(player.get_build_list().is_some());
+        let build_info = player.get_build_list().unwrap();
+        assert_eq!(build_info.get_template_name(), "AmericaCommandCenter");
+        assert_eq!(build_info.get_object_id(), 1);
+        assert!(!build_info.is_priority_build());
+
+        // Add priority build
+        let location2 = Coord3D::new(150.0, 250.0, 0.0);
+        player.add_to_priority_build_list("AmericaPowerPlant".to_string(), location2, 0.0);
+        
+        let build_info2 = player.get_build_list().unwrap();
+        assert_eq!(build_info2.get_template_name(), "AmericaPowerPlant");
+        assert!(build_info2.is_priority_build());
+
+        // Clear build list
+        player.set_build_list(None);
+        assert!(player.get_build_list().is_none());
+    }
+
+    #[test]
+    fn test_resource_gathering_manager() {
+        let mut player = Player::new(0);
+
+        // Initially no supply infrastructure
+        assert!(player.get_supply_centers().is_empty());
+        assert!(player.get_supply_warehouses().is_empty());
+
+        // Add supply centers
+        player.add_supply_center(1);
+        player.add_supply_center(2);
+        player.add_supply_center(1); // Duplicate - should not be added
+        assert_eq!(player.get_supply_centers().len(), 2);
+
+        // Add supply warehouses
+        player.add_supply_warehouse(10);
+        player.add_supply_warehouse(11);
+        assert_eq!(player.get_supply_warehouses().len(), 2);
+
+        // Remove supply center
+        player.remove_supply_center(1);
+        assert_eq!(player.get_supply_centers().len(), 1);
+        assert_eq!(player.get_supply_centers()[0], 2);
+
+        // Find best supply warehouse (simplified - returns first)
+        let best = player.find_best_supply_warehouse(99);
+        assert!(best.is_some());
+        assert_eq!(best.unwrap(), 10);
+    }
+
+    #[test]
+    fn test_hotkey_squads() {
+        let mut player = Player::new(0);
+
+        // All squads start empty
+        for i in 0..NUM_HOTKEY_SQUADS {
+            assert!(player.get_hotkey_squad_const(i as i32).unwrap().is_empty());
+        }
+
+        // Add objects to squad 0
+        {
+            let squad = player.get_hotkey_squad(0).unwrap();
+            squad.add_object(1);
+            squad.add_object(2);
+            squad.add_object(3);
+        }
+        
+        assert_eq!(player.get_hotkey_squad_const(0).unwrap().len(), 3);
+        assert!(player.get_hotkey_squad_const(0).unwrap().contains(2));
+
+        // Check squad number for object
+        assert_eq!(player.get_squad_number_for_object(2), 0);
+        assert_eq!(player.get_squad_number_for_object(99), NO_HOTKEY_SQUAD);
+
+        // Remove object from all squads
+        player.remove_object_from_hotkey_squad(2);
+        assert_eq!(player.get_hotkey_squad_const(0).unwrap().len(), 2);
+        assert!(!player.get_hotkey_squad_const(0).unwrap().contains(2));
+
+        // Clear specific squad
+        player.clear_hotkey_squad(0);
+        assert!(player.get_hotkey_squad_const(0).unwrap().is_empty());
+
+        // Invalid squad number returns None
+        assert!(player.get_hotkey_squad(-1).is_none());
+        assert!(player.get_hotkey_squad(NUM_HOTKEY_SQUADS as i32).is_none());
+    }
+
+    #[test]
+    fn test_current_selection() {
+        let mut player = Player::new(0);
+
+        // Initially empty
+        assert!(player.get_current_selection().is_empty());
+        assert_eq!(player.get_current_selection_size(), 0);
+
+        // Add to selection
+        player.add_to_current_selection(1);
+        player.add_to_current_selection(2);
+        player.add_to_current_selection(1); // Duplicate - should not be added twice
+        assert_eq!(player.get_current_selection_size(), 2);
+        assert!(player.is_in_current_selection(1));
+        assert!(player.is_in_current_selection(2));
+        assert!(!player.is_in_current_selection(3));
+
+        // Remove from selection
+        player.remove_from_current_selection(1);
+        assert_eq!(player.get_current_selection_size(), 1);
+        assert!(!player.is_in_current_selection(1));
+
+        // Clear selection
+        player.add_to_current_selection(5);
+        player.add_to_current_selection(6);
+        player.clear_current_selection();
+        assert!(player.get_current_selection().is_empty());
+    }
+
+    #[test]
+    fn test_upgrade_system() {
+        let mut player = Player::new(0);
+
+        // Initially no upgrades
+        assert!(!player.has_upgrade_complete("Upgrade1"));
+        assert!(!player.has_upgrade_in_production("Upgrade1"));
+
+        // Add upgrade in production
+        player.add_upgrade("Upgrade1".to_string(), UpgradeStatus::InProduction);
+        assert!(player.has_upgrade_in_production("Upgrade1"));
+        assert!(!player.has_upgrade_complete("Upgrade1"));
+
+        // Mark upgrade as complete
+        if let Some(upgrade) = player.find_upgrade_mut("Upgrade1") {
+            upgrade.set_status(UpgradeStatus::Complete);
+        }
+        assert!(player.has_upgrade_complete("Upgrade1"));
+        assert!(!player.has_upgrade_in_production("Upgrade1"));
+
+        // Add another upgrade
+        player.add_upgrade("Upgrade2".to_string(), UpgradeStatus::Complete);
+        assert!(player.has_upgrade_complete("Upgrade2"));
+
+        // Remove upgrade
+        player.remove_upgrade("Upgrade1");
+        assert!(!player.has_upgrade_complete("Upgrade1"));
+    }
+
+    #[test]
+    fn test_upgrade_bitmask() {
+        let mut player = Player::new(0);
+
+        // Initially no bits set
+        assert_eq!(player.get_completed_upgrade_mask(), 0);
+
+        // Set upgrade bits
+        player.set_upgrade_completed(0);
+        assert_eq!(player.get_completed_upgrade_mask(), 0b1);
+
+        player.set_upgrade_completed(3);
+        assert_eq!(player.get_completed_upgrade_mask(), 0b1001);
+
+        // Clear upgrade bit
+        player.clear_upgrade_completed(0);
+        assert_eq!(player.get_completed_upgrade_mask(), 0b1000);
+
+        // Set in-progress bit
+        player.set_upgrade_in_progress(5);
+        player.set_upgrade_completed(5); // Should also clear in-progress
+        assert_eq!(player.get_completed_upgrade_mask(), 0b11000);
+    }
+
+    #[test]
+    fn test_team_prototypes() {
+        let mut player = Player::new(0);
+
+        // Initially empty
+        assert!(player.get_team_prototypes().is_empty());
+
+        // Add team prototypes
+        player.add_team_prototype("teamPlayer0".to_string());
+        player.add_team_prototype("teamPlayer0attack".to_string());
+        player.add_team_prototype("teamPlayer0".to_string()); // Duplicate
+        assert_eq!(player.get_team_prototypes().len(), 2);
+
+        // Remove team prototype
+        player.remove_team_prototype("teamPlayer0");
+        assert_eq!(player.get_team_prototypes().len(), 1);
+    }
+
+    #[test]
+    fn test_tunnel_system() {
+        let mut player = Player::new(0);
+
+        // Initially empty
+        assert!(player.get_tunnel_entrances().is_empty());
+
+        // Add tunnel entrances
+        player.add_tunnel_entrance(1);
+        player.add_tunnel_entrance(2);
+        assert_eq!(player.get_tunnel_entrances().len(), 2);
+
+        // Remove tunnel entrance
+        player.remove_tunnel_entrance(1);
+        assert_eq!(player.get_tunnel_entrances().len(), 1);
+    }
+
+    #[test]
+    fn test_production_changes() {
+        let mut player = Player::new(0);
+
+        // Default cost is 1.0 (100%)
+        assert!((player.get_production_cost_change("SomeUnit") - 1.0).abs() < f32::EPSILON);
+
+        // Set production cost change (90% = 0.9)
+        player.set_production_cost_change("SomeUnit".to_string(), 0.9);
+        assert!((player.get_production_cost_change("SomeUnit") - 0.9).abs() < f32::EPSILON);
+
+        // Set production time change (80% = 0.8)
+        player.set_production_time_change("SomeUnit".to_string(), 0.8);
+        assert!((player.get_production_time_change("SomeUnit") - 0.8).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_special_power_timers() {
+        let mut player = Player::new(0);
+
+        // Initially no timer
+        assert!(player.get_special_power_ready_frame(1).is_none());
+
+        // Set timer
+        player.set_special_power_ready_frame(1, 1000);
+        assert_eq!(player.get_special_power_ready_frame(1), Some(1000));
+
+        // Update timer
+        player.set_special_power_ready_frame(1, 2000);
+        assert_eq!(player.get_special_power_ready_frame(1), Some(2000));
+
+        // Remove timer
+        player.remove_special_power_timer(1);
+        assert!(player.get_special_power_ready_frame(1).is_none());
+    }
+
+    #[test]
+    fn test_difficulty_setting() {
+        let mut player = Player::new(0);
+
+        // Default difficulty is Normal
+        assert_eq!(player.get_player_difficulty(), GameDifficulty::Normal);
+
+        // Change difficulty
+        player.set_player_difficulty(GameDifficulty::Hard);
+        assert_eq!(player.get_player_difficulty(), GameDifficulty::Hard);
+
+        player.set_player_difficulty(GameDifficulty::Easy);
+        assert_eq!(player.get_player_difficulty(), GameDifficulty::Easy);
+
+        // No AI by default
+        assert!(!player.has_ai());
+        assert!(!player.is_skirmish_ai_player());
     }
 }
