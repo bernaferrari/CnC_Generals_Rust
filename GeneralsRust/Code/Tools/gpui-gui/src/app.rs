@@ -5,8 +5,7 @@ use gpui::{
 
 use crate::legacy::{self, LegacyCppUnit, LegacyScreenDescriptor};
 use crate::model::{
-    CommandOption, GadgetWindowStyle, GuiCommandType, LegacyCommandButton, ShellState,
-    WindowLayoutState,
+    CommandOption, GuiCommandType, LegacyCommandButton, ShellState, WindowLayoutState,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,6 +214,7 @@ impl LegacyGuiExplorer {
                         .enumerate()
                         .map(|(ix, screen)| {
                             div()
+                                .id(("shell-stack", ix))
                                 .p_2()
                                 .rounded_md()
                                 .border_1()
@@ -491,6 +491,7 @@ impl Render for LegacyGuiExplorer {
                                 units.into_iter().map(|unit| {
                                     let active = self.selected_unit_path == unit.relative_path;
                                     div()
+                                        .id(unit.relative_path)
                                         .p_2()
                                         .rounded_md()
                                         .border_1()
@@ -653,6 +654,7 @@ fn section_card(title: impl Into<SharedString>, metrics: Vec<AnyElement>) -> Any
 
 fn action_chip(label: &'static str, active: bool) -> gpui::Stateful<gpui::Div> {
     div()
+        .id(label)
         .px_2()
         .py_1()
         .rounded_md()
@@ -665,6 +667,7 @@ fn action_chip(label: &'static str, active: bool) -> gpui::Stateful<gpui::Div> {
 
 fn panel_chip(label: &'static str, active: bool) -> gpui::Stateful<gpui::Div> {
     div()
+        .id(label)
         .px_3()
         .py_2()
         .rounded_md()
@@ -914,7 +917,7 @@ fn render_tab_control() -> AnyElement {
         .into_any_element()
 }
 
-fn progress_bar(progress: f32, fill_color: gpui::Hsla) -> AnyElement {
+fn progress_bar(progress: f32, fill_color: gpui::Rgba) -> AnyElement {
     let width = 196.0_f32 * progress.clamp(0.0, 1.0);
     div()
         .h(px(10.))
@@ -976,7 +979,7 @@ fn render_screen_mock(screen: &str) -> AnyElement {
                         .rounded_md()
                         .bg(accent)
                         .text_color(rgb(0x091017))
-                        .child(screen),
+                        .child(screen.to_string()),
                 ),
         )
         .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(subline))
