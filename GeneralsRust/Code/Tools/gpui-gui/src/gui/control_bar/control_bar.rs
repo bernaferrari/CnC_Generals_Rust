@@ -1,5 +1,3 @@
-use gpui::AnyElement;
-
 use crate::gui::source_catalog::{ControlBarPort, GuiPortRecord};
 use crate::model::LegacyCommandButton;
 
@@ -22,6 +20,6 @@ pub fn demo_buttons() -> Vec<LegacyCommandButton> {
     super::control_bar_command::demo_buttons()
 }
 
-pub fn render_command_strip(state: &CommandBarStatePort) -> AnyElement {
+pub fn render_command_strip(state: &CommandBarStatePort) -> impl gpui::IntoElement {
     super::control_bar_command::render_command_strip(state)
 }
