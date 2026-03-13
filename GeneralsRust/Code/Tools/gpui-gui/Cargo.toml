@@ -1,0 +1,13 @@
+[package]
+name = "gpui-gui"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+anyhow.workspace = true
+bitflags.workspace = true
+gpui = "0.2.2"
+
+[build-dependencies]
+walkdir.workspace = true
