@@ -1,5 +1,6 @@
 use gpui::{div, prelude::*, px, rgb, AnyElement};
 
+use crate::gui::callbacks::message_box::{MessageBoxButtonPort, MessageBoxStatePort};
 use crate::gui::gadget::{
     gadget_check_box, gadget_horizontal_slider, gadget_list_box, gadget_progress_bar,
     gadget_push_button, gadget_static_text, gadget_text_entry,
@@ -38,20 +39,35 @@ pub fn render_port(port: &CallbackPort) -> AnyElement {
                 gadget_check_box::render_demo("Share resources", false),
             ],
         ),
-        "GUICallbacks/ExtendedMessageBox.cpp" | "GUICallbacks/MessageBox.cpp" => callback_card(
-            port.label,
-            vec![
-                gadget_static_text::render_demo("Prompt", "Do you want to overwrite this save?"),
-                div()
-                    .flex()
-                    .gap_2()
-                    .children([
-                        gadget_push_button::render_demo("Yes"),
-                        gadget_push_button::render_demo("No"),
-                    ])
-                    .into_any_element(),
-            ],
-        ),
+        "GUICallbacks/ExtendedMessageBox.cpp" | "GUICallbacks/MessageBox.cpp" => {
+            let mut message_box = MessageBoxStatePort::yes_no(
+                "Overwrite Save",
+                "Do you want to overwrite this save?",
+            );
+            let wants_focus = message_box.handle_input_focus(true);
+            let _ = message_box.select(MessageBoxButtonPort::Yes);
+            callback_card(
+                port.label,
+                vec![
+                    static_text("Title", message_box.title),
+                    static_text("Prompt", message_box.body),
+                    static_text(
+                        "Buttons",
+                        message_box
+                            .buttons
+                            .iter()
+                            .map(|button| button.label())
+                            .collect::<Vec<_>>()
+                            .join(" / "),
+                    ),
+                    gadget_check_box::render_demo("Accepts keyboard focus", wants_focus),
+                    gadget_check_box::render_demo(
+                        "Destroyed after selection",
+                        message_box.destroyed,
+                    ),
+                ],
+            )
+        }
         "GUICallbacks/GeneralsExpPoints.cpp" => callback_card(
             port.label,
             vec![
@@ -124,5 +140,15 @@ fn callback_card(title: &str, body: Vec<AnyElement>) -> AnyElement {
         .gap_2()
         .child(title.to_string())
         .children(body)
+        .into_any_element()
+}
+
+fn static_text(label: &str, body: impl Into<String>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(label.to_string())
+        .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(body.into()))
         .into_any_element()
 }
