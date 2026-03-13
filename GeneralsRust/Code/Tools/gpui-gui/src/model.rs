@@ -196,7 +196,7 @@ impl GuiCommandType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LegacyCommandButton {
     pub label: &'static str,
     pub command: GuiCommandType,
