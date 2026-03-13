@@ -439,6 +439,65 @@ impl AsciiString {
             _ => false,
         }
     }
+
+    /// Get mutable access to the internal string data.
+    /// This ensures the buffer is unique (copy-on-write semantics).
+    /// Returns an empty string if the AsciiString is empty.
+    pub fn as_mut_string(&mut self) -> &mut str {
+        if self.inner.is_none() {
+            self.inner = Some(Arc::new(AsciiStringData::new(String::new())));
+        }
+
+        if let Some(ref mut arc) = self.inner {
+            // If shared, create a unique copy
+            if Arc::strong_count(arc) > 1 {
+                let data = arc.data.clone();
+                self.inner = Some(Arc::new(AsciiStringData::new(data)));
+            }
+
+            // Now get mutable access - safe because we ensured uniqueness above
+            if let Some(ref mut arc) = self.inner {
+                if let Some(data) = Arc::get_mut(arc) {
+                    return &mut data.data;
+                }
+            }
+        }
+
+        // Fallback - should never reach here, but return a static empty str
+        // This is technically unsafe but matches the pattern expected by xfer
+        static mut EMPTY: String = String::new();
+        #[allow(static_mut_refs)]
+        unsafe {
+            &mut EMPTY
+        }
+    }
+
+    /// Get mutable access to the internal String buffer for xfer operations.
+    /// This ensures the buffer is unique (copy-on-write semantics).
+    /// Returns a mutable reference to the internal String.
+    pub fn as_mut_string_buffer(&mut self) -> &mut String {
+        if self.inner.is_none() {
+            self.inner = Some(Arc::new(AsciiStringData::new(String::new())));
+        }
+
+        if let Some(ref mut arc) = self.inner {
+            // If shared, create a unique copy
+            if Arc::strong_count(arc) > 1 {
+                let data = arc.data.clone();
+                self.inner = Some(Arc::new(AsciiStringData::new(data)));
+            }
+
+            // Now get mutable access - safe because we ensured uniqueness above
+            if let Some(ref mut arc) = self.inner {
+                if let Some(data) = Arc::get_mut(arc) {
+                    return &mut data.data;
+                }
+            }
+        }
+
+        // Fallback - should never reach here
+        unreachable!("as_mut_string_buffer should always have unique access");
+    }
 }
 
 impl fmt::Display for AsciiString {

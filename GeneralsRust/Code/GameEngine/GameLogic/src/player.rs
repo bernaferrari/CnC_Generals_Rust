@@ -733,6 +733,49 @@ impl ScoreKeeper {
     pub fn add_building_built(&mut self) {
         self.buildings_built += 1;
     }
+
+    // Trait-based methods for ScoreableObject integration
+    // These allow Object to pass itself directly to ScoreKeeper
+
+    /// Add an object that was lost by this player.
+    /// Convenience method that extracts information from the object.
+    /// C++ Reference: ScoreKeeper::addObjectLost(const Object* o)
+    pub fn add_object_lost_obj(&mut self, object: &dyn game_engine::common::rts::score_keeper::ScoreableObject) {
+        // Check if under construction - under construction objects don't count
+        if object.is_score_under_construction() {
+            return;
+        }
+
+        // Check the KindOf mask to determine if it's a unit or building
+        let mask = object.get_score_kindof_mask();
+        use game_engine::common::rts::score_keeper::KindOf;
+
+        if mask.is_set(KindOf::Structure) {
+            self.buildings_lost += 1;
+        } else if mask.is_set(KindOf::Infantry) || mask.is_set(KindOf::Vehicle) {
+            self.units_lost += 1;
+        }
+    }
+
+    /// Add an object that was destroyed by this player.
+    /// Convenience method that extracts information from the object.
+    /// C++ Reference: ScoreKeeper::addObjectDestroyed(const Object* o)
+    pub fn add_object_destroyed_obj(&mut self, object: &dyn game_engine::common::rts::score_keeper::ScoreableObject) {
+        // Check if under construction - under construction objects don't count
+        if object.is_score_under_construction() {
+            return;
+        }
+
+        // Check the KindOf mask to determine if it's a unit or building
+        let mask = object.get_score_kindof_mask();
+        use game_engine::common::rts::score_keeper::KindOf;
+
+        if mask.is_set(KindOf::Structure) {
+            self.buildings_destroyed += 1;
+        } else if mask.is_set(KindOf::Infantry) || mask.is_set(KindOf::Vehicle) {
+            self.units_killed += 1;
+        }
+    }
 }
 
 /// Player relation map (matching C++ PlayerRelationMap)
@@ -2714,6 +2757,68 @@ impl Player {
 
     pub fn set_cash_bounty(&mut self, percentage: Real) {
         self.cash_bounty_percent = percentage;
+    }
+
+    /// Do bounty for kill - awards cash when player kills an enemy
+    /// C++ Reference: Player::doBountyForKill() (Player.cpp lines 1963-1989)
+    ///
+    /// # Arguments
+    /// * `killer_cost` - The cost of the victim object (used for bounty calculation)
+    ///
+    /// # Returns
+    /// The bounty amount awarded.
+    pub fn do_bounty_for_kill(&mut self, killer_cost: Int) -> Int {
+        // Calculate bounty based on victim's cost and our cash bounty percent
+        let bounty = ((killer_cost as Real) * self.cash_bounty_percent).ceil() as Int;
+
+        // Award the bounty
+        if bounty > 0 {
+            let _ = self.money.deposit(bounty as u32);
+        }
+
+        bounty
+    }
+
+    /// Do bounty for kill using object references.
+    /// C++ Reference: Player::doBountyForKill() with object parameters
+    ///
+    /// # Arguments
+    /// * `_killer` - The object that made the kill (unused in basic implementation)
+    /// * `victim` - The object that was killed
+    ///
+    /// Returns the bounty amount awarded.
+    pub fn do_bounty_for_kill_obj(
+        &mut self,
+        _killer: &dyn game_engine::common::rts::player::BountyObject,
+        victim: &dyn game_engine::common::rts::player::BountyObject,
+    ) -> Int {
+        // C++ line 1972: Get victim's build cost for bounty calculation
+        let killer_cost = victim.get_build_cost();
+
+        // C++ line 1973: Under construction objects don't give bounty
+        if victim.is_under_construction() {
+            return 0;
+        }
+
+        self.do_bounty_for_kill(killer_cost)
+    }
+
+    /// Add skill points for kill using object references.
+    /// C++ Reference: Player::addSkillPointsForKill() with object parameters
+    ///
+    /// # Arguments
+    /// * `killer` - The object that made the kill
+    /// * `victim` - The object that was killed
+    ///
+    /// Returns true if player gained/lost levels.
+    pub fn add_skill_points_for_kill_obj(
+        &mut self,
+        killer: &dyn game_engine::common::rts::player::SkillPointObject,
+        victim: &dyn game_engine::common::rts::player::SkillPointObject,
+    ) -> Bool {
+        let victim_level = victim.get_veterancy_level();
+        let skill_value = victim.get_skill_point_value(killer);
+        self.add_skill_points_for_kill(None, false, skill_value)
     }
 
     /// Retaliation mode

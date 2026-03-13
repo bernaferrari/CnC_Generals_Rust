@@ -399,11 +399,11 @@ impl AIGroup {
             .read()
             .ok()
             .map(|t| t.get_layer_for_destination(group_dest))
-            .unwrap_or(0i32);
+            .unwrap_or(crate::path::PathfindLayerEnum::Ground);
 
         // Set Z coordinate based on layer
         if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
-            dest.z = terrain.get_layer_height(dest.x, dest.y, layer);
+            dest.z = terrain.get_layer_height(dest.x, dest.y, layer, None, true);
         }
 
         // Adjust destination for ground movement if object has AI
