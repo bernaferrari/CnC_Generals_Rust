@@ -27,7 +27,7 @@ struct Lifecycle {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let repo_root = manifest_dir.join("../../../../").canonicalize()?;
+    let repo_root = manifest_dir.join("../../../../../").canonicalize()?;
     let cpp_gui_root = repo_root.join("GeneralsMD/Code/GameEngine/Source/GameClient/GUI");
     let callbacks_header =
         repo_root.join("GeneralsMD/Code/GameEngine/Include/GameClient/GUICallbacks.h");
