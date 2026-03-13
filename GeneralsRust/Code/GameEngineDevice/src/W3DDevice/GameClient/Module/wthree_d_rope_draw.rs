@@ -1,4 +1,337 @@
-//! W3D rope draw module data (port of W3DRopeDraw.h).
+//! W3D rope draw module (port of W3DRopeDraw.h / W3DRopeDraw.cpp).
+//!
+//! Corresponds to C++ files:
+//! - GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DRopeDraw.h
+//! - GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DRopeDraw.cpp
+//!
+//! Rope drawing with configurable length, wobble, and speed parameters.
 
-#[derive(Debug, Default, Clone)]
-pub struct W3DRopeDrawModuleData;
+use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
+use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
+use crate::W3DDevice::GameClient::wthree_d_segmented_line::SegmentedLine;
+use cgmath::{Point3, Vector3};
+
+/// RGB color for rope rendering (matching C++ RGBColor).
+#[derive(Debug, Clone, Copy)]
+pub struct RGBColor {
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+impl RGBColor {
+    pub fn new(red: f32, green: f32, blue: f32) -> Self {
+        Self { red, green, blue }
+    }
+}
+
+/// Segment info for rope rendering (matching C++ W3DRopeDraw::SegInfo).
+#[derive(Debug)]
+struct SegInfo {
+    /// Main line render object
+    line: RenderObjectId,
+    /// Soft/wide line render object
+    soft_line: RenderObjectId,
+    /// Wobble axis X component
+    wobble_axis_x: f32,
+    /// Wobble axis Y component
+    wobble_axis_y: f32,
+}
+
+/// W3D rope draw implementation (matching C++ W3DRopeDraw).
+///
+/// Manages multiple line segments that form a rope with wobble animation.
+/// Each segment consists of two lines: a narrow "hard" line and a wider "soft" line.
+#[derive(Debug)]
+pub struct W3DRopeDraw {
+    /// Rope line segments
+    segments: Vec<SegInfo>,
+    /// Current rope length
+    cur_len: f32,
+    /// Maximum rope length
+    max_len: f32,
+    /// Width of rope lines
+    width: f32,
+    /// Color of rope
+    color: RGBColor,
+    /// Current speed
+    cur_speed: f32,
+    /// Maximum speed
+    max_speed: f32,
+    /// Acceleration
+    accel: f32,
+    /// Wobble segment length
+    wobble_len: f32,
+    /// Wobble amplitude
+    wobble_amp: f32,
+    /// Wobble rate (phase increment per frame)
+    wobble_rate: f32,
+    /// Current wobble phase
+    cur_wobble_phase: f32,
+    /// Current Z offset
+    cur_z_offset: f32,
+    /// Start position for rope
+    start_pos: Point3<f32>,
+}
+
+impl W3DRopeDraw {
+    /// Create new rope draw with C++ default values.
+    ///
+    /// Default values from W3DRopeDraw constructor:
+    /// - cur_len: 0.0, max_len: 1.0
+    /// - width: 0.5
+    /// - color: (0.0, 0.0, 0.0)
+    /// - speeds/accel: 0.0
+    /// - wobble_len: max_len (huge)
+    pub fn new() -> Self {
+        Self {
+            segments: Vec::new(),
+            cur_len: 0.0,
+            max_len: 1.0,
+            width: 0.5,
+            color: RGBColor::new(0.0, 0.0, 0.0),
+            cur_speed: 0.0,
+            max_speed: 0.0,
+            accel: 0.0,
+            wobble_len: 1.0,
+            wobble_amp: 0.0,
+            wobble_rate: 0.0,
+            cur_wobble_phase: 0.0,
+            cur_z_offset: 0.0,
+            start_pos: Point3::new(0.0, 0.0, 0.0),
+        }
+    }
+
+    /// Initialize rope parameters (matching C++ initRopeParms).
+    ///
+    /// Tosses existing segments and rebuilds with new parameters.
+    pub fn init_rope_parms(
+        &mut self,
+        length: f32,
+        width: f32,
+        color: RGBColor,
+        wobble_len: f32,
+        wobble_amp: f32,
+        wobble_rate: f32,
+    ) {
+        self.max_len = length.max(1.0);
+        self.cur_len = 0.0;
+        self.width = width;
+        self.color = color;
+        self.wobble_len = wobble_len.min(self.max_len);
+        self.wobble_amp = wobble_amp;
+        self.wobble_rate = wobble_rate;
+        self.cur_z_offset = 0.0;
+
+        self.toss_segments();
+        self.build_segments();
+    }
+
+    /// Set current rope length (matching C++ setRopeCurLen).
+    pub fn set_rope_cur_len(&mut self, length: f32) {
+        self.cur_len = length;
+    }
+
+    /// Set rope speed parameters (matching C++ setRopeSpeed).
+    pub fn set_rope_speed(&mut self, cur_speed: f32, max_speed: f32, accel: f32) {
+        self.cur_speed = cur_speed;
+        self.max_speed = max_speed;
+        self.accel = accel;
+    }
+
+    /// Set the start position for rope rendering.
+    pub fn set_start_position(&mut self, start: Point3<f32>) {
+        self.start_pos = start;
+    }
+
+    /// Draw module update (matching C++ doDrawModule).
+    ///
+    /// Each frame:
+    /// - Builds segments if empty
+    /// - Updates segment positions with wobble
+    /// - Advances wobble phase
+    /// - Updates speed with acceleration
+    pub fn do_draw_module(&mut self) {
+        if self.segments.is_empty() {
+            self.build_segments();
+        }
+
+        if !self.segments.is_empty() {
+            let deflection = self.cur_wobble_phase.sin() * self.wobble_amp;
+            let mut start = Point3::new(
+                self.start_pos.x,
+                self.start_pos.y,
+                self.start_pos.z + self.cur_z_offset,
+            );
+            let each_len = if self.segments.is_empty() {
+                0.0
+            } else {
+                self.cur_len / self.segments.len() as f32
+            };
+
+            let scene = W3DDisplay::global_scene();
+            let mut scene_guard = scene.write();
+
+            for seg in &self.segments {
+                let end = Point3::new(
+                    self.start_pos.x + deflection * seg.wobble_axis_x,
+                    self.start_pos.y + deflection * seg.wobble_axis_y,
+                    start.z - each_len,
+                );
+
+                if let Some(line) = scene_guard.get_segmented_line(seg.line) {
+                    line.write().set_points(&[start, end]);
+                }
+                if let Some(line) = scene_guard.get_segmented_line(seg.soft_line) {
+                    line.write().set_points(&[start, end]);
+                }
+                start = end;
+            }
+        }
+
+        // Advance wobble phase
+        self.cur_wobble_phase += self.wobble_rate;
+        if self.cur_wobble_phase > 2.0 * std::f32::consts::PI {
+            self.cur_wobble_phase -= 2.0 * std::f32::consts::PI;
+        }
+
+        // Update Z offset with speed and acceleration
+        self.cur_z_offset += self.cur_speed;
+        self.cur_speed += self.accel;
+        if self.cur_speed > self.max_speed {
+            self.cur_speed = self.max_speed;
+        } else if self.cur_speed < -self.max_speed {
+            self.cur_speed = -self.max_speed;
+        }
+    }
+
+    /// Build rope segments (matching C++ buildSegments).
+    ///
+    /// Creates line pairs for each segment, with random wobble axes.
+    fn build_segments(&mut self) {
+        if !self.segments.is_empty() {
+            return;
+        }
+
+        let num_segs = (self.max_len / self.wobble_len).ceil().max(1.0) as usize;
+        let each_len = self.max_len / num_segs as f32;
+        let mut pos = Point3::new(self.start_pos.x, self.start_pos.y, self.start_pos.z);
+
+        let scene = W3DDisplay::global_scene();
+        let mut scene_guard = scene.write();
+
+        for _ in 0..num_segs {
+            let axis = fastrand::f32() * 2.0 * std::f32::consts::PI;
+            let wobble_axis_x = axis.cos();
+            let wobble_axis_y = axis.sin();
+
+            // Create narrow "hard" line
+            let mut line = SegmentedLine::new();
+            line.set_width(self.width * 0.5);
+            line.set_color(Vector3::new(
+                self.color.red,
+                self.color.green,
+                self.color.blue,
+            ));
+            line.set_points(&[
+                Point3::new(pos.x, pos.y, pos.z),
+                Point3::new(pos.x, pos.y, pos.z + each_len),
+            ]);
+
+            // Create wide "soft" line with 0.5 opacity
+            let mut soft_line = SegmentedLine::new();
+            soft_line.set_width(self.width);
+            soft_line.set_color(Vector3::new(
+                self.color.red,
+                self.color.green,
+                self.color.blue,
+            ));
+            soft_line.set_opacity(0.5);
+            soft_line.set_points(&[
+                Point3::new(pos.x, pos.y, pos.z),
+                Point3::new(pos.x, pos.y, pos.z + each_len),
+            ]);
+
+            let line_id = scene_guard.add_segmented_line(line);
+            let soft_id = scene_guard.add_segmented_line(soft_line);
+
+            self.segments.push(SegInfo {
+                line: line_id,
+                soft_line: soft_id,
+                wobble_axis_x,
+                wobble_axis_y,
+            });
+
+            pos.z += each_len;
+        }
+    }
+
+    /// Remove all rope segments from the scene (matching C++ tossSegments).
+    fn toss_segments(&mut self) {
+        let scene = W3DDisplay::global_scene();
+        let mut scene_guard = scene.write();
+        for seg in self.segments.drain(..) {
+            scene_guard.remove_render_object(seg.line);
+            scene_guard.remove_render_object(seg.soft_line);
+        }
+    }
+}
+
+impl Default for W3DRopeDraw {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for W3DRopeDraw {
+    fn drop(&mut self) {
+        self.toss_segments();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_w3d_rope_draw_creation() {
+        let rope = W3DRopeDraw::new();
+        assert_eq!(rope.cur_len, 0.0);
+        assert_eq!(rope.max_len, 1.0);
+        assert_eq!(rope.width, 0.5);
+        assert_eq!(rope.cur_speed, 0.0);
+        assert_eq!(rope.max_speed, 0.0);
+        assert!(rope.segments.is_empty());
+    }
+
+    #[test]
+    fn test_w3d_rope_init_parms() {
+        let mut rope = W3DRopeDraw::new();
+        rope.init_rope_parms(10.0, 1.0, RGBColor::new(1.0, 1.0, 1.0), 2.0, 0.5, 0.1);
+        assert_eq!(rope.max_len, 10.0);
+        assert_eq!(rope.width, 1.0);
+        assert_eq!(rope.wobble_amp, 0.5);
+    }
+
+    #[test]
+    fn test_w3d_rope_speed() {
+        let mut rope = W3DRopeDraw::new();
+        rope.set_rope_speed(1.0, 5.0, 0.5);
+        assert_eq!(rope.cur_speed, 1.0);
+        assert_eq!(rope.max_speed, 5.0);
+        assert_eq!(rope.accel, 0.5);
+    }
+
+    #[test]
+    fn test_w3d_rope_cur_len() {
+        let mut rope = W3DRopeDraw::new();
+        rope.set_rope_cur_len(7.5);
+        assert_eq!(rope.cur_len, 7.5);
+    }
+
+    #[test]
+    fn test_w3d_rope_default() {
+        let rope = W3DRopeDraw::default();
+        assert_eq!(rope.max_len, 1.0);
+    }
+}
