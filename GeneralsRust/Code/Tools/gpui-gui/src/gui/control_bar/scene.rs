@@ -1,5 +1,6 @@
 use gpui::{div, prelude::*, px, rgb, AnyElement};
 
+use crate::gui::control_bar::control_bar::ControlBarCorePort;
 use crate::gui::control_bar::control_bar_beacon::ControlBarBeaconPort;
 use crate::gui::control_bar::control_bar_command::CommandBarStatePort;
 use crate::gui::control_bar::control_bar_command_processing::{
@@ -19,6 +20,7 @@ use crate::model::{CommandOption, GuiCommandType, LegacyCommandButton};
 
 pub fn render_port(port: &ControlBarPort) -> AnyElement {
     match port.record.cpp_relative_path {
+        "ControlBar/ControlBar.cpp" => render_core_panel(port.label),
         "ControlBar/ControlBarCommand.cpp" => render_command_panel(port.label),
         "ControlBar/ControlBarCommandProcessing.cpp" => render_dispatch_panel(port.label),
         "ControlBar/ControlBarStructureInventory.cpp" => {
@@ -34,9 +36,36 @@ pub fn render_port(port: &ControlBarPort) -> AnyElement {
         "ControlBar/ControlBarPrintPositions.cpp" => render_positions_panel(port.label),
         _ => panel(
             port.label,
-            vec![static_text("Subsystem", port.summary.to_string())],
+            vec![
+                static_text("C++ Source", port.record.cpp_relative_path.to_string()),
+                static_text("Rust Module", port.record.rust_module_path.to_string()),
+                static_text("Summary", port.summary.to_string()),
+            ],
         ),
     }
+}
+
+fn render_core_panel(title: &str) -> AnyElement {
+    let state = ControlBarCorePort::sample();
+    let buttons = crate::gui::control_bar::control_bar::demo_buttons();
+
+    panel(
+        title,
+        vec![
+            static_text("Context", state.current_context),
+            static_bool("Command set dirty", state.command_set_dirty),
+            static_bool("Shell hidden", state.shell_hidden),
+            static_bool("Radar enabled", state.radar_enabled),
+            static_text("Selection Group", state.selected_group_size.to_string()),
+            command_list(
+                "Default Buttons",
+                buttons
+                    .iter()
+                    .map(|button| button.label.to_string())
+                    .collect(),
+            ),
+        ],
+    )
 }
 
 fn render_command_panel(title: &str) -> AnyElement {

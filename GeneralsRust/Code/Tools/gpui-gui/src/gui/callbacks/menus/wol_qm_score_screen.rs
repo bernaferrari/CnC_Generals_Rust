@@ -12,3 +12,35 @@ pub const SCREEN: MenuScreenPort = MenuScreenPort::new(
     "Quick-match post-game score screen.",
     "WOL",
 );
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WolQmScoreScreenPort {
+    pub rating_before: i32,
+    pub rating_after: i32,
+    pub streak: i32,
+    pub summary_lines: Vec<String>,
+}
+
+impl Default for WolQmScoreScreenPort {
+    fn default() -> Self {
+        Self::sample()
+    }
+}
+
+impl WolQmScoreScreenPort {
+    pub fn rating_delta(&self) -> i32 {
+        self.rating_after - self.rating_before
+    }
+
+    pub fn sample() -> Self {
+        Self {
+            rating_before: 1465,
+            rating_after: 1482,
+            streak: 3,
+            summary_lines: vec![
+                "Quick Match result: Victory".to_string(),
+                "Faction matchup: USA vs China".to_string(),
+            ],
+        }
+    }
+}
