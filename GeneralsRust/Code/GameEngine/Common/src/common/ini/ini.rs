@@ -700,6 +700,10 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
         parse: super::ini_multiplayer::parse_multiplayer_starting_money_choice_definition,
     },
     BlockParse {
+        token: "OnlineChatColors",
+        parse: super::ini_online_chat_colors::parse_online_chat_color_definition,
+    },
+    BlockParse {
         token: "PlayerTemplate",
         parse: super::ini_player_template::parse_player_template_definition,
     },

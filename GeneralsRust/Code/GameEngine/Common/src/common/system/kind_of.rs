@@ -339,6 +339,20 @@ impl KindOfMask {
     pub fn is_player_selectable(&self) -> bool {
         self.contains(KindOfMask::SELECTABLE) && !self.contains(KindOfMask::NO_SELECT)
     }
+
+    /// Check if this mask matches the given set and clear masks.
+    /// Returns true if all bits in set_mask are set AND all bits in clear_mask are NOT set.
+    /// Corresponds to C++ KindOfMaskType::matches()
+    pub fn matches(&self, set_mask: KindOfMask, clear_mask: KindOfMask) -> bool {
+        self.contains(set_mask) && !self.intersects(clear_mask)
+    }
+
+    /// Check if this mask contains all bits from another mask.
+    /// Returns true if every bit set in `other` is also set in `self`.
+    /// Corresponds to C++ containsAll behavior.
+    pub fn contains_all(&self, other: KindOfMask) -> bool {
+        self.contains(other)
+    }
 }
 
 impl fmt::Display for KindOfMask {

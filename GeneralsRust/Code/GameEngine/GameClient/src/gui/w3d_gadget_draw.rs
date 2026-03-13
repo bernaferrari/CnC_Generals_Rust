@@ -880,6 +880,45 @@ pub fn w3d_cameo_movie_draw(window: &GameWindow, inst_data: &WindowInstanceData)
     draw_video_buffer(window, inst_data);
 }
 
+/// Check if radar should be drawn (helper function to avoid lifetime issues)
+fn should_draw_radar_check() -> bool {
+    let radar_system = get_radar_system();
+    let Ok(radar) = radar_system.read() else {
+        return false;
+    };
+    
+    if radar.is_radar_forced() {
+        return true;
+    }
+    
+    if radar.is_radar_hidden() {
+        return false;
+    }
+    
+    // Check if local player has radar
+    let Ok(list) = ThePlayerList().read() else {
+        return false;
+    };
+    
+    let player_arc = TheControlBar::get_observer_look_at_player_index()
+        .and_then(|index| {
+            if index >= 0 {
+                list.get_player(index as i32).cloned()
+            } else {
+                None
+            }
+        })
+        .or_else(|| list.get_local_player().cloned());
+    
+    if let Some(player_arc) = player_arc {
+        if let Ok(player) = player_arc.read() {
+            return player.has_radar();
+        }
+    }
+    
+    false
+}
+
 pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     // First check for video buffer (in-game movies)
     if inst_data
@@ -896,45 +935,7 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     // W3DLeftHUDDraw draws radar when:
     // - TheRadar->isRadarForced() OR
     // - (!TheRadar->isRadarHidden() AND player->hasRadar())
-    let should_draw_radar = {
-        let radar_system = get_radar_system();
-        if let Ok(radar) = radar_system.read() {
-            if radar.is_radar_forced() {
-                true
-            } else if !radar.is_radar_hidden() {
-                // Check if local player has radar
-                if let Ok(list) = ThePlayerList().read() {
-                    let player_arc = TheControlBar::get_observer_look_at_player_index()
-                        .and_then(|index| {
-                            if index >= 0 {
-                                list.get_player(index as i32).cloned()
-                            } else {
-                                None
-                            }
-                        })
-                        .or_else(|| list.get_local_player().cloned());
-                    
-                    if let Some(player_arc) = player_arc {
-                        if let Ok(player) = player_arc.read() {
-                            player.has_radar()
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    };
-
-    if should_draw_radar {
+    if should_draw_radar_check() {
         // Get window position and size for radar drawing
         let (pos_x, pos_y) = window.get_screen_position();
         let (size_x, size_y) = window.get_size();
@@ -980,27 +981,36 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
 
         // Draw radar objects (units, structures)
         for obj in radar.get_all_objects() {
-            if !obj.is_visible {
+            // Skip objects that are temporarily hidden (stealthed/jammed) or not visible on radar
+            if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
                 continue;
             }
             
             // Convert world position to radar screen coordinates
-            let radar_pos = radar.world_to_radar(&obj.world_pos);
-            let screen_x = x + (radar_pos.x as i64 * width as i64 / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64) as i32;
-            let screen_y = y + (radar_pos.y as i64 * height as i64 / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64) as i32;
-            
-            // Draw object as a small colored dot
-            let dot_size = 2;
-            renderer.draw_rect(
-                UIRect::new(
-                    (screen_x - dot_size) as f32,
-                    (screen_y - dot_size) as f32,
-                    (dot_size * 2) as f32,
-                    (dot_size * 2) as f32,
-                ),
-                color_to_rgba(obj.color),
-                0.0,
-            );
+            if let Some(radar_pos) = radar.world_to_radar(&obj.world_pos) {
+                let screen_x = x + (radar_pos.x as i64 * width as i64 / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64) as i32;
+                let screen_y = y + (radar_pos.y as i64 * height as i64 / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64) as i32;
+                
+                // Draw object as a small colored dot
+                let dot_size = 2;
+                // Convert u32 color to RGBA [f32; 4] format
+                let color_rgba = [
+                    ((obj.color >> 16) & 0xFF) as f32 / 255.0,
+                    ((obj.color >> 8) & 0xFF) as f32 / 255.0,
+                    (obj.color & 0xFF) as f32 / 255.0,
+                    ((obj.color >> 24) & 0xFF) as f32 / 255.0,
+                ];
+                renderer.draw_rect(
+                    UIRect::new(
+                        (screen_x - dot_size) as f32,
+                        (screen_y - dot_size) as f32,
+                        (dot_size * 2) as f32,
+                        (dot_size * 2) as f32,
+                    ),
+                    color_rgba,
+                    0.0,
+                );
+            }
         }
 
         // Draw active radar events
