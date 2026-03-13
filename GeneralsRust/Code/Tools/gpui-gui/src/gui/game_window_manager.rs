@@ -345,6 +345,7 @@ impl GameWindowManagerPort {
     pub fn create_layout(&mut self, filename: impl Into<String>) -> WindowLayoutPort {
         let filename = filename.into();
         self.created_layouts.push(filename.clone());
+        let spec = layout_spec(&filename);
 
         let root_id = self.next_id();
         let primary_id = self.next_id();
@@ -352,7 +353,7 @@ impl GameWindowManagerPort {
 
         let mut root = GameWindowPort::new(
             root_id,
-            layout_title(&filename),
+            spec.title,
             LegacyRect {
                 x: 96,
                 y: 64,
@@ -366,39 +367,21 @@ impl GameWindowManagerPort {
         root.children = vec![primary_id, panel_id];
         root.child = Some(primary_id);
 
-        let mut primary = GameWindowPort::new(
-            primary_id,
-            "Primary Action",
-            LegacyRect {
-                x: 128,
-                y: 612,
-                width: 280,
-                height: 48,
-            },
-        );
-        primary.tooltip = "Representative action button".to_string();
-        primary.style = GadgetWindowStyle::PUSH_BUTTON;
+        let mut primary = GameWindowPort::new(primary_id, spec.primary_title, spec.primary_rect);
+        primary.tooltip = spec.primary_tooltip.to_string();
+        primary.style = spec.primary_style;
         primary.set_parent(Some(root_id));
         primary.enable(true);
-        primary.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE | WindowStatus::TAB_STOP);
-        primary.set_text("Launch");
+        primary.set_status(spec.primary_status);
+        primary.set_text(spec.primary_text);
 
-        let mut panel = GameWindowPort::new(
-            panel_id,
-            "Secondary Panel",
-            LegacyRect {
-                x: 756,
-                y: 152,
-                width: 300,
-                height: 428,
-            },
-        );
-        panel.tooltip = "Representative detail panel".to_string();
-        panel.style = GadgetWindowStyle::SCROLL_LISTBOX;
+        let mut panel = GameWindowPort::new(panel_id, spec.secondary_title, spec.secondary_rect);
+        panel.tooltip = spec.secondary_tooltip.to_string();
+        panel.style = spec.secondary_style;
         panel.set_parent(Some(root_id));
         panel.enable(true);
-        panel.set_status(WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT);
-        panel.set_text("Tournament Desert");
+        panel.set_status(spec.secondary_status);
+        panel.set_text(spec.secondary_text);
 
         WindowLayoutPort::new(filename, vec![root, primary, panel])
     }
@@ -621,6 +604,127 @@ fn layout_title(filename: &str) -> String {
         .unwrap_or(filename)
         .trim_end_matches(".wnd")
         .replace('_', " ")
+}
+
+struct LayoutSpec {
+    title: &'static str,
+    primary_title: &'static str,
+    primary_tooltip: &'static str,
+    primary_rect: LegacyRect,
+    primary_style: GadgetWindowStyle,
+    primary_status: WindowStatus,
+    primary_text: &'static str,
+    secondary_title: &'static str,
+    secondary_tooltip: &'static str,
+    secondary_rect: LegacyRect,
+    secondary_style: GadgetWindowStyle,
+    secondary_status: WindowStatus,
+    secondary_text: &'static str,
+}
+
+fn layout_spec(filename: &str) -> LayoutSpec {
+    match filename {
+        "Menus/MainMenu.wnd" => LayoutSpec {
+            title: "MainMenu",
+            primary_title: "ButtonSinglePlayer",
+            primary_tooltip: "Enter the single-player shell flow",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 612,
+                width: 280,
+                height: 48,
+            },
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE | WindowStatus::TAB_STOP,
+            primary_text: "Single Player",
+            secondary_title: "MainMenuDefaultPanel",
+            secondary_tooltip: "Primary main-menu button stack",
+            secondary_rect: LegacyRect {
+                x: 756,
+                y: 152,
+                width: 300,
+                height: 428,
+            },
+            secondary_style: GadgetWindowStyle::USER_WINDOW,
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_text: "Single Player / Multiplayer / Options / Exit",
+        },
+        "Menus/ReplayMenu.wnd" => LayoutSpec {
+            title: "ReplayMenu",
+            primary_title: "ButtonLoadReplay",
+            primary_tooltip: "Load the selected replay",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 612,
+                width: 220,
+                height: 48,
+            },
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE | WindowStatus::TAB_STOP,
+            primary_text: "Load Replay",
+            secondary_title: "ListboxReplayFiles",
+            secondary_tooltip: "Replay list with metadata columns",
+            secondary_rect: LegacyRect {
+                x: 706,
+                y: 152,
+                width: 350,
+                height: 428,
+            },
+            secondary_style: GadgetWindowStyle::SCROLL_LISTBOX,
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_text: "Last Replay",
+        },
+        "Menus/LanLobbyMenu.wnd" => LayoutSpec {
+            title: "LanLobbyMenu",
+            primary_title: "TextEntryChat",
+            primary_tooltip: "LAN chat entry",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 628,
+                width: 520,
+                height: 32,
+            },
+            primary_style: GadgetWindowStyle::ENTRY_FIELD,
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE | WindowStatus::TAB_STOP,
+            primary_text: "Type message...",
+            secondary_title: "ListboxPlayers",
+            secondary_tooltip: "Lobby player roster",
+            secondary_rect: LegacyRect {
+                x: 756,
+                y: 152,
+                width: 300,
+                height: 428,
+            },
+            secondary_style: GadgetWindowStyle::SCROLL_LISTBOX,
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_text: "bernardo",
+        },
+        _ => LayoutSpec {
+            title: "Layout",
+            primary_title: "PrimaryControl",
+            primary_tooltip: "Primary layout control",
+            primary_rect: LegacyRect {
+                x: 128,
+                y: 612,
+                width: 280,
+                height: 48,
+            },
+            primary_style: GadgetWindowStyle::PUSH_BUTTON,
+            primary_status: WindowStatus::ENABLED | WindowStatus::IMAGE | WindowStatus::TAB_STOP,
+            primary_text: "Launch",
+            secondary_title: "DetailPanel",
+            secondary_tooltip: "Secondary layout panel",
+            secondary_rect: LegacyRect {
+                x: 756,
+                y: 152,
+                width: 300,
+                height: 428,
+            },
+            secondary_style: GadgetWindowStyle::SCROLL_LISTBOX,
+            secondary_status: WindowStatus::ENABLED | WindowStatus::SMOOTH_TEXT,
+            secondary_text: "Detail",
+        },
+    }
 }
 
 #[cfg(test)]

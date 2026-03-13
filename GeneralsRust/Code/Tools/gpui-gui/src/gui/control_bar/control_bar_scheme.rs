@@ -12,3 +12,32 @@ pub const PORT: ControlBarPort = ControlBarPort::new(
     "Scheme",
     "Faction-specific imagery, colors, and animation layers.",
 );
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControlBarSchemePort {
+    pub side: String,
+    pub right_hud_image: String,
+    pub command_bar_border_color: String,
+    pub build_border_color: String,
+    pub action_border_color: String,
+    pub beacon_button_image: String,
+}
+
+impl Default for ControlBarSchemePort {
+    fn default() -> Self {
+        Self::sample()
+    }
+}
+
+impl ControlBarSchemePort {
+    pub fn sample() -> Self {
+        Self {
+            side: "USA".to_string(),
+            right_hud_image: "USA_RightHUD".to_string(),
+            command_bar_border_color: "#466b94".to_string(),
+            build_border_color: "#7da6d1".to_string(),
+            action_border_color: "#d1a65d".to_string(),
+            beacon_button_image: "BeaconButtonEnable".to_string(),
+        }
+    }
+}
