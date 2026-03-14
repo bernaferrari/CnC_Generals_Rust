@@ -15,7 +15,7 @@
 use crate::command_line;
 use crate::runtime::attachments::AttachmentDispatcher;
 use anyhow::{Context, Result};
-use egui_winit::winit::{
+use winit::{
     self,
     dpi::{LogicalSize, PhysicalPosition},
     event_loop::EventLoop,

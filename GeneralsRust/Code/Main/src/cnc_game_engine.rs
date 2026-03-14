@@ -22,21 +22,16 @@ use crate::runtime::attachments::AttachmentDispatcher;
 use crate::save_load::{
     init_game_state_system, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
 };
-use crate::subsystem_manager::{get_subsystem_manager, with_subsystem_mut, GlobalDataSubsystem};
+use crate::subsystem_manager::{
+    get_subsystem_manager, with_subsystem_mut, GlobalDataSubsystem, NetworkSubsystem,
+};
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
-    UIEvent, UIManager, VictoryOverlayAction,
+    UIEvent, UIManager, UISystemEvent, UISystemState, WgpuUISystem,
 };
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use anyhow::Result;
-use egui_winit::winit::{
-    self,
-    event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    keyboard::{Key, NamedKey},
-    window::{Window, WindowAttributes},
-};
 use glam::{Mat4, Vec2, Vec3};
 #[cfg(feature = "integration-diagnostics")]
 use integration::diagnostics::SystemDiagnostics;
@@ -47,22 +42,28 @@ use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::{PI, TAU};
 use std::fs;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::AtomicU32;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Wake, Waker};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use wgpu::util::DeviceExt;
+use winit::{
+    self,
+    event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    keyboard::{Key, NamedKey},
+    window::{Window, WindowAttributes},
+};
 use ww3d_core::ww3d::WW3D;
 use ww3d_engine::{self, EngineConfig, EngineError, FrameTiming};
 use ww3d_renderer_3d::core::error::Error as RendererError;
 
-#[cfg(feature = "game_client")]
-use game_client::gui::{
-    get_shell, set_ui_renderer, with_ui_renderer, with_window_manager, with_window_manager_ref,
-};
-#[cfg(feature = "game_client")]
-use game_client::gui::ui_renderer::UIRenderer as LegacyUIRenderer;
-#[cfg(feature = "game_client")]
-use game_client::core::SubsystemInterface as GameClientSubsystemInterface;
 #[cfg(feature = "network")]
 use game_network::time::NetworkClock;
 
@@ -75,14 +76,110 @@ impl NetworkClock {
     fn clear_override() {}
 }
 
-const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
-const LEGACY_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
-const LEGACY_VIEW_NEAR_CLIP: f32 = 1.0;
+#[cfg(test)]
+mod tests {
+    use super::{CnCGameEngine, GameState};
 
-fn pack_legacy_mouse_data(x: i32, y: i32) -> u32 {
+    #[test]
+    fn startup_deferred_budget_menu_is_zero_without_startup_frame() {
+        let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
+        assert_eq!(budget, 0);
+    }
+
+    #[test]
+    fn startup_deferred_budget_menu_stays_zero_across_startup_age() {
+        let early =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 120);
+        let mid =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 170);
+        let late =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 400);
+        assert_eq!(early, 0);
+        assert_eq!(mid, 0);
+        assert_eq!(late, 0);
+    }
+
+    #[test]
+    fn startup_deferred_budget_disables_startup_prewarm_for_ui_responsiveness() {
+        let loading_early =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Loading, Some(100), 110);
+        let menu_early =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 110);
+        assert_eq!(loading_early, 0);
+        assert_eq!(menu_early, 0);
+    }
+
+    #[test]
+    fn startup_deferred_budget_disabled_during_playing() {
+        let budget =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Playing, Some(0), 1000);
+        assert_eq!(budget, 0);
+    }
+
+    #[test]
+    fn menu_caustic_warmup_waits_for_stable_menu_frames() {
+        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(None, 200));
+        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(Some(100), 219));
+        assert!(CnCGameEngine::should_trigger_menu_caustic_warmup(Some(100), 220));
+    }
+
+    #[test]
+    fn effective_fps_limit_prefers_script_override() {
+        let limit =
+            CnCGameEngine::effective_fps_limit_for_frame(Some(45), false, 30, 2.0, true, true);
+        assert_eq!(limit, Some(45));
+    }
+
+    #[test]
+    fn effective_fps_limit_honors_cpp_tivo_replay_rule_for_global_limit() {
+        let limit = CnCGameEngine::effective_fps_limit_for_frame(None, true, 30, 1.0, true, true);
+        assert_eq!(limit, None);
+    }
+
+    #[test]
+    fn effective_fps_limit_disables_global_limit_for_fast_visual_multiplier() {
+        let limit = CnCGameEngine::effective_fps_limit_for_frame(None, true, 30, 1.5, false, false);
+        assert_eq!(limit, None);
+    }
+
+    #[test]
+    fn game_logic_gate_without_network_matches_cpp_pause_behavior() {
+        assert!(CnCGameEngine::should_update_game_logic_frame(false, None));
+        assert!(!CnCGameEngine::should_update_game_logic_frame(true, None));
+    }
+
+    #[test]
+    fn game_logic_gate_with_network_uses_frame_ready_only() {
+        assert!(CnCGameEngine::should_update_game_logic_frame(
+            false,
+            Some(true)
+        ));
+        assert!(CnCGameEngine::should_update_game_logic_frame(
+            true,
+            Some(true)
+        ));
+        assert!(!CnCGameEngine::should_update_game_logic_frame(
+            false,
+            Some(false)
+        ));
+        assert!(!CnCGameEngine::should_update_game_logic_frame(
+            true,
+            Some(false)
+        ));
+    }
+}
+
+const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
+const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
+const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
+const SHELL_LOADING_LAYOUT: &str = "Menus/ShellGameLoadScreen.wnd";
+const SHELL_LOADING_PARENT_NAME: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
+const SHELL_LOADING_PROGRESS_NAME: &str = "ShellGameLoadScreen.wnd:ProgressLoad";
+
+fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
 }
-const LEGACY_VIEW_FAR_CLIP: f32 = 20_000.0;
+const DEFAULT_VIEW_FAR_CLIP: f32 = 20_000.0;
 
 // C++ SAGE Engine equivalent modules
 use crate::graphics::{
@@ -137,6 +234,30 @@ impl ScriptCameraShaker {
     }
 }
 
+struct StartupLoadResult {
+    game_logic: GameLogic,
+    loaded_map_name: Option<String>,
+    start_in_menu: bool,
+    map_requested_from_cli: bool,
+}
+
+enum StartupLoadMessage {
+    Progress { progress: f32, phase: String },
+    Complete(std::result::Result<StartupLoadResult, String>),
+}
+
+enum StartupLoadState {
+    Idle,
+    InProgress {
+        receiver: Receiver<StartupLoadMessage>,
+        started_at: Instant,
+        last_worker_progress: f32,
+        last_worker_phase: Option<String>,
+        last_worker_logged_bucket: u8,
+    },
+    Complete,
+}
+
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
     window: Arc<Window>,
@@ -161,6 +282,14 @@ pub struct CnCGameEngine {
     // Game state machine - matches C++ GameEngine m_quitting and state management
     current_state: GameState,
     pending_state: Option<GameState>,
+    startup_load_state: StartupLoadState,
+    startup_target_state: Option<GameState>,
+    startup_start_in_menu: bool,
+    last_loading_title_update: Option<Instant>,
+    startup_last_reported_progress: f32,
+    startup_last_progress_change_at: Instant,
+    startup_last_stall_warning_at: Option<Instant>,
+    last_caustic_warmup_attempt: Option<Instant>,
 
     // Game state
     game_logic: GameLogic,
@@ -225,24 +354,23 @@ pub struct CnCGameEngine {
     fps: f32,
     last_frame_timing: Option<FrameTiming>,
     frame_clock: FrameClock,
+    menu_loading_tick_accumulator: Duration,
+    menu_loading_last_tick: Instant,
     diagnostics_overlay: Option<DiagnosticsOverlayStats>,
 
     // UI system
     ui_manager: UIManager,
+    wgpu_ui_system: WgpuUISystem,
     game_hud: GameHUD,
-
-    // Egui integration for GUI rendering
-    egui_context: egui::Context,
-    egui_state: egui_winit::State,
-    egui_renderer: Arc<Mutex<egui_wgpu::Renderer>>,
-    egui_hud: crate::ui::EguiHUD,
     active_menu_shell_hook: Option<&'static str>,
+    gpui_menu_bridge: Option<GpuiMenuBridge>,
 
     // Model loading state
     models_loaded: bool,
     pending_shell_model_prewarm: VecDeque<String>,
     menu_enter_frame: Option<u64>,
-    legacy_shell_enqueued_frame: Option<u64>,
+    shell_ui_enqueued_frame: Option<u64>,
+    last_menu_stall_warning: Option<Instant>,
     match_over: bool,
     victory_summary: Option<VictorySummary>,
 }
@@ -340,21 +468,275 @@ struct StartupCameraDefaults {
     max_camera_height: f32,
 }
 
-impl CnCGameEngine {
-    #[cfg(feature = "game_client")]
-    fn legacy_shell_active(&self) -> bool {
-        let shell = get_shell();
-        shell.is_shell_active() && shell.get_screen_count() > 0
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpuiMenuAction {
+    StartSkirmish,
+    ExitGame,
+    OpenOptions,
+}
+
+impl GpuiMenuAction {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "start_skirmish" => Some(Self::StartSkirmish),
+            "exit_game" => Some(Self::ExitGame),
+            "open_options" => Some(Self::OpenOptions),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GpuiMenuWindowPlacement {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug)]
+struct GpuiMenuBridge {
+    child: Child,
+    ipc_path: PathBuf,
+    launch_label: &'static str,
+}
+
+impl GpuiMenuBridge {
+    fn spawn(placement: Option<GpuiMenuWindowPlacement>) -> Result<Self> {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let ipc_path = std::env::temp_dir().join(format!(
+            "generals_gpui_menu_action_{}_{}.txt",
+            std::process::id(),
+            now
+        ));
+        let _ = fs::remove_file(&ipc_path);
+
+        if let Ok(bridge) = Self::spawn_from_binary(&ipc_path, placement) {
+            return Ok(bridge);
+        }
+
+        Self::spawn_from_cargo(&ipc_path, placement)
     }
 
-    #[cfg(not(feature = "game_client"))]
-    fn legacy_shell_active(&self) -> bool {
+    fn spawn_from_binary(
+        ipc_path: &Path,
+        placement: Option<GpuiMenuWindowPlacement>,
+    ) -> Result<Self> {
+        let helper_name = if cfg!(target_os = "windows") {
+            "gpui-gui.exe"
+        } else {
+            "gpui-gui"
+        };
+        let current_exe = std::env::current_exe()
+            .map_err(|err| anyhow::anyhow!("failed to resolve current executable path: {err}"))?;
+        let helper = current_exe.with_file_name(helper_name);
+        if !helper.is_file() {
+            return Err(anyhow::anyhow!("gpui helper binary not found at {:?}", helper));
+        }
+
+        let mut command = Command::new(&helper);
+        command
+            .arg("--runtime-menu-ipc")
+            .arg(ipc_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(placement) = placement {
+            command
+                .env("GENERALS_GPUI_MENU_X", placement.x.to_string())
+                .env("GENERALS_GPUI_MENU_Y", placement.y.to_string())
+                .env("GENERALS_GPUI_MENU_WIDTH", placement.width.to_string())
+                .env("GENERALS_GPUI_MENU_HEIGHT", placement.height.to_string());
+        }
+        let child = command
+            .spawn()
+            .map_err(|err| anyhow::anyhow!("failed to spawn gpui helper binary: {err}"))?;
+
+        Ok(Self {
+            child,
+            ipc_path: ipc_path.to_path_buf(),
+            launch_label: "binary",
+        })
+    }
+
+    fn spawn_from_cargo(
+        ipc_path: &Path,
+        placement: Option<GpuiMenuWindowPlacement>,
+    ) -> Result<Self> {
+        let workspace_manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
+        let mut command = Command::new("cargo");
+        command
+            .arg("run")
+            .arg("--manifest-path")
+            .arg(workspace_manifest)
+            .arg("-p")
+            .arg("gpui-gui")
+            .arg("--")
+            .arg("--runtime-menu-ipc")
+            .arg(ipc_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(placement) = placement {
+            command
+                .env("GENERALS_GPUI_MENU_X", placement.x.to_string())
+                .env("GENERALS_GPUI_MENU_Y", placement.y.to_string())
+                .env("GENERALS_GPUI_MENU_WIDTH", placement.width.to_string())
+                .env("GENERALS_GPUI_MENU_HEIGHT", placement.height.to_string());
+        }
+        let child = command
+            .spawn()
+            .map_err(|err| anyhow::anyhow!("failed to spawn gpui helper via cargo run: {err}"))?;
+
+        Ok(Self {
+            child,
+            ipc_path: ipc_path.to_path_buf(),
+            launch_label: "cargo",
+        })
+    }
+
+    fn poll_action(&mut self) -> Option<GpuiMenuAction> {
+        let raw = fs::read_to_string(&self.ipc_path).ok()?;
+        let _ = fs::remove_file(&self.ipc_path);
+        GpuiMenuAction::parse(&raw)
+    }
+
+    fn has_exited(&mut self) -> bool {
+        self.child.try_wait().ok().flatten().is_some()
+    }
+
+    fn terminate(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = fs::remove_file(&self.ipc_path);
+    }
+}
+
+impl Drop for GpuiMenuBridge {
+    fn drop(&mut self) {
+        self.terminate();
+    }
+}
+
+impl CnCGameEngine {
+    const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
+    const CAUSTIC_WARMUP_RETRY_INTERVAL: Duration = Duration::from_secs(10);
+
+    fn menu_uses_gpui_bridge(&self) -> bool {
         false
     }
 
-    fn legacy_shell_owns_menu_ui(&self) -> bool {
-        self.current_state == GameState::Menu && self.legacy_shell_active()
+    fn current_menu_window_placement(&self) -> Option<GpuiMenuWindowPlacement> {
+        let size = self.window.inner_size();
+        let position = self.window.outer_position().ok()?;
+        Some(GpuiMenuWindowPlacement {
+            x: position.x,
+            y: position.y,
+            width: size.width.max(1),
+            height: size.height.max(1),
+        })
     }
+
+    fn ensure_gpui_menu_bridge(&mut self) {
+        // Runtime menu is rendered in the main game window.
+    }
+
+    fn shutdown_gpui_menu_bridge(&mut self) {
+        if let Some(mut bridge) = self.gpui_menu_bridge.take() {
+            bridge.terminate();
+        }
+    }
+
+    fn poll_gpui_menu_actions(&mut self) -> bool {
+        false
+    }
+
+    fn shell_ui_active(&self) -> bool {
+        false
+    }
+
+    fn shell_ui_owns_menu(&self) -> bool {
+        self.current_state == GameState::Menu && self.shell_ui_active()
+    }
+
+    fn loading_visual_phase(elapsed_seconds: f32) -> (&'static str, f32) {
+        if elapsed_seconds < 1.0 {
+            ("Initializing engine", (elapsed_seconds / 1.0) * 0.15)
+        } else if elapsed_seconds < 4.0 {
+            (
+                "Loading map data",
+                0.15 + ((elapsed_seconds - 1.0) / 3.0) * 0.30,
+            )
+        } else if elapsed_seconds < 10.0 {
+            (
+                "Spawning world objects",
+                0.45 + ((elapsed_seconds - 4.0) / 6.0) * 0.35,
+            )
+        } else {
+            (
+                "Finalizing startup",
+                0.80 + ((elapsed_seconds - 10.0) / 6.0).clamp(0.0, 1.0) * 0.15,
+            )
+        }
+    }
+
+    fn ui_window_manager_has_windows(&self) -> bool {
+        false
+    }
+
+    fn gameplay_ui_active(&self) -> bool {
+        false
+    }
+
+    fn ensure_shell_loading_overlay(&mut self) {
+        let _ = (SHELL_LOADING_LAYOUT, SHELL_LOADING_PARENT_NAME, SHELL_LOADING_PROGRESS_NAME);
+    }
+
+    fn hide_shell_loading_overlay(&mut self) {
+    }
+
+    fn update_shell_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
+        self.wgpu_ui_system.set_loading_progress(progress, phase);
+    }
+
+    fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
+        let progress = progress.clamp(0.0, 1.0);
+        if progress > self.startup_last_reported_progress + 0.001 {
+            self.startup_last_reported_progress = progress;
+            self.startup_last_progress_change_at = Instant::now();
+            self.startup_last_stall_warning_at = None;
+            return;
+        }
+
+        let stalled_for = self.startup_last_progress_change_at.elapsed();
+        if stalled_for < Duration::from_secs(2) {
+            return;
+        }
+
+        let should_warn = self
+            .startup_last_stall_warning_at
+            .map(|last| last.elapsed() >= Duration::from_secs(2))
+            .unwrap_or(true);
+        if !should_warn {
+            return;
+        }
+
+        warn!(
+            "Startup progress stalled at {:.0}% in phase '{}' for {:.2}s (game_state={:?})",
+            progress * 100.0,
+            phase,
+            stalled_for.as_secs_f32(),
+            self.current_state
+        );
+        self.startup_last_stall_warning_at = Some(Instant::now());
+    }
+
+    fn hide_gameplay_layouts(&mut self) {}
+
+    fn ensure_gameplay_layouts(&mut self) {}
 
     fn to_engine_timing(clock: ClockFrameTiming, frame_start: Instant) -> FrameTiming {
         let sync_time = clock.total_time.as_millis() as u32;
@@ -406,27 +788,107 @@ impl CnCGameEngine {
     }
 
     fn current_startup_logic_frame(&self) -> u64 {
-        self.game_logic.get_current_frame()
+        // Use engine frame cadence for startup budgeting. Game-logic frame counters can jump
+        // during long blocking startup operations, which over-ages menu startup budgets.
+        self.frame_counter as u64
     }
 
     fn shell_start_frame(&self) -> Option<u64> {
-        match (self.menu_enter_frame, self.legacy_shell_enqueued_frame) {
-            (Some(menu), Some(legacy)) => Some(menu.min(legacy)),
-            (Some(menu), None) => Some(menu),
-            (None, Some(legacy)) => Some(legacy),
-            (None, None) => None,
+        // Anchor startup age to the frame where menu state became active when available.
+        // Shell enqueue can happen earlier during loading and should not age out menu
+        // startup budgets before first visible menu frames.
+        self.menu_enter_frame.or(self.shell_ui_enqueued_frame)
+    }
+
+    fn startup_deferred_model_load_budget(
+        current_state: GameState,
+        startup_frame: Option<u64>,
+        current_logic_frame: u64,
+    ) -> usize {
+        if !matches!(current_state, GameState::Menu | GameState::Loading) {
+            return 0;
         }
+
+        // Keep loading/menu frames strictly responsive and avoid startup hitches that can
+        // trigger OS "not responding" behavior or hide/show shell UI frames.
+        let _ = startup_frame;
+        let _ = current_logic_frame;
+        0
+    }
+
+    fn should_trigger_menu_caustic_warmup(
+        startup_frame: Option<u64>,
+        current_logic_frame: u64,
+    ) -> bool {
+        startup_frame
+            .map(|start| {
+                current_logic_frame.saturating_sub(start) >= Self::MENU_CAUSTIC_WARMUP_DELAY_FRAMES
+            })
+            .unwrap_or(false)
+    }
+
+    fn maybe_trigger_deferred_caustic_warmup(&mut self) {
+        let should_start = match self.current_state {
+            GameState::Playing => true,
+            GameState::Menu => Self::should_trigger_menu_caustic_warmup(
+                self.shell_start_frame(),
+                self.current_startup_logic_frame(),
+            ),
+            _ => false,
+        };
+        if !should_start {
+            return;
+        }
+
+        if self
+            .last_caustic_warmup_attempt
+            .is_some_and(|last| last.elapsed() < Self::CAUSTIC_WARMUP_RETRY_INTERVAL)
+        {
+            return;
+        }
+
+        self.last_caustic_warmup_attempt = Some(Instant::now());
+        let queued = crate::assets::manager::warmup_caustic_textures_async(
+            self.graphics_system.device_arc(),
+            self.graphics_system.queue_arc(),
+        );
+        if queued {
+            info!(
+                "Queued deferred caustic texture warmup (state={:?})",
+                self.current_state
+            );
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    fn should_skip_world_scene_for_shell_menu(&self) -> bool {
+        if self.current_state == GameState::Loading {
+            // C++ load screens are full-screen UI overlays; they do not render live terrain/world.
+            return true;
+        }
+        if self.current_state != GameState::Menu || !self.shell_ui_owns_menu() {
+            return false;
+        }
+        // Keep shell menu UI isolated from world rendering to avoid startup race/stall behavior.
+        true
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    fn should_skip_world_scene_for_shell_menu(&self) -> bool {
+        false
     }
 
     fn configured_startup_camera_defaults() -> StartupCameraDefaults {
         if let Some(defaults) =
             crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
-                subsystem.get_global_data().map(|global| StartupCameraDefaults {
-                    pitch_degrees: global.camera_pitch,
-                    yaw_degrees: global.camera_yaw,
-                    camera_height: global.camera_height,
-                    max_camera_height: global.max_camera_height,
-                })
+                subsystem
+                    .get_global_data()
+                    .map(|global| StartupCameraDefaults {
+                        pitch_degrees: global.camera_pitch,
+                        yaw_degrees: global.camera_yaw,
+                        camera_height: global.camera_height,
+                        max_camera_height: global.max_camera_height,
+                    })
             })
             .flatten()
         {
@@ -480,17 +942,17 @@ impl CnCGameEngine {
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.
         let terrain_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
-        let (legacy_ground_height, terrain_height_max) =
+        let (camera_anchor_ground_height, terrain_height_max) =
             Self::sample_startup_camera_heights(game_logic, terrain_target, world_center.y);
         let focus_target = Vec3::new(focus_2d.x, 0.0, focus_2d.y);
         let (focus_ground_height, _) =
             Self::sample_startup_camera_heights(game_logic, focus_target, world_center.y);
 
-        // Keep the C++ zoom/offset sampling from the legacy top-left anchor, but aim the modern
+        // Keep the C++ zoom/offset sampling from the top-left anchor, but aim the modern
         // Rust camera at the requested scene focus. This remains the closest visible match for the
         // current renderer bridge.
         let camera_target = Vec3::new(focus_2d.x, focus_ground_height, focus_2d.y);
-        let camera_offset_z = legacy_ground_height + defaults.camera_height.max(0.0);
+        let camera_offset_z = camera_anchor_ground_height + defaults.camera_height.max(0.0);
         let pitch_radians = defaults.pitch_degrees.to_radians();
         let yaw_radians = defaults.yaw_degrees.to_radians();
         let camera_offset_y = if pitch_radians.tan().abs() > f32::EPSILON {
@@ -503,7 +965,7 @@ impl CnCGameEngine {
         // Match W3DView::setZoomToDefault exactly: desired zoom is the visible terrain max
         // around the look-at point plus max camera height, divided by the base offset height.
         let zoom = Self::compute_default_camera_zoom_from_heights(
-            legacy_ground_height,
+            camera_anchor_ground_height,
             terrain_height_max,
             defaults,
             1.0,
@@ -513,7 +975,7 @@ impl CnCGameEngine {
         // source = cameraOffset * zoom; source *= (1 - ground / source.z); then translate.
         let source_z = camera_offset_z * zoom;
         let factor = if source_z.abs() > f32::EPSILON {
-            1.0 - (legacy_ground_height / source_z)
+            1.0 - (camera_anchor_ground_height / source_z)
         } else {
             1.0
         };
@@ -530,7 +992,7 @@ impl CnCGameEngine {
             focus_2d,
             camera_target,
             camera_position,
-            legacy_ground_height,
+            camera_anchor_ground_height,
             terrain_height_max,
             camera_offset_x,
             camera_offset_y,
@@ -600,11 +1062,7 @@ impl CnCGameEngine {
         }
     }
 
-    fn compute_default_camera_zoom_for_target(
-        &self,
-        target: Vec3,
-        max_height_scale: f32,
-    ) -> f32 {
+    fn compute_default_camera_zoom_for_target(&self, target: Vec3, max_height_scale: f32) -> f32 {
         let defaults = Self::configured_startup_camera_defaults();
         let (ground_height, terrain_height_max) =
             Self::sample_startup_camera_heights(&self.game_logic, target, target.y);
@@ -617,198 +1075,301 @@ impl CnCGameEngine {
     }
 
     fn write_startup_debug_state(&self) {
-        if !matches!(self.current_state, GameState::Menu | GameState::Loading) {
-            return;
-        }
+        let _ = self;
+    }
 
-        #[cfg(feature = "game_client")]
-        let (shell_active, shell_screen_count) = {
-            let shell = get_shell();
-            (shell.is_shell_active(), shell.get_screen_count())
-        };
-        #[cfg(not(feature = "game_client"))]
-        let (shell_active, shell_screen_count) = (false, 0usize);
+    fn emit_startup_load_progress(
+        sender: &mpsc::Sender<StartupLoadMessage>,
+        progress: f32,
+        phase: &str,
+    ) {
+        let _ = sender.send(StartupLoadMessage::Progress {
+            progress: progress.clamp(0.0, 0.96),
+            phase: phase.to_string(),
+        });
+    }
 
-        let (
-            terrain_chunk_count,
-            terrain_heightmap_loaded,
-            terrain_total_chunks,
-            terrain_visible_chunks,
-            terrain_renderable_chunks,
-            terrain_pending_chunks,
-            terrain_world_size,
-            terrain_summary,
-        ) = game_client::terrain::terrain_visual::get_terrain_visual()
-            .ok()
-            .and_then(|guard| {
-                guard.as_ref().map(|terrain| {
-                    (
-                        terrain.chunk_draw_count(),
-                        terrain.debug_heightmap_loaded(),
-                        terrain.debug_total_chunk_count(),
-                        terrain.debug_visible_chunk_count(),
-                        terrain.debug_renderable_visible_chunk_count(),
-                        terrain.debug_pending_visible_chunk_count(),
-                        terrain.world_size(),
-                        terrain.debug_chunk_summary(),
-                    )
-                })
-            })
-            .unwrap_or_else(|| {
-                (
-                    0,
-                    false,
-                    0,
-                    0,
-                    0,
-                    0,
-                    (0.0, 0.0),
-                    "terrain_visual_unavailable".to_string(),
-                )
-            });
-        let mut nearest_objects = self
-            .game_logic
-            .get_objects()
-            .iter()
-            .map(|(id, object)| {
-                let distance_sq = object.get_position().distance_squared(self.camera_target);
-                (distance_sq, id, object)
-            })
-            .collect::<Vec<_>>();
-        nearest_objects.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(b.1)));
-        let view_projection = self.projection_matrix * self.view_matrix;
-        let sample_object_ids = nearest_objects
-            .iter()
-            .take(8)
-            .map(|(_, id, _)| **id)
-            .collect::<Vec<_>>();
-        let sample_objects = nearest_objects
-            .into_iter()
-            .take(8)
-            .map(|(_, id, object)| {
-                let position = object.get_position();
-                let render_position = gameplay_to_render_transform(object.get_transform_matrix())
-                    .w_axis
-                    .truncate();
-                let clip = view_projection * render_position.extend(1.0);
-                let ndc = if clip.w.abs() > f32::EPSILON {
-                    clip.truncate() / clip.w
+    fn spawn_startup_map_load(
+        start_in_menu: bool,
+        map_to_load: String,
+        map_requested_from_cli: bool,
+        player_name: Option<String>,
+        graphics_device: Arc<wgpu::Device>,
+        graphics_queue: Arc<wgpu::Queue>,
+    ) -> StartupLoadState {
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            Self::emit_startup_load_progress(&sender, 0.03, "Initializing asset manager");
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || -> std::result::Result<StartupLoadResult, String> {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|err| {
+                            format!("failed to create startup tokio runtime for asset init: {err}")
+                        })?;
+                    runtime
+                        .block_on(crate::assets::manager::init_asset_manager(
+                            graphics_device.as_ref(),
+                            graphics_queue.as_ref(),
+                        ))
+                        .map_err(|err| format!("asset manager init failed: {err}"))?;
+
+                    Self::emit_startup_load_progress(&sender, 0.14, "Asset manager ready");
+                    Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
+                    let mut game_logic = GameLogic::initialize();
+                    game_logic.start_new_game(if start_in_menu {
+                        GameMode::Shell
+                    } else {
+                        GameMode::Skirmish
+                    });
+                    Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
+                    let thing_factory_needs_init = game_engine::common::thing::get_thing_factory()
+                        .ok()
+                        .map(|guard| guard.is_none())
+                        .unwrap_or(false);
+                    if thing_factory_needs_init {
+                        if let Err(err) = game_engine::common::thing::init_thing_factory() {
+                            warn!(
+                                "ThingFactory prewarm failed before map spawn; continuing with lazy init: {}",
+                                err
+                            );
+                        }
+                    }
+
+                    Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
+                    let mut loaded_map_name = None;
+                    let map_loaded =
+                        game_logic.load_map_with_progress(&map_to_load, |progress, phase| {
+                            Self::emit_startup_load_progress(&sender, progress, phase);
+                        });
+                    if !map_loaded {
+                        warn!(
+                            "Failed to load map '{}', falling back to default map '{}'",
+                            map_to_load, DEFAULT_SKIRMISH_MAP
+                        );
+                        Self::emit_startup_load_progress(
+                            &sender,
+                            0.45,
+                            "Retrying with default map",
+                        );
+                        if map_to_load != DEFAULT_SKIRMISH_MAP
+                            && game_logic.load_map_with_progress(
+                                DEFAULT_SKIRMISH_MAP,
+                                |progress, phase| {
+                                    Self::emit_startup_load_progress(&sender, progress, phase);
+                                },
+                            )
+                        {
+                            loaded_map_name = Some(DEFAULT_SKIRMISH_MAP.to_string());
+                        }
+                    } else {
+                        loaded_map_name = Some(map_to_load.clone());
+                    }
+
+                    if let Some(player_name) = player_name.as_deref() {
+                        if game_logic.set_player_name(0, player_name) {
+                            info!("Set local player name to '{}'", player_name);
+                        } else {
+                            warn!("Failed to apply player name '{}'", player_name);
+                        }
+                    }
+                    Self::emit_startup_load_progress(&sender, 0.92, "Finalizing startup data");
+
+                    Ok(StartupLoadResult {
+                        game_logic,
+                        loaded_map_name,
+                        start_in_menu,
+                        map_requested_from_cli,
+                    })
+                },
+            ))
+            .map_err(|panic_payload| {
+                if let Some(message) = panic_payload.downcast_ref::<&str>() {
+                    format!("startup map load panicked: {message}")
+                } else if let Some(message) = panic_payload.downcast_ref::<String>() {
+                    format!("startup map load panicked: {message}")
                 } else {
-                    Vec3::splat(f32::INFINITY)
-                };
-                format!(
-                    "{}:{} pos=({:.1},{:.1},{:.1}) dist={:.1} ndc=({:.2},{:.2},{:.2}) hp={:.1}/{:.1} destroyed={} constructed={} model={}",
-                    id,
-                    object.template_name,
-                    position.x,
-                    position.y,
-                    position.z,
-                    render_position.distance(self.camera_target),
-                    ndc.x,
-                    ndc.y,
-                    ndc.z,
-                    object.health.current,
-                    object.max_health,
-                    object.status.destroyed,
-                    !object.status.under_construction,
-                    object.get_template().get_model_name(),
-                )
+                    "startup map load panicked with non-string payload".to_string()
+                }
             })
-            .collect::<Vec<_>>()
-            .join(" | ");
-        let (
-            render_shadow_items,
-            render_forward_opaque_items,
-            render_forward_transparent_items,
-            render_water_items,
-            render_ui_items,
-        ) = self.render_pipeline.debug_render_pass_counts();
-        let (forward_draw_calls, forward_meshes_rendered, forward_triangles_rendered) =
-            self.render_pipeline.debug_forward_renderer_stats();
-        let sample_object_render_items = self
-            .render_pipeline
-            .debug_render_item_breakdown_for_objects(&sample_object_ids);
-        let sample_model_summaries = sample_object_ids
-            .iter()
-            .filter_map(|id| self.game_logic.get_objects().get(id).map(|obj| obj.get_template().get_model_name()))
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .filter_map(|model_name| self.graphics_system.debug_model_summary(model_name))
-            .collect::<Vec<_>>()
-            .join(" | ");
-        let logic_frame = self.current_startup_logic_frame();
-        let startup_frame = self.shell_start_frame().unwrap_or(logic_frame);
-        let startup_age = logic_frame.saturating_sub(startup_frame);
-        let contents = format!(
-            "state={:?}\ngame_mode={:?}\nframe_counter={}\nstartup_frame={}\nstartup_age={}\nmap_loaded={}\nshell_active={}\nshell_screen_count={}\nobject_count={}\nrender_alive_objects={}\nrender_fow_filtered={}\nrender_model_missing={}\nrender_model_budget_skips={}\nrender_zero_mesh_models={}\nrender_missing_model_samples={}\nrender_deferred_model_load_budget={}\nrender_deferred_model_loads={}\nmap={}\ncamera_position={:?}\ncamera_target={:?}\ncamera_zoom={:.3}\ncamera_pitch_rad={:.6}\ncamera_yaw_rad={:.6}\nrender_items_last_frame={}\nrender_shadow_items={}\nrender_forward_opaque_items={}\nrender_forward_transparent_items={}\nrender_water_items={}\nrender_ui_items={}\nforward_draw_calls={}\nforward_meshes_rendered={}\nforward_triangles_rendered={}\nterrain_chunks={}\nterrain_heightmap_loaded={}\nterrain_total_chunks={}\nterrain_visible_chunks={}\nterrain_renderable_chunks={}\nterrain_pending_chunks={}\nterrain_world_size={:?}\nterrain_summary={}\nsample_objects={}\nsample_object_render_items={}\nsample_model_summaries={}\nwindow_size={:?}\n",
-            self.current_state,
-            self.game_logic.game_mode(),
-            self.frame_counter,
-            startup_frame,
-            startup_age,
-            self.game_logic.isInGame(),
-            shell_active,
-            shell_screen_count,
-            self.game_logic.get_objects().len(),
-            self.render_pipeline.debug_last_alive_objects(),
-            self.render_pipeline.debug_last_fow_filtered(),
-            self.render_pipeline.debug_last_model_missing(),
-            self.render_pipeline.debug_last_model_budget_skips(),
-            self.render_pipeline.debug_last_zero_mesh_models(),
-            self.render_pipeline.debug_last_missing_model_samples().join(" | "),
-            self.render_pipeline.debug_last_deferred_model_load_budget(),
-            self.render_pipeline.debug_last_deferred_model_loads(),
-            self.game_logic.get_current_map_name(),
-            self.camera_position,
-            self.camera_target,
-            self.camera_zoom,
-            self.camera_pitch_radians,
-            self.camera_yaw_radians,
-            self.render_pipeline.debug_render_item_count(),
-            render_shadow_items,
-            render_forward_opaque_items,
-            render_forward_transparent_items,
-            render_water_items,
-            render_ui_items,
-            forward_draw_calls,
-            forward_meshes_rendered,
-            forward_triangles_rendered,
-            terrain_chunk_count,
-            terrain_heightmap_loaded,
-            terrain_total_chunks,
-            terrain_visible_chunks,
-            terrain_renderable_chunks,
-            terrain_pending_chunks,
-            terrain_world_size,
-            terrain_summary,
-            sample_objects,
-            sample_object_render_items,
-            sample_model_summaries,
-            self.window.inner_size(),
-        );
-        if let Err(err) = fs::write("/tmp/generals_startup_state.txt", &contents) {
-            warn!("Failed to write /tmp/generals_startup_state.txt: {err}");
+            .and_then(|inner| inner);
+
+            let _ = sender.send(StartupLoadMessage::Complete(result));
+        });
+
+        StartupLoadState::InProgress {
+            receiver,
+            started_at: Instant::now(),
+            last_worker_progress: 0.0,
+            last_worker_phase: None,
+            last_worker_logged_bucket: 0,
         }
-        println!(
-            "DEBUG_STARTUP_STATE: state={:?} game_mode={:?} frame={} startup_age={} map={} camera_position={:?} camera_target={:?} camera_zoom={:.3} render_items_last_frame={} deferred_budget={} deferred_loads={} budget_skips={} zero_mesh_models={} terrain_visible_chunks={} terrain_renderable_chunks={} terrain_pending_chunks={} terrain_summary={}",
-            self.current_state,
-            self.game_logic.game_mode(),
-            self.frame_counter,
-            startup_age,
-            self.game_logic.get_current_map_name(),
-            self.camera_position,
-            self.camera_target,
-            self.camera_zoom,
-            self.render_pipeline.debug_render_item_count(),
-            self.render_pipeline.debug_last_deferred_model_load_budget(),
-            self.render_pipeline.debug_last_deferred_model_loads(),
-            self.render_pipeline.debug_last_model_budget_skips(),
-            self.render_pipeline.debug_last_zero_mesh_models(),
-            terrain_visible_chunks,
-            terrain_renderable_chunks,
-            terrain_pending_chunks,
-            terrain_summary,
-        );
+    }
+
+    fn finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
+        self.update_shell_loading_progress(0.97, Some("Finalizing startup"));
+        self.game_logic = result.game_logic;
+
+        if let Some(active_map_name) = result.loaded_map_name {
+            if result.map_requested_from_cli {
+                info!("Loaded map from command line: {}", active_map_name);
+            } else if result.start_in_menu {
+                info!("Loaded startup shell map: {}", active_map_name);
+            }
+
+            Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
+            Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+            // Keep loading->menu transition non-blocking: shell startup should paint menu first.
+            // Heightmap hint remains queued in RenderPipeline and can load lazily after startup.
+            if !result.start_in_menu {
+                if let Err(err) = self.render_pipeline.load_heightmap_from_hint(
+                    &self.graphics_system.device_arc(),
+                    &self.graphics_system.queue_arc(),
+                    Some(self.game_logic.world_bounds()),
+                ) {
+                    warn!(
+                        "Failed to preload startup heightmap hint for '{}': {}",
+                        active_map_name, err
+                    );
+                }
+            }
+            Self::reinitialize_minimap_renderer(
+                &mut self.render_pipeline,
+                &self.graphics_system,
+                &mut self.game_logic,
+            )?;
+            Self::apply_map_lighting(
+                &mut self.graphics_system,
+                &mut self.render_pipeline,
+                &self.game_logic,
+            );
+            let startup_camera_defaults = Self::configured_startup_camera_defaults();
+            (self.camera_target, self.camera_position, self.camera_zoom) =
+                Self::bootstrap_camera_for_loaded_map(
+                    &self.game_logic,
+                    self.current_player_id,
+                    startup_camera_defaults,
+                );
+            self.sync_orbit_from_camera_transform();
+        }
+
+        if result.start_in_menu {
+            self.ui_manager.transition_to_screen(Screen::MainMenu);
+            self.wgpu_ui_system.set_state(UISystemState::MainMenu);
+        }
+
+        if let Some(target_state) = self.startup_target_state.take() {
+            // Apply the post-load state transition immediately so we do not render additional
+            // loading/world-only frames after shell/menu resources are already initialized.
+            self.transition_to_state(target_state);
+        }
+        self.startup_load_state = StartupLoadState::Complete;
+        self.last_loading_title_update = None;
+        self.update_shell_loading_progress(1.0, Some("Startup complete"));
+        self.startup_last_reported_progress = 1.0;
+        self.startup_last_progress_change_at = Instant::now();
+        self.startup_last_stall_warning_at = None;
+        self.hide_shell_loading_overlay();
+        self.window
+            .set_title("Command & Conquer Generals Zero Hour");
+        self.window.request_redraw();
+        Ok(())
+    }
+
+    fn update_startup_loading(&mut self) -> Result<()> {
+        let mut result: Option<std::result::Result<StartupLoadResult, String>> = None;
+        let mut visual_phase = None::<String>;
+        let mut visual_progress = None::<f32>;
+        match &mut self.startup_load_state {
+            StartupLoadState::Idle | StartupLoadState::Complete => return Ok(()),
+            StartupLoadState::InProgress {
+                receiver,
+                started_at,
+                last_worker_progress,
+                last_worker_phase,
+                last_worker_logged_bucket,
+            } => {
+                loop {
+                    match receiver.try_recv() {
+                        Ok(StartupLoadMessage::Progress { progress, phase }) => {
+                            let clamped = progress.clamp(0.0, 0.96);
+                            if clamped > *last_worker_progress {
+                                *last_worker_progress = clamped;
+                            }
+                            if last_worker_phase.as_deref() != Some(phase.as_str()) {
+                                info!(
+                                    "Startup worker phase: {} ({:.0}%)",
+                                    phase,
+                                    (*last_worker_progress) * 100.0
+                                );
+                            }
+                            let bucket = ((*last_worker_progress * 100.0).floor() as i32)
+                                .div_euclid(5)
+                                .clamp(0, 20) as u8;
+                            if bucket > *last_worker_logged_bucket {
+                                info!(
+                                    "Startup worker progress: {:.0}% ({})",
+                                    (*last_worker_progress) * 100.0,
+                                    phase
+                                );
+                                *last_worker_logged_bucket = bucket;
+                            }
+                            *last_worker_phase = Some(phase);
+                        }
+                        Ok(StartupLoadMessage::Complete(complete)) => {
+                            info!(
+                                "Startup shell/game load completed in {:.2}s",
+                                started_at.elapsed().as_secs_f32()
+                            );
+                            result = Some(complete);
+                            break;
+                        }
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) => {
+                            return Err(anyhow::anyhow!("startup load worker disconnected"));
+                        }
+                    }
+                }
+
+                if result.is_none() {
+                    let elapsed = started_at.elapsed().as_secs_f32();
+                    let (fallback_phase, fallback_progress) = Self::loading_visual_phase(elapsed);
+                    let chosen_progress = (*last_worker_progress).max(fallback_progress);
+                    let chosen_phase = last_worker_phase
+                        .as_deref()
+                        .unwrap_or(fallback_phase)
+                        .to_string();
+                    visual_phase = Some(chosen_phase);
+                    visual_progress = Some(chosen_progress);
+                }
+            }
+        }
+
+        if let (Some(phase), Some(progress)) = (visual_phase, visual_progress) {
+            self.update_shell_loading_progress(progress, Some(&phase));
+            self.observe_startup_progress(progress, &phase);
+            if self
+                .last_loading_title_update
+                // Avoid hammering native window-title updates during startup; on macOS these
+                // updates can become expensive when issued every frame.
+                .map(|last| last.elapsed() >= Duration::from_millis(350))
+                .unwrap_or(true)
+            {
+                self.window.set_title(&format!(
+                    "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
+                    progress * 100.0
+                ));
+                self.last_loading_title_update = Some(Instant::now());
+            }
+            self.window.request_redraw();
+            return Ok(());
+        }
+
+        match result.expect("startup completion result missing") {
+            Ok(load_result) => self.finalize_startup_map_load(load_result),
+            Err(err) => Err(anyhow::anyhow!(err)),
+        }
     }
 
     pub async fn new(window: Arc<Window>, command_line: Arc<CommandLineArgs>) -> Result<Self> {
@@ -878,44 +1439,10 @@ impl CnCGameEngine {
         let mut render_pipeline = RenderPipeline::initialize(&graphics_system)?;
         pipeline_timer.finish();
 
-        // Initialize mesh renderer
-        // Initialize egui for GUI rendering
-        info!("🎨 Initializing egui GUI system...");
-        let egui_context = egui::Context::default();
-
-        // Create egui-winit state for input handling
-        let egui_state = egui_winit::State::new(
-            egui_context.clone(),
-            egui::ViewportId::default(),
-            &window,
-            None, // No scale factor override
-            None, // No max texture side override
-            None, // No max texture layers override
-        );
-
-        // Create egui-wgpu renderer for GPU rendering
-        let egui_renderer = Arc::new(Mutex::new(egui_wgpu::Renderer::new(
-            graphics_system.device(),
-            graphics_system.color_format(),
-            egui_wgpu::RendererOptions::default(),
-        )));
-
-        // Create egui HUD instance
-        let egui_hud = crate::ui::EguiHUD::new();
-
-        info!("✅ Egui GUI system initialized");
-
-        // Initialize asset manager using graphics system's render device
-        info!("🎨 Initializing C&C Asset Manager for loading real W3D models and textures...");
-        let asset_duration = {
-            let asset_timer = InitTimer::new("✅ Enhanced Asset Manager initialized");
-            crate::assets::manager::init_asset_manager(
-                graphics_system.device(),
-                graphics_system.queue(),
-            )
-            .await?;
-            asset_timer.finish()
-        };
+        // Keep event-loop bootstrap responsive: defer heavy asset-manager setup to the startup
+        // loading worker, which reports incremental progress milestones.
+        info!("🎨 Deferring C&C Asset Manager initialization to startup loading worker...");
+        let asset_duration = Duration::ZERO;
 
         // Model preloading will be done after graphics system is ready
         // This is handled in the run loop after engine creation
@@ -984,22 +1511,14 @@ impl CnCGameEngine {
             world_bounds,
         )?;
 
-        {
-            let mut renderer_guard = egui_renderer
-                .lock()
-                .map_err(|_| anyhow::anyhow!("egui renderer mutex poisoned"))?;
-            render_pipeline.ensure_minimap_texture_registered(&mut renderer_guard)?;
-        }
-
-        let startup_camera_defaults = Self::configured_startup_camera_defaults();
         let mut camera_target = Vec3::ZERO;
         let mut camera_position = Vec3::new(0.0, 310.0, -403.99988);
         let mut camera_zoom = 1.0;
         let projection_matrix = Mat4::perspective_rh(
-            LEGACY_VIEW_FOV_RADIANS,
+            DEFAULT_VIEW_FOV_RADIANS,
             size.width as f32 / size.height as f32,
-            LEGACY_VIEW_NEAR_CLIP,
-            LEGACY_VIEW_FAR_CLIP,
+            DEFAULT_VIEW_NEAR_CLIP,
+            DEFAULT_VIEW_FAR_CLIP,
         );
 
         // TEMPORARY: Create fallback cube for debugging objects without W3D models
@@ -1007,51 +1526,22 @@ impl CnCGameEngine {
             Self::create_fallback_cube(graphics_system.device());
 
         let start_in_menu = !command_line.quick_start && command_line.map_name.is_none();
-        let startup_shell_map = start_in_menu.then(Self::configured_startup_shell_map).flatten();
-
-        // Start a new game. The C++ startup shell uses GAME_SHELL for the shell map.
-        game_logic.start_new_game(if start_in_menu {
-            GameMode::Shell
-        } else {
-            GameMode::Skirmish
-        });
+        let startup_shell_map = start_in_menu
+            .then(Self::configured_startup_shell_map)
+            .flatten();
         let cli_map = command_line.map_name.as_deref();
         let map_to_load = cli_map
             .map(str::to_string)
             .or(startup_shell_map)
             .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
-        let mut loaded_map_name: Option<String> = None;
-        if !game_logic.load_map(&map_to_load) {
-            warn!(
-                "Failed to load map '{}', falling back to default map '{}'",
-                map_to_load, DEFAULT_SKIRMISH_MAP
-            );
-            if map_to_load != DEFAULT_SKIRMISH_MAP && game_logic.load_map(DEFAULT_SKIRMISH_MAP) {
-                loaded_map_name = Some(DEFAULT_SKIRMISH_MAP.to_string());
-            }
-        } else {
-            loaded_map_name = Some(map_to_load.clone());
-        }
-
-        if let Some(active_map_name) = loaded_map_name {
-            if cli_map.is_some() {
-                info!("Loaded map from command line: {}", active_map_name);
-            } else if start_in_menu {
-                info!("Loaded startup shell map: {}", active_map_name);
-            }
-            Self::apply_heightmap_hint(&mut render_pipeline, &game_logic);
-            Self::apply_skybox_hint(&mut render_pipeline, &game_logic);
-            // Refresh minimap to reflect actual map bounds.
-            Self::reinitialize_minimap_renderer(
-                &mut render_pipeline,
-                &graphics_system,
-                &egui_renderer,
-                &mut game_logic,
-            )?;
-            Self::apply_map_lighting(&mut graphics_system, &mut render_pipeline, &game_logic);
-            (camera_target, camera_position, camera_zoom) =
-                Self::bootstrap_camera_for_loaded_map(&game_logic, 0, startup_camera_defaults);
-        }
+        let startup_load_state = Self::spawn_startup_map_load(
+            start_in_menu,
+            map_to_load,
+            cli_map.is_some(),
+            command_line.player_name.clone(),
+            graphics_system.device_arc(),
+            graphics_system.queue_arc(),
+        );
 
         let camera_offset = camera_position - camera_target;
         let camera_orbit_distance = camera_offset.length().max(1.0);
@@ -1061,16 +1551,11 @@ impl CnCGameEngine {
         let camera_yaw_radians = camera_offset.x.atan2(camera_offset.z);
         let view_matrix = Mat4::look_at_rh(camera_position, camera_target, Vec3::Y);
 
-        if let Some(player_name) = command_line.player_name.as_deref() {
-            if game_logic.set_player_name(0, player_name) {
-                info!("Set local player name to '{}'", player_name);
-            } else {
-                warn!("Failed to apply player name '{}'", player_name);
-            }
-        }
-
         let pending_shell_model_prewarm = if start_in_menu {
-            Self::collect_shell_scene_models_for_prewarm(&game_logic, camera_target, 24)
+            // C++ shell startup does not run this extra Rust-only synchronous prewarm loop.
+            // Keep shell-scene warmup disabled here and rely on the render pipeline's
+            // incremental non-blocking budget instead so the menu can paint first.
+            VecDeque::new()
         } else {
             info!("Skipping blocking startup model preload for gameplay startup");
             VecDeque::new()
@@ -1083,73 +1568,15 @@ impl CnCGameEngine {
         ui_manager
             .initialize()
             .map_err(|err| anyhow::anyhow!("failed to initialize startup UI: {err}"))?;
-        #[cfg(feature = "game_client")]
-        if start_in_menu {
-            ui_manager.suspend_for_legacy_shell();
-        }
+        ui_manager.transition_to_screen(Screen::Loading);
+        let mut wgpu_ui_system = WgpuUISystem::new(window.as_ref())
+            .await
+            .map_err(|err| anyhow::anyhow!("failed to initialize runtime UI backend: {err}"))?;
+        wgpu_ui_system.set_state(UISystemState::Loading);
+        let initial_state = GameState::Loading;
+        let pending_state = None;
 
-        #[cfg(feature = "game_client")]
-        {
-            let loaded_strings = game_client::game_text::GameText::init_runtime_strings()
-                .map_err(|err| anyhow::anyhow!("legacy shell GameText init failed: {err}"))?;
-            let sample_back = game_client::game_text::GameText::fetch("GUI:Back");
-            eprintln!(
-                "DEBUG_STARTUP_GAMETEXT: loaded_strings={} sample_back={:?}",
-                loaded_strings, sample_back
-            );
-            game_engine::common::ini::ini_mapped_image::ImageCollection::load_global(512);
-            let imported = game_client::display::image::sync_mapped_images_from_common();
-            eprintln!("DEBUG_STARTUP_MAPPED_IMPORT: imported={imported}");
-
-            with_window_manager(|manager| {
-                manager.reset();
-                manager.set_screen_size(size.width as i32, size.height as i32);
-                manager.init();
-            });
-
-            if with_ui_renderer(|_| ()).is_none() {
-                let renderer = LegacyUIRenderer::new(
-                    graphics_system.device_arc(),
-                    graphics_system.queue_arc(),
-                    graphics_system.color_format(),
-                )
-                .map_err(|err| anyhow::anyhow!("legacy UI renderer init failed: {err}"))?;
-                set_ui_renderer(Arc::new(std::sync::RwLock::new(renderer)));
-            }
-
-            if start_in_menu {
-                let mut shell = get_shell();
-                shell
-                    .init()
-                    .map_err(|err| anyhow::anyhow!("shell init failed: {err}"))?;
-                shell
-                    .show_shell(true)
-                    .map_err(|err| anyhow::anyhow!("shell show failed: {err}"))?;
-                println!(
-                    "DEBUG_STARTUP: shell_initialized active={} screens={}",
-                    shell.is_shell_active(),
-                    shell.get_screen_count()
-                );
-                ui_manager.suspend_for_legacy_shell();
-            }
-        }
-
-        println!(
-            "DEBUG_STARTUP: quick_start={} map_name={:?} start_in_menu={}",
-            command_line.quick_start, command_line.map_name, start_in_menu
-        );
-        let initial_state = if start_in_menu {
-            GameState::Menu
-        } else {
-            GameState::Loading
-        };
-        let pending_state = if start_in_menu {
-            None
-        } else {
-            Some(GameState::Playing)
-        };
-
-        let engine = Self {
+        let mut engine = Self {
             window: window.clone(),
             command_line,
 
@@ -1167,6 +1594,18 @@ impl CnCGameEngine {
             // Default boot flow should land in the menu unless explicitly quick-starting.
             current_state: initial_state,
             pending_state,
+            startup_load_state,
+            startup_target_state: Some(if start_in_menu {
+                GameState::Menu
+            } else {
+                GameState::Playing
+            }),
+            startup_start_in_menu: start_in_menu,
+            last_loading_title_update: None,
+            startup_last_reported_progress: 0.0,
+            startup_last_progress_change_at: Instant::now(),
+            startup_last_stall_warning_at: None,
+            last_caustic_warmup_attempt: None,
 
             game_logic,
             combat_system,
@@ -1222,18 +1661,19 @@ impl CnCGameEngine {
             fps: 0.0,
             last_frame_timing: None,
             frame_clock: FrameClock::new(),
+            menu_loading_tick_accumulator: Duration::ZERO,
+            menu_loading_last_tick: Instant::now(),
             diagnostics_overlay: None,
             ui_manager,
+            wgpu_ui_system,
             game_hud: GameHUD::new(),
-            egui_context,
-            egui_state,
-            egui_renderer,
-            egui_hud,
             active_menu_shell_hook: None,
+            gpui_menu_bridge: None,
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
             menu_enter_frame: if start_in_menu { Some(0) } else { None },
-            legacy_shell_enqueued_frame: None,
+            shell_ui_enqueued_frame: None,
+            last_menu_stall_warning: None,
             match_over: false,
             victory_summary: None,
         };
@@ -1258,7 +1698,11 @@ impl CnCGameEngine {
             "⏱️ Total Engine Initialization Time: {:.2}s",
             total_duration.as_secs_f32()
         );
-        info!("   Asset Manager: {:.2}s", asset_duration.as_secs_f32());
+        if asset_duration > Duration::ZERO {
+            info!("   Asset Manager: {:.2}s", asset_duration.as_secs_f32());
+        } else {
+            info!("   Asset Manager: deferred to startup loading worker");
+        }
         info!("🎮 Controls:");
         info!("  WASD - Move camera");
         info!("  Mouse - Select units");
@@ -1267,6 +1711,12 @@ impl CnCGameEngine {
         info!("  F1 - Toggle debug info");
         info!("  M - Toggle music");
         info!("  ESC - Exit game");
+
+        engine
+            .window
+            .set_title("Command & Conquer Generals Zero Hour - Loading...");
+        engine.ensure_shell_loading_overlay();
+        engine.update_shell_loading_progress(0.0, Some("Loading assets..."));
 
         Ok(engine)
     }
@@ -1605,11 +2055,13 @@ impl CnCGameEngine {
 
             // Update projection matrix
             self.projection_matrix = Mat4::perspective_rh(
-                LEGACY_VIEW_FOV_RADIANS,
+                DEFAULT_VIEW_FOV_RADIANS,
                 new_size.width as f32 / new_size.height as f32,
-                LEGACY_VIEW_NEAR_CLIP,
-                LEGACY_VIEW_FAR_CLIP,
+                DEFAULT_VIEW_NEAR_CLIP,
+                DEFAULT_VIEW_FAR_CLIP,
             );
+            self.ui_manager.resize(new_size.width, new_size.height);
+            self.wgpu_ui_system.resize(new_size);
         }
     }
 
@@ -1664,22 +2116,15 @@ impl CnCGameEngine {
                     },
                 ..
             } => {
-                let legacy_shell_menu = self.legacy_shell_owns_menu_ui();
+                let route_keyboard_to_legacy_ui =
+                    matches!(self.current_state, GameState::Playing | GameState::Paused);
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
-                        #[cfg(feature = "game_client")]
-                        if legacy_shell_menu {
-                            // TODO(ui-refactor): this is the legacy shell input bridge. Future
-                            // UI frontends should replace the renderer, not these menu semantics.
-                            if let Key::Character(text) = key {
-                                if let Some(byte) = text.bytes().next() {
-                                    with_window_manager(|manager| {
-                                        let _ = manager.process_key_event(byte, 1);
-                                    });
-                                }
+                        if route_keyboard_to_legacy_ui {
+                            if let Some(ui_key) = Self::to_ui_key_code(key) {
+                                let _ = self.ui_manager.handle_key_press(ui_key);
                             }
-                            return true;
                         }
                         self.handle_key_press(key);
                     }
@@ -1690,60 +2135,257 @@ impl CnCGameEngine {
                 true
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let legacy_shell_menu = self.legacy_shell_owns_menu_ui();
-                #[cfg(feature = "game_client")]
-                if legacy_shell_menu {
-                    let (x, y) = (self.mouse_position.0 as i32, self.mouse_position.1 as i32);
-                    let packed = pack_legacy_mouse_data(x, y);
-                    let msg = match (button, state) {
-                        (MouseButton::Left, ElementState::Pressed) => Some(game_client::gui::game_window::WindowMessage::LeftDown),
-                        (MouseButton::Left, ElementState::Released) => Some(game_client::gui::game_window::WindowMessage::LeftUp),
-                        (MouseButton::Right, ElementState::Pressed) => Some(game_client::gui::game_window::WindowMessage::RightDown),
-                        (MouseButton::Right, ElementState::Released) => Some(game_client::gui::game_window::WindowMessage::RightUp),
-                        (MouseButton::Middle, ElementState::Pressed) => Some(game_client::gui::game_window::WindowMessage::MiddleDown),
-                        (MouseButton::Middle, ElementState::Released) => Some(game_client::gui::game_window::WindowMessage::MiddleUp),
-                        _ => None,
-                    };
-                    if let Some(msg) = msg {
-                        with_window_manager(|manager| {
-                            let _ = manager.process_mouse_event(msg, x, y, packed);
-                        });
+                let use_wgpu_menu_input = self.current_state != GameState::Exiting;
+                let (ui_x, ui_y) = if use_wgpu_menu_input {
+                    let (x, y) = self.resolve_wgpu_ui_input_coordinates(
+                        self.mouse_position.0,
+                        self.mouse_position.1,
+                    );
+                    let _ = self.wgpu_ui_system.handle_mouse_move(x, y);
+                    (x, y)
+                } else {
+                    (self.mouse_position.0, self.mouse_position.1)
+                };
+                let x = self.mouse_position.0 as i32;
+                let y = self.mouse_position.1 as i32;
+                let route_mouse_to_legacy_ui =
+                    matches!(self.current_state, GameState::Playing | GameState::Paused);
+                if route_mouse_to_legacy_ui {
+                    let ui_button = Self::to_ui_mouse_button(*button);
+                    if let Some(ui_button) = ui_button {
+                        let _ = self.ui_manager.handle_mouse_click(x, y, ui_button);
                     }
-                    return true;
                 }
-                match (button, state) {
-                    (MouseButton::Left, ElementState::Pressed) => {
-                        self.handle_left_click();
+                if use_wgpu_menu_input {
+                    let ui_event = self.wgpu_ui_system.handle_mouse_click(
+                        ui_x,
+                        ui_y,
+                        Self::to_wgpu_ui_button(*button),
+                        *state == ElementState::Pressed,
+                    );
+                    if matches!(self.current_state, GameState::Menu | GameState::Loading)
+                        && *state == ElementState::Pressed
+                        && *button == MouseButton::Left
+                        && matches!(ui_event, UISystemEvent::None)
+                    {
+                        let passive_hit = self
+                            .wgpu_ui_system
+                            .element_name_at_position(ui_x, ui_y)
+                            .unwrap_or("<none>");
+                        let interactive_hit = self
+                            .wgpu_ui_system
+                            .interactive_element_name_at_position(ui_x, ui_y)
+                            .unwrap_or("<none>");
+                        debug!(
+                            "Menu/loading left click produced no action at raw=({:.1}, {:.1}) resolved=({:.1}, {:.1}) scale={:.2}; passive_hit={} interactive_hit={}",
+                            self.mouse_position.0,
+                            self.mouse_position.1,
+                            ui_x,
+                            ui_y,
+                            self.window.scale_factor(),
+                            passive_hit,
+                            interactive_hit
+                        );
                     }
-                    (MouseButton::Left, ElementState::Released) => {
-                        self.handle_left_release();
+                    if self.handle_runtime_ui_event(ui_event) {
+                        return true;
                     }
-                    (MouseButton::Right, ElementState::Pressed) => {
-                        self.handle_right_click();
+                }
+
+                if matches!(self.current_state, GameState::Playing | GameState::Paused) {
+                    match (button, state) {
+                        (MouseButton::Left, ElementState::Pressed) => {
+                            self.handle_left_click();
+                        }
+                        (MouseButton::Left, ElementState::Released) => {
+                            self.handle_left_release();
+                        }
+                        (MouseButton::Right, ElementState::Pressed) => {
+                            self.handle_right_click();
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_position = (position.x as f32, position.y as f32);
-                self.update_mouse_world_position();
-                #[cfg(feature = "game_client")]
-                if self.legacy_shell_owns_menu_ui() {
-                    let packed = pack_legacy_mouse_data(position.x as i32, position.y as i32);
-                    with_window_manager(|manager| {
-                        let _ = manager.process_mouse_event(
-                            game_client::gui::game_window::WindowMessage::MousePos,
-                            position.x as i32,
-                            position.y as i32,
-                            packed,
-                        );
-                    });
-                    return true;
+                if matches!(self.current_state, GameState::Playing | GameState::Paused) {
+                    self.update_mouse_world_position();
+                    self.ui_manager
+                        .handle_mouse_move(position.x as i32, position.y as i32);
+                }
+                if self.current_state != GameState::Exiting {
+                    let (ui_x, ui_y) = self
+                        .resolve_wgpu_ui_input_coordinates(position.x as f32, position.y as f32);
+                    let _ = self.wgpu_ui_system.handle_mouse_move(ui_x, ui_y);
                 }
                 true
             }
             _ => false,
+        }
+    }
+
+    fn resolve_wgpu_ui_input_coordinates(&self, x: f32, y: f32) -> (f32, f32) {
+        let scale_factor = self.window.scale_factor() as f32;
+        if !scale_factor.is_finite() || scale_factor <= f32::EPSILON {
+            return (x, y);
+        }
+
+        let candidates = if (scale_factor - 1.0).abs() < f32::EPSILON {
+            [(x, y), (x, y), (x, y)]
+        } else {
+            [
+                (x, y),
+                (x * scale_factor, y * scale_factor),
+                (x / scale_factor, y / scale_factor),
+            ]
+        };
+
+        let mut passive_hit: Option<(f32, f32)> = None;
+        for (candidate_x, candidate_y) in candidates {
+            if self
+                .wgpu_ui_system
+                .interactive_element_name_at_position(candidate_x, candidate_y)
+                .is_some()
+            {
+                return (candidate_x, candidate_y);
+            }
+
+            if passive_hit.is_none()
+                && self
+                    .wgpu_ui_system
+                    .element_name_at_position(candidate_x, candidate_y)
+                    .is_some()
+            {
+                passive_hit = Some((candidate_x, candidate_y));
+            }
+        }
+
+        passive_hit.unwrap_or((x, y))
+    }
+
+    fn to_ui_mouse_button(button: MouseButton) -> Option<crate::ui::MouseButton> {
+        match button {
+            MouseButton::Left => Some(crate::ui::MouseButton::Left),
+            MouseButton::Right => Some(crate::ui::MouseButton::Right),
+            MouseButton::Middle => Some(crate::ui::MouseButton::Middle),
+            MouseButton::Back => Some(crate::ui::MouseButton::Other(4)),
+            MouseButton::Forward => Some(crate::ui::MouseButton::Other(5)),
+            MouseButton::Other(id) => Some(crate::ui::MouseButton::Other(id as u8)),
+        }
+    }
+
+    fn to_wgpu_ui_button(button: MouseButton) -> u32 {
+        match button {
+            MouseButton::Left => 0,
+            MouseButton::Right => 1,
+            MouseButton::Middle => 2,
+            MouseButton::Back => 4,
+            MouseButton::Forward => 5,
+            MouseButton::Other(id) => id as u32,
+        }
+    }
+
+    fn to_ui_key_code(key: &Key) -> Option<crate::ui::KeyCode> {
+        match key {
+            Key::Named(NamedKey::Escape) => Some(crate::ui::KeyCode::Escape),
+            Key::Named(NamedKey::Enter) => Some(crate::ui::KeyCode::Enter),
+            Key::Named(NamedKey::Space) => Some(crate::ui::KeyCode::Space),
+            Key::Named(NamedKey::Tab) => Some(crate::ui::KeyCode::Tab),
+            Key::Named(NamedKey::Backspace) => Some(crate::ui::KeyCode::Backspace),
+            Key::Named(NamedKey::Delete) => Some(crate::ui::KeyCode::Delete),
+            Key::Named(NamedKey::ArrowLeft) => Some(crate::ui::KeyCode::Left),
+            Key::Named(NamedKey::ArrowRight) => Some(crate::ui::KeyCode::Right),
+            Key::Named(NamedKey::ArrowUp) => Some(crate::ui::KeyCode::Up),
+            Key::Named(NamedKey::ArrowDown) => Some(crate::ui::KeyCode::Down),
+            Key::Named(NamedKey::F1) => Some(crate::ui::KeyCode::F1),
+            Key::Named(NamedKey::F2) => Some(crate::ui::KeyCode::F2),
+            Key::Named(NamedKey::F3) => Some(crate::ui::KeyCode::F3),
+            Key::Named(NamedKey::F4) => Some(crate::ui::KeyCode::F4),
+            Key::Named(NamedKey::F5) => Some(crate::ui::KeyCode::F5),
+            Key::Named(NamedKey::F6) => Some(crate::ui::KeyCode::F6),
+            Key::Named(NamedKey::F7) => Some(crate::ui::KeyCode::F7),
+            Key::Named(NamedKey::F8) => Some(crate::ui::KeyCode::F8),
+            Key::Named(NamedKey::F9) => Some(crate::ui::KeyCode::F9),
+            Key::Named(NamedKey::F10) => Some(crate::ui::KeyCode::F10),
+            Key::Named(NamedKey::F11) => Some(crate::ui::KeyCode::F11),
+            Key::Named(NamedKey::F12) => Some(crate::ui::KeyCode::F12),
+            Key::Character(ch) if ch.len() == 1 => {
+                let c = ch.chars().next()?;
+                match c.to_ascii_uppercase() {
+                    'A' => Some(crate::ui::KeyCode::A),
+                    'B' => Some(crate::ui::KeyCode::B),
+                    'C' => Some(crate::ui::KeyCode::C),
+                    'D' => Some(crate::ui::KeyCode::D),
+                    'E' => Some(crate::ui::KeyCode::E),
+                    'F' => Some(crate::ui::KeyCode::F),
+                    'G' => Some(crate::ui::KeyCode::G),
+                    'H' => Some(crate::ui::KeyCode::H),
+                    'I' => Some(crate::ui::KeyCode::I),
+                    'J' => Some(crate::ui::KeyCode::J),
+                    'K' => Some(crate::ui::KeyCode::K),
+                    'L' => Some(crate::ui::KeyCode::L),
+                    'M' => Some(crate::ui::KeyCode::M),
+                    'N' => Some(crate::ui::KeyCode::N),
+                    'O' => Some(crate::ui::KeyCode::O),
+                    'P' => Some(crate::ui::KeyCode::P),
+                    'Q' => Some(crate::ui::KeyCode::Q),
+                    'R' => Some(crate::ui::KeyCode::R),
+                    'S' => Some(crate::ui::KeyCode::S),
+                    'T' => Some(crate::ui::KeyCode::T),
+                    'U' => Some(crate::ui::KeyCode::U),
+                    'V' => Some(crate::ui::KeyCode::V),
+                    'W' => Some(crate::ui::KeyCode::W),
+                    'X' => Some(crate::ui::KeyCode::X),
+                    'Y' => Some(crate::ui::KeyCode::Y),
+                    'Z' => Some(crate::ui::KeyCode::Z),
+                    '0' => Some(crate::ui::KeyCode::Key0),
+                    '1' => Some(crate::ui::KeyCode::Key1),
+                    '2' => Some(crate::ui::KeyCode::Key2),
+                    '3' => Some(crate::ui::KeyCode::Key3),
+                    '4' => Some(crate::ui::KeyCode::Key4),
+                    '5' => Some(crate::ui::KeyCode::Key5),
+                    '6' => Some(crate::ui::KeyCode::Key6),
+                    '7' => Some(crate::ui::KeyCode::Key7),
+                    '8' => Some(crate::ui::KeyCode::Key8),
+                    '9' => Some(crate::ui::KeyCode::Key9),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn handle_runtime_ui_event(&mut self, event: UISystemEvent) -> bool {
+        match event {
+            UISystemEvent::None => false,
+            UISystemEvent::StartGame { mode, faction } => {
+                self.start_game_from_ui(mode, faction, DEFAULT_SKIRMISH_MAP.to_string());
+                self.request_state_change(GameState::Playing);
+                true
+            }
+            UISystemEvent::ExitGame => {
+                self.request_state_change(GameState::Exiting);
+                true
+            }
+            UISystemEvent::ShowOptions => {
+                self.ui_manager.transition_to_screen(Screen::Options);
+                true
+            }
+            UISystemEvent::LoadGame => {
+                self.ui_manager.transition_to_screen(Screen::LoadGame);
+                true
+            }
+            UISystemEvent::BackToMainMenu => {
+                self.request_state_change(GameState::Menu);
+                true
+            }
+            UISystemEvent::PauseToggle => {
+                self.toggle_pause();
+                true
+            }
+            UISystemEvent::ButtonClicked { .. } => true,
         }
     }
 
@@ -1778,12 +2420,23 @@ impl CnCGameEngine {
 
     /// Advance simulation using the internal fallback clock (no WW3D timing).
     pub fn update_with_frame_clock(&mut self) {
-        // Menu/loading progression must advance on a fixed engine tick like the C++ main loop.
-        // Using wall-clock microdeltas here can keep accumulated simulation time below the
-        // fixed-step threshold forever when redraws arrive back-to-back during startup.
-        let clock_timing = self
-            .frame_clock
-            .advance_fixed(Duration::from_secs_f32(1.0 / 60.0));
+        // Shell/loading logic must tick at a stable 30 FPS cadence. The event loop can deliver
+        // redraws much faster than that, and advancing on every redraw overdrives shell scripts
+        // and menu transitions (visible as menu flicker/disappear behavior).
+        const SHELL_MENU_STEP: Duration = Duration::from_nanos(33_333_333);
+
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.menu_loading_last_tick);
+        self.menu_loading_last_tick = now;
+        self.menu_loading_tick_accumulator =
+            (self.menu_loading_tick_accumulator + elapsed).min(Duration::from_millis(250));
+
+        if self.menu_loading_tick_accumulator < SHELL_MENU_STEP {
+            return;
+        }
+        self.menu_loading_tick_accumulator -= SHELL_MENU_STEP;
+
+        let clock_timing = self.frame_clock.advance_fixed(SHELL_MENU_STEP);
         let timing = Self::to_engine_timing(clock_timing, Instant::now());
         let dt = self.apply_frame_timing(timing);
         self.update_internal(dt);
@@ -1798,7 +2451,13 @@ impl CnCGameEngine {
     }
 
     fn apply_frame_timing(&mut self, timing: FrameTiming) -> f32 {
-        self.apply_script_frame_limit();
+        if matches!(self.current_state, GameState::Menu | GameState::Loading) {
+            // Shell/loading frame cadence is managed by update_with_frame_clock() and event-loop
+            // pacing. Running gameplay script FPS spin-waits here can stall the UI thread.
+            self.script_fps_limit_last_tick = None;
+        } else {
+            self.apply_script_frame_limit();
+        }
         NetworkClock::override_with_duration(timing.total_time);
         let dt = timing.delta_seconds().max(0.0);
         self.last_frame_timing = Some(timing);
@@ -1855,6 +2514,7 @@ impl CnCGameEngine {
             }
             GameState::Loading => {
                 debug!("Exiting Loading state");
+                self.hide_shell_loading_overlay();
             }
             GameState::Playing => {
                 debug!("Exiting Playing state");
@@ -1876,47 +2536,58 @@ impl CnCGameEngine {
                 self.game_paused = false;
                 self.game_logic.set_paused(false);
                 self.active_menu_shell_hook = None;
-                if self.legacy_shell_active() {
-                    self.ui_manager.suspend_for_legacy_shell();
-                } else {
-                    self.ui_manager
-                        .transition_to_screen(crate::ui::Screen::MainMenu);
-                }
+                self.hide_gameplay_layouts();
+                self.ui_manager.transition_to_screen(crate::ui::Screen::MainMenu);
+                self.wgpu_ui_system.set_state(UISystemState::MainMenu);
             }
             GameState::Loading => {
                 info!("Entering Loading state");
+                self.shutdown_gpui_menu_bridge();
                 // Show loading screen, prepare assets
+                self.ensure_shell_loading_overlay();
+                self.update_shell_loading_progress(0.0, Some("Loading assets..."));
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::Loading);
+                self.wgpu_ui_system.set_state(UISystemState::Loading);
             }
             GameState::Playing => {
                 info!("Entering Playing state");
+                self.shutdown_gpui_menu_bridge();
                 // Start game logic, enable input
                 self.game_paused = false;
                 self.game_logic.set_paused(false);
+                self.ensure_gameplay_layouts();
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::GameHUD);
+                self.wgpu_ui_system.set_state(UISystemState::InGame);
             }
             GameState::Paused => {
                 info!("Entering Paused state");
+                self.shutdown_gpui_menu_bridge();
                 // Freeze game logic, show pause menu
                 self.game_paused = true;
                 self.game_logic.set_paused(true);
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::PauseMenu);
+                self.wgpu_ui_system.set_state(UISystemState::PauseMenu);
             }
             GameState::Exiting => {
                 info!("Entering Exiting state - beginning shutdown");
+                self.shutdown_gpui_menu_bridge();
                 // Cleanup will happen in drop
             }
         }
 
         self.current_state = new_state;
+        if matches!(new_state, GameState::Menu | GameState::Loading) {
+            self.menu_loading_tick_accumulator = Duration::ZERO;
+            self.menu_loading_last_tick = Instant::now();
+        }
         if new_state == GameState::Menu {
             self.menu_enter_frame = Some(self.current_startup_logic_frame());
         } else {
             self.menu_enter_frame = None;
-            self.legacy_shell_enqueued_frame = None;
+            self.shell_ui_enqueued_frame = None;
             self.active_menu_shell_hook = None;
         }
     }
@@ -1925,6 +2596,45 @@ impl CnCGameEngine {
     /// Matches C++ GameEngine::isQuitting()
     pub fn is_quitting(&self) -> bool {
         self.current_state == GameState::Exiting
+    }
+
+    fn network_frame_data_ready_gate(multiplayer_session_active: bool) -> Option<bool> {
+        with_subsystem_mut::<NetworkSubsystem, _>(|network| {
+            let has_network_backend = crate::network::has_active_network_interface();
+            if multiplayer_session_active && has_network_backend {
+                let frame_ready = crate::network::active_session_frame_data_ready().unwrap_or(true);
+                network.set_session_state(true, frame_ready);
+                Some(network.is_frame_data_ready())
+            } else {
+                // C++ parity: without a live network session object, treat as offline gate.
+                network.set_session_state(false, true);
+                None
+            }
+        })
+        .flatten()
+    }
+
+    fn should_update_game_logic_frame(
+        game_paused: bool,
+        network_frame_data_ready: Option<bool>,
+    ) -> bool {
+        match network_frame_data_ready {
+            Some(frame_ready) => frame_ready,
+            None => !game_paused,
+        }
+    }
+
+    fn update_runtime_subsystems(&mut self, dt: f32) {
+        if let Some(subsystem_manager) = get_subsystem_manager() {
+            let mut guard = subsystem_manager.lock();
+            if let Some(timing) = self.last_frame_timing {
+                if let Err(e) = guard.update_all_with_timing(&timing) {
+                    error!("Error updating subsystems: {}", e);
+                }
+            } else if let Err(e) = guard.update_all(dt) {
+                error!("Error updating subsystems: {}", e);
+            }
+        }
     }
 
     fn update_internal(&mut self, dt: f32) {
@@ -1936,34 +2646,58 @@ impl CnCGameEngine {
             return;
         }
 
+        self.maybe_trigger_deferred_caustic_warmup();
+
         let dt = dt.max(0.0);
         let visual_dt = dt * self.game_logic.visual_speed_multiplier().max(0.0);
-        let mut defer_shell_update = false;
-
+        // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
+        self.update_runtime_subsystems(dt);
         // State-based update logic - matches C++ GameEngine::update() conditional updates
         match self.current_state {
             GameState::Menu => {
-                // The C++ shell keeps the background shell-map game active while menus are up.
                 self.cleanup_sound_effects();
-                with_window_manager(|manager| manager.update());
-                if self.legacy_shell_owns_menu_ui() {
-                    self.ui_manager.suspend_for_legacy_shell();
-                } else {
-                    if let Err(err) = self.ui_manager.update(dt) {
-                        warn!("UI manager update failed in menu state: {}", err);
+                if self.game_logic.isInShellGame() && !self.game_paused {
+                    let shell_update_started = Instant::now();
+                    // Keep shell map/scripts alive in menu without allowing large fixed-step
+                    // catch-up loops to block the UI thread.
+                    self.game_logic.update_shell_with_budget(dt, 2);
+                    if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
+                        self.apply_script_fps_limit_request(fps);
                     }
-                    self.egui_hud.update(dt);
+                    let shell_elapsed = shell_update_started.elapsed();
+                    if shell_elapsed >= Duration::from_millis(40) {
+                        let fixed_diag = self.game_logic.fixed_step_diagnostics();
+                        warn!(
+                            "Slow shell menu tick: {:?} (state={:?}, frame={}, fixed_steps={}, budget_hit={}, acc_ms={:.2})",
+                            shell_elapsed,
+                            self.current_state,
+                            self.frame_counter,
+                            fixed_diag.steps_run,
+                            fixed_diag.budget_hit,
+                            fixed_diag.accumulated_time_seconds * 1000.0
+                        );
+                    }
                 }
-                // TODO(ui-refactor): keep legacy shell/window progression isolated here so a
-                // future frontend can swap rendering without changing shell behavior.
-                defer_shell_update = true;
+                self.wgpu_ui_system.set_state(UISystemState::MainMenu);
+                self.wgpu_ui_system.update();
+                if let Err(err) = self.ui_manager.update(dt) {
+                    warn!("UI manager update failed in menu state: {}", err);
+                }
+                return;
             }
             GameState::Loading => {
                 // In loading: minimal updates, mainly for loading screen animations
-                if let Err(err) = self.ui_manager.update(dt) {
-                    warn!("UI manager update failed in loading state: {}", err);
+                if let Err(err) = self.update_startup_loading() {
+                    error!("Startup loading failed: {}", err);
+                    self.request_state_change(GameState::Exiting);
+                    return;
                 }
-                self.egui_hud.update(dt);
+                if self.current_state != GameState::Loading {
+                    // Loading completed and transitioned this frame; avoid re-applying loading UI.
+                    return;
+                }
+                self.wgpu_ui_system.set_state(UISystemState::Loading);
+                self.wgpu_ui_system.update();
                 // After loading completes, the state will transition to Playing
                 // This is handled by the initialization code setting pending_state
                 return;
@@ -1973,10 +2707,11 @@ impl CnCGameEngine {
                 // (matches C++ where TheGameLogic->isGamePaused() prevents update)
                 self.update_camera(visual_dt);
                 self.cleanup_sound_effects();
+                self.wgpu_ui_system.set_state(UISystemState::PauseMenu);
+                self.wgpu_ui_system.update();
                 if let Err(err) = self.ui_manager.update(dt) {
                     warn!("UI manager update failed in paused state: {}", err);
                 }
-                self.egui_hud.update(dt);
                 return;
             }
             GameState::Playing => {
@@ -1988,28 +2723,13 @@ impl CnCGameEngine {
             }
         }
 
-        // Keep shell-scene streaming warm while the legacy menu is active. With startup age now
-        // driven by the advancing logic frame, this no longer stalls forever on frame 1.
-        if self.current_state == GameState::Menu {
-            self.pump_shell_scene_model_prewarm();
-        }
-
         // Full update cycle for Playing state (matches C++ GameEngine::update())
 
-        // Update subsystems first (matches C++ update order: Radar, Audio, Client, Network, CD)
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let mut guard = subsystem_manager.lock();
-            if let Some(timing) = self.last_frame_timing {
-                if let Err(e) = guard.update_all_with_timing(&timing) {
-                    error!("Error updating subsystems: {}", e);
-                }
-            } else if let Err(e) = guard.update_all(dt) {
-                error!("Error updating subsystems: {}", e);
-            }
-        }
-
-        // Game logic update (matches C++ condition: Network==NULL || Network->isFrameDataReady())
-        if !self.game_paused {
+        // C++ parity gate:
+        //   (Network == NULL && !isGamePaused()) || (Network && Network->isFrameDataReady()).
+        let network_frame_data_ready =
+            Self::network_frame_data_ready_gate(self.game_logic.isInMultiplayerGame());
+        if Self::should_update_game_logic_frame(self.game_paused, network_frame_data_ready) {
             // Update game logic first
             if let Some(timing) = self.last_frame_timing {
                 self.game_logic.update_with_timing(&timing);
@@ -2053,30 +2773,10 @@ impl CnCGameEngine {
 
         // Update audio
         self.cleanup_sound_effects();
-
-        // Update egui HUD with delta time for animations
-        self.egui_hud.update(dt);
-
-        // Clear lingering beacon glow if the logic reports no active beacons.
-        if self.game_logic.beacon_count() == 0 {
-            self.egui_hud.clear_beacon_highlights();
+        if self.current_state == GameState::Playing {
+            self.wgpu_ui_system.set_state(UISystemState::InGame);
         }
-
-        // Process UI-generated commands from egui HUD
-        if self.egui_hud.has_commands() {
-            let ui_commands = self.egui_hud.take_commands();
-            for cmd in ui_commands {
-                // UI command is already a GameCommand, just queue it directly
-                self.game_logic.queue_command(cmd);
-                println!("[Engine] Queued UI command to game logic");
-            }
-        }
-
-        if defer_shell_update {
-            if let Err(err) = get_shell().update() {
-                warn!("Shell update failed in menu state: {}", err);
-            }
-        }
+        self.wgpu_ui_system.update();
 
         // Process queued commands in game logic
         self.game_logic.process_commands();
@@ -2257,7 +2957,10 @@ impl CnCGameEngine {
             });
         }
 
-        if !self.match_over {
+        if !self.match_over
+            && self.current_state == GameState::Playing
+            && !self.game_logic.isInShellGame()
+        {
             if let Some(condition) = self.game_logic.evaluate_victory_condition() {
                 match condition {
                     VictoryCondition::Winner(id) => self.show_victory_screen(Some(id)),
@@ -2266,8 +2969,8 @@ impl CnCGameEngine {
             }
         }
 
-        // Update UI system (kept for legacy compatibility)
-        // Note: Legacy UI system will be phased out in favor of egui
+        // Update UI system (kept for current shell compatibility)
+        // Note: shell/window UI is being aligned with GPUI parity work.
         // self.ui_manager.update(dt).unwrap_or_else(|e| {
         //     error!("UI Manager update failed: {}", e);
         // });
@@ -2277,21 +2980,9 @@ impl CnCGameEngine {
     }
 
     pub fn render(&mut self) -> Result<()> {
-        // Begin egui frame - collect UI input and prepare for rendering
-        let raw_input = self.egui_state.take_egui_input(self.window.as_ref());
-        self.egui_context.begin_pass(raw_input);
+        let render_started = Instant::now();
 
-        let legacy_shell_ui_rendered = match self.current_state {
-            GameState::Menu => self.render_legacy_shell_overlay(),
-            _ => false,
-        };
-        let shell_menu_active =
-            matches!(self.current_state, GameState::Menu) && legacy_shell_ui_rendered;
-
-        // Keep the legacy shell/menu isolated from the in-game egui HUD.
-        let mut ui_state = if shell_menu_active {
-            GameUIState::default()
-        } else {
+        if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
             let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
             if !ui_state.radar_events.is_empty() {
                 for evt in &ui_state.radar_events {
@@ -2358,164 +3049,20 @@ impl CnCGameEngine {
                 ui_state.victory_summary = None;
                 ui_state.player_outcome = None;
             }
-            ui_state
-        };
-
-        match self.current_state {
-            GameState::Menu if !legacy_shell_ui_rendered => self.render_main_menu_overlay(),
-            GameState::Menu => {}
-            GameState::Loading => self.render_loading_overlay(),
-            _ => self.egui_hud.render(&self.egui_context, &ui_state),
         }
 
-        if let Some(action) = self.egui_hud.take_victory_action() {
-            match action {
-                VictoryOverlayAction::ExitToMenu => self.exit_to_main_menu_from_victory(),
-            }
+        if matches!(
+            self.current_state,
+            GameState::Menu | GameState::Loading | GameState::Paused
+        ) {
+            self.wgpu_ui_system
+                .render()
+                .map_err(|err| anyhow::anyhow!("runtime UI backend render failed: {err}"))?;
+            self.drain_renderer_attachments();
+            return Ok(());
         }
 
-        if !shell_menu_active {
-            if let Some(rect) = self.egui_hud.minimap_rect() {
-                self.render_pipeline.update_minimap_screen_rect(
-                    Vec2::new(rect.min.x, rect.min.y),
-                    Vec2::new(rect.width(), rect.height()),
-                );
-            }
-
-            if let Some(interaction) = self.egui_hud.take_minimap_interaction() {
-                self.handle_minimap_interaction(interaction);
-            }
-        }
-
-        // End egui frame and get the shapes to render
-        let full_output = self.egui_context.end_pass();
-
-        // Handle platform output (cursor changes, IME events, etc.)
-        self.egui_state
-            .handle_platform_output(self.window.as_ref(), full_output.platform_output);
-
-        // Prepare egui rendering data
-        // Handle potential first-frame issues with tessellation
-        let paint_jobs = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.egui_context
-                .tessellate(full_output.shapes, self.window.scale_factor() as f32)
-        })) {
-            Ok(jobs) => jobs,
-            Err(_) => {
-                warn!("egui tessellation panicked (first frame issue), skipping UI render");
-                Vec::new() // Empty paint jobs = no UI to render
-            }
-        };
-
-        static LOGGED_MENU_PAINT: AtomicBool = AtomicBool::new(false);
-        static LOGGED_LOADING_PAINT: AtomicBool = AtomicBool::new(false);
-        match self.current_state {
-            GameState::Menu if !LOGGED_MENU_PAINT.swap(true, Ordering::Relaxed) => {
-                println!(
-                    "DEBUG_STARTUP: menu_overlay_paint_jobs={}",
-                    paint_jobs.len()
-                );
-            }
-            GameState::Loading if !LOGGED_LOADING_PAINT.swap(true, Ordering::Relaxed) => {
-                println!(
-                    "DEBUG_STARTUP: loading_overlay_paint_jobs={}",
-                    paint_jobs.len()
-                );
-            }
-            _ => {}
-        }
-
-        // Convert viewport dimensions for egui
-        let window_size = self.window.inner_size();
-        let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [window_size.width, window_size.height],
-            pixels_per_point: self.window.scale_factor() as f32,
-        };
-
-        // Update egui textures if needed - safely handle first frame
-        for (texture_id, image_delta) in &full_output.textures_delta.set {
-            if let Err(_) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if let Ok(mut renderer) = self.egui_renderer.lock() {
-                    renderer.update_texture(
-                        self.graphics_system.device(),
-                        self.graphics_system.queue(),
-                        *texture_id,
-                        image_delta,
-                    );
-                }
-            })) {
-                warn!("egui texture update panicked, skipping texture update");
-            }
-        }
-
-        if !paint_jobs.is_empty() {
-            let egui_renderer = Arc::clone(&self.egui_renderer);
-            let paint_jobs_for_pass = paint_jobs.clone();
-            let screen_descriptor_for_pass = screen_descriptor;
-            self.render_pipeline
-                .enqueue_post_frame_callback(move |frame| {
-                    static LOGGED_EGUI_CALLBACK: AtomicBool = AtomicBool::new(false);
-                    if !LOGGED_EGUI_CALLBACK.swap(true, Ordering::Relaxed) {
-                        println!(
-                            "DEBUG_STARTUP: egui_post_frame_callback paint_jobs={}",
-                            paint_jobs_for_pass.len()
-                        );
-                    }
-                    let mut egui_renderer = egui_renderer.lock().map_err(|_| {
-                        RendererError::InvalidOperation("egui renderer poisoned".into())
-                    })?;
-                    let device = ww3d_engine::device().map_err(|err| {
-                        RendererError::RenderError(format!(
-                            "failed to acquire WW3D device for egui overlay: {err:?}"
-                        ))
-                    })?;
-                    let queue = ww3d_engine::queue().map_err(|err| {
-                        RendererError::RenderError(format!(
-                            "failed to acquire WW3D queue for egui overlay: {err:?}"
-                        ))
-                    })?;
-                    let prep_command_buffers = egui_renderer.update_buffers(
-                        device.as_ref(),
-                        queue.as_ref(),
-                        frame.encoder(),
-                        &paint_jobs_for_pass,
-                        &screen_descriptor_for_pass,
-                    );
-                    if !prep_command_buffers.is_empty() {
-                        warn!(
-                            "egui produced {} auxiliary command buffers that are not yet submitted in the WW3D callback path",
-                            prep_command_buffers.len()
-                        );
-                    }
-                    let color_view = frame.color_view_arc();
-                    let encoder = frame.encoder();
-                    let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("egui overlay"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: color_view.as_ref(),
-                            depth_slice: None,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    let mut render_pass: wgpu::RenderPass<'static> =
-                        unsafe { std::mem::transmute(render_pass) };
-                    egui_renderer.render(
-                        &mut render_pass,
-                        &paint_jobs_for_pass,
-                        &screen_descriptor_for_pass,
-                    );
-                    Ok(())
-                });
-        }
-
-        // Execute the main game render pipeline using the WW3D frame
+        // Execute the main game render pipeline using the WW3D frame.
         let render_time_delta = if self.game_logic.is_time_frozen_for_simulation() {
             0.0
         } else {
@@ -2526,29 +3073,13 @@ impl CnCGameEngine {
         };
         let allow_sync_model_loads =
             !matches!(self.current_state, GameState::Menu | GameState::Loading);
-        let deferred_startup_model_load_budget =
-            if matches!(self.current_state, GameState::Menu | GameState::Loading) {
-                if let Some(menu_enter_frame) = self.shell_start_frame() {
-                    let shell_startup_age =
-                        self.current_startup_logic_frame().saturating_sub(menu_enter_frame);
-                    if shell_startup_age <= 5 {
-                        2
-                    } else if shell_startup_age <= 15 {
-                        4
-                    } else if shell_startup_age <= 30 {
-                        8
-                    } else if shell_startup_age <= 180 {
-                        12
-                    } else {
-                        16
-                    }
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
-        if let Err(err) = self.render_pipeline.execute(
+        let deferred_startup_model_load_budget = Self::startup_deferred_model_load_budget(
+            self.current_state,
+            self.shell_start_frame(),
+            self.current_startup_logic_frame(),
+        );
+        let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
+        self.render_pipeline.execute(
             &mut self.graphics_system,
             &self.game_logic,
             &self.view_matrix,
@@ -2557,498 +3088,11 @@ impl CnCGameEngine {
             render_time_delta,
             allow_sync_model_loads,
             deferred_startup_model_load_budget,
-        ) {
-            return Err(err);
-        };
-
-        static CAPTURED_STARTUP_FRAME: AtomicBool = AtomicBool::new(false);
-        static CAPTURED_SETTLED_SHELL_FRAME: AtomicBool = AtomicBool::new(false);
-        static LAST_STARTUP_DEBUG_STAGE: AtomicU32 = AtomicU32::new(0);
-        if self.current_state == GameState::Menu
-            && !CAPTURED_STARTUP_FRAME.swap(true, Ordering::Relaxed)
-        {
-            if let Err(err) = ww3d_engine::make_screenshot("/tmp/generals_internal_frame.png") {
-                warn!("Failed to queue internal startup screenshot: {err:?}");
-            } else {
-                println!("DEBUG_STARTUP: queued_internal_screenshot=/tmp/generals_internal_frame.png");
-            }
-        }
-        let startup_logic_frame = self.current_startup_logic_frame();
-        if self.current_state == GameState::Menu
-            && startup_logic_frame >= 30
-            && !CAPTURED_SETTLED_SHELL_FRAME.swap(true, Ordering::Relaxed)
-        {
-            if let Err(err) =
-                ww3d_engine::make_screenshot("/tmp/generals_internal_frame_settled.png")
-            {
-                warn!("Failed to queue settled shell screenshot: {err:?}");
-            } else {
-                println!(
-                    "DEBUG_STARTUP: queued_settled_screenshot=/tmp/generals_internal_frame_settled.png"
-                );
-            }
-        }
-
-        let startup_debug_stage = if self.current_state == GameState::Menu {
-            if startup_logic_frame >= 60 {
-                4
-            } else if startup_logic_frame >= 30 {
-                3
-            } else if startup_logic_frame >= 10 {
-                2
-            } else {
-                1
-            }
-        } else {
-            1
-        };
-        if matches!(self.current_state, GameState::Menu | GameState::Loading) {
-            if startup_logic_frame <= 60 {
-                self.write_startup_debug_state();
-            } else if startup_debug_stage > LAST_STARTUP_DEBUG_STAGE.load(Ordering::Relaxed) {
-                LAST_STARTUP_DEBUG_STAGE.store(startup_debug_stage, Ordering::Relaxed);
-                self.write_startup_debug_state();
-            }
-        }
+            skip_world_scene,
+        )?;
 
         self.drain_renderer_attachments();
-
-        // Clean up textures that are no longer needed
-        for texture_id in &full_output.textures_delta.free {
-            if let Ok(mut renderer) = self.egui_renderer.lock() {
-                renderer.free_texture(texture_id);
-            }
-        }
-
         Ok(())
-    }
-
-    fn render_main_menu_overlay(&mut self) {
-        fn signal_shell_hook(hook: &str) {
-            gamelogic::helpers::TheScriptEngine::signal_ui_interact(hook);
-        }
-
-        let current_map_name = self.game_logic.get_current_map_name().to_string();
-        let mut start_skirmish = false;
-        let mut load_last_map = false;
-        let mut exit_requested = false;
-        let mut hovered_shell_hook: Option<&'static str> = None;
-        let mut selected_shell_hook: Option<&'static str> = None;
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(egui::Color32::TRANSPARENT))
-            .show(&self.egui_context, |ui| {
-                let rect = ui.max_rect();
-                let painter = ui.painter_at(rect);
-                let rule_color = egui::Color32::from_rgba_premultiplied(167, 134, 94, 230);
-                let rule_shadow = egui::Color32::from_rgba_premultiplied(38, 30, 21, 210);
-                let panel_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 126);
-                let panel_stroke = egui::Color32::from_rgb(47, 55, 168);
-                let glow_stroke = egui::Color32::from_rgba_premultiplied(210, 253, 4, 210);
-                let screen_w = rect.width();
-                let screen_h = rect.height();
-
-                let line = |painter: &egui::Painter,
-                            a: egui::Pos2,
-                            b: egui::Pos2,
-                            width: f32,
-                            color: egui::Color32| {
-                    painter.line_segment([a, b], egui::Stroke::new(width, color));
-                };
-
-                let top_y = rect.top();
-                let top_inner_y = rect.top() + screen_h * 0.10;
-                let bottom_inner_y = rect.top() + screen_h * 0.90;
-                let bottom_y = rect.bottom();
-                let verticals = [0.225_f32, 0.445_f32, 0.6662_f32, 0.885_f32];
-
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), top_y),
-                    egui::pos2(rect.right(), top_y),
-                    2.0,
-                    rule_color,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), top_y + 1.0),
-                    egui::pos2(rect.right(), top_y + 1.0),
-                    2.0,
-                    rule_shadow,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), top_inner_y),
-                    egui::pos2(rect.right(), top_inner_y),
-                    1.0,
-                    rule_color,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), top_inner_y + screen_h * 0.02),
-                    egui::pos2(rect.right(), top_inner_y + screen_h * 0.02),
-                    1.0,
-                    rule_shadow,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), bottom_inner_y),
-                    egui::pos2(rect.right(), bottom_inner_y),
-                    1.0,
-                    rule_color,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), bottom_inner_y + screen_h * 0.02),
-                    egui::pos2(rect.right(), bottom_inner_y + screen_h * 0.02),
-                    1.0,
-                    rule_shadow,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), bottom_y),
-                    egui::pos2(rect.right(), bottom_y),
-                    2.0,
-                    rule_color,
-                );
-                line(
-                    &painter,
-                    egui::pos2(rect.left(), bottom_y + 1.0),
-                    egui::pos2(rect.right(), bottom_y + 1.0),
-                    2.0,
-                    rule_shadow,
-                );
-
-                for fraction in verticals {
-                    let x = rect.left() + screen_w * fraction;
-                    line(
-                        &painter,
-                        egui::pos2(x, rect.top()),
-                        egui::pos2(x, rect.bottom()),
-                        3.0,
-                        rule_color,
-                    );
-                }
-
-                let pulse_width = (screen_w * 0.17).max(96.0);
-                let pulse_height = (screen_h * 0.033).max(12.0);
-                let time = ui.ctx().input(|i| i.time) as f32;
-                let pulse_phase = (time / 10.0).fract();
-                let forward = ((time / 10.0).floor() as i32) % 2 == 0;
-                let pulse_x = if forward {
-                    rect.left() - pulse_width + (screen_w + pulse_width) * pulse_phase
-                } else {
-                    rect.right() - (screen_w + pulse_width) * pulse_phase
-                };
-                let pulse_y = if forward {
-                    rect.top() - pulse_height * 0.5
-                } else {
-                    rect.bottom() - pulse_height * 0.5
-                };
-                let pulse_rect = egui::Rect::from_min_size(
-                    egui::pos2(pulse_x, pulse_y),
-                    egui::vec2(pulse_width, pulse_height),
-                );
-                painter.rect_filled(
-                    pulse_rect,
-                    2.0,
-                    egui::Color32::from_rgba_premultiplied(218, 197, 135, 72),
-                );
-
-                let right_panel = egui::Rect::from_min_max(
-                    egui::pos2(rect.left() + screen_w * 0.665, rect.top() + screen_h * 0.18),
-                    egui::pos2(rect.left() + screen_w * 0.945, rect.top() + screen_h * 0.40),
-                );
-                painter.rect_filled(right_panel, 0.0, panel_fill);
-                painter.rect_stroke(
-                    right_panel,
-                    0.0,
-                    egui::Stroke::new(1.0, panel_stroke),
-                    egui::StrokeKind::Inside,
-                );
-
-                let title_pos = egui::pos2(
-                    rect.left() + screen_w * 0.075,
-                    rect.top() + screen_h * 0.12,
-                );
-                painter.text(
-                    title_pos,
-                    egui::Align2::LEFT_TOP,
-                    "COMMAND & CONQUER\nGENERALS ZERO HOUR",
-                    egui::FontId::proportional((screen_h * 0.05).clamp(18.0, 34.0)),
-                    egui::Color32::from_rgb(233, 228, 210),
-                );
-
-                let subtitle_pos = egui::pos2(
-                    rect.left() + screen_w * 0.075,
-                    rect.top() + screen_h * 0.27,
-                );
-                painter.text(
-                    subtitle_pos,
-                    egui::Align2::LEFT_TOP,
-                    format!("Shell map: {}", current_map_name),
-                    egui::FontId::proportional((screen_h * 0.022).clamp(12.0, 16.0)),
-                    egui::Color32::from_rgb(190, 180, 160),
-                );
-
-                let button_width = (screen_w * 0.23).clamp(180.0, 240.0);
-                let button_height = (screen_h * 0.06).clamp(28.0, 38.0);
-                let button_x = rect.left() + screen_w * 0.675;
-                let mut button_y = rect.top() + screen_h * 0.205;
-                let spacing = button_height + screen_h * 0.014;
-
-                let shell_button = |ui: &mut egui::Ui,
-                                    rect: egui::Rect,
-                                    label: &str,
-                                    accent: bool| {
-                    let response = ui.put(
-                        rect,
-                        egui::Button::new(
-                            egui::RichText::new(label)
-                                .size((screen_h * 0.027).clamp(14.0, 18.0))
-                                .color(egui::Color32::WHITE),
-                        )
-                        .fill(egui::Color32::from_rgba_premultiplied(14, 18, 42, 170))
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            if accent { glow_stroke } else { panel_stroke },
-                        )),
-                    );
-                    response
-                };
-
-                let single_player_rect = egui::Rect::from_min_size(
-                    egui::pos2(button_x, button_y),
-                    egui::vec2(button_width, button_height),
-                );
-                let single_player_response =
-                    shell_button(ui, single_player_rect, "Single Player", true);
-                if single_player_response.hovered() {
-                    hovered_shell_hook = Some("ShellMainMenuSkirmishHighlighted");
-                }
-                if single_player_response.clicked() {
-                    start_skirmish = true;
-                    selected_shell_hook = Some("ShellMainMenuSkirmishPushed");
-                }
-                button_y += spacing;
-
-                let load_map_rect = egui::Rect::from_min_size(
-                    egui::pos2(button_x, button_y),
-                    egui::vec2(button_width, button_height),
-                );
-                if shell_button(ui, load_map_rect, "Load Last Map", false).clicked() {
-                    load_last_map = true;
-                }
-                button_y += spacing;
-
-                let exit_rect = egui::Rect::from_min_size(
-                    egui::pos2(button_x, button_y),
-                    egui::vec2(button_width, button_height),
-                );
-                let exit_response = shell_button(ui, exit_rect, "Exit", false);
-                if exit_response.hovered() {
-                    hovered_shell_hook = Some("ShellMainMenuExitHighlighted");
-                }
-                if exit_response.clicked() {
-                    exit_requested = true;
-                    selected_shell_hook = Some("ShellMainMenuExitPushed");
-                }
-            });
-
-        let next_hovered_hook = hovered_shell_hook;
-        if self.active_menu_shell_hook != next_hovered_hook {
-            if let Some(previous) = self.active_menu_shell_hook.take() {
-                let unhighlight_hook = match previous {
-                    "ShellMainMenuSkirmishHighlighted" => Some("ShellMainMenuSkirmishUnhighlighted"),
-                    "ShellMainMenuExitHighlighted" => Some("ShellMainMenuExitUnhighlighted"),
-                    "ShellMainMenuOptionsHighlighted" => Some("ShellMainMenuOptionsUnhighlighted"),
-                    "ShellMainMenuNetworkHighlighted" => Some("ShellMainMenuNetworkUnhighlighted"),
-                    "ShellMainMenuOnlineHighlighted" => Some("ShellMainMenuOnlineUnhighlighted"),
-                    _ => None,
-                };
-                if let Some(hook) = unhighlight_hook {
-                    signal_shell_hook(hook);
-                }
-            }
-            if let Some(hook) = next_hovered_hook {
-                signal_shell_hook(hook);
-            }
-            self.active_menu_shell_hook = next_hovered_hook;
-        }
-
-        if let Some(hook) = selected_shell_hook {
-            signal_shell_hook(hook);
-        }
-
-        if start_skirmish {
-            self.start_game_from_ui(
-                GameMode::Skirmish,
-                "USA".to_string(),
-                DEFAULT_SKIRMISH_MAP.to_string(),
-            );
-            self.request_state_change(GameState::Playing);
-        }
-
-        if load_last_map {
-            self.start_game_from_ui(
-                GameMode::Skirmish,
-                "USA".to_string(),
-                current_map_name,
-            );
-            self.request_state_change(GameState::Playing);
-        }
-
-        if exit_requested {
-            self.request_state_change(GameState::Exiting);
-        }
-    }
-
-    #[cfg(feature = "game_client")]
-    fn render_legacy_shell_overlay(&mut self) -> bool {
-        static LOGGED_WINDOW_TEXTS: AtomicBool = AtomicBool::new(false);
-        static LOGGED_WINDOW_DRAWS: AtomicBool = AtomicBool::new(false);
-        let shell_active = {
-            let shell = get_shell();
-            shell.is_shell_active() && shell.get_screen_count() > 0
-        };
-        if !shell_active {
-            static LOGGED_NO_SHELL: AtomicBool = AtomicBool::new(false);
-            if !LOGGED_NO_SHELL.swap(true, Ordering::Relaxed) {
-                eprintln!("DEBUG_STARTUP_LEGACY_SHELL: inactive");
-            }
-            return false;
-        }
-
-        let Some(renderer_arc) = with_ui_renderer(|renderer| renderer.clone()) else {
-            static LOGGED_NO_RENDERER: AtomicBool = AtomicBool::new(false);
-            if !LOGGED_NO_RENDERER.swap(true, Ordering::Relaxed) {
-                eprintln!("DEBUG_STARTUP_LEGACY_SHELL: ui_renderer_missing");
-            }
-            return false;
-        };
-
-        let window_size = self.window.inner_size();
-        let ui_time = self.frame_counter as f32 / 30.0;
-
-        {
-            let Ok(mut renderer) = renderer_arc.write() else {
-                return false;
-            };
-            renderer.begin_frame();
-            renderer.set_time(ui_time);
-            renderer.set_screen_size(window_size.width.max(1), window_size.height.max(1));
-        }
-
-        with_window_manager(|manager| manager.draw_all());
-        if !LOGGED_WINDOW_TEXTS.swap(true, Ordering::Relaxed) {
-            with_window_manager_ref(|manager| {
-                for (name, text, text_label, hidden, parent_name) in
-                    manager.debug_collect_window_texts_by_prefix("MainMenu.wnd:")
-                {
-                    eprintln!(
-                        "DEBUG_SHELL_WINDOW_TEXT: name={name} hidden={hidden} parent={parent_name:?} text={text:?} text_label={text_label:?}"
-                    );
-                }
-            });
-        }
-        if !LOGGED_WINDOW_DRAWS.swap(true, Ordering::Relaxed) {
-            with_window_manager_ref(|manager| {
-                for (name, hidden, pos, size, parent_name, image_name) in
-                    manager.debug_collect_window_draws_by_prefix("MainMenu.wnd:")
-                {
-                    if hidden {
-                        continue;
-                    }
-                    let area = (size.0.max(0) as i64) * (size.1.max(0) as i64);
-                    if area < 20_000 {
-                        continue;
-                    }
-                    eprintln!(
-                        "DEBUG_SHELL_WINDOW_DRAW: name={name} pos={:?} size={:?} parent={parent_name:?} image={image_name:?}",
-                        pos, size
-                    );
-                }
-            });
-        }
-
-        self.render_pipeline
-            .enqueue_post_frame_callback(move |frame| {
-                let mut renderer = renderer_arc.write().map_err(|_| {
-                    RendererError::InvalidOperation("legacy UI renderer poisoned".into())
-                })?;
-                let color_view = frame.color_view_arc();
-                let encoder = frame.encoder();
-                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("legacy shell ui overlay"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view.as_ref(),
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                let mut render_pass: wgpu::RenderPass<'static> =
-                    unsafe { std::mem::transmute(render_pass) };
-                let result = renderer.render(&mut render_pass);
-                renderer.end_frame();
-                result.map_err(|err| {
-                    RendererError::RenderError(format!(
-                        "legacy shell ui render failed: {err}"
-                    ))
-                })
-            });
-        self.legacy_shell_enqueued_frame
-            .get_or_insert(self.current_startup_logic_frame());
-        static LOGGED_LEGACY_OK: AtomicBool = AtomicBool::new(false);
-        if !LOGGED_LEGACY_OK.swap(true, Ordering::Relaxed) {
-            eprintln!("DEBUG_STARTUP_LEGACY_SHELL: enqueued");
-        }
-        true
-    }
-
-    #[cfg(not(feature = "game_client"))]
-    fn render_legacy_shell_overlay(&mut self) -> bool {
-        false
-    }
-
-    fn render_loading_overlay(&mut self) {
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(egui::Color32::TRANSPARENT))
-            .show(&self.egui_context, |ui| {
-                let rect = ui.max_rect();
-                let painter = ui.painter_at(rect);
-                let panel_rect = egui::Rect::from_min_max(
-                    egui::pos2(rect.left() + rect.width() * 0.665, rect.top() + rect.height() * 0.18),
-                    egui::pos2(rect.left() + rect.width() * 0.945, rect.top() + rect.height() * 0.31),
-                );
-                painter.rect_filled(
-                    panel_rect,
-                    0.0,
-                    egui::Color32::from_rgba_premultiplied(0, 0, 0, 126),
-                );
-                painter.rect_stroke(
-                    panel_rect,
-                    0.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(47, 55, 168)),
-                    egui::StrokeKind::Inside,
-                );
-
-                ui.scope_builder(egui::UiBuilder::new().max_rect(panel_rect.shrink(16.0)), |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(6.0);
-                        ui.heading("Loading");
-                        ui.add_space(10.0);
-                        ui.spinner();
-                        ui.add_space(10.0);
-                        ui.label("Preparing game systems and assets...");
-                    });
-                });
-            });
     }
 
     fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
@@ -3064,12 +3108,7 @@ impl CnCGameEngine {
         let min_y = ((self.camera_target.z - half_height) - world_min.z) / world_extent_z;
         let max_y = ((self.camera_target.z + half_height) - world_min.z) / world_extent_z;
 
-        let rect = egui::Rect::from_min_max(
-            egui::Pos2::new(min_x.clamp(0.0, 1.0), min_y.clamp(0.0, 1.0)),
-            egui::Pos2::new(max_x.clamp(0.0, 1.0), max_y.clamp(0.0, 1.0)),
-        );
-
-        ui_state.minimap_viewport = rect;
+        ui_state.minimap_viewport = crate::ui::normalized_minimap_rect(min_x, min_y, max_x, max_y);
     }
 
     /// Process UI events emitted by UIManager and apply to engine/game state.
@@ -3098,6 +3137,7 @@ impl CnCGameEngine {
                     info!("UI requested exit to menu");
                     self.game_paused = false;
                     self.ui_manager.transition_to_screen(Screen::MainMenu);
+                    self.wgpu_ui_system.set_state(UISystemState::MainMenu);
                 }
                 UIEvent::ExitGame => {
                     info!("UI requested exit");
@@ -3105,6 +3145,16 @@ impl CnCGameEngine {
                 }
                 UIEvent::ChangeScreen(screen) => {
                     self.ui_manager.transition_to_screen(screen);
+                    match screen {
+                        Screen::MainMenu => self.wgpu_ui_system.set_state(UISystemState::MainMenu),
+                        Screen::Loading => self.wgpu_ui_system.set_state(UISystemState::Loading),
+                        Screen::GameHUD => self.wgpu_ui_system.set_state(UISystemState::InGame),
+                        Screen::PauseMenu => {
+                            self.wgpu_ui_system.set_state(UISystemState::PauseMenu)
+                        }
+                        Screen::Victory => self.wgpu_ui_system.set_state(UISystemState::Victory),
+                        _ => {}
+                    }
                 }
                 UIEvent::FocusCamera(world_pos) => {
                     self.center_camera_on(world_pos);
@@ -3203,7 +3253,6 @@ impl CnCGameEngine {
                 if let Err(err) = Self::reinitialize_minimap_renderer(
                     &mut self.render_pipeline,
                     &self.graphics_system,
-                    &self.egui_renderer,
                     &mut self.game_logic,
                 ) {
                     warn!(
@@ -3285,7 +3334,6 @@ impl CnCGameEngine {
         if let Err(err) = Self::reinitialize_minimap_renderer(
             &mut self.render_pipeline,
             &self.graphics_system,
-            &self.egui_renderer,
             &mut self.game_logic,
         ) {
             warn!("Failed to reinitialize minimap renderer: {}", err);
@@ -3299,13 +3347,15 @@ impl CnCGameEngine {
         );
 
         let startup_camera_defaults = Self::configured_startup_camera_defaults();
-        (self.camera_target, self.camera_position, self.camera_zoom) = Self::bootstrap_camera_for_loaded_map(
-            &self.game_logic,
-            self.current_player_id,
-            startup_camera_defaults,
-        );
+        (self.camera_target, self.camera_position, self.camera_zoom) =
+            Self::bootstrap_camera_for_loaded_map(
+                &self.game_logic,
+                self.current_player_id,
+                startup_camera_defaults,
+            );
         self.sync_orbit_from_camera_transform();
         self.ui_manager.transition_to_screen(Screen::GameHUD);
+        self.wgpu_ui_system.set_state(UISystemState::InGame);
     }
 
     fn apply_map_lighting(
@@ -3354,7 +3404,6 @@ impl CnCGameEngine {
     fn reinitialize_minimap_renderer(
         render_pipeline: &mut RenderPipeline,
         graphics_system: &GraphicsSystem,
-        egui_renderer: &Arc<Mutex<egui_wgpu::Renderer>>,
         game_logic: &mut GameLogic,
     ) -> anyhow::Result<()> {
         let mut world_bounds = game_logic.world_bounds();
@@ -3363,17 +3412,6 @@ impl CnCGameEngine {
             graphics_system.queue_arc(),
             world_bounds,
         )?;
-        let mut renderer_guard = egui_renderer
-            .lock()
-            .map_err(|_| anyhow::anyhow!("egui renderer mutex poisoned"))?;
-        render_pipeline.ensure_minimap_texture_registered(&mut renderer_guard)?;
-        render_pipeline
-            .load_heightmap_from_hint(
-                &graphics_system.device_arc(),
-                &graphics_system.queue_arc(),
-                Some(world_bounds),
-            )
-            .map_err(|e| anyhow::anyhow!("heightmap bridge: {e}"))?;
 
         let world_width = (world_bounds.1.x - world_bounds.0.x).abs();
         let world_height = (world_bounds.1.z - world_bounds.0.z).abs();
@@ -3568,16 +3606,53 @@ impl CnCGameEngine {
         self.script_fps_limit_last_tick = None;
     }
 
+    fn effective_fps_limit_for_frame(
+        script_fps_limit: Option<u32>,
+        global_use_fps_limit: bool,
+        global_frames_per_second_limit: i32,
+        visual_speed_multiplier: f32,
+        tivo_fast_mode: bool,
+        in_replay_game: bool,
+    ) -> Option<u32> {
+        if let Some(script_fps) = script_fps_limit.filter(|fps| *fps > 0) {
+            return Some(script_fps);
+        }
+
+        // C++ parity: skip frame limiting when tactical time multiplier is above normal.
+        if visual_speed_multiplier > 1.0 {
+            return None;
+        }
+
+        if !global_use_fps_limit {
+            return None;
+        }
+
+        // C++ parity: TiVO fast mode disables frame limiting for replay playback.
+        if tivo_fast_mode && in_replay_game {
+            return None;
+        }
+
+        u32::try_from(global_frames_per_second_limit)
+            .ok()
+            .filter(|fps| *fps > 0)
+    }
+
     fn apply_script_frame_limit(&mut self) {
-        let Some(max_fps) = self.script_fps_limit else {
+        let global_data = game_engine::common::global_data::read();
+        let max_fps = Self::effective_fps_limit_for_frame(
+            self.script_fps_limit,
+            global_data.writable.use_fps_limit,
+            global_data.writable.frames_per_second_limit,
+            self.game_logic.visual_speed_multiplier(),
+            global_data.tivo_fast_mode,
+            self.game_logic.isInReplayGame(),
+        );
+        drop(global_data);
+
+        let Some(max_fps) = max_fps else {
             self.script_fps_limit_last_tick = None;
             return;
         };
-
-        if max_fps == 0 {
-            self.script_fps_limit_last_tick = None;
-            return;
-        }
 
         // Mirrors C++ GameEngine::execute frame pacing: (1000 / fps) - 1, Sleep(0) loop.
         let limit_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
@@ -3766,15 +3841,6 @@ impl CnCGameEngine {
             .game_logic
             .terrain_height_at(clamped)
             .unwrap_or(self.camera_target.y);
-        static DEBUG_CENTER_CAMERA_LOGS: std::sync::atomic::AtomicUsize =
-            std::sync::atomic::AtomicUsize::new(0);
-        if DEBUG_CENTER_CAMERA_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 24 {
-            eprintln!(
-                "DEBUG_SHELL_CAMERA_APPLY: frame={} requested={world_pos:?} clamped={clamped:?} old_target={:?} new_ground_height={ground_height:.3}",
-                self.frame_counter,
-                self.camera_target,
-            );
-        }
         self.camera_target.x = clamped.x;
         self.camera_target.y = ground_height;
         self.camera_target.z = clamped.z;
@@ -3869,7 +3935,6 @@ impl CnCGameEngine {
         self.game_paused = false;
         self.victory_summary = None;
         self.ui_manager.clear_victory_screen();
-        self.egui_hud.reset_match_state();
         self.diagnostics_overlay = None;
 
         self.frame_counter = 0;
@@ -3902,19 +3967,42 @@ impl CnCGameEngine {
         self.sync_orbit_from_camera_transform();
         let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
         self.projection_matrix = Mat4::perspective_rh(
-            LEGACY_VIEW_FOV_RADIANS,
+            DEFAULT_VIEW_FOV_RADIANS,
             aspect,
-            LEGACY_VIEW_NEAR_CLIP,
-            LEGACY_VIEW_FAR_CLIP,
+            DEFAULT_VIEW_NEAR_CLIP,
+            DEFAULT_VIEW_FAR_CLIP,
         );
     }
 
     fn exit_to_main_menu_from_victory(&mut self) {
         self.reset_match_state();
         self.ui_manager.transition_to_screen(Screen::MainMenu);
+        self.wgpu_ui_system.set_state(UISystemState::MainMenu);
     }
 
     fn handle_key_press(&mut self, key: &Key) {
+        if !matches!(self.current_state, GameState::Playing | GameState::Paused) {
+            match key {
+                Key::Character(c) if c == "m" || c == "M" => {
+                    self.toggle_background_music();
+                }
+                Key::Named(NamedKey::F11) => {
+                    let current_fullscreen = self.window.fullscreen().is_some();
+                    if let Err(e) = self.set_fullscreen(!current_fullscreen) {
+                        error!("Failed to toggle fullscreen: {}", e);
+                    } else {
+                        info!("Toggled fullscreen mode: {}", !current_fullscreen);
+                    }
+                }
+                Key::Named(NamedKey::Escape) => {
+                    info!("Escape pressed in Menu/Loading - exiting");
+                    self.request_state_change(GameState::Exiting);
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key {
             Key::Named(NamedKey::Space) => {
                 self.toggle_pause();
@@ -4150,26 +4238,6 @@ impl CnCGameEngine {
 
     fn handle_right_click(&mut self) {
         let mouse_pos = self.mouse_world_position;
-        let selected_units = self.selected_objects.clone();
-
-        // Check if we have a pending command from UI buttons
-        if self.egui_hud.has_pending_command() {
-            // Check if clicking on an object
-            let target_object = self.find_object_at_position(mouse_pos, &self.game_logic, true);
-
-            if let Some(target_id) = target_object {
-                // Complete pending command with object target
-                self.egui_hud
-                    .complete_pending_command_with_object(target_id, selected_units);
-            } else {
-                // Complete pending command with position target
-                self.egui_hud
-                    .complete_pending_command_with_position(mouse_pos, selected_units);
-            }
-
-            self.play_sound_effect(SoundType::Command);
-            return;
-        }
 
         // Normal right-click behavior when no pending command
         if self.selected_objects.is_empty() {
@@ -4882,6 +4950,12 @@ enum SoundType {
     Build,
 }
 
+struct NoopWake;
+
+impl Wake for NoopWake {
+    fn wake(self: Arc<Self>) {}
+}
+
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -4892,7 +4966,16 @@ pub async fn run_cnc_game(
 
     let mut pending_window_attributes = Some(window_attributes);
     let mut window: Option<Arc<Window>> = None;
+    let mut pending_engine_window: Option<Arc<Window>> = None;
+    let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> =
+        None;
+    let mut engine_init_started_at: Option<Instant> = None;
+    let mut engine_init_last_log_at: Option<Instant> = None;
     let mut engine: Option<CnCGameEngine> = None;
+    let mut shutdown_logged = false;
+    let mut next_redraw_at = Instant::now();
+    let mut last_slow_frame_log = None::<Instant>;
+    const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
 
     #[cfg(feature = "integration-diagnostics")]
     let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
@@ -4901,28 +4984,40 @@ pub async fn run_cnc_game(
 
     #[allow(deprecated)]
     event_loop.run(move |event, elwt| {
-        elwt.set_control_flow(ControlFlow::Poll);
+        elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
 
         let mut drive_frame = |engine: &mut CnCGameEngine, current_window: &Arc<Window>| {
-            let frame_timing = match ww3d_engine::update() {
-                Ok(_) => match ww3d_engine::timing() {
-                    Ok(timing) => {
-                        let sync_ms = (timing.total_seconds() * 1000.0)
-                            .clamp(0.0, u32::MAX as f32) as u32;
-                        WW3D::sync(sync_ms);
-                        Some(timing)
-                    }
+            let frame_started = Instant::now();
+            let mut ww3d_elapsed = Duration::ZERO;
+            let frame_timing = if matches!(engine.get_state(), GameState::Playing | GameState::Paused)
+            {
+                let ww3d_started = Instant::now();
+                let timing = match ww3d_engine::update() {
+                    Ok(_) => match ww3d_engine::timing() {
+                        Ok(timing) => {
+                            let sync_ms = (timing.total_seconds() * 1000.0)
+                                .clamp(0.0, u32::MAX as f32)
+                                as u32;
+                            WW3D::sync(sync_ms);
+                            Some(timing)
+                        }
+                        Err(err) => {
+                            error!("Failed to fetch WW3D frame timing: {err:?}");
+                            None
+                        }
+                    },
                     Err(err) => {
-                        error!("Failed to fetch WW3D frame timing: {err:?}");
+                        error!("WW3D engine update failed: {err:?}");
                         None
                     }
-                },
-                Err(err) => {
-                    error!("WW3D engine update failed: {err:?}");
-                    None
-                }
+                };
+                ww3d_elapsed = ww3d_started.elapsed();
+                timing
+            } else {
+                None
             };
 
+            let update_started = Instant::now();
             if let Some(timing) = frame_timing {
                 #[cfg(feature = "integration-diagnostics")]
                 if let Some(bridge) = integration_bridge.as_mut() {
@@ -4938,7 +5033,9 @@ pub async fn run_cnc_game(
             } else {
                 engine.update_with_frame_clock();
             }
+            let update_elapsed = update_started.elapsed();
 
+            let render_started = Instant::now();
             match engine.render() {
                 Ok(_) => {}
                 Err(e) => {
@@ -4966,9 +5063,27 @@ pub async fn run_cnc_game(
                     }
                 }
             }
-        };
+            let render_elapsed = render_started.elapsed();
 
-        elwt.set_control_flow(ControlFlow::Poll);
+            let frame_elapsed = frame_started.elapsed();
+            if frame_elapsed >= Duration::from_millis(120) {
+                let should_log = last_slow_frame_log
+                    .map(|last| frame_started.duration_since(last) >= Duration::from_millis(500))
+                    .unwrap_or(true);
+                if should_log {
+                    warn!(
+                        "Slow frame {:?} in {:?} (ww3d={:?}, update={:?}, render={:?}, startup_progress={:.0}%)",
+                        frame_elapsed,
+                        engine.get_state(),
+                        ww3d_elapsed,
+                        update_elapsed,
+                        render_elapsed,
+                        engine.startup_last_reported_progress * 100.0
+                    );
+                    last_slow_frame_log = Some(frame_started);
+                }
+            }
+        };
 
         if matches!(event, Event::Resumed) && engine.is_none() {
             let Some(attributes) = pending_window_attributes.take() else {
@@ -4990,59 +5105,126 @@ pub async fn run_cnc_game(
                 "Window created: {}x{} ({})",
                 created_window.inner_size().width,
                 created_window.inner_size().height,
-                if cmd_args.windowed {
-                    "Windowed"
-                } else {
+                if created_window.fullscreen().is_some() {
                     "Fullscreen"
+                } else {
+                    "Windowed"
                 }
             );
 
             created_window.set_visible(true);
+            created_window.set_minimized(false);
+            created_window.focus_window();
             created_window.request_redraw();
+            window = Some(created_window.clone());
+            pending_engine_window = Some(created_window);
+            return;
+        }
 
-            #[cfg(target_os = "windows")]
-            {
-                use raw_window_handle::HasWindowHandle;
-                if let Ok(handle) = created_window.window_handle() {
-                    if let raw_window_handle::RawWindowHandle::Win32(win) = handle.as_raw() {
-                        unsafe {
-                            crate::win_main::APPLICATION_WINDOW =
-                                win.hwnd.get() as *mut std::ffi::c_void;
-                        }
-                        debug!("Win32 window handle stored");
-                    }
-                }
-            }
-
-            match pollster::block_on(CnCGameEngine::new(
-                created_window.clone(),
-                cmd_args.clone(),
-            )) {
-                Ok(new_engine) => {
-                    info!("C&C Game engine initialized successfully!");
-                    window = Some(created_window);
-                    engine = Some(new_engine);
-                    #[cfg(feature = "integration-diagnostics")]
-                    if cmd_args.wants_integration_diagnostics() {
-                        match pollster::block_on(IntegrationTelemetryBridge::new(
-                            IntegrationConfig::default(),
-                        )) {
-                            Ok(bridge) => {
-                                info!("Integration diagnostics bridge initialized");
-                                integration_bridge = Some(bridge);
-                            }
-                            Err(err) => {
-                                error!(
-                                    "Failed to initialize integration diagnostics bridge: {err:?}. Continuing without telemetry overlay."
-                                );
-                            }
+        if engine.is_none() {
+            match event {
+                Event::WindowEvent { ref event, window_id } => {
+                    if let Some(current_window) = window.as_ref() {
+                        if window_id == current_window.id()
+                            && matches!(event, WindowEvent::CloseRequested)
+                        {
+                            info!("Close requested before engine startup completed");
+                            elwt.exit();
+                            return;
                         }
                     }
                 }
-                Err(err) => {
-                    error!("Failed to initialize C&C game engine: {err}");
-                    elwt.exit();
+                Event::AboutToWait => {
+                    if engine_init_future.is_none() {
+                        if let Some(created_window) = pending_engine_window.take() {
+                            #[cfg(target_os = "windows")]
+                            {
+                                use raw_window_handle::HasWindowHandle;
+                                if let Ok(handle) = created_window.window_handle() {
+                                    if let raw_window_handle::RawWindowHandle::Win32(win) =
+                                        handle.as_raw()
+                                    {
+                                        unsafe {
+                                            crate::win_main::APPLICATION_WINDOW =
+                                                win.hwnd.get() as *mut std::ffi::c_void;
+                                        }
+                                        debug!("Win32 window handle stored");
+                                    }
+                                }
+                            }
+
+                            engine_init_started_at = Some(Instant::now());
+                            engine_init_last_log_at = None;
+                            created_window
+                                .set_title("Command & Conquer Generals Zero Hour - Initializing");
+                            engine_init_future = Some(Box::pin(CnCGameEngine::new(
+                                created_window.clone(),
+                                cmd_args.clone(),
+                            )));
+                        }
+                    }
+
+                    if let Some(init_future) = engine_init_future.as_mut() {
+                        let waker: Waker = Waker::from(Arc::new(NoopWake));
+                        let mut cx = Context::from_waker(&waker);
+                        match init_future.as_mut().poll(&mut cx) {
+                            Poll::Ready(Ok(new_engine)) => {
+                                if let Some(created_window) = window.as_ref() {
+                                    info!("C&C Game engine initialized successfully!");
+                                    created_window.focus_window();
+                                    created_window.request_redraw();
+                                }
+                                engine_init_future = None;
+                                engine_init_started_at = None;
+                                engine_init_last_log_at = None;
+                                engine = Some(new_engine);
+                                #[cfg(feature = "integration-diagnostics")]
+                                if cmd_args.wants_integration_diagnostics() {
+                                    match pollster::block_on(IntegrationTelemetryBridge::new(
+                                        IntegrationConfig::default(),
+                                    )) {
+                                        Ok(bridge) => {
+                                            info!("Integration diagnostics bridge initialized");
+                                            integration_bridge = Some(bridge);
+                                        }
+                                        Err(err) => {
+                                            error!(
+                                                "Failed to initialize integration diagnostics bridge: {err:?}. Continuing without telemetry overlay."
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Poll::Ready(Err(err)) => {
+                                error!("Failed to initialize C&C game engine: {err}");
+                                engine_init_future = None;
+                                elwt.exit();
+                            }
+                            Poll::Pending => {
+                                if let Some(started_at) = engine_init_started_at {
+                                    let should_log = engine_init_last_log_at
+                                        .map(|last| {
+                                            last.elapsed() >= Duration::from_millis(500)
+                                        })
+                                        .unwrap_or_else(|| started_at.elapsed() >= Duration::from_millis(500));
+                                    if should_log {
+                                        info!(
+                                            "Engine bootstrap still in progress ({:.2}s elapsed)",
+                                            started_at.elapsed().as_secs_f32()
+                                        );
+                                        engine_init_last_log_at = Some(Instant::now());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(created_window) = window.as_ref() {
+                        created_window.request_redraw();
+                    }
+                    elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
                 }
+                _ => {}
             }
             return;
         }
@@ -5055,7 +5237,10 @@ pub async fn run_cnc_game(
         };
 
         if engine.is_quitting() {
-            info!("Engine shutting down");
+            if !shutdown_logged {
+                info!("Engine shutting down");
+                shutdown_logged = true;
+            }
             elwt.exit();
             return;
         }
@@ -5082,11 +5267,7 @@ pub async fn run_cnc_game(
                 ref event,
                 window_id,
             } if window_id == current_window.id() => {
-                let egui_response = engine
-                    .egui_state
-                    .on_window_event(current_window.as_ref(), event);
-
-                if !egui_response.consumed && !engine.input(event) {
+                if !engine.input(event) {
                     match event {
                         WindowEvent::CloseRequested => {
                             info!("Close requested by window");
@@ -5118,29 +5299,24 @@ pub async fn run_cnc_game(
                         WindowEvent::Resized(physical_size) => {
                             engine.resize(*physical_size);
                         }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            // Keep UI/layout hit-testing in sync on HiDPI transitions (macOS).
+                            engine.resize(current_window.inner_size());
+                        }
                         WindowEvent::RedrawRequested => {
                             drive_frame(engine, current_window);
-
-                            // Match the C++ main loop's self-driven cadence more closely. The
-                            // Rust path should not rely on the platform delivering another
-                            // redraw request before shell/game progression can continue.
-                            current_window.request_redraw();
                         }
                         _ => {}
                     }
                 }
             }
             Event::AboutToWait => {
-                if matches!(engine.get_state(), GameState::Menu | GameState::Loading) {
-                    drive_frame(engine, current_window);
+                let now = Instant::now();
+                if now >= next_redraw_at {
+                    current_window.request_redraw();
+                    next_redraw_at = now + FRAME_INTERVAL;
                 }
-                current_window.request_redraw();
-                static FRAME_COUNT: std::sync::atomic::AtomicU32 =
-                    std::sync::atomic::AtomicU32::new(0);
-                let frame = FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if frame % 60 == 0 {
-                    println!("🔄 Event loop active (frame {})", frame);
-                }
+                elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
             }
             Event::LoopExiting => {
                 #[cfg(feature = "integration-diagnostics")]
@@ -5320,7 +5496,7 @@ impl CnCGameEngine {
             Self::collect_material_textures(model, &mut texture_names);
 
             for mesh in &model.meshes {
-                // Direct material reference on mesh (legacy fallback)
+                // Direct material reference on mesh (fallback path)
                 if let Some(ref tex_name) = mesh.material.texture_name {
                     if Self::is_valid_texture_name(tex_name) {
                         texture_names.insert(tex_name.clone());
@@ -5646,13 +5822,11 @@ impl CnCGameEngine {
                 let mut asset_manager = asset_manager_arc.lock().unwrap();
                 match asset_manager.load_w3d_model_blocking(model_name) {
                     Ok(model) => Ok(model),
-                    Err(e) => {
-                        Err(anyhow::anyhow!(
-                            "Failed to load W3D model '{}': {}",
-                            model_name,
-                            e
-                        ))
-                    }
+                    Err(e) => Err(anyhow::anyhow!(
+                        "Failed to load W3D model '{}': {}",
+                        model_name,
+                        e
+                    )),
                 }
             }?; // Asset manager lock is released here
 
@@ -5706,7 +5880,9 @@ impl CnCGameEngine {
         let Some(menu_enter_frame) = self.shell_start_frame() else {
             return;
         };
-        let startup_age = self.current_startup_logic_frame().saturating_sub(menu_enter_frame);
+        let startup_age = self
+            .current_startup_logic_frame()
+            .saturating_sub(menu_enter_frame);
         if startup_age < 10 {
             return;
         }
@@ -5732,7 +5908,10 @@ impl CnCGameEngine {
             ) {
                 Ok(_) => {}
                 Err(err) => {
-                    warn!("Shell incremental prewarm failed for model '{}': {}", model_name, err);
+                    warn!(
+                        "Shell incremental prewarm failed for model '{}': {}",
+                        model_name, err
+                    );
                 }
             }
         }

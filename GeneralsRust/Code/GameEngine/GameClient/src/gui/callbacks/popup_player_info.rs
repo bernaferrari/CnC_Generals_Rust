@@ -9,6 +9,7 @@ use crate::gamespy_overlay::{
     close_overlay, gs_message_box_yes_no, is_overlay_open, open_overlay, raise_gs_message_box,
     reopen_player_info, GameSpyOverlayType,
 };
+use crate::gui::callbacks::wol_lobby_menu::refresh_game_list_boxes;
 use crate::gui::callbacks::wol_welcome_menu::{get_look_at_player, populate_player_info_windows};
 use crate::gui::CustomMatchPreferencesStore;
 use crate::gui::{
@@ -215,16 +216,20 @@ pub fn popup_player_info_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             if control_id == state.button_close_id {
+                refresh_game_list_boxes();
                 close_overlay(GameSpyOverlayType::PlayerInfo);
             } else if control_id == state.button_buddies_id {
+                refresh_game_list_boxes();
                 open_overlay(GameSpyOverlayType::Buddy);
             } else if control_id == state.button_set_locale_id {
+                refresh_game_list_boxes();
                 close_overlay(GameSpyOverlayType::PlayerInfo);
                 if !is_overlay_open(GameSpyOverlayType::LocaleSelect) {
                     open_overlay(GameSpyOverlayType::LocaleSelect);
                 }
                 reopen_player_info();
             } else if control_id == state.button_delete_account_id {
+                refresh_game_list_boxes();
                 close_overlay(GameSpyOverlayType::PlayerInfo);
                 gs_message_box_yes_no(
                     &GameText::fetch("GUI:DeleteAccount"),

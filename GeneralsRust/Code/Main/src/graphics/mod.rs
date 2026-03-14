@@ -11,6 +11,6 @@ pub mod minimap_renderer;
 pub mod render_item;
 pub mod render_pipeline;
 pub use graphics_system::{GlobalUniforms, GraphicsStatistics, GraphicsSystem};
-pub use minimap_renderer::{MinimapCoordinates, MinimapTextureRenderer};
+pub use minimap_renderer::{MinimapCoordinates, MinimapTextureRenderer, UiTextureRegistrar};
 pub use render_item::RenderItem;
 pub use render_pipeline::{RenderPass, RenderPipeline};

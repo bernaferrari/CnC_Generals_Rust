@@ -13,17 +13,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use gamelogic::common::MAP_XY_FACTOR;
-use gamelogic::scripting::{parse_player_scripts_list_chunk, ScriptListReadInfo};
-use gamelogic::scripting::core::{
-    Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
-    ScriptActionType, ScriptGroup, ScriptList,
-};
-use gamelogic::GameLogicError;
 use game_engine::common::dict::Dict;
 use game_engine::common::ini::{get_terrain_roads, INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput};
+use gamelogic::common::MAP_XY_FACTOR;
+use gamelogic::scripting::core::{
+    Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+    ScriptActionType, ScriptGroup, ScriptList,
+};
+use gamelogic::scripting::{parse_player_scripts_list_chunk, ScriptListReadInfo};
+use gamelogic::GameLogicError;
 use log::{debug, info, trace, warn};
 
 type LoaderResult<T> = Result<T, GameLogicError>;
@@ -110,7 +110,8 @@ fn ensure_terrain_roads_loaded() {
     let result = TERRAIN_ROADS_LOAD_RESULT.get_or_init(|| {
         let mut ini = INI::new();
 
-        if let Some(default_path) = resolve_runtime_ini_path(Path::new("Data/INI/Default/Roads.ini"))
+        if let Some(default_path) =
+            resolve_runtime_ini_path(Path::new("Data/INI/Default/Roads.ini"))
         {
             ini.load(&default_path, INILoadType::Overwrite)
                 .map_err(|err| format!("failed loading '{}': {}", default_path.display(), err))?;

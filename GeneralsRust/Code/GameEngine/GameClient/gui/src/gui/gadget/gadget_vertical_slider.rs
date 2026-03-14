@@ -98,11 +98,16 @@ pub fn render_demo(value: f32) -> AnyElement {
     let mut state = VerticalSliderState::default();
     state.position =
         (state.min as f32 + (state.max - state.min) as f32 * value.clamp(0.0, 1.0)).round() as i32;
-    let height = 96.0_f32 * state.normalized();
+    render(&state)
+}
+
+pub fn render(state: &VerticalSliderState) -> AnyElement {
+    let track_height = state.track_height.max(1) as f32;
+    let height = track_height * state.normalized();
     div()
         .flex()
         .items_end()
-        .h(px(96.))
+        .h(px(track_height))
         .w(px(16.))
         .rounded_full()
         .bg(rgb(0x1f2a35))
@@ -111,7 +116,11 @@ pub fn render_demo(value: f32) -> AnyElement {
                 .w(px(16.))
                 .h(px(height))
                 .rounded_full()
-                .bg(rgb(0x8dc0ff)),
+                .bg(if state.hilited {
+                    rgb(0xd1a65d)
+                } else {
+                    rgb(0x8dc0ff)
+                }),
         )
         .into_any_element()
 }

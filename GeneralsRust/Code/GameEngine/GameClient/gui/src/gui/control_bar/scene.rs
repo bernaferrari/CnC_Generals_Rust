@@ -47,7 +47,7 @@ pub fn render_port(port: &ControlBarPort) -> AnyElement {
 
 fn render_core_panel(title: &str) -> AnyElement {
     let state = ControlBarCorePort::sample();
-    let buttons = crate::gui::control_bar::control_bar::demo_buttons();
+    let command_state = CommandBarStatePort::default();
 
     panel(
         title,
@@ -59,7 +59,8 @@ fn render_core_panel(title: &str) -> AnyElement {
             static_text("Selection Group", state.selected_group_size.to_string()),
             command_list(
                 "Default Buttons",
-                buttons
+                command_state
+                    .buttons
                     .iter()
                     .map(|button| button.label.to_string())
                     .collect(),
@@ -179,9 +180,11 @@ fn render_under_construction_panel(title: &str) -> AnyElement {
         title,
         vec![
             static_text("Description", state.description_text.clone()),
-            gadget_progress_bar::render_demo(
+            gadget_progress_bar::render(
                 "Build progress",
-                state.construction_percent as f32 / 100.0,
+                &gadget_progress_bar::ProgressBarState::new(
+                    state.construction_percent.clamp(0, 100) as u8,
+                ),
             ),
             static_bool("Rally point visible", state.rally_point_visible),
             static_text("Cancel Command", state.cancel_command.label.to_string()),
@@ -273,7 +276,12 @@ fn render_ocl_timer_panel(title: &str) -> AnyElement {
         title,
         vec![
             static_text("Timer", timer.timer_name.clone()),
-            gadget_progress_bar::render_demo("Cooldown", timer.progress()),
+            gadget_progress_bar::render(
+                "Cooldown",
+                &gadget_progress_bar::ProgressBarState::new(
+                    (timer.progress().clamp(0.0, 1.0) * 100.0).round() as u8,
+                ),
+            ),
             static_text("Remaining Frames", timer.remaining_frames.to_string()),
         ],
     )

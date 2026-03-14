@@ -4,10 +4,11 @@
 //! relationships, and provide team-level functionality. This includes both
 //! individual Team instances and TeamPrototypes for creating new teams.
 
+use crate::ai::AIGroup;
 use crate::common::CoordOrigin;
 use crate::common::*;
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::ThePartitionManager;
+use crate::helpers::{ThePartitionManager, TheThingFactory};
 use crate::locomotor::core::{LocomotorSurfaceTypeMask, SURFACE_GROUND};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
@@ -225,6 +226,7 @@ pub struct Team {
     active: Bool,
     created: Bool,
     recruitable: Bool,
+    recruitability_set: Bool,
 
     // Enemy sighting and awareness
     check_enemy_sighted: Bool,
@@ -274,6 +276,7 @@ impl Team {
             active: false,
             created: false,
             recruitable: false,
+            recruitability_set: false,
             check_enemy_sighted: false,
             see_enemy: false,
             prev_see_enemy: false,
@@ -483,9 +486,22 @@ impl Team {
         self.recruitable
     }
 
+    /// Returns true if this team has an explicit runtime recruitability override.
+    /// Mirrors C++ Team::m_isRecruitablitySet semantics.
+    pub fn is_recruitability_set(&self) -> Bool {
+        self.recruitability_set
+    }
+
+    /// Seed recruitability from prototype defaults without marking a runtime override.
+    fn set_prototype_recruitable(&mut self, recruitable: Bool) {
+        self.recruitable = recruitable;
+        self.recruitability_set = false;
+    }
+
     /// Set whether this team can be recruited.
     pub fn set_recruitable(&mut self, recruitable: Bool) {
         self.recruitable = recruitable;
+        self.recruitability_set = true;
     }
 
     /// Copy script hook fields from the team template.
@@ -689,8 +705,6 @@ impl Team {
 
     /// Notify team of object death
     pub fn notify_team_of_object_death(&mut self) {
-        self.cur_units = self.members.len() as Int;
-
         if self.script_on_unit_destroyed.is_empty() {
             return;
         }
@@ -857,6 +871,219 @@ impl Team {
         count
     }
 
+    /// Count team members matching each template entry.
+    /// Matches C++ Team::countObjectsByThingTemplate.
+    pub fn count_objects_by_thing_template(
+        &self,
+        templates: &[Arc<dyn ThingTemplate>],
+        ignore_dead: Bool,
+        ignore_under_construction: Bool,
+        counts: &mut [Int],
+    ) {
+        counts.fill(0);
+        let max_templates = templates.len().min(counts.len());
+        if max_templates == 0 {
+            return;
+        }
+
+        for &object_id in &self.members {
+            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+
+            if ignore_dead && object_guard.is_effectively_dead() {
+                continue;
+            }
+            if ignore_under_construction
+                && object_guard.test_status(ObjectStatusTypes::UnderConstruction)
+            {
+                continue;
+            }
+
+            let obj_template = object_guard.get_template();
+            for i in 0..max_templates {
+                if !obj_template.is_equivalent_to(templates[i].as_ref()) {
+                    continue;
+                }
+                counts[i] += 1;
+                break;
+            }
+        }
+    }
+
+    /// Heal all team members completely.
+    /// Matches C++ Team::healAllObjects.
+    pub fn heal_all_objects(&mut self) {
+        for &object_id in &self.members {
+            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(mut object_guard) = object_arc.write() else {
+                continue;
+            };
+            let _ = object_guard.heal_completely();
+        }
+    }
+
+    /// Iterate all live team member objects and invoke callback for each.
+    /// Matches C++ Team::iterateObjects.
+    pub fn iterate_objects<F>(&self, mut func: F)
+    where
+        F: FnMut(Arc<RwLock<crate::object::Object>>),
+    {
+        for &object_id in &self.members {
+            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            func(object_arc);
+        }
+    }
+
+    /// Add this team's members to an AIGroup.
+    /// Matches C++ Team::getTeamAsAIGroup.
+    pub fn get_team_as_ai_group(&self, ai_group: &mut AIGroup) {
+        self.iterate_objects(|object_arc| {
+            let _ = ai_group.add(object_arc);
+        });
+    }
+
+    /// Try to recruit a matching unit from other teams of this controller.
+    /// Matches C++ Team::tryToRecruit.
+    pub fn try_to_recruit(
+        &self,
+        template: &Arc<dyn ThingTemplate>,
+        team_home: &Coord3D,
+        max_dist: Real,
+    ) -> Option<Arc<RwLock<crate::object::Object>>> {
+        let controller_id = self.controlling_player_id?;
+        let default_team_id = player_list()
+            .read()
+            .ok()
+            .and_then(|players| players.get_player(controller_id as Int).cloned())
+            .and_then(|player_arc| {
+                player_arc
+                    .read()
+                    .ok()
+                    .and_then(|player| player.get_default_team())
+            })
+            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_id()));
+
+        let my_priority = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(self.name.as_str())
+                    .map(|prototype| prototype.get_production_priority())
+            })
+            .unwrap_or(Int::MAX);
+
+        let mut dist_sqr = max_dist * max_dist;
+        let mut recruit: Option<Arc<RwLock<crate::object::Object>>> = None;
+        let mut current = crate::system::game_logic::get_game_logic()
+            .lock()
+            .ok()
+            .and_then(|logic| logic.get_first_object());
+
+        while let Some(object_arc) = current.clone() {
+            let (
+                next,
+                obj_template,
+                obj_player,
+                obj_team,
+                is_dead,
+                held,
+                pos,
+                candidate_name,
+            ) = {
+                let Ok(object_guard) = object_arc.read() else {
+                    break;
+                };
+                (
+                    object_guard.get_next_object(),
+                    object_guard.get_template().clone(),
+                    object_guard.get_controlling_player_id(),
+                    object_guard.get_team(),
+                    object_guard.is_effectively_dead(),
+                    object_guard.is_disabled_by_type(DisabledType::Held),
+                    *object_guard.get_position(),
+                    object_guard.get_template().get_name().to_string(),
+                )
+            };
+            current = next;
+
+            let template_matches = obj_template.is_equivalent_to(template.as_ref())
+                || TheThingFactory::has_build_variation_name(template, &candidate_name);
+            if !template_matches {
+                continue;
+            }
+            if obj_player != Some(controller_id) {
+                continue;
+            }
+            if is_dead || held {
+                continue;
+            }
+
+            let Some(source_team_arc) = obj_team else {
+                continue;
+            };
+            let Ok(source_team_guard) = source_team_arc.read() else {
+                continue;
+            };
+            if !source_team_guard.is_active() {
+                continue;
+            }
+
+            let source_priority = get_team_factory()
+                .lock()
+                .ok()
+                .and_then(|factory| {
+                    factory
+                        .find_team_prototype(source_team_guard.get_name().as_str())
+                        .map(|prototype| prototype.get_production_priority())
+                })
+                .unwrap_or(Int::MAX);
+            if source_priority >= my_priority {
+                continue;
+            }
+
+            let is_default_team = default_team_id == Some(source_team_guard.get_id());
+            let mut team_is_recruitable = is_default_team;
+            if source_team_guard.is_recruitable() {
+                team_is_recruitable = true;
+            }
+            if source_team_guard.is_recruitability_set() {
+                team_is_recruitable = source_team_guard.is_recruitable();
+            }
+            if !team_is_recruitable {
+                continue;
+            }
+
+            // C++ also checks AIUpdateInterface::isRecruitable(). This runtime does not expose a
+            // getter on the trait yet, so we currently mirror all available checks.
+            let dx = team_home.x - pos.x;
+            let dy = team_home.y - pos.y;
+            let this_dist_sqr = dx * dx + dy * dy;
+
+            if is_default_team && recruit.is_none() {
+                recruit = Some(object_arc.clone());
+                dist_sqr = this_dist_sqr;
+            }
+
+            if this_dist_sqr > dist_sqr {
+                continue;
+            }
+
+            dist_sqr = this_dist_sqr;
+            recruit = Some(object_arc);
+        }
+
+        recruit
+    }
+
     /// Count objects with specific kind flags
     pub fn count_objects(&self, set_mask: u32, clear_mask: u32) -> Int {
         let required = set_mask as KindOfMaskType;
@@ -980,6 +1207,26 @@ impl Team {
         true
     }
 
+    /// Returns true when any live team member is inside the trigger area.
+    /// Matches C++ Team::unitsEntered.
+    pub fn units_entered(&self, trigger: &PolygonTrigger) -> Bool {
+        for &object_id in &self.members {
+            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.is_effectively_dead() {
+                continue;
+            }
+            if Self::object_in_trigger(&object_guard, trigger) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Check if team has any build facilities
     pub fn has_any_build_facility(&self) -> Bool {
         for &object_id in &self.members {
@@ -989,19 +1236,7 @@ impl Team {
             let Ok(object_guard) = object_arc.read() else {
                 continue;
             };
-            if object_guard.is_any_kind_of(&[
-                KindOf::Factory,
-                KindOf::CommandCenter,
-                KindOf::FSBarracks,
-                KindOf::FSWarfactory,
-                KindOf::FSAirfield,
-                KindOf::FSInternetCenter,
-                KindOf::FSPower,
-                KindOf::FSSupplyDropzone,
-                KindOf::FSSupplyCenter,
-                KindOf::FSSuperweapon,
-                KindOf::FSStrategyCenter,
-            ]) {
+            if object_guard.get_template().is_build_facility() {
                 return true;
             }
         }
@@ -1089,23 +1324,23 @@ impl Team {
         ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> bool {
-        let mask = if which_to_consider == 0 {
-            SURFACE_GROUND
-        } else {
-            which_to_consider
-        };
+        // C++ parity (Team.cpp static locoSetMatches):
+        // script condition bits are remapped before comparing against locomotor surface bits.
+        let mut surface_bits = which_to_consider as UnsignedInt;
+        surface_bits = (surface_bits & 0x01) | ((surface_bits & 0x02) << 2);
+        let considered = surface_bits as LocomotorSurfaceTypeMask;
 
         if let Some(ai_arc) = ai {
             if let Ok(ai_guard) = ai_arc.lock() {
                 if let Some(loco_arc) = ai_guard.get_cur_locomotor() {
                     if let Ok(loco_guard) = loco_arc.lock() {
-                        return (loco_guard.get_legal_surfaces() & mask) != 0;
+                        return (loco_guard.get_legal_surfaces() & considered) != 0;
                     }
                 }
             }
         }
 
-        (SURFACE_GROUND & mask) != 0
+        (SURFACE_GROUND & considered) != 0
     }
 
     fn object_in_trigger(object: &crate::object::Object, trigger: &PolygonTrigger) -> bool {
@@ -1145,7 +1380,6 @@ impl Team {
 
         let mut entered = false;
         let mut outside = false;
-        let mut any_considered = false;
 
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
@@ -1165,7 +1399,6 @@ impl Team {
                 continue;
             }
 
-            any_considered = true;
             if Self::object_did_enter(object_id, trigger) {
                 entered = true;
             } else if !Self::object_in_trigger(&object_guard, trigger) {
@@ -1173,7 +1406,7 @@ impl Team {
             }
         }
 
-        any_considered && entered && !outside
+        entered && !outside
     }
 
     pub fn did_partial_enter(
@@ -1429,6 +1662,30 @@ impl Team {
                     .and_then(|player| player.get_default_team())
             });
 
+        // C++ parity (Team::killTeam): effectively-dead beacon objects are still processed.
+        let beacon_template = self
+            .controlling_player_id
+            .and_then(|player_id| {
+                player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as Int).cloned())
+            })
+            .and_then(|player_arc| {
+                player_arc.read().ok().and_then(|player| {
+                    player
+                        .get_player_template()
+                        .map(|template| template.beacon_name.clone())
+                })
+            })
+            .and_then(|beacon_name| {
+                if beacon_name.is_empty() {
+                    None
+                } else {
+                    TheThingFactory::find_template(beacon_name.as_str())
+                }
+            });
+
         let members = self.members.clone();
         let mut moved_to_neutral = Vec::new();
         for object_id in members {
@@ -1436,19 +1693,23 @@ impl Team {
                 continue;
             };
 
-            let (destroyed, effectively_dead, is_tech_building, same_team) = {
+            let (destroyed, effectively_dead, is_beacon, is_tech_building, same_team) = {
                 let Ok(object_guard) = object_arc.read() else {
                     continue;
                 };
+                let is_beacon = beacon_template.as_ref().is_some_and(|template| {
+                    object_guard.get_template().is_equivalent_to(template.as_ref())
+                });
                 (
                     object_guard.is_destroyed(),
                     object_guard.is_effectively_dead(),
+                    is_beacon,
                     object_guard.is_kind_of(KindOf::TechBuilding),
                     object_guard.get_team_id() == Some(self.id),
                 )
             };
 
-            if destroyed || effectively_dead || !same_team {
+            if destroyed || (effectively_dead && !is_beacon) || !same_team {
                 continue;
             }
 
@@ -2493,7 +2754,7 @@ impl TeamFactory {
         let team = Arc::new(RwLock::new(Team::new(name.to_string().into(), team_id)));
         if let Some(ref prototype) = prototype {
             if let Ok(mut team_guard) = team.write() {
-                team_guard.set_recruitable(prototype.is_ai_recruitable());
+                team_guard.set_prototype_recruitable(prototype.is_ai_recruitable());
                 team_guard.apply_template_script_hooks(prototype);
             }
             let owner_name = prototype.get_owner_name().to_string();

@@ -41,7 +41,14 @@ impl ProgressBarState {
 }
 
 pub fn render_demo(label: &str, progress: f32) -> AnyElement {
-    let state = ProgressBarState::new((progress.clamp(0.0, 1.0) * 100.0).round() as u8);
+    render(
+        label,
+        &ProgressBarState::new((progress.clamp(0.0, 1.0) * 100.0).round() as u8),
+    )
+}
+
+pub fn render(label: impl Into<String>, state: &ProgressBarState) -> AnyElement {
+    let label = label.into();
     let width = 144.0_f32 * state.normalized();
     div()
         .flex()
@@ -53,15 +60,14 @@ pub fn render_demo(label: &str, progress: f32) -> AnyElement {
                     .w(px(width))
                     .h(px(10.))
                     .rounded_full()
-                    .bg(rgb(0xd88a44)),
+                    .bg(if state.progress >= 100 {
+                        rgb(0x69d18a)
+                    } else {
+                        rgb(0xd88a44)
+                    }),
             ),
         )
-        .child(
-            div()
-                .text_sm()
-                .text_color(rgb(0x8ea2b4))
-                .child(label.to_string()),
-        )
+        .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(label))
         .into_any_element()
 }
 

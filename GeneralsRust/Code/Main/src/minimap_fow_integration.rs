@@ -4,17 +4,18 @@
 //! with the game engine and UI.
 
 use anyhow::Result;
-use egui::Color32;
-use egui_wgpu::Renderer;
 use glam::{Vec2, Vec3};
 use log::{debug, error, info};
 use std::sync::Arc;
 use ww3d_engine::FrameTiming;
 
+const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / 30.0;
+
 use crate::game_logic::GameLogic;
 use crate::graphics::RenderPipeline;
-use crate::ui::{MinimapUIState, MinimapClickEvent, render_minimap_panel, update_minimap_state};
-use ww3d_engine::FrameTiming;
+use crate::ui::{
+    MinimapClickEvent, MinimapUIState, UiColor, UiPos2, UiTextureId, update_minimap_state,
+};
 
 /// Example integration struct showing how to use the minimap FOW system
 pub struct MinimapFowIntegration {
@@ -67,7 +68,7 @@ impl MinimapFowIntegration {
             fow_texture_id: None,
             width: 256.0,
             height: 256.0,
-            screen_pos: egui::Pos2::new(10.0, 10.0), // Top-left corner
+            screen_pos: UiPos2::new(10.0, 10.0), // Top-left corner
             world_min: world_bounds.0,
             world_max: world_bounds.1,
             camera_bounds: (Vec3::ZERO, Vec3::ZERO),
@@ -90,17 +91,9 @@ impl MinimapFowIntegration {
         })
     }
 
-    /// Initialize minimap texture binding with egui
-    pub fn initialize_egui_binding(
-        &mut self,
-        renderer: &mut Renderer,
-    ) -> Result<()> {
-        // Bind the minimap texture to egui
-        let texture_id = self.render_pipeline.bind_minimap_to_egui(renderer)?;
+    /// Attach a UI texture id that the active UI backend can present.
+    pub fn set_ui_texture_id(&mut self, texture_id: UiTextureId) {
         self.minimap_ui_state.fow_texture_id = Some(texture_id);
-
-        info!("Minimap FOW texture bound to egui with ID {:?}", texture_id);
-        Ok(())
     }
 
     /// Update minimap each frame
@@ -125,7 +118,7 @@ impl MinimapFowIntegration {
         current_player: u32,
         frame_number: u64,
     ) -> Result<()> {
-        let approximate_seconds = frame_number as f32 * (1.0 / 60.0);
+        let approximate_seconds = frame_number as f32 * LOGIC_FRAME_TIMESTEP;
         self.update_internal(
             game_logic,
             current_player,
@@ -157,11 +150,11 @@ impl MinimapFowIntegration {
 
                 // Determine color based on ownership
                 let color = if object.get_owner() == current_player {
-                    Color32::GREEN // Friendly units
+                    UiColor::from_rgb(0, 255, 0) // Friendly units
                 } else if object.get_owner() == 0 {
-                    Color32::WHITE // Neutral
+                    UiColor::from_rgb(255, 255, 255) // Neutral
                 } else {
-                    Color32::RED // Enemy units (if visible)
+                    UiColor::from_rgb(255, 0, 0) // Enemy units (if visible)
                 };
 
                 // Check if unit is selected
@@ -193,22 +186,14 @@ impl MinimapFowIntegration {
         Ok(())
     }
 
-    /// Render minimap panel in egui
-    pub fn render_minimap(
+    /// Handle one minimap click event coming from the active UI backend.
+    pub fn process_click_event(
         &mut self,
-        ctx: &egui::Context,
+        event: &MinimapClickEvent,
         game_logic: &mut GameLogic,
         current_player: u32,
-    ) -> Option<MinimapClickEvent> {
-        // Render the minimap panel and get any click events
-        let click_event = render_minimap_panel(ctx, &mut self.minimap_ui_state);
-
-        // Handle click event if present
-        if let Some(ref event) = click_event {
-            self.handle_minimap_click(event, game_logic, current_player);
-        }
-
-        click_event
+    ) {
+        self.handle_minimap_click(event, game_logic, current_player);
     }
 
     /// Handle minimap click event
@@ -274,29 +259,6 @@ impl MinimapFowIntegration {
     }
 }
 
-/// Example usage in game loop
-pub fn example_game_loop_integration(
-    integration: &mut MinimapFowIntegration,
-    game_logic: &mut GameLogic,
-    egui_ctx: &egui::Context,
-    current_player: u32,
-    frame_number: u64,
-) -> Result<()> {
-    // Update minimap FOW texture and UI state
-    integration.update(game_logic, current_player, frame_number)?;
-
-    // Render minimap in egui UI
-    if let Some(click_event) = integration.render_minimap(egui_ctx, game_logic, current_player) {
-        // Handle camera panning or unit movement
-        if !click_event.is_right_click {
-            // Pan camera to clicked position (right-click movement is handled by `render_minimap`)
-            integration.set_camera_position(click_event.world_position);
-        }
-    }
-
-    Ok(())
-}
-
 /// Test the minimap FOW system
 #[cfg(test)]
 mod tests {
@@ -316,7 +278,7 @@ mod tests {
             world_max: Vec3::new(1000.0, 0.0, 1000.0),
             width: 200.0,
             height: 200.0,
-            screen_pos: egui::Pos2::new(10.0, 10.0),
+            screen_pos: UiPos2::new(10.0, 10.0),
             ..Default::default()
         };
 

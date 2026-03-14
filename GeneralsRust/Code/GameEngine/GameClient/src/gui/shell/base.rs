@@ -49,10 +49,11 @@ use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_SHELL;
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -227,7 +228,6 @@ impl WindowLayout for BasicWindowLayout {
         let layout = self.ensure_layout()?;
         {
             let layout_ref = layout.borrow();
-            layout_ref.hide(false);
             layout_ref.run_init(data);
         }
 
@@ -252,8 +252,7 @@ impl WindowLayout for BasicWindowLayout {
 
         if let Some(layout) = &self.layout {
             let layout_ref = layout.borrow();
-            layout_ref.run_shutdown(None);
-            layout_ref.hide(true);
+            layout_ref.run_shutdown(Some(&*immediate_pop as &dyn std::any::Any));
         }
 
         if *immediate_pop {
@@ -261,7 +260,6 @@ impl WindowLayout for BasicWindowLayout {
         } else {
             self.state = LayoutState::ShuttingDown;
         }
-        self.hidden = true;
 
         Ok(())
     }
@@ -274,7 +272,10 @@ impl WindowLayout for BasicWindowLayout {
     }
 
     fn is_hidden(&self) -> bool {
-        self.hidden
+        self.layout
+            .as_ref()
+            .map(|layout| layout.borrow().is_hidden())
+            .unwrap_or(self.hidden)
     }
 
     fn bring_forward(&mut self) {
@@ -2370,6 +2371,10 @@ impl Shell {
                     // Complete the shutdown immediately
                     self.shutdown_complete(None, true)?;
                 }
+            } else {
+                // Match C++ Shell::push(): if the top is already hidden, complete the pending
+                // push immediately instead of leaving the shell stuck with a latent push request.
+                self.shutdown_complete(None, false)?;
             }
         } else {
             // No current top, do push immediately
@@ -2426,17 +2431,14 @@ impl Shell {
         // Don't set pending pop - we're doing it immediately
         self.pending_pop = false;
 
-        // Shutdown the top screen immediately
-        if let Some(mut top) = self.screen_stack.pop() {
+        // Match C++ Shell::popImmediate(): run shutdown while the screen is still the active top,
+        // then perform the actual pop through the normal workhorse.
+        if let Some(top) = self.screen_stack.last_mut() {
             let mut immediate_pop = true;
             top.run_shutdown(&mut immediate_pop)?;
-            top.destroy_windows();
         }
 
-        // Initialize the new top if present
-        if let Some(new_top) = self.screen_stack.last_mut() {
-            new_top.run_init(None)?;
-        }
+        self.do_pop(false)?;
 
         if let Ok(mut ime_manager) = get_ime_manager().lock() {
             ime_manager.detach();
@@ -2531,6 +2533,9 @@ impl Shell {
         self.animate_window_manager.reset();
 
         if self.pending_push {
+            if let Some(current_top) = self.screen_stack.last_mut() {
+                current_top.hide(true);
+            }
             // Do the push
             self.do_push(&self.pending_push_name.clone())?;
             self.pending_push = false;
@@ -2542,7 +2547,9 @@ impl Shell {
         }
 
         if self.clear_background {
-            self.background = None;
+            if let Some(mut background) = self.background.take() {
+                background.destroy_windows();
+            }
             self.clear_background = false;
         }
 
@@ -2675,7 +2682,9 @@ impl Shell {
             let mut stream = message_stream.write().unwrap();
             let msg = stream.append_message(GameMessageType::NewGame);
             msg.append_integer_argument(GAME_SHELL);
-            self.background = None;
+            if let Some(mut background) = self.background.take() {
+                background.destroy_windows();
+            }
             self.shell_map_on = true;
         } else {
             if TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() == GAME_SHELL {
@@ -2696,11 +2705,11 @@ impl Shell {
                     }
                 }
                 self.background = Some(Box::new(background_layout));
-                if let Some(ref mut bg) = self.background {
-                    bg.hide(false);
-                    if let Some(top) = self.screen_stack.last_mut() {
-                        top.bring_forward();
-                    }
+            }
+            if let Some(ref mut bg) = self.background {
+                bg.hide(false);
+                if let Some(top) = self.screen_stack.last_mut() {
+                    top.bring_forward();
                 }
             }
             self.shell_map_on = false;
@@ -2786,10 +2795,18 @@ impl SubsystemInterface for Shell {
         self.animate_window_manager.reset();
 
         // Clear special layouts
-        self.save_load_menu_layout = None;
-        self.popup_replay_layout = None;
-        self.options_layout = None;
-        self.background = None;
+        if let Some(mut layout) = self.save_load_menu_layout.take() {
+            layout.destroy_windows();
+        }
+        if let Some(mut layout) = self.popup_replay_layout.take() {
+            layout.destroy_windows();
+        }
+        if let Some(mut layout) = self.options_layout.take() {
+            layout.destroy_windows();
+        }
+        if let Some(mut background) = self.background.take() {
+            background.destroy_windows();
+        }
 
         // Reset state
         self.pending_push = false;
@@ -2808,10 +2825,7 @@ impl SubsystemInterface for Shell {
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let now = Instant::now();
-
-        // Keep shell updates on a fixed cadence. Catch up boundedly if the host loop stalls.
-        let mut steps = 0usize;
-        while now.duration_since(self.last_update) >= self.update_interval && steps < 4 {
+        if now.duration_since(self.last_update) >= self.update_interval {
             if let Some(name) = PENDING_SHELL_SCHEME.with(|pending| pending.borrow_mut().take()) {
                 self.load_scheme(&name);
             }
@@ -2821,58 +2835,149 @@ impl SubsystemInterface for Shell {
                 self.screen_stack[i].run_update(None)?;
             }
 
-            // Update animation manager
-            self.animate_window_manager.update();
-
-            // Update scheme manager
-            self.scheme_manager.update()?;
-
-            // Match C++ Shell::update(): only clear the blank background once the global shell-map
-            // path is active and the local shell is in shell-map mode.
             let global_shell_map_on = get_global_data()
                 .map(|data| data.read().shell_map_on)
                 .unwrap_or(false);
             if global_shell_map_on && self.shell_map_on && self.background.is_some() {
-                self.background = None;
+                if let Some(mut background) = self.background.take() {
+                    background.destroy_windows();
+                }
             }
 
-            self.last_update += self.update_interval;
-            steps += 1;
+            self.animate_window_manager.update();
+            self.scheme_manager.update()?;
+
+            self.last_update = now;
         }
 
         Ok(())
     }
 }
 
+pub struct ShellGuard {
+    ptr: *mut Shell,
+}
+
+impl Deref for ShellGuard {
+    type Target = Shell;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: the shell is thread-local and used as a compatibility singleton.
+        // The legacy C++ shell is re-entrant on the UI thread; a mutex here causes
+        // deadlocks during callbacks like MainMenuInit -> show_shell_map().
+        unsafe { &*self.ptr }
+    }
+}
+
+impl DerefMut for ShellGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: same reasoning as Deref above.
+        unsafe { &mut *self.ptr }
+    }
+}
+
 thread_local! {
-    static SHELL: &'static std::sync::Mutex<Shell> =
-        Box::leak(Box::new(std::sync::Mutex::new(Shell::new())));
+    static SHELL: &'static UnsafeCell<Shell> =
+        Box::leak(Box::new(UnsafeCell::new(Shell::new())));
     static PENDING_SHELL_SCHEME: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-/// Get the global shell instance
-pub fn get_shell() -> std::sync::MutexGuard<'static, Shell> {
-    SHELL.with(|lock| lock.lock().expect("Shell mutex poisoned"))
+/// Get the global shell instance.
+pub fn get_shell() -> ShellGuard {
+    SHELL.with(|shell| ShellGuard { ptr: shell.get() })
 }
 
 pub fn request_shell_menu_scheme(name: &str) {
-    let mut applied = false;
     SHELL.with(|lock| {
-        if let Ok(mut shell) = lock.try_lock() {
-            shell.load_scheme(name);
-            applied = true;
-        }
+        // SAFETY: the shell is thread-local and intentionally re-entrant.
+        unsafe { &mut *lock.get() }.load_scheme(name);
     });
-    if !applied {
-        PENDING_SHELL_SCHEME.with(|pending| {
-            *pending.borrow_mut() = Some(name.to_string());
-        });
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell as StdRefCell;
+    use std::rc::Rc as StdRc;
+
+    #[derive(Clone)]
+    struct TestLayout {
+        filename: String,
+        hidden: bool,
+        state: LayoutState,
+        events: StdRc<StdRefCell<Vec<String>>>,
+    }
+
+    impl TestLayout {
+        fn new(filename: &str, hidden: bool, events: StdRc<StdRefCell<Vec<String>>>) -> Self {
+            Self {
+                filename: filename.to_string(),
+                hidden,
+                state: LayoutState::Initializing,
+                events,
+            }
+        }
+    }
+
+    impl WindowLayout for TestLayout {
+        fn get_filename(&self) -> &str {
+            &self.filename
+        }
+
+        fn run_init(&mut self, _data: Option<&dyn std::any::Any>) -> Result<(), ShellError> {
+            self.hidden = false;
+            self.state = LayoutState::Active;
+            self.events
+                .borrow_mut()
+                .push(format!("init:{}", self.filename));
+            Ok(())
+        }
+
+        fn run_update(&mut self, _data: Option<&dyn std::any::Any>) -> Result<(), ShellError> {
+            Ok(())
+        }
+
+        fn run_shutdown(&mut self, _immediate_pop: &mut bool) -> Result<(), ShellError> {
+            self.hidden = true;
+            self.state = LayoutState::ShuttingDown;
+            self.events
+                .borrow_mut()
+                .push(format!("shutdown:{}", self.filename));
+            Ok(())
+        }
+
+        fn hide(&mut self, hide: bool) {
+            self.hidden = hide;
+            self.events
+                .borrow_mut()
+                .push(format!("hide:{}:{}", self.filename, hide));
+        }
+
+        fn is_hidden(&self) -> bool {
+            self.hidden
+        }
+
+        fn bring_forward(&mut self) {
+            self.events
+                .borrow_mut()
+                .push(format!("bring_forward:{}", self.filename));
+        }
+
+        fn destroy_windows(&mut self) {
+            self.state = LayoutState::Destroying;
+            self.events
+                .borrow_mut()
+                .push(format!("destroy:{}", self.filename));
+        }
+
+        fn get_state(&self) -> LayoutState {
+            self.state
+        }
+
+        fn set_state(&mut self, state: LayoutState) {
+            self.state = state;
+        }
+    }
 
     #[test]
     fn test_shell_creation() {
@@ -3099,5 +3204,59 @@ mod tests {
         shell.show_shell_map(true);
         shell.show_shell(false).unwrap();
         assert_eq!(shell.get_screen_count(), 0);
+    }
+
+    #[test]
+    fn test_push_hidden_top_completes_immediately_like_cpp() {
+        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        let mut shell = Shell::new();
+        shell.init().unwrap();
+        shell.screen_stack.push(Box::new(TestLayout::new(
+            "hidden_top.wnd",
+            true,
+            events.clone(),
+        )));
+
+        shell.push("Menus/MainMenu.wnd", false).unwrap();
+
+        assert_eq!(shell.get_screen_count(), 2);
+        assert!(shell.pending_push_name.is_empty());
+        assert!(!shell.pending_push);
+        let event_log = events.borrow();
+        assert!(
+            !event_log
+                .iter()
+                .any(|event| event == "shutdown:hidden_top.wnd"),
+            "hidden top should not run shutdown before immediate push completion"
+        );
+    }
+
+    #[test]
+    fn test_pop_immediate_runs_shutdown_before_destroy() {
+        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        let mut shell = Shell::new();
+        shell.init().unwrap();
+        shell.screen_stack.push(Box::new(TestLayout::new(
+            "first.wnd",
+            false,
+            events.clone(),
+        )));
+        shell
+            .screen_stack
+            .push(Box::new(TestLayout::new("top.wnd", false, events.clone())));
+
+        shell.pop_immediate().unwrap();
+
+        let event_log = events.borrow();
+        let shutdown_index = event_log
+            .iter()
+            .position(|event| event == "shutdown:top.wnd")
+            .unwrap();
+        let destroy_index = event_log
+            .iter()
+            .position(|event| event == "destroy:top.wnd")
+            .unwrap();
+        assert!(shutdown_index < destroy_index);
+        assert_eq!(shell.get_screen_count(), 1);
     }
 }

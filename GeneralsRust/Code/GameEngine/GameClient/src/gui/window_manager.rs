@@ -286,8 +286,10 @@ impl WindowLayout {
     /// Hide or show all windows in this layout
     pub fn hide(&self, hide: bool) {
         for window_rc in &self.windows {
-            let mut window = window_rc.borrow_mut();
-            let _ = window.hide(hide);
+            if window_rc.borrow().get_parent().is_none() {
+                let mut window = window_rc.borrow_mut();
+                let _ = window.hide(hide);
+            }
         }
         self.hidden.set(hide);
     }
@@ -345,6 +347,15 @@ impl WindowLayout {
 
     /// Destroy all windows in this layout
     pub fn destroy_windows(&mut self) {
+        let windows = self.windows.iter().cloned().rev().collect::<Vec<_>>();
+
+        with_window_manager(|manager| {
+            for window in windows {
+                let _ = manager.destroy_window(window);
+            }
+            manager.flush_destroy_queue();
+        });
+
         self.windows.clear();
     }
 }
@@ -1263,26 +1274,6 @@ impl WindowManager {
 
     /// Draw all windows
     pub fn draw_all(&mut self) {
-        {
-            use std::collections::HashSet;
-            use std::sync::{Mutex, OnceLock};
-            static REPORTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-            let reported = REPORTED.get_or_init(|| Mutex::new(HashSet::new()));
-            if let Ok(mut guard) = reported.lock() {
-                for window in self.root_windows.iter().take(8) {
-                    let window_borrow = window.borrow();
-                    let key = format!("{}:{}", window_borrow.get_name(), window_borrow.is_hidden());
-                    if guard.insert(key.clone()) {
-                        eprintln!(
-                            "DEBUG_STARTUP_ROOT_WINDOW: name={} hidden={}",
-                            window_borrow.get_name(),
-                            window_borrow.is_hidden()
-                        );
-                    }
-                }
-            }
-        }
-
         // Match C++ WinRepaint ordering: top-level windows are stored head-first,
         // but repaint walks from tail to head in BELOW / normal / ABOVE passes.
         for window in self.root_windows.iter().rev() {
@@ -2239,10 +2230,51 @@ impl WindowManager {
                         wol_custom_score_screen_system(window, msg, data1, data2)
                     });
                 }
-                "PassMessagesToParentSystem" | "PassSelectedButtonsToParentSystem" => {
+                "PassMessagesToParentSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
+                        if msg == WindowMessage::Create
+                            || msg == WindowMessage::Destroy
+                            || msg == WindowMessage::ScriptCreate
+                        {
+                            return WindowMsgHandled::Ignored;
+                        }
+
                         if let Some(parent) = window.get_parent() {
-                            parent.borrow_mut().send_system_message(msg, data1, data2)
+                            if let Ok(mut parent_ref) = parent.try_borrow_mut() {
+                                parent_ref.send_system_message(msg, data1, data2)
+                            } else {
+                                let ptr = parent.as_ptr();
+                                // SAFETY: mirrors legacy re-entrant parent dispatch in the
+                                // single-threaded UI message pump.
+                                let parent_ref = unsafe { &mut *ptr };
+                                parent_ref.send_system_message(msg, data1, data2)
+                            }
+                        } else {
+                            WindowMsgHandled::Ignored
+                        }
+                    });
+                }
+                "PassSelectedButtonsToParentSystem" => {
+                    window.set_system_callback(|window, msg, data1, data2| {
+                        if msg != WindowMessage::GadgetSelected
+                            && msg != WindowMessage::GadgetRightClick
+                            && msg != WindowMessage::GadgetMouseEntering
+                            && msg != WindowMessage::GadgetMouseLeaving
+                            && msg != WindowMessage::GadgetEditDone
+                        {
+                            return WindowMsgHandled::Ignored;
+                        }
+
+                        if let Some(parent) = window.get_parent() {
+                            if let Ok(mut parent_ref) = parent.try_borrow_mut() {
+                                parent_ref.send_system_message(msg, data1, data2)
+                            } else {
+                                let ptr = parent.as_ptr();
+                                // SAFETY: mirrors legacy re-entrant parent dispatch in the
+                                // single-threaded UI message pump.
+                                let parent_ref = unsafe { &mut *ptr };
+                                parent_ref.send_system_message(msg, data1, data2)
+                            }
                         } else {
                             WindowMsgHandled::Ignored
                         }
@@ -3692,35 +3724,11 @@ impl WindowManager {
         window: &Rc<RefCell<GameWindow>>,
         ancestor_hidden: bool,
     ) {
-        fn report_window(name: &str, hidden: bool, see_thru: bool) {
-            use std::collections::HashSet;
-            use std::sync::{Mutex, OnceLock};
-            static REPORTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-            let reported = REPORTED.get_or_init(|| Mutex::new(HashSet::new()));
-            let key = format!("{name}:{hidden}:{see_thru}");
-            let Ok(mut guard) = reported.lock() else {
-                return;
-            };
-            if guard.insert(key) {
-                eprintln!(
-                    "DEBUG_STARTUP_WINDOW: name={} hidden={} see_thru={}",
-                    name, hidden, see_thru
-                );
-            }
-        }
-
         let window_borrow = window.borrow();
         let name = window_borrow.get_name().to_string();
         let status = window_borrow.get_status();
         let see_thru = status.contains(WindowStatus::SEE_THRU);
         let effectively_hidden = ancestor_hidden || window_borrow.is_hidden();
-
-        if matches!(
-            name.as_str(),
-            "MainMenu.wnd:MainMenuParent" | "MainMenu.wnd:MainMenuRuler" | "MainMenu.wnd:Logo"
-        ) {
-            report_window(&name, effectively_hidden, see_thru);
-        }
 
         // Match C++ hierarchy semantics: a hidden parent suppresses its entire subtree.
         if effectively_hidden {
@@ -3965,15 +3973,6 @@ fn apply_window_text(window: &mut GameWindow, window_def: &WindowDefinition) {
     } else {
         return;
     };
-
-    if window_def.name.starts_with("MainMenu.wnd:")
-        && (!window_def.text.is_empty() || !window_def.text_label.is_empty())
-    {
-        eprintln!(
-            "DEBUG_APPLY_WINDOW_TEXT: name={} raw_text={:?} raw_text_label={:?} resolved={:?}",
-            window_def.name, window_def.text, window_def.text_label, text
-        );
-    }
 
     let _ = window.set_text(&text);
 }
@@ -4235,6 +4234,27 @@ mod tests {
 
         assert_eq!(manager.window_count, 0);
         assert!(manager.get_window_by_id(window_id).is_none());
+    }
+
+    #[test]
+    fn test_layout_hide_only_toggles_root_windows() {
+        let mut manager = WindowManager::new();
+        let layout = manager.create_layout("test_layout.wnd".to_string());
+
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager.create_window(Some(&parent), 5, 5, 20, 20).unwrap();
+        child.borrow_mut().hide(true).unwrap();
+
+        {
+            let mut layout_mut = layout.borrow_mut();
+            layout_mut.add_window(parent.clone());
+            layout_mut.add_window(child.clone());
+        }
+
+        layout.borrow().hide(false);
+
+        assert!(!parent.borrow().is_hidden());
+        assert!(child.borrow().is_hidden());
     }
 
     #[test]

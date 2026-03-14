@@ -752,15 +752,34 @@ impl TerrainVisualImpl {
             let mut used_textures = HashSet::new();
 
             for surface in desired_surfaces {
-                let candidate =
-                    guard
-                        .get_terrains_by_surface(&surface)
-                        .into_iter()
-                        .find(|terrain| {
-                            let texture = terrain.texture_name.as_str().trim();
-                            !texture.is_empty()
-                                && used_textures.insert(texture.to_ascii_lowercase())
-                        });
+                let terrains = guard.get_terrains_by_surface(&surface);
+                let mut fallback_candidate = None;
+                let mut resolved_candidate = None;
+
+                for terrain in terrains {
+                    let texture = terrain.texture_name.as_str().trim();
+                    if texture.is_empty() {
+                        continue;
+                    }
+
+                    let texture_key = texture.to_ascii_lowercase();
+                    if !used_textures.insert(texture_key) {
+                        continue;
+                    }
+
+                    if resolved_candidate.is_none()
+                        && TerrainTextures::is_available_terrain_texture_path(texture)
+                    {
+                        resolved_candidate = Some(terrain);
+                        break;
+                    }
+
+                    if fallback_candidate.is_none() {
+                        fallback_candidate = Some(terrain);
+                    }
+                }
+
+                let candidate = resolved_candidate.or(fallback_candidate);
 
                 if let Some(terrain) = candidate {
                     let texture_id = self.texture_system.register_texture(TerrainTexture::new(
@@ -768,7 +787,6 @@ impl TerrainVisualImpl {
                         terrain.name.as_str().to_string(),
                         terrain.texture_name.as_str().to_string(),
                     ));
-                    let _ = self.texture_system.load_texture(texture_id);
                     defaults.push(texture_id);
                 }
             }
@@ -795,11 +813,6 @@ impl TerrainVisualImpl {
                 "Sand".to_string(),
                 "Data/Terrain/Sand.dds".to_string(),
             ));
-
-            let _ = self.texture_system.load_texture(grass);
-            let _ = self.texture_system.load_texture(cliff);
-            let _ = self.texture_system.load_texture(snow);
-            let _ = self.texture_system.load_texture(sand);
 
             defaults.extend([grass, cliff, snow, sand]);
         }

@@ -899,15 +899,8 @@ mod tests {
         light_20.is_active = true;
         lights.insert(light_20.id, light_20);
 
-        let mut light_5 = DynamicLighting::create_spot_light(
-            Vec3::ZERO,
-            Vec3::Y,
-            Vec3::ONE,
-            1.0,
-            10.0,
-            0.5,
-            0.2,
-        );
+        let mut light_5 =
+            DynamicLighting::create_spot_light(Vec3::ZERO, Vec3::Y, Vec3::ONE, 1.0, 10.0, 0.5, 0.2);
         light_5.id = 5;
         light_5.cast_shadows = true;
         light_5.is_active = true;

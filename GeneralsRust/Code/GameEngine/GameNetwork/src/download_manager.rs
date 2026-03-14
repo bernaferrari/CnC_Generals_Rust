@@ -99,7 +99,7 @@ impl DownloadManager {
             status_key: "FTP:StatusIdle".to_string(),
             error_key: String::new(),
             was_error: false,
-            saw_end: false,
+            saw_end: true,
             last_local_file: String::new(),
             current_file: String::new(),
             last_progress: None,
@@ -145,6 +145,10 @@ impl DownloadManager {
 
     pub fn is_file_queued_for_download(&self) -> bool {
         !self.queued.is_empty()
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.is_some()
     }
 
     pub fn download_next_queued_file(&mut self) -> NetworkResult<()> {

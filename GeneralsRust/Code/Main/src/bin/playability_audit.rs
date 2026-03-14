@@ -42,6 +42,7 @@ fn main() {
             } else {
                 has_unresolved_blockers_with_headers(&summary)
             };
+            let strict_input_warnings = strict_mode && summary.has_input_warnings();
 
             if let Some(phase) = target_phase {
                 if !summary.pass_gate(phase) {
@@ -50,6 +51,10 @@ fn main() {
                 }
             }
 
+            if strict_mode && strict_input_warnings {
+                eprintln!("strict mode failed: audit inputs are incomplete");
+                std::process::exit(1);
+            }
             if strict_mode && unresolved {
                 eprintln!("strict mode failed: unresolved blockers remain");
                 std::process::exit(1);

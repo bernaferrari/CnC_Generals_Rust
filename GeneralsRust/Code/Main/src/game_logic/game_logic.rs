@@ -49,19 +49,22 @@ use gamelogic::scripting::{
 };
 use gamelogic::sides_list::get_sides_list;
 use gamelogic::system::beacon_manager::snapshot_beacons;
-use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::game_logic::RadarEventType;
+use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use gamelogic::team::get_team_factory;
 use glam::{Vec2, Vec3};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use ww3d_engine::FrameTiming;
 
 const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
+const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
 
 /// AI command structure for parallel processing
 #[derive(Debug)]
@@ -159,6 +162,14 @@ pub enum GameMode {
     Lan,
     Shell,
     None,
+}
+
+/// Fixed-step loop diagnostics used for shell/menu stall investigations.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FixedStepDiagnostics {
+    pub steps_run: usize,
+    pub budget_hit: bool,
+    pub accumulated_time_seconds: f32,
 }
 
 /// Aggregate player statistics for victory screen reporting.
@@ -329,6 +340,7 @@ pub struct GameLogic {
     /// Time tracking
     sim_time_seconds: f32,
     accumulated_time: f32,
+    last_fixed_step_diagnostics: FixedStepDiagnostics,
 
     /// Thing templates registry
     pub templates: HashMap<String, ThingTemplate>,
@@ -403,6 +415,8 @@ pub struct GameLogic {
     /// Beacon locations created this frame for HUD highlighting/bloom.
     recent_beacons: Vec<Vec3>,
     script_engine: Option<Arc<ScriptingEngine>>,
+    script_event_pump_in_flight: Arc<AtomicBool>,
+    script_event_pump_busy_frames: u32,
     loaded_script_lists: Vec<ScriptList>,
     script_source_path: Option<PathBuf>,
     mission_scripts: Arc<MissionScriptHooks>,
@@ -513,7 +527,7 @@ impl ScriptCameraMoveTo {
         let ease_in = (request.ease_in_seconds / total_time_seconds).clamp(0.0, 1.0);
         let ease_out = (request.ease_out_seconds / total_time_seconds).clamp(0.0, 1.0);
         let ease = ParabolicEase::new(ease_in, ease_out);
-        let shutter_frames = (request.camera_stutter_seconds * 60.0).round() as u32;
+        let shutter_frames = (request.camera_stutter_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
         let shutter_frames = shutter_frames.max(1);
         Self {
             start,
@@ -713,7 +727,7 @@ impl ScriptCameraPathMove {
         let ease_out = (request.ease_out_seconds / total_time_seconds).clamp(0.0, 1.0);
         let ease = ParabolicEase::new(ease_in, ease_out);
 
-        let shutter_frames = (request.camera_stutter_seconds * 60.0).round() as u32;
+        let shutter_frames = (request.camera_stutter_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
         let shutter_frames = shutter_frames.max(1);
 
         Some(Self {
@@ -1072,18 +1086,13 @@ impl GameLogic {
             None => return,
         };
 
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let engine_clone = Arc::clone(&engine);
-            handle.spawn(async move {
-                if let Err(err) = engine_clone.fire_event(mission_event).await {
-                    log::error!("Scripting engine failed to accept event: {}", err);
-                }
-            });
+        if let Err(err) = engine.fire_event_sync(mission_event) {
+            log::error!("Scripting engine failed to accept event: {}", err);
         }
     }
 
     pub fn new() -> Self {
-        println!("GameLogic::new() - Creating new GameLogic instance");
+        log::debug!("GameLogic::new() - creating new GameLogic instance");
         let world_width = 512.0;
         let world_height = 512.0;
         let world_min = Vec3::new(-world_width * 0.5, 0.0, -world_height * 0.5);
@@ -1106,6 +1115,7 @@ impl GameLogic {
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
+            last_fixed_step_diagnostics: FixedStepDiagnostics::default(),
             templates: HashMap::new(),
             map_name: String::new(),
             map_loaded: false,
@@ -1163,6 +1173,8 @@ impl GameLogic {
             script_superweapon_hidden_objects: HashSet::new(),
             recent_beacons: Vec::new(),
             script_engine: None,
+            script_event_pump_in_flight: Arc::new(AtomicBool::new(false)),
+            script_event_pump_busy_frames: 0,
             loaded_script_lists: Vec::new(),
             script_source_path: None,
             mission_scripts: mission_hooks,
@@ -1193,6 +1205,10 @@ impl GameLogic {
         (self.world_min, self.world_max)
     }
 
+    pub fn fixed_step_diagnostics(&self) -> FixedStepDiagnostics {
+        self.last_fixed_step_diagnostics
+    }
+
     /// Override world dimensions when terrain provides authoritative size.
     pub fn override_world_size(&mut self, width: f32, height: f32) {
         self.world_width = width;
@@ -1204,7 +1220,7 @@ impl GameLogic {
 
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
-        println!("GameLogic::reset() - resetting game state");
+        log::debug!("GameLogic::reset() - resetting game state");
         self.objects.clear();
         self.players.clear();
         self.next_object_id = ObjectId(1);
@@ -1213,9 +1229,13 @@ impl GameLogic {
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;
+        self.last_fixed_step_diagnostics = FixedStepDiagnostics::default();
         self.map_loaded = false;
         self.victory_conditions.reset();
         self.scripts_loaded = false;
+        self.script_event_pump_in_flight
+            .store(false, Ordering::Release);
+        self.script_event_pump_busy_frames = 0;
         self.loaded_script_lists.clear();
         self.script_source_path = None;
         self.mission_scripts.install_lists(&[]);
@@ -1273,7 +1293,7 @@ impl GameLogic {
         self.terrain = None;
         self.pathfinding_height_samples = None;
         self.weather_state = RuntimeWeatherState::default();
-        println!("GameLogic reset complete");
+        log::debug!("GameLogic::reset() complete");
     }
 
     pub fn weather_state(&self) -> &RuntimeWeatherState {
@@ -1631,7 +1651,7 @@ impl GameLogic {
 
     /// Update method - matching C++ GameLogic interface
     pub fn update(&mut self) {
-        self.step_simulation(1.0 / 60.0, None);
+        self.step_simulation(LOGIC_FRAME_TIMESTEP, None);
     }
 
     /// C++ interface methods
@@ -1656,7 +1676,7 @@ impl GameLogic {
     }
 
     pub fn clearGameData(&mut self) {
-        println!("GameLogic::clearGameData() - clearing all game data");
+        log::debug!("GameLogic::clearGameData() - clearing all game data");
         self.objects.clear();
         self.players.clear();
         self.frame = 0;
@@ -1730,12 +1750,12 @@ impl GameLogic {
 
     /// Start a new game with specified mode
     pub fn start_new_game(&mut self, mode: GameMode) {
-        println!("Starting new game: {:?}", mode);
+        log::info!("Starting new game: {:?}", mode);
         self.reset();
         self.game_mode = mode;
         self.setup_templates();
         self.create_default_players();
-        println!("New game started successfully");
+        log::info!("New game started successfully");
     }
 
     pub fn game_mode(&self) -> GameMode {
@@ -1762,10 +1782,7 @@ impl GameLogic {
     fn sync_legacy_runtime_from_chunky(&mut self, map_path: &Path, map_bytes: &[u8]) {
         let sync_started = Instant::now();
         let mut loader = LogicMapLoader::new();
-        log::info!(
-            "Legacy runtime sync started for '{}'",
-            map_path.display()
-        );
+        log::info!("Legacy runtime sync started for '{}'", map_path.display());
         if loader.load_runtime_support_from_bytes(map_bytes).is_err() {
             log::warn!(
                 "Legacy GameLogic map load failed for '{}'",
@@ -1959,7 +1976,9 @@ impl GameLogic {
             // templates without deadlocking on the same global RwLock.
             let template_from_store = {
                 let store = get_player_template_store();
-                store.find_template(&faction).map(LogicPlayerTemplate::from_common)
+                store
+                    .find_template(&faction)
+                    .map(LogicPlayerTemplate::from_common)
             };
             let template = template_from_store.unwrap_or_else(|| {
                 let mut template = LogicPlayerTemplate::new(player_name.clone());
@@ -2020,7 +2039,11 @@ impl GameLogic {
         };
 
         let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
-            .filter_map(|index| sides_guard.get_side_info(index).map(|side| side.get_dict().clone()))
+            .filter_map(|index| {
+                sides_guard
+                    .get_side_info(index)
+                    .map(|side| side.get_dict().clone())
+            })
             .collect();
         self.sync_legacy_player_list_from_side_dicts(&side_dicts);
     }
@@ -2085,17 +2108,29 @@ impl GameLogic {
         };
 
         let team_dicts: Vec<Dict> = (0..sides_guard.get_num_teams())
-            .filter_map(|index| sides_guard.get_team_info(index).map(|team| team.get_dict().clone()))
+            .filter_map(|index| {
+                sides_guard
+                    .get_team_info(index)
+                    .map(|team| team.get_dict().clone())
+            })
             .collect();
         self.sync_legacy_team_factory_from_team_dicts(&team_dicts);
     }
 
-    fn sync_named_shell_object_into_legacy_runtime(&self, object: &super::script_loader::PlacedObject) {
+    fn sync_named_shell_object_into_legacy_runtime(
+        &self,
+        object: &super::script_loader::PlacedObject,
+    ) {
         if self.game_mode != GameMode::Shell {
             return;
         }
 
-        let Some(name) = object.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else {
+        let Some(name) = object
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
             return;
         };
 
@@ -2203,7 +2238,12 @@ impl GameLogic {
         let tracker = gamelogic::scripting::engine::get_named_object_tracker();
         for &(_, index) in spawned_object_ids {
             let object = &objects[index];
-            let Some(name) = object.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) else {
+            let Some(name) = object
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            else {
                 continue;
             };
             let ground_height = self
@@ -2217,7 +2257,8 @@ impl GameLogic {
             let Some(object_id) = tracker.get_object_id(name).ok().flatten() else {
                 continue;
             };
-            let Some(object_arc) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            let Some(object_arc) =
+                gamelogic::object::registry::OBJECT_REGISTRY.get_object(object_id)
             else {
                 continue;
             };
@@ -2228,14 +2269,21 @@ impl GameLogic {
         }
     }
 
-    /// Load a map
-    pub fn load_map(&mut self, map_name: &str) -> bool {
-        println!("Loading map: {}", map_name);
+    /// Load a map with optional milestone progress reporting.
+    pub fn load_map_with_progress<F>(&mut self, map_name: &str, mut report_progress: F) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
+        report_progress(0.26, "Preparing map data");
+        log::info!("Loading map: {}", map_name);
         let load_started = Instant::now();
         self.map_name = map_name.to_string();
         self.pathfinding_height_samples = None;
         self.configure_victory_rules_for_map(map_name);
         self.scripts_loaded = false;
+        self.script_event_pump_in_flight
+            .store(false, Ordering::Release);
+        self.script_event_pump_busy_frames = 0;
         self.loaded_script_lists.clear();
         self.script_source_path = None;
         self.mission_scripts.install_lists(&[]);
@@ -2255,17 +2303,19 @@ impl GameLogic {
         self.rebuild_objective_lookup();
 
         // Try to locate the real map file so scripts and future terrain loaders have a source.
+        report_progress(0.30, "Resolving map resources");
         let resolved_map = super::script_loader::find_map_file(map_name);
         if let Some(path) = &resolved_map {
             log::info!("Resolved map '{}' to '{}'", map_name, path.display());
             if let Some(chunks) = super::script_loader::inspect_map_chunks(map_name) {
-                log::info!(
+                log::debug!(
                     "Map '{}' contains chunky sections: {}",
                     map_name,
                     chunks.join(", ")
                 );
             }
             if let Ok(Some(chunky)) = super::script_loader::load_chunky_map(map_name) {
+                report_progress(0.34, "Parsing map chunks");
                 log::info!(
                     "Map '{}' parsed: {} TOC entries, body offset {} bytes",
                     map_name,
@@ -2273,6 +2323,7 @@ impl GameLogic {
                     chunky.body_offset
                 );
                 if self.game_mode != GameMode::Shell {
+                    report_progress(0.40, "Syncing runtime objects");
                     let sync_started = Instant::now();
                     self.sync_legacy_runtime_from_chunky(path, &chunky.bytes);
                     log::info!(
@@ -2281,10 +2332,12 @@ impl GameLogic {
                         sync_started.elapsed().as_secs_f32()
                     );
                 } else {
+                    report_progress(0.40, "Syncing shell runtime");
                     self.sync_legacy_runtime_from_fast_chunky(path, &chunky);
                 }
 
                 let heightmap_started = Instant::now();
+                report_progress(0.46, "Parsing terrain heightmap");
                 let heightmap_data =
                     super::script_loader::parse_heightmap_data_from_chunky(&chunky)
                         .ok()
@@ -2298,6 +2351,7 @@ impl GameLogic {
 
                 // Replace the test map with parsed object placements for basic fidelity.
                 let settings_started = Instant::now();
+                report_progress(0.52, "Reading map settings");
                 let parsed = super::script_loader::parse_map_settings(map_name);
                 let parsed_settings = parsed.ok();
                 log::info!(
@@ -2326,6 +2380,7 @@ impl GameLogic {
                             );
                         }
                         let object_spawn_started = Instant::now();
+                        report_progress(0.58, "Spawning world objects");
                         self.objects.clear();
                         // Build a mapping from map-defined player IDs to teams.
                         let mut map_player_to_team: HashMap<u32, Team> = HashMap::new();
@@ -2350,7 +2405,12 @@ impl GameLogic {
                         }
 
                         let mut spawned_object_ids: Vec<(ObjectId, usize)> = Vec::new();
+                        let total_objects = objects.len().max(1) as f32;
                         for (index, obj) in objects.iter().enumerate() {
+                            if index % 4 == 0 {
+                                let t = (index as f32 / total_objects).clamp(0.0, 1.0);
+                                report_progress(0.58 + t * 0.20, "Spawning world objects");
+                            }
                             let team = obj
                                 .team_name
                                 .as_deref()
@@ -2362,9 +2422,11 @@ impl GameLogic {
                                 });
                             let mut spawn_position =
                                 Vec3::new(obj.position.x, obj.position.z, obj.position.y);
-                            if let Some(ground_height) = self
-                                .terrain_height_at(Vec3::new(spawn_position.x, 0.0, spawn_position.z))
-                            {
+                            if let Some(ground_height) = self.terrain_height_at(Vec3::new(
+                                spawn_position.x,
+                                0.0,
+                                spawn_position.z,
+                            )) {
                                 // Match C++ map-object placement: map z-offset sits on top of terrain.
                                 spawn_position.y += ground_height;
                             }
@@ -2402,11 +2464,13 @@ impl GameLogic {
                                 }
                             }
                         }
+                        report_progress(0.80, "World objects spawned");
                         self.spawned_map_object_ids = spawned_object_ids;
                         // Ensure each map-defined team has at least one structure *after* map
                         // placements are spawned. This avoids injecting extra bases on maps that
                         // already define player starts.
                         if !map_player_to_team.is_empty() {
+                            report_progress(0.82, "Finalizing world objects");
                             let teams: Vec<Team> = map_player_to_team.values().cloned().collect();
                             let positions = if let Some(ref meta) = parsed_settings {
                                 if let (Some(min), Some(max)) = (meta.world_min, meta.world_max) {
@@ -2459,6 +2523,7 @@ impl GameLogic {
                     self.last_map_settings = Some(meta.clone());
                 }
                 let bounds_started = Instant::now();
+                report_progress(0.84, "Building world bounds");
                 let mut bounds_override = parsed_settings.as_ref().and_then(|m| {
                     m.world_min.zip(m.world_max).map(|(min, max)| {
                         (
@@ -2575,6 +2640,7 @@ impl GameLogic {
                 if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
                     shroud_mgr.init_shroud_grid(self.world_width, self.world_height);
                 }
+                report_progress(0.88, "Initializing shroud and pathfinding");
                 log::info!(
                     "Map '{}' bounds/terrain/shroud hookup finished in {:.2}s",
                     map_name,
@@ -2644,6 +2710,7 @@ impl GameLogic {
         }
 
         let scripts_started = Instant::now();
+        report_progress(0.92, "Initializing mission scripts");
         self.initialize_scripts(map_name);
         log::info!(
             "Map '{}' script init finished in {:.2}s",
@@ -2652,11 +2719,17 @@ impl GameLogic {
         );
 
         self.map_loaded = true;
-        println!(
+        report_progress(0.96, "Map load complete");
+        log::info!(
             "Map loaded successfully in {:.2}s",
             load_started.elapsed().as_secs_f32()
         );
         true
+    }
+
+    /// Load a map without external progress reporting.
+    pub fn load_map(&mut self, map_name: &str) -> bool {
+        self.load_map_with_progress(map_name, |_progress, _phase| {})
     }
 
     /// Main update loop with delta time
@@ -2668,25 +2741,55 @@ impl GameLogic {
         self.step_simulation(timing.delta_seconds(), Some(timing.total_seconds()));
     }
 
+    /// Menu/shell update path that bounds fixed-step catch-up work per frame.
+    /// This prevents multi-second UI stalls after startup while still advancing shell scripts.
+    pub fn update_shell_with_budget(&mut self, dt: f32, max_fixed_steps: usize) {
+        self.step_simulation_with_budget(dt, None, Some(max_fixed_steps.max(1)));
+    }
+
     fn step_simulation(&mut self, delta_time: f32, absolute_time: Option<f32>) {
+        self.step_simulation_with_budget(delta_time, absolute_time, None);
+    }
+
+    fn step_simulation_with_budget(
+        &mut self,
+        delta_time: f32,
+        absolute_time: Option<f32>,
+        max_fixed_steps: Option<usize>,
+    ) {
         if self.is_paused {
             return;
         }
 
         self.accumulated_time += delta_time;
 
-        const FIXED_TIMESTEP: f32 = 1.0 / 60.0;
+        const FIXED_TIMESTEP: f32 = LOGIC_FRAME_TIMESTEP;
 
+        let mut steps_run = 0usize;
+        let mut budget_hit = false;
         while self.accumulated_time >= FIXED_TIMESTEP {
+            if let Some(step_budget) = max_fixed_steps {
+                if steps_run >= step_budget {
+                    budget_hit = true;
+                    break;
+                }
+            }
             self.update_simulation(FIXED_TIMESTEP);
             self.accumulated_time -= FIXED_TIMESTEP;
             self.frame += 1;
             self.sim_time_seconds += FIXED_TIMESTEP;
+            steps_run += 1;
         }
 
         if let Some(total_seconds) = absolute_time {
             self.sim_time_seconds = total_seconds.max(self.sim_time_seconds);
         }
+
+        self.last_fixed_step_diagnostics = FixedStepDiagnostics {
+            steps_run,
+            budget_hit,
+            accumulated_time_seconds: self.accumulated_time,
+        };
 
         self.process_destroy_list();
     }
@@ -2809,7 +2912,7 @@ impl GameLogic {
     fn configure_victory_rules_for_map(&mut self, map_name: &str) {
         let rules = victory_rules_for_map(map_name);
         self.victory_conditions.set_victory_conditions(rules);
-        println!(
+        log::info!(
             "Configured victory rules for map '{}': require units = {}, require buildings = {}",
             map_name,
             rules.requires_units(),
@@ -2905,7 +3008,7 @@ impl GameLogic {
         use crate::ai_decisions::*;
 
         let mut ai_commands = Vec::new();
-        let current_time = self.frame as f32 * (1.0 / 60.0); // Convert frame to seconds
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
 
         // First pass: Scan for enemies and make attack decisions
@@ -3087,7 +3190,7 @@ impl GameLogic {
                 AIDecisionSystem::select_production_unit(self, team, game_phase, pid)
             {
                 // Queue unit production (in a full implementation)
-                println!(
+                log::trace!(
                     "AI Building {} queuing production of {}",
                     object_id, unit_to_produce
                 );
@@ -3142,7 +3245,7 @@ impl GameLogic {
             let Some(weapon) = attacker.weapon.as_ref() else {
                 continue;
             };
-            let current_time = self.frame as f32 * (1.0 / 60.0);
+            let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
             if current_time - weapon.last_fire_time < weapon.reload_time {
                 continue;
             }
@@ -4266,7 +4369,7 @@ impl GameLogic {
                     if let Some(attacker) = self.objects.get(&object_id) {
                         if attacker.can_target(target) {
                             // Try to fire
-                            let current_time = self.frame as f32 * (1.0 / 60.0);
+                            let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
                             if let Some(attacker) = self.objects.get_mut(&object_id) {
                                 if attacker.can_fire(current_time) {
                                     attacker.fire_at(target_id, current_time);
@@ -4307,7 +4410,7 @@ impl GameLogic {
         if let Some(target) = self.objects.get_mut(&target_id) {
             let destroyed = target.take_damage(weapon_damage);
             if destroyed {
-                println!("Object {} destroyed object {}", attacker_id, target_id);
+                log::debug!("Object {} destroyed object {}", attacker_id, target_id);
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
 
                 // Give experience to attacker
@@ -4452,9 +4555,11 @@ impl GameLogic {
             } else if is_structure && !starts_under_construction {
                 self.record_structure_completion(team);
             }
-            println!(
+            log::debug!(
                 "Created object {} ({}) at {:?}",
-                id, template_name, position
+                id,
+                template_name,
+                position
             );
             Some(id)
         } else {
@@ -4476,13 +4581,15 @@ impl GameLogic {
             object.set_position(position);
 
             self.objects.insert(id, object);
-            println!(
+            log::debug!(
                 "Started construction of {} ({}) at {:?}",
-                id, template_name, position
+                id,
+                template_name,
+                position
             );
             Some(id)
         } else {
-            println!("Template not found: {}", template_name);
+            log::warn!("Template not found: {}", template_name);
             None
         }
     }
@@ -5264,8 +5371,7 @@ impl GameLogic {
                 || requested_trimmed.starts_with(&candidate_trimmed)
             {
                 8_000 - (candidate_trimmed.len() as i32 - requested_trimmed.len() as i32).abs()
-            } else if !requested_signature.is_empty()
-                && candidate_signature == requested_signature
+            } else if !requested_signature.is_empty() && candidate_signature == requested_signature
             {
                 7_600 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
             } else if !requested_signature.is_empty()
@@ -5312,11 +5418,13 @@ impl GameLogic {
     }
 
     fn trim_model_variant_suffixes(model_key: &str) -> String {
-        let mut trimmed = model_key.trim_end_matches(|ch: char| ch.is_ascii_digit()).to_string();
+        let mut trimmed = model_key
+            .trim_end_matches(|ch: char| ch.is_ascii_digit())
+            .to_string();
         for suffix in [
-            "_dsng", "_esn", "_rsn", "_dsn", "_sng", "_dsg", "_sg", "_sn", "_dn", "_en",
-            "_rn", "_ds", "_es", "_rs", "_ng", "_dg", "_ns", "_s", "_n", "_d", "_e", "_r",
-            "_g", "_a", "_b", "_c",
+            "_dsng", "_esn", "_rsn", "_dsn", "_sng", "_dsg", "_sg", "_sn", "_dn", "_en", "_rn",
+            "_ds", "_es", "_rs", "_ng", "_dg", "_ns", "_s", "_n", "_d", "_e", "_r", "_g", "_a",
+            "_b", "_c",
         ] {
             if let Some(stripped) = trimmed.strip_suffix(suffix) {
                 trimmed = stripped.to_string();
@@ -5558,7 +5666,7 @@ impl GameLogic {
     }
 
     fn setup_templates(&mut self) {
-        println!("Setting up comprehensive RTS unit templates...");
+        log::debug!("Setting up comprehensive RTS unit templates");
 
         // ====== USA FACTION UNITS ======
 
@@ -5841,8 +5949,8 @@ impl GameLogic {
         // Add faction-specific building templates for complete C++ alignment
         self.add_faction_building_templates();
 
-        println!(
-            "✅ Set up {} comprehensive RTS unit templates covering all factions!",
+        log::info!(
+            "Set up {} comprehensive RTS unit templates covering all factions",
             self.templates.len()
         );
     }
@@ -5860,13 +5968,10 @@ impl GameLogic {
         self.players.insert(1, player2);
         self.players.insert(2, player3);
 
-        println!(
-            "✅ Created {} players representing all C&C Generals factions",
+        log::info!(
+            "Created {} default players for shell/skirmish bootstrap",
             self.players.len()
         );
-        println!("   - Player 0: USA Commander (Local Player)");
-        println!("   - Player 1: GLA General (AI)");
-        println!("   - Player 2: China Commander (AI)");
     }
 
     fn create_test_map(&mut self) {
@@ -6071,7 +6176,7 @@ impl GameLogic {
 
     pub fn set_paused(&mut self, paused: bool) {
         self.is_paused = paused;
-        println!("Game {}", if paused { "paused" } else { "unpaused" });
+        log::debug!("Game {}", if paused { "paused" } else { "unpaused" });
     }
 
     pub fn get_frame(&self) -> u32 {
@@ -6214,7 +6319,7 @@ impl GameLogic {
                 }
             }
 
-            println!(
+            log::trace!(
                 "Player {} selected {} objects in area",
                 player_id,
                 selected_objects.len()
@@ -6271,7 +6376,7 @@ impl GameLogic {
                     }
                 }
 
-                println!("Player {} selected object {}", player_id, selected_id);
+                log::trace!("Player {} selected object {}", player_id, selected_id);
                 Some(selected_id)
             } else {
                 // Clear selection if clicking on empty space and not adding
@@ -6282,7 +6387,7 @@ impl GameLogic {
                         }
                     }
                     player.selected_objects.clear();
-                    println!("Player {} cleared selection", player_id);
+                    log::trace!("Player {} cleared selection", player_id);
                 }
                 None
             }
@@ -6302,7 +6407,7 @@ impl GameLogic {
                     obj.ai_state = AIState::Idle;
                 }
             }
-            println!(
+            log::trace!(
                 "Player {} commanded {} units to stop",
                 player_id,
                 selected.len()
@@ -6323,7 +6428,7 @@ impl GameLogic {
                     }
                 }
             }
-            println!(
+            log::trace!(
                 "Player {} commanded {} units to attack-move to {:?}",
                 player_id,
                 selected.len(),
@@ -6652,7 +6757,7 @@ impl GameLogic {
     /// Add comprehensive faction-specific building templates
     /// This ensures perfect alignment with C++ template expectations
     fn add_faction_building_templates(&mut self) {
-        println!("🏢 Adding faction-specific building templates for complete C++ alignment...");
+        log::debug!("Adding faction-specific building templates for C++ alignment");
 
         // Integrate the comprehensive building templates from buildings.rs
         let building_templates = create_building_templates();
@@ -6662,8 +6767,8 @@ impl GameLogic {
             self.templates.insert(name, template);
         }
 
-        println!(
-            "✅ Added {} faction-specific building templates",
+        log::info!(
+            "Added {} faction-specific building templates",
             template_count
         );
     }
@@ -6676,7 +6781,7 @@ impl GameLogic {
         }
 
         if self.script_engine.is_none() {
-            println!("📜 Initializing script system...");
+            log::debug!("Initializing script system");
             match ScriptingEngine::new() {
                 Ok(mut engine) => {
                     let handler: Arc<dyn ScriptActionHandler> = Arc::new(
@@ -6699,7 +6804,7 @@ impl GameLogic {
                         }
                     }
 
-                    println!("✅ Scripting engine initialized");
+                    log::info!("Scripting engine initialized");
                 }
                 Err(err) => {
                     log::error!("Failed to initialize scripting engine: {}", err);
@@ -6749,6 +6854,7 @@ impl GameLogic {
                     result.total_scripts,
                     map_name
                 );
+
             }
             Ok(None) => {
                 self.loaded_script_lists.clear();
@@ -6821,7 +6927,7 @@ impl GameLogic {
                     id: player.id,
                     name: player.name.clone(),
                     team: player.team as u32,
-                    color: format!("{:02X}{:02X}{:02X}", color.r(), color.g(), color.b()),
+                    color: format!("{:02X}{:02X}{:02X}", color.r, color.g, color.b),
                     is_human: player.is_local,
                     is_alive: player.is_alive,
                     score: 0,
@@ -6855,17 +6961,17 @@ impl GameLogic {
             // Log audio events for debugging
             if let Some(obj_id) = event.object_id {
                 if let Some(pos) = event.position {
-                    println!(
+                    log::trace!(
                         "🔊 Audio: {} at {:?} from object {}",
                         event.event_type, pos, obj_id
                     );
                 } else {
-                    println!("🔊 Audio: {} from object {}", event.event_type, obj_id);
+                    log::trace!("🔊 Audio: {} from object {}", event.event_type, obj_id);
                 }
             } else if let Some(pos) = event.position {
-                println!("🔊 Audio: {} at {:?}", event.event_type, pos);
+                log::trace!("🔊 Audio: {} at {:?}", event.event_type, pos);
             } else {
-                println!("🔊 Audio: {}", event.event_type);
+                log::trace!("🔊 Audio: {}", event.event_type);
             }
 
             // Forward to the audio subsystem so events are not lost.
@@ -6892,18 +6998,18 @@ impl GameLogic {
         for event in script_events::drain_events() {
             match event {
                 ScriptEvent::PlayerDefeated { player_id } => {
-                    println!(
+                    log::debug!(
                         "📜 Script event: player {} defeated (frame {})",
                         player_id, self.frame
                     );
                     self.partition_manager.reveal_map_for_player(player_id);
                 }
                 ScriptEvent::RevealMapForPlayer { player_id } => {
-                    println!("📜 Script event: reveal map for player {}", player_id);
+                    log::debug!("📜 Script event: reveal map for player {}", player_id);
                     self.partition_manager.reveal_map_for_player(player_id);
                 }
                 ScriptEvent::AllianceStateChanged { player_id, state } => {
-                    println!(
+                    log::debug!(
                         "📜 Script event: alliance state {:?} for player {}",
                         state, player_id
                     );
@@ -6915,16 +7021,43 @@ impl GameLogic {
 
         if let Some(engine) = self.script_engine_handle() {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    if let Err(err) = engine.process_events().await {
-                        log::error!("Scripting engine event processing failed: {}", err);
+                let in_flight = Arc::clone(&self.script_event_pump_in_flight);
+                if !in_flight.swap(true, Ordering::AcqRel) {
+                    self.script_event_pump_busy_frames = 0;
+                    handle.spawn(async move {
+                        if let Err(err) = engine.process_events().await {
+                            log::error!("Scripting engine event processing failed: {}", err);
+                        }
+                        in_flight.store(false, Ordering::Release);
+                    });
+                } else {
+                    self.script_event_pump_busy_frames =
+                        self.script_event_pump_busy_frames.saturating_add(1);
+                    if self.script_event_pump_busy_frames % 90 == 0 {
+                        let pending_events = engine.pending_event_count();
+                        log::warn!(
+                            "Script event pump busy for {} frames (pending_events={})",
+                            self.script_event_pump_busy_frames,
+                            pending_events
+                        );
                     }
-                });
+                }
             }
         }
 
-        if let Err(err) = self.mission_scripts.update(self.frame as u64) {
+        let mission_runtime_started = Instant::now();
+        let mission_update_result = self.mission_scripts.update(self.frame as u64);
+        if let Err(err) = mission_update_result {
             log::error!("Mission script runtime update failed: {}", err);
+        }
+        let mission_runtime_elapsed = mission_runtime_started.elapsed();
+        if mission_runtime_elapsed >= Duration::from_millis(120) {
+            log::warn!(
+                "Slow mission script update: {:?} (frame={}, mode={:?})",
+                mission_runtime_elapsed,
+                self.frame,
+                self.game_mode
+            );
         }
 
         self.script_broadcasts
@@ -7853,8 +7986,10 @@ impl GameLogic {
     /// This method extracts all data needed for UI rendering each frame
     /// Matches pattern from C++ InGameUI::preDraw() (InGameUI.h line 466)
     pub fn update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
-        use crate::ui::{BuildQueueEntry, GameUIState, MinimapDot, UnitDisplayInfo};
-        use egui::Color32;
+        use crate::ui::{
+            BuildQueueEntry, GameUIState, MinimapDot, RadarMessageEntry, RadarPing,
+            RadarPingKind, UnitDisplayInfo,
+        };
 
         // Get player associated with the current viewport/camera
         let player = self.players.get(&player_id);
@@ -7952,10 +8087,10 @@ impl GameLogic {
                 let normalized_y = ((obj.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
 
                 let color = match obj.team {
-                    Team::USA => Color32::from_rgb(100, 150, 255),
-                    Team::China => Color32::from_rgb(255, 100, 100),
-                    Team::GLA => Color32::from_rgb(255, 200, 100),
-                    Team::Neutral => Color32::from_rgb(150, 150, 150),
+                    Team::USA => color_for_player(1),
+                    Team::China => color_for_player(0),
+                    Team::GLA => color_for_player(4),
+                    Team::Neutral => color_for_player(7),
                 };
 
                 let size = if obj.is_kind_of(KindOf::Structure) {
@@ -7964,11 +8099,7 @@ impl GameLogic {
                     2.0
                 };
 
-                minimap_unit_dots.push(MinimapDot {
-                    position: egui::Pos2::new(normalized_x, normalized_y),
-                    color,
-                    size,
-                });
+                minimap_unit_dots.push(MinimapDot::normalized(normalized_x, normalized_y, color, size));
             }
         }
 
@@ -7976,11 +8107,12 @@ impl GameLogic {
         for beacon in snapshot_beacons() {
             let normalized_x = ((beacon.position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
             let normalized_y = ((beacon.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
-            minimap_beacons.push(MinimapDot {
-                position: egui::Pos2::new(normalized_x, normalized_y),
-                color: color_for_player(beacon.player_id as u8),
-                size: 4.0,
-            });
+            minimap_beacons.push(MinimapDot::normalized(
+                normalized_x,
+                normalized_y,
+                color_for_player(beacon.player_id as u8),
+                4.0,
+            ));
         }
 
         // Use WW3D-synchronized time
@@ -8003,14 +8135,13 @@ impl GameLogic {
         ui_state.build_queue = build_queue;
         ui_state.is_game_paused = self.is_paused;
         ui_state.current_game_time = game_time;
-        ui_state.fps = 60.0;
-        ui_state.frame_time_ms = 1000.0 / 60.0;
+        ui_state.fps = LOGIC_FRAMES_PER_SECOND;
+        ui_state.frame_time_ms = 1000.0 / LOGIC_FRAMES_PER_SECOND;
         ui_state.performance_score = 1.0;
         ui_state.minimap_unit_dots = minimap_unit_dots;
         ui_state.minimap_beacons = minimap_beacons.clone();
         ui_state.new_beacons = std::mem::take(&mut self.recent_beacons);
-        ui_state.minimap_viewport =
-            egui::Rect::from_min_size(egui::Pos2::new(0.0, 0.0), egui::Vec2::new(1.0, 1.0));
+        ui_state.minimap_viewport = crate::ui::default_minimap_viewport();
         ui_state.minimap_texture_id = None;
         ui_state.minimap_coordinates = Some(crate::graphics::MinimapCoordinates {
             minimap_width: 1.0,
@@ -8063,19 +8194,13 @@ impl GameLogic {
             .collect();
         ui_state.radar_events = radar_entries
             .iter()
-            .map(|entry| crate::ui::egui_hud::RadarMessageEntry {
+            .map(|entry| RadarMessageEntry {
                 text: entry.text.clone(),
                 position: Some(entry.position),
                 kind: match entry.kind {
-                    radar_notifications::RadarKind::Generic => {
-                        crate::ui::egui_hud::RadarPingKind::Generic
-                    }
-                    radar_notifications::RadarKind::Attack => {
-                        crate::ui::egui_hud::RadarPingKind::Attack
-                    }
-                    radar_notifications::RadarKind::Ally => {
-                        crate::ui::egui_hud::RadarPingKind::Ally
-                    }
+                    radar_notifications::RadarKind::Generic => RadarPingKind::Generic,
+                    radar_notifications::RadarKind::Attack => RadarPingKind::Attack,
+                    radar_notifications::RadarKind::Ally => RadarPingKind::Ally,
                 },
             })
             .collect();
@@ -8090,20 +8215,14 @@ impl GameLogic {
                 let normalized = (1.0 - age / RADAR_PING_LIFETIME).clamp(0.0, 1.0);
                 let pulse = 0.5 * (1.0 + (age * std::f32::consts::TAU).cos());
                 let intensity = (normalized * 0.6 + pulse * 0.4).clamp(0.0, 1.0);
-                Some(crate::ui::egui_hud::RadarPing {
+                Some(RadarPing {
                     position: entry.position,
                     intensity,
                     age_seconds: age,
                     kind: match entry.kind {
-                        radar_notifications::RadarKind::Generic => {
-                            crate::ui::egui_hud::RadarPingKind::Generic
-                        }
-                        radar_notifications::RadarKind::Attack => {
-                            crate::ui::egui_hud::RadarPingKind::Attack
-                        }
-                        radar_notifications::RadarKind::Ally => {
-                            crate::ui::egui_hud::RadarPingKind::Ally
-                        }
+                        radar_notifications::RadarKind::Generic => RadarPingKind::Generic,
+                        radar_notifications::RadarKind::Attack => RadarPingKind::Attack,
+                        radar_notifications::RadarKind::Ally => RadarPingKind::Ally,
                     },
                 })
             })
@@ -8305,7 +8424,9 @@ impl GameLogic {
         static DEBUG_CAMERA_FOCUS_LOGS: std::sync::atomic::AtomicUsize =
             std::sync::atomic::AtomicUsize::new(0);
         if DEBUG_CAMERA_FOCUS_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 24 {
-            eprintln!("DEBUG_SHELL_CAMERA_BRIDGE: request_camera_focus position={position:?}");
+            log::trace!(
+                "DEBUG_SHELL_CAMERA_BRIDGE: request_camera_focus position={position:?}"
+            );
         }
         self.pending_camera_focus = Some(position);
         self.script_camera_focus_estimate = position;
@@ -8744,14 +8865,32 @@ mod tests {
 
     #[test]
     fn remap_known_model_alias_covers_shell_map_missing_models() {
-        assert_eq!(GameLogic::remap_known_model_alias("PMRocks01b"), "PMBoulders_D");
-        assert_eq!(GameLogic::remap_known_model_alias("PMRocks02b"), "PMBoulders_D");
-        assert_eq!(GameLogic::remap_known_model_alias("PTCypress01"), "PTXARBVT01");
+        assert_eq!(
+            GameLogic::remap_known_model_alias("PMRocks01b"),
+            "PMBoulders_D"
+        );
+        assert_eq!(
+            GameLogic::remap_known_model_alias("PMRocks02b"),
+            "PMBoulders_D"
+        );
+        assert_eq!(
+            GameLogic::remap_known_model_alias("PTCypress01"),
+            "PTXARBVT01"
+        );
         assert_eq!(GameLogic::remap_known_model_alias("PTXPine03"), "PTXFIR07");
         assert_eq!(GameLogic::remap_known_model_alias("PMSwing"), "PMBikeRack");
-        assert_eq!(GameLogic::remap_known_model_alias("PMPlygdSt"), "PMPavilion");
-        assert_eq!(GameLogic::remap_known_model_alias("AVAMPHIB"), "AVChinook_A2");
-        assert_eq!(GameLogic::remap_known_model_alias("AVPaladin"), "AVCrusader_A");
+        assert_eq!(
+            GameLogic::remap_known_model_alias("PMPlygdSt"),
+            "PMPavilion"
+        );
+        assert_eq!(
+            GameLogic::remap_known_model_alias("AVAMPHIB"),
+            "AVChinook_A2"
+        );
+        assert_eq!(
+            GameLogic::remap_known_model_alias("AVPaladin"),
+            "AVCrusader_A"
+        );
     }
 
     #[test]

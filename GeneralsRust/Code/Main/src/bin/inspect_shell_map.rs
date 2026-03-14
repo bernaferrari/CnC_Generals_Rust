@@ -1,9 +1,11 @@
 use anyhow::Result;
-use generals_main::game_logic::{GameLogic, GameMode};
+use gamelogic::scripting::core::{
+    Condition, OrCondition, Script, ScriptAction, ScriptGroup, ScriptList,
+};
 use generals_main::game_logic::script_loader::{
     find_map_file, load_chunky_map, load_map_scripts, parse_map_settings,
 };
-use gamelogic::scripting::core::{Condition, OrCondition, Script, ScriptAction, ScriptGroup, ScriptList};
+use generals_main::game_logic::{GameLogic, GameMode};
 
 fn print_condition_chain(condition: Option<&Condition>, depth: usize) {
     let mut current = condition;
@@ -58,9 +60,15 @@ fn dump_matching_script(script: &Script, group_name: Option<&str>, group_active:
             group_active
         );
     }
-    if matches!(script.script_name.as_str(), "Move Camera" | "Restart Camera Script" | "Restart Camera" | "Restart Camera Really") {
+    if matches!(
+        script.script_name.as_str(),
+        "Move Camera" | "Restart Camera Script" | "Restart Camera" | "Restart Camera Really"
+    ) {
         println!("script_detail_name={}", script.script_name);
-        println!("script_detail_condition_comment={}", script.condition_comment);
+        println!(
+            "script_detail_condition_comment={}",
+            script.condition_comment
+        );
         println!("script_detail_action_comment={}", script.action_comment);
         print_or_conditions(script.get_or_condition(), 2);
         print_actions(script.get_action(), 2);
@@ -111,7 +119,8 @@ fn main() -> Result<()> {
             let label_id =
                 u32::from_le_bytes([body[pos], body[pos + 1], body[pos + 2], body[pos + 3]]);
             let version = u16::from_le_bytes([body[pos + 4], body[pos + 5]]);
-            let size = i32::from_le_bytes([body[pos + 6], body[pos + 7], body[pos + 8], body[pos + 9]]);
+            let size =
+                i32::from_le_bytes([body[pos + 6], body[pos + 7], body[pos + 8], body[pos + 9]]);
             pos += 10;
             if size < 0 || pos + size as usize > body.len() {
                 break;

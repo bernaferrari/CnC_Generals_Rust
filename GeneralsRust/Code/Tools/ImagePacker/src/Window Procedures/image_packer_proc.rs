@@ -1,108 +1,70 @@
-//! ImagePackerProc Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Source/Window Procedures/ImagePackerProc.cpp
-//! 
-//! This module provides functionality for image packer proc.
+//! C++ parity state for `ImagePackerProc.cpp` dialog options and controls.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
-
-/// ImagePackerProc implementation
-pub struct ImagePackerProc {
-    /// Internal data
-    data: Vec<u8>,
-    /// State flag
-    active: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TargetSizeOption {
+    Size128,
+    Size256,
+    #[default]
+    Size512,
+    Custom(u32),
 }
 
-impl ImagePackerProc {
-    /// Create new instance
-    pub fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            active: false,
-        }
-    }
-
-    /// Process data
-    pub fn process(&mut self, input: &[u8]) -> Result<Vec<u8>, ImagePackerProcError> {
-        if !self.active {
-            return Err(ImagePackerProcError::NotActive);
-        }
-        
-        // TODO: Implement processing logic
-        self.data.extend_from_slice(input);
-        Ok(self.data.clone())
-    }
-
-    /// Activate
-    pub fn activate(&mut self) {
-        self.active = true;
-    }
-
-    /// Deactivate
-    pub fn deactivate(&mut self) {
-        self.active = false;
-    }
-
-    /// Check if active
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Clear data
-    pub fn clear(&mut self) {
-        self.data.clear();
-    }
-
-    /// Get data size
-    pub fn size(&self) -> usize {
-        self.data.len()
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePackerDialogState {
+    pub status_message: String,
+    pub output_filename: String,
+    pub recurse_subfolders: bool,
+    pub output_alpha: bool,
+    pub create_ini: bool,
+    pub use_bitmap_preview: bool,
+    pub compress_textures: bool,
+    pub gap_extend_rgb: bool,
+    pub gap_gutter: bool,
+    pub gutter_size: u32,
+    pub target_size: TargetSizeOption,
+    pub selected_preview_page: u32,
 }
 
-impl Default for ImagePackerProc {
+impl Default for ImagePackerDialogState {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Error types for ImagePackerProc
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImagePackerProcError {
-    /// Not active
-    NotActive,
-    /// Processing failed
-    ProcessingFailed,
-    /// Invalid input
-    InvalidInput,
-    /// Unknown error
-    Unknown,
-}
-
-impl std::fmt::Display for ImagePackerProcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ImagePackerProcError::NotActive => write!(f, "Not active"),
-            ImagePackerProcError::ProcessingFailed => write!(f, "Processing failed"),
-            ImagePackerProcError::InvalidInput => write!(f, "Invalid input"),
-            ImagePackerProcError::Unknown => write!(f, "Unknown error"),
+        Self {
+            status_message: "Select options and click 'Start'.".to_string(),
+            output_filename: "NewImage".to_string(),
+            recurse_subfolders: true,
+            output_alpha: true,
+            create_ini: true,
+            use_bitmap_preview: false,
+            compress_textures: false,
+            gap_extend_rgb: true,
+            gap_gutter: false,
+            gutter_size: 1,
+            target_size: TargetSizeOption::Size512,
+            selected_preview_page: 1,
         }
     }
 }
 
-impl std::error::Error for ImagePackerProcError {}
+impl ImagePackerDialogState {
+    pub fn effective_target_size(&self) -> u32 {
+        match self.target_size {
+            TargetSizeOption::Size128 => 128,
+            TargetSizeOption::Size256 => 256,
+            TargetSizeOption::Size512 => 512,
+            TargetSizeOption::Custom(value) => value.max(1),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{ImagePackerDialogState, TargetSizeOption};
 
     #[test]
-    fn test_image_packer_proc_basic() {
-        // TODO: Implement tests for image_packer_proc
-        assert!(true, "Placeholder test for image_packer_proc");
+    fn keeps_cpp_defaults() {
+        let state = ImagePackerDialogState::default();
+        assert_eq!(state.output_filename, "NewImage");
+        assert!(state.recurse_subfolders);
+        assert!(state.output_alpha);
+        assert_eq!(state.target_size, TargetSizeOption::Size512);
     }
 }

@@ -20,6 +20,7 @@ const DOUBLE_CLICK_MSG: u32 = 0x8000;
 
 struct ReplayMenuState {
     parent_id: i32,
+    gadget_parent_id: i32,
     button_load_id: i32,
     button_back_id: i32,
     button_delete_id: i32,
@@ -29,6 +30,8 @@ struct ReplayMenuState {
     listbox_window: Option<Rc<RefCell<GameWindow>>>,
     menu: ShellReplayMenu,
     is_shutting_down: bool,
+    initial_gadget_delay: i32,
+    just_entered: bool,
 }
 
 impl ReplayMenuState {
@@ -36,6 +39,7 @@ impl ReplayMenuState {
         let (replay_dir, replay_ext) = replay_dir_and_ext();
         Self {
             parent_id: 0,
+            gadget_parent_id: 0,
             button_load_id: 0,
             button_back_id: 0,
             button_delete_id: 0,
@@ -45,6 +49,8 @@ impl ReplayMenuState {
             listbox_window: None,
             menu: ShellReplayMenu::new(replay_dir, replay_ext),
             is_shutting_down: false,
+            initial_gadget_delay: 2,
+            just_entered: false,
         }
     }
 }
@@ -138,6 +144,24 @@ fn hide_parent_menu() {
         .expect("replay menu state lock poisoned");
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(true);
+    }
+}
+
+fn playback_replay_row_direct(row_selected: i32) {
+    if row_selected < 0 {
+        return;
+    }
+
+    let state_handle = replay_menu_state();
+    let state = state_handle
+        .lock()
+        .expect("replay menu state lock poisoned");
+    let filename = state.menu.get_replay_filename_from_listbox(row_selected);
+    drop(state);
+
+    init_recorder();
+    if let Some(Ok(true)) = with_recorder_mut(|recorder| recorder.playback_file(filename)) {
+        hide_parent_menu();
     }
 }
 
@@ -271,6 +295,7 @@ pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any:
         .expect("replay menu state lock poisoned");
 
     state.parent_id = name_to_id("ReplayMenu.wnd:ParentReplayMenu");
+    state.gadget_parent_id = name_to_id("ReplayMenu.wnd:GadgetParent");
     state.button_load_id = name_to_id("ReplayMenu.wnd:ButtonLoadReplay");
     state.button_back_id = name_to_id("ReplayMenu.wnd:ButtonBack");
     state.button_delete_id = name_to_id("ReplayMenu.wnd:ButtonDeleteReplay");
@@ -279,12 +304,17 @@ pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any:
     state.menu = ShellReplayMenu::new(replay_dir_and_ext().0, replay_dir_and_ext().1);
     state.menu.init();
     state.is_shutting_down = false;
+    state.just_entered = true;
+    state.initial_gadget_delay = 2;
 
     with_window_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.listbox_window = manager.get_window_by_id(state.listbox_id);
         if let Some(parent) = state.parent.as_ref() {
             let _ = manager.set_focus(Some(parent));
+        }
+        if let Some(gadget_parent) = manager.get_window_by_id(state.gadget_parent_id) {
+            let _ = gadget_parent.borrow_mut().hide(true);
         }
     });
 
@@ -313,19 +343,30 @@ pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::a
     state.is_shutting_down = true;
 }
 
-pub fn replay_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = replay_menu_state();
     let mut state = state_handle
         .lock()
         .expect("replay menu state lock poisoned");
-    state.menu.update(0.0);
-    populate_replay_listbox(&mut state);
+    if state.just_entered {
+        if state.initial_gadget_delay == 1 {
+            with_window_manager(|manager| {
+                manager.transition_remove("MainMenuDefaultMenuLogoFade", false);
+                manager.transition_set_group("ReplayMenuFade", false);
+            });
+            state.initial_gadget_delay = 2;
+            state.just_entered = false;
+        } else {
+            state.initial_gadget_delay -= 1;
+        }
+    }
 
     if state.is_shutting_down
         && get_shell().is_anim_finished()
         && with_window_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
+        layout.hide(true);
         let _ = get_shell().shutdown_complete(None, false);
     }
 }
@@ -373,9 +414,18 @@ pub fn replay_menu_system(
         }
         WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
             if data1 as i32 == state.listbox_id {
-                sync_selected_index(&mut state);
-                drop(state);
-                playback_selected_replay(false);
+                let row_selected = _data2 as i32;
+                if row_selected >= 0 {
+                    if let Some(listbox) = state.listbox_window.as_ref() {
+                        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
+                            let _ =
+                                widget.select_index(row_selected as usize, KeyModifiers::none());
+                        }
+                    }
+                    state.menu.set_selected_index(row_selected);
+                    drop(state);
+                    playback_replay_row_direct(row_selected);
+                }
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Ignored
@@ -391,7 +441,17 @@ pub fn replay_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-        let _ = get_shell().pop();
+        let state_handle = replay_menu_state();
+        let state = state_handle
+            .lock()
+            .expect("replay menu state lock poisoned");
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = parent.borrow_mut().send_system_message(
+                WindowMessage::GadgetSelected,
+                state.button_back_id as u32,
+                state.button_back_id as u32,
+            );
+        }
         return WindowMsgHandled::Handled;
     }
 

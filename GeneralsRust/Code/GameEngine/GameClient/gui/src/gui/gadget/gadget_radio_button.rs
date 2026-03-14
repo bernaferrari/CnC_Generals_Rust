@@ -113,11 +113,27 @@ pub fn select_exclusive(buttons: &mut [RadioButtonState], index: usize) -> bool 
 }
 
 pub fn render_demo(options: &[&str], selected: &str) -> AnyElement {
+    let buttons = options
+        .iter()
+        .enumerate()
+        .map(|(index, label)| RadioButtonState {
+            label: (*label).to_string(),
+            group: 0,
+            screen: 0,
+            selected: *label == selected,
+            hilited: index == 0,
+            mouse_track: true,
+        })
+        .collect::<Vec<_>>();
+    render(&buttons)
+}
+
+pub fn render(buttons: &[RadioButtonState]) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .children(options.iter().map(|label| {
+        .children(buttons.iter().map(|button| {
             div()
                 .flex()
                 .gap_2()
@@ -128,13 +144,15 @@ pub fn render_demo(options: &[&str], selected: &str) -> AnyElement {
                         .rounded_full()
                         .border_1()
                         .border_color(rgb(0x8dc0ff))
-                        .bg(if *label == selected {
+                        .bg(if button.selected {
                             rgb(0x32567c)
+                        } else if button.hilited {
+                            rgb(0x182433)
                         } else {
                             rgb(0x101720)
                         }),
                 )
-                .child((*label).to_string())
+                .child(button.label.clone())
         }))
         .into_any_element()
 }

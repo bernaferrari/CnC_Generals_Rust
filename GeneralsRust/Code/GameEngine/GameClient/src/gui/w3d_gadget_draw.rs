@@ -822,7 +822,34 @@ pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceDa
     menu.draw();
 }
 
-pub fn w3d_no_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {}
+fn draw_data_has_compat_default_content(entry: &crate::gui::game_window::WindowDrawData) -> bool {
+    entry.image.is_some()
+        || entry.color != WIN_COLOR_UNDEFINED
+        || entry.border_color != WIN_COLOR_UNDEFINED
+}
+
+fn has_compat_default_content(window: &GameWindow, inst_data: &WindowInstanceData) -> bool {
+    window.get_status().contains(WindowStatus::IMAGE)
+        || inst_data.video_buffer.is_some()
+        || inst_data
+            .enabled_draw_data
+            .iter()
+            .any(draw_data_has_compat_default_content)
+        || inst_data
+            .disabled_draw_data
+            .iter()
+            .any(draw_data_has_compat_default_content)
+        || inst_data
+            .hilite_draw_data
+            .iter()
+            .any(draw_data_has_compat_default_content)
+}
+
+pub fn w3d_no_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    if has_compat_default_content(window, inst_data) {
+        super::game_window::default_draw_callback(window, inst_data);
+    }
+}
 
 pub fn w3d_compat_default_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     super::game_window::default_draw_callback(window, inst_data);
@@ -886,20 +913,20 @@ fn should_draw_radar_check() -> bool {
     let Ok(radar) = radar_system.read() else {
         return false;
     };
-    
+
     if radar.is_radar_forced() {
         return true;
     }
-    
+
     if radar.is_radar_hidden() {
         return false;
     }
-    
+
     // Check if local player has radar
     let Ok(list) = ThePlayerList().read() else {
         return false;
     };
-    
+
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
             if index >= 0 {
@@ -909,13 +936,13 @@ fn should_draw_radar_check() -> bool {
             }
         })
         .or_else(|| list.get_local_player().cloned());
-    
+
     if let Some(player_arc) = player_arc {
         if let Ok(player) = player_arc.read() {
             return player.has_radar();
         }
     }
-    
+
     false
 }
 
@@ -939,9 +966,14 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
         // Get window position and size for radar drawing
         let (pos_x, pos_y) = window.get_screen_position();
         let (size_x, size_y) = window.get_size();
-        
+
         // Draw radar with 1-pixel border (matching C++ TheRadar->draw(pos.x + 1, pos.y + 1, size.x - 2, size.y - 2))
-        draw_radar_in_hud(pos_x + 1, pos_y + 1, size_x.saturating_sub(2), size_y.saturating_sub(2));
+        draw_radar_in_hud(
+            pos_x + 1,
+            pos_y + 1,
+            size_x.saturating_sub(2),
+            size_y.saturating_sub(2),
+        );
     } else {
         // Fall back to default drawing when no radar
         super::game_window::default_draw_callback(window, inst_data);
@@ -967,7 +999,7 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
 
     let _ = with_ui_renderer(|renderer| {
         let mut renderer = renderer.write().ok()?;
-        
+
         // Create texture from radar terrain data (RGBA format)
         let texture = renderer.create_texture_from_rgba(
             game_engine::common::system::radar::RADAR_CELL_WIDTH,
@@ -985,12 +1017,18 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
                 continue;
             }
-            
+
             // Convert world position to radar screen coordinates
             if let Some(radar_pos) = radar.world_to_radar(&obj.world_pos) {
-                let screen_x = x + (radar_pos.x as i64 * width as i64 / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64) as i32;
-                let screen_y = y + (radar_pos.y as i64 * height as i64 / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64) as i32;
-                
+                let screen_x = x
+                    + (radar_pos.x as i64 * width as i64
+                        / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64)
+                        as i32;
+                let screen_y = y
+                    + (radar_pos.y as i64 * height as i64
+                        / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64)
+                        as i32;
+
                 // Draw object as a small colored dot
                 let dot_size = 2;
                 // Convert u32 color to RGBA [f32; 4] format
@@ -1015,18 +1053,28 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
 
         // Draw active radar events
         for event in radar.get_active_events() {
-            let screen_x = x + (event.radar_loc.x as i64 * width as i64 / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64) as i32;
-            let screen_y = y + (event.radar_loc.y as i64 * height as i64 / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64) as i32;
-            
+            let screen_x = x
+                + (event.radar_loc.x as i64 * width as i64
+                    / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64)
+                    as i32;
+            let screen_y = y
+                + (event.radar_loc.y as i64 * height as i64
+                    / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64)
+                    as i32;
+
             // Draw event indicator (pulsing/blinking based on frame)
-            let alpha = if (event.create_frame / 10) % 2 == 0 { 1.0 } else { 0.5 };
+            let alpha = if (event.create_frame / 10) % 2 == 0 {
+                1.0
+            } else {
+                0.5
+            };
             let color1 = [
                 event.color1.r as f32 / 255.0,
                 event.color1.g as f32 / 255.0,
                 event.color1.b as f32 / 255.0,
                 alpha,
             ];
-            
+
             let event_size = 4;
             renderer.draw_rect(
                 UIRect::new(

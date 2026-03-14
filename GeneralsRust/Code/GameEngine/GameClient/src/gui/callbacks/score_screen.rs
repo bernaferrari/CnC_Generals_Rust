@@ -1137,16 +1137,20 @@ pub fn score_screen_system(
                 }
             } else if control_id == state.button_save_replay_id {
                 score_screen_enable_controls(false);
-                let layout = state
-                    .popup_replay_layout
-                    .get_or_insert_with(|| {
-                        with_window_manager(|manager| {
-                            let layout = manager.create_layout("Menus/PopupReplay.wnd".to_string());
-                            layout.borrow_mut().run_init(None);
-                            layout
-                        })
-                    })
-                    .clone();
+                let layout = if let Some(layout) = state.popup_replay_layout.as_ref() {
+                    layout.clone()
+                } else {
+                    let Some((layout, _)) = with_window_manager(|manager| {
+                        manager
+                            .create_layout_with_windows("Menus/PopupReplay.wnd")
+                            .ok()
+                    }) else {
+                        return WindowMsgHandled::Handled;
+                    };
+                    state.popup_replay_layout = Some(layout.clone());
+                    layout
+                };
+                layout.borrow().run_init(None);
                 layout.borrow_mut().hide(false);
                 layout.borrow_mut().bring_forward();
             }
@@ -1164,6 +1168,6 @@ pub fn score_screen_system(
             }
             WindowMsgHandled::Handled
         }
-        _ => WindowMsgHandled::Handled,
+        _ => WindowMsgHandled::Ignored,
     })
 }

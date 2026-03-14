@@ -116,14 +116,35 @@ impl TextEntryState {
 }
 
 pub fn render_demo(value: &str) -> AnyElement {
+    let state = TextEntryState {
+        text: value.to_string(),
+        secret_text: "*".repeat(value.chars().count()),
+        ..Default::default()
+    };
+    render(&state)
+}
+
+pub fn render(state: &TextEntryState) -> AnyElement {
+    let value = if state.visible_text().is_empty() {
+        " ".to_string()
+    } else {
+        state.visible_text().to_string()
+    };
     div()
         .px_3()
         .py_2()
         .rounded_md()
         .border_1()
-        .border_color(rgb(0x22303f))
+        .border_color(if state.ime_composing {
+            rgb(0xd1a65d)
+        } else {
+            rgb(0x22303f)
+        })
         .bg(rgb(0x111922))
-        .child(value.to_string())
+        .flex()
+        .justify_between()
+        .child(value)
+        .child(if state.ime_composing { "IME" } else { "" })
         .into_any_element()
 }
 

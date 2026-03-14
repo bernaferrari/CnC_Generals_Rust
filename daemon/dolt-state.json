@@ -1,8 +1,8 @@
 {
-  "running": false,
-  "pid": 0,
+  "running": true,
+  "pid": 71948,
   "port": 13423,
-  "started_at": "2026-03-12T17:29:12.57337-03:00",
+  "started_at": "2026-03-13T02:01:19.75286-03:00",
   "data_dir": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/.dolt-data",
   "databases": [
     "town"

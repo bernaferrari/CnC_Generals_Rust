@@ -220,6 +220,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.is_hijack_guard()
     }
 
+    fn is_build_facility(&self) -> bool {
+        self.inner.is_build_facility()
+    }
+
     fn get_command_set_string(&self) -> &crate::common::AsciiString {
         &self.command_set_string
     }
@@ -2659,6 +2663,26 @@ impl TheThingFactory {
             }
         }
         template_name
+    }
+
+    /// Returns true if `candidate_name` is one of `template`'s build variations.
+    /// Mirrors C++ Team.cpp helper `isInBuildVariations(...)`.
+    pub fn has_build_variation_name(
+        template: &std::sync::Arc<dyn crate::common::ThingTemplate>,
+        candidate_name: &str,
+    ) -> bool {
+        let Some(adapter) = template
+            .as_any()
+            .downcast_ref::<EngineThingTemplateAdapter>()
+        else {
+            return false;
+        };
+
+        adapter
+            .inner
+            .get_build_variations()
+            .iter()
+            .any(|variation| variation.as_str() == candidate_name)
     }
 
     /// Find template by name using the shared ThingFactory.

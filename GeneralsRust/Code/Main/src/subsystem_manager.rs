@@ -211,27 +211,20 @@ impl SubsystemInterface for AudioManagerSubsystem {
 
     fn init(&mut self) -> Result<()> {
         info!("Initializing AudioManager subsystem");
-        eprintln!("DEBUG_AUDIO_INIT: enter");
-
-        eprintln!("DEBUG_AUDIO_INIT: loading_sound_effects_table");
         self.sound_effects_table = crate::assets::SoundEffectsTable::load_default();
-        eprintln!("DEBUG_AUDIO_INIT: loaded_sound_effects_table");
         if let Some(table) = self.sound_effects_table.as_ref() {
             if table.is_empty() {
                 self.sound_effects_table = None;
             }
         }
-        eprintln!("DEBUG_AUDIO_INIT: creating_audio_manager");
 
         match crate::assets::audio::AudioManager::new() {
             Ok(audio_manager) => {
-                eprintln!("DEBUG_AUDIO_INIT: created_audio_manager");
                 self.audio_manager = Some(audio_manager);
                 info!("AudioManager subsystem initialized successfully");
                 Ok(())
             }
             Err(e) => {
-                eprintln!("DEBUG_AUDIO_INIT: failed_audio_manager error={e}");
                 warn!(
                     "Failed to initialize audio: {}. Game will continue without audio.",
                     e
@@ -515,11 +508,48 @@ impl SubsystemInterface for MessageStreamSubsystem {
 /// Network subsystem - network communication (matches C++ TheNetwork)
 pub struct NetworkSubsystem {
     initialized: bool,
+    active_session: bool,
+    frame_data_ready: bool,
 }
 
 impl NetworkSubsystem {
     pub fn new() -> Self {
-        Self { initialized: false }
+        Self {
+            initialized: false,
+            active_session: false,
+            frame_data_ready: true,
+        }
+    }
+
+    /// C++ parity helper: mirrors whether `TheNetwork` exists for active gameplay sync.
+    pub fn has_active_session(&self) -> bool {
+        self.initialized && self.active_session
+    }
+
+    /// C++ parity helper: mirrors `TheNetwork->isFrameDataReady()`.
+    pub fn is_frame_data_ready(&self) -> bool {
+        self.frame_data_ready
+    }
+
+    /// Updates active-session and frame-ready state from the networking layer.
+    pub fn set_session_state(&mut self, active_session: bool, frame_data_ready: bool) {
+        self.active_session = active_session;
+        self.frame_data_ready = if active_session {
+            frame_data_ready
+        } else {
+            true
+        };
+    }
+
+    pub fn set_active_session(&mut self, active_session: bool) {
+        self.active_session = active_session;
+        if !active_session {
+            self.frame_data_ready = true;
+        }
+    }
+
+    pub fn set_frame_data_ready(&mut self, frame_data_ready: bool) {
+        self.frame_data_ready = frame_data_ready;
     }
 }
 
@@ -537,10 +567,14 @@ impl SubsystemInterface for NetworkSubsystem {
     fn init(&mut self) -> Result<()> {
         info!("Initializing Network subsystem");
         self.initialized = true;
+        self.active_session = false;
+        self.frame_data_ready = true;
         Ok(())
     }
 
     fn reset(&mut self) -> Result<()> {
+        self.active_session = false;
+        self.frame_data_ready = true;
         Ok(())
     }
 
@@ -548,6 +582,10 @@ impl SubsystemInterface for NetworkSubsystem {
         #[cfg(feature = "network")]
         {
             // Network update would be called here
+        }
+        if !self.active_session {
+            // No active network session mirrors C++ `TheNetwork == NULL`.
+            self.frame_data_ready = true;
         }
         Ok(())
     }
@@ -558,6 +596,8 @@ impl SubsystemInterface for NetworkSubsystem {
 
     fn shutdown(&mut self) -> Result<()> {
         self.initialized = false;
+        self.active_session = false;
+        self.frame_data_ready = true;
         Ok(())
     }
 }

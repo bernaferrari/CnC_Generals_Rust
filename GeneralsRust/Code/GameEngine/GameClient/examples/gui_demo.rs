@@ -213,10 +213,14 @@ impl WindowManager {
     }
 
     fn hit_test(&self, x: i32, y: i32) -> Option<WindowId> {
-        // Test children first (top-most)
-        for window in self.windows.values().rev() {
-            if window.status.visible && window.contains_point(x, y) {
-                return Some(window.id);
+        // Treat higher ids as newer/top-most windows.
+        let mut ids: Vec<WindowId> = self.windows.keys().copied().collect();
+        ids.sort_unstable_by(|a, b| b.cmp(a));
+        for id in ids {
+            if let Some(window) = self.windows.get(&id) {
+                if window.status.visible && window.contains_point(x, y) {
+                    return Some(window.id);
+                }
             }
         }
         None

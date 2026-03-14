@@ -176,7 +176,10 @@ impl SingleInstanceGuard {
             }
 
             // EPERM means the process exists but we do not have permission to signal it.
-            matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::EPERM))
+            matches!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::EPERM)
+            )
         }
 
         #[cfg(windows)]

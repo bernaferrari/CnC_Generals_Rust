@@ -44,7 +44,7 @@ impl OutputFormat {
             OutputFormat::TGA => Some(ImageFormat::Tga),
             OutputFormat::JPG => Some(ImageFormat::Jpeg),
             OutputFormat::BMP => Some(ImageFormat::Bmp),
-            OutputFormat::DDS => None, // DDS requires special handling
+            OutputFormat::DDS => Some(ImageFormat::Dds),
         }
     }
 
@@ -64,44 +64,28 @@ impl FormatHandler {
         format: OutputFormat,
         quality: Option<u8>,
     ) -> Result<()> {
-        match format {
-            OutputFormat::DDS => {
-                // DDS format requires special handling
-                Self::save_dds(image, path)?;
-            }
-            _ => {
-                if let Some(image_format) = format.to_image_format() {
-                    match format {
-                        OutputFormat::JPG => {
-                            // Convert to RGB if saving as JPEG (no alpha)
-                            let rgb_image = image.to_rgb8();
-                            rgb_image.save_with_format(path, image_format)
-                                .with_context(|| format!("Failed to save as {:?}", format))?;
-                        }
-                        _ => {
-                            image.save_with_format(path, image_format)
-                                .with_context(|| format!("Failed to save as {:?}", format))?;
-                        }
-                    }
-                } else {
-                    return Err(anyhow::anyhow!("Unsupported format for saving: {:?}", format));
+        if let Some(image_format) = format.to_image_format() {
+            match format {
+                OutputFormat::JPG => {
+                    // Convert to RGB if saving as JPEG (no alpha)
+                    let rgb_image = image.to_rgb8();
+                    rgb_image
+                        .save_with_format(path, image_format)
+                        .with_context(|| format!("Failed to save as {:?}", format))?;
+                }
+                _ => {
+                    image
+                        .save_with_format(path, image_format)
+                        .with_context(|| format!("Failed to save as {:?}", format))?;
                 }
             }
+        } else {
+            return Err(anyhow::anyhow!(
+                "Unsupported format for saving: {:?}",
+                format
+            ));
         }
 
-        Ok(())
-    }
-
-    /// Save image in DDS format (placeholder - would need proper DDS implementation)
-    fn save_dds(_image: &DynamicImage, path: &Path) -> Result<()> {
-        // For now, save as PNG with a warning
-        // In a complete implementation, this would use a DDS library
-        log::warn!("DDS format not fully implemented, saving as PNG instead");
-        
-        let png_path = path.with_extension("png");
-        _image.save_with_format(&png_path, ImageFormat::Png)
-            .context("Failed to save DDS as PNG fallback")?;
-        
         Ok(())
     }
 

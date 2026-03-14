@@ -1,72 +1,83 @@
-//! TexturePage Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Include/TexturePage.h
-//! 
-//! This module provides texture management and rendering.
+//! C++ parity model for `TexturePage.h`.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use bitflags::bitflags;
 
-/// Constants for TexturePage
-pub const DEFAULT_VALUE: u32 = 0;
-pub const MAX_VALUE: u32 = 1000;
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PageStatus: u32 {
+        const READY = 0x0000_0001;
+        const PAGE_ERROR = 0x0000_0002;
+        const CANT_ALLOCATE_PACKED_IMAGE = 0x0000_0004;
+        const CANT_ADD_IMAGE_DATA = 0x0000_0008;
+        const NO_TEXTURE_DATA = 0x0000_0010;
+        const ERROR_DURING_SAVE = 0x0000_0020;
+    }
+}
 
-/// TexturePage structure
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanvasCell {
+    Free,
+    Used,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImagePlacement {
+    pub image_index: usize,
+    pub left: u32,
+    pub top: u32,
+    pub right: u32,
+    pub bottom: u32,
+    pub rotated: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct TexturePage {
-    /// Value field
-    pub value: u32,
-    /// Name field
-    pub name: String,
+    pub id: u32,
+    pub width: u32,
+    pub height: u32,
+    pub status: PageStatus,
+    pub placements: Vec<ImagePlacement>,
 }
 
 impl TexturePage {
-    /// Create new instance
-    pub fn new(value: u32, name: &str) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         Self {
-            value,
-            name: name.to_string(),
+            id: 0,
+            width,
+            height,
+            status: PageStatus::READY,
+            placements: Vec::new(),
         }
     }
 
-    /// Get value
-    pub fn get_value(&self) -> u32 {
-        self.value
+    pub fn set_id(&mut self, id: u32) {
+        self.id = id;
     }
 
-    /// Set value
-    pub fn set_value(&mut self, value: u32) {
-        self.value = value;
+    pub fn add_image_placement(&mut self, placement: ImagePlacement) {
+        self.placements.push(placement);
     }
 
-    /// Get name
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn get_first_image(&self) -> Option<&ImagePlacement> {
+        self.placements.first()
     }
-}
-
-/// Enumeration for TexturePage types
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TexturePageType {
-    /// Default type
-    Default = 0,
-    /// Custom type
-    Custom = 1,
-    /// Special type
-    Special = 2,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{ImagePlacement, TexturePage};
 
     #[test]
-    fn test_texture_page_basic() {
-        // TODO: Implement tests for texture_page
-        assert!(true, "Placeholder test for texture_page");
+    fn keeps_first_placement_accessible() {
+        let mut page = TexturePage::new(512, 512);
+        page.add_image_placement(ImagePlacement {
+            image_index: 0,
+            left: 5,
+            top: 7,
+            right: 35,
+            bottom: 39,
+            rotated: false,
+        });
+        assert_eq!(page.get_first_image().map(|p| p.left), Some(5));
     }
 }

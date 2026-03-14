@@ -480,18 +480,18 @@ impl RtsInputSystem {
             MouseButton::Left => {
                 if !self.mouse_state.is_dragging {
                     // Single click - select unit at cursor (simplified for stability)
-                    println!("Command: Left Click at {:?}", self.mouse_state.position);
+                    log::debug!("Command: Left Click at {:?}", self.mouse_state.position);
                     self.execute_command(RtsCommand::LeftClick); // Re-enabled for gameplay
                 }
             }
             MouseButton::Right => {
                 // Right click - move/attack command (simplified for stability)
-                println!("Command: Right Click at {:?}", self.mouse_state.position);
+                log::debug!("Command: Right Click at {:?}", self.mouse_state.position);
                 self.execute_command(RtsCommand::RightClick); // Re-enabled for gameplay
             }
             MouseButton::Middle => {
                 // Middle click - could be used for camera panning (simplified for stability)
-                println!("Command: Middle Click at {:?}", self.mouse_state.position);
+                log::debug!("Command: Middle Click at {:?}", self.mouse_state.position);
                 // self.execute_command(RtsCommand::MiddleClick); // Temporarily disabled to prevent crashes
             }
             _ => {}
@@ -502,7 +502,7 @@ impl RtsInputSystem {
     fn handle_double_click(&mut self, button: MouseButton) {
         if button == MouseButton::Left {
             let pos = self.mouse_state.position;
-            println!("Double-click detected - selecting similar units");
+            log::debug!("Double-click detected - selecting similar units");
             self.command_events
                 .push_back(RtsCommandEvent::DoubleClickSelectSimilar { screen_pos: pos });
         }
@@ -516,7 +516,7 @@ impl RtsInputSystem {
             if distance > self.drag_threshold && !self.mouse_state.is_dragging {
                 self.mouse_state.is_dragging = true;
                 self.selection_state.is_box_selecting = true;
-                println!("Started drag selection");
+                log::debug!("Started drag selection");
             }
 
             if self.mouse_state.is_dragging {
@@ -528,7 +528,7 @@ impl RtsInputSystem {
     /// Complete drag selection
     fn complete_drag_selection(&mut self) {
         if self.selection_state.is_box_selecting {
-            println!(
+            log::debug!(
                 "Completed drag selection from {:?} to {:?}",
                 self.selection_state.selection_box_start,
                 self.selection_state.selection_box_current
@@ -631,28 +631,28 @@ impl RtsInputSystem {
     pub fn execute_command(&mut self, command: RtsCommand) {
         match command {
             RtsCommand::SelectAll => {
-                println!("Command: Select All Units (Ctrl+A)");
+                log::debug!("Command: Select All Units (Ctrl+A)");
                 self.command_events.push_back(RtsCommandEvent::SelectAll);
             }
             RtsCommand::DeleteSelected => {
-                println!("Command: Delete Selected Units");
+                log::debug!("Command: Delete Selected Units");
                 self.command_events
                     .push_back(RtsCommandEvent::DeleteSelected {
                         object_ids: self.selection_state.selected_objects.clone(),
                     });
             }
             RtsCommand::CycleUnits => {
-                println!("Command: Cycle Through Units (Tab)");
+                log::debug!("Command: Cycle Through Units (Tab)");
                 self.command_events.push_back(RtsCommandEvent::CycleUnits);
             }
             RtsCommand::LeftClick => {
-                println!("Command: Left Click at {:?}", self.mouse_state.position);
+                log::debug!("Command: Left Click at {:?}", self.mouse_state.position);
                 self.command_events.push_back(RtsCommandEvent::LeftClick {
                     screen_pos: self.mouse_state.position,
                 });
             }
             RtsCommand::RightClick => {
-                println!("Command: Right Click at {:?}", self.mouse_state.position);
+                log::debug!("Command: Right Click at {:?}", self.mouse_state.position);
                 self.command_events.push_back(RtsCommandEvent::RightClick {
                     screen_pos: self.mouse_state.position,
                 });
@@ -660,7 +660,7 @@ impl RtsInputSystem {
             RtsCommand::DragSelect => {
                 if let Some(start) = self.selection_state.selection_box_start {
                     let end = self.selection_state.selection_box_current;
-                    println!("Command: Drag Select from {:?} to {:?}", start, end);
+                    log::debug!("Command: Drag Select from {:?} to {:?}", start, end);
                     self.command_events.push_back(RtsCommandEvent::DragSelect {
                         start_screen: start,
                         end_screen: end,
@@ -668,7 +668,7 @@ impl RtsInputSystem {
                 }
             }
             RtsCommand::PauseGame => {
-                println!("Command: Toggle Pause");
+                log::debug!("Command: Toggle Pause");
                 self.command_events.push_back(RtsCommandEvent::TogglePause);
             }
             RtsCommand::ControlGroup1
@@ -693,7 +693,7 @@ impl RtsInputSystem {
                     _ => 1,
                 };
                 if self.is_ctrl_pressed() {
-                    println!("Command: Assign Control Group {}", group_num);
+                    log::debug!("Command: Assign Control Group {}", group_num);
                     let ids = self.selection_state.selected_objects.clone();
                     self.selection_state
                         .control_groups
@@ -704,7 +704,7 @@ impl RtsInputSystem {
                             object_ids: ids,
                         });
                 } else {
-                    println!("Command: Select Control Group {}", group_num);
+                    log::debug!("Command: Select Control Group {}", group_num);
                     if let Some(ids) = self.selection_state.control_groups.get(&(group_num as u8)) {
                         self.selection_state.selected_objects = ids.clone();
                     }
@@ -715,15 +715,15 @@ impl RtsInputSystem {
                 }
             }
             RtsCommand::ToggleDebug => {
-                println!("Command: Toggle Debug Info");
+                log::debug!("Command: Toggle Debug Info");
                 self.command_events.push_back(RtsCommandEvent::ToggleDebug);
             }
             RtsCommand::ToggleMusic => {
-                println!("Command: Toggle Background Music");
+                log::debug!("Command: Toggle Background Music");
                 self.command_events.push_back(RtsCommandEvent::ToggleMusic);
             }
             _ => {
-                println!("Command: {:?}", command);
+                log::debug!("Command: {:?}", command);
             }
         }
     }

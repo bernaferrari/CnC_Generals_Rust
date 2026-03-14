@@ -1040,7 +1040,9 @@ impl AIPlayer {
                         continue;
                     }
 
-                    let source_recruitable = if default_team_id == Some(source_team_id) {
+                    let source_recruitable = if source_team_guard.is_recruitability_set() {
+                        source_team_guard.is_recruitable()
+                    } else if default_team_id == Some(source_team_id) {
                         true
                     } else {
                         source_team_guard.is_recruitable()

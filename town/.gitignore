@@ -2,3 +2,4 @@
 .claude/
 .logs/
 __pycache__/
+.land-worktree/
