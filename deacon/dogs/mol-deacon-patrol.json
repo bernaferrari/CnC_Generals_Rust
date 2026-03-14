@@ -2,33 +2,39 @@
   "wisp": "mol-deacon-patrol",
   "role": "deacon",
   "created_at": "2026-03-12T02:28:00Z",
-  "completed_at": "2026-03-12T02:28:30Z",
+  "completed_at": "2026-03-13T02:01:00Z",
   "status": "completed",
   "patrol_log": [
     {
-      "timestamp": "2026-03-12T02:28:00Z",
+      "timestamp": "2026-03-13T02:01:00Z",
       "action": "heartbeat",
       "result": "success"
     },
     {
-      "timestamp": "2026-03-12T02:28:00Z",
+      "timestamp": "2026-03-13T02:01:00Z",
       "action": "check_hook",
       "result": "no_hook_assigned"
     },
     {
-      "timestamp": "2026-03-12T02:28:00Z",
-      "action": "check_mail",
-      "result": "inbox_empty"
-    },
-    {
-      "timestamp": "2026-03-12T02:28:00Z",
-      "action": "check_ready_work",
-      "result": "no_ready_work"
-    },
-    {
-      "timestamp": "2026-03-12T02:28:00Z",
+      "timestamp": "2026-03-13T02:01:00Z",
       "action": "dolt_status",
-      "result": "not_initialized_for_rig"
+      "result": "started_town_db_on_port_13423"
+    },
+    {
+      "timestamp": "2026-03-13T02:01:00Z",
+      "action": "check_mail",
+      "result": "deacon_context_no_hq_db_access"
+    },
+    {
+      "timestamp": "2026-03-13T02:01:00Z",
+      "action": "check_ready_work",
+      "result": "deacon_context_no_hq_db_access"
     }
+  ],
+  "notes": [
+    "Town root on branch 'parity-fix' (should be 'main') - warning from gt commands",
+    "Dolt server was down, started successfully (PID 83905, port 13423, db: town)",
+    "Hook cleared - stale reference to non-existent bead",
+    "Deacon workspace uses separate Dolt instance (town db), main workspace uses hq db"
   ]
 }

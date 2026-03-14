@@ -1,72 +1,49 @@
-//! ImageDirectory Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Include/ImageDirectory.h
-//! 
-//! This module provides functionality for image directory.
+//! C++ parity model for `ImageDirectory.h`.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use std::path::{Path, PathBuf};
 
-/// Constants for ImageDirectory
-pub const DEFAULT_VALUE: u32 = 0;
-pub const MAX_VALUE: u32 = 1000;
-
-/// ImageDirectory structure
-#[derive(Debug, Clone, Default)]
+/// Directory descriptor used by the packer while collecting source images.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageDirectory {
-    /// Value field
-    pub value: u32,
-    /// Name field
-    pub name: String,
+    pub path: PathBuf,
+    pub image_count: u32,
 }
 
 impl ImageDirectory {
-    /// Create new instance
-    pub fn new(value: u32, name: &str) -> Self {
+    pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
-            value,
-            name: name.to_string(),
+            path: path.as_ref().to_path_buf(),
+            image_count: 0,
         }
     }
 
-    /// Get value
-    pub fn get_value(&self) -> u32 {
-        self.value
+    pub fn with_image_count(path: impl AsRef<Path>, image_count: u32) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+            image_count,
+        }
     }
 
-    /// Set value
-    pub fn set_value(&mut self, value: u32) {
-        self.value = value;
-    }
-
-    /// Get name
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn increment_image_count(&mut self) {
+        self.image_count = self.image_count.saturating_add(1);
     }
 }
 
-/// Enumeration for ImageDirectory types
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImageDirectoryType {
-    /// Default type
-    Default = 0,
-    /// Custom type
-    Custom = 1,
-    /// Special type
-    Special = 2,
+impl Default for ImageDirectory {
+    fn default() -> Self {
+        Self::new("")
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::ImageDirectory;
 
     #[test]
-    fn test_image_directory_basic() {
-        // TODO: Implement tests for image_directory
-        assert!(true, "Placeholder test for image_directory");
+    fn increments_image_count_safely() {
+        let mut dir = ImageDirectory::new("Art/");
+        dir.increment_image_count();
+        dir.increment_image_count();
+        assert_eq!(dir.image_count, 2);
     }
 }

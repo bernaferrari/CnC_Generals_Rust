@@ -10,7 +10,7 @@ use super::{
 };
 use crate::game_logic::ObjectId;
 use crate::localization;
-use crate::ui::egui_hud::RadarPingKind;
+use crate::ui::RadarPingKind;
 use glam::Vec3;
 use std::time::Duration;
 
@@ -405,7 +405,7 @@ pub struct GameHUD {
     resource_display: ResourceDisplay,
     /// Mini-map component
     minimap: MiniMap,
-    /// Egui minimap state (FOW/camera-aware)
+    /// Minimap UI state (FOW/camera-aware)
     minimap_panel: MinimapUIState,
     /// Construction panel
     construction_panel: ConstructionPanel,
@@ -663,7 +663,7 @@ impl GameHUD {
         self.beacon_markers.extend_from_slice(beacons);
         self.minimap.update_beacons(beacons);
 
-        // Forward to the egui minimap panel with mapped colors.
+        // Forward to the minimap panel with mapped colors.
         let beacon_dots: Vec<BeaconDot> = beacons
             .iter()
             .map(|(x, z, color_index)| BeaconDot {
@@ -676,14 +676,14 @@ impl GameHUD {
         // Trigger a brief minimap bloom for newly-placed beacons.
         if let Some(last) = beacons.last() {
             self.minimap_panel
-                .set_beacon_highlight(Vec3::new(last.0, 0.0, last.2 as f32));
+                .set_beacon_highlight(Vec3::new(last.0, 0.0, last.1));
         }
     }
 
     /// Update radar ping overlays on the minimap (world coordinates)
     pub fn update_radar_pings(
         &mut self,
-        pings: &[crate::ui::egui_hud::RadarPing],
+        pings: &[crate::ui::RadarPing],
         world_min: Vec3,
         world_max: Vec3,
     ) {
@@ -698,13 +698,13 @@ impl GameHUD {
                     intensity: ping.intensity,
                     age_seconds: ping.age_seconds,
                     kind: match ping.kind {
-                        crate::ui::egui_hud::RadarPingKind::Generic => {
+                        crate::ui::RadarPingKind::Generic => {
                             crate::ui::minimap_panel::RadarPingKind::Generic
                         }
-                        crate::ui::egui_hud::RadarPingKind::Attack => {
+                        crate::ui::RadarPingKind::Attack => {
                             crate::ui::minimap_panel::RadarPingKind::Attack
                         }
-                        crate::ui::egui_hud::RadarPingKind::Ally => {
+                        crate::ui::RadarPingKind::Ally => {
                             crate::ui::minimap_panel::RadarPingKind::Ally
                         }
                     },
@@ -781,7 +781,7 @@ impl GameHUD {
             width as i32 - layout::MINIMAP_SIZE as i32 - 10,
             height as i32 - layout::MINIMAP_SIZE as i32 - 10,
         );
-        self.minimap_panel.screen_pos = egui::Pos2::new(
+        self.minimap_panel.set_screen_pos(
             self.minimap.position.0 as f32,
             self.minimap.position.1 as f32,
         );

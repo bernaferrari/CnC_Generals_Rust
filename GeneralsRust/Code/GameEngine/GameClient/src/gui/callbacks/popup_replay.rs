@@ -116,6 +116,13 @@ fn get_selected_listbox_text(state: &PopupReplayState) -> Option<String> {
     list_box.items().get(selected).map(|item| item.text.clone())
 }
 
+fn get_listbox_text_at_row(state: &PopupReplayState, row: usize) -> Option<String> {
+    let listbox = state.listbox_window.as_ref()?;
+    let mut listbox_guard = listbox.borrow_mut();
+    let list_box = listbox_guard.list_box_mut()?;
+    list_box.items().get(row).map(|item| item.text.clone())
+}
+
 fn save_replay(filename: &str) {
     let state_handle = popup_replay_state();
     let mut state = state_handle
@@ -253,6 +260,11 @@ pub fn popup_replay_shutdown(_layout: &WindowLayout, _user_data: Option<&dyn std
         .lock()
         .expect("popup replay state lock poisoned");
     state.parent = None;
+    state.replay_saved_parent = None;
+    state.listbox_window = None;
+    state.text_entry_window = None;
+    state.save_popup_start = None;
+    state.message_box_window = None;
 }
 
 pub fn popup_replay_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -317,7 +329,7 @@ pub fn popup_replay_system(
     window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = popup_replay_state();
     let mut state = state_handle
@@ -329,7 +341,16 @@ pub fn popup_replay_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.listbox_games {
-                if let Some(filename) = get_selected_listbox_text(&state) {
+                let row_selected = data2 as i32;
+                if row_selected >= 0 {
+                    if let Some(filename) = get_listbox_text_at_row(&state, row_selected as usize) {
+                        if let Some(entry) = state.text_entry_window.as_ref() {
+                            if let Some(widget) = entry.borrow_mut().text_entry_mut() {
+                                widget.set_text(filename);
+                            }
+                        }
+                    }
+                } else if let Some(filename) = get_selected_listbox_text(&state) {
                     if let Some(entry) = state.text_entry_window.as_ref() {
                         if let Some(widget) = entry.borrow_mut().text_entry_mut() {
                             widget.set_text(filename);

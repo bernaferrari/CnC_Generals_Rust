@@ -2173,6 +2173,9 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn is_hijack_guard(&self) -> bool {
         false
     }
+    fn is_build_facility(&self) -> bool {
+        false
+    }
 
     /// Get the unique ID for this template
     /// Stub implementation - returns 0 by default

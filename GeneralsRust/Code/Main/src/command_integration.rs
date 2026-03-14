@@ -424,10 +424,10 @@ impl InputCommandProcessor {
                 game_logic,
             ) {
                 system.queue_command(command);
-                println!("Command queued from mouse input");
+                log::trace!("Command queued from mouse input");
             }
         } else {
-            eprintln!("Failed to acquire command system lock for mouse input processing");
+            log::warn!("Failed to acquire command system lock for mouse input processing");
         }
 
         // Reset drag state
@@ -463,7 +463,7 @@ impl InputCommandProcessor {
                     if let Ok(mut system) = command_system.lock() {
                         system.set_mode(CommandMode::ForceAttack);
                     } else {
-                        eprintln!("Failed to acquire command system lock for force attack begin");
+                        log::warn!("Failed to acquire command system lock for force attack begin");
                     }
                 }
             }
@@ -472,7 +472,7 @@ impl InputCommandProcessor {
                 if let Ok(mut system) = command_system.lock() {
                     system.set_waypoint_mode_for_player(self.current_player_id, true);
                 } else {
-                    eprintln!("Failed to acquire command system lock for waypoint begin");
+                    log::warn!("Failed to acquire command system lock for waypoint begin");
                 }
             }
 
@@ -482,7 +482,7 @@ impl InputCommandProcessor {
                     if let Ok(mut system) = command_system.lock() {
                         system.set_mode(CommandMode::ForceAttack);
                     } else {
-                        eprintln!("Failed to acquire command system lock for mode change");
+                        log::warn!("Failed to acquire command system lock for mode change");
                     }
                 }
             }
@@ -494,7 +494,7 @@ impl InputCommandProcessor {
                     },
                     game_logic,
                 ) {
-                    println!("Queued Guard command");
+                    log::debug!("Queued Guard command");
                 }
             }
             VirtualKeyCode::P => {
@@ -505,14 +505,14 @@ impl InputCommandProcessor {
                     },
                     game_logic,
                 ) {
-                    println!("Queued Patrol (AttackMove) command");
+                    log::debug!("Queued Patrol (AttackMove) command");
                 }
             }
             VirtualKeyCode::Q => {
                 if self
                     .select_units_matching(&*game_logic, self.selection_modifier_state(), |_| true)
                 {
-                    println!("Selected all controllable units");
+                    log::debug!("Selected all controllable units");
                 }
             }
             VirtualKeyCode::W => {
@@ -521,45 +521,45 @@ impl InputCommandProcessor {
                     self.selection_modifier_state(),
                     |obj| obj.object_type == ObjectType::Aircraft,
                 ) {
-                    println!("Selected all aircraft");
+                    log::debug!("Selected all aircraft");
                 }
             }
             VirtualKeyCode::S => {
                 if self.issue_immediate_command(CommandType::Stop, game_logic) {
-                    println!("Queued Stop command");
+                    log::debug!("Queued Stop command");
                 }
             }
             VirtualKeyCode::X => {
                 if self.issue_immediate_command(CommandType::Scatter, game_logic) {
-                    println!("Queued Scatter command");
+                    log::debug!("Queued Scatter command");
                 }
             }
             VirtualKeyCode::Space => {
                 if self.issue_global_command(CommandType::ViewLastRadarEvent) {
-                    println!("Queued ViewLastRadarEvent command");
+                    log::debug!("Queued ViewLastRadarEvent command");
                 }
             }
             VirtualKeyCode::F => {
                 if self.modifier_keys.ctrl
                     && self.issue_immediate_command(CommandType::CreateFormation, game_logic)
                 {
-                    println!("Queued CreateFormation command");
+                    log::debug!("Queued CreateFormation command");
                 }
             }
             VirtualKeyCode::F1 => {
                 if self.select_matching_selected_unit(game_logic) {
-                    println!("Selected matching units");
+                    log::debug!("Selected matching units");
                 } else {
-                    println!("No reference unit for select matching command");
+                    log::debug!("No reference unit for select matching command");
                 }
             }
             VirtualKeyCode::H => {
                 if self.modifier_keys.ctrl {
                     if self.select_hero_unit(game_logic) {
-                        println!("Selected hero unit");
+                        log::debug!("Selected hero unit");
                     }
                 } else if self.issue_global_command(CommandType::ViewCommandCenter) {
-                    println!("Centered camera on command center");
+                    log::debug!("Centered camera on command center");
                 }
             }
 
@@ -568,7 +568,7 @@ impl InputCommandProcessor {
                 if let Ok(mut system) = command_system.lock() {
                     system.set_mode(CommandMode::Normal);
                 } else {
-                    eprintln!("Failed to acquire command system lock for mode reset");
+                    log::warn!("Failed to acquire command system lock for mode reset");
                 }
             }
 
@@ -591,7 +591,7 @@ impl InputCommandProcessor {
                         system.set_mode(CommandMode::Normal);
                     }
                 } else {
-                    eprintln!("Failed to acquire command system lock for force attack end");
+                    log::warn!("Failed to acquire command system lock for force attack end");
                 }
             }
             VirtualKeyCode::LAlt | VirtualKeyCode::RAlt => {
@@ -599,7 +599,7 @@ impl InputCommandProcessor {
                 if let Ok(mut system) = command_system.lock() {
                     system.set_waypoint_mode_for_player(self.current_player_id, false);
                 } else {
-                    eprintln!("Failed to acquire command system lock for waypoint end");
+                    log::warn!("Failed to acquire command system lock for waypoint end");
                 }
             }
             _ => {}
@@ -628,7 +628,7 @@ impl InputCommandProcessor {
                 true
             }
             Err(_) => {
-                eprintln!("Failed to acquire command system lock for immediate command");
+                log::warn!("Failed to acquire command system lock for immediate command");
                 false
             }
         }
@@ -647,7 +647,7 @@ impl InputCommandProcessor {
                 true
             }
             Err(_) => {
-                eprintln!("Failed to acquire command system lock for global command");
+                log::warn!("Failed to acquire command system lock for global command");
                 false
             }
         }
@@ -678,7 +678,7 @@ impl InputCommandProcessor {
                 predicate,
             ),
             Err(_) => {
-                eprintln!("Failed to acquire command system lock for selection command");
+                log::warn!("Failed to acquire command system lock for selection command");
                 false
             }
         }
@@ -773,7 +773,7 @@ impl InputCommandProcessor {
 /// Initialize command integration system
 pub fn init_command_integration() {
     init_command_system();
-    println!("Command integration system initialized");
+    log::info!("Command integration system initialized");
 }
 
 /// Process queued commands
@@ -788,21 +788,21 @@ pub fn process_command_queue(game_logic: &mut GameLogic) {
                     // Command executed successfully
                 }
                 crate::command_system::CommandResult::InvalidTarget => {
-                    println!("Command failed: Invalid target");
+                    log::debug!("Command failed: Invalid target");
                 }
                 crate::command_system::CommandResult::OutOfRange => {
-                    println!("Command failed: Out of range");
+                    log::debug!("Command failed: Out of range");
                 }
                 crate::command_system::CommandResult::InsufficientResources => {
-                    println!("Command failed: Insufficient resources");
+                    log::debug!("Command failed: Insufficient resources");
                 }
                 _ => {
-                    println!("Command failed: {:?}", result);
+                    log::debug!("Command failed: {:?}", result);
                 }
             }
         }
     } else {
-        eprintln!("Failed to acquire command system lock for command processing");
+        log::warn!("Failed to acquire command system lock for command processing");
     }
 }
 

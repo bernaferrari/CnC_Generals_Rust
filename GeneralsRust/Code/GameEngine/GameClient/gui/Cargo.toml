@@ -7,7 +7,7 @@ build = "build.rs"
 [dependencies]
 anyhow.workspace = true
 bitflags.workspace = true
-gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+gpui = "0.2.2"
 
 [build-dependencies]
 walkdir.workspace = true

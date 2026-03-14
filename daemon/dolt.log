@@ -54,3 +54,89 @@ time="2026-03-12T17:30:21-03:00" level=error msg="unable to process ComInitDB: d
 time="2026-03-12T17:30:21-03:00" level=error msg="failed to set the database client 52 (127.0.0.1:56837): database not found: hq (errno 1049) (sqlstate HY000)"
 time="2026-03-12T17:30:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
 time="2026-03-12T17:30:26-03:00" level=error msg="failed to set the database client 55 (127.0.0.1:56873): database not found: hq (errno 1049) (sqlstate HY000)"
+Starting server with Config HP="localhost:13423"|T="300000"|R="false"|L="warning"|S="/tmp/mysql.sock"
+time="2026-03-13T02:01:19-03:00" level=warning msg="secure_file_priv is set to \"\", which is insecure."
+time="2026-03-13T02:01:19-03:00" level=warning msg="Any user with GRANT FILE privileges will be able to read any file which the sql-server process can read."
+time="2026-03-13T02:01:19-03:00" level=warning msg="Please consider restarting the server with secure_file_priv set to a safe (or non-existent) directory."
+time="2026-03-13T02:01:21-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:21-03:00" level=error msg="failed to set the database client 6 (127.0.0.1:57552): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:26-03:00" level=error msg="failed to set the database client 19 (127.0.0.1:57567): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:31-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:31-03:00" level=error msg="failed to set the database client 26 (127.0.0.1:57577): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:36-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:36-03:00" level=error msg="failed to set the database client 49 (127.0.0.1:57608): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:41-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:41-03:00" level=error msg="failed to set the database client 52 (127.0.0.1:57611): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:46-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:46-03:00" level=error msg="failed to set the database client 83 (127.0.0.1:57646): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:51-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:51-03:00" level=error msg="failed to set the database client 86 (127.0.0.1:57655): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:01:56-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:01:56-03:00" level=error msg="failed to set the database client 119 (127.0.0.1:57733): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:01-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:01-03:00" level=error msg="failed to set the database client 124 (127.0.0.1:57743): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:06-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:06-03:00" level=error msg="failed to set the database client 129 (127.0.0.1:57748): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:11-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:11-03:00" level=error msg="failed to set the database client 132 (127.0.0.1:57752): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:16-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:16-03:00" level=error msg="failed to set the database client 135 (127.0.0.1:57759): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:21-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:21-03:00" level=error msg="failed to set the database client 138 (127.0.0.1:57766): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:26-03:00" level=error msg="failed to set the database client 141 (127.0.0.1:57776): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:31-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:31-03:00" level=error msg="failed to set the database client 144 (127.0.0.1:57787): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:36-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:36-03:00" level=error msg="failed to set the database client 147 (127.0.0.1:57792): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:41-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:41-03:00" level=error msg="failed to set the database client 150 (127.0.0.1:57795): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:46-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:46-03:00" level=error msg="failed to set the database client 155 (127.0.0.1:57800): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:51-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:51-03:00" level=error msg="failed to set the database client 158 (127.0.0.1:57805): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:02:56-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:02:56-03:00" level=error msg="failed to set the database client 161 (127.0.0.1:57810): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:01-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:01-03:00" level=error msg="failed to set the database client 164 (127.0.0.1:57815): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:06-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:06-03:00" level=error msg="failed to set the database client 167 (127.0.0.1:57818): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:11-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:11-03:00" level=error msg="failed to set the database client 170 (127.0.0.1:57838): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:16-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:16-03:00" level=error msg="failed to set the database client 173 (127.0.0.1:57841): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:21-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:21-03:00" level=error msg="failed to set the database client 176 (127.0.0.1:57846): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:26-03:00" level=error msg="failed to set the database client 179 (127.0.0.1:57852): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:31-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:31-03:00" level=error msg="failed to set the database client 182 (127.0.0.1:57859): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:36-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:36-03:00" level=error msg="failed to set the database client 185 (127.0.0.1:57864): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:41-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:41-03:00" level=error msg="failed to set the database client 188 (127.0.0.1:57872): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:46-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:46-03:00" level=error msg="failed to set the database client 191 (127.0.0.1:57875): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:51-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:51-03:00" level=error msg="failed to set the database client 194 (127.0.0.1:57878): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:03:56-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:03:56-03:00" level=error msg="failed to set the database client 197 (127.0.0.1:57883): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:01-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:01-03:00" level=error msg="failed to set the database client 200 (127.0.0.1:57888): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:06-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:06-03:00" level=error msg="failed to set the database client 203 (127.0.0.1:57891): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:11-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:11-03:00" level=error msg="failed to set the database client 206 (127.0.0.1:57895): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:16-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:16-03:00" level=error msg="failed to set the database client 209 (127.0.0.1:57899): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:21-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:21-03:00" level=error msg="failed to set the database client 212 (127.0.0.1:57902): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:26-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:26-03:00" level=error msg="failed to set the database client 215 (127.0.0.1:57912): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:31-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:31-03:00" level=error msg="failed to set the database client 218 (127.0.0.1:57917): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:36-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:36-03:00" level=error msg="failed to set the database client 223 (127.0.0.1:57924): database not found: hq (errno 1049) (sqlstate HY000)"
+time="2026-03-13T02:04:41-03:00" level=error msg="unable to process ComInitDB: database not found: hq" database=hq
+time="2026-03-13T02:04:41-03:00" level=error msg="failed to set the database client 234 (127.0.0.1:57979): database not found: hq (errno 1049) (sqlstate HY000)"

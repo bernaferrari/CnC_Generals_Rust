@@ -401,7 +401,7 @@ pub async fn integration_example() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate game loop
     info!("Simulating game loop...");
     for i in 0..60 {
-        let delta_time = 1.0 / 60.0; // 60 FPS
+        let delta_time = 1.0 / 30.0; // C++ logic rate (30 FPS)
         game.update(delta_time);
         
         if i % 10 == 0 {

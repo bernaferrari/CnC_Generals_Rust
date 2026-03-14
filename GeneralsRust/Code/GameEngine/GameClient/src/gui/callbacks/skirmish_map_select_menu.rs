@@ -1,7 +1,11 @@
 //! SkirmishMapSelectMenu.cpp callback port.
 
+use super::skirmish_game_options_menu::{
+    destroy_skirmish_map_select_overlay, refresh_skirmish_game_options_from_setup,
+    show_skirmish_game_options_underlying_gui_elements,
+};
 use crate::display::image::get_mapped_image_collection;
-use crate::gui::gadgets::ListBoxItemData;
+use crate::gui::gadgets::{KeyModifiers, ListBoxItemData};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
     get_shell, get_skirmish_setup, with_window_manager, with_window_manager_ref, GameWindow,
@@ -226,14 +230,41 @@ pub fn skirmish_map_select_menu_init(
         state.parent = manager.get_window_by_id(state.parent_id);
         state.listbox_map = manager.get_window_by_id(state.listbox_map_id);
         state.map_preview = manager.get_window_by_id(state.map_preview_id);
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = manager.set_focus(Some(parent));
+        }
     });
 
     {
         let setup = get_skirmish_setup();
-        state.use_system_maps = setup.use_system_maps();
         if !setup.selected_map().is_empty() {
             state.selected_map = Some(setup.selected_map().to_string());
+        } else if !setup.game_info().game_info().get_map().is_empty() {
+            state.selected_map = Some(setup.game_info().game_info().get_map().to_string());
         }
+    }
+
+    if let Some(map_name) = state.selected_map.as_ref() {
+        let cache = get_map_cache_manager();
+        if let Ok(cache_guard) = cache.lock() {
+            if let Some(meta) = cache_guard.find_map(map_name) {
+                state.use_system_maps = meta.is_official;
+            }
+        };
+    } else {
+        let setup = get_skirmish_setup();
+        state.use_system_maps = setup.use_system_maps();
+    }
+
+    for button_id in state.start_position_ids {
+        if let Some(button) = with_window_manager(|manager| manager.get_window_by_id(button_id)) {
+            let _ = button.borrow_mut().hide(true);
+            let _ = button.borrow_mut().enable(false);
+        }
+    }
+
+    if let Ok(mut cache) = get_map_cache_manager().lock() {
+        cache.update_cache();
     }
 
     set_radio_selected(
@@ -246,7 +277,9 @@ pub fn skirmish_map_select_menu_init(
     );
 
     populate_map_list(&mut state);
+    update_selected_map(&mut state);
     update_preview(&mut state);
+    show_skirmish_game_options_underlying_gui_elements(false);
     layout.hide(false);
 }
 
@@ -257,9 +290,10 @@ pub fn skirmish_map_select_menu_update(
 }
 
 pub fn skirmish_map_select_menu_shutdown(
-    _layout: &WindowLayout,
+    layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
+    layout.hide(true);
     let state_handle = map_select_state();
     let mut state = state_handle
         .lock()
@@ -273,7 +307,7 @@ pub fn skirmish_map_select_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = map_select_state();
     let mut state = state_handle
@@ -281,6 +315,7 @@ pub fn skirmish_map_select_menu_system(
         .expect("SkirmishMapSelectMenu state lock poisoned");
 
     match msg {
+        WindowMessage::InputFocus => return WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {
@@ -288,12 +323,18 @@ pub fn skirmish_map_select_menu_system(
                     let mut setup = get_skirmish_setup();
                     setup.set_selected_map(map_name);
                     setup.set_use_system_maps(state.use_system_maps);
+                    let info = setup.game_info_mut().game_info_mut();
+                    info.reset_start_spots();
                 }
-                let _ = get_shell().pop();
+                show_skirmish_game_options_underlying_gui_elements(true);
+                refresh_skirmish_game_options_from_setup();
+                destroy_skirmish_map_select_overlay();
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_back_id {
-                let _ = get_shell().pop();
+                show_skirmish_game_options_underlying_gui_elements(true);
+                refresh_skirmish_game_options_from_setup();
+                destroy_skirmish_map_select_overlay();
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.radio_system_maps_id {
@@ -323,14 +364,22 @@ pub fn skirmish_map_select_menu_system(
         }
         WindowMessage::User(0x8000) => {
             if data1 as i32 == state.listbox_map_id {
+                if (data2 as i32) >= 0 {
+                    if let Some(listbox) = state.listbox_map.as_ref() {
+                        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
+                            let _ = widget.select_index(data2 as usize, KeyModifiers::none());
+                        }
+                    }
+                }
                 update_selected_map(&mut state);
                 update_preview(&mut state);
-                if let Some(map_name) = state.selected_map.clone() {
-                    let mut setup = get_skirmish_setup();
-                    setup.set_selected_map(map_name);
-                    setup.set_use_system_maps(state.use_system_maps);
+                if let Some(parent) = state.parent.as_ref() {
+                    let _ = parent.borrow_mut().send_system_message(
+                        WindowMessage::GadgetSelected,
+                        state.button_ok_id as u32,
+                        state.button_ok_id as u32,
+                    );
                 }
-                let _ = get_shell().pop();
                 return WindowMsgHandled::Handled;
             }
         }
@@ -350,7 +399,17 @@ pub fn skirmish_map_select_menu_input(
         let key = data1 as u32;
         let state = data2 as u32;
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
-            let _ = get_shell().pop();
+            let state_handle = map_select_state();
+            let state = state_handle
+                .lock()
+                .expect("SkirmishMapSelectMenu state lock poisoned");
+            if let Some(parent) = state.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    state.button_back_id as u32,
+                    state.button_back_id as u32,
+                );
+            }
             return WindowMsgHandled::Handled;
         }
     }

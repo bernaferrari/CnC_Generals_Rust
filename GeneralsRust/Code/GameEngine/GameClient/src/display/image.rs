@@ -5,6 +5,7 @@
 
 use bitflags::bitflags;
 use image::{DynamicImage, GenericImageView, ImageBuffer, ImageError, ImageFormat, RgbaImage};
+use log::debug;
 use nalgebra::{Point2, Vector2};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
@@ -45,7 +46,7 @@ fn log_startup_shell_image_once(name: &str, message: String) {
         return;
     };
     if guard.insert(key) {
-        eprintln!("DEBUG_STARTUP_IMAGE: name={name} {message}");
+        debug!("startup shell image: name={name} {message}");
     }
 }
 

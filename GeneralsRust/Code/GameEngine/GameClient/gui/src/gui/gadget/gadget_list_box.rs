@@ -83,27 +83,37 @@ impl ListBoxState {
 }
 
 pub fn render_demo(entries: &[&str], selected: &str) -> AnyElement {
-    let state = ListBoxState {
+    render(&ListBoxState {
         entries: entries.iter().map(|entry| (*entry).to_string()).collect(),
         selected_row: entries.iter().position(|entry| *entry == selected),
         ..Default::default()
-    };
+    })
+}
+
+pub fn render(state: &ListBoxState) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .children(state.visible_entries().iter().map(|label| {
-            div()
-                .px_2()
-                .py_1()
-                .rounded_sm()
-                .bg(if label == selected {
-                    rgb(0x223347)
-                } else {
-                    rgb(0x101720)
-                })
-                .child(label.clone())
-        }))
+        .children(
+            state
+                .visible_entries()
+                .iter()
+                .enumerate()
+                .map(|(offset, label)| {
+                    let row = state.top_row + offset;
+                    div()
+                        .px_2()
+                        .py_1()
+                        .rounded_sm()
+                        .bg(if state.selected_row == Some(row) {
+                            rgb(0x223347)
+                        } else {
+                            rgb(0x101720)
+                        })
+                        .child(label.clone())
+                }),
+        )
         .into_any_element()
 }
 

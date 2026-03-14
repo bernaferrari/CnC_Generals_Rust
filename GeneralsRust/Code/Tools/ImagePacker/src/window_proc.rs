@@ -1,93 +1,52 @@
-//! WindowProc Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Include/WindowProc.h
-//! 
-//! This module provides window management.
+//! Callback signatures equivalent to C++ `WindowProc.h`.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
-
-/// WindowProc for user interface functionality
-pub struct WindowProc {
-    /// UI state
-    visible: bool,
-    /// Position
-    position: (i32, i32),
-    /// Size
-    size: (u32, u32),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialogMessage {
+    InitDialog,
+    Command { control_id: u16, notify_code: u16 },
+    Close,
 }
 
-impl WindowProc {
-    /// Create new UI element
-    pub fn new() -> Self {
-        Self {
-            visible: true,
-            position: (0, 0),
-            size: (100, 100),
-        }
-    }
-
-    /// Set position
-    pub fn set_position(&mut self, x: i32, y: i32) {
-        self.position = (x, y);
-    }
-
-    /// Get position
-    pub fn get_position(&self) -> (i32, i32) {
-        self.position
-    }
-
-    /// Set size
-    pub fn set_size(&mut self, width: u32, height: u32) {
-        self.size = (width, height);
-    }
-
-    /// Get size
-    pub fn get_size(&self) -> (u32, u32) {
-        self.size
-    }
-
-    /// Set visibility
-    pub fn set_visible(&mut self, visible: bool) {
-        self.visible = visible;
-    }
-
-    /// Check if visible
-    pub fn is_visible(&self) -> bool {
-        self.visible
-    }
-
-    /// Handle input event
-    pub fn handle_input(&mut self, _event: &InputEvent) {
-        // TODO: Handle input
-    }
-
-    /// Render UI element
-    pub fn render(&self) {
-        if !self.visible {
-            return;
-        }
-        // TODO: Render UI
-    }
+pub trait WindowProcedures {
+    fn image_packer_proc(&mut self, message: DialogMessage) -> bool;
+    fn image_error_proc(&mut self, message: DialogMessage) -> bool;
+    fn page_error_proc(&mut self, message: DialogMessage) -> bool;
+    fn directory_select_proc(&mut self, message: DialogMessage) -> bool;
+    fn preview_proc(&mut self, message: DialogMessage) -> bool;
 }
 
-/// Input event for UI
-#[derive(Debug, Clone)]
-pub struct InputEvent {
-    /// Event type placeholder
-    pub event_type: u32,
+#[derive(Default)]
+pub struct NullWindowProcedures;
+
+impl WindowProcedures for NullWindowProcedures {
+    fn image_packer_proc(&mut self, _message: DialogMessage) -> bool {
+        false
+    }
+
+    fn image_error_proc(&mut self, _message: DialogMessage) -> bool {
+        false
+    }
+
+    fn page_error_proc(&mut self, _message: DialogMessage) -> bool {
+        false
+    }
+
+    fn directory_select_proc(&mut self, _message: DialogMessage) -> bool {
+        false
+    }
+
+    fn preview_proc(&mut self, _message: DialogMessage) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{DialogMessage, NullWindowProcedures, WindowProcedures};
 
     #[test]
-    fn test_window_proc_basic() {
-        // TODO: Implement tests for window_proc
-        assert!(true, "Placeholder test for window_proc");
+    fn null_impl_returns_false() {
+        let mut hooks = NullWindowProcedures;
+        assert!(!hooks.image_packer_proc(DialogMessage::InitDialog));
     }
 }

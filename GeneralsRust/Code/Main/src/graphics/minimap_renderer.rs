@@ -3,8 +3,8 @@
 //! This module handles GPU texture management for the minimap fog-of-war system.
 //! It bridges between the game logic FOW state and the UI rendering system.
 
+use crate::ui::UiTextureId;
 use anyhow::{anyhow, Result};
-use egui_wgpu::Renderer;
 use gamelogic::common::Coord3D as LogicCoord3D;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use glam::{Vec2, Vec3};
@@ -13,6 +13,16 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages, TextureView};
+
+pub trait UiTextureRegistrar {
+    fn free_texture(&mut self, texture_id: UiTextureId);
+    fn register_native_texture(
+        &mut self,
+        device: &Device,
+        texture_view: &TextureView,
+        filter_mode: wgpu::FilterMode,
+    ) -> UiTextureId;
+}
 
 // Define minimap types locally until FOW system is properly integrated
 #[derive(Debug, Clone, Copy)]
@@ -146,9 +156,8 @@ impl MinimapFowManager {
         for y in 1..(height - 1) {
             for x in 1..(width - 1) {
                 let state = state_at(x, y);
-                let has_neighbor_state_change = (y - 1..=y + 1).any(|ny| {
-                    (x - 1..=x + 1).any(|nx| state_at(nx, ny) != state)
-                });
+                let has_neighbor_state_change =
+                    (y - 1..=y + 1).any(|ny| (x - 1..=x + 1).any(|nx| state_at(nx, ny) != state));
                 if !has_neighbor_state_change {
                     continue;
                 }
@@ -347,8 +356,8 @@ pub struct MinimapTextureRenderer {
     /// Texture view for binding
     texture_view: Option<TextureView>,
 
-    /// Egui texture ID for UI rendering
-    egui_texture_id: Option<egui::TextureId>,
+    /// Framework-neutral texture ID for UI rendering
+    ui_texture_id: Option<UiTextureId>,
 
     /// Minimap dimensions
     dimensions: MinimapDimensions,
@@ -395,7 +404,7 @@ impl MinimapTextureRenderer {
             queue,
             texture: None,
             texture_view: None,
-            egui_texture_id: None,
+            ui_texture_id: None,
             dimensions,
             current_player_id: 0,
             last_update_frame: 0,
@@ -445,7 +454,7 @@ impl MinimapTextureRenderer {
 
         self.texture = Some(texture);
         self.texture_view = Some(texture_view);
-        self.egui_texture_id = None;
+        self.ui_texture_id = None;
 
         trace!(
             "Created minimap texture {}x{}",
@@ -535,30 +544,36 @@ impl MinimapTextureRenderer {
         Ok(())
     }
 
-    /// Bind texture to egui for rendering
-    pub fn bind_to_egui(&mut self, renderer: &mut Renderer) -> Result<egui::TextureId> {
+    /// Bind texture to the active UI renderer.
+    pub fn bind_to_ui_renderer<T: UiTextureRegistrar>(
+        &mut self,
+        renderer: &mut T,
+    ) -> Result<UiTextureId> {
         if let Some(texture_view) = &self.texture_view {
-            if let Some(prev) = self.egui_texture_id.take() {
-                renderer.free_texture(&prev);
+            if let Some(prev) = self.ui_texture_id.take() {
+                renderer.free_texture(prev);
             }
 
-            let texture_id = renderer.register_native_texture(
+            let ui_texture_id = renderer.register_native_texture(
                 self.device.as_ref(),
                 texture_view,
                 wgpu::FilterMode::Linear,
             );
 
-            self.egui_texture_id = Some(texture_id);
-            trace!("Bound minimap texture to egui with ID {:?}", texture_id);
-            Ok(texture_id)
+            self.ui_texture_id = Some(ui_texture_id);
+            trace!(
+                "Bound minimap texture to UI renderer with ID {:?}",
+                ui_texture_id
+            );
+            Ok(ui_texture_id)
         } else {
             Err(anyhow!("No texture view available for binding"))
         }
     }
 
-    /// Get current egui texture ID
-    pub fn get_texture_id(&self) -> Option<egui::TextureId> {
-        self.egui_texture_id
+    /// Get current framework-neutral texture ID.
+    pub fn get_texture_id(&self) -> Option<UiTextureId> {
+        self.ui_texture_id
     }
 
     pub fn dimensions(&self) -> MinimapDimensions {

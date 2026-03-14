@@ -1,8 +1,8 @@
 use crate::assets::get_asset_manager;
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
 use crate::game_logic::{GameLogic, ObjectId as ObjectID};
+use crate::ui::UiTextureId;
 use anyhow::Result;
-use egui_wgpu::Renderer;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 #[cfg(feature = "game_client")]
 use glam028::Mat4 as GameClientMat4;
@@ -13,7 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::graphics_system::GraphicsSystem;
-use super::minimap_renderer::{MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer};
+use super::minimap_renderer::{
+    MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer, UiTextureRegistrar,
+};
 use super::render_item::RenderItem;
 use crate::assets::textures::RawTexture;
 use crate::assets::{W3DMaterial, W3DModel};
@@ -107,6 +109,7 @@ pub struct RenderPipeline {
     minimap_renderer: Option<MinimapTextureRenderer>,
     minimap_base_needs_refresh: bool,
     heightmap_path_hint: Option<String>,
+    pending_heightmap_hint_load: bool,
     skybox_textures_hint: Option<[String; 5]>,
     skybox_enabled: bool,
     heightmap_world_size: Option<(f32, f32)>,
@@ -354,12 +357,12 @@ impl RenderPipeline {
                 let base = ((y as u32 * width + x as u32) * 4) as usize;
                 texture[base] = (texture[base] as f32 * (1.0 - blend) + tint_rgb[0] as f32 * blend)
                     .clamp(0.0, 255.0) as u8;
-                texture[base + 1] =
-                    (texture[base + 1] as f32 * (1.0 - blend) + tint_rgb[1] as f32 * blend)
-                        .clamp(0.0, 255.0) as u8;
-                texture[base + 2] =
-                    (texture[base + 2] as f32 * (1.0 - blend) + tint_rgb[2] as f32 * blend)
-                        .clamp(0.0, 255.0) as u8;
+                texture[base + 1] = (texture[base + 1] as f32 * (1.0 - blend)
+                    + tint_rgb[1] as f32 * blend)
+                    .clamp(0.0, 255.0) as u8;
+                texture[base + 2] = (texture[base + 2] as f32 * (1.0 - blend)
+                    + tint_rgb[2] as f32 * blend)
+                    .clamp(0.0, 255.0) as u8;
                 texture[base + 3] = 255;
             }
         }
@@ -379,6 +382,7 @@ impl RenderPipeline {
             minimap_renderer: None, // Will be initialized when needed
             minimap_base_needs_refresh: false,
             heightmap_path_hint: None,
+            pending_heightmap_hint_load: false,
             skybox_textures_hint: None,
             skybox_enabled: true,
             heightmap_world_size: None,
@@ -410,6 +414,7 @@ impl RenderPipeline {
         time: f32,
         allow_sync_model_loads: bool,
         deferred_startup_model_load_budget: usize,
+        skip_world_scene: bool,
     ) -> Result<()> {
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1) % 300 == 0 {
@@ -435,68 +440,85 @@ impl RenderPipeline {
         // Clear render items from previous frame
         self.render_items.clear();
 
-        // Shell/menu startup needs to make visible progress without stalling first paint.
-        let mut deferred_model_load_budget = if allow_sync_model_loads {
-            usize::MAX
-        } else {
-            deferred_startup_model_load_budget
-        };
-        let initial_deferred_model_load_budget = if allow_sync_model_loads {
-            0
-        } else {
-            deferred_model_load_budget
-        };
-        self.debug_last_model_budget_skips = 0;
-        self.debug_last_zero_mesh_models = 0;
-        self.debug_last_missing_model_samples.clear();
+        let render_world_scene = !skip_world_scene;
 
-        // Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
-        self.collect_render_items(
-            graphics_system,
-            game_logic,
-            camera_position,
-            allow_sync_model_loads,
-            &mut deferred_model_load_budget,
-        )?;
-        self.debug_last_deferred_model_load_budget = initial_deferred_model_load_budget;
-        self.debug_last_deferred_model_loads = if allow_sync_model_loads {
-            0
+        if render_world_scene {
+            // Shell/menu startup needs to make visible progress without stalling first paint.
+            let mut deferred_model_load_budget = if allow_sync_model_loads {
+                usize::MAX
+            } else {
+                deferred_startup_model_load_budget
+            };
+            let initial_deferred_model_load_budget = if allow_sync_model_loads {
+                0
+            } else {
+                deferred_model_load_budget
+            };
+            self.debug_last_model_budget_skips = 0;
+            self.debug_last_zero_mesh_models = 0;
+            self.debug_last_missing_model_samples.clear();
+
+            // Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
+            self.collect_render_items(
+                graphics_system,
+                game_logic,
+                camera_position,
+                allow_sync_model_loads,
+                &mut deferred_model_load_budget,
+            )?;
+            self.debug_last_deferred_model_load_budget = initial_deferred_model_load_budget;
+            self.debug_last_deferred_model_loads = if allow_sync_model_loads {
+                0
+            } else {
+                initial_deferred_model_load_budget.saturating_sub(deferred_model_load_budget)
+            };
+            // Removed excessive logging
+
+            // Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
+            self.sort_render_items();
+            // Removed excessive logging
+
+            static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: AtomicBool = AtomicBool::new(false);
+            if !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed) {
+                let sample_items: Vec<String> = self
+                    .render_items
+                    .iter()
+                    .take(12)
+                    .map(|item| format!("{}#{}", item.model_name, item.mesh_index))
+                    .collect();
+                info!(
+                    "Startup render summary: render_items={} sample_models={:?}",
+                    self.render_items.len(),
+                    sample_items
+                );
+            }
         } else {
-            initial_deferred_model_load_budget.saturating_sub(deferred_model_load_budget)
-        };
-        // Removed excessive logging
-
-        // Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
-        self.sort_render_items();
-        // Removed excessive logging
-
-        static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: AtomicBool = AtomicBool::new(false);
-        if !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed) {
-            let sample_items: Vec<String> = self
-                .render_items
-                .iter()
-                .take(12)
-                .map(|item| format!("{}#{}", item.model_name, item.mesh_index))
-                .collect();
-            info!(
-                "Startup render summary: render_items={} sample_models={:?}",
-                self.render_items.len(),
-                sample_items
-            );
+            self.debug_last_deferred_model_load_budget = 0;
+            self.debug_last_deferred_model_loads = 0;
+            self.debug_last_model_budget_skips = 0;
+            self.debug_last_zero_mesh_models = 0;
+            self.debug_last_missing_model_samples.clear();
+            self.debug_last_alive_objects = 0;
+            self.debug_last_fow_filtered = 0;
+            self.debug_last_model_missing = 0;
         }
 
-        // Refresh minimap terrain base on map/world updates, then refresh FOW overlay.
-        if let Err(e) = self.refresh_minimap_terrain_base(game_logic) {
-            error!("Failed to refresh minimap terrain base: {}", e);
-        }
+        if render_world_scene && !game_logic.isInShellGame() {
+            // Refresh minimap terrain base on map/world updates, then refresh FOW overlay.
+            if let Err(e) = self.refresh_minimap_terrain_base(game_logic) {
+                error!("Failed to refresh minimap terrain base: {}", e);
+            }
 
-        // Update minimap FOW texture before rendering UI
-        if let Err(e) = self.update_minimap_fow_texture() {
-            error!("Failed to update minimap FOW texture: {}", e);
+            // Update minimap FOW texture before rendering UI
+            if let Err(e) = self.update_minimap_fow_texture() {
+                error!("Failed to update minimap FOW texture: {}", e);
+            }
         }
 
         #[cfg(feature = "game_client")]
-        self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix)?;
+        if render_world_scene {
+            self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix)?;
+        }
 
         self.forward_pass.render(
             graphics_system,
@@ -508,9 +530,37 @@ impl RenderPipeline {
         )?;
 
         graphics_system.end_frame();
+        if render_world_scene && !game_logic.isInShellGame() {
+            self.maybe_load_heightmap_hint_after_first_present(graphics_system, game_logic);
+        }
 
         // Removed excessive logging
         Ok(())
+    }
+
+    fn maybe_load_heightmap_hint_after_first_present(
+        &mut self,
+        graphics_system: &GraphicsSystem,
+        game_logic: &GameLogic,
+    ) {
+        if !self.pending_heightmap_hint_load || self.frame_number <= 1 {
+            return;
+        }
+
+        let world_bounds = game_logic.world_bounds();
+        match self.load_heightmap_from_hint(
+            &graphics_system.device_arc(),
+            &graphics_system.queue_arc(),
+            Some(world_bounds),
+        ) {
+            Ok(()) => {
+                self.pending_heightmap_hint_load = false;
+            }
+            Err(err) => {
+                warn!("Deferred heightmap hint load failed: {}", err);
+                self.pending_heightmap_hint_load = false;
+            }
+        }
     }
 
     #[cfg(feature = "game_client")]
@@ -530,7 +580,9 @@ impl RenderPipeline {
                     GameClientMat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
                 terrain_visual
                     .render(&client_view_matrix, &client_projection_matrix)
-                    .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
+                    .map_err(|e| {
+                        anyhow::anyhow!("terrain visual render state update failed: {}", e)
+                    })?;
                 terrain_visual
                     .update()
                     .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
@@ -541,7 +593,10 @@ impl RenderPipeline {
                         warn!("Terrain visual updated but no visible chunks were selected for drawing");
                     }
                 } else if !LOGGED_NONZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
-                    info!("Terrain visual selected {} visible chunks for drawing", chunk_count);
+                    info!(
+                        "Terrain visual selected {} visible chunks for drawing",
+                        chunk_count
+                    );
                 }
             } else {
                 return Ok(());
@@ -553,49 +608,48 @@ impl RenderPipeline {
         let view = *view_matrix;
         let projection = *projection_matrix;
         let clear_color = self.terrain_clear_color();
-        self.forward_pass
-            .enqueue_pre_scene_callback(move |frame| {
-                let depth_view = frame.depth_view_arc();
-                let color_view = frame.color_view_arc();
-                let encoder = frame.encoder();
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("main terrain pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view.as_ref(),
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(clear_color),
+        self.forward_pass.enqueue_pre_scene_callback(move |frame| {
+            let depth_view = frame.depth_view_arc();
+            let color_view = frame.color_view_arc();
+            let encoder = frame.encoder();
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("main terrain pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: color_view.as_ref(),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: depth_view.as_ref().map(|depth| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view: depth.as_ref(),
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
                             store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: depth_view.as_ref().map(|depth| {
-                        wgpu::RenderPassDepthStencilAttachment {
-                            view: depth.as_ref(),
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                        }),
+                        stencil_ops: None,
+                    }
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
 
+            {
+                if let Ok(terrain_guard) =
+                    game_client::terrain::terrain_visual::get_terrain_visual()
                 {
-                    if let Ok(terrain_guard) =
-                        game_client::terrain::terrain_visual::get_terrain_visual()
-                    {
-                        if let Some(terrain_visual) = terrain_guard.as_ref() {
-                            terrain_visual.record_chunk_draws(&mut render_pass);
-                        }
+                    if let Some(terrain_visual) = terrain_guard.as_ref() {
+                        terrain_visual.record_chunk_draws(&mut render_pass);
                     }
                 }
-                drop(render_pass);
+            }
+            drop(render_pass);
 
-                Ok(())
-            });
+            Ok(())
+        });
 
         Ok(())
     }
@@ -712,8 +766,7 @@ impl RenderPipeline {
                                     .resolve_object_definition(&object.template_name, model_hint)
                                 {
                                     if let Some(texture_from_ini) = obj_def.get_primary_texture() {
-                                        material.texture_name =
-                                            Some(texture_from_ini.to_string());
+                                        material.texture_name = Some(texture_from_ini.to_string());
                                         trace!(
                                             "WW3D material override: object {} ('{}') -> texture {}",
                                             object_id,
@@ -771,10 +824,8 @@ impl RenderPipeline {
                 RenderModelLoadResult::SkippedByBudget => {
                     self.debug_last_model_budget_skips += 1;
                     if self.debug_last_missing_model_samples.len() < 16 {
-                        self.debug_last_missing_model_samples.push(format!(
-                            "{}:{} [budget]",
-                            object.template_name, model_name
-                        ));
+                        self.debug_last_missing_model_samples
+                            .push(format!("{}:{} [budget]", object.template_name, model_name));
                     }
                     model_missing += 1;
                 }
@@ -785,7 +836,11 @@ impl RenderPipeline {
                             "{}:{} explicit_model={}",
                             object.template_name,
                             model_name,
-                            if explicit.is_empty() { "<none>" } else { explicit }
+                            if explicit.is_empty() {
+                                "<none>"
+                            } else {
+                                explicit
+                            }
                         ));
                     }
                     model_missing += 1;
@@ -796,7 +851,7 @@ impl RenderPipeline {
         self.debug_last_alive_objects = alive_objects;
         self.debug_last_fow_filtered = fow_filtered;
         self.debug_last_model_missing = model_missing;
-        info!(
+        debug!(
             "Collected {} render items for player {} (FOW filtering active)",
             self.render_items.len(),
             self.current_player_id
@@ -1056,6 +1111,7 @@ impl RenderPipeline {
 
     /// Record an optional heightmap path hint to be consumed by the terrain subsystem when plumbed.
     pub fn set_heightmap_hint(&mut self, path: Option<String>) {
+        self.pending_heightmap_hint_load = path.is_some();
         self.heightmap_path_hint = path;
     }
 
@@ -1078,9 +1134,9 @@ impl RenderPipeline {
     }
 
     fn resolved_skybox_hint(&self) -> [String; 5] {
-        self.skybox_textures_hint.clone().unwrap_or_else(|| {
-            DEFAULT_SKYBOX_TEXTURES.map(|name| name.to_string())
-        })
+        self.skybox_textures_hint
+            .clone()
+            .unwrap_or_else(|| DEFAULT_SKYBOX_TEXTURES.map(|name| name.to_string()))
     }
 
     fn has_explicit_skybox_hint(&self) -> bool {
@@ -1202,6 +1258,8 @@ impl RenderPipeline {
                         }
                     }
 
+                    self.pending_heightmap_hint_load = false;
+
                     // Push lighting into the terrain visual if available.
                     if let Some(ref lighting) = self.cached_lighting {
                         visual.set_lighting(
@@ -1259,8 +1317,8 @@ impl RenderPipeline {
         Ok(())
     }
 
-    /// Get minimap texture ID for egui rendering
-    pub fn get_minimap_texture_id(&self) -> Option<egui::TextureId> {
+    /// Get minimap texture ID for UI rendering.
+    pub fn get_minimap_texture_id(&self) -> Option<UiTextureId> {
         self.minimap_renderer.as_ref()?.get_texture_id()
     }
 
@@ -1319,7 +1377,11 @@ impl RenderPipeline {
             for x in 0..width {
                 let u = (x as f32 + 0.5) / width as f32;
                 let v = (y as f32 + 0.5) / height as f32;
-                let world = Vec3::new(world_min.x + u * world_span_x, 0.0, world_min.z + v * world_span_z);
+                let world = Vec3::new(
+                    world_min.x + u * world_span_x,
+                    0.0,
+                    world_min.z + v * world_span_z,
+                );
                 if let Some(h) = game_logic.terrain_height_at(world) {
                     heights[idx(x, y)] = h;
                     has_sample = true;
@@ -1392,7 +1454,8 @@ impl RenderPipeline {
                         let cy = (nz * (height - 1) as f32).round() as i32;
                         let radius = ((sample.width / span_norm) * width.max(height) as f32 * 0.55)
                             .clamp(1.0, 4.0) as i32;
-                        let blend = (0.30 + (sample.width / 14.0).clamp(0.0, 0.28)).clamp(0.22, 0.60);
+                        let blend =
+                            (0.30 + (sample.width / 14.0).clamp(0.0, 0.28)).clamp(0.22, 0.60);
                         Self::paint_minimap_circle(
                             &mut texture,
                             width,
@@ -1436,26 +1499,32 @@ impl RenderPipeline {
         None
     }
 
-    /// Bind minimap texture to egui
+    /// Bind minimap texture to the active UI renderer.
     ///
-    /// Makes the minimap texture available for egui rendering
+    /// Makes the minimap texture available for UI rendering.
     ///
     /// # Arguments
     ///
-    /// * `render_state` - Egui render state
-    pub fn bind_minimap_to_egui(&mut self, renderer: &mut Renderer) -> Result<egui::TextureId> {
+    /// * `renderer` - UI texture registrar/renderer
+    pub fn bind_minimap_texture_to_ui<T: UiTextureRegistrar>(
+        &mut self,
+        renderer: &mut T,
+    ) -> Result<UiTextureId> {
         if let Some(ref mut minimap_renderer) = self.minimap_renderer {
-            minimap_renderer.bind_to_egui(renderer)
+            minimap_renderer.bind_to_ui_renderer(renderer)
         } else {
             Err(anyhow::anyhow!("Minimap renderer not initialized"))
         }
     }
 
-    /// Ensure the minimap texture is registered with egui.
-    pub fn ensure_minimap_texture_registered(&mut self, renderer: &mut Renderer) -> Result<()> {
+    /// Ensure the minimap texture is registered with the active UI renderer.
+    pub fn ensure_minimap_texture_bound<T: UiTextureRegistrar>(
+        &mut self,
+        renderer: &mut T,
+    ) -> Result<()> {
         if let Some(ref mut minimap_renderer) = self.minimap_renderer {
             if minimap_renderer.get_texture_id().is_none() {
-                minimap_renderer.bind_to_egui(renderer)?;
+                minimap_renderer.bind_to_ui_renderer(renderer)?;
             }
             Ok(())
         } else {
@@ -1565,12 +1634,8 @@ impl ForwardPass {
             renderer.set_camera(self.camera.clone());
             renderer.set_light_environment(Self::build_light_environment(lighting));
 
-            static LOGGED_EMPTY_SCENE_FRAME: AtomicBool = AtomicBool::new(false);
             if render_items.is_empty() {
                 trace!("ForwardPass::render - presenting empty scene frame");
-                if !LOGGED_EMPTY_SCENE_FRAME.swap(true, Ordering::Relaxed) {
-                    println!("DEBUG_STARTUP: presenting_empty_scene_frame");
-                }
             }
 
             // Queue opaque + transparent geometry for rendering

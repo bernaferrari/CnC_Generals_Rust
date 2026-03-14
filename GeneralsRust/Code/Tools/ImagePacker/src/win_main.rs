@@ -1,72 +1,24 @@
-//! WinMain Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Include/WinMain.h
-//! 
-//! This module provides artificial intelligence functionality.
+//! Minimal parity shim for C++ `WinMain.h` global `ApplicationHInstance`.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Constants for WinMain
-pub const DEFAULT_VALUE: u32 = 0;
-pub const MAX_VALUE: u32 = 1000;
+pub static APPLICATION_HINSTANCE: AtomicUsize = AtomicUsize::new(0);
 
-/// WinMain structure
-#[derive(Debug, Clone, Default)]
-pub struct WinMain {
-    /// Value field
-    pub value: u32,
-    /// Name field
-    pub name: String,
+pub fn set_application_hinstance(value: usize) {
+    APPLICATION_HINSTANCE.store(value, Ordering::SeqCst);
 }
 
-impl WinMain {
-    /// Create new instance
-    pub fn new(value: u32, name: &str) -> Self {
-        Self {
-            value,
-            name: name.to_string(),
-        }
-    }
-
-    /// Get value
-    pub fn get_value(&self) -> u32 {
-        self.value
-    }
-
-    /// Set value
-    pub fn set_value(&mut self, value: u32) {
-        self.value = value;
-    }
-
-    /// Get name
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
-}
-
-/// Enumeration for WinMain types
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WinMainType {
-    /// Default type
-    Default = 0,
-    /// Custom type
-    Custom = 1,
-    /// Special type
-    Special = 2,
+pub fn application_hinstance() -> usize {
+    APPLICATION_HINSTANCE.load(Ordering::SeqCst)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{application_hinstance, set_application_hinstance};
 
     #[test]
-    fn test_win_main_basic() {
-        // TODO: Implement tests for win_main
-        assert!(true, "Placeholder test for win_main");
+    fn stores_and_reads_hinstance() {
+        set_application_hinstance(1234);
+        assert_eq!(application_hinstance(), 1234);
     }
 }

@@ -515,7 +515,7 @@ pub fn save_load_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     state.is_shutting_down = true;
 }
 
-pub fn save_load_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = save_load_menu_state();
     let mut state = state_handle
         .lock()
@@ -546,6 +546,7 @@ pub fn save_load_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std
         let shell_finished = get_shell().is_anim_finished();
         let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
         if shell_finished && transitions_finished {
+            layout.hide(true);
             let _ = get_shell().shutdown_complete(None, false);
         }
     }
@@ -593,7 +594,7 @@ pub fn save_load_menu_system(
     window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = save_load_menu_state();
     let mut state = state_handle
@@ -604,6 +605,15 @@ pub fn save_load_menu_system(
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
             if data1 as i32 == state.listbox_games {
+                let row_selected = data2 as i32;
+                if row_selected >= 0 {
+                    if let Some(listbox) = state.listbox_games_window.as_ref() {
+                        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
+                            let _ =
+                                widget.select_index(row_selected as usize, KeyModifiers::none());
+                        }
+                    }
+                }
                 process_load_button_press(&mut state, window);
                 return WindowMsgHandled::Handled;
             }

@@ -683,11 +683,31 @@ impl ScriptingEngine {
 
     /// Fire a script event
     pub async fn fire_event(&self, event: ScriptEvent) -> GameLogicResult<()> {
+        self.fire_event_sync(event)
+    }
+
+    /// Fire a script event synchronously.
+    pub fn fire_event_sync(&self, event: ScriptEvent) -> GameLogicResult<()> {
         let mut queue = self.event_queue.lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire event queue: {}", e))
         })?;
         queue.push_back(event);
+        let pending = queue.len();
+        if pending >= 256 && pending % 128 == 0 {
+            log::warn!(
+                "Script event queue backlog: {} pending events before processing",
+                pending
+            );
+        }
         Ok(())
+    }
+
+    /// Number of currently queued script events awaiting processing.
+    pub fn pending_event_count(&self) -> usize {
+        self.event_queue
+            .lock()
+            .map(|queue| queue.len())
+            .unwrap_or_default()
     }
 
     /// Set global variable

@@ -65,16 +65,21 @@ impl StaticTextState {
 }
 
 pub fn render_demo(label: &str, body: &str) -> AnyElement {
+    let state = StaticTextState::new(label, body);
+    render(&state)
+}
+
+pub fn render(state: &StaticTextState) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap_1()
-        .child(label.to_string())
+        .child(state.label.clone())
         .child(
             div()
                 .text_sm()
                 .text_color(rgb(0x8ea2b4))
-                .child(body.to_string()),
+                .child(state.body.clone()),
         )
         .into_any_element()
 }

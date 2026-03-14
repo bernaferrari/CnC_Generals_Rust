@@ -9,6 +9,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 use std::vec::Vec;
 
 use self::pathfind_astar::PathfindCellType;
@@ -1109,6 +1110,7 @@ fn from_module_attitude(attitude: AIAttitudeType) -> AttitudeType {
 impl AiCommandInterface for AiGroup {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
         for obj_id in &self.member_list {
+            let dispatch_started = Instant::now();
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
                 continue;
             };
@@ -1119,6 +1121,15 @@ impl AiCommandInterface for AiGroup {
                 if let Ok(mut ai_guard) = ai.lock() {
                     let _ = ai_guard.execute_command(params);
                 }
+            }
+            let elapsed = dispatch_started.elapsed();
+            if elapsed >= Duration::from_millis(200) {
+                log::warn!(
+                    "Slow AI group command dispatch: cmd={:?} object_id={} elapsed={:?}",
+                    params.cmd,
+                    obj_id,
+                    elapsed
+                );
             }
         }
         Ok(())

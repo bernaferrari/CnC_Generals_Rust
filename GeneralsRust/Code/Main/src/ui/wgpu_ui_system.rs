@@ -6,8 +6,9 @@ use crate::{
 };
 use glam::Vec2;
 use glam::Vec4;
-use log::info;
+use log::{debug, info, warn};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use ww3d_engine::FrameTiming;
@@ -30,6 +31,53 @@ pub enum UISystemState {
     PauseMenu,
     Victory,
     Loading,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainMenuPanel {
+    Main,
+    SinglePlayer,
+    Multiplayer,
+    LoadReplay,
+    Difficulty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CampaignSelection {
+    USA,
+    GLA,
+    China,
+    Challenge,
+}
+
+#[derive(Debug, Clone)]
+struct MappedImageDef {
+    texture: String,
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ButtonSliceSet {
+    left: Option<u32>,
+    middle: Option<u32>,
+    right: Option<u32>,
+}
+
+impl ButtonSliceSet {
+    fn has_any(self) -> bool {
+        self.left.is_some() || self.middle.is_some() || self.right.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ButtonVisualSet {
+    normal: ButtonSliceSet,
+    hover: ButtonSliceSet,
+    pressed: ButtonSliceSet,
+    disabled: ButtonSliceSet,
 }
 
 /// UI Event types matching C++ GUI callbacks
@@ -70,12 +118,18 @@ pub struct WgpuUISystem {
     pause_menu_elements: HashMap<String, u32>,
     victory_elements: HashMap<String, u32>,
     loading_elements: HashMap<String, u32>,
+    main_menu_panel: MainMenuPanel,
+    pending_campaign: Option<CampaignSelection>,
+    previous_main_menu_panel: MainMenuPanel,
+    loading_progress: f32,
+    loading_phase: String,
 
     // Game integration
     game_logic: Option<Arc<Mutex<GameLogic>>>,
 
     // Resource loading
     ui_textures: HashMap<String, u32>,
+    button_visuals: HashMap<u32, ButtonVisualSet>,
     ui_fonts: HashMap<String, u32>,
 }
 
@@ -104,16 +158,91 @@ impl WgpuUISystem {
             pause_menu_elements: HashMap::new(),
             victory_elements: HashMap::new(),
             loading_elements: HashMap::new(),
+            main_menu_panel: MainMenuPanel::Main,
+            pending_campaign: None,
+            previous_main_menu_panel: MainMenuPanel::Main,
+            loading_progress: 0.0,
+            loading_phase: "Loading assets...".to_string(),
             game_logic: None,
             ui_textures: HashMap::new(),
+            button_visuals: HashMap::new(),
             ui_fonts: HashMap::new(),
         };
 
         // Initialize UI layouts
         ui_system.initialize_main_menu();
         ui_system.initialize_control_bar();
+        ui_system.initialize_loading_background();
+        ui_system.set_loading_progress(0.0, Some("Loading assets..."));
 
         Ok(ui_system)
+    }
+
+    fn initialize_loading_background(&mut self) {
+        let candidates = [
+            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/Skirmish_Loaduserinterface.tga",
+            "windows_game/extracted_big_files/TexturesZH/Art/Textures/mp_loaduserinterface_00b.tga",
+            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/Skirmish_Loaduserinterface.tga",
+            "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/mp_loaduserinterface_00b.tga",
+        ];
+
+        for candidate in candidates {
+            let path = Path::new(candidate);
+            if !path.exists() {
+                continue;
+            }
+            let Ok(decoded) = image::open(path) else {
+                continue;
+            };
+
+            let rgba = decoded.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            let texture_id = self.renderer.load_texture(width, height, rgba.as_raw());
+
+            if let Some(overlay_id) = self.loading_elements.get("LoadingOverlay").copied() {
+                if let Some(overlay) = self.layout_manager.get_element_mut(overlay_id) {
+                    overlay.texture_id = Some(texture_id);
+                    overlay.background_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
+                }
+            }
+
+            info!("Loaded loading background image from '{}'", path.display());
+            return;
+        }
+
+        warn!("No loading background image found; using fallback solid color");
+    }
+
+    pub fn set_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
+        self.loading_progress = progress.clamp(0.0, 1.0);
+        if let Some(phase) = phase.filter(|p| !p.trim().is_empty()) {
+            self.loading_phase = phase.trim().to_string();
+        }
+
+        let label = format!("{} {:.0}%", self.loading_phase, self.loading_progress * 100.0);
+        if let Some(text_id) = self.loading_elements.get("LoadingText").copied() {
+            if let Some(text) = self.layout_manager.get_element_mut(text_id) {
+                text.text = label;
+            }
+        }
+
+        let track_rect = self
+            .loading_elements
+            .get("LoadingProgressTrack")
+            .and_then(|id| self.layout_manager.get_element(*id))
+            .map(|track| track.rect);
+        let fill_id = self.loading_elements.get("LoadingProgressFill").copied();
+        if let (Some(track_rect), Some(fill_id)) = (track_rect, fill_id) {
+            if let Some(fill) = self.layout_manager.get_element_mut(fill_id) {
+                let inner_width = (track_rect.width - 4.0).max(0.0);
+                fill.rect.x = track_rect.x + 2.0;
+                fill.rect.y = track_rect.y + 2.0;
+                fill.rect.height = (track_rect.height - 4.0).max(0.0);
+                fill.rect.width = (inner_width * self.loading_progress).max(0.0);
+            }
+        }
     }
 
     /// Initialize main menu layout - matches C++ MainMenu.cpp
@@ -123,6 +252,7 @@ impl WgpuUISystem {
             localization::localize("wgpu_ui.log.init_main_menu", "Initializing Main Menu UI...")
         );
         self.main_menu_elements = self.layout_manager.create_main_menu_layout();
+        self.apply_main_menu_shell_theme();
         self.set_state(UISystemState::MainMenu);
 
         // Pre-create layouts so state switches are instant.
@@ -173,6 +303,18 @@ impl WgpuUISystem {
             )
         );
         self.current_state = new_state;
+        // Drop transient pointer state across screen transitions so stale
+        // press/hover data from a previous state cannot leak into the new UI.
+        self.hover_element = None;
+        self.active_element = None;
+        self.mouse_pressed = false;
+        self.click_times.clear();
+
+        if new_state == UISystemState::MainMenu {
+            self.main_menu_panel = MainMenuPanel::Main;
+            self.pending_campaign = None;
+            self.previous_main_menu_panel = MainMenuPanel::Main;
+        }
 
         // Hide all elements first
         self.hide_all_elements();
@@ -196,9 +338,348 @@ impl WgpuUISystem {
     }
 
     fn show_main_menu(&mut self) {
-        for &element_id in self.main_menu_elements.values() {
-            self.layout_manager.set_element_visible(element_id, true);
+        self.apply_main_menu_panel_visibility();
+    }
+
+    fn apply_main_menu_shell_theme(&mut self) {
+        let normal_middle = self.load_shell_mapped_texture("Buttons-Middle");
+        let normal_left = self.load_shell_mapped_texture("Buttons-Left");
+        let normal_right = self.load_shell_mapped_texture("Buttons-Right");
+        let hover_middle = self.load_shell_mapped_texture("Buttons-HiLite-Middle");
+        let hover_left = self.load_shell_mapped_texture("Buttons-HiLite-Left");
+        let hover_right = self.load_shell_mapped_texture("Buttons-HiLite-Right");
+        let pressed_middle = self.load_shell_mapped_texture("Buttons-Pushed-Middle");
+        let pressed_left = self.load_shell_mapped_texture("Buttons-Pushed-Left");
+        let pressed_right = self.load_shell_mapped_texture("Buttons-Pushed-Right");
+        let disabled_middle = self.load_shell_mapped_texture("Buttons-Disabled-Middle");
+        let disabled_left = self.load_shell_mapped_texture("Buttons-Disabled-Left");
+        let disabled_right = self.load_shell_mapped_texture("Buttons-Disabled-Right");
+        info!(
+            "MainMenu shell button textures: normal(L/M/R)={:?}/{:?}/{:?} hover(L/M/R)={:?}/{:?}/{:?} pressed(L/M/R)={:?}/{:?}/{:?} disabled(L/M/R)={:?}/{:?}/{:?}",
+            normal_left,
+            normal_middle,
+            normal_right,
+            hover_left,
+            hover_middle,
+            hover_right,
+            pressed_left,
+            pressed_middle,
+            pressed_right,
+            disabled_left,
+            disabled_middle,
+            disabled_right
+        );
+        let normal_slices = ButtonSliceSet {
+            left: normal_left,
+            middle: normal_middle,
+            right: normal_right,
+        };
+        let hover_slices = ButtonSliceSet {
+            left: hover_left,
+            middle: hover_middle,
+            right: hover_right,
+        };
+        let pressed_slices = ButtonSliceSet {
+            left: pressed_left,
+            middle: pressed_middle,
+            right: pressed_right,
+        };
+        let disabled_slices = ButtonSliceSet {
+            left: disabled_left,
+            middle: disabled_middle,
+            right: disabled_right,
+        };
+
+        let button_names = [
+            "ButtonSinglePlayer",
+            "ButtonMultiplayer",
+            "ButtonLoadReplay",
+            "ButtonOptions",
+            "ButtonCredits",
+            "ButtonExit",
+            "ButtonUSA",
+            "ButtonGLA",
+            "ButtonChina",
+            "ButtonChallenge",
+            "ButtonSkirmish",
+            "ButtonSingleBack",
+            "ButtonOnline",
+            "ButtonNetwork",
+            "ButtonMultiBack",
+            "ButtonLoadGame",
+            "ButtonReplay",
+            "ButtonLoadReplayBack",
+            "ButtonEasy",
+            "ButtonMedium",
+            "ButtonHard",
+            "ButtonDiffBack",
+        ];
+
+        for button_name in button_names {
+            let Some(id) = self.main_menu_elements.get(button_name).copied() else {
+                continue;
+            };
+            let Some(button) = self.layout_manager.get_element_mut(id) else {
+                continue;
+            };
+            self.button_visuals.insert(
+                id,
+                ButtonVisualSet {
+                    normal: normal_slices,
+                    hover: hover_slices,
+                    pressed: pressed_slices,
+                    disabled: disabled_slices,
+                },
+            );
+            button.texture_id = normal_middle;
+            button.hover_texture_id = hover_middle;
+            button.pressed_texture_id = pressed_middle;
+            button.disabled_texture_id = disabled_middle;
+            button.background_color = Vec4::new(0.0, 0.0, 0.0, 0.0);
+            button.border_color = Vec4::new(0.0, 0.0, 0.0, 0.0);
+            button.text_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
         }
+
+        let backdrop_texture = self
+            .load_shell_mapped_texture("MainMenuBackdrop")
+            .or_else(|| {
+                self.load_texture_from_candidates(&[
+                    "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+                    "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+                    "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+                    "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+                ])
+            });
+        info!("MainMenu backdrop texture id: {:?}", backdrop_texture);
+        if let Some(background_id) = self.main_menu_elements.get("MainMenuBackground").copied() {
+            if let Some(background) = self.layout_manager.get_element_mut(background_id) {
+                background.texture_id = backdrop_texture;
+                background.background_color = if backdrop_texture.is_some() {
+                    Vec4::new(1.0, 1.0, 1.0, 1.0)
+                } else {
+                    Vec4::new(0.0, 0.0, 0.0, 0.25)
+                };
+            }
+        }
+
+        let logo_texture = self.load_shell_mapped_texture("GeneralsLogo");
+        info!("MainMenu logo texture id: {:?}", logo_texture);
+        if let Some(title_id) = self.main_menu_elements.get("MainMenuTitle").copied() {
+            if let Some(title) = self.layout_manager.get_element_mut(title_id) {
+                title.texture_id = logo_texture;
+                title.text.clear();
+                title.background_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
+            }
+        }
+
+        let ruler_texture = self.load_texture_from_candidates(&[
+            "windows_game/extracted_big_files/TexturesZH/Art/Textures/mainmenuruleruserinterface.tga",
+            "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/mainmenuruleruserinterface.tga",
+        ]);
+        info!("MainMenu ruler texture id: {:?}", ruler_texture);
+        if let Some(ruler_id) = self.main_menu_elements.get("MainMenuRuler").copied() {
+            if let Some(ruler) = self.layout_manager.get_element_mut(ruler_id) {
+                ruler.texture_id = ruler_texture;
+                ruler.background_color = Vec4::new(1.0, 1.0, 1.0, 0.9);
+            }
+        }
+    }
+
+    fn mapped_image_ini_candidates() -> &'static [&'static str] {
+        &[
+            "windows_game/extracted_big_files/INIZH/Data/INI/MappedImages/TextureSize_512/SCSmShellUserInterface512.INI",
+            "windows_game/extracted_big_files/INIZH/Data/INI/MappedImages/TextureSize_512/HandCreatedMappedImages.INI",
+            "windows_game/extracted_big_files/INIZH/Data/INI/MappedImages/HandCreated/HandCreatedMappedImages.INI",
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/MappedImages/TextureSize_512/SCSmShellUserInterface512.INI",
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/MappedImages/TextureSize_512/HandCreatedMappedImages.INI",
+            "windows_game/extracted_big_files_v2/INIZH/Data/INI/MappedImages/HandCreated/HandCreatedMappedImages.INI",
+        ]
+    }
+
+    fn load_texture_from_candidates(&mut self, candidates: &[&str]) -> Option<u32> {
+        for path in candidates {
+            let p = Path::new(path);
+            if !p.exists() {
+                continue;
+            }
+            let Ok(decoded) = image::open(p) else {
+                continue;
+            };
+            let rgba = decoded.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            return Some(self.renderer.load_texture(w, h, rgba.as_raw()));
+        }
+        None
+    }
+
+    fn load_shell_mapped_texture(&mut self, mapped_name: &str) -> Option<u32> {
+        if let Some(texture_id) = self.ui_textures.get(mapped_name).copied() {
+            return Some(texture_id);
+        }
+
+        for ini_path in Self::mapped_image_ini_candidates() {
+            let ini = Path::new(ini_path);
+            let Some(def) = Self::parse_mapped_image(ini, mapped_name) else {
+                continue;
+            };
+            let is_v2 = ini_path.contains("extracted_big_files_v2");
+            let mut texture_paths = if is_v2 {
+                vec![
+                    format!(
+                        "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/{}",
+                        def.texture
+                    ),
+                    format!(
+                        "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/{}",
+                        def.texture
+                    ),
+                ]
+            } else {
+                vec![
+                    format!(
+                        "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/{}",
+                        def.texture
+                    ),
+                    format!(
+                        "windows_game/extracted_big_files/TexturesZH/Art/Textures/{}",
+                        def.texture
+                    ),
+                ]
+            };
+            if !def.texture.to_ascii_lowercase().ends_with(".tga") {
+                // Most mapped images are TGA; if extension is missing, try tga fallback.
+                if is_v2 {
+                    texture_paths.push(format!(
+                        "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/{}.tga",
+                        def.texture
+                    ));
+                    texture_paths.push(format!(
+                        "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/{}.tga",
+                        def.texture
+                    ));
+                } else {
+                    texture_paths.push(format!(
+                        "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/{}.tga",
+                        def.texture
+                    ));
+                    texture_paths.push(format!(
+                        "windows_game/extracted_big_files/TexturesZH/Art/Textures/{}.tga",
+                        def.texture
+                    ));
+                }
+            }
+
+            for texture_path in texture_paths {
+                let path = Path::new(&texture_path);
+                if !path.exists() {
+                    continue;
+                }
+
+                let Ok(decoded) = image::open(path) else {
+                    continue;
+                };
+                let rgba = decoded.to_rgba8();
+                let width = def.right.saturating_sub(def.left).max(1);
+                let height = def.bottom.saturating_sub(def.top).max(1);
+                if def.left >= rgba.width() || def.top >= rgba.height() {
+                    continue;
+                }
+                let crop_width = width.min(rgba.width().saturating_sub(def.left));
+                let crop_height = height.min(rgba.height().saturating_sub(def.top));
+                if crop_width == 0 || crop_height == 0 {
+                    continue;
+                }
+                let cropped =
+                    image::imageops::crop_imm(&rgba, def.left, def.top, crop_width, crop_height)
+                        .to_image();
+                let texture_id =
+                    self.renderer
+                        .load_texture(crop_width, crop_height, cropped.as_raw());
+                self.ui_textures.insert(mapped_name.to_string(), texture_id);
+                return Some(texture_id);
+            }
+        }
+
+        if mapped_name.eq_ignore_ascii_case("MainMenuBackdrop") {
+            if let Some(texture_id) = self.load_texture_from_candidates(&[
+                "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+                "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+            ]) {
+                self.ui_textures.insert(mapped_name.to_string(), texture_id);
+                return Some(texture_id);
+            }
+        }
+
+        warn!("Missing mapped UI texture: {}", mapped_name);
+        None
+    }
+
+    fn parse_mapped_image(path: &Path, mapped_name: &str) -> Option<MappedImageDef> {
+        let content = std::fs::read_to_string(path).ok()?;
+        let mut in_target = false;
+        let mut texture: Option<String> = None;
+        let mut left: Option<u32> = None;
+        let mut top: Option<u32> = None;
+        let mut right: Option<u32> = None;
+        let mut bottom: Option<u32> = None;
+
+        for raw_line in content.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with(';') {
+                continue;
+            }
+
+            if let Some(name) = line.strip_prefix("MappedImage ") {
+                in_target = name.trim().eq_ignore_ascii_case(mapped_name);
+                texture = None;
+                left = None;
+                top = None;
+                right = None;
+                bottom = None;
+                continue;
+            }
+
+            if !in_target {
+                continue;
+            }
+
+            if let Some(value) = line.strip_prefix("Texture =") {
+                texture = Some(value.trim().to_string());
+                continue;
+            }
+
+            if let Some(value) = line.strip_prefix("Coords =") {
+                let numbers: Vec<u32> = value
+                    .split(|c: char| !c.is_ascii_digit())
+                    .filter(|s| !s.is_empty())
+                    .filter_map(|s| s.parse::<u32>().ok())
+                    .collect();
+                if numbers.len() >= 4 {
+                    left = Some(numbers[0]);
+                    top = Some(numbers[1]);
+                    right = Some(numbers[2]);
+                    bottom = Some(numbers[3]);
+                }
+                continue;
+            }
+
+            if line == "End" {
+                if let (Some(texture), Some(left), Some(top), Some(right), Some(bottom)) =
+                    (texture.clone(), left, top, right, bottom)
+                {
+                    return Some(MappedImageDef {
+                        texture,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                    });
+                }
+                in_target = false;
+            }
+        }
+
+        None
     }
 
     fn show_in_game_hud(&mut self) {
@@ -237,7 +718,7 @@ impl WgpuUISystem {
     pub fn handle_mouse_move(&mut self, x: f32, y: f32) -> bool {
         self.mouse_pos = Vec2::new(x, y);
 
-        let new_hover = self.layout_manager.find_element_at_position(x, y);
+        let new_hover = self.find_interactive_element_at_position(x, y);
         if new_hover != self.hover_element {
             // Mouse enter/leave events
             if let Some(old_hover) = self.hover_element {
@@ -263,7 +744,7 @@ impl WgpuUISystem {
         self.last_mouse_button = button;
 
         if pressed {
-            if let Some(element_id) = self.layout_manager.find_element_at_position(x, y) {
+            if let Some(element_id) = self.find_interactive_element_at_position(x, y) {
                 self.active_element = Some(element_id);
                 self.click_times.insert(element_id, Instant::now());
                 return self.on_element_clicked(element_id);
@@ -276,27 +757,28 @@ impl WgpuUISystem {
     }
 
     /// Handle element click - matches C++ button callbacks
-    fn on_element_clicked(&self, element_id: u32) -> UISystemEvent {
-        if let Some(element) = self.layout_manager.get_element(element_id) {
+    fn on_element_clicked(&mut self, element_id: u32) -> UISystemEvent {
+        if let Some(element_name) = self
+            .layout_manager
+            .get_element(element_id)
+            .map(|element| element.name.clone())
+        {
             let element_id_str = element_id.to_string();
             info!(
                 "{}",
                 localization::localize_with_args(
                     "wgpu_ui.log.element_clicked",
                     "Element clicked: {name} (ID: {id})",
-                    &[
-                        ("name", element.name.as_str()),
-                        ("id", element_id_str.as_str()),
-                    ],
+                    &[("name", element_name.as_str()), ("id", element_id_str.as_str())],
                 )
             );
 
             match self.current_state {
-                UISystemState::MainMenu => self.handle_main_menu_click(&element.name),
-                UISystemState::FactionSelection => self.handle_faction_click(&element.name),
-                UISystemState::PauseMenu => self.handle_pause_click(&element.name),
-                UISystemState::Victory => self.handle_victory_click(&element.name),
-                UISystemState::InGame => self.handle_control_bar_click(&element.name),
+                UISystemState::MainMenu => self.handle_main_menu_click(&element_name),
+                UISystemState::FactionSelection => self.handle_faction_click(&element_name),
+                UISystemState::PauseMenu => self.handle_pause_click(&element_name),
+                UISystemState::Victory => self.handle_victory_click(&element_name),
+                UISystemState::InGame => self.handle_control_bar_click(&element_name),
                 _ => UISystemEvent::None,
             }
         } else {
@@ -304,20 +786,61 @@ impl WgpuUISystem {
         }
     }
 
-    /// Handle main menu button clicks - matches C++ MainMenu callbacks
-    fn handle_main_menu_click(&self, element_name: &str) -> UISystemEvent {
+    /// Handle main menu button clicks - matches C++ MainMenu callbacks.
+    fn handle_main_menu_click(&mut self, element_name: &str) -> UISystemEvent {
         match element_name {
-            "SinglePlayer" => {
+            "ButtonSinglePlayer" => {
                 info!(
                     "{}",
                     localization::localize("wgpu_ui.log.single_player", "Single Player clicked")
                 );
-                UISystemEvent::StartGame {
-                    mode: GameMode::SinglePlayer,
-                    faction: "USA".to_string(),
-                }
+                self.set_main_menu_panel(MainMenuPanel::SinglePlayer);
+                UISystemEvent::None
             }
-            "Skirmish" => {
+            "ButtonMultiplayer" => {
+                info!(
+                    "{}",
+                    localization::localize("wgpu_ui.log.network", "Multiplayer clicked")
+                );
+                self.set_main_menu_panel(MainMenuPanel::Multiplayer);
+                UISystemEvent::None
+            }
+            "ButtonLoadReplay" => {
+                info!(
+                    "{}",
+                    localization::localize("wgpu_ui.log.load_replay", "Load/Replay clicked")
+                );
+                self.set_main_menu_panel(MainMenuPanel::LoadReplay);
+                UISystemEvent::None
+            }
+            "ButtonOptions" => {
+                info!(
+                    "{}",
+                    localization::localize("wgpu_ui.log.options", "Options clicked")
+                );
+                UISystemEvent::ShowOptions
+            }
+            "ButtonCredits" => {
+                info!(
+                    "{}",
+                    localization::localize("wgpu_ui.log.credits", "Credits clicked")
+                );
+                UISystemEvent::ShowOptions
+            }
+            "ButtonExit" => {
+                info!(
+                    "{}",
+                    localization::localize("wgpu_ui.log.exit", "Exit clicked")
+                );
+                UISystemEvent::ExitGame
+            }
+
+            "ButtonSingleBack" => {
+                self.pending_campaign = None;
+                self.set_main_menu_panel(MainMenuPanel::Main);
+                UISystemEvent::None
+            }
+            "ButtonSkirmish" => {
                 info!(
                     "{}",
                     localization::localize("wgpu_ui.log.skirmish", "Skirmish clicked")
@@ -327,44 +850,43 @@ impl WgpuUISystem {
                     faction: "USA".to_string(),
                 }
             }
-            "Network" => {
-                info!(
-                    "{}",
-                    localization::localize("wgpu_ui.log.network", "Network clicked")
-                );
+            "ButtonUSA" => self.open_difficulty_menu(CampaignSelection::USA),
+            "ButtonGLA" => self.open_difficulty_menu(CampaignSelection::GLA),
+            "ButtonChina" => self.open_difficulty_menu(CampaignSelection::China),
+            "ButtonChallenge" => self.open_difficulty_menu(CampaignSelection::Challenge),
+
+            "ButtonMultiBack" => {
+                self.set_main_menu_panel(MainMenuPanel::Main);
+                UISystemEvent::None
+            }
+            "ButtonOnline" | "ButtonNetwork" => UISystemEvent::StartGame {
+                mode: GameMode::Multiplayer,
+                faction: "USA".to_string(),
+            },
+
+            "ButtonLoadReplayBack" => {
+                self.set_main_menu_panel(MainMenuPanel::Main);
+                UISystemEvent::None
+            }
+            "ButtonLoadGame" | "ButtonReplay" => UISystemEvent::LoadGame,
+
+            "ButtonDiffBack" => {
+                self.set_main_menu_panel(self.previous_main_menu_panel);
+                UISystemEvent::None
+            }
+            "ButtonEasy" | "ButtonMedium" | "ButtonHard" => {
+                let faction = match self.pending_campaign.unwrap_or(CampaignSelection::USA) {
+                    CampaignSelection::USA => "USA",
+                    CampaignSelection::GLA => "GLA",
+                    CampaignSelection::China => "China",
+                    CampaignSelection::Challenge => "USA",
+                };
                 UISystemEvent::StartGame {
-                    mode: GameMode::Multiplayer,
-                    faction: "USA".to_string(),
+                    mode: GameMode::SinglePlayer,
+                    faction: faction.to_string(),
                 }
             }
-            "Options" => {
-                info!(
-                    "{}",
-                    localization::localize("wgpu_ui.log.options", "Options clicked")
-                );
-                UISystemEvent::ShowOptions
-            }
-            "LoadReplay" => {
-                info!(
-                    "{}",
-                    localization::localize("wgpu_ui.log.load_replay", "Load Replay clicked")
-                );
-                UISystemEvent::LoadGame
-            }
-            "Credits" => {
-                info!(
-                    "{}",
-                    localization::localize("wgpu_ui.log.credits", "Credits clicked")
-                );
-                UISystemEvent::ShowOptions
-            }
-            "Exit" => {
-                info!(
-                    "{}",
-                    localization::localize("wgpu_ui.log.exit", "Exit clicked")
-                );
-                UISystemEvent::ExitGame
-            }
+
             _ => UISystemEvent::None,
         }
     }
@@ -555,7 +1077,7 @@ impl WgpuUISystem {
 
     fn on_mouse_enter(&self, element_id: u32) {
         if let Some(element) = self.layout_manager.get_element(element_id) {
-            info!(
+            debug!(
                 "{}",
                 localization::localize_with_args(
                     "wgpu_ui.log.mouse_enter",
@@ -568,7 +1090,7 @@ impl WgpuUISystem {
 
     fn on_mouse_leave(&self, element_id: u32) {
         if let Some(element) = self.layout_manager.get_element(element_id) {
-            info!(
+            debug!(
                 "{}",
                 localization::localize_with_args(
                     "wgpu_ui.log.mouse_leave",
@@ -577,6 +1099,16 @@ impl WgpuUISystem {
                 )
             );
         }
+    }
+
+    pub fn element_name_at_position(&self, x: f32, y: f32) -> Option<&str> {
+        let id = self.layout_manager.find_element_at_position(x, y)?;
+        self.layout_manager.get_element(id).map(|e| e.name.as_str())
+    }
+
+    pub fn interactive_element_name_at_position(&self, x: f32, y: f32) -> Option<&str> {
+        let id = self.find_interactive_element_at_position(x, y)?;
+        self.layout_manager.get_element(id).map(|e| e.name.as_str())
     }
 
     /// Render the UI - generates draw commands and renders them
@@ -589,19 +1121,44 @@ impl WgpuUISystem {
 
         // Generate draw commands for all visible elements
         for element_id in visible_elements {
-            if let Some(element) = self.layout_manager.get_element(element_id) {
+            if let Some(element) = self.layout_manager.get_element(element_id).cloned() {
                 let mut rect = element.get_absolute_rect(&self.layout_manager);
                 let scale = self.element_click_scale(element_id, now);
                 if (scale - 1.0).abs() > 0.001 {
                     rect = scale_rect_from_center(rect, scale);
                 }
                 let mut bg_color = vec4_to_color(element.background_color);
+                let mut texture_id = element.texture_id;
+                let button_slices = self.current_button_slices(element_id, &element);
+                let mut text_color = vec4_to_color(element.text_color);
 
-                if Some(element_id) == self.hover_element {
-                    bg_color = Color::UI_BUTTON_HOVER;
-                }
-                if Some(element_id) == self.active_element && self.mouse_pressed {
-                    bg_color = Color::UI_BUTTON_PRESSED;
+                if !element.enabled {
+                    texture_id = element.disabled_texture_id.or(texture_id);
+                    text_color = Color {
+                        r: 62.0 / 255.0,
+                        g: 64.0 / 255.0,
+                        b: 92.0 / 255.0,
+                        a: 1.0,
+                    };
+                } else if Some(element_id) == self.active_element && self.mouse_pressed {
+                    texture_id = element
+                        .pressed_texture_id
+                        .or(element.hover_texture_id)
+                        .or(texture_id);
+                    if texture_id.is_none() {
+                        bg_color = Color::UI_BUTTON_PRESSED;
+                    }
+                } else if Some(element_id) == self.hover_element {
+                    texture_id = element.hover_texture_id.or(texture_id);
+                    text_color = Color {
+                        r: 186.0 / 255.0,
+                        g: 255.0 / 255.0,
+                        b: 12.0 / 255.0,
+                        a: 1.0,
+                    };
+                    if texture_id.is_none() {
+                        bg_color = Color::UI_BUTTON_HOVER;
+                    }
                 }
 
                 let bg_command =
@@ -609,7 +1166,9 @@ impl WgpuUISystem {
                         .create_rect(rect.x, rect.y, rect.width, rect.height, bg_color);
                 draw_commands.push(bg_command);
 
-                if let Some(tex_id) = element.texture_id {
+                if let Some(slices) = button_slices {
+                    self.append_button_slice_draws(&mut draw_commands, rect, slices);
+                } else if let Some(tex_id) = texture_id {
                     let tex_cmd = self.renderer.create_textured_rect(
                         rect.x,
                         rect.y,
@@ -621,12 +1180,42 @@ impl WgpuUISystem {
                 }
 
                 if !element.text.is_empty() {
+                    let default_x = rect.x + element.padding.x;
+                    let default_y = rect.y + element.padding.y + element.font_size;
+                    let (text_x, text_y) = match element.alignment {
+                        super::layout_manager::Alignment::Center => {
+                            let approx_text_width =
+                                Self::estimate_text_width(&element.text, element.font_size);
+                            (
+                                rect.x + (rect.width - approx_text_width).max(0.0) * 0.5,
+                                rect.y + (rect.height + element.font_size * 0.42) * 0.5,
+                            )
+                        }
+                        super::layout_manager::Alignment::CenterLeft => (
+                            rect.x + element.padding.x,
+                            rect.y + (rect.height + element.font_size * 0.42) * 0.5,
+                        ),
+                        _ => (default_x, default_y),
+                    };
+                    let shadow_cmd = self.renderer.create_text(
+                        &element.text,
+                        text_x + 1.0,
+                        text_y + 1.0,
+                        element.font_size,
+                        Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 0.7,
+                        },
+                    );
+                    draw_commands.push(shadow_cmd);
                     let text_cmd = self.renderer.create_text(
                         &element.text,
-                        rect.x + element.padding.x,
-                        rect.y + element.padding.y + element.font_size,
+                        text_x,
+                        text_y,
                         element.font_size,
-                        vec4_to_color(element.text_color),
+                        text_color,
                     );
                     draw_commands.push(text_cmd);
                 }
@@ -674,39 +1263,107 @@ impl WgpuUISystem {
     }
 
     fn update_internal(&mut self) {
-        // Update resource display, unit health bars, etc.
-        // This matches the C++ UI update loops
-        let should_change_state = if let Some(ref game_logic) = self.game_logic {
-            if let Ok(logic) = game_logic.try_lock() {
-                let is_in_game = logic.isInGame();
-                let current_state = self.current_state;
-
-                // Determine state change without borrowing self
-                if is_in_game && current_state == UISystemState::MainMenu {
-                    Some(UISystemState::InGame)
-                } else if !is_in_game && current_state == UISystemState::InGame {
-                    Some(UISystemState::MainMenu)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        // Apply state change after releasing all borrows
-        if let Some(new_state) = should_change_state {
-            self.set_state(new_state);
-        }
+        // Runtime state transitions are owned by CnCGameEngine (matching C++ top-level flow).
+        // Keep this hook for per-frame HUD data refresh without implicit state flips.
     }
 
     pub fn get_current_state(&self) -> UISystemState {
         self.current_state
     }
 
+    fn estimate_text_width(text: &str, font_size: f32) -> f32 {
+        let pixel = (font_size.max(8.0) / 8.0).max(1.0);
+        let advance = pixel * 8.0 + pixel;
+        text.chars().take_while(|&ch| ch != '\n').count() as f32 * advance
+    }
+
+    fn current_button_slices(
+        &self,
+        element_id: u32,
+        element: &super::layout_manager::UIElement,
+    ) -> Option<ButtonSliceSet> {
+        let visuals = self.button_visuals.get(&element_id)?;
+        let slices = if !element.enabled {
+            visuals.disabled
+        } else if Some(element_id) == self.active_element && self.mouse_pressed {
+            if visuals.pressed.has_any() {
+                visuals.pressed
+            } else {
+                visuals.hover
+            }
+        } else if Some(element_id) == self.hover_element {
+            visuals.hover
+        } else {
+            visuals.normal
+        };
+        slices.has_any().then_some(slices)
+    }
+
+    fn append_button_slice_draws(
+        &self,
+        draw_commands: &mut Vec<super::wgpu_renderer::UIDrawCommand>,
+        rect: super::layout_manager::Rect,
+        slices: ButtonSliceSet,
+    ) {
+        if !slices.has_any() || rect.width <= 0.0 || rect.height <= 0.0 {
+            return;
+        }
+
+        let left_w = slices
+            .left
+            .and_then(|id| self.renderer.texture_size(id).map(|(w, _)| w as f32))
+            .unwrap_or(0.0)
+            .min(rect.width * 0.5);
+        let right_w = slices
+            .right
+            .and_then(|id| self.renderer.texture_size(id).map(|(w, _)| w as f32))
+            .unwrap_or(0.0)
+            .min((rect.width - left_w).max(0.0));
+        let mid_w = (rect.width - left_w - right_w).max(0.0);
+
+        if let Some(left_id) = slices.left {
+            draw_commands.push(
+                self.renderer
+                    .create_textured_rect(rect.x, rect.y, left_w.max(1.0), rect.height, left_id),
+            );
+        }
+
+        if let Some(mid_id) = slices.middle {
+            draw_commands.push(self.renderer.create_textured_rect(
+                rect.x + left_w,
+                rect.y,
+                mid_w.max(1.0),
+                rect.height,
+                mid_id,
+            ));
+        } else if left_w <= 0.0 && right_w <= 0.0 {
+            if let Some(left_or_right) = slices.left.or(slices.right) {
+                draw_commands.push(self.renderer.create_textured_rect(
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    left_or_right,
+                ));
+            }
+        }
+
+        if let Some(right_id) = slices.right {
+            draw_commands.push(self.renderer.create_textured_rect(
+                rect.x + rect.width - right_w,
+                rect.y,
+                right_w.max(1.0),
+                rect.height,
+                right_id,
+            ));
+        }
+    }
+
     fn element_click_scale(&self, element_id: u32, now: Instant) -> f32 {
+        if self.current_state == UISystemState::MainMenu {
+            return 1.0;
+        }
+
         let mut scale = 1.0;
         if Some(element_id) == self.active_element && self.mouse_pressed {
             scale *= 0.96;
@@ -724,6 +1381,134 @@ impl WgpuUISystem {
         }
 
         scale
+    }
+
+    fn element_is_interactive_in_current_state(&self, name: &str) -> bool {
+        match self.current_state {
+            UISystemState::MainMenu => matches!(
+                name,
+                "ButtonSinglePlayer"
+                    | "ButtonMultiplayer"
+                    | "ButtonLoadReplay"
+                    | "ButtonOptions"
+                    | "ButtonCredits"
+                    | "ButtonExit"
+                    | "ButtonSingleBack"
+                    | "ButtonSkirmish"
+                    | "ButtonUSA"
+                    | "ButtonGLA"
+                    | "ButtonChina"
+                    | "ButtonChallenge"
+                    | "ButtonMultiBack"
+                    | "ButtonOnline"
+                    | "ButtonNetwork"
+                    | "ButtonLoadReplayBack"
+                    | "ButtonLoadGame"
+                    | "ButtonReplay"
+                    | "ButtonDiffBack"
+                    | "ButtonEasy"
+                    | "ButtonMedium"
+                    | "ButtonHard"
+            ),
+            UISystemState::FactionSelection => {
+                name.starts_with("Faction") && name != "FactionBackground"
+            }
+            UISystemState::InGame => name == "Minimap" || name.starts_with("CommandButton"),
+            UISystemState::PauseMenu => {
+                matches!(name, "PauseResume" | "PauseOptions" | "PauseQuitToMenu")
+            }
+            UISystemState::Victory => name == "VictoryExit",
+            UISystemState::Loading => false,
+        }
+    }
+
+    fn find_interactive_element_at_position(&self, x: f32, y: f32) -> Option<u32> {
+        let visible = self.layout_manager.get_all_visible_elements();
+        for id in visible.into_iter().rev() {
+            let Some(element) = self.layout_manager.get_element(id) else {
+                continue;
+            };
+            if !element.enabled || !self.element_is_interactive_in_current_state(&element.name) {
+                continue;
+            }
+            let rect = element.get_absolute_rect(&self.layout_manager);
+            if rect.contains_point(x, y) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    fn open_difficulty_menu(&mut self, selection: CampaignSelection) -> UISystemEvent {
+        self.pending_campaign = Some(selection);
+        self.previous_main_menu_panel = MainMenuPanel::SinglePlayer;
+        self.set_main_menu_panel(MainMenuPanel::Difficulty);
+        UISystemEvent::None
+    }
+
+    fn set_main_menu_panel(&mut self, panel: MainMenuPanel) {
+        self.main_menu_panel = panel;
+        self.apply_main_menu_panel_visibility();
+    }
+
+    fn apply_main_menu_panel_visibility(&mut self) {
+        for &id in self.main_menu_elements.values() {
+            self.layout_manager.set_element_visible(id, false);
+        }
+
+        let always_visible = ["MainMenuBackground", "MainMenuRuler", "MainMenuTitle"];
+        for name in always_visible {
+            if let Some(id) = self.main_menu_elements.get(name).copied() {
+                self.layout_manager.set_element_visible(id, true);
+            }
+        }
+
+        let active_names: &[&str] = match self.main_menu_panel {
+            MainMenuPanel::Main => &[
+                "MapBorder2",
+                "ButtonSinglePlayer",
+                "ButtonMultiplayer",
+                "ButtonLoadReplay",
+                "ButtonOptions",
+                "ButtonCredits",
+                "ButtonExit",
+            ],
+            MainMenuPanel::SinglePlayer => &[
+                "MapBorder",
+                "ButtonUSA",
+                "ButtonGLA",
+                "ButtonChina",
+                "ButtonChallenge",
+                "ButtonSkirmish",
+                "ButtonSingleBack",
+            ],
+            MainMenuPanel::Multiplayer => &[
+                "MapBorder1",
+                "ButtonOnline",
+                "ButtonNetwork",
+                "ButtonMultiBack",
+            ],
+            MainMenuPanel::LoadReplay => &[
+                "MapBorder3",
+                "ButtonLoadGame",
+                "ButtonReplay",
+                "ButtonLoadReplayBack",
+            ],
+            MainMenuPanel::Difficulty => &[
+                "MapBorder4",
+                "StaticTextSelectDifficulty",
+                "ButtonEasy",
+                "ButtonMedium",
+                "ButtonHard",
+                "ButtonDiffBack",
+            ],
+        };
+
+        for name in active_names {
+            if let Some(id) = self.main_menu_elements.get(*name).copied() {
+                self.layout_manager.set_element_visible(id, true);
+            }
+        }
     }
 }
 

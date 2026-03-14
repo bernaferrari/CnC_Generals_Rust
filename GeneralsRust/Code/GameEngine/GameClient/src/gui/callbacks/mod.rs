@@ -2,6 +2,14 @@
 //!
 //! This module contains all the GUI callback functions and menu systems
 //! that handle user interface interactions throughout the game.
+//!
+//! # State Management
+//!
+//! GUI callbacks use thread-local Cell<bool> for state flags, matching C++ static globals.
+//! The GUI is single-threaded, so Cell provides zero-overhead interior mutability.
+//! Using thread_local! ensures each thread has its own state (main thread only in practice).
+
+use std::cell::Cell;
 
 pub mod challenge_menu;
 pub mod control_bar_callbacks;
@@ -129,3 +137,161 @@ pub use wol_status_menu::*;
 pub use wol_welcome_menu::*;
 #[cfg(feature = "network")]
 pub use wolqm_score_screen::*;
+
+// ============================================================================
+// GLOBAL GUI STATE - Thread-local Cell<bool> for zero-overhead single-threaded access
+// Matches C++ static variable patterns exactly
+// ============================================================================
+
+thread_local! {
+    // LAN menu state - matches C++ LANbuttonPushed, LANisShuttingDown, s_isIniting
+    static LAN_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
+    static LAN_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
+    static LAN_IS_INITING: Cell<bool> = Cell::new(false);
+    static LAN_SLOT_LIST_UPDATES_ENABLED: Cell<bool> = Cell::new(true);
+
+    // Skirmish menu state
+    static SKIRMISH_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
+    static SKIRMISH_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
+    static SKIRMISH_IS_INITING: Cell<bool> = Cell::new(false);
+    static SKIRMISH_SLOT_LIST_UPDATES_ENABLED: Cell<bool> = Cell::new(true);
+
+    // Popup state
+    static POPUP_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
+    static POPUP_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
+
+    // Main menu state - matches C++ buttonPushed, isShuttingDown, startGame
+    static MAIN_MENU_BUTTON_PUSHED: Cell<bool> = Cell::new(false);
+    static MAIN_MENU_IS_SHUTTING_DOWN: Cell<bool> = Cell::new(false);
+    static MAIN_MENU_START_GAME: Cell<bool> = Cell::new(false);
+    static MAIN_MENU_DONT_ALLOW_TRANSITIONS: Cell<bool> = Cell::new(false);
+    static MAIN_MENU_CAMPAIGN_SELECTED: Cell<bool> = Cell::new(false);
+}
+
+// LAN state accessors
+#[inline]
+pub fn lan_button_pushed() -> bool {
+    LAN_BUTTON_PUSHED.with(Cell::get)
+}
+#[inline]
+pub fn set_lan_button_pushed(v: bool) {
+    LAN_BUTTON_PUSHED.with(|c| c.set(v));
+}
+#[inline]
+pub fn lan_is_shutting_down() -> bool {
+    LAN_IS_SHUTTING_DOWN.with(Cell::get)
+}
+#[inline]
+pub fn set_lan_is_shutting_down(v: bool) {
+    LAN_IS_SHUTTING_DOWN.with(|c| c.set(v));
+}
+#[inline]
+pub fn lan_is_initing() -> bool {
+    LAN_IS_INITING.with(Cell::get)
+}
+#[inline]
+pub fn set_lan_is_initing(v: bool) {
+    LAN_IS_INITING.with(|c| c.set(v));
+}
+#[inline]
+pub fn lan_slot_updates_enabled() -> bool {
+    LAN_SLOT_LIST_UPDATES_ENABLED.with(Cell::get)
+}
+#[inline]
+pub fn set_lan_slot_updates_enabled(v: bool) {
+    LAN_SLOT_LIST_UPDATES_ENABLED.with(|c| c.set(v));
+}
+
+// Skirmish state accessors
+#[inline]
+pub fn skirmish_button_pushed() -> bool {
+    SKIRMISH_BUTTON_PUSHED.with(Cell::get)
+}
+#[inline]
+pub fn set_skirmish_button_pushed(v: bool) {
+    SKIRMISH_BUTTON_PUSHED.with(|c| c.set(v));
+}
+#[inline]
+pub fn skirmish_is_shutting_down() -> bool {
+    SKIRMISH_IS_SHUTTING_DOWN.with(Cell::get)
+}
+#[inline]
+pub fn set_skirmish_is_shutting_down(v: bool) {
+    SKIRMISH_IS_SHUTTING_DOWN.with(|c| c.set(v));
+}
+#[inline]
+pub fn skirmish_is_initing() -> bool {
+    SKIRMISH_IS_INITING.with(Cell::get)
+}
+#[inline]
+pub fn set_skirmish_is_initing(v: bool) {
+    SKIRMISH_IS_INITING.with(|c| c.set(v));
+}
+#[inline]
+pub fn skirmish_slot_updates_enabled() -> bool {
+    SKIRMISH_SLOT_LIST_UPDATES_ENABLED.with(Cell::get)
+}
+#[inline]
+pub fn set_skirmish_slot_updates_enabled(v: bool) {
+    SKIRMISH_SLOT_LIST_UPDATES_ENABLED.with(|c| c.set(v));
+}
+
+// Popup state accessors
+#[inline]
+pub fn popup_button_pushed() -> bool {
+    POPUP_BUTTON_PUSHED.with(Cell::get)
+}
+#[inline]
+pub fn set_popup_button_pushed(v: bool) {
+    POPUP_BUTTON_PUSHED.with(|c| c.set(v));
+}
+#[inline]
+pub fn popup_is_shutting_down() -> bool {
+    POPUP_IS_SHUTTING_DOWN.with(Cell::get)
+}
+#[inline]
+pub fn set_popup_is_shutting_down(v: bool) {
+    POPUP_IS_SHUTTING_DOWN.with(|c| c.set(v));
+}
+
+// Main menu state accessors
+#[inline]
+pub fn main_menu_button_pushed() -> bool {
+    MAIN_MENU_BUTTON_PUSHED.with(Cell::get)
+}
+#[inline]
+pub fn set_main_menu_button_pushed(v: bool) {
+    MAIN_MENU_BUTTON_PUSHED.with(|c| c.set(v));
+}
+#[inline]
+pub fn main_menu_is_shutting_down() -> bool {
+    MAIN_MENU_IS_SHUTTING_DOWN.with(Cell::get)
+}
+#[inline]
+pub fn set_main_menu_is_shutting_down(v: bool) {
+    MAIN_MENU_IS_SHUTTING_DOWN.with(|c| c.set(v));
+}
+#[inline]
+pub fn main_menu_start_game() -> bool {
+    MAIN_MENU_START_GAME.with(Cell::get)
+}
+#[inline]
+pub fn set_main_menu_start_game(v: bool) {
+    MAIN_MENU_START_GAME.with(|c| c.set(v));
+}
+#[inline]
+pub fn main_menu_transitions_allowed() -> bool {
+    !MAIN_MENU_DONT_ALLOW_TRANSITIONS.with(Cell::get)
+}
+#[inline]
+pub fn set_main_menu_transitions_allowed(v: bool) {
+    MAIN_MENU_DONT_ALLOW_TRANSITIONS.with(|c| c.set(!v));
+}
+#[inline]
+pub fn main_menu_campaign_selected() -> bool {
+    MAIN_MENU_CAMPAIGN_SELECTED.with(Cell::get)
+}
+#[inline]
+pub fn set_main_menu_campaign_selected(v: bool) {
+    MAIN_MENU_CAMPAIGN_SELECTED.with(|c| c.set(v));
+}

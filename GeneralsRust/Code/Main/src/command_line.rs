@@ -301,9 +301,7 @@ impl CommandLineArgs {
 
     /// Get the effective log level
     pub fn get_log_level(&self) -> String {
-        self.log_level
-            .clone()
-            .unwrap_or_else(|| "info".to_string())
+        self.log_level.clone().unwrap_or_else(|| "info".to_string())
     }
 
     /// Print help information

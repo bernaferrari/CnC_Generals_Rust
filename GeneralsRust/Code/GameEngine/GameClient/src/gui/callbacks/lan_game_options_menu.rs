@@ -1,4 +1,7 @@
 //! LanGameOptionsMenu.cpp callback port.
+//!
+//! Uses thread-local RefCell for window state (idiomatic Rust for single-threaded GUI)
+//! and Cell<bool> global flags matching C++ statics (via mod.rs helpers).
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
@@ -16,12 +19,20 @@ use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_LAN;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+
+// Import global state helpers from mod.rs - matches C++ static globals
+use super::{
+    lan_button_pushed, lan_is_initing, lan_is_shutting_down, lan_slot_updates_enabled,
+    set_lan_button_pushed, set_lan_is_initing, set_lan_is_shutting_down,
+    set_lan_slot_updates_enabled,
+};
 
 const KEY_ESC: u32 = 0x1B;
 const KEY_STATE_UP: u32 = 0x0001;
 const MAX_SLOTS: usize = 8;
 
+/// Window state stored in thread-local RefCell (single-threaded GUI)
+/// This replaces Arc<Mutex> with zero-overhead RefCell
 #[derive(Default)]
 struct LanGameOptionsState {
     parent_id: i32,
@@ -48,13 +59,26 @@ struct LanGameOptionsState {
     selected_map: Option<String>,
 }
 
+/// Thread-local state using RefCell - zero-overhead for single-threaded GUI
 thread_local! {
-    static LAN_GAME_OPTIONS_STATE: Arc<Mutex<LanGameOptionsState>> =
-        Arc::new(Mutex::new(LanGameOptionsState::default()));
+    static LAN_GAME_OPTIONS_STATE: RefCell<LanGameOptionsState> =
+        RefCell::new(LanGameOptionsState::default());
+    static LAN_MAP_SELECT_LAYOUT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
+        const { RefCell::new(None) };
 }
 
-fn game_options_state() -> Arc<Mutex<LanGameOptionsState>> {
-    LAN_GAME_OPTIONS_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_state<R>(f: impl FnOnce(&mut LanGameOptionsState) -> R) -> R {
+    LAN_GAME_OPTIONS_STATE.with(|s| f(&mut s.borrow_mut()))
+}
+
+/// Access state immutably
+fn with_state_ref<R>(f: impl FnOnce(&LanGameOptionsState) -> R) -> R {
+    LAN_GAME_OPTIONS_STATE.with(|s| f(&s.borrow()))
+}
+
+fn with_lan_map_select_layout<R>(f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R) -> R {
+    LAN_MAP_SELECT_LAYOUT.with(|layout| f(&mut layout.borrow_mut()))
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -236,6 +260,80 @@ fn sync_map_to_game_info(state: &LanGameOptionsState) {
         }
         sync_map_metadata(map);
     }
+}
+
+pub(crate) fn show_lan_game_options_underlying_gui_elements(show: bool) {
+    const LAYOUT: &str = "LanGameOptionsMenu.wnd:";
+    let gadgets = [
+        "MapWindow",
+        "TextEntryMapDisplay",
+        "ButtonSelectMap",
+        "ButtonStart",
+        "ButtonEmote",
+        "TextEntryChat",
+        "ListboxChatWindowLanGame",
+        "CheckboxLimitSuperweapons",
+        "ComboBoxStartingCash",
+    ];
+
+    with_window_manager(|manager| {
+        for name in gadgets {
+            let id = name_to_id(&format!("{LAYOUT}{name}"));
+            if let Some(win) = manager.get_window_by_id(id) {
+                let mut guard = win.borrow_mut();
+                let _ = guard.hide(!show);
+                let _ = guard.enable(show);
+            }
+        }
+
+        for i in 0..MAX_SLOTS {
+            for base in [
+                "ButtonAccept",
+                "ButtonMapStartPosition",
+                "ComboBoxPlayer",
+                "ComboBoxColor",
+                "ComboBoxTeam",
+                "ComboBoxPlayerTemplate",
+            ] {
+                let id = name_to_id(&format!("{LAYOUT}{base}{i}"));
+                if let Some(win) = manager.get_window_by_id(id) {
+                    let mut guard = win.borrow_mut();
+                    let _ = guard.hide(!show);
+                    let _ = guard.enable(show);
+                }
+            }
+        }
+
+        if let Some(win) = manager.get_window_by_id(name_to_id("LanGameOptionsMenu.wnd:ButtonBack"))
+        {
+            let _ = win.borrow_mut().enable(show);
+        }
+    });
+}
+
+pub(crate) fn destroy_lan_map_select_overlay() {
+    with_lan_map_select_layout(|layout| {
+        let Some(layout) = layout.take() else {
+            return;
+        };
+        with_window_manager(|manager| manager.destroy_layout(&layout));
+    });
+}
+
+pub(crate) fn refresh_lan_game_options_from_setup() {
+    with_state(|state| {
+        let selected_map = {
+            let setup = get_lan_setup();
+            setup.selected_map().to_string()
+        };
+
+        if !selected_map.is_empty() {
+            state.selected_map = Some(selected_map);
+        }
+        update_map_preview(state);
+        sync_map_to_game_info(state);
+        lan_update_slot_list(state);
+    });
 }
 
 fn ensure_default_slots() {
@@ -495,7 +593,13 @@ fn populate_global_controls() {
     }
 }
 
+/// Update slot list - matches C++ lanUpdateSlotList with guard checks
 fn lan_update_slot_list(state: &mut LanGameOptionsState) {
+    // Guard checks matching C++: if(!AreSlotListUpdatesEnabled() || s_isIniting) return;
+    if !lan_slot_updates_enabled() || lan_is_initing() {
+        return;
+    }
+
     for i in 0..MAX_SLOTS {
         update_slot_selection(state, i);
     }
@@ -832,98 +936,141 @@ pub fn lan_game_options_menu_init(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let state_handle = game_options_state();
-    let mut state = state_handle
-        .lock()
-        .expect("LanGameOptionsMenu state lock poisoned");
+    // Set initing flag - matches C++ s_isIniting = TRUE
+    set_lan_is_initing(true);
+    set_lan_button_pushed(false);
+    set_lan_is_shutting_down(false);
 
-    state.parent_id = name_to_id("LanGameOptionsMenu.wnd:LanGameOptionsMenuParent");
-    state.button_start_id = name_to_id("LanGameOptionsMenu.wnd:ButtonStart");
-    state.button_back_id = name_to_id("LanGameOptionsMenu.wnd:ButtonBack");
-    state.button_select_map_id = name_to_id("LanGameOptionsMenu.wnd:ButtonSelectMap");
-    state.button_emote_id = name_to_id("LanGameOptionsMenu.wnd:ButtonEmote");
-    state.text_entry_chat_id = name_to_id("LanGameOptionsMenu.wnd:TextEntryChat");
-    state.text_entry_map_display_id = name_to_id("LanGameOptionsMenu.wnd:TextEntryMapDisplay");
-    state.listbox_chat_id = name_to_id("LanGameOptionsMenu.wnd:ListboxChatWindowLanGame");
-    state.map_window_id = name_to_id("LanGameOptionsMenu.wnd:MapWindow");
-    state.checkbox_limit_superweapons_id =
-        name_to_id("LanGameOptionsMenu.wnd:CheckboxLimitSuperweapons");
-    state.combo_box_starting_cash_id = name_to_id("LanGameOptionsMenu.wnd:ComboBoxStartingCash");
-    for i in 0..MAX_SLOTS {
-        state.start_position_ids[i] = name_to_id(&format!(
-            "LanGameOptionsMenu.wnd:ButtonMapStartPosition{}",
-            i
-        ));
-        state.button_accept_ids[i] =
-            name_to_id(&format!("LanGameOptionsMenu.wnd:ButtonAccept{}", i));
-        state.combo_box_player_ids[i] =
-            name_to_id(&format!("LanGameOptionsMenu.wnd:ComboBoxPlayer{}", i));
-        state.combo_box_color_ids[i] =
-            name_to_id(&format!("LanGameOptionsMenu.wnd:ComboBoxColor{}", i));
-        state.combo_box_template_ids[i] = name_to_id(&format!(
-            "LanGameOptionsMenu.wnd:ComboBoxPlayerTemplate{}",
-            i
-        ));
-        state.combo_box_team_ids[i] =
-            name_to_id(&format!("LanGameOptionsMenu.wnd:ComboBoxTeam{}", i));
-    }
+    with_state(|state| {
+        state.parent_id = name_to_id("LanGameOptionsMenu.wnd:LanGameOptionsMenuParent");
+        state.button_start_id = name_to_id("LanGameOptionsMenu.wnd:ButtonStart");
+        state.button_back_id = name_to_id("LanGameOptionsMenu.wnd:ButtonBack");
+        state.button_select_map_id = name_to_id("LanGameOptionsMenu.wnd:ButtonSelectMap");
+        state.button_emote_id = name_to_id("LanGameOptionsMenu.wnd:ButtonEmote");
+        state.text_entry_chat_id = name_to_id("LanGameOptionsMenu.wnd:TextEntryChat");
+        state.text_entry_map_display_id = name_to_id("LanGameOptionsMenu.wnd:TextEntryMapDisplay");
+        state.listbox_chat_id = name_to_id("LanGameOptionsMenu.wnd:ListboxChatWindowLanGame");
+        state.map_window_id = name_to_id("LanGameOptionsMenu.wnd:MapWindow");
+        state.checkbox_limit_superweapons_id =
+            name_to_id("LanGameOptionsMenu.wnd:CheckboxLimitSuperweapons");
+        state.combo_box_starting_cash_id =
+            name_to_id("LanGameOptionsMenu.wnd:ComboBoxStartingCash");
+        for i in 0..MAX_SLOTS {
+            state.start_position_ids[i] = name_to_id(&format!(
+                "LanGameOptionsMenu.wnd:ButtonMapStartPosition{}",
+                i
+            ));
+            state.button_accept_ids[i] =
+                name_to_id(&format!("LanGameOptionsMenu.wnd:ButtonAccept{}", i));
+            state.combo_box_player_ids[i] =
+                name_to_id(&format!("LanGameOptionsMenu.wnd:ComboBoxPlayer{}", i));
+            state.combo_box_color_ids[i] =
+                name_to_id(&format!("LanGameOptionsMenu.wnd:ComboBoxColor{}", i));
+            state.combo_box_template_ids[i] = name_to_id(&format!(
+                "LanGameOptionsMenu.wnd:ComboBoxPlayerTemplate{}",
+                i
+            ));
+            state.combo_box_team_ids[i] =
+                name_to_id(&format!("LanGameOptionsMenu.wnd:ComboBoxTeam{}", i));
+        }
 
-    with_window_manager(|manager| {
-        state.parent = manager.get_window_by_id(state.parent_id);
-        state.map_window = manager.get_window_by_id(state.map_window_id);
-        state.text_entry_map_display = manager.get_window_by_id(state.text_entry_map_display_id);
-        state.listbox_chat = manager.get_window_by_id(state.listbox_chat_id);
+        with_window_manager(|manager| {
+            state.parent = manager.get_window_by_id(state.parent_id);
+            state.map_window = manager.get_window_by_id(state.map_window_id);
+            state.text_entry_map_display =
+                manager.get_window_by_id(state.text_entry_map_display_id);
+            state.listbox_chat = manager.get_window_by_id(state.listbox_chat_id);
+        });
+
+        {
+            let setup = get_lan_setup();
+            if !setup.selected_map().is_empty() {
+                state.selected_map = Some(setup.selected_map().to_string());
+            }
+        }
+
+        // Disable slot list updates during init - matches C++ EnableSlotListUpdates(FALSE)
+        set_lan_slot_updates_enabled(false);
+        ensure_default_slots();
+        populate_slot_controls(state);
+        populate_global_controls();
+        set_lan_slot_updates_enabled(true);
+
+        choose_default_map(state);
+        sync_map_to_game_info(state);
+        update_map_preview(state);
+        lan_update_slot_list(state);
     });
 
-    {
-        let setup = get_lan_setup();
-        if !setup.selected_map().is_empty() {
-            state.selected_map = Some(setup.selected_map().to_string());
-        }
-    }
-
-    ensure_default_slots();
-    populate_slot_controls(&mut state);
-    populate_global_controls();
-    choose_default_map(&mut state);
-    sync_map_to_game_info(&state);
-    update_map_preview(&mut state);
-    lan_update_slot_list(&mut state);
     layout.hide(false);
+
+    // Clear initing flag - matches C++ s_isIniting = FALSE
+    set_lan_is_initing(false);
 }
 
 pub fn lan_game_options_menu_update(
-    _layout: &WindowLayout,
+    layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let state_handle = game_options_state();
-    let mut state = state_handle
-        .lock()
-        .expect("LanGameOptionsMenu state lock poisoned");
+    // Check shutdown - matches C++ pattern
+    if lan_is_shutting_down()
+        && get_shell().is_anim_finished()
+        && with_window_manager(|manager| manager.transitions_finished())
+    {
+        // Clear window refs before shutdown complete
+        with_state(|state| {
+            state.parent = None;
+            state.map_window = None;
+            state.text_entry_map_display = None;
+            state.listbox_chat = None;
+        });
+        set_lan_is_shutting_down(false);
+        layout.hide(true);
+        let _ = get_shell().shutdown_complete(None, false);
+        return;
+    }
+
+    // Check for map changes
     let setup_map = {
         let setup = get_lan_setup();
         setup.selected_map().to_string()
     };
-    if !setup_map.is_empty() && state.selected_map.as_deref() != Some(setup_map.as_str()) {
-        state.selected_map = Some(setup_map);
-        update_map_preview(&mut state);
-        sync_map_to_game_info(&state);
-        lan_update_slot_list(&mut state);
-    }
+
+    with_state(|state| {
+        if !setup_map.is_empty() && state.selected_map.as_deref() != Some(setup_map.as_str()) {
+            state.selected_map = Some(setup_map);
+            update_map_preview(state);
+            sync_map_to_game_info(state);
+            lan_update_slot_list(state);
+        }
+    });
 }
 
 pub fn lan_game_options_menu_shutdown(
-    _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let state_handle = game_options_state();
-    let mut state = state_handle
-        .lock()
-        .expect("LanGameOptionsMenu state lock poisoned");
-    state.parent = None;
-    state.map_window = None;
-    state.text_entry_map_display = None;
-    state.listbox_chat = None;
+    let pop_immediate = user_data
+        .and_then(|data| data.downcast_ref::<bool>())
+        .copied()
+        .unwrap_or(false);
+
+    if pop_immediate {
+        // Clear window refs
+        with_state(|state| {
+            state.parent = None;
+            state.map_window = None;
+            state.text_entry_map_display = None;
+            state.listbox_chat = None;
+        });
+        layout.hide(true);
+        let _ = get_shell().shutdown_complete(None, false);
+        return;
+    }
+
+    set_lan_is_shutting_down(true);
+    get_shell().reverse_animate_window();
+    with_window_manager(|manager| manager.transition_reverse("LanGameOptionsFade"));
 }
 
 pub fn lan_game_options_menu_system(
@@ -932,57 +1079,76 @@ pub fn lan_game_options_menu_system(
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let state_handle = game_options_state();
-    let mut state = state_handle
-        .lock()
-        .expect("LanGameOptionsMenu state lock poisoned");
-
-    match msg {
+    let mut handled = false;
+    with_state(|state| match msg {
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_start_id {
-                start_lan_game(&mut state);
-                return WindowMsgHandled::Handled;
+                start_lan_game(state);
+                handled = true;
+                return;
             }
             if control_id == state.button_back_id {
                 let _ = get_shell().pop();
-                return WindowMsgHandled::Handled;
+                handled = true;
+                return;
             }
             if control_id == state.button_select_map_id {
-                let _ = get_shell().push("Menus/LanMapSelectMenu.wnd", false);
-                return WindowMsgHandled::Handled;
+                destroy_lan_map_select_overlay();
+                if let Some((layout, _)) = with_window_manager(|manager| {
+                    manager
+                        .create_layout_with_windows("Menus/LanMapSelectMenu.wnd")
+                        .ok()
+                }) {
+                    with_lan_map_select_layout(|current| *current = Some(layout.clone()));
+                    layout.borrow().run_init(None);
+                    let mut layout_mut = layout.borrow_mut();
+                    layout_mut.hide(false);
+                    layout_mut.bring_forward();
+                }
+                handled = true;
+                return;
             }
-            if handle_accept_click(&mut state, control_id) {
-                lan_update_slot_list(&mut state);
-                return WindowMsgHandled::Handled;
+            if handle_accept_click(state, control_id) {
+                lan_update_slot_list(state);
+                handled = true;
+                return;
             }
-            if handle_combo_selection(&mut state, control_id) {
-                lan_update_slot_list(&mut state);
-                return WindowMsgHandled::Handled;
+            if handle_combo_selection(state, control_id) {
+                lan_update_slot_list(state);
+                handled = true;
+                return;
             }
-            if handle_start_position_click(&mut state, control_id) {
-                lan_update_slot_list(&mut state);
-                return WindowMsgHandled::Handled;
+            if handle_start_position_click(state, control_id) {
+                lan_update_slot_list(state);
+                handled = true;
+                return;
             }
         }
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
-            if handle_combo_selection(&mut state, control_id) {
-                lan_update_slot_list(&mut state);
-                return WindowMsgHandled::Handled;
+            if handle_combo_selection(state, control_id) {
+                lan_update_slot_list(state);
+                handled = true;
+                return;
             }
         }
         WindowMessage::GadgetRightClick => {
             let control_id = data1 as i32;
-            if handle_start_position_right_click(&mut state, control_id) {
-                lan_update_slot_list(&mut state);
-                return WindowMsgHandled::Handled;
+            if handle_start_position_right_click(state, control_id) {
+                lan_update_slot_list(state);
+                handled = true;
+                return;
             }
         }
         _ => {}
-    }
+    });
 
-    WindowMsgHandled::Ignored
+    if handled {
+        WindowMsgHandled::Handled
+    } else {
+        WindowMsgHandled::Ignored
+    }
 }
 
 pub fn lan_game_options_menu_input(

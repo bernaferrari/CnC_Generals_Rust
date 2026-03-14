@@ -475,7 +475,7 @@ impl AISkirmishPlayer {
                 && !self.scout_units.contains(object_id)
             {
                 self.scout_units.push(*object_id);
-                println!(
+                log::debug!(
                     "AI Player {} assigned {} as scout unit",
                     self.base.player_id, object_id
                 );
@@ -681,7 +681,7 @@ impl AISkirmishPlayer {
             self.front_base_defense_count += 1;
         }
 
-        println!(
+        log::debug!(
             "AI Player {} building {} defense at {:?}",
             self.base.player_id, defense_name, position
         );
@@ -715,7 +715,7 @@ impl AISkirmishPlayer {
                 // Command unit to move to defensive position
                 if let Some(_defender) = game_logic.find_object(defender_id) {
                     // In a real implementation, we would command the unit to move
-                    println!(
+                    log::debug!(
                         "AI Player {} assigning unit {} to defend position {:?}",
                         self.base.player_id, defender_id, position.position
                     );
@@ -785,7 +785,7 @@ impl AISkirmishPlayer {
         // Remove disbanded groups
         for &index in groups_to_remove.iter().rev() {
             let group = self.attack_groups.remove(index);
-            println!(
+            log::debug!(
                 "AI Player {} disbanded attack group: {}",
                 self.base.player_id, group.name
             );
@@ -859,7 +859,7 @@ impl AISkirmishPlayer {
             };
 
             self.attack_groups.push(attack_group);
-            println!(
+            log::debug!(
                 "AI Player {} formed new attack group: {}",
                 self.base.player_id, group_name
             );
@@ -920,7 +920,7 @@ impl AISkirmishPlayer {
 
             if ready_groups.len() >= 2 {
                 // Coordinate timing - wait for all groups to be in position
-                println!(
+                log::debug!(
                     "AI Player {} coordinating combined attack with {} groups",
                     self.base.player_id,
                     ready_groups.len()
@@ -1066,7 +1066,7 @@ impl AISkirmishPlayer {
 
                 self.base.add_building(command_center, site.position, 1);
 
-                println!(
+                log::debug!(
                     "AI Player {} planning expansion at {:?}",
                     self.base.player_id, site.position
                 );
@@ -1092,7 +1092,7 @@ impl AISkirmishPlayer {
 
                     self.base.add_building(command_center, site.position, 1);
 
-                    println!(
+                    log::debug!(
                         "AI Player {} planning expansion at {:?}",
                         self.base.player_id, site.position
                     );
@@ -1189,7 +1189,7 @@ impl AISkirmishPlayer {
                     self.supply_route_security.push(unit_id);
 
                     // Command unit to patrol area (in real implementation)
-                    println!(
+                    log::debug!(
                         "AI Player {} assigning unit {} to patrol supply route",
                         self.base.player_id, unit_id
                     );
@@ -1277,7 +1277,7 @@ impl AISkirmishPlayer {
         if !self.available_superweapons.is_empty() {
             let weapon = &self.available_superweapons[0];
 
-            println!(
+            log::debug!(
                 "AI Player {} deploying {} at {:?}",
                 self.base.player_id, weapon, target
             );
@@ -1435,7 +1435,7 @@ impl AISkirmishPlayer {
                 group.status = GroupStatus::Retreating;
                 group.target_position = retreat_pos;
 
-                println!(
+                log::debug!(
                     "AI Player {} ordering retreat for group {}",
                     self.base.player_id, group.name
                 );

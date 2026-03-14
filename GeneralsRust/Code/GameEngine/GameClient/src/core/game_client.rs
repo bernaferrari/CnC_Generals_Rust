@@ -64,7 +64,7 @@ use crate::effects::weather_complete::{get_weather_system_mut, initialize_weathe
 use crate::effects::{DecalManager, DecalSettings, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
-use crate::gui::{get_shell, set_ui_renderer, UIRenderer};
+use crate::gui::{get_shell, set_ui_renderer, with_window_manager, UIRenderer, WindowStatus};
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -741,6 +741,21 @@ impl GameClient {
         Self::reset_global_video_player_streams();
         self.startup_sizzle_pending = false;
 
+        // C++ parity: show a blank transition window while subsystems reset.
+        let reset_background = with_window_manager(|manager| {
+            manager
+                .create_layout_with_windows("Menus/BlankWindow.wnd")
+                .ok()
+                .map(|(layout, _)| {
+                    layout.borrow_mut().hide(false);
+                    layout.borrow_mut().bring_forward();
+                    if let Some(window) = layout.borrow().get_first_window() {
+                        window.borrow_mut().clear_status(WindowStatus::IMAGE);
+                    }
+                    layout
+                })
+        });
+
         // Clear drawable map
         self.drawable_map.clear();
         self.drawable_object_map.clear();
@@ -756,6 +771,10 @@ impl GameClient {
 
         // Reset subsystems
         self.subsystem_manager.reset_all()?;
+
+        if let Some(layout) = reset_background {
+            with_window_manager(|manager| manager.destroy_layout(&layout));
+        }
 
         // Clear TOC
         self.drawable_toc.clear();
@@ -1633,13 +1652,11 @@ impl GameClient {
             GameClientError::SubsystemError(format!("GameText init failed: {err}"))
         })?;
         log::debug!("Loaded {loaded_strings} localized GameText strings");
-        eprintln!("DEBUG_STARTUP_GAMETEXT: loaded_strings={loaded_strings}");
 
         // C++ parity: mapped images are available before shell/window creation.
         game_engine::common::ini::ini_mapped_image::ImageCollection::load_global(512);
         let imported = sync_mapped_images_from_common();
         log::debug!("Imported {imported} mapped images into client image collection");
-        eprintln!("DEBUG_STARTUP_MAPPED_IMPORT: imported={imported}");
         log_startup_shell_mapped_images();
 
         Ok(())
@@ -2212,12 +2229,21 @@ impl GameClient {
         }
 
         log::info!("Activating shell after startup movie flow");
-        get_shell().show_shell(true).map_err(|err| {
+        let mut shell = get_shell();
+        shell.show_shell(true).map_err(|err| {
             GameClientError::SubsystemError(format!(
                 "Failed to activate shell after startup movies: {}",
                 err
             ))
         })?;
+        if shell.get_screen_count() == 0 {
+            shell.push("Menus/MainMenu.wnd", false).map_err(|err| {
+                GameClientError::SubsystemError(format!(
+                    "Failed to push MainMenu.wnd after startup movies: {}",
+                    err
+                ))
+            })?;
+        }
         Ok(())
     }
 
@@ -2292,6 +2318,14 @@ impl GameClient {
             shell.show_shell(true).map_err(|err| {
                 GameClientError::SubsystemError(format!(
                     "Failed to ensure shell visibility: {}",
+                    err
+                ))
+            })?;
+        }
+        if shell.get_screen_count() == 0 {
+            shell.push("Menus/MainMenu.wnd", false).map_err(|err| {
+                GameClientError::SubsystemError(format!(
+                    "Failed to restore MainMenu.wnd for shell visibility: {}",
                     err
                 ))
             })?;
@@ -2377,8 +2411,8 @@ fn log_startup_shell_mapped_images() {
         "MainMenuRuler",
     ] {
         match collection.find_image_by_name(name) {
-            Some(image) => eprintln!(
-                "DEBUG_STARTUP_IMAGE: name={} file={} uv=({}, {}, {}, {}) size={}x{} tex={}x{}",
+            Some(image) => log::debug!(
+                "startup mapped image: name={} file={} uv=({}, {}, {}, {}) size={}x{} tex={}x{}",
                 name,
                 image.get_filename(),
                 image.get_uv().min.x,
@@ -2390,7 +2424,7 @@ fn log_startup_shell_mapped_images() {
                 image.get_texture_size().x,
                 image.get_texture_size().y,
             ),
-            None => eprintln!("DEBUG_STARTUP_IMAGE: missing={name}"),
+            None => log::debug!("startup mapped image missing: {name}"),
         }
     }
 }

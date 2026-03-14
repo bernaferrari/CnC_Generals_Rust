@@ -1251,6 +1251,10 @@ impl ThingTemplate {
         self.build_completion
     }
 
+    pub fn is_build_facility(&self) -> bool {
+        self.is_build_facility
+    }
+
     /// Get energy production/consumption value
     ///
     /// # C++ Reference

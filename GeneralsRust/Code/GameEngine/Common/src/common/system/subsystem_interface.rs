@@ -313,6 +313,32 @@ impl SubsystemManager {
         self.update_all()
     }
 
+    /// Reset all subsystems in initialization order.
+    pub fn reset_all(&mut self) -> SubsystemResult<()> {
+        if !self.is_running {
+            return Err(SubsystemError::NotInitialized);
+        }
+
+        for name in &self.initialization_order {
+            let index = self
+                .index_map
+                .get(name)
+                .expect("initialization order references unknown subsystem");
+            let subsystem = &mut self.entries[*index].subsystem;
+            subsystem.reset().map_err(|e| {
+                SubsystemError::OperationFailed(format!("Failed to reset '{}': {}", name, e))
+            })?;
+        }
+
+        self.last_update = Instant::now();
+        Ok(())
+    }
+
+    /// Async-friendly wrapper around [`reset_all`].
+    pub async fn reset_all_async(&mut self) -> SubsystemResult<()> {
+        self.reset_all()
+    }
+
     /// Shutdown all subsystems
     pub fn shutdown_all(&mut self) -> SubsystemResult<()> {
         // Shutdown in reverse order
@@ -501,6 +527,62 @@ impl SubsystemInterface for ExampleSubsystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct ResetTrackingSubsystem {
+        state: SubsystemState,
+        reset_counter: Arc<AtomicUsize>,
+    }
+
+    impl ResetTrackingSubsystem {
+        fn new(reset_counter: Arc<AtomicUsize>) -> Self {
+            Self {
+                state: SubsystemState::Uninitialized,
+                reset_counter,
+            }
+        }
+    }
+
+    impl SubsystemInterface for ResetTrackingSubsystem {
+        fn name(&self) -> &str {
+            "ResetTracking"
+        }
+
+        fn init(&mut self) -> SubsystemResult<()> {
+            self.state = SubsystemState::Running;
+            Ok(())
+        }
+
+        fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn shutdown(&mut self) -> SubsystemResult<()> {
+            self.state = SubsystemState::Shutdown;
+            Ok(())
+        }
+
+        fn state(&self) -> SubsystemState {
+            self.state
+        }
+
+        fn reset(&mut self) -> SubsystemResult<()> {
+            self.reset_counter.fetch_add(1, Ordering::Relaxed);
+            self.state = SubsystemState::Running;
+            Ok(())
+        }
+
+        fn as_any(&self) -> &(dyn Any + Send + Sync) {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut (dyn Any + Send + Sync) {
+            self
+        }
+    }
 
     #[test]
     fn test_subsystem_manager() {
@@ -543,5 +625,25 @@ mod tests {
         manager.resume_subsystem("StateTest").unwrap();
         let states = manager.get_subsystem_states();
         assert_eq!(states.get("StateTest"), Some(&SubsystemState::Running));
+    }
+
+    #[test]
+    fn test_reset_all_requires_init_and_invokes_reset() {
+        let mut manager = SubsystemManager::new();
+        let reset_counter = Arc::new(AtomicUsize::new(0));
+        manager
+            .register_subsystem(SubsystemDescriptor::new(Box::new(
+                ResetTrackingSubsystem::new(reset_counter.clone()),
+            )))
+            .unwrap();
+
+        let err = manager
+            .reset_all()
+            .expect_err("reset before init should fail");
+        assert!(matches!(err, SubsystemError::NotInitialized));
+
+        manager.init_all().unwrap();
+        manager.reset_all().unwrap();
+        assert_eq!(reset_counter.load(Ordering::Relaxed), 1);
     }
 }

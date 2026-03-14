@@ -535,7 +535,7 @@ impl CommandSystem {
     /// Set the current command mode
     pub fn set_mode(&mut self, mode: CommandMode) {
         self.current_mode = mode.clone();
-        println!("Command mode changed to: {:?}", mode);
+        log::debug!("Command mode changed to: {:?}", mode);
     }
 
     /// Process mouse input and create appropriate commands
@@ -868,7 +868,7 @@ impl CommandSystem {
 
     /// Queue command for execution
     pub fn queue_command(&mut self, command: GameCommand) {
-        println!("Queuing command: {:?}", command.command_type);
+        log::debug!("Queuing command: {:?}", command.command_type);
         self.command_queue.push_back(command);
     }
 
@@ -936,7 +936,7 @@ impl CommandSystem {
                 if unit.can_move() {
                     unit.set_destination(destination);
                     unit.set_ai_state(AIState::Moving);
-                    println!("Unit {} moving to {:?}", unit_id.0, destination);
+                    log::debug!("Unit {} moving to {:?}", unit_id.0, destination);
                 } else {
                     all_success = false;
                 }
@@ -975,7 +975,7 @@ impl CommandSystem {
                 if unit.can_attack() {
                     unit.set_target(Some(target_id));
                     unit.set_ai_state(AIState::Attacking);
-                    println!("Unit {} attacking target {}", unit_id.0, target_id.0);
+                    log::debug!("Unit {} attacking target {}", unit_id.0, target_id.0);
                 } else {
                     all_success = false;
                 }
@@ -1005,7 +1005,7 @@ impl CommandSystem {
                 if unit.can_move() && unit.can_attack() {
                     unit.set_destination(destination);
                     unit.set_ai_state(AIState::AttackMoving);
-                    println!("Unit {} attack-moving to {:?}", unit_id.0, destination);
+                    log::debug!("Unit {} attack-moving to {:?}", unit_id.0, destination);
                 } else {
                     all_success = false;
                 }
@@ -1037,7 +1037,7 @@ impl CommandSystem {
                     unit.set_target(Some(target_id));
                     unit.set_ai_state(AIState::Attacking);
                     unit.set_force_attack(true);
-                    println!("Unit {} force-attacking target {}", unit_id.0, target_id.0);
+                    log::debug!("Unit {} force-attacking target {}", unit_id.0, target_id.0);
                 } else {
                     all_success = false;
                 }
@@ -1067,7 +1067,7 @@ impl CommandSystem {
                 if unit.can_attack() {
                     unit.set_target_location(Some(location));
                     unit.set_ai_state(AIState::AttackingGround);
-                    println!(
+                    log::debug!(
                         "Unit {} force-attacking ground at {:?}",
                         unit_id.0, location
                     );
@@ -1096,7 +1096,7 @@ impl CommandSystem {
             if let Some(unit) = game_logic.get_object_mut(unit_id) {
                 unit.stop();
                 unit.set_ai_state(AIState::Idle);
-                println!("Unit {} stopped", unit_id.0);
+                log::debug!("Unit {} stopped", unit_id.0);
             }
         }
         CommandResult::Success
@@ -1127,7 +1127,7 @@ impl CommandSystem {
                 let destination = origin + offset;
                 unit.set_destination(destination);
                 unit.set_ai_state(AIState::Moving);
-                println!("Unit {} scattering toward {:?}", unit_id.0, destination);
+                log::debug!("Unit {} scattering toward {:?}", unit_id.0, destination);
             }
         }
 
@@ -1177,7 +1177,7 @@ impl CommandSystem {
             if let Some(unit) = game_logic.get_object_mut(*unit_id) {
                 unit.set_destination(destination);
                 unit.set_ai_state(AIState::Moving);
-                println!("Unit {} forming up at {:?}", unit_id.0, destination);
+                log::debug!("Unit {} forming up at {:?}", unit_id.0, destination);
             }
         }
 
@@ -1215,12 +1215,12 @@ impl CommandSystem {
                     GuardTarget::Position(pos) => {
                         unit.set_guard_position(Some(*pos));
                         unit.set_ai_state(AIState::GuardingArea);
-                        println!("Unit {} guarding position {:?}", unit_id.0, pos);
+                        log::debug!("Unit {} guarding position {:?}", unit_id.0, pos);
                     }
                     GuardTarget::Object(target_id) => {
                         unit.set_guard_target(Some(*target_id));
                         unit.set_ai_state(AIState::GuardingObject);
-                        println!("Unit {} guarding object {}", unit_id.0, target_id.0);
+                        log::debug!("Unit {} guarding object {}", unit_id.0, target_id.0);
                     }
                 }
             }
@@ -1283,7 +1283,7 @@ impl CommandSystem {
                 unit.set_ai_state(AIState::Constructing);
             }
 
-            println!(
+            log::debug!(
                 "Unit {} constructing {} at {:?}",
                 unit_id.0, template_name, location
             );
@@ -1311,7 +1311,7 @@ impl CommandSystem {
                 }
             }
 
-            println!(
+            log::debug!(
                 "Player {} selected {} units",
                 player_id,
                 player.selected_objects.len()
@@ -1474,7 +1474,7 @@ static COMMAND_SYSTEM: OnceLock<Mutex<CommandSystem>> = OnceLock::new();
 /// Initialize the global command system
 pub fn init_command_system() {
     let _ = COMMAND_SYSTEM.get_or_init(|| {
-        println!("Command system initialized");
+        log::info!("Command system initialized");
         Mutex::new(CommandSystem::new())
     });
 }
@@ -1482,7 +1482,7 @@ pub fn init_command_system() {
 /// Get the global command system instance
 pub fn get_command_system() -> &'static Mutex<CommandSystem> {
     COMMAND_SYSTEM.get_or_init(|| {
-        println!("Command system initialized");
+        log::info!("Command system initialized");
         Mutex::new(CommandSystem::new())
     })
 }

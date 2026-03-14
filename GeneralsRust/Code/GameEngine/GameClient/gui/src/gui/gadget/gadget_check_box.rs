@@ -111,7 +111,11 @@ impl CheckBoxState {
 }
 
 pub fn render_demo(label: &str, checked: bool) -> AnyElement {
-    let state = CheckBoxState::new(checked);
+    render(label, &CheckBoxState::new(checked))
+}
+
+pub fn render(label: impl Into<String>, state: &CheckBoxState) -> AnyElement {
+    let label = label.into();
     div()
         .flex()
         .gap_2()
@@ -121,11 +125,27 @@ pub fn render_demo(label: &str, checked: bool) -> AnyElement {
                 .size(px(18.))
                 .rounded_sm()
                 .border_1()
-                .border_color(rgb(0x8dc0ff))
-                .bg(rgb(0x162331))
+                .border_color(if state.hilited {
+                    rgb(0xd1a65d)
+                } else {
+                    rgb(0x8dc0ff)
+                })
+                .bg(if state.checked {
+                    rgb(0x23412e)
+                } else {
+                    rgb(0x162331)
+                })
                 .child(if state.checked { "X" } else { "" }),
         )
-        .child(label.to_string())
+        .child(
+            div()
+                .text_color(if state.hilited {
+                    rgb(0xd6b179)
+                } else {
+                    rgb(0xc3d1de)
+                })
+                .child(label),
+        )
         .into_any_element()
 }
 
