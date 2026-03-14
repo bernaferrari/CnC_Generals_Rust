@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use ww3d_assets::{
     prototypes::{
-        AnimationPrototype, HierarchyPrototype, HlodPrototype, HModelPrototype,
-        MaterialPassInfo, MeshPrototype, VertexMapperConfig,
+        AnimationPrototype, HModelPrototype, HierarchyPrototype, HlodPrototype, MaterialPassInfo,
+        MeshPrototype, VertexMapperConfig,
     },
     AssetManagerExt as Ww3dAssetManager, W3DLoader as RawW3DLoader,
 };
@@ -412,7 +412,7 @@ impl W3DLoader {
         archive_system: &mut ArchiveFileSystem,
         model_name: &str,
     ) -> Result<W3DModel> {
-        info!("Loading W3D model: {}", model_name);
+        debug!("Loading W3D model: {}", model_name);
 
         // Try to find the W3D file in archives - handle full paths vs. just filenames
         let w3d_filename = if model_name.to_ascii_lowercase().ends_with(".w3d") {
@@ -446,13 +446,13 @@ impl W3DLoader {
 
         let mut last_error = None;
         for path_variant in &path_variations {
-            info!("🔍 Trying path: {}", path_variant);
+            debug!("Trying W3D path: {}", path_variant);
 
             // Add timeout to file loading to prevent hangs
             let file_timeout = tokio::time::Duration::from_secs(5);
             match tokio::time::timeout(file_timeout, archive_system.open_file(path_variant)).await {
                 Ok(Ok(model_data)) => {
-                    info!("✅ Found W3D file at path: {}", path_variant);
+                    debug!("Found W3D file at path: {}", path_variant);
                     debug!("Loaded W3D file data: {} bytes", model_data.len());
                     return self
                         .parse_w3d_data_with_companions(
@@ -521,13 +521,25 @@ impl W3DLoader {
                         let primary_score = Self::model_family_richness_score(&primary_model);
                         if family_score > primary_score {
                             let mut family_model = family_model;
-                            self.enrich_model_textures_from_legacy(data, &model_name, &mut family_model);
+                            self.enrich_model_textures_from_legacy(
+                                data,
+                                &model_name,
+                                &mut family_model,
+                            );
                             let mut family_model = family_model;
-                    self.enrich_model_textures_from_legacy(data, &model_name, &mut family_model);
-                    return Ok(family_model);
+                            self.enrich_model_textures_from_legacy(
+                                data,
+                                &model_name,
+                                &mut family_model,
+                            );
+                            return Ok(family_model);
                         }
                         let mut primary_model = primary_model;
-                        self.enrich_model_textures_from_legacy(data, &model_name, &mut primary_model);
+                        self.enrich_model_textures_from_legacy(
+                            data,
+                            &model_name,
+                            &mut primary_model,
+                        );
                         return Ok(primary_model);
                     }
                     return Ok(family_model);
@@ -541,9 +553,11 @@ impl W3DLoader {
                     let mut best_companion: Option<W3DModel> = None;
                     let mut best_score = 0usize;
                     for (bytes, stem) in &companion_sources {
-                        let parsed = self
-                            .parse_with_ww3d_assets(bytes.as_slice(), stem)
-                            .or_else(|_| self.parse_w3d_data_legacy(bytes.as_slice(), stem.clone()));
+                        let parsed =
+                            self.parse_with_ww3d_assets(bytes.as_slice(), stem)
+                                .or_else(|_| {
+                                    self.parse_w3d_data_legacy(bytes.as_slice(), stem.clone())
+                                });
                         let Ok(mut parsed) = parsed else {
                             continue;
                         };
@@ -590,7 +604,12 @@ impl W3DLoader {
         let material_refs = model
             .meshes
             .iter()
-            .filter(|mesh| mesh.material.texture_name.as_ref().is_some_and(|name| !name.is_empty()))
+            .filter(|mesh| {
+                mesh.material
+                    .texture_name
+                    .as_ref()
+                    .is_some_and(|name| !name.is_empty())
+            })
             .count();
         stage_refs + material_refs + model.texture_names.len()
     }
@@ -631,11 +650,16 @@ impl W3DLoader {
                 continue;
             };
             if mesh.material.texture_name.is_none()
-                && legacy_mesh.material.texture_name.as_ref().is_some_and(|name| !name.is_empty())
+                && legacy_mesh
+                    .material
+                    .texture_name
+                    .as_ref()
+                    .is_some_and(|name| !name.is_empty())
             {
                 mesh.material.texture_name = legacy_mesh.material.texture_name.clone();
                 if mesh.material.stage0_mapping.texture_name.is_none() {
-                    mesh.material.stage0_mapping.texture_name = legacy_mesh.material.texture_name.clone();
+                    mesh.material.stage0_mapping.texture_name =
+                        legacy_mesh.material.texture_name.clone();
                 }
             }
             if mesh.texture_library.is_empty() && !legacy_mesh.texture_library.is_empty() {
@@ -644,7 +668,8 @@ impl W3DLoader {
             if mesh.per_pass_stage_texture_names.is_empty()
                 && !legacy_mesh.per_pass_stage_texture_names.is_empty()
             {
-                mesh.per_pass_stage_texture_names = legacy_mesh.per_pass_stage_texture_names.clone();
+                mesh.per_pass_stage_texture_names =
+                    legacy_mesh.per_pass_stage_texture_names.clone();
             }
         }
 
@@ -790,7 +815,14 @@ impl W3DLoader {
                 return Some(name);
             }
         }
-        for token in ["chassis", "turret", "barrel", "props", "propeller", "bunker"] {
+        for token in [
+            "chassis",
+            "turret",
+            "barrel",
+            "props",
+            "propeller",
+            "bunker",
+        ] {
             if mesh_lower.contains(token) {
                 if let Some(name) = find_match(&model_lower) {
                     return Some(name);
@@ -836,12 +868,16 @@ impl W3DLoader {
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
             return sources;
         };
-        let Some(stem) = file_name.strip_suffix(".w3d").or_else(|| file_name.strip_suffix(".W3D"))
+        let Some(stem) = file_name
+            .strip_suffix(".w3d")
+            .or_else(|| file_name.strip_suffix(".W3D"))
         else {
             return sources;
         };
 
-        let parent = path.parent().map(|parent| parent.to_string_lossy().to_string());
+        let parent = path
+            .parent()
+            .map(|parent| parent.to_string_lossy().to_string());
         for companion_stem in companion_stem_variants(stem) {
             if !seen.insert(companion_stem.to_ascii_lowercase()) {
                 continue;
@@ -991,7 +1027,10 @@ impl W3DLoader {
         }
 
         if mesh_count == 0 {
-            return Err(anyhow!("ww3d-assets: no mesh prototypes found in '{}'", model_name));
+            return Err(anyhow!(
+                "ww3d-assets: no mesh prototypes found in '{}'",
+                model_name
+            ));
         }
 
         model.calculate_bounding_box();
@@ -1071,13 +1110,7 @@ impl W3DLoader {
                     .map(|node| node.render_obj_name.clone())
                     .collect::<Vec<_>>()
             );
-            self.append_hmodel_prototype(
-                hmodel_proto,
-                manager,
-                transform,
-                recursion_stack,
-                model,
-            )?
+            self.append_hmodel_prototype(hmodel_proto, manager, transform, recursion_stack, model)?
         } else if let Some(anim_proto) = proto.as_any().downcast_ref::<AnimationPrototype>() {
             self.append_animation_family_prototype(
                 anim_proto,
@@ -1134,17 +1167,20 @@ impl W3DLoader {
             }
         }
 
-        let companion_prefixed = collect_companion_prefixed_prototypes(&prototype_names, &[
-            anim_proto.hierarchy_name.as_str(),
-            anim_proto.name.as_str(),
-        ]);
+        let companion_prefixed = collect_companion_prefixed_prototypes(
+            &prototype_names,
+            &[anim_proto.hierarchy_name.as_str(), anim_proto.name.as_str()],
+        );
 
         let mut appended = 0usize;
         for candidate in candidates {
             let Some(proto) = manager.find_prototype(&candidate) else {
                 continue;
             };
-            if proto.as_any().downcast_ref::<AnimationPrototype>().is_some()
+            if proto
+                .as_any()
+                .downcast_ref::<AnimationPrototype>()
+                .is_some()
                 && proto.name().eq_ignore_ascii_case(&anim_proto.name)
             {
                 continue;
@@ -1166,7 +1202,11 @@ impl W3DLoader {
                 let Some(proto) = manager.find_prototype(&candidate) else {
                     continue;
                 };
-                if proto.as_any().downcast_ref::<AnimationPrototype>().is_some() {
+                if proto
+                    .as_any()
+                    .downcast_ref::<AnimationPrototype>()
+                    .is_some()
+                {
                     continue;
                 }
                 appended += self.append_render_obj_prototype(
@@ -1182,8 +1222,7 @@ impl W3DLoader {
         if appended == 0 {
             warn!(
                 "flattening animation prototype '{}' hierarchy='{}' found no renderable companion",
-                anim_proto.name,
-                anim_proto.hierarchy_name
+                anim_proto.name, anim_proto.hierarchy_name
             );
         }
 
@@ -1395,7 +1434,10 @@ impl W3DLoader {
                             .texture_ids
                             .iter()
                             .filter_map(|texture_id| {
-                                raw_mesh.textures.get(*texture_id as usize).map(|tex| tex.name.clone())
+                                raw_mesh
+                                    .textures
+                                    .get(*texture_id as usize)
+                                    .map(|tex| tex.name.clone())
                             })
                             .filter(|name| !name.is_empty())
                             .collect::<Vec<_>>()
@@ -1418,7 +1460,10 @@ impl W3DLoader {
         {
             material.texture_name = Some(texture_name.clone());
             material.stage0_mapping.texture_name = Some(texture_name);
-        } else if let Some(stage0) = raw_mesh.vertex_materials.first().and_then(|vm| vm.stage0.clone())
+        } else if let Some(stage0) = raw_mesh
+            .vertex_materials
+            .first()
+            .and_then(|vm| vm.stage0.clone())
         {
             material.texture_name = Some(stage0.clone());
             material.stage0_mapping.texture_name = Some(stage0);
@@ -3248,12 +3293,7 @@ impl W3DLoader {
                 && triangle[1] < vertex_count as u32
                 && triangle[2] < vertex_count as u32
             {
-                push_world_space_triangle(
-                    &mut mesh.indices,
-                    triangle[0],
-                    triangle[1],
-                    triangle[2],
-                );
+                push_world_space_triangle(&mut mesh.indices, triangle[0], triangle[1], triangle[2]);
             }
         }
 
@@ -3507,7 +3547,7 @@ impl W3DLoader {
             _ => unit_name, // Try the name as-is
         };
 
-        info!("Loading C&C model: {} -> {}", unit_name, model_name);
+        debug!("Loading C&C model: {} -> {}", unit_name, model_name);
 
         // Try to load the actual model, fall back to placeholder if not found
         match self.load_model(archive_system, model_name).await {
@@ -3633,9 +3673,9 @@ fn companion_root_proto_name(prototype_names: &[String], model_name: &str) -> Op
     prototype_names.iter().find_map(|name| {
         let lower = name.to_ascii_lowercase();
         if lower == target
-            || companion_targets.iter().any(|companion| {
-                lower == *companion || lower.starts_with(&format!("{companion}."))
-            })
+            || companion_targets
+                .iter()
+                .any(|companion| lower == *companion || lower.starts_with(&format!("{companion}.")))
         {
             Some(name.clone())
         } else {
@@ -3674,8 +3714,7 @@ fn collect_companion_prefixed_prototypes(
 
 fn companion_stem_variants(stem: &str) -> Vec<String> {
     const FAMILY_SUFFIXES: &[&str] = &[
-        "MSH", "_MSH", "SK", "_SK", "SKN", "_SKN", "SKN2", "_SKN2", "SKNP", "_SKNP", "SKL",
-        "_SKL",
+        "MSH", "_MSH", "SK", "_SK", "SKN", "_SKN", "SKN2", "_SKN2", "SKNP", "_SKNP", "SKL", "_SKL",
     ];
 
     let mut variants = Vec::new();

@@ -8,12 +8,11 @@ edition = "2021"
 # ui_framework = { path = "../UIFramework" }
 
 # Core dependencies
-egui = { workspace = true }
-eframe = { workspace = true }
-winit = { workspace = true }
+gpui = "0.2.2"
 
 # Image processing and texture packing
 image = { workspace = true }
+image_compat = { package = "image", version = "0.5.4" }
 texture_packer = { workspace = true }
 walkdir = { workspace = true }
 
@@ -33,10 +32,11 @@ log = { workspace = true }
 env_logger = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+bitflags = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["serde"] }
 
-# Game engine integration (placeholder)
+# Game engine integration
 # wwlib-rust = { workspace = true }
 # game_engine = { workspace = true }
 

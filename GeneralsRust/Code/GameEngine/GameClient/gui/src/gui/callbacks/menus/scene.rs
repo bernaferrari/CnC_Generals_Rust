@@ -46,8 +46,8 @@ use crate::gui::callbacks::menus::wol_quick_match_menu::WolQuickMatchMenuPort;
 use crate::gui::callbacks::menus::wol_status_menu::WolStatusMenuPort;
 use crate::gui::callbacks::menus::wol_welcome_menu::WolWelcomeMenuPort;
 use crate::gui::gadget::{
-    gadget_check_box, gadget_combo_box, gadget_horizontal_slider, gadget_progress_bar,
-    gadget_text_entry, gadget_vertical_slider,
+    gadget_check_box, gadget_combo_box, gadget_horizontal_slider, gadget_list_box,
+    gadget_progress_bar, gadget_push_button, gadget_text_entry, gadget_vertical_slider,
 };
 use crate::gui::source_catalog::MenuScreenPort;
 
@@ -358,29 +358,29 @@ fn render_options_screen(screen: MenuScreenPort) -> AnyElement {
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(gadget_horizontal_slider::render_demo(
+                        .child(gadget_horizontal_slider::render(
                             &format!("Music Volume: {}%", pct(state.music_volume)),
-                            state.music_volume,
+                            &horizontal_slider_state(state.music_volume),
                         ))
-                        .child(gadget_horizontal_slider::render_demo(
+                        .child(gadget_horizontal_slider::render(
                             &format!("FX Volume: {}%", pct(state.sfx_volume)),
-                            state.sfx_volume,
+                            &horizontal_slider_state(state.sfx_volume),
                         ))
-                        .child(gadget_horizontal_slider::render_demo(
+                        .child(gadget_horizontal_slider::render(
                             &format!("Voice Volume: {}%", pct(state.voice_volume)),
-                            state.voice_volume,
+                            &horizontal_slider_state(state.voice_volume),
                         ))
-                        .child(gadget_combo_box::render_demo(&format!(
-                            "{}x{}",
-                            state.resolution.0, state.resolution.1
+                        .child(gadget_combo_box::render(&combo_box_state(
+                            format!("{}x{}", state.resolution.0, state.resolution.1),
+                            &["1024x768", "1280x720", "1600x900", "1920x1080"],
                         )))
-                        .child(gadget_combo_box::render_demo(&format!(
-                            "{}x AA",
-                            state.anti_aliasing
+                        .child(gadget_combo_box::render(&combo_box_state(
+                            format!("{}x AA", state.anti_aliasing),
+                            &["0x AA", "2x AA", "4x AA", "8x AA"],
                         )))
-                        .child(gadget_horizontal_slider::render_demo(
+                        .child(gadget_horizontal_slider::render(
                             &format!("Scroll Speed: {}%", pct(state.scroll_speed)),
-                            state.scroll_speed,
+                            &horizontal_slider_state(state.scroll_speed),
                         )),
                 )
                 .child(
@@ -388,47 +388,49 @@ fn render_options_screen(screen: MenuScreenPort) -> AnyElement {
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Retaliation mode",
-                            state.retaliation_mode,
+                            &check_box_state(state.retaliation_mode),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Double-click attack move",
-                            state.double_click_attack_move,
+                            &check_box_state(state.double_click_attack_move),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Alternate mouse",
-                            state.alternate_mouse,
+                            &check_box_state(state.alternate_mouse),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Language filter",
-                            state.language_filter,
+                            &check_box_state(state.language_filter),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Use camera in replays",
-                            state.use_camera_in_replays,
+                            &check_box_state(state.use_camera_in_replays),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Save camera in replays",
-                            state.save_camera_in_replays,
+                            &check_box_state(state.save_camera_in_replays),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Cloud shadows",
-                            state.cloud_shadows,
+                            &check_box_state(state.cloud_shadows),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Ground lighting",
-                            state.ground_lighting,
+                            &check_box_state(state.ground_lighting),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Heat effects",
-                            state.heat_effects,
+                            &check_box_state(state.heat_effects),
                         ))
-                        .child(gadget_check_box::render_demo(
+                        .child(gadget_check_box::render(
                             "Unlock FPS",
-                            state.unlock_fps,
+                            &check_box_state(state.unlock_fps),
                         ))
-                        .child(gadget_vertical_slider::render_demo(state.gamma)),
+                        .child(gadget_vertical_slider::render(&vertical_slider_state(
+                            state.gamma,
+                        ))),
                 )
                 .into_any_element(),
             div()
@@ -556,9 +558,7 @@ fn render_replay_menu_screen(screen: MenuScreenPort) -> AnyElement {
                     .flex_col()
                     .gap_2()
                     .child(section_title("Replay Files"))
-                    .children(state.entries.iter().enumerate().map(|(index, entry)| {
-                        replay_row(index == state.selected_index.unwrap_or(usize::MAX), entry)
-                    })),
+                    .child(gadget_list_box::render(&replay_list_box_state(&state))),
             )
             .child(
                 div()
@@ -671,33 +671,7 @@ fn render_map_select_screen(screen: MenuScreenPort) -> AnyElement {
                     .flex_col()
                     .gap_2()
                     .child(section_title("Available Maps"))
-                    .children(state.maps.iter().enumerate().map(|(index, map)| {
-                        let meta = format!(
-                            "{} players · {}",
-                            map.player_count,
-                            if map.official { "Official" } else { "User Map" }
-                        );
-                        div()
-                            .px_3()
-                            .py_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(if state.selected_index == Some(index) {
-                                rgb(0xd1a65d)
-                            } else {
-                                rgb(0x22303f)
-                            })
-                            .bg(if state.selected_index == Some(index) {
-                                rgb(0x1f1910)
-                            } else {
-                                rgb(0x101720)
-                            })
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(map.display_name.clone())
-                            .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(meta))
-                    }))
+                    .child(gadget_list_box::render(&map_select_list_box_state(&state)))
                     .into_any_element(),
             )
             .child(
@@ -725,13 +699,13 @@ fn render_map_select_screen(screen: MenuScreenPort) -> AnyElement {
                             .clone()
                             .unwrap_or_else(|| "Nothing staged".to_string()),
                     ))
-                    .child(gadget_check_box::render_demo(
+                    .child(gadget_check_box::render(
                         "Solo maps",
-                        state.show_solo_maps,
+                        &check_box_state(state.show_solo_maps),
                     ))
-                    .child(gadget_check_box::render_demo(
+                    .child(gadget_check_box::render(
                         "Back requested",
-                        state.pop_requested,
+                        &check_box_state(state.pop_requested),
                     )),
             )
             .into_any_element(),
@@ -796,18 +770,9 @@ fn render_lobby_screen(screen: MenuScreenPort) -> AnyElement {
                     .flex_col()
                     .gap_2()
                     .child(section_title("Players"))
-                    .children(state.players.iter().enumerate().map(|(index, player)| {
-                        selectable_row(
-                            index == state.selected_player.unwrap_or(usize::MAX),
-                            &player.name,
-                            format!(
-                                "{} · {} · {}",
-                                player.faction,
-                                player.color,
-                                if player.ready { "Ready" } else { "Waiting" }
-                            ),
-                        )
-                    }))
+                    .child(gadget_list_box::render(&lobby_players_list_box_state(
+                        &state,
+                    )))
                     .into_any_element(),
             )
             .child(
@@ -822,7 +787,9 @@ fn render_lobby_screen(screen: MenuScreenPort) -> AnyElement {
                             .text_color(rgb(0x8ea2b4))
                             .child(line.clone())
                     }))
-                    .child(gadget_text_entry::render_demo("ready when you are"))
+                    .child(gadget_text_entry::render(&text_entry_state(
+                        "ready when you are",
+                    )))
                     .child(status_row(
                         "Transition",
                         state
@@ -871,21 +838,9 @@ fn render_wol_login_screen(screen: MenuScreenPort) -> AnyElement {
                     .flex_col()
                     .gap_2()
                     .child(section_title("Stored Accounts"))
-                    .children(state.stored_logins.iter().map(|login| {
-                        selectable_row(
-                            login.email == state.email,
-                            &login.email,
-                            format!(
-                                "{} nick(s) · password {}",
-                                login.nicks.len(),
-                                if login.has_password {
-                                    "saved"
-                                } else {
-                                    "not saved"
-                                }
-                            ),
-                        )
-                    }))
+                    .child(gadget_list_box::render(&stored_accounts_list_box_state(
+                        &state,
+                    )))
                     .into_any_element(),
             )
             .child(
@@ -895,13 +850,13 @@ fn render_wol_login_screen(screen: MenuScreenPort) -> AnyElement {
                     .gap_2()
                     .child(status_row("Email", state.email.clone()))
                     .child(status_row("Nick", state.nick.clone()))
-                    .child(gadget_check_box::render_demo(
+                    .child(gadget_check_box::render(
                         "Remember account",
-                        state.remember_account,
+                        &check_box_state(state.remember_account),
                     ))
-                    .child(gadget_check_box::render_demo(
+                    .child(gadget_check_box::render(
                         "Password stored",
-                        state.password_present,
+                        &check_box_state(state.password_present),
                     ))
                     .child(status_row("Status", state.status_message.clone())),
             )
@@ -1324,7 +1279,7 @@ fn render_score_screen(screen: MenuScreenPort) -> AnyElement {
                         .map(|metric| stat_card(&metric.label, &metric.value)),
                 )
                 .into_any_element(),
-            gadget_progress_bar::render_demo("Overall rating", state.rating),
+            gadget_progress_bar::render("Overall rating", &progress_bar_state(state.rating)),
             static_text("Player", state.player_name),
             static_text("Match Result", state.result),
         ],
@@ -1700,23 +1655,29 @@ fn render_main_menu_recent_saves(state: &MainMenuPort) -> AnyElement {
         .gap_2()
         .child(section_title("Selective Save / Load Buttons"))
         .children([
-            gadget_check_box::render_demo(
+            gadget_check_box::render(
                 "USA recent save",
-                state.selective_buttons.usa_recent_save,
+                &check_box_state(state.selective_buttons.usa_recent_save),
             ),
-            gadget_check_box::render_demo("USA load game", state.selective_buttons.usa_load_game),
-            gadget_check_box::render_demo(
+            gadget_check_box::render(
+                "USA load game",
+                &check_box_state(state.selective_buttons.usa_load_game),
+            ),
+            gadget_check_box::render(
                 "GLA recent save",
-                state.selective_buttons.gla_recent_save,
+                &check_box_state(state.selective_buttons.gla_recent_save),
             ),
-            gadget_check_box::render_demo("GLA load game", state.selective_buttons.gla_load_game),
-            gadget_check_box::render_demo(
+            gadget_check_box::render(
+                "GLA load game",
+                &check_box_state(state.selective_buttons.gla_load_game),
+            ),
+            gadget_check_box::render(
                 "China recent save",
-                state.selective_buttons.china_recent_save,
+                &check_box_state(state.selective_buttons.china_recent_save),
             ),
-            gadget_check_box::render_demo(
+            gadget_check_box::render(
                 "China load game",
-                state.selective_buttons.china_load_game,
+                &check_box_state(state.selective_buttons.china_load_game),
             ),
         ])
         .into_any_element()
@@ -1746,15 +1707,14 @@ fn render_replay_prompt(prompt: ReplayPromptPort) -> AnyElement {
 }
 
 fn menu_button(label: &str, active: bool) -> AnyElement {
-    div()
-        .px_4()
-        .py_2()
-        .rounded_md()
-        .border_1()
-        .border_color(if active { rgb(0xd1a65d) } else { rgb(0x35506b) })
-        .bg(if active { rgb(0x2a2011) } else { rgb(0x101720) })
-        .child(label.to_string())
-        .into_any_element()
+    gadget_push_button::render(
+        label,
+        &gadget_push_button::PushButtonState {
+            selected: active,
+            hilited: active,
+            ..Default::default()
+        },
+    )
 }
 
 fn section_title(title: &str) -> AnyElement {
@@ -1799,65 +1759,133 @@ fn status_row(label: &str, value: impl ToString) -> AnyElement {
         .into_any_element()
 }
 
-fn selectable_row(selected: bool, label: &str, value: impl ToString) -> AnyElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded_md()
-        .border_1()
-        .border_color(if selected {
-            rgb(0xd1a65d)
-        } else {
-            rgb(0x22303f)
-        })
-        .bg(if selected {
-            rgb(0x1f1910)
-        } else {
-            rgb(0x101720)
-        })
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(label.to_string())
-        .child(
-            div()
-                .text_sm()
-                .text_color(rgb(0x8ea2b4))
-                .child(value.to_string()),
-        )
-        .into_any_element()
+fn horizontal_slider_state(value: f32) -> gadget_horizontal_slider::HorizontalSliderState {
+    let mut state = gadget_horizontal_slider::HorizontalSliderState::default();
+    state.position =
+        (state.min as f32 + (state.max - state.min) as f32 * value.clamp(0.0, 1.0)).round() as i32;
+    state
 }
 
-fn replay_row(
-    selected: bool,
-    entry: &crate::gui::callbacks::menus::replay_menu::ReplayEntryPort,
-) -> AnyElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded_md()
-        .border_1()
-        .border_color(if selected {
-            rgb(0xd1a65d)
-        } else {
-            rgb(0x22303f)
-        })
-        .bg(if selected {
-            rgb(0x1f1910)
-        } else {
-            rgb(0x101720)
-        })
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(entry.display_label())
-        .child(
-            div()
-                .text_sm()
-                .text_color(rgb(0x8ea2b4))
-                .child(format!("{} · {}", entry.version, entry.replay_filename)),
-        )
-        .into_any_element()
+fn vertical_slider_state(value: f32) -> gadget_vertical_slider::VerticalSliderState {
+    let mut state = gadget_vertical_slider::VerticalSliderState::default();
+    state.position =
+        (state.min as f32 + (state.max - state.min) as f32 * value.clamp(0.0, 1.0)).round() as i32;
+    state
+}
+
+fn progress_bar_state(value: f32) -> gadget_progress_bar::ProgressBarState {
+    gadget_progress_bar::ProgressBarState::new((value.clamp(0.0, 1.0) * 100.0).round() as u8)
+}
+
+fn check_box_state(checked: bool) -> gadget_check_box::CheckBoxState {
+    gadget_check_box::CheckBoxState::new(checked)
+}
+
+fn text_entry_state(value: &str) -> gadget_text_entry::TextEntryState {
+    gadget_text_entry::TextEntryState {
+        text: value.to_string(),
+        secret_text: "*".repeat(value.chars().count()),
+        ..Default::default()
+    }
+}
+
+fn combo_box_state(selected_text: String, entries: &[&str]) -> gadget_combo_box::ComboBoxState {
+    gadget_combo_box::ComboBoxState {
+        selected_text,
+        entries: entries.iter().map(|entry| (*entry).to_string()).collect(),
+        ..Default::default()
+    }
+}
+
+fn list_box_state(
+    entries: Vec<String>,
+    selected_row: Option<usize>,
+) -> gadget_list_box::ListBoxState {
+    gadget_list_box::ListBoxState {
+        entries,
+        selected_row,
+        display_rows: 8,
+        ..Default::default()
+    }
+}
+
+fn map_select_list_box_state(
+    state: &crate::gui::callbacks::menus::map_select_menu::MapSelectMenuPort,
+) -> gadget_list_box::ListBoxState {
+    list_box_state(
+        state
+            .maps
+            .iter()
+            .map(|map| {
+                format!(
+                    "{} · {} players · {}",
+                    map.display_name,
+                    map.player_count,
+                    if map.official { "Official" } else { "User Map" }
+                )
+            })
+            .collect(),
+        state.selected_index,
+    )
+}
+
+fn replay_list_box_state(
+    state: &crate::gui::callbacks::menus::replay_menu::ReplayMenuPort,
+) -> gadget_list_box::ListBoxState {
+    list_box_state(
+        state
+            .entries
+            .iter()
+            .map(|entry| entry.display_label())
+            .collect(),
+        state.selected_index,
+    )
+}
+
+fn lobby_players_list_box_state(state: &LanLobbyMenuPort) -> gadget_list_box::ListBoxState {
+    list_box_state(
+        state
+            .players
+            .iter()
+            .map(|player| {
+                format!(
+                    "{} · {} · {} · {}",
+                    player.name,
+                    player.faction,
+                    player.color,
+                    if player.ready { "Ready" } else { "Waiting" }
+                )
+            })
+            .collect(),
+        state.selected_player,
+    )
+}
+
+fn stored_accounts_list_box_state(state: &WolLoginMenuPort) -> gadget_list_box::ListBoxState {
+    let selected = state
+        .stored_logins
+        .iter()
+        .position(|login| login.email == state.email);
+
+    list_box_state(
+        state
+            .stored_logins
+            .iter()
+            .map(|login| {
+                format!(
+                    "{} · {} nick(s) · password {}",
+                    login.email,
+                    login.nicks.len(),
+                    if login.has_password {
+                        "saved"
+                    } else {
+                        "not saved"
+                    }
+                )
+            })
+            .collect(),
+        selected,
+    )
 }
 
 fn pct(value: f32) -> i32 {

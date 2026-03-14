@@ -42,7 +42,8 @@ use crate::common::system::{
 };
 use crate::common::{
     command_line::CommandLineParser, global_data, name_key_generator::NameKeyGenerator,
-    recorder::with_recorder_mut, rts::science::ScienceSubsystem,
+    recorder::{with_recorder, with_recorder_mut},
+    rts::science::ScienceSubsystem,
 };
 use crate::game_network as modern_net;
 use tokio::runtime::Handle;
@@ -55,6 +56,18 @@ pub trait GameLogicInterface: Send + Sync {
     fn reset(&mut self) -> SubsystemResult<()>;
     fn shutdown(&mut self) -> SubsystemResult<()>;
     fn get_state(&self) -> SubsystemState;
+    /// C++ parity adapter for TheGameLogic->isInMultiplayerGame().
+    fn is_in_multiplayer_game(&self) -> bool {
+        false
+    }
+    /// C++ parity adapter for TheTacticalView->getTimeMultiplier().
+    fn visual_time_multiplier(&self) -> f32 {
+        1.0
+    }
+    /// C++ parity adapter for TheScriptEngine->isTimeFast().
+    fn is_script_time_fast(&self) -> bool {
+        false
+    }
 }
 
 pub trait GameClientInterface: Send + Sync {
@@ -88,6 +101,7 @@ pub trait NetworkInterface: Send + Sync {
 struct RustGameNetwork {
     inner: modern_net::NetworkInterface,
     handle: Handle,
+    multiplayer_session_active: bool,
 }
 
 impl RustGameNetwork {
@@ -95,17 +109,25 @@ impl RustGameNetwork {
         let inner = handle
             .block_on(modern_net::NetworkInterface::new(config))
             .map_err(|e| SubsystemError::InitializationFailed(e.to_string()))?;
-        Ok(Self { inner, handle })
+        Ok(Self {
+            inner,
+            handle,
+            multiplayer_session_active: false,
+        })
     }
 }
 
 impl NetworkInterface for RustGameNetwork {
     fn init(&mut self) -> SubsystemResult<()> {
         // Already initialised in constructor.
+        self.multiplayer_session_active = with_recorder(|recorder| recorder.is_multiplayer())
+            .unwrap_or(false);
         Ok(())
     }
 
     fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
+        self.multiplayer_session_active = with_recorder(|recorder| recorder.is_multiplayer())
+            .unwrap_or(false);
         self.handle
             .block_on(self.inner.update_concurrent())
             .map_err(|e| SubsystemError::UpdateFailed(e.to_string()))
@@ -118,8 +140,7 @@ impl NetworkInterface for RustGameNetwork {
     }
 
     fn is_multiplayer_session(&self) -> bool {
-        // If the network stack is present, consider multiplayer capable.
-        true
+        self.multiplayer_session_active
     }
 
     fn is_frame_data_ready(&self) -> bool {
@@ -307,7 +328,7 @@ impl GameEngine {
         Self {
             config: GameEngineConfig::default(),
             quitting: false,
-            is_active: true,
+            is_active: false,
             initialized: false,
             current_state: GameState::Initializing,
             subsystem_manager: SubsystemManager::new(),
@@ -360,6 +381,8 @@ impl GameEngine {
 
         handle_initial_file_startup();
         sync_after_intro_when_intro_disabled();
+        // C++ parity: TheSubsystemList->resetAll() is invoked at the end of init.
+        self.subsystem_manager.reset_all()?;
 
         self.initialized = true;
         self.last_update = Instant::now();
@@ -378,7 +401,7 @@ impl GameEngine {
         }
 
         info!("Starting main game loop");
-        let mut prev_frame_time = Instant::now();
+        self.frame_limiter = Some(Instant::now());
         let benchmark_start = Instant::now();
         // Main game loop matching C++ while(!m_quitting) structure
         while !self.quitting {
@@ -398,8 +421,9 @@ impl GameEngine {
             // Update all subsystems
             if let Err(e) = self.update_frame(delta_time).await {
                 error!("Frame update failed: {}", e);
-                // In C++, they continue on errors rather than exit
-                continue;
+                return Err(SubsystemError::UpdateFailed(format!(
+                    "Uncaught exception in GameEngine::update: {e}"
+                )));
             }
 
             // Update game state logic
@@ -411,8 +435,16 @@ impl GameEngine {
                 break;
             }
 
-            self.apply_frame_limit(prev_frame_time).await;
-            prev_frame_time = Instant::now();
+            if self.should_apply_execute_loop_throttle() {
+                // C++ parity: debug/internal builds yield a tiny timeslice before fps limiting.
+                #[cfg(any(debug_assertions, feature = "internal"))]
+                std::thread::sleep(Duration::from_millis(1));
+
+                let prev_frame_time = self.frame_limiter.unwrap_or_else(Instant::now);
+                if let Some(updated_prev_time) = self.apply_frame_limit(prev_frame_time).await {
+                    self.frame_limiter = Some(updated_prev_time);
+                }
+            }
 
             // Debug output every 1000 frames (like C++ version)
             if self.performance_metrics.frame_count % 1000 == 0 {
@@ -431,6 +463,11 @@ impl GameEngine {
     }
 
     fn check_benchmark_timeout(&mut self, benchmark_start: Instant) -> bool {
+        // C++ parity: benchmark timer shutdown logic is debug/internal only.
+        if !cfg!(any(debug_assertions, feature = "internal")) {
+            return false;
+        }
+
         let Some(global_data) = get_global_data() else {
             return false;
         };
@@ -463,42 +500,64 @@ impl GameEngine {
         true
     }
 
-    async fn apply_frame_limit(&self, prev_frame_time: Instant) {
+    fn should_apply_frame_limit(
+        use_fps_limit: bool,
+        max_fps: i32,
+        tivo_fast_mode: bool,
+        replay_playback: bool,
+    ) -> bool {
+        if !use_fps_limit || max_fps <= 0 {
+            return false;
+        }
+        if tivo_fast_mode && replay_playback {
+            return false;
+        }
+        true
+    }
+
+    fn should_apply_execute_loop_throttle(&self) -> bool {
+        let visual_time_multiplier = self
+            .game_logic
+            .as_ref()
+            .map(|logic| logic.visual_time_multiplier())
+            .unwrap_or(1.0);
+        let script_time_fast = self
+            .game_logic
+            .as_ref()
+            .map(|logic| logic.is_script_time_fast())
+            .unwrap_or(false);
+
+        visual_time_multiplier <= 1.0 && !script_time_fast
+    }
+
+    async fn apply_frame_limit(&self, prev_frame_time: Instant) -> Option<Instant> {
         let use_fps_limit = global_data::read_safe()
             .map(|data| data.writable.use_fps_limit)
             .unwrap_or(false);
-        if !use_fps_limit {
-            return;
-        }
 
-        let max_fps = global_data::read_safe()
-            .map(|data| data.writable.frames_per_second_limit)
-            .unwrap_or(self.config.max_fps as i32)
-            .max(0);
-        if max_fps == 0 {
-            return;
-        }
+        // C++ parity: frame limiter consumes GameEngine::m_maxFPS, not a per-frame global read.
+        let max_fps = (self.config.max_fps as i32).max(0);
 
-        let skip_limit = get_global_data()
+        let tivo_fast_mode = get_global_data()
             .map(|data| data.read().tivo_fast_mode)
-            .unwrap_or(false)
-            && with_recorder_mut(|recorder| recorder.is_playback()).unwrap_or(false);
+            .unwrap_or(false);
+        let replay_playback = with_recorder_mut(|recorder| recorder.is_playback()).unwrap_or(false);
 
-        if skip_limit {
-            return;
+        if !Self::should_apply_frame_limit(use_fps_limit, max_fps, tivo_fast_mode, replay_playback)
+        {
+            return None;
         }
 
         let limit_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
-        if limit_ms <= 0.0 {
-            return;
-        }
-
-        let limit = Duration::from_millis(limit_ms as u64);
         let mut now = Instant::now();
-        while now.duration_since(prev_frame_time) < limit {
-            tokio::time::sleep(Duration::from_millis(0)).await;
-            now = Instant::now();
+        if limit_ms > 0.0 {
+            let limit = Duration::from_millis(limit_ms as u64);
+            while now.duration_since(prev_frame_time) < limit {
+                tokio::time::sleep(Duration::from_millis(0)).await;
+                now = Instant::now();
+            }
         }
+        Some(now)
     }
 
     /// Update a single frame (matching C++ per-frame update)
@@ -522,19 +581,31 @@ impl GameEngine {
             }
         }
 
-        let mut network_ready = true;
-        if let Some(network) = &mut self.network_interface {
-            network.update(delta_time)?;
-            if network.is_multiplayer_session() {
-                network_ready = network.is_frame_data_ready();
+        // C++ parity: TheMessageStream->propagateMessages() executes between client update
+        // and network/CD/game-logic progression.
+        let stream_arc = get_message_stream();
+        if let Ok(mut stream) = stream_arc.write() {
+            if let Err(err) = stream.propagate_messages() {
+                warn!("Message propagation failed: {}", err);
             }
         }
+
+        let should_update_game_logic = if let Some(network) = &mut self.network_interface {
+            network.update(delta_time)?;
+            if network.is_multiplayer_session() {
+                network.is_frame_data_ready()
+            } else {
+                self.current_state != GameState::Paused
+            }
+        } else {
+            self.current_state != GameState::Paused
+        };
 
         if let Some(mut cd_manager) = get_cd_manager() {
             cd_manager.update();
         }
 
-        if network_ready {
+        if should_update_game_logic {
             if let Some(game_logic) = &mut self.game_logic {
                 game_logic.update(delta_time)?;
             }
@@ -548,6 +619,11 @@ impl GameEngine {
     pub async fn reset(&mut self) -> SubsystemResult<()> {
         info!("Resetting GameEngine to initial state");
 
+        // C++ parity: reset all initialized subsystems before rebuilding gameplay/session state.
+        if self.initialized {
+            self.subsystem_manager.reset_all()?;
+        }
+
         // Reset all subsystems
         if let Some(game_logic) = &mut self.game_logic {
             game_logic.reset()?;
@@ -557,9 +633,27 @@ impl GameEngine {
             game_client.reset()?;
         }
 
+        // C++ parity: multiplayer reset tears down network session object.
+        let delete_network = self
+            .game_logic
+            .as_ref()
+            .map(|logic| logic.is_in_multiplayer_game())
+            .unwrap_or(false);
+        if delete_network {
+            if let Some(mut network) = self.network_interface.take() {
+                if let Err(err) = network.shutdown() {
+                    warn!(
+                        "Reset: network shutdown failed during multiplayer teardown: {}",
+                        err
+                    );
+                }
+            }
+        }
+
         // Reset performance metrics
         self.performance_metrics = PerformanceMetrics::new();
         self.last_update = Instant::now();
+        self.frame_limiter = None;
 
         info!("GameEngine reset completed");
         Ok(())
@@ -612,9 +706,7 @@ impl GameEngine {
     }
 
     pub fn is_multiplayer_session(&self) -> bool {
-        self.network_interface
-            .as_ref()
-            .map(|net| net.is_multiplayer_session())
+        with_recorder(|recorder| recorder.is_multiplayer())
             .unwrap_or(false)
     }
 
@@ -691,10 +783,9 @@ impl GameEngine {
         let writable = parser.get_global_data().clone();
 
         self.config.windowed = writable.windowed;
-        if writable.use_fps_limit && writable.frames_per_second_limit > 0 {
-            self.config.max_fps = writable.frames_per_second_limit as u32;
-            info!("FPS limit set to: {}", self.config.max_fps);
-        }
+        // C++ parity: always push GlobalData::m_framesPerSecondLimit into engine m_maxFPS.
+        // Clamp negative values to 0 to keep Rust representation safe.
+        self.set_frames_per_second_limit(writable.frames_per_second_limit.max(0) as u32);
 
         if writable.x_resolution > 0 && writable.y_resolution > 0 {
             self.config.resolution = (writable.x_resolution as u32, writable.y_resolution as u32);
@@ -952,25 +1043,9 @@ impl GameEngine {
             return Ok(());
         }
 
-        info!("Initializing network system");
-
-        let handle = Handle::current();
-        let net_config = modern_net::NetworkConfig {
-            player_id: 0,
-            max_frames_ahead: modern_net::config::MAX_FRAMES_AHEAD,
-            min_runahead: modern_net::config::MIN_RUNAHEAD,
-            max_run_ahead: modern_net::config::MAX_FRAMES_AHEAD / 4,
-            target_frame_rate: modern_net::config::TARGET_FPS,
-            enable_compression: true,
-            enable_encryption: true,
-            debug_mode: cfg!(debug_assertions),
-            nat: modern_net::nat::NatConfig::default(),
-            firewall: modern_net::security::firewall::FirewallConfig::default(),
-        };
-
-        let network = RustGameNetwork::new(net_config, handle)?;
-        self.network_interface = Some(Box::new(network));
-        info!("Network system initialized (game_network adapter)");
+        // C++ parity: TheNetwork remains NULL after startup init and is created on MP session start.
+        self.network_interface = None;
+        info!("Network runtime available but no active multiplayer session at startup");
         Ok(())
     }
 
@@ -1628,13 +1703,81 @@ mod tests {
     use super::*;
     use crate::common::ini::ini_game_data::init_global_data;
     use crate::common::message_stream::get_message_stream;
+    use crate::common::recorder::init_recorder;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct CountingGameLogic {
+        updates: Arc<AtomicUsize>,
+    }
+
+    impl CountingGameLogic {
+        fn new(updates: Arc<AtomicUsize>) -> Self {
+            Self { updates }
+        }
+    }
+
+    impl GameLogicInterface for CountingGameLogic {
+        fn init(&mut self) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
+            self.updates.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn reset(&mut self) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn shutdown(&mut self) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn get_state(&self) -> SubsystemState {
+            SubsystemState::Running
+        }
+    }
+
+    struct StubNetwork {
+        frame_ready: bool,
+    }
+
+    impl StubNetwork {
+        fn new(frame_ready: bool) -> Self {
+            Self { frame_ready }
+        }
+    }
+
+    impl NetworkInterface for StubNetwork {
+        fn init(&mut self) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn shutdown(&mut self) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn is_multiplayer_session(&self) -> bool {
+            true
+        }
+
+        fn is_frame_data_ready(&self) -> bool {
+            self.frame_ready
+        }
+    }
 
     #[tokio::test]
     async fn test_game_engine_creation() {
         let mut engine = GameEngine::new();
         assert!(!engine.initialized);
         assert!(!engine.quitting);
-        assert!(engine.is_active);
+        assert!(!engine.is_active);
     }
 
     #[tokio::test]
@@ -1646,6 +1789,7 @@ mod tests {
         assert!(result.is_ok(), "Engine initialization failed: {:?}", result);
         assert!(engine.initialized);
         assert!(engine.config.windowed);
+        assert!(engine.network_interface.is_none());
     }
 
     #[test]
@@ -1726,5 +1870,59 @@ mod tests {
             .read()
             .expect("message stream lock should succeed");
         assert!(stream.contains_message_of_type(&GameMessageType::NewGame));
+    }
+
+    #[tokio::test]
+    async fn test_update_frame_skips_game_logic_when_paused_and_offline() {
+        let updates = Arc::new(AtomicUsize::new(0));
+        let mut engine = GameEngine::new();
+        engine.current_state = GameState::Paused;
+        engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
+        engine.network_interface = None;
+
+        engine
+            .update_frame(Duration::from_millis(16))
+            .await
+            .expect("update frame should succeed");
+
+        assert_eq!(updates.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_update_frame_updates_game_logic_when_network_frame_ready_even_paused() {
+        let updates = Arc::new(AtomicUsize::new(0));
+        let mut engine = GameEngine::new();
+        engine.current_state = GameState::Paused;
+        engine.game_logic = Some(Box::new(CountingGameLogic::new(updates.clone())));
+        engine.network_interface = Some(Box::new(StubNetwork::new(true)));
+
+        engine
+            .update_frame(Duration::from_millis(16))
+            .await
+            .expect("update frame should succeed");
+
+        assert_eq!(updates.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_should_apply_frame_limit_honors_cpp_tivo_replay_gate() {
+        assert!(!GameEngine::should_apply_frame_limit(true, 30, true, true));
+        assert!(GameEngine::should_apply_frame_limit(true, 30, true, false));
+        assert!(!GameEngine::should_apply_frame_limit(
+            false, 30, false, false
+        ));
+        assert!(!GameEngine::should_apply_frame_limit(true, 0, false, false));
+    }
+
+    #[test]
+    fn test_is_multiplayer_session_uses_recorder_state_like_cpp() {
+        let _ = init_recorder();
+        with_recorder_mut(|recorder| recorder.set_game_mode_provider(Some(Arc::new(|| 2))));
+
+        let engine = GameEngine::new();
+        assert!(engine.is_multiplayer_session());
+
+        with_recorder_mut(|recorder| recorder.set_game_mode_provider(Some(Arc::new(|| 0))));
+        assert!(!engine.is_multiplayer_session());
     }
 }

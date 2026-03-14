@@ -10,10 +10,10 @@ use crate::subsystem_manager::{
     get_subsystem_manager, with_subsystem_mut, GameMessage, GameMessageType, MessageStreamSubsystem,
 };
 use anyhow::Result;
-use egui_winit::winit;
-use egui_winit::winit::window::{CursorGrabMode, Window};
 use log::{debug, info, warn};
 use std::sync::{Arc, Weak};
+use winit;
+use winit::window::{CursorGrabMode, Window};
 
 /// Cross-platform game message handler implemented on top of winit.
 #[derive(Debug)]

@@ -1,108 +1,51 @@
-//! PreviewProc Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Source/Window Procedures/PreviewProc.cpp
-//! 
-//! This module provides functionality for preview proc.
+//! C++ parity state for `PreviewProc.cpp`.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
-
-/// PreviewProc implementation
-pub struct PreviewProc {
-    /// Internal data
-    data: Vec<u8>,
-    /// State flag
-    active: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PreviewState {
+    pub open: bool,
+    pub page: u32,
+    pub page_count: u32,
+    pub use_texture_preview: bool,
 }
 
-impl PreviewProc {
-    /// Create new instance
-    pub fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            active: false,
+impl PreviewState {
+    pub fn open(&mut self) {
+        self.open = true;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    pub fn next_page(&mut self) {
+        if self.page < self.page_count {
+            self.page += 1;
         }
     }
 
-    /// Process data
-    pub fn process(&mut self, input: &[u8]) -> Result<Vec<u8>, PreviewProcError> {
-        if !self.active {
-            return Err(PreviewProcError::NotActive);
-        }
-        
-        // TODO: Implement processing logic
-        self.data.extend_from_slice(input);
-        Ok(self.data.clone())
-    }
-
-    /// Activate
-    pub fn activate(&mut self) {
-        self.active = true;
-    }
-
-    /// Deactivate
-    pub fn deactivate(&mut self) {
-        self.active = false;
-    }
-
-    /// Check if active
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Clear data
-    pub fn clear(&mut self) {
-        self.data.clear();
-    }
-
-    /// Get data size
-    pub fn size(&self) -> usize {
-        self.data.len()
-    }
-}
-
-impl Default for PreviewProc {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Error types for PreviewProc
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PreviewProcError {
-    /// Not active
-    NotActive,
-    /// Processing failed
-    ProcessingFailed,
-    /// Invalid input
-    InvalidInput,
-    /// Unknown error
-    Unknown,
-}
-
-impl std::fmt::Display for PreviewProcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PreviewProcError::NotActive => write!(f, "Not active"),
-            PreviewProcError::ProcessingFailed => write!(f, "Processing failed"),
-            PreviewProcError::InvalidInput => write!(f, "Invalid input"),
-            PreviewProcError::Unknown => write!(f, "Unknown error"),
+    pub fn previous_page(&mut self) {
+        if self.page > 1 {
+            self.page -= 1;
         }
     }
 }
-
-impl std::error::Error for PreviewProcError {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::PreviewState;
 
     #[test]
-    fn test_preview_proc_basic() {
-        // TODO: Implement tests for preview_proc
-        assert!(true, "Placeholder test for preview_proc");
+    fn clamps_preview_page_navigation() {
+        let mut state = PreviewState {
+            open: true,
+            page: 1,
+            page_count: 2,
+            use_texture_preview: false,
+        };
+        state.previous_page();
+        assert_eq!(state.page, 1);
+        state.next_page();
+        state.next_page();
+        assert_eq!(state.page, 2);
     }
 }

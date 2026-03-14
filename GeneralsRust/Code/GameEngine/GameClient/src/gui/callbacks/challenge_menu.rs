@@ -4,13 +4,18 @@ use crate::display::image::get_mapped_image_collection;
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
 use crate::gui::game_window::Image as WindowImage;
+use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
     get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowStatus,
 };
+use crate::message_stream::{get_message_stream, GameMessageType};
+use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+use game_engine::common::random_value::init_random_with_seed;
+use gamelogic::common::audio::AudioEventRts;
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,6 +32,7 @@ struct ChallengeMenuState {
     parent_id: i32,
     button_play_id: i32,
     button_back_id: i32,
+    gadget_parent_id: i32,
     bio_parent_id: i32,
     bio_portrait_id: i32,
     bio_name_entry_id: i32,
@@ -36,6 +42,8 @@ struct ChallengeMenuState {
     general_button_ids: [i32; NUM_GENERALS],
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_play: Option<Rc<RefCell<GameWindow>>>,
+    button_back: Option<Rc<RefCell<GameWindow>>>,
+    gadget_parent: Option<Rc<RefCell<GameWindow>>>,
     bio_parent: Option<Rc<RefCell<GameWindow>>>,
     bio_portrait: Option<Rc<RefCell<GameWindow>>>,
     bio_name_entry: Option<Rc<RefCell<GameWindow>>>,
@@ -45,8 +53,12 @@ struct ChallengeMenuState {
     just_entered: bool,
     initial_gadget_delay: i32,
     is_shutting_down: bool,
-    selected_general: Option<usize>,
-    hovered_general: Option<usize>,
+    intro_audio_magic_number: i32,
+    has_played_intro_audio: bool,
+    last_button_index: Option<usize>,
+    last_hilited_index: Option<usize>,
+    last_selection_sound: u32,
+    last_preview_sound: u32,
     bio_lines: [String; 4],
     bio_readout: [String; 4],
     bio_text_position: usize,
@@ -92,6 +104,25 @@ fn set_window_hidden(window: &Option<Rc<RefCell<GameWindow>>>, hidden: bool) {
     if let Some(window) = window.as_ref() {
         let _ = window.borrow_mut().hide(hidden);
     }
+}
+
+fn set_general_button_checked(control_id: i32, checked: bool) {
+    with_window_manager(|manager| {
+        if let Some(button) = manager.get_window_by_id(control_id) {
+            let mut button = button.borrow_mut();
+            if let Some(widget) = button.widget_mut() {
+                match widget {
+                    crate::gui::WindowWidget::CheckBox(check) => check.set_checked(checked),
+                    crate::gui::WindowWidget::RadioButton(radio) => {
+                        if checked {
+                            radio.select();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
 }
 
 fn set_window_image(window: &Option<Rc<RefCell<GameWindow>>>, image_name: Option<&str>) {
@@ -209,17 +240,19 @@ fn start_challenge_game() {
     let Some(generals) = get_challenge_generals_mut() else {
         return;
     };
-    let state_handle = challenge_menu_state();
-    let state = state_handle
-        .lock()
-        .expect("challenge menu state lock poisoned");
-    let Some(selected_index) = state.selected_general else {
-        return;
+    let (selected_index, difficulty) = {
+        let state_handle = challenge_menu_state();
+        let state = state_handle
+            .lock()
+            .expect("challenge menu state lock poisoned");
+        let Some(selected_index) = state.last_button_index else {
+            return;
+        };
+        (selected_index, generals.current_difficulty())
     };
+
     let general = &generals.challenge_generals()[selected_index];
-    let difficulty = generals.current_difficulty();
     let campaign_name = general.campaign().to_string();
-    drop(state);
 
     let (current_map, rank_points) = {
         let mut campaign_manager = get_campaign_manager();
@@ -239,12 +272,35 @@ fn start_challenge_game() {
         data.write().pending_file = current_map;
     }
     TheScriptEngine::set_global_difficulty(challenge_to_logic_difficulty(difficulty));
-    let _ = get_shell().hide_shell();
-    TheGameLogic::prepare_new_game(
-        GAME_SINGLE_PLAYER,
-        challenge_to_logic_difficulty(difficulty),
-        rank_points,
-    );
+
+    {
+        let state_handle = challenge_menu_state();
+        let mut state = state_handle
+            .lock()
+            .expect("challenge menu state lock poisoned");
+        if let Some(previous_index) = state.last_button_index {
+            if let Some(button_id) = state.general_button_ids.get(previous_index) {
+                set_general_button_checked(*button_id, false);
+            }
+        }
+        state.last_button_index = None;
+        state.last_hilited_index = None;
+        state.last_selection_sound = 0;
+        state.last_preview_sound = 0;
+    }
+
+    if TheGameLogic::is_in_game() {
+        let _ = TheGameLogic::clear_game_data();
+    }
+
+    let message_stream = get_message_stream();
+    let mut stream = message_stream.write().unwrap();
+    let msg = stream.append_message(GameMessageType::NewGame);
+    msg.append_integer_argument(GAME_SINGLE_PLAYER);
+    msg.append_integer_argument(challenge_to_logic_difficulty(difficulty));
+    msg.append_integer_argument(rank_points);
+    msg.append_integer_argument(LOGICFRAMES_PER_SECOND as i32);
+    init_random_with_seed(0);
 }
 
 pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -256,6 +312,7 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     state.parent_id = name_to_id("ChallengeMenu.wnd:ParentChallengeMenu");
     state.button_play_id = name_to_id("ChallengeMenu.wnd:ButtonPlay");
     state.button_back_id = name_to_id("ChallengeMenu.wnd:ButtonBack");
+    state.gadget_parent_id = name_to_id("ChallengeMenu.wnd:GadgetParent");
     state.bio_parent_id = name_to_id("ChallengeMenu.wnd:GeneralsBioParent");
     state.bio_portrait_id = name_to_id("ChallengeMenu.wnd:BioPortrait");
     state.bio_name_entry_id = name_to_id("ChallengeMenu.wnd:BioNameEntry");
@@ -269,6 +326,8 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     with_window_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_play = manager.get_window_by_id(state.button_play_id);
+        state.button_back = manager.get_window_by_id(state.button_back_id);
+        state.gadget_parent = manager.get_window_by_id(state.gadget_parent_id);
         state.bio_parent = manager.get_window_by_id(state.bio_parent_id);
         state.bio_portrait = manager.get_window_by_id(state.bio_portrait_id);
         state.bio_name_entry = manager.get_window_by_id(state.bio_name_entry_id);
@@ -282,16 +341,20 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
 
     set_window_hidden(&state.bio_parent, true);
     set_window_hidden(&state.button_play, true);
+    set_window_hidden(&state.gadget_parent, true);
     state.just_entered = true;
     state.initial_gadget_delay = 2;
     state.is_shutting_down = false;
-    state.selected_general = None;
-    state.hovered_general = None;
+    state.intro_audio_magic_number = 0;
+    state.has_played_intro_audio = false;
+    state.last_button_index = None;
+    state.last_hilited_index = None;
+    state.last_selection_sound = 0;
+    state.last_preview_sound = 0;
     state.bio_lines = Default::default();
     state.bio_readout = Default::default();
     state.bio_text_position = 0;
     state.bio_total_length = 0;
-
     if let Some(generals) = get_challenge_generals_mut() {
         with_window_manager(|manager| {
             for (index, button_id) in state.general_button_ids.iter().enumerate() {
@@ -306,9 +369,10 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
 
     get_shell().show_shell_map(true);
     layout.hide(false);
+    with_window_video_manager(|manager| manager.init());
 }
 
-pub fn challenge_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = challenge_menu_state();
     let mut state = state_handle
         .lock()
@@ -326,13 +390,29 @@ pub fn challenge_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std
 
     update_bio(&mut state, 2);
 
+    if !state.has_played_intro_audio
+        && with_window_manager(|manager| manager.transitions_finished())
+    {
+        state.intro_audio_magic_number += 1;
+        if state.intro_audio_magic_number == 10 {
+            if let Some(audio) = TheAudio::get() {
+                let event = AudioEventRts::new("Taunts_GCAnnouncer01");
+                let _ = audio.add_audio_event(&event);
+            }
+            state.has_played_intro_audio = true;
+        }
+    }
+
     if state.is_shutting_down
         && get_shell().is_anim_finished()
         && with_window_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
+        layout.hide(true);
         let _ = get_shell().shutdown_complete(None, false);
     }
+
+    with_window_video_manager(|manager| manager.update());
 }
 
 pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
@@ -343,6 +423,7 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     if pop_immediate {
         layout.hide(true);
+        with_window_video_manager(|manager| manager.reset());
         let _ = get_shell().shutdown_complete(None, false);
         return;
     }
@@ -353,8 +434,15 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
         .lock()
         .expect("challenge menu state lock poisoned");
     state.is_shutting_down = true;
-    state.selected_general = None;
-    state.hovered_general = None;
+    if let Some(audio) = TheAudio::get() {
+        audio.remove_audio_event(state.last_selection_sound);
+        audio.remove_audio_event(state.last_preview_sound);
+    }
+    state.last_selection_sound = 0;
+    state.last_preview_sound = 0;
+    state.intro_audio_magic_number = 0;
+    state.has_played_intro_audio = false;
+    with_window_video_manager(|manager| manager.reset());
 }
 
 pub fn challenge_menu_system(
@@ -373,10 +461,14 @@ pub fn challenge_menu_system(
         WindowMessage::User(code) if code == GBM_MOUSE_ENTERING => {
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {
-                state.hovered_general = Some(index);
-                if state.selected_general != Some(index) {
+                if state.last_button_index != Some(index) {
                     set_general_bio(&mut state, Some(index));
                 }
+                if let Some(audio) = TheAudio::get() {
+                    let event = AudioEventRts::new("GUILogoMouseOver");
+                    let _ = audio.add_audio_event(&event);
+                }
+                state.last_hilited_index = Some(index);
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Ignored
@@ -384,11 +476,10 @@ pub fn challenge_menu_system(
         WindowMessage::User(code) if code == GBM_MOUSE_LEAVING => {
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {
-                if state.selected_general != Some(index) {
-                    let selected_general = state.selected_general;
+                if state.last_button_index != Some(index) {
+                    let selected_general = state.last_button_index;
                     set_general_bio(&mut state, selected_general);
                 }
-                state.hovered_general = None;
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Ignored
@@ -396,12 +487,30 @@ pub fn challenge_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {
-                state.selected_general = Some(index);
+                if let Some(previous_index) = state.last_button_index.filter(|prev| *prev != index)
+                {
+                    if let Some(button_id) = state.general_button_ids.get(previous_index) {
+                        set_general_button_checked(*button_id, false);
+                    }
+                }
+                if let Some(audio) = TheAudio::get() {
+                    audio.remove_audio_event(state.last_selection_sound);
+                    audio.remove_audio_event(state.last_preview_sound);
+                    if let Some(generals) = get_challenge_generals_mut() {
+                        let general = &generals.challenge_generals()[index];
+                        let event = AudioEventRts::new(general.preview_sound());
+                        state.last_preview_sound = audio.add_audio_event(&event);
+                    }
+                }
+                state.last_button_index = Some(index);
                 set_general_bio(&mut state, Some(index));
                 set_window_hidden(&state.button_play, false);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_play_id {
+                if state.is_shutting_down {
+                    return WindowMsgHandled::Handled;
+                }
                 drop(state);
                 start_challenge_game();
                 return WindowMsgHandled::Handled;
@@ -424,7 +533,17 @@ pub fn challenge_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-        let _ = get_shell().pop();
+        let state_handle = challenge_menu_state();
+        let state = state_handle
+            .lock()
+            .expect("challenge menu state lock poisoned");
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = parent.borrow_mut().send_system_message(
+                WindowMessage::GadgetSelected,
+                state.button_back_id as u32,
+                state.button_back_id as u32,
+            );
+        }
         return WindowMsgHandled::Handled;
     }
 

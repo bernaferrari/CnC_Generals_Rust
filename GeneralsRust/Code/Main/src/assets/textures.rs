@@ -384,10 +384,7 @@ impl TextureManager {
                 continue;
             }
 
-            let leaf = lower
-                .rsplit(['/', '\\'])
-                .next()
-                .unwrap_or(lower.as_str());
+            let leaf = lower.rsplit(['/', '\\']).next().unwrap_or(lower.as_str());
             let stem = leaf.rsplit_once('.').map(|(s, _)| s).unwrap_or(leaf);
 
             if let Some(score) =

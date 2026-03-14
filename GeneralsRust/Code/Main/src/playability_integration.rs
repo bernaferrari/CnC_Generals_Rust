@@ -129,6 +129,7 @@ pub struct PlayabilityAuditSummary {
     pub source_missing_count: usize,
     pub include_missing_count: usize,
     pub network_deferred: bool,
+    pub input_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -314,6 +315,10 @@ impl PlayabilityAuditSummary {
     pub fn has_unresolved_blockers_with_headers(&self) -> bool {
         self.total_unresolved_including_headers() > 0
     }
+
+    pub fn has_input_warnings(&self) -> bool {
+        !self.input_warnings.is_empty()
+    }
 }
 
 fn is_high_impact_subsystem(name: &str, include_network: bool) -> bool {
@@ -366,6 +371,13 @@ fn phase_threshold(phase: PlayabilityPhase) -> PhaseGateConfig {
 
 impl fmt::Display for PlayabilityAuditSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if !self.input_warnings.is_empty() {
+            writeln!(f, "Input warnings:")?;
+            for warning in &self.input_warnings {
+                writeln!(f, "  - {}", warning)?;
+            }
+            writeln!(f)?;
+        }
         writeln!(f, "=== File mapping matrix summary ===")?;
         for subsystem in &self.matrix_by_subsystem {
             writeln!(
@@ -526,17 +538,35 @@ fn increment_counts(
 pub fn build_playability_audit(
     config: &PlayabilityGateConfig,
 ) -> Result<PlayabilityAuditSummary, ParseError> {
-    let matrix_data = fs::read_to_string(&config.matrix_path).map_err(|err| ParseError {
-        message: format!("failed to read {}: {err}", config.matrix_path.display()),
-    })?;
+    let mut input_warnings = Vec::new();
+    let matrix_data = read_tracking_file_or_empty(
+        &config.matrix_path,
+        "PORT_FILE_MATRIX.txt",
+        &mut input_warnings,
+    )?;
+    let missing_data = read_tracking_file_or_empty(
+        &config.missing_files_path,
+        "PORT_MISSING_FILES_BY_SUBSYSTEM.txt",
+        &mut input_warnings,
+    )?;
+    let mismatch_data = read_tracking_file_or_empty(
+        &config.mismatch_files_path,
+        "PORT_FILE_MISMATCHES_BY_SUBSYSTEM.txt",
+        &mut input_warnings,
+    )?;
 
-    let missing_data =
-        fs::read_to_string(&config.missing_files_path).map_err(|err| ParseError {
-            message: format!(
-                "failed to read {}: {err}",
-                config.missing_files_path.display()
-            ),
-        })?;
+    if matrix_data.trim().is_empty() {
+        input_warnings.push(format!(
+            "{} has no matrix rows; parity percentages are informational only",
+            config.matrix_path.display()
+        ));
+    }
+    if missing_data.trim().is_empty() {
+        input_warnings.push(format!(
+            "{} has no missing-file rows; blocker counts are informational only",
+            config.missing_files_path.display()
+        ));
+    }
 
     let mut map = HashMap::<String, (FileMappingCounts, FileMappingCounts)>::new();
     for line in matrix_data.lines() {
@@ -612,7 +642,7 @@ pub fn build_playability_audit(
         }
     }
 
-    if let Ok(mismatch_data) = fs::read_to_string(&config.mismatch_files_path) {
+    if !mismatch_data.trim().is_empty() {
         let mut section = String::new();
         for line in mismatch_data.lines() {
             let trimmed = line.trim();
@@ -648,7 +678,29 @@ pub fn build_playability_audit(
         source_missing_count,
         include_missing_count,
         network_deferred: !config.include_network,
+        input_warnings,
     })
+}
+
+fn read_tracking_file_or_empty(
+    path: &PathBuf,
+    label: &str,
+    warnings: &mut Vec<String>,
+) -> Result<String, ParseError> {
+    match fs::read_to_string(path) {
+        Ok(contents) => Ok(contents),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            warnings.push(format!(
+                "{} not found at {}; continuing with empty input",
+                label,
+                path.display()
+            ));
+            Ok(String::new())
+        }
+        Err(err) => Err(ParseError {
+            message: format!("failed to read {}: {err}", path.display()),
+        }),
+    }
 }
 
 /// Convenience check for phase-1 gating: no source/section blockers remain.
@@ -799,5 +851,25 @@ mod tests {
         assert_eq!(summary.unresolved_high_impact(), 0);
         assert_eq!(summary.total_unresolved_including_headers(), 0);
         assert!(summary.pass_gate(PlayabilityPhase::PlayabilityReleaseCandidate));
+    }
+
+    #[test]
+    fn test_missing_tracking_inputs_are_reported_as_warnings_not_errors() {
+        let temp_dir = std::env::temp_dir();
+        let unique = SAMPLE_CONFIG_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        let matrix_path = temp_dir.join(format!("playability_missing_matrix_{pid}_{unique}.txt"));
+        let missing_path =
+            temp_dir.join(format!("playability_missing_missing_{pid}_{unique}.txt"));
+        let mismatch_path =
+            temp_dir.join(format!("playability_missing_mismatch_{pid}_{unique}.txt"));
+
+        let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path);
+        let summary = build_playability_audit(&config).expect("audit should tolerate missing inputs");
+
+        assert!(summary.matrix_by_subsystem.is_empty());
+        assert!(summary.total_missing_reports.is_empty());
+        assert!(summary.has_input_warnings());
+        assert!(summary.input_warnings.len() >= 3);
     }
 }

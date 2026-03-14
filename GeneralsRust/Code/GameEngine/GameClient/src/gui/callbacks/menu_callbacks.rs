@@ -4,22 +4,26 @@
 //! including main menu, single player menu, options menu, etc.
 
 use crate::game_text::GameText;
+use crate::gui::callbacks::quit_menu::destroy_quit_menu;
 use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
+use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
     get_shell, with_window_manager, AnimationType, GameWindow, WindowLayout, WindowMessage,
     WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
+use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::user_preferences::UserPreferences;
 use gamelogic::common::audio::AudioEventRts;
-use gamelogic::helpers::{TheAudio, TheGameLogic};
-use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
+use gamelogic::system::game_logic::{GAME_SHELL, GAME_SINGLE_PLAYER};
 use log::{debug, error, info, warn};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -172,6 +176,8 @@ impl SinglePlayerMenu {
     fn shutdown_complete(&mut self, layout: &WindowLayout) {
         self.is_shutting_down = false;
         layout.hide(true);
+        self.initialized = false;
+        self.parent = None;
         let _ = get_shell().shutdown_complete(None, false);
     }
 }
@@ -254,15 +260,22 @@ impl MenuCallbacks for SinglePlayerMenu {
     fn shutdown(
         &mut self,
         layout: &WindowLayout,
-        _user_data: Option<&mut dyn std::any::Any>,
+        user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Single Player Menu for layout: {}",
             layout.get_filename()
         );
+        let pop_immediate = user_data
+            .and_then(|data| data.downcast_ref::<bool>())
+            .copied()
+            .unwrap_or(false);
         self.is_shutting_down = true;
+        if pop_immediate {
+            self.shutdown_complete(layout);
+            return Ok(());
+        }
         get_shell().reverse_animate_window();
-        self.initialized = false;
         Ok(())
     }
 
@@ -812,7 +825,7 @@ impl OptionsMenu {
         Self::set_window_hidden(self.advanced_window_id, true);
     }
 
-    fn apply_options(&mut self) {
+    fn apply_options(&mut self) -> bool {
         let detail_index = Self::combo_selected_index(self.combo_detail_id).unwrap_or(1);
         let anti_aliasing =
             Self::combo_selected_index(self.combo_anti_aliasing_id).unwrap_or(0) as i32;
@@ -821,6 +834,13 @@ impl OptionsMenu {
             .get(Self::combo_selected_index(self.combo_resolution_id).unwrap_or(0))
             .copied()
             .unwrap_or((1024, 768));
+        let (old_resolution, windowed) = {
+            let global = runtime_global_data::read();
+            (
+                (global.writable.x_resolution, global.writable.y_resolution),
+                global.writable.windowed,
+            )
+        };
 
         let alternate_mouse = Self::checkbox_value(self.check_alternate_mouse_id);
         let retaliation = Self::checkbox_value(self.check_retaliation_id);
@@ -936,11 +956,38 @@ impl OptionsMenu {
         audio.set_volume(sfx_volume as f32 / 100.0, EngineAudioAffect::Sound3D);
         audio.set_volume(voice_volume as f32 / 100.0, EngineAudioAffect::Speech);
         get_header_template_manager().header_notify_resolution_change();
+
+        let resolution_changed = resolution != old_resolution;
+        if resolution_changed {
+            let old_settings = DisplaySettings {
+                x_res: old_resolution.0,
+                y_res: old_resolution.1,
+                bit_depth: 32,
+                windowed,
+            };
+            let new_settings = DisplaySettings {
+                x_res: resolution.0,
+                y_res: resolution.1,
+                bit_depth: 32,
+                windowed,
+            };
+            get_main_menu().set_pending_resolution_change(old_settings, new_settings);
+        }
+
+        resolution_changed
     }
 
     fn close_menu(&mut self) {
+        if let Some(parent) = self.parent.as_ref() {
+            with_window_manager(|manager| {
+                let _ = manager.unset_modal(parent);
+            });
+        }
         Self::set_window_hidden(self.advanced_window_id, true);
-        let _ = get_shell().pop();
+        TheScriptEngine::signal_ui_interact("ShellOptionsClosed");
+        get_shell().destroy_options_layout();
+        self.parent = None;
+        self.initialized = false;
     }
 
     fn init_ids(&mut self) {
@@ -1081,8 +1128,14 @@ impl MenuCallbacks for OptionsMenu {
                 if control_id == self.button_back_id {
                     self.close_menu();
                 } else if control_id == self.button_accept_id {
-                    self.apply_options();
+                    let resolution_changed = self.apply_options();
+                    if !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL {
+                        destroy_quit_menu();
+                    }
                     self.close_menu();
+                    if resolution_changed {
+                        get_main_menu().do_resolution_dialog();
+                    }
                 } else if control_id == self.button_defaults_id {
                     self.apply_default_controls();
                 } else if control_id == self.button_advanced_accept_id {
@@ -1243,24 +1296,27 @@ impl MapSelectMenu {
     }
 
     fn do_game_start(&mut self) {
-        self.button_pushed = true;
-
         if TheGameLogic::is_in_game() {
             let _ = TheGameLogic::clear_game_data();
         }
 
-        let mut shell = get_shell();
-        let _ = shell.pop();
-        let _ = shell.hide_shell();
-        drop(shell);
-
         self.start_game = false;
-        TheGameLogic::prepare_new_game(GAME_SINGLE_PLAYER, self.difficulty, 0);
+        let message_stream = get_message_stream();
+        let mut stream = message_stream.write().unwrap();
+        let msg = stream.append_message(GameMessageType::NewGame);
+        msg.append_integer_argument(GAME_SINGLE_PLAYER);
+        msg.append_integer_argument(self.difficulty);
+        msg.append_integer_argument(0);
+        init_random_with_seed(0);
+        self.is_shutting_down = true;
     }
 
     fn shutdown_complete(&mut self, layout: &WindowLayout) {
         self.is_shutting_down = false;
         layout.hide(true);
+        self.initialized = false;
+        self.parent = None;
+        self.listbox_map = None;
         let _ = get_shell().shutdown_complete(None, false);
     }
 
@@ -1390,7 +1446,8 @@ impl MenuCallbacks for MapSelectMenu {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.start_game && get_shell().is_anim_finished() {
             self.do_game_start();
-        } else if self.is_shutting_down && get_shell().is_anim_finished() {
+        }
+        if self.is_shutting_down && get_shell().is_anim_finished() {
             self.shutdown_complete(layout);
         }
         Ok(())
@@ -1399,19 +1456,24 @@ impl MenuCallbacks for MapSelectMenu {
     fn shutdown(
         &mut self,
         layout: &WindowLayout,
-        _user_data: Option<&mut dyn std::any::Any>,
+        user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!(
             "Shutting down Map Select Menu for layout: {}",
             layout.get_filename()
         );
+        let pop_immediate = user_data
+            .and_then(|data| data.downcast_ref::<bool>())
+            .copied()
+            .unwrap_or(false);
+        if pop_immediate {
+            self.shutdown_complete(layout);
+            return Ok(());
+        }
         if !self.start_game {
             self.is_shutting_down = true;
             get_shell().reverse_animate_window();
         }
-        self.initialized = false;
-        self.parent = None;
-        self.listbox_map = None;
         Ok(())
     }
 
@@ -1500,11 +1562,21 @@ impl MenuCallbacks for MapSelectMenu {
                 }
                 let control_id = data1 as i32;
                 if control_id == self.listbox_map_id {
-                    self.update_selected_map();
-                    if self.current_map_selection().is_some() {
-                        self.button_pushed = true;
-                        get_campaign_manager().set_campaign("");
-                        self.start_game();
+                    let row_selected = _data2 as i32;
+                    if row_selected >= 0 {
+                        if let Some(listbox) = self.listbox_map.as_ref() {
+                            if let Some(widget) = listbox.borrow_mut().list_box_mut() {
+                                widget.set_selected_indices(&[row_selected as usize]);
+                            }
+                        }
+                        self.update_selected_map();
+                        if let Some(parent) = self.parent.as_ref() {
+                            let _ = parent.borrow_mut().send_system_message(
+                                WindowMessage::GadgetSelected,
+                                self.button_ok_id as u32,
+                                self.button_ok_id as u32,
+                            );
+                        }
                     }
                     return WindowMsgHandled::Handled;
                 }
@@ -1587,23 +1659,22 @@ impl MenuCallbacks for CreditsMenu {
 
         get_shell().show_shell_map(false);
 
-        self.parent_id =
-            NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
-        with_window_manager(|manager| {
-            self.parent = manager.get_window_by_id(self.parent_id);
-            if let Some(parent) = self.parent.as_ref() {
-                let _ = manager.set_focus(Some(parent));
-            }
-        });
-
-        layout.hide(false);
-
         let mut credits = crate::credits::CreditsManager::new();
         if let Err(err) = credits.load_from_path("Data/INI/Credits.ini") {
             warn!("Failed to load credits data: {}", err);
         }
         credits.init();
         self.credits = Some(credits);
+
+        self.parent_id =
+            NameKeyGenerator::name_to_key("CreditsMenu.wnd:ParentCreditsWindow") as i32;
+        layout.hide(false);
+        with_window_manager(|manager| {
+            self.parent = manager.get_window_by_id(self.parent_id);
+            if let Some(parent) = self.parent.as_ref() {
+                let _ = manager.set_focus(Some(parent));
+            }
+        });
 
         if let Some(audio) = TheAudio::get() {
             audio.remove_audio_event(0xFFFF_FFF1);

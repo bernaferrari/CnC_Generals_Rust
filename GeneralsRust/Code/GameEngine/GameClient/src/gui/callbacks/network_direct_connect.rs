@@ -20,12 +20,14 @@ const LAN_PLAYER_NAME_LENGTH: usize = 12;
 
 #[derive(Default)]
 struct NetworkDirectConnectState {
+    parent_id: i32,
     button_back_id: i32,
     button_host_id: i32,
     button_join_id: i32,
     edit_player_name_id: i32,
     combobox_remote_ip_id: i32,
     static_local_ip_id: i32,
+    parent: Option<Rc<RefCell<GameWindow>>>,
     button_back: Option<Rc<RefCell<GameWindow>>>,
     button_host: Option<Rc<RefCell<GameWindow>>>,
     button_join: Option<Rc<RefCell<GameWindow>>>,
@@ -342,6 +344,7 @@ pub fn network_direct_connect_init(
     state.button_pushed = false;
     state.is_shutting_down = false;
 
+    state.parent_id = name_to_id("NetworkDirectConnect.wnd:NetworkDirectConnectParent");
     state.button_back_id = name_to_id("NetworkDirectConnect.wnd:ButtonBack");
     state.button_host_id = name_to_id("NetworkDirectConnect.wnd:ButtonHost");
     state.button_join_id = name_to_id("NetworkDirectConnect.wnd:ButtonJoin");
@@ -350,12 +353,17 @@ pub fn network_direct_connect_init(
     state.static_local_ip_id = name_to_id("NetworkDirectConnect.wnd:StaticLocalIP");
 
     with_window_manager(|manager| {
+        state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_host = manager.get_window_by_id(state.button_host_id);
         state.button_join = manager.get_window_by_id(state.button_join_id);
         state.edit_player_name = manager.get_window_by_id(state.edit_player_name_id);
         state.combobox_remote_ip = manager.get_window_by_id(state.combobox_remote_ip_id);
         state.static_local_ip = manager.get_window_by_id(state.static_local_ip_id);
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = manager.set_focus(Some(parent));
+        }
+        manager.transition_set_group("NetworkDirectConnectFade", false);
     });
 
     let prefs = LanPreferences::new();
@@ -374,33 +382,48 @@ pub fn network_direct_connect_init(
 
     get_shell().show_shell_map(true);
     layout.hide(false);
+    layout.bring_forward();
 }
 
 pub fn network_direct_connect_update(
-    _layout: &WindowLayout,
+    layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = network_direct_connect_state()
         .lock()
         .expect("NetworkDirectConnect state lock poisoned");
-    if state.is_shutting_down {
+    if state.is_shutting_down
+        && get_shell().is_anim_finished()
+        && with_window_manager(|manager| manager.transitions_finished())
+    {
         state.is_shutting_down = false;
+        layout.hide(true);
+        let _ = get_shell().shutdown_complete(None, false);
     }
 }
 
 pub fn network_direct_connect_shutdown(
-    _layout: &WindowLayout,
-    _user_data: Option<&mut dyn std::any::Any>,
+    layout: &WindowLayout,
+    user_data: Option<&mut dyn std::any::Any>,
 ) {
+    let pop_immediate = user_data
+        .and_then(|data| data.downcast_ref::<bool>())
+        .copied()
+        .unwrap_or(false);
+
+    if pop_immediate {
+        layout.hide(true);
+        let _ = get_shell().shutdown_complete(None, false);
+        return;
+    }
+
+    get_shell().reverse_animate_window();
+    with_window_manager(|manager| manager.transition_reverse("NetworkDirectConnectFade"));
+
     let mut state = network_direct_connect_state()
         .lock()
         .expect("NetworkDirectConnect state lock poisoned");
-    state.button_back = None;
-    state.button_host = None;
-    state.button_join = None;
-    state.edit_player_name = None;
-    state.combobox_remote_ip = None;
-    state.static_local_ip = None;
+    state.is_shutting_down = true;
 }
 
 pub fn network_direct_connect_system(
@@ -416,6 +439,9 @@ pub fn network_direct_connect_system(
     match msg {
         WindowMessage::InputFocus => return WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
+            if state.button_pushed {
+                return WindowMsgHandled::Handled;
+            }
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 handle_back(&mut state);
@@ -446,10 +472,19 @@ pub fn network_direct_connect_input(
         let key = data1 as u32;
         let state = data2 as u32;
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
-            let mut state = network_direct_connect_state()
+            let state = network_direct_connect_state()
                 .lock()
                 .expect("NetworkDirectConnect state lock poisoned");
-            handle_back(&mut state);
+            if state.button_pushed {
+                return WindowMsgHandled::Handled;
+            }
+            if let Some(parent) = state.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    state.button_back_id as u32,
+                    state.button_back_id as u32,
+                );
+            }
             return WindowMsgHandled::Handled;
         }
     }

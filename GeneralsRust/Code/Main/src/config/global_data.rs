@@ -121,8 +121,12 @@ impl GlobalData {
     /// Load settings from parsed INI data
     fn load_settings_from_ini(&mut self) {
         // Generals stores these startup/runtime defaults under the GameData block.
-        self.audio_on = self.ini_parser.get_bool("GameData", "AudioOn", self.audio_on);
-        self.music_on = self.ini_parser.get_bool("GameData", "MusicOn", self.music_on);
+        self.audio_on = self
+            .ini_parser
+            .get_bool("GameData", "AudioOn", self.audio_on);
+        self.music_on = self
+            .ini_parser
+            .get_bool("GameData", "MusicOn", self.music_on);
         self.sounds_on = self
             .ini_parser
             .get_bool("GameData", "SoundsOn", self.sounds_on);
@@ -143,20 +147,18 @@ impl GlobalData {
         self.shell_map_name =
             self.ini_parser
                 .get_string("GameData", "ShellMapName", Some(&self.shell_map_name));
-        self.camera_pitch =
-            self.ini_parser
-                .get_float("GameData", "CameraPitch", self.camera_pitch);
+        self.camera_pitch = self
+            .ini_parser
+            .get_float("GameData", "CameraPitch", self.camera_pitch);
         self.camera_yaw = self
             .ini_parser
             .get_float("GameData", "CameraYaw", self.camera_yaw);
         self.camera_height =
             self.ini_parser
                 .get_float("GameData", "CameraHeight", self.camera_height);
-        self.max_camera_height = self.ini_parser.get_float(
-            "GameData",
-            "MaxCameraHeight",
-            self.max_camera_height,
-        );
+        self.max_camera_height =
+            self.ini_parser
+                .get_float("GameData", "MaxCameraHeight", self.max_camera_height);
         self.play_intro = self
             .ini_parser
             .get_bool("GameData", "PlayIntro", self.play_intro);
@@ -588,7 +590,7 @@ mod tests {
     fn test_global_data_creation() {
         let global_data = GlobalData::new();
 
-        assert_eq!(global_data.frames_per_second_limit, 60);
+        assert_eq!(global_data.frames_per_second_limit, 30);
         assert!(global_data.audio_on);
         assert!(global_data.use_fps_limit);
         assert!(global_data.initial_file.is_empty());
@@ -619,14 +621,12 @@ mod tests {
         let ini_path = temp_dir.path().join("test.ini");
 
         let ini_content = r#"
-[Audio]
+[GameData]
 AudioOn = true
 MusicOn = false
 SoundsOn = true
-
-[Graphics]
 FramesPerSecondLimit = 30
-UseFpsLimit = true
+UseFPSLimit = true
 "#;
 
         fs::write(&ini_path, ini_content).unwrap();

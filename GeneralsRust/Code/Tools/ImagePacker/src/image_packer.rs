@@ -1,72 +1,80 @@
-//! ImagePacker Module
-//! 
-//! Corresponds to C++ file: Tools/ImagePacker/Include/ImagePacker.h
-//! 
-//! This module provides functionality for image packer.
+//! C++ parity model for `ImagePacker.h`.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use bitflags::bitflags;
+use std::path::PathBuf;
 
-/// Constants for ImagePacker
-pub const DEFAULT_VALUE: u32 = 0;
-pub const MAX_VALUE: u32 = 1000;
+pub const MAX_OUTPUT_FILE_LEN: usize = 128;
+pub const DEFAULT_TARGET_SIZE: u32 = 512;
 
-/// ImagePacker structure
-#[derive(Debug, Clone, Default)]
-pub struct ImagePacker {
-    /// Value field
-    pub value: u32,
-    /// Name field
-    pub name: String,
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct GapMethod: u32 {
+        const EXTEND_RGB = 0x0000_0001;
+        const GUTTER = 0x0000_0002;
+    }
 }
 
-impl ImagePacker {
-    /// Create new instance
-    pub fn new(value: u32, name: &str) -> Self {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePackerSettings {
+    pub target_size: (u32, u32),
+    pub use_sub_folders: bool,
+    pub output_file: String,
+    pub output_directory: PathBuf,
+    pub gap_method: GapMethod,
+    pub gutter_size: u32,
+    pub output_alpha: bool,
+    pub create_ini: bool,
+    pub compress_textures: bool,
+    pub use_texture_preview: bool,
+}
+
+impl Default for ImagePackerSettings {
+    fn default() -> Self {
         Self {
-            value,
-            name: name.to_string(),
+            target_size: (DEFAULT_TARGET_SIZE, DEFAULT_TARGET_SIZE),
+            use_sub_folders: true,
+            output_file: String::new(),
+            output_directory: PathBuf::new(),
+            gap_method: GapMethod::EXTEND_RGB,
+            gutter_size: 1,
+            output_alpha: true,
+            create_ini: true,
+            compress_textures: false,
+            use_texture_preview: false,
         }
     }
-
-    /// Get value
-    pub fn get_value(&self) -> u32 {
-        self.value
-    }
-
-    /// Set value
-    pub fn set_value(&mut self, value: u32) {
-        self.value = value;
-    }
-
-    /// Get name
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
 }
 
-/// Enumeration for ImagePacker types
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImagePackerType {
-    /// Default type
-    Default = 0,
-    /// Custom type
-    Custom = 1,
-    /// Special type
-    Special = 2,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImagePackerState {
+    pub directory_count: usize,
+    pub image_count: usize,
+    pub page_count: usize,
+    pub images_in_directories: usize,
+    pub target_preview_page: usize,
+}
+
+impl ImagePackerState {
+    pub fn reset_for_new_process(&mut self) {
+        self.image_count = 0;
+        self.page_count = 0;
+        self.target_preview_page = 1;
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{GapMethod, ImagePackerSettings};
 
     #[test]
-    fn test_image_packer_basic() {
-        // TODO: Implement tests for image_packer
-        assert!(true, "Placeholder test for image_packer");
+    fn matches_cpp_default_options() {
+        let settings = ImagePackerSettings::default();
+        assert_eq!(settings.target_size, (512, 512));
+        assert!(settings.use_sub_folders);
+        assert!(settings.gap_method.contains(GapMethod::EXTEND_RGB));
+        assert_eq!(settings.gutter_size, 1);
+        assert!(settings.output_alpha);
+        assert!(settings.create_ini);
+        assert!(!settings.compress_textures);
     }
 }

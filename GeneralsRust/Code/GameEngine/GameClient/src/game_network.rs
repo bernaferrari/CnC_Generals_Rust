@@ -263,7 +263,7 @@ pub mod download_manager {
         pub fn new() -> Self {
             Self {
                 error_key: "FTP:UnknownError".to_string(),
-                status_key: "FTP:StatusNone".to_string(),
+                status_key: "FTP:StatusIdle".to_string(),
                 last_local_file: String::new(),
                 queue: VecDeque::new(),
                 events: Vec::new(),
@@ -288,6 +288,16 @@ pub mod download_manager {
 
         pub fn is_done(&self) -> bool {
             self.queue.is_empty() && self.events.is_empty()
+        }
+
+        pub fn is_file_queued_for_download(&self) -> bool {
+            !self.queue.is_empty()
+        }
+
+        pub fn is_active(&self) -> bool {
+            self.events
+                .iter()
+                .any(|event| !matches!(event, DownloadEvent::End))
         }
 
         pub fn queue_file_for_download(&mut self, download: QueuedDownload) {

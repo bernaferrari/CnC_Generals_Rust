@@ -5278,6 +5278,20 @@ impl AIUpdateInterface for UnitAIUpdate {
                     }
                 }
             }
+            crate::ai::AiCommandType::Wander
+            | crate::ai::AiCommandType::WanderInPlace
+            | crate::ai::AiCommandType::Panic => {
+                if guard.current_locomotor.is_none() {
+                    return Ok(());
+                }
+                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                    if let Ok(mut machine) = state_machine.lock() {
+                        machine.clear();
+                        let _ = machine.ai_do_command(command);
+                        return Ok(());
+                    }
+                }
+            }
             crate::ai::AiCommandType::Hunt => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {

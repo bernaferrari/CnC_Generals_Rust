@@ -219,7 +219,7 @@ impl UnitInputHandler {
         let selected_objects = self.unit_control.get_selected_objects().to_vec();
 
         if selected_objects.is_empty() {
-            println!("No units selected to delete");
+            log::debug!("No units selected to delete");
             return;
         }
 
@@ -229,7 +229,7 @@ impl UnitInputHandler {
             logic.destroy_object(object_id);
         }
 
-        println!("🗑️ Destroyed {} selected units", selected_objects.len());
+        log::debug!("Destroyed {} selected units", selected_objects.len());
 
         // Clear selection since units are destroyed
         self.unit_control.selected_objects.clear();
@@ -251,7 +251,7 @@ impl UnitInputHandler {
             .collect();
 
         if all_units.is_empty() {
-            println!("No units to cycle through");
+            log::debug!("No units to cycle through");
             return;
         }
 
@@ -279,7 +279,7 @@ impl UnitInputHandler {
         let mut logic = game_logic.lock().unwrap();
         logic.select_objects(self.local_player_id, vec![next_unit]);
 
-        println!("🔄 Cycled to unit {}", next_unit);
+        log::debug!("Cycled to unit {}", next_unit);
     }
 
     /// Get current selection for UI display
@@ -430,7 +430,7 @@ impl UnitInputHandler {
             // since RtsCommand enum doesn't include ControlGroup0
             _ => {
                 // Other commands not handled by unit control
-                println!("Unhandled RTS command: {:?}", command);
+                log::debug!("Unhandled RTS command: {:?}", command);
             }
         }
     }

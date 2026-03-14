@@ -29,7 +29,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-use egui_winit::winit::{
+use winit::{
     dpi::{LogicalSize, PhysicalPosition},
     event_loop::EventLoop,
     window::{Fullscreen, Window, WindowAttributes},
@@ -226,7 +226,10 @@ async fn main() {
         .filter_level(level)
         .filter_module("generals_main::graphics", log::LevelFilter::Warn) // Reduce graphics noise
         .filter_module("generals_main::assets::models", log::LevelFilter::Info)
-        .filter_module("game_engine::common::system::big_file_system", log::LevelFilter::Warn)
+        .filter_module(
+            "game_engine::common::system::big_file_system",
+            log::LevelFilter::Warn,
+        )
         .filter_module("wgpu_core", log::LevelFilter::Warn) // Reduce wgpu verbosity
         .filter_module("wgpu_hal", log::LevelFilter::Warn)
         .init();
@@ -400,7 +403,7 @@ async fn main() {
                 debug!("Input subsystem ready");
             }
             "UI" => {
-                // UI system (egui integration)
+                // UI system integration (legacy shell + GPUI parity track)
                 debug!("UI subsystem ready");
             }
             _ => {}
@@ -457,7 +460,7 @@ async fn game_main(
     // - Audio playback (rodio)
     // - Input handling (winit events)
     // - Game logic updates
-    // - UI rendering (egui)
+    // - UI rendering
     // - Network synchronization
     // - Save/Load system
     generals_main::cnc_game_engine::run_cnc_game(event_loop, window_attributes, cmd_args).await?;

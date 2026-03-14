@@ -10,7 +10,7 @@ use super::core::*;
 use super::engine::{get_area_tracker, get_named_object_tracker, get_script_engine, TFade};
 use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode, THE_AI,
+    AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode,
 };
 use crate::commands::commands as cmd_api;
 use crate::commands::{
@@ -48,6 +48,7 @@ use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
 use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
 fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D {
@@ -56,6 +57,7 @@ fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D 
 
 static TRANSPORT_STATUSES: Lazy<RwLock<HashMap<ObjectID, (u32, usize)>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
+static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Script execution error
 #[derive(Debug, Clone)]
@@ -1194,7 +1196,7 @@ impl ScriptActionDispatcher {
     /// Orders team members to guard at their current positions
     fn do_team_guard(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
-        log::info!("Team '{}' guarding at current positions", team_name);
+        log::debug!("Team '{}' guarding at current positions", team_name);
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let members = team_arc
@@ -1355,7 +1357,7 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let waypoint_path_name = self.get_string_param(action, 1)?;
 
-        log::info!(
+        log::debug!(
             "Team '{}' following waypoint path '{}'",
             team_name,
             waypoint_path_name
@@ -1382,7 +1384,7 @@ impl ScriptActionDispatcher {
                     let _ = group.ai_do_command(&params);
                 }
             }
-            log::info!(
+            log::debug!(
                 "Team '{}' following waypoints from '{}'",
                 team_name,
                 waypoint_path_name
@@ -1480,7 +1482,7 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 2)?;
         let waypoint_name = self.get_string_param(action, 3)?;
 
-        log::info!(
+        log::debug!(
             "Creating named unit '{}' of type '{}' on team '{}' at waypoint '{}'",
             unit_name,
             object_type,
@@ -2405,7 +2407,7 @@ impl ScriptActionDispatcher {
         let fade_out = self.get_bool_param_optional(action, 1).unwrap_or(true);
         let fade_in = self.get_bool_param_optional(action, 2).unwrap_or(true);
 
-        log::info!(
+        log::debug!(
             "Changing music to '{}' (fade out: {}, fade in: {})",
             track_name,
             fade_out,
@@ -3726,22 +3728,62 @@ impl ScriptActionDispatcher {
     }
 
     /// C++ Reference: ScriptActions::doTeamWander()
-    /// Issues wander command to team AI group
+    /// Iterates team members, selects wander locomotor, and issues waypoint wander.
     fn do_team_wander(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
-        log::info!("Team '{}' wandering", team_name);
+        let waypoint_path_label = self.get_string_param(action, 1)?;
+        log::info!(
+            "Team '{}' wandering on path '{}'",
+            team_name,
+            waypoint_path_label
+        );
 
-        let group_arc = self.create_ai_group_from_team(&team_name)?;
-        if let Ok(mut group) = group_arc.write() {
-            let params = AiCommandParams::new(AiCommandType::Wander, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
+        let team_arc = self.get_team_by_name(&team_name)?;
+        let members = if let Ok(team) = team_arc.read() {
+            team.get_members().to_vec()
+        } else {
+            return Err(ScriptError::ExecutionFailed(
+                "Failed to read team".to_string(),
+            ));
+        };
+
+        for member_id in members {
+            let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let (member_pos, ai_arc) = {
+                let Ok(member) = member_arc.read() else {
+                    continue;
+                };
+                (*member.get_position(), member.get_ai_update_interface())
+            };
+            let Some(ai_arc) = ai_arc else {
+                continue;
+            };
+
+            let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
+                terrain
+                    .get_closest_waypoint_on_path(&member_pos, &waypoint_path_label)
+                    .map(|waypoint| waypoint.get_id())
+            });
+            let Some(waypoint_id) = waypoint_id else {
+                return Ok(ScriptActionResult::Success);
+            };
+
+            if let Ok(mut ai) = ai_arc.lock() {
+                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
+                let mut params =
+                    AiCommandParams::new(AiCommandType::Wander, CommandSourceType::FromScript);
+                params.waypoint = Some(waypoint_id);
+                let _ = ai.execute_command(&params);
+            };
         }
 
         Ok(ScriptActionResult::Success)
     }
 
     /// C++ Reference: ScriptActions::doTeamWanderInPlace()
-    /// Issues wander in place command to team AI group
+    /// Iterates team members, selects wander locomotor, and issues wander-in-place.
     fn do_team_wander_in_place(
         &mut self,
         action: &ScriptAction,
@@ -3749,26 +3791,90 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         log::info!("Team '{}' wandering in place", team_name);
 
-        let group_arc = self.create_ai_group_from_team(&team_name)?;
-        if let Ok(mut group) = group_arc.write() {
-            let params =
-                AiCommandParams::new(AiCommandType::WanderInPlace, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
+        let team_arc = self.get_team_by_name(&team_name)?;
+        let members = if let Ok(team) = team_arc.read() {
+            team.get_members().to_vec()
+        } else {
+            return Err(ScriptError::ExecutionFailed(
+                "Failed to read team".to_string(),
+            ));
+        };
+
+        for member_id in members {
+            let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let ai_arc = {
+                let Ok(member) = member_arc.read() else {
+                    continue;
+                };
+                member.get_ai_update_interface()
+            };
+            let Some(ai_arc) = ai_arc else {
+                continue;
+            };
+
+            if let Ok(mut ai) = ai_arc.lock() {
+                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
+                let params =
+                    AiCommandParams::new(AiCommandType::WanderInPlace, CommandSourceType::FromScript);
+                let _ = ai.execute_command(&params);
+            };
         }
 
         Ok(ScriptActionResult::Success)
     }
 
     /// C++ Reference: ScriptActions::doTeamPanic()
-    /// Issues panic command to team AI group (flee in random directions)
+    /// Iterates team members, selects panic locomotor, and issues waypoint panic.
     fn do_team_panic(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
-        log::info!("Team '{}' panicking", team_name);
+        let waypoint_path_label = self.get_string_param(action, 1)?;
+        log::debug!(
+            "Team '{}' panicking on path '{}'",
+            team_name,
+            waypoint_path_label
+        );
 
-        let group_arc = self.create_ai_group_from_team(&team_name)?;
-        if let Ok(mut group) = group_arc.write() {
-            let params = AiCommandParams::new(AiCommandType::Panic, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
+        let team_arc = self.get_team_by_name(&team_name)?;
+        let members = if let Ok(team) = team_arc.read() {
+            team.get_members().to_vec()
+        } else {
+            return Err(ScriptError::ExecutionFailed(
+                "Failed to read team".to_string(),
+            ));
+        };
+
+        for member_id in members {
+            let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let (member_pos, ai_arc) = {
+                let Ok(member) = member_arc.read() else {
+                    continue;
+                };
+                (*member.get_position(), member.get_ai_update_interface())
+            };
+            let Some(ai_arc) = ai_arc else {
+                continue;
+            };
+
+            let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
+                terrain
+                    .get_closest_waypoint_on_path(&member_pos, &waypoint_path_label)
+                    .map(|waypoint| waypoint.get_id())
+            });
+            let Some(waypoint_id) = waypoint_id else {
+                return Ok(ScriptActionResult::Success);
+            };
+
+            if let Ok(mut ai) = ai_arc.lock() {
+                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
+                let mut params =
+                    AiCommandParams::new(AiCommandType::Panic, CommandSourceType::FromScript);
+                params.waypoint = Some(waypoint_id);
+                let _ = ai.execute_command(&params);
+            };
         }
 
         Ok(ScriptActionResult::Success)
@@ -4365,7 +4471,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_name = self.get_string_param(action, 1)?;
-        log::info!(
+        log::debug!(
             "Team '{}' guarding position at '{}'",
             team_name,
             waypoint_name
@@ -4409,7 +4515,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let object_name = self.get_string_param(action, 1)?;
-        log::info!("Team '{}' guarding object '{}'", team_name, object_name);
+        log::debug!("Team '{}' guarding object '{}'", team_name, object_name);
 
         // Get the object ID from name tracker
         let tracker = get_named_object_tracker();
@@ -6491,7 +6597,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let waypoint_name = self.get_string_param(action, 1)?;
-        log::info!(
+        log::debug!(
             "Unit '{}' following waypoints '{}'",
             unit_name,
             waypoint_name
@@ -6518,7 +6624,7 @@ impl ScriptActionDispatcher {
                             };
                             params.waypoint = Some(waypoint_id);
                             let _ = ai.execute_command(&params);
-                            log::info!(
+                            log::debug!(
                                 "Unit '{}' follow waypoints '{}' command issued",
                                 unit_name,
                                 waypoint_name
@@ -6540,7 +6646,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let waypoint_name = self.get_string_param(action, 1)?;
-        log::info!(
+        log::debug!(
             "Unit '{}' following waypoints '{}' exact",
             unit_name,
             waypoint_name
@@ -13366,26 +13472,19 @@ impl ScriptActionDispatcher {
             ));
         };
 
-        // Create AI group from THE_AI
-        if let Ok(mut ai) = THE_AI.write() {
-            let group = ai.create_group();
+        // C++ script actions use short-lived groups; avoid contending on global AI write lock.
+        let group_id = SCRIPT_TEMP_GROUP_ID.fetch_add(1, Ordering::Relaxed);
+        let group = Arc::new(RwLock::new(AiGroup::new(group_id)));
 
-            // Add all team members to the group
-            if let Ok(mut group_guard) = group.write() {
-                for member_id in members {
-                    if let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) {
-                        let _ = obj_arc;
-                        group_guard.add(member_id);
-                    }
+        if let Ok(mut group_guard) = group.write() {
+            for member_id in members {
+                if TheGameLogic::find_object_by_id(member_id).is_some() {
+                    group_guard.add(member_id);
                 }
             }
-
-            Ok(group)
-        } else {
-            Err(ScriptError::ExecutionFailed(
-                "Failed to acquire AI lock".to_string(),
-            ))
         }
+
+        Ok(group)
     }
 
     /// Issue a command to all members of a team through their AI interfaces

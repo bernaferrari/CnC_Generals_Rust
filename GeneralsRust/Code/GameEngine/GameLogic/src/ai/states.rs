@@ -26,12 +26,13 @@ use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePar
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::*;
 use crate::path::PATHFIND_CELL_SIZE_F;
+use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
@@ -3636,14 +3637,19 @@ impl ClassicState for AIHackInternetState {
 #[derive(Debug)]
 pub struct AIRappelIntoState {
     base: State,
-    issued_command: bool,
+    rappel_rate: Real,
+    dest_z: Real,
+    target_is_bldg: Bool,
 }
 
 impl AIRappelIntoState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: State::new(machine, "AIRappelInto"),
-            issued_command: false,
+            // C++ parity: class name is AIRappelState in AIStates.cpp.
+            base: State::new(machine, "AIRappelState"),
+            rappel_rate: 0.0,
+            dest_z: 0.0,
+            target_is_bldg: false,
         }
     }
 }
@@ -3684,12 +3690,43 @@ impl ClassicState for AIRappelIntoState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "rappel missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
+        let mut owner_guard = owner
+            .write()
             .map_err(|_| "rappel owner lock poisoned".to_string())?;
         if !owner_guard.is_kind_of(KindOf::CanRappel) {
             return Ok(StateReturnType::Failure);
         }
+        owner_guard.set_model_condition_state(ModelConditionFlags::RAPPELLING);
+        if let Some(physics) = owner_guard.get_physics() {
+            physics.reset_dynamic_physics();
+        }
+
+        self.target_is_bldg = false;
+        if let Some(goal) = self.base.get_machine_goal_object() {
+            if let Ok(goal_guard) = goal.read() {
+                if !goal_guard.is_effectively_dead() && goal_guard.is_kind_of(KindOf::Structure) {
+                    self.target_is_bldg = true;
+                }
+            }
+        }
+
+        let terrain = get_terrain_logic();
+        let terrain_guard = terrain
+            .read()
+            .map_err(|_| "rappel terrain lock poisoned".to_string())?;
+        let owner_pos = *owner_guard.get_position();
+        let layer = terrain_guard.get_highest_layer_for_destination(&owner_pos);
+        self.dest_z = terrain_guard.get_layer_height(owner_pos.x, owner_pos.y, layer, None, false);
+        if self.target_is_bldg {
+            if let Some(goal) = self.base.get_machine_goal_object() {
+                if let Ok(goal_guard) = goal.read() {
+                    self.dest_z += goal_guard
+                        .get_geometry_info()
+                        .get_max_height_above_position();
+                }
+            }
+        }
+
         let ai = owner_guard
             .get_ai_update_interface()
             .ok_or_else(|| "rappel missing AIUpdateInterface".to_string())?;
@@ -3698,6 +3735,9 @@ impl ClassicState for AIRappelIntoState {
         let mut ai_guard = ai
             .lock()
             .map_err(|_| "rappel AI lock poisoned".to_string())?;
+        let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
+        self.rappel_rate = -ai_guard.get_desired_speed().min(max_rappel_rate);
+
         let mut params = AiCommandParams::new(AiCommandType::RappelInto, CommandSourceType::FromAi);
         if let Some(goal) = self.base.get_machine_goal_object() {
             params.obj = Some(
@@ -3710,14 +3750,10 @@ impl ClassicState for AIRappelIntoState {
             params.pos = goal_pos;
         }
         let _ = ai_guard.execute_command(&params);
-        self.issued_command = true;
         Ok(StateReturnType::Continue)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if !self.issued_command {
-            return Ok(StateReturnType::Failure);
-        }
         let owner = self
             .base
             .get_machine_owner()
@@ -3739,6 +3775,21 @@ impl ClassicState for AIRappelIntoState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "rappel missing owner".to_string())?;
+        let mut owner_guard = owner
+            .write()
+            .map_err(|_| "rappel owner lock poisoned".to_string())?;
+        owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+        let ai = owner_guard
+            .get_ai_update_interface()
+            .ok_or_else(|| "rappel missing AIUpdateInterface".to_string())?;
+        let mut ai_guard = ai
+            .lock()
+            .map_err(|_| "rappel AI lock poisoned".to_string())?;
+        ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
         Ok(())
     }
 }
@@ -11290,8 +11341,12 @@ impl Snapshotable for AIRappelIntoState {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
-        xfer.xfer_bool(&mut self.issued_command)
-            .map_err(|e| format!("Failed to xfer rappel issued_command: {:?}", e))?;
+        xfer.xfer_real(&mut self.rappel_rate)
+            .map_err(|e| format!("Failed to xfer rappel_rate: {:?}", e))?;
+        xfer.xfer_real(&mut self.dest_z)
+            .map_err(|e| format!("Failed to xfer rappel dest_z: {:?}", e))?;
+        xfer.xfer_bool(&mut self.target_is_bldg)
+            .map_err(|e| format!("Failed to xfer rappel target_is_bldg: {:?}", e))?;
         Ok(())
     }
 
@@ -11987,11 +12042,13 @@ mod ai_state_machine_parity_tests {
     }
 
     #[test]
-    fn rappel_into_state_snapshot_roundtrip_preserves_issued_command() {
+    fn rappel_into_state_snapshot_roundtrip_preserves_runtime_fields() {
         let _guard = test_guard();
         let source_machine = StateMachine::new(None, "rappel-source");
         let mut source = AIRappelIntoState::new(&source_machine);
-        source.issued_command = true;
+        source.rappel_rate = -21.5;
+        source.dest_z = 133.25;
+        source.target_is_bldg = true;
 
         let mut save_cursor = Cursor::new(Vec::<u8>::new());
         {
@@ -12008,7 +12065,9 @@ mod ai_state_machine_parity_tests {
             .xfer_snapshot(&mut loader)
             .expect("rappel state should deserialize");
 
-        assert!(loaded.issued_command);
+        assert_eq!(loaded.rappel_rate, -21.5);
+        assert_eq!(loaded.dest_z, 133.25);
+        assert!(loaded.target_is_bldg);
     }
 
     #[test]

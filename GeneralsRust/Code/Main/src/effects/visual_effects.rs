@@ -9,6 +9,8 @@ use crate::effects::audio_integration::{AudioEventType, EnhancedAudioManager};
 use crate::effects::particle_system::ParticleSystemManager;
 use crate::game_logic::ObjectId;
 
+const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+
 /// Visual effect types matching C&C categories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EffectType {
@@ -668,7 +670,7 @@ impl VisualEffectsManager {
                     if let Some(system) = manager.get_system_mut(system_id) {
                         system.set_position(explosion.position);
                         system.size_multiplier = explosion.size.max(0.1);
-                        let delay_frames = (delay_seconds * 60.0).round() as u32;
+                        let delay_frames = (delay_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
                         system.initial_delay_left =
                             system.initial_delay_left.saturating_add(delay_frames);
                         system.trigger();

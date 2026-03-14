@@ -72,6 +72,9 @@ pub struct UIElement {
     pub background_color: Vec4,
     pub border_color: Vec4,
     pub texture_id: Option<u32>,
+    pub hover_texture_id: Option<u32>,
+    pub pressed_texture_id: Option<u32>,
+    pub disabled_texture_id: Option<u32>,
     pub alignment: Alignment,
     pub margin: Vec4,  // left, top, right, bottom
     pub padding: Vec4, // left, top, right, bottom
@@ -96,6 +99,9 @@ impl UIElement {
             background_color: Vec4::new(0.3, 0.3, 0.3, 1.0), // Dark gray
             border_color: Vec4::new(0.5, 0.5, 0.5, 1.0), // Gray
             texture_id: None,
+            hover_texture_id: None,
+            pressed_texture_id: None,
+            disabled_texture_id: None,
             alignment: Alignment::TopLeft,
             margin: Vec4::ZERO,
             padding: Vec4::new(4.0, 4.0, 4.0, 4.0),
@@ -313,7 +319,7 @@ impl UILayoutManager {
         visible_elements.sort_by(|&a, &b| {
             let z_a = self.elements.get(&a).map(|e| e.z_order).unwrap_or(0);
             let z_b = self.elements.get(&b).map(|e| e.z_order).unwrap_or(0);
-            z_a.cmp(&z_b)
+            z_a.cmp(&z_b).then(a.cmp(&b))
         });
 
         visible_elements
@@ -369,62 +375,359 @@ impl UILayoutManager {
     pub fn create_main_menu_layout(&mut self) -> HashMap<String, u32> {
         let mut buttons = HashMap::new();
         let (screen_w, screen_h) = self.get_screen_size();
+        let scale_x = screen_w / 800.0;
+        let scale_y = screen_h / 600.0;
+
+        let scale_rect = |left: f32, top: f32, right: f32, bottom: f32| {
+            Rect::new(
+                left * scale_x,
+                top * scale_y,
+                (right - left) * scale_x,
+                (bottom - top) * scale_y,
+            )
+        };
+        let rgba = |r: f32, g: f32, b: f32, a: f32| Vec4::new(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 
         // Main menu background
         let background_id = self.create_element("MainMenuBackground");
         if let Some(bg) = self.get_element_mut(background_id) {
             bg.rect = Rect::new(0.0, 0.0, screen_w, screen_h);
-            bg.background_color = Vec4::new(0.0, 0.0, 0.0, 0.8);
+            bg.background_color = Vec4::new(0.0, 0.0, 0.0, 0.25);
+            bg.enabled = false;
             bg.z_order = -100;
         }
+        buttons.insert("MainMenuBackground".to_string(), background_id);
 
-        // Calculate button positioning (matching C++ layout)
-        let button_width = 200.0;
-        let button_height = 50.0;
-        let button_spacing = 20.0;
-        let start_x = screen_w * 0.1; // 10% from left
-        let start_y = screen_h * 0.3; // 30% from top
-
-        let button_names = [
-            "SinglePlayer",
-            "Skirmish",
-            "Network",
-            "Options",
-            "LoadReplay",
-            "Credits",
-            "Exit",
-        ];
-
-        for (i, &button_name) in button_names.iter().enumerate() {
-            let button_id = self.create_element(button_name);
-            if let Some(button) = self.get_element_mut(button_id) {
-                button.rect = Rect::new(
-                    start_x,
-                    start_y + i as f32 * (button_height + button_spacing),
-                    button_width,
-                    button_height,
-                );
-                button.text = button_name.to_string();
-                button.font_size = 16.0;
-                button.background_color = Vec4::new(0.3, 0.3, 0.3, 0.9);
-                button.text_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
-                button.border_color = Vec4::new(0.6, 0.6, 0.6, 1.0);
-                button.z_order = 10;
-            }
-            buttons.insert(button_name.to_string(), button_id);
+        // C++ shell menu ruler overlay (MainMenu.wnd:MainMenuRuler)
+        let ruler_id = self.create_element("MainMenuRuler");
+        if let Some(ruler) = self.get_element_mut(ruler_id) {
+            ruler.rect = scale_rect(0.0, 0.0, 800.0, 600.0);
+            ruler.background_color = Vec4::new(1.0, 1.0, 1.0, 0.0);
+            ruler.enabled = false;
+            ruler.z_order = 0;
         }
+        buttons.insert("MainMenuRuler".to_string(), ruler_id);
 
-        // Logo/Title area
-        let title_id = self.create_element("GameTitle");
+        // C++ shell menu logo area (MainMenu.wnd:Logo).
+        let title_id = self.create_element("MainMenuTitle");
         if let Some(title) = self.get_element_mut(title_id) {
-            title.rect = Rect::new(screen_w * 0.1, screen_h * 0.1, screen_w * 0.8, 100.0);
-            title.text = "COMMAND & CONQUER GENERALS".to_string();
-            title.font_size = 32.0;
-            title.text_color = Vec4::new(1.0, 0.8, 0.0, 1.0); // Gold
-            title.background_color = Vec4::new(0.0, 0.0, 0.0, 0.0); // Transparent
+            title.rect = scale_rect(504.0, 16.0, 791.0, 110.0);
+            title.text = String::new();
+            title.font_name = "Generals".to_string();
+            title.font_size = 26.0 * ((scale_x + scale_y) * 0.5);
+            title.text_color = rgba(186.0, 255.0, 12.0, 255.0);
+            title.background_color = Vec4::new(0.0, 0.0, 0.0, 0.0);
+            title.enabled = false;
             title.alignment = Alignment::Center;
-            title.z_order = 20;
+            title.z_order = 30;
         }
+        buttons.insert("MainMenuTitle".to_string(), title_id);
+
+        // Panel containers from MainMenu.wnd
+        let panel_color = rgba(0.0, 0.0, 0.0, 126.0);
+        let panel_border = rgba(47.0, 55.0, 168.0, 255.0);
+
+        let map_border2_id = self.create_element("MapBorder2");
+        if let Some(panel) = self.get_element_mut(map_border2_id) {
+            panel.rect = scale_rect(532.0, 108.0, 756.0, 360.0);
+            panel.background_color = panel_color;
+            panel.border_color = panel_border;
+            panel.enabled = false;
+            panel.z_order = 10;
+        }
+        buttons.insert("MapBorder2".to_string(), map_border2_id);
+
+        let map_border_id = self.create_element("MapBorder");
+        if let Some(panel) = self.get_element_mut(map_border_id) {
+            panel.rect = scale_rect(532.0, 108.0, 756.0, 360.0);
+            panel.background_color = panel_color;
+            panel.border_color = panel_border;
+            panel.enabled = false;
+            panel.z_order = 10;
+            panel.visible = false;
+        }
+        buttons.insert("MapBorder".to_string(), map_border_id);
+
+        let map_border1_id = self.create_element("MapBorder1");
+        if let Some(panel) = self.get_element_mut(map_border1_id) {
+            panel.rect = scale_rect(532.0, 108.0, 756.0, 240.0);
+            panel.background_color = panel_color;
+            panel.border_color = panel_border;
+            panel.enabled = false;
+            panel.z_order = 10;
+            panel.visible = false;
+        }
+        buttons.insert("MapBorder1".to_string(), map_border1_id);
+
+        let map_border3_id = self.create_element("MapBorder3");
+        if let Some(panel) = self.get_element_mut(map_border3_id) {
+            panel.rect = scale_rect(532.0, 108.0, 756.0, 240.0);
+            panel.background_color = panel_color;
+            panel.border_color = panel_border;
+            panel.enabled = false;
+            panel.z_order = 10;
+            panel.visible = false;
+        }
+        buttons.insert("MapBorder3".to_string(), map_border3_id);
+
+        let map_border4_id = self.create_element("MapBorder4");
+        if let Some(panel) = self.get_element_mut(map_border4_id) {
+            panel.rect = scale_rect(532.0, 108.0, 756.0, 320.0);
+            panel.background_color = panel_color;
+            panel.border_color = panel_border;
+            panel.enabled = false;
+            panel.z_order = 10;
+            panel.visible = false;
+        }
+        buttons.insert("MapBorder4".to_string(), map_border4_id);
+
+        let button_text = rgba(255.0, 255.0, 255.0, 255.0);
+        let button_bg = rgba(47.0, 55.0, 168.0, 220.0);
+        let button_border = rgba(40.0, 46.0, 132.0, 255.0);
+        let button_font = 15.0 * ((scale_x + scale_y) * 0.5);
+
+        // Difficulty panel static label (MapBorder4)
+        let difficulty_label_id = self.create_element("StaticTextSelectDifficulty");
+        if let Some(label) = self.get_element_mut(difficulty_label_id) {
+            label.rect = scale_rect(540.0, 116.0, 748.0, 151.0);
+            label.text = "Select Difficulty".to_string();
+            label.font_name = "Generals".to_string();
+            label.font_size = button_font;
+            label.text_color = rgba(186.0, 255.0, 12.0, 255.0);
+            label.background_color = Vec4::new(0.0, 0.0, 0.0, 0.0);
+            label.enabled = false;
+            label.alignment = Alignment::Center;
+            label.padding = Vec4::ZERO;
+            label.z_order = 20;
+            label.visible = false;
+        }
+        buttons.insert("StaticTextSelectDifficulty".to_string(), difficulty_label_id);
+
+        let mut add_button = |name: &str, text: &str, left: f32, top: f32, right: f32, bottom: f32, visible: bool| {
+            let button_id = self.create_element(name);
+            if let Some(button) = self.get_element_mut(button_id) {
+                button.rect = scale_rect(left, top, right, bottom);
+                button.text = text.to_string();
+                button.font_name = "Generals".to_string();
+                button.font_size = button_font;
+                button.text_color = button_text;
+                button.background_color = button_bg;
+                button.border_color = button_border;
+                button.alignment = Alignment::CenterLeft;
+                button.padding = Vec4::new(26.0 * scale_x, 0.0, 0.0, 0.0);
+                button.z_order = 20;
+                button.visible = visible;
+            }
+            buttons.insert(name.to_string(), button_id);
+        };
+
+        // Main menu panel (MapBorder2)
+        add_button(
+            "ButtonSinglePlayer",
+            "Single Player",
+            540.0,
+            116.0,
+            748.0,
+            152.0,
+            true,
+        );
+        add_button(
+            "ButtonMultiplayer",
+            "Multiplayer",
+            540.0,
+            156.0,
+            748.0,
+            192.0,
+            true,
+        );
+        add_button(
+            "ButtonLoadReplay",
+            "Replay Menu",
+            540.0,
+            196.0,
+            748.0,
+            231.0,
+            true,
+        );
+        add_button(
+            "ButtonOptions",
+            "Options",
+            540.0,
+            236.0,
+            748.0,
+            272.0,
+            true,
+        );
+        add_button(
+            "ButtonCredits",
+            "Credits",
+            540.0,
+            276.0,
+            748.0,
+            312.0,
+            true,
+        );
+        add_button(
+            "ButtonExit",
+            "Exit",
+            540.0,
+            316.0,
+            748.0,
+            352.0,
+            true,
+        );
+
+        // Single-player panel (MapBorder)
+        add_button(
+            "ButtonUSA",
+            "USA",
+            540.0,
+            116.0,
+            748.0,
+            152.0,
+            false,
+        );
+        add_button(
+            "ButtonGLA",
+            "GLA",
+            540.0,
+            156.0,
+            748.0,
+            192.0,
+            false,
+        );
+        add_button(
+            "ButtonChina",
+            "China",
+            540.0,
+            196.0,
+            748.0,
+            231.0,
+            false,
+        );
+        add_button(
+            "ButtonChallenge",
+            "Generals Challenge",
+            540.0,
+            236.0,
+            748.0,
+            272.0,
+            false,
+        );
+        add_button(
+            "ButtonSkirmish",
+            "Skirmish",
+            540.0,
+            276.0,
+            748.0,
+            312.0,
+            false,
+        );
+        add_button(
+            "ButtonSingleBack",
+            "Back",
+            540.0,
+            316.0,
+            748.0,
+            351.0,
+            false,
+        );
+
+        // Multiplayer panel (MapBorder1)
+        add_button(
+            "ButtonOnline",
+            "Online",
+            540.0,
+            116.0,
+            748.0,
+            151.0,
+            false,
+        );
+        add_button(
+            "ButtonNetwork",
+            "Network",
+            540.0,
+            156.0,
+            748.0,
+            191.0,
+            false,
+        );
+        add_button(
+            "ButtonMultiBack",
+            "Back",
+            540.0,
+            196.0,
+            748.0,
+            232.0,
+            false,
+        );
+
+        // Load/replay panel (MapBorder3)
+        add_button(
+            "ButtonLoadGame",
+            "Load Game",
+            540.0,
+            116.0,
+            748.0,
+            151.0,
+            false,
+        );
+        add_button(
+            "ButtonReplay",
+            "Load Replay",
+            540.0,
+            156.0,
+            748.0,
+            191.0,
+            false,
+        );
+        add_button(
+            "ButtonLoadReplayBack",
+            "Back",
+            540.0,
+            196.0,
+            748.0,
+            232.0,
+            false,
+        );
+
+        // Difficulty panel (MapBorder4)
+        add_button(
+            "ButtonEasy",
+            "Easy",
+            540.0,
+            156.0,
+            748.0,
+            191.0,
+            false,
+        );
+        add_button(
+            "ButtonMedium",
+            "Medium",
+            540.0,
+            196.0,
+            748.0,
+            231.0,
+            false,
+        );
+        add_button(
+            "ButtonHard",
+            "Hard",
+            540.0,
+            236.0,
+            748.0,
+            272.0,
+            false,
+        );
+        add_button(
+            "ButtonDiffBack",
+            "Back",
+            540.0,
+            276.0,
+            748.0,
+            312.0,
+            false,
+        );
 
         buttons
     }
@@ -522,6 +825,7 @@ impl UILayoutManager {
                 screen_h * 0.6,
             );
             bg.background_color = Vec4::new(0.0, 0.0, 0.0, 0.85);
+            bg.enabled = false;
             bg.z_order = 150;
         }
 
@@ -575,6 +879,7 @@ impl UILayoutManager {
                 screen_h * 0.5,
             );
             bg.background_color = Vec4::new(0.05, 0.05, 0.05, 0.85);
+            bg.enabled = false;
             bg.z_order = 150;
         }
 
@@ -616,6 +921,7 @@ impl UILayoutManager {
                 screen_h * 0.6,
             );
             bg.background_color = Vec4::new(0.0, 0.0, 0.0, 0.9);
+            bg.enabled = false;
             bg.z_order = 190;
         }
         elements.insert("VictoryOverlay".to_string(), bg_id);
@@ -627,6 +933,7 @@ impl UILayoutManager {
             title.font_size = 28.0;
             title.text_color = Vec4::new(0.0, 1.0, 0.0, 1.0);
             title.background_color = Vec4::new(0.0, 0.0, 0.0, 0.0);
+            title.enabled = false;
             title.alignment = Alignment::Center;
             title.z_order = 200;
         }
@@ -655,23 +962,78 @@ impl UILayoutManager {
         let bg_id = self.create_element("LoadingOverlay");
         if let Some(bg) = self.get_element_mut(bg_id) {
             bg.rect = Rect::new(0.0, 0.0, screen_w, screen_h);
-            bg.background_color = Vec4::new(0.0, 0.0, 0.0, 0.85);
+            bg.background_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
+            bg.enabled = false;
             bg.z_order = 180;
         }
         elements.insert("LoadingOverlay".to_string(), bg_id);
 
         let text_id = self.create_element("LoadingText");
         if let Some(txt) = self.get_element_mut(text_id) {
-            txt.rect = Rect::new(screen_w * 0.3, screen_h * 0.45, screen_w * 0.4, 60.0);
-            txt.text = "Loading...".to_string();
-            txt.font_size = 24.0;
+            txt.rect = Rect::new(screen_w * 0.28, screen_h * 0.78, screen_w * 0.44, 44.0);
+            txt.text = "Loading assets... 0%".to_string();
+            txt.font_size = 20.0;
             txt.text_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
             txt.background_color = Vec4::new(0.0, 0.0, 0.0, 0.0);
+            txt.enabled = false;
             txt.alignment = Alignment::Center;
-            txt.z_order = 190;
+            txt.z_order = 195;
         }
         elements.insert("LoadingText".to_string(), text_id);
 
+        let bar_track_id = self.create_element("LoadingProgressTrack");
+        if let Some(track) = self.get_element_mut(bar_track_id) {
+            track.rect = Rect::new(screen_w * 0.25, screen_h * 0.86, screen_w * 0.5, 18.0);
+            track.background_color = Vec4::new(0.08, 0.08, 0.08, 0.88);
+            track.border_color = Vec4::new(0.75, 0.75, 0.75, 1.0);
+            track.enabled = false;
+            track.z_order = 196;
+        }
+        elements.insert("LoadingProgressTrack".to_string(), bar_track_id);
+
+        let bar_fill_id = self.create_element("LoadingProgressFill");
+        if let Some(fill) = self.get_element_mut(bar_fill_id) {
+            fill.rect = Rect::new(screen_w * 0.25 + 2.0, screen_h * 0.86 + 2.0, 0.0, 14.0);
+            fill.background_color = Vec4::new(0.88, 0.76, 0.24, 0.98);
+            fill.border_color = Vec4::new(0.95, 0.88, 0.35, 1.0);
+            fill.enabled = false;
+            fill.z_order = 197;
+        }
+        elements.insert("LoadingProgressFill".to_string(), bar_fill_id);
+
         elements
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_menu_non_interactive_elements_do_not_capture_hits() {
+        let mut layout = UILayoutManager::new(1920.0, 1080.0);
+        let buttons = layout.create_main_menu_layout();
+
+        let background = layout
+            .get_element_by_name("MainMenuBackground")
+            .expect("missing main menu background");
+        let title = layout
+            .get_element_by_name("MainMenuTitle")
+            .expect("missing game title");
+        assert!(!background.enabled);
+        assert!(!title.enabled);
+
+        // Center of screen should be empty hit-test space for menu (buttons are right column).
+        assert!(layout.find_element_at_position(960.0, 540.0).is_none());
+
+        let single_player_id = *buttons
+            .get("ButtonSinglePlayer")
+            .expect("missing single-player button");
+        let button = layout
+            .get_element(single_player_id)
+            .expect("single-player button not found");
+        let rect = button.get_absolute_rect(&layout);
+        let hit = layout.find_element_at_position(rect.x + 4.0, rect.y + 4.0);
+        assert_eq!(hit, Some(single_player_id));
     }
 }

@@ -245,6 +245,10 @@ impl AssetManagerExt {
         // Chunk iteration implementation - reads W3D file chunks sequentially.
         // Each chunk has: 4-byte type ID + 4-byte size + data payload.
         // C++ equivalent: W3DAssetManager::Load_3D_Assets (w3dassetmanager.cpp)
+        let mut duplicate_prototype_count = 0usize;
+        let mut load_failure_count = 0usize;
+        let mut first_load_failure: Option<String> = None;
+
         loop {
             // Read chunk header (8 bytes: 4 for type, 4 for size)
             let mut header = [0u8; 8];
@@ -270,17 +274,32 @@ impl AssetManagerExt {
                         if !self.render_obj_exists(&name) {
                             self.add_prototype(name, prototype);
                         } else {
-                            eprintln!("WARNING: Name collision for prototype: {}", name);
+                            // Mirror C++ behavior: duplicates are ignored after debug tracing.
+                            // Avoid emitting one line per collision to keep runtime startup smooth.
+                            duplicate_prototype_count += 1;
                         }
                     }
                     Err(e) => {
-                        eprintln!("ERROR: Failed to load prototype: {:?}", e);
+                        load_failure_count += 1;
+                        if first_load_failure.is_none() {
+                            first_load_failure = Some(format!("{e:?}"));
+                        }
                         // Chunk already consumed, continue to next
                     }
                 }
             }
             // If no loader found, chunk data is already consumed, continue to next
         }
+
+        if load_failure_count > 0 {
+            if let Some(first) = first_load_failure {
+                eprintln!(
+                    "ERROR: Failed to load {} prototype chunks from '{}'; first error: {}",
+                    load_failure_count, asset_name, first
+                );
+            }
+        }
+        let _ = duplicate_prototype_count;
 
         Ok(())
     }

@@ -221,12 +221,9 @@ impl EffectsIntegration {
         depth_view: &wgpu::TextureView,
         mut shadow_scene_render_fn: impl FnMut(&mut wgpu::RenderPass),
     ) {
-        self.render_with_shadow_scene_context(
-            encoder,
-            view,
-            depth_view,
-            |_light, _layer, pass| shadow_scene_render_fn(pass),
-        );
+        self.render_with_shadow_scene_context(encoder, view, depth_view, |_light, _layer, pass| {
+            shadow_scene_render_fn(pass)
+        });
     }
 
     /// Render all visual effects with per-light shadow-scene callback context.

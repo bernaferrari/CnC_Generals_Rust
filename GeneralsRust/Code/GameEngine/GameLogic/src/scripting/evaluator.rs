@@ -27,6 +27,7 @@ use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 /// Script Evaluator matching C++ ScriptEngine evaluation logic
 pub struct ScriptEvaluator {
@@ -112,7 +113,10 @@ impl ScriptEvaluator {
 
     /// Evaluate a single condition matching C++ EvaluateCondition
     pub fn evaluate_condition(&self, condition: &mut Condition) -> GameLogicResult<bool> {
-        match condition.get_condition_type() {
+        const SLOW_SCRIPT_CONDITION_WARN_MS: u64 = 40;
+        let condition_type = condition.get_condition_type();
+        let eval_started = Instant::now();
+        let result = match condition_type {
             ConditionType::ConditionFalse => Ok(false),
             ConditionType::ConditionTrue => Ok(true),
             ConditionType::Counter => self.evaluate_counter_condition(condition),
@@ -261,7 +265,16 @@ impl ScriptEvaluator {
                     ))),
                 }
             }
+        };
+        let elapsed = eval_started.elapsed();
+        if elapsed >= std::time::Duration::from_millis(SLOW_SCRIPT_CONDITION_WARN_MS) {
+            log::warn!(
+                "Slow script condition evaluate: {:?} took {:?}",
+                condition_type,
+                elapsed
+            );
         }
+        result
     }
 
     fn resolve_team_name_token(&self, raw: &str) -> String {
@@ -2675,7 +2688,7 @@ impl ScriptEvaluator {
         })?;
 
         engine.set_flag(flag_name, flag_value)?;
-        log::info!("Set flag '{}' to {}", flag_name, flag_value);
+        log::debug!("Set flag '{}' to {}", flag_name, flag_value);
         Ok(())
     }
 
@@ -2699,7 +2712,7 @@ impl ScriptEvaluator {
         })?;
 
         engine.set_counter(counter_name, counter_value)?;
-        log::info!("Set counter '{}' to {}", counter_name, counter_value);
+        log::debug!("Set counter '{}' to {}", counter_name, counter_value);
         Ok(())
     }
 
@@ -2727,7 +2740,7 @@ impl ScriptEvaluator {
             .map(|c| c.value)
             .unwrap_or(0);
         engine.set_counter(counter_name, current_value + value_param)?;
-        log::info!(
+        log::debug!(
             "Incremented counter '{}' by {} to {}",
             counter_name,
             value_param,
@@ -2760,7 +2773,7 @@ impl ScriptEvaluator {
             .map(|c| c.value)
             .unwrap_or(0);
         engine.set_counter(counter_name, current_value - value_param)?;
-        log::info!(
+        log::debug!(
             "Decremented counter '{}' by {} to {}",
             counter_name,
             value_param,
@@ -2797,7 +2810,7 @@ impl ScriptEvaluator {
             counter.is_countdown_timer = true;
         }
 
-        log::info!(
+        log::debug!(
             "Set timer '{}' to {} seconds ({} frames)",
             counter_name,
             seconds,
@@ -2838,7 +2851,7 @@ impl ScriptEvaluator {
             counter.is_countdown_timer = true;
         }
 
-        log::info!(
+        log::debug!(
             "Set millisecond timer '{}' to {} script-seconds ({} frames)",
             counter_name,
             seconds,

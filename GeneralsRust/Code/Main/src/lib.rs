@@ -90,6 +90,16 @@ pub mod network {
     ) -> NetworkResult<Arc<RwLock<NetworkInterface>>> {
         Err(NetworkError::Disabled)
     }
+
+    pub fn has_active_network_interface() -> bool {
+        false
+    }
+
+    pub fn active_session_frame_data_ready() -> Option<bool> {
+        None
+    }
+
+    pub fn clear_active_network_interface() {}
 }
 pub mod save_load;
 pub mod selection_renderer;
@@ -155,5 +165,4 @@ pub mod tests {
     pub mod command_integration_tests;
     pub mod fow_integration_tests;
     pub mod game_loop_integration_tests;
-    pub mod gui_integration_tests;
 }

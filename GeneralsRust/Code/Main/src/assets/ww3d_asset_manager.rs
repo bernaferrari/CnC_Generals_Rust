@@ -73,7 +73,7 @@ impl WW3DAssetManager {
         let total_files = object_ini_files.len();
 
         for (idx, ini_file) in object_ini_files.iter().enumerate() {
-            info!(
+            debug!(
                 "📄 Loading INI file {}/{}: {}",
                 idx + 1,
                 total_files,
@@ -140,9 +140,8 @@ impl WW3DAssetManager {
             }
         }
 
-        let mut definitions: Vec<(String, ObjectDefinition)> = resolved_definitions
-            .into_iter()
-            .collect();
+        let mut definitions: Vec<(String, ObjectDefinition)> =
+            resolved_definitions.into_iter().collect();
         definitions.sort_by(|a, b| a.0.cmp(&b.0));
 
         for (name, def) in definitions {
@@ -180,7 +179,10 @@ impl WW3DAssetManager {
 
         let raw = raw_definitions.get(name)?.clone();
         if !stack.insert(name.to_string()) {
-            warn!("Detected cyclic object inheritance while resolving '{}'", name);
+            warn!(
+                "Detected cyclic object inheritance while resolving '{}'",
+                name
+            );
             return Some(raw);
         }
 

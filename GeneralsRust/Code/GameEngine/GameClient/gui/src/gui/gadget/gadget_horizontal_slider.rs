@@ -117,26 +117,36 @@ pub fn render_demo(label: &str, value: f32) -> AnyElement {
     let mut state = HorizontalSliderState::default();
     state.position =
         (state.min as f32 + (state.max - state.min) as f32 * value.clamp(0.0, 1.0)).round() as i32;
-    let width = 144.0_f32 * state.normalized();
+    render(label, &state)
+}
+
+pub fn render(label: impl Into<String>, state: &HorizontalSliderState) -> AnyElement {
+    let label = label.into();
+    let track_width = state.track_width.max(1) as f32;
+    let width = track_width * state.normalized();
     div()
         .flex()
         .flex_col()
         .gap_1()
         .child(
-            div().h(px(8.)).rounded_full().bg(rgb(0x1f2a35)).child(
-                div()
-                    .w(px(width))
-                    .h(px(8.))
-                    .rounded_full()
-                    .bg(rgb(0x69d18a)),
-            ),
-        )
-        .child(
             div()
-                .text_sm()
-                .text_color(rgb(0x8ea2b4))
-                .child(label.to_string()),
+                .w(px(track_width))
+                .h(px(8.))
+                .rounded_full()
+                .bg(rgb(0x1f2a35))
+                .child(
+                    div()
+                        .w(px(width))
+                        .h(px(8.))
+                        .rounded_full()
+                        .bg(if state.hilited {
+                            rgb(0x8dc0ff)
+                        } else {
+                            rgb(0x69d18a)
+                        }),
+                ),
         )
+        .child(div().text_sm().text_color(rgb(0x8ea2b4)).child(label))
         .into_any_element()
 }
 

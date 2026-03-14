@@ -3,6 +3,8 @@ use glam::Vec3;
 use rand::Rng;
 use std::collections::{HashMap, VecDeque};
 
+const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+
 /// AI difficulty levels affecting decision making and timing
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AIDifficulty {
@@ -312,7 +314,7 @@ impl AIPlayer {
         if self.enemy_player_id != best_enemy {
             self.enemy_player_id = best_enemy;
             if let Some(enemy_id) = best_enemy {
-                println!(
+                log::debug!(
                     "AI Player {} ({}) targeting enemy Player {}",
                     self.player_id,
                     self.team.get_name(),
@@ -440,7 +442,7 @@ impl AIPlayer {
                         }
                     }
 
-                    println!(
+                    log::debug!(
                         "AI Player {} building {} at {:?}",
                         self.player_id, building.template_name, building.position
                     );
@@ -569,7 +571,7 @@ impl AIPlayer {
         // Remove completed teams
         for &index in completed_teams.iter().rev() {
             if let Some(team) = self.team_queue.remove(index) {
-                println!("AI Player {} completed team: {}", self.player_id, team.name);
+                log::debug!("AI Player {} completed team: {}", self.player_id, team.name);
             }
         }
     }
@@ -609,7 +611,7 @@ impl AIPlayer {
             let team_queue = self.create_team_queue(&name, current_time);
             self.team_queue.push_back(team_queue);
 
-            println!("AI Player {} queued team: {}", self.player_id, name);
+            log::debug!("AI Player {} queued team: {}", self.player_id, name);
         }
     }
 
@@ -667,7 +669,7 @@ impl AIPlayer {
             name: team_name.to_string(),
             work_orders,
             priority_build: false,
-            frame_started: (current_time * 60.0) as u32, // Convert to frame
+            frame_started: (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
             completed: false,
         }
     }
@@ -827,7 +829,7 @@ impl AIPlayer {
 
     /// Launch coordinated attack
     fn launch_attack(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        println!(
+        log::debug!(
             "AI Player {} ({}) launching attack!",
             self.player_id,
             self.team.get_name()
@@ -973,7 +975,7 @@ impl AIManager {
         ai_player.initialize(base_position);
         self.ai_players.insert(player_id, ai_player);
 
-        println!(
+        log::info!(
             "Added AI player {} ({}) with {} difficulty",
             player_id,
             team.get_name(),
@@ -1068,7 +1070,7 @@ impl AIManager {
 
     /// Called when a game is loaded from save
     pub fn on_game_loaded(&mut self) {
-        println!("AI Manager: Game loaded, reinitializing AI state...");
+        log::info!("AI Manager: Game loaded, reinitializing AI state...");
 
         // Clear any transient state and reinitialize
         for ai_player in self.ai_players.values_mut() {
@@ -1083,7 +1085,7 @@ impl AIManager {
             // Clear temporary lists that shouldn't persist
             ai_player.defensive_units.clear();
 
-            println!(
+            log::debug!(
                 "  Reinitialized AI player {} ({})",
                 ai_player.player_id,
                 ai_player.team.get_name()
@@ -1091,12 +1093,12 @@ impl AIManager {
         }
 
         self.last_update_time = 0.0;
-        println!("AI Manager: Game load initialization complete");
+        log::info!("AI Manager: Game load initialization complete");
     }
 
     /// Clear all pending AI commands
     pub fn clear_pending_commands(&mut self) {
-        println!("AI Manager: Clearing all pending commands...");
+        log::info!("AI Manager: Clearing all pending commands...");
 
         for ai_player in self.ai_players.values_mut() {
             // Clear building queues
@@ -1108,13 +1110,13 @@ impl AIManager {
             // Reset attack state
             ai_player.attack_in_progress = false;
 
-            println!(
+            log::debug!(
                 "  Cleared commands for AI player {} ({})",
                 ai_player.player_id,
                 ai_player.team.get_name()
             );
         }
 
-        println!("AI Manager: All pending commands cleared");
+        log::info!("AI Manager: All pending commands cleared");
     }
 }

@@ -173,6 +173,8 @@ pub struct WgpuUIRenderer {
     // Resources
     textures: HashMap<u32, UITexture>,
     texture_bind_groups: HashMap<u32, wgpu::BindGroup>,
+    _default_texture: UITexture,
+    default_texture_bind_group: wgpu::BindGroup,
     fonts: HashMap<String, Font>,
     next_texture_id: u32,
 
@@ -346,6 +348,66 @@ impl WgpuUIRenderer {
             multiview: None,
         });
 
+        // Create a default 1x1 white texture so untextured UI draws still satisfy
+        // shader binding requirements.
+        let default_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("UI Default White Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                aspect: wgpu::TextureAspect::All,
+                texture: &default_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &[255, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        let default_view = default_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let default_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("UI Default Texture Bind Group"),
+            layout: &ui_pipeline.get_bind_group_layout(1),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&default_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&default_sampler),
+                },
+            ],
+        });
+
         // Create vertex and index buffers
         let max_vertices = 65536;
         let max_indices = 98304; // 1.5x vertices for typical UI geometry
@@ -374,6 +436,14 @@ impl WgpuUIRenderer {
             projection_bind_group,
             textures: HashMap::new(),
             texture_bind_groups: HashMap::new(),
+            _default_texture: UITexture {
+                texture: default_texture,
+                view: default_view,
+                sampler: default_sampler,
+                width: 1,
+                height: 1,
+            },
+            default_texture_bind_group,
             fonts: HashMap::new(),
             next_texture_id: 1,
             vertex_buffer,
@@ -525,6 +595,7 @@ impl WgpuUIRenderer {
 
             render_pass.set_pipeline(&self.ui_pipeline);
             render_pass.set_bind_group(0, &self.projection_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.default_texture_bind_group, &[]);
 
             for command in commands {
                 if command.vertices.is_empty() || command.indices.is_empty() {
@@ -553,12 +624,12 @@ impl WgpuUIRenderer {
                 render_pass
                     .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-                // Set texture if available and draw
-                if let Some(texture_id) = command.texture_id {
-                    if let Some(bind_group) = self.texture_bind_groups.get(&texture_id) {
-                        render_pass.set_bind_group(1, bind_group, &[]);
-                    }
-                }
+                // Bind command texture when available, otherwise keep default white texture.
+                let texture_bind_group = command
+                    .texture_id
+                    .and_then(|texture_id| self.texture_bind_groups.get(&texture_id))
+                    .unwrap_or(&self.default_texture_bind_group);
+                render_pass.set_bind_group(1, texture_bind_group, &[]);
 
                 // Draw the indexed geometry
                 render_pass.draw_indexed(0..command.indices.len() as u32, 0, 0..1);
@@ -622,9 +693,17 @@ impl WgpuUIRenderer {
         height: f32,
         texture_id: u32,
     ) -> UIDrawCommand {
-        let mut cmd = self.create_rect(x, y, width, height, Color::UI_BUTTON_NORMAL);
+        // Textures in the original C++ shell are authored with their own color.
+        // Keep vertex tint white so we don't darken artwork.
+        let mut cmd = self.create_rect(x, y, width, height, Color::WHITE);
         cmd.texture_id = Some(texture_id);
         cmd
+    }
+
+    pub fn texture_size(&self, texture_id: u32) -> Option<(u32, u32)> {
+        self.textures
+            .get(&texture_id)
+            .map(|texture| (texture.width, texture.height))
     }
 
     /// Create a text draw command using an 8x8 bitmap font fallback.

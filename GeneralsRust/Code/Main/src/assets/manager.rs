@@ -21,6 +21,7 @@ use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
@@ -210,11 +211,13 @@ impl AssetManager {
     }
 
     fn trim_model_variant_suffixes(model_key: &str) -> String {
-        let mut trimmed = model_key.trim_end_matches(|ch: char| ch.is_ascii_digit()).to_string();
+        let mut trimmed = model_key
+            .trim_end_matches(|ch: char| ch.is_ascii_digit())
+            .to_string();
         for suffix in [
-            "_dsng", "_esn", "_rsn", "_dsn", "_sng", "_dsg", "_sg", "_sn", "_dn", "_en",
-            "_rn", "_ds", "_es", "_rs", "_ng", "_dg", "_ns", "_s", "_n", "_d", "_e", "_r",
-            "_g", "_a", "_b", "_c",
+            "_dsng", "_esn", "_rsn", "_dsn", "_sng", "_dsg", "_sg", "_sn", "_dn", "_en", "_rn",
+            "_ds", "_es", "_rs", "_ng", "_dg", "_ns", "_s", "_n", "_d", "_e", "_r", "_g", "_a",
+            "_b", "_c",
         ] {
             if let Some(stripped) = trimmed.strip_suffix(suffix) {
                 trimmed = stripped.to_string();
@@ -286,8 +289,7 @@ impl AssetManager {
                 || requested_trimmed.starts_with(&candidate_trimmed)
             {
                 8_000 - (candidate_trimmed.len() as i32 - requested_trimmed.len() as i32).abs()
-            } else if !requested_signature.is_empty()
-                && candidate_signature == requested_signature
+            } else if !requested_signature.is_empty() && candidate_signature == requested_signature
             {
                 7_600 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
             } else if !requested_signature.is_empty()
@@ -332,13 +334,8 @@ impl AssetManager {
             .trim_end_matches(".W3D");
         let mut candidates = vec![base.to_string()];
         for suffix in [
-            "_d4", "_d3", "_d2", "_d1", "_d",
-            "_dsn", "_dsng", "_ds", "_dsg",
-            "_esn", "_es", "_en",
-            "_rsn", "_rs", "_rn",
-            "_sng", "_sn", "_sg", "_s",
-            "_ng", "_n", "_g",
-            "_a", "_b", "_c",
+            "_d4", "_d3", "_d2", "_d1", "_d", "_dsn", "_dsng", "_ds", "_dsg", "_esn", "_es", "_en",
+            "_rsn", "_rs", "_rn", "_sng", "_sn", "_sg", "_s", "_ng", "_n", "_g", "_a", "_b", "_c",
         ] {
             candidates.push(format!("{base}{suffix}"));
         }
@@ -405,7 +402,7 @@ impl AssetManager {
 
     /// Create new asset manager
     pub fn new() -> Result<Self> {
-        info!("Creating AssetManager");
+        debug!("Creating AssetManager");
 
         let (language, active_mod_path) = Self::runtime_overrides();
 
@@ -425,7 +422,7 @@ impl AssetManager {
 
     /// Initialize the asset manager
     pub async fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-        info!("Initializing AssetManager");
+        debug!("Initializing AssetManager");
 
         // Add asset search paths before initializing
         // Try to find the assets directory relative to the executable
@@ -469,10 +466,9 @@ impl AssetManager {
             .init(device, queue)
             .map_err(|e| anyhow!("Failed to initialize texture manager: {}", e))?;
 
-        // Load caustic textures for water effects
-        self.texture_manager
-            .load_caustic_textures(device, queue)
-            .map_err(|e| anyhow!("Failed to load caustic textures: {}", e))?;
+        // Keep startup/menu responsive: defer non-critical animated water caustic uploads.
+        // These frames are optional polish and are not required for shell/menu initialization.
+        info!("Deferring caustic water texture warmup until post-startup gameplay path");
 
         // Initialize WW3D Asset Manager - Load object definitions from INIZH.big
         // This matches C++ WW3DAssetManager initialization
@@ -579,7 +575,7 @@ impl AssetManager {
     fn add_search_path_if_exists<P: AsRef<Path>>(&mut self, path: P) {
         let path = path.as_ref();
         if path.exists() {
-            info!("📂 Adding asset search path: {}", path.display());
+            debug!("📂 Adding asset search path: {}", path.display());
             self.archive_system.add_search_path(path);
         } else {
             debug!("Skipping missing asset path: {}", path.display());
@@ -602,7 +598,7 @@ impl AssetManager {
         }
 
         if path.exists() {
-            info!("🗃️ Queuing BIG file for manual load: {}", path.display());
+            debug!("🗃️ Queuing BIG file for manual load: {}", path.display());
             self.manual_big_files.push(path.to_path_buf());
         } else {
             warn!("Manual BIG file not found, skipping: {}", path.display());
@@ -611,7 +607,7 @@ impl AssetManager {
 
     async fn load_manual_archives(&mut self) -> Result<()> {
         for big in std::mem::take(&mut self.manual_big_files) {
-            info!("🗃️ Loading BIG archive {}", big.display());
+            debug!("🗃️ Loading BIG archive {}", big.display());
             self.archive_system
                 .load_big_file(&big)
                 .await
@@ -636,7 +632,7 @@ impl AssetManager {
 
         for name in candidates {
             if let Some(path) = self.archive_system.find_archive(name) {
-                info!("🔍 Mounting core archive: {}", path.display());
+                debug!("🔍 Mounting core archive: {}", path.display());
                 if let Err(e) = self.archive_system.load_big_file(&path).await {
                     warn!("Failed to mount {}: {}", path.display(), e);
                 }
@@ -1250,6 +1246,7 @@ impl AssetSearchResults {
 
 /// Global asset manager instance
 static ASSET_MANAGER: OnceLock<Arc<Mutex<AssetManager>>> = OnceLock::new();
+static CAUSTIC_WARMUP_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
@@ -1305,6 +1302,42 @@ fn begin_background_music_startup() {
 /// Get reference to global asset manager
 pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
     ASSET_MANAGER.get().cloned()
+}
+
+/// Warm up optional caustic animation textures outside startup critical path.
+pub fn warmup_caustic_textures_async(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> bool {
+    if CAUSTIC_WARMUP_STARTED.swap(true, Ordering::AcqRel) {
+        return false;
+    }
+
+    let Some(manager_arc) = get_asset_manager() else {
+        CAUSTIC_WARMUP_STARTED.store(false, Ordering::Release);
+        return false;
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let result = {
+            let mut manager = manager_arc.lock().expect("asset manager mutex poisoned");
+            manager
+                .texture_manager
+                .load_caustic_textures(device.as_ref(), queue.as_ref())
+        };
+
+        match result {
+            Ok(caustic_names) => {
+                info!(
+                    "Deferred caustic texture warmup complete: {} frames",
+                    caustic_names.len()
+                );
+            }
+            Err(err) => {
+                warn!("Deferred caustic texture warmup failed: {}", err);
+                CAUSTIC_WARMUP_STARTED.store(false, Ordering::Release);
+            }
+        }
+    });
+
+    true
 }
 
 /// Convenience functions for common operations
@@ -1390,13 +1423,37 @@ mod tests {
 
     #[test]
     fn remap_known_model_alias_covers_shell_map_aliases() {
-        assert_eq!(AssetManager::remap_known_model_alias("PMRocks01b"), "PMBoulders_D");
-        assert_eq!(AssetManager::remap_known_model_alias("PMRocks02b"), "PMBoulders_D");
-        assert_eq!(AssetManager::remap_known_model_alias("PTCypress01"), "PTXARBVT01");
-        assert_eq!(AssetManager::remap_known_model_alias("PTXPine03"), "PTXFIR07");
-        assert_eq!(AssetManager::remap_known_model_alias("PMSwing"), "PMBikeRack");
-        assert_eq!(AssetManager::remap_known_model_alias("PMPlygdSt"), "PMPavilion");
-        assert_eq!(AssetManager::remap_known_model_alias("AVAMPHIB"), "AVChinook_A2");
-        assert_eq!(AssetManager::remap_known_model_alias("AVPaladin"), "AVCrusader_A");
+        assert_eq!(
+            AssetManager::remap_known_model_alias("PMRocks01b"),
+            "PMBoulders_D"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("PMRocks02b"),
+            "PMBoulders_D"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("PTCypress01"),
+            "PTXARBVT01"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("PTXPine03"),
+            "PTXFIR07"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("PMSwing"),
+            "PMBikeRack"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("PMPlygdSt"),
+            "PMPavilion"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("AVAMPHIB"),
+            "AVChinook_A2"
+        );
+        assert_eq!(
+            AssetManager::remap_known_model_alias("AVPaladin"),
+            "AVCrusader_A"
+        );
     }
 }

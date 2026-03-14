@@ -230,23 +230,24 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
             handle_download_error();
         }
         DownloadEvent::End => {
-            let should_quit = {
+            let (should_start_next, should_quit) = {
                 let mut guard = download_manager()
                     .lock()
                     .expect("DownloadManager lock poisoned");
                 guard
                     .as_mut()
-                    .and_then(|manager| {
+                    .map(|manager| {
+                        let has_more = manager.is_file_queued_for_download();
                         let local = manager.last_local_file().to_string();
-                        if local.contains("patches") {
-                            Some(true)
-                        } else {
-                            Some(false)
-                        }
+                        (has_more, local.contains("patches"))
                     })
-                    .unwrap_or(false)
+                    .unwrap_or((false, false))
             };
-            handle_download_success(should_quit);
+            if should_start_next {
+                start_next_download();
+            } else {
+                handle_download_success(should_quit);
+            }
         }
     }
 }
@@ -280,7 +281,12 @@ pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn st
         state.progress_bar = parent_guard.find_child_by_id(state.progress_bar_id);
     }
 
-    set_download_manager(Some(DownloadManager::new()));
+    let mut guard = download_manager()
+        .lock()
+        .expect("DownloadManager lock poisoned");
+    if guard.is_none() {
+        *guard = Some(DownloadManager::new());
+    }
 }
 
 pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {

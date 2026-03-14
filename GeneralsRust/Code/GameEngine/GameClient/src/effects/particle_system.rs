@@ -191,7 +191,7 @@ impl Particle {
     }
 
     /// Update particle physics and animation (matches C++ Particle::update)
-    /// 
+    ///
     /// # Arguments
     /// * `drift_velocity` - System-level drift velocity to apply to position (C++: m_system->getDriftVelocity())
     /// * `current_frame` - Current game frame for keyframe timing (C++: TheGameClient->getFrame())
@@ -232,15 +232,16 @@ impl Particle {
         if self.particle_up_towards_emitter {
             let emitter_dir_x = self.position.x - self.emitter_position.x;
             let emitter_dir_y = self.position.y - self.emitter_position.y;
-            let emitter_len = (emitter_dir_x * emitter_dir_x + emitter_dir_y * emitter_dir_y).sqrt();
-            
+            let emitter_len =
+                (emitter_dir_x * emitter_dir_x + emitter_dir_y * emitter_dir_y).sqrt();
+
             if emitter_len > 0.0 {
                 // Calculate angle from up vector (0,1) to emitter direction
                 let up_x = 0.0f32;
                 let up_y = 1.0f32;
                 let norm_x = emitter_dir_x / emitter_len;
                 let norm_y = emitter_dir_y / emitter_len;
-                
+
                 // Angle between (0,1) and (norm_x, norm_y) using atan2
                 let angle_to_emitter = norm_y.atan2(norm_x);
                 self.angle_z = angle_to_emitter + std::f32::consts::PI;
@@ -257,8 +258,10 @@ impl Particle {
 
             // Check keyframe timing using create_timestamp (C++ lines 385-391)
             let elapsed_frames = current_frame.saturating_sub(self.create_timestamp);
-            
-            if self.alpha_target_key < MAX_KEYFRAMES && self.alpha_keys[self.alpha_target_key].frame > 0 {
+
+            if self.alpha_target_key < MAX_KEYFRAMES
+                && self.alpha_keys[self.alpha_target_key].frame > 0
+            {
                 if elapsed_frames >= self.alpha_keys[self.alpha_target_key].frame {
                     self.alpha = self.alpha_keys[self.alpha_target_key].value;
                     self.alpha_target_key += 1;
@@ -279,8 +282,9 @@ impl Particle {
 
         // Check color keyframe timing (C++ lines 410-418)
         let elapsed_frames = current_frame.saturating_sub(self.create_timestamp);
-        
-        if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame > 0 {
+
+        if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame > 0
+        {
             if elapsed_frames >= self.color_keys[self.color_target_key].frame {
                 self.color_target_key += 1;
                 self.compute_color_rate();
@@ -306,7 +310,7 @@ impl Particle {
         if self.lifetime_left > 0 {
             self.lifetime_left -= 1;
         }
-        
+
         if self.lifetime_left == 0 {
             return false;
         }
@@ -325,10 +329,10 @@ impl Particle {
     }
 
     /// Do wind motion (matches C++ Particle::doWindMotion)
-    /// 
+    ///
     /// Wind force is applied directly to position, not as acceleration.
     /// The force strength diminishes with distance from the emitter.
-    /// 
+    ///
     /// # Arguments
     /// * `wind_angle` - Current wind angle from the particle system
     /// * `system_pos` - Position of the particle system (emitter)
@@ -350,8 +354,9 @@ impl Particle {
 
             // Reduce force with distance (C++ lines 529-531)
             if dist_from_wind > FULL_FORCE_DISTANCE {
-                wind_force_strength *= 1.0 - ((dist_from_wind - FULL_FORCE_DISTANCE) / 
-                                              (NO_FORCE_DISTANCE - FULL_FORCE_DISTANCE));
+                wind_force_strength *= 1.0
+                    - ((dist_from_wind - FULL_FORCE_DISTANCE)
+                        / (NO_FORCE_DISTANCE - FULL_FORCE_DISTANCE));
             }
 
             // Apply wind motion directly to position (C++ lines 534-535)
@@ -362,7 +367,7 @@ impl Particle {
     }
 
     /// Check if particle is invisible (matches C++ Particle::isInvisible)
-    /// 
+    ///
     /// Invisibility depends on shader type:
     /// - Additive: Black (sum of RGB <= 0.06) is invisible
     /// - Alpha: Near-zero alpha (< 0.02) is invisible
@@ -373,7 +378,9 @@ impl Particle {
             ParticleShaderType::Additive => {
                 // If color is black, particle is invisible for additive blending (C++ lines 468-476)
                 // Check that we're not transitioning to another color
-                if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame == 0 {
+                if self.color_target_key < MAX_KEYFRAMES
+                    && self.color_keys[self.color_target_key].frame == 0
+                {
                     (self.color[0] + self.color[1] + self.color[2]) <= 0.06
                 } else {
                     false
@@ -390,7 +397,9 @@ impl Particle {
             ParticleShaderType::Multiply => {
                 // If color is white, particle is invisible for multiply (C++ lines 488-496)
                 // Check that we're not transitioning to another color
-                if self.color_target_key < MAX_KEYFRAMES && self.color_keys[self.color_target_key].frame == 0 {
+                if self.color_target_key < MAX_KEYFRAMES
+                    && self.color_keys[self.color_target_key].frame == 0
+                {
                     (self.color[0] * self.color[1] * self.color[2]) > 0.95
                 } else {
                     false
@@ -589,7 +598,7 @@ impl ParticleSystem {
     }
 
     /// Update the particle system (matches C++ ParticleSystem::update)
-    /// 
+    ///
     /// # Arguments
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
@@ -735,7 +744,7 @@ impl ParticleSystem {
     /// Update particles (matches C++ ParticleSystem::update particle loop)
     fn update_particles(&mut self, current_frame: u32) {
         let mut i = 0;
-        
+
         // Cache values from template
         let gravity = self.template.info().gravity;
         let drift_velocity = self.template.info().drift_velocity;
@@ -802,7 +811,8 @@ impl ParticleSystem {
         for i in 0..burst_count {
             if let Some(particle_info) = self.generate_particle_info(i, burst_count) {
                 // Create particle with current frame as creation timestamp (C++ line 287)
-                let particle = Particle::new(&particle_info, self.personality_counter, current_frame);
+                let particle =
+                    Particle::new(&particle_info, self.personality_counter, current_frame);
                 self.particles.push_back(particle);
                 self.particle_count += 1;
                 self.personality_counter += 1;
@@ -814,7 +824,7 @@ impl ParticleSystem {
 
         // Update accumulated size bonus (C++ line 1800)
         self.accumulated_size_bonus += info.start_size_rate.sample();
-        
+
         // Clamp accumulated bonus (C++ lines 1801-1802)
         const MAX_SIZE_BONUS: f32 = 50.0;
         if self.accumulated_size_bonus > MAX_SIZE_BONUS {

@@ -66,7 +66,7 @@ game_engine_device = { path = "../GameEngine/GameEngineDevice", optional = true 
 game_network = { path = "../GameEngine/GameNetwork", optional = true }
 
 # Graphics and window management
-winit = "0.29"
+winit = "0.30"
 wgpu = { version = "27.0.1", features = ["webgpu", "webgl"] }
 raw-window-handle = "0.6"
 
@@ -135,9 +135,6 @@ toml = "0.8"
 clap = "2.34"
 
 # UI framework dependencies
-egui = "0.33.2"
-egui-wgpu = "0.33.2"
-egui-winit = "0.33.2"
 bitflags = "2.10"
 font8x8 = "0.3"
 native-dialog = { version = "0.7", optional = true }

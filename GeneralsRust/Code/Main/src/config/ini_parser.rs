@@ -1,6 +1,6 @@
 use super::{ConfigError, ConfigSection, ConfigValue, Configuration, LoadMode, LoadResult};
 use anyhow::Result;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
@@ -37,7 +37,7 @@ impl IniParser {
     /// Load INI file
     pub fn load_file<P: AsRef<Path>>(&mut self, path: P, mode: LoadMode) -> Result<LoadResult> {
         let path = path.as_ref();
-        info!("Loading INI file: {:?} (mode: {:?})", path, mode);
+        debug!("Loading INI file: {:?} (mode: {:?})", path, mode);
 
         if !path.exists() {
             return Err(ConfigError::FileNotFound(path.to_string_lossy().to_string()).into());
@@ -185,7 +185,7 @@ impl IniParser {
             self.merge_section(&current_section, section_data, mode, &mut result);
         }
 
-        info!(
+        debug!(
             "INI parsing complete: {} sections, {} keys loaded",
             result.sections_loaded, result.keys_loaded
         );

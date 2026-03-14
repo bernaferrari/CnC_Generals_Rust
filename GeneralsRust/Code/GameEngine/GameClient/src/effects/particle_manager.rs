@@ -503,7 +503,7 @@ pub struct ParticleSystemManager {
     // Frame tracking
     last_logic_frame_update: u32,
     local_player_index: i32,
-    
+
     // LOD/Performance settings (matches C++ GameLODManager particle settings)
     max_particle_count: usize,
     max_field_particle_count: usize,
@@ -528,7 +528,7 @@ impl ParticleSystemManager {
 
             last_logic_frame_update: 0,
             local_player_index: 0,
-            
+
             // Default LOD settings (matches C++ defaults)
             max_particle_count: 2500,
             max_field_particle_count: 500,
@@ -619,7 +619,7 @@ impl ParticleSystemManager {
     }
 
     /// Update all particle systems
-    /// 
+    ///
     /// # Arguments
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
@@ -655,34 +655,39 @@ impl ParticleSystemManager {
 
         self.field_particle_count = self.particle_count; // Updated each frame
     }
-    
+
     /// Check if a particle with given priority should be skipped based on LOD (C++ GameLODManager::isParticleSkipped)
     pub fn should_skip_particle(&mut self, priority: ParticlePriorityType) -> bool {
         // ALWAYS_RENDER particles are never skipped (C++ line 1695)
         if priority == ParticlePriorityType::AlwaysRender {
             return false;
         }
-        
+
         // Check if below minimum priority for current FPS (C++ lines 1680-1682)
         if priority < self.min_dynamic_particle_priority {
             return true;
         }
-        
+
         // Check skip mask for frame-skipping (C++ lines 1681-1682)
         if priority < self.min_dynamic_particle_skip_priority {
             self.particle_generation_count += 1;
-            if (self.particle_generation_count & self.particle_skip_mask) != self.particle_skip_mask {
+            if (self.particle_generation_count & self.particle_skip_mask) != self.particle_skip_mask
+            {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Remove oldest particles to make room for new ones (C++ ParticleSystemManager::removeOldestParticles)
-    pub fn remove_oldest_particles(&mut self, count: usize, priority_cap: ParticlePriorityType) -> usize {
+    pub fn remove_oldest_particles(
+        &mut self,
+        count: usize,
+        priority_cap: ParticlePriorityType,
+    ) -> usize {
         let mut removed = 0;
-        
+
         // Remove from lowest priority up to (but not including) priority_cap
         for i in 0..priority_cap as usize {
             // Note: In a full implementation, we'd need particle lists by priority
@@ -693,22 +698,22 @@ impl ParticleSystemManager {
             // Would remove from priority list i here
             removed += 1;
         }
-        
+
         removed
     }
-    
+
     /// Check if we can create a particle with given priority (matches C++ createParticle logic)
     pub fn can_create_particle(&mut self, priority: ParticlePriorityType) -> bool {
         // Check LOD skip (C++ lines 1680-1683)
         if self.should_skip_particle(priority) {
             return false;
         }
-        
+
         // ALWAYS_RENDER bypasses all limits (C++ lines 1694-1696)
         if priority == ParticlePriorityType::AlwaysRender {
             return true;
         }
-        
+
         // Check particle count limit (C++ lines 1699-1704)
         if self.particle_count >= self.max_particle_count {
             let excess = self.particle_count - self.max_particle_count;
@@ -716,15 +721,15 @@ impl ParticleSystemManager {
                 return false;
             }
         }
-        
+
         // Check if particles are disabled entirely
         if self.max_particle_count == 0 {
             return false;
         }
-        
+
         true
     }
-    
+
     /// Set LOD parameters (typically from GameLODManager)
     pub fn set_lod_params(
         &mut self,
@@ -775,7 +780,7 @@ impl SubsystemInterface for ParticleSystemManager {
         self.templates.clear();
         self.active_systems.clear();
         self.next_system_id = 1;
-        
+
         // Reset LOD settings to defaults
         self.max_particle_count = 2500;
         self.max_field_particle_count = 500;

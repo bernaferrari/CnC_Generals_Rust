@@ -50,6 +50,7 @@ use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
+use game_engine::common::user_preferences::UserPreferences;
 use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::tear_down_gamespy;
 use game_network::gamespy::peer_thread::get_peer_message_queue;
@@ -384,6 +385,7 @@ pub struct MainMenuState {
     // Deferred shell/UI actions. These must execute outside the menu state lock because
     // shell push/pop can synchronously re-enter menu shutdown callbacks.
     pub pending_actions: Vec<PendingMainMenuAction>,
+    pub system_created: bool,
 }
 
 impl Default for MainMenuState {
@@ -423,6 +425,7 @@ impl Default for MainMenuState {
             last_mouse_pos: (0, 0),
             mouse_anchor_initialized: false,
             pending_actions: Vec::new(),
+            system_created: false,
         }
     }
 }
@@ -489,15 +492,20 @@ impl MainMenu {
     }
 
     fn show_only_dropdown(&self, state: &MainMenuState, dropdown: DropdownType) {
-        for i in 1..(DropdownType::Count as i32) {
-            if let Some(kind) = DropdownType::from_i32(i) {
-                self.set_dropdown_hidden(state, kind, kind != dropdown);
-            }
+        for candidate in [
+            DropdownType::Single,
+            DropdownType::Multiplayer,
+            DropdownType::Main,
+            DropdownType::LoadReplay,
+            DropdownType::Difficulty,
+        ] {
+            self.set_dropdown_hidden(state, candidate, candidate != dropdown);
         }
     }
 
     fn reveal_hidden_main_menu(&self, state: &mut MainMenuState) {
         state.initial_gadget_delay = 1;
+        state.drop_down = DropdownType::Main;
         self.show_only_dropdown(state, DropdownType::Main);
         self.transition_set_group("MainMenuFade", true);
         self.transition_set_group("MainMenuDefaultMenu", false);
@@ -554,8 +562,21 @@ impl MainMenu {
         state.button_pushed = false;
         state.is_shutting_down = false;
         state.start_game = false;
+        state.show_logo = false;
+        state.logo_is_shown = false;
+        state.launch_challenge_menu = false;
+        state.dont_allow_transitions = false;
+        // The Rust runtime currently boots directly into the shell map/menu path without
+        // the legacy intro hand-off. Keep the menu visible immediately to match expected UX.
+        state.not_shown = false;
+        state.first_time_running_the_game = false;
         state.drop_down = DropdownType::None;
         state.pending_drop_down = DropdownType::None;
+        state.show_frames = 0;
+        state.show_side = ShowSide::None;
+        state.mouse_anchor_initialized = false;
+        state.last_mouse_pos = (0, 0);
+        state.pending_actions.clear();
 
         // Initialize dropdown windows array - matches C++ lines 441-442
         for i in 0..(DropdownType::Count as usize) {
@@ -594,6 +615,9 @@ impl MainMenu {
                 }
             }
         }
+        // Ensure the main button column is visible after boot.
+        state.drop_down = DropdownType::Main;
+        self.show_only_dropdown(&state, DropdownType::Main);
         // Initial hide of faction windows - matches C++ initialHide() lines 360-425
         self.initial_hide(&state);
 
@@ -605,6 +629,7 @@ impl MainMenu {
         // Show the layout - matches C++ line 579
         if let Some(layout) = layout.downcast_ref::<ManagerWindowLayout>() {
             layout.hide(false);
+            with_window_manager(|manager| manager.bring_layout_forward(layout));
         }
 
         if let Ok(mut map_cache) = get_map_cache_manager().lock() {
@@ -635,16 +660,14 @@ impl MainMenu {
             state.first_time_running_the_game = false;
         } else {
             state.show_fade = true;
-            state.just_entered = true;
-            state.initial_gadget_delay = 2;
+            // Rust startup already performs its own loading/menu hand-off. Running the
+            // deferred "just_entered" transition path here can hide the menu immediately after
+            // first paint, so keep the menu fully active.
+            state.just_entered = false;
+            state.initial_gadget_delay = INITIAL_GADGET_DELAY_DEFAULT;
             self.hide_window_by_name(&state, "MainMenu.wnd:MainMenuRuler", false);
         }
 
-        with_window_manager(|manager| {
-            if let Some(parent) = manager.get_window_by_id(state.window_ids.main_menu_id as i32) {
-                manager.bring_window_forward(&parent);
-            }
-        });
         let focus_id = state.window_ids.main_menu_id as i32;
         drop(state);
         self.focus_window(focus_id);
@@ -868,6 +891,13 @@ impl MainMenu {
         match msg {
             // GWM_CREATE - matches C++ lines 1031-1035
             GWM_CREATE => {
+                if window != build_window_ids().main_menu_id {
+                    return false;
+                }
+                if state.system_created {
+                    return true;
+                }
+                state.system_created = true;
                 http_startup();
                 log::debug!("Main menu window created");
                 return true;
@@ -875,6 +905,13 @@ impl MainMenu {
 
             // GWM_DESTROY - matches C++ lines 1038-1046
             GWM_DESTROY => {
+                if window != build_window_ids().main_menu_id {
+                    return false;
+                }
+                if !state.system_created {
+                    return true;
+                }
+                state.system_created = false;
                 http_cleanup();
                 tear_down_gamespy();
                 stop_async_dns_check();
@@ -884,8 +921,14 @@ impl MainMenu {
 
             // GWM_INPUT_FOCUS - matches C++ lines 1049-1058
             GWM_INPUT_FOCUS => {
-                if data1 == 1 { // TRUE
-                     // *(Bool *)data2 = TRUE; - we want keyboard focus
+                if window != build_window_ids().main_menu_id {
+                    return false;
+                }
+                if data1 == 1 {
+                    if state.not_shown {
+                        self.reveal_hidden_main_menu(&mut state);
+                    }
+                    // *(Bool *)data2 = TRUE; - we want keyboard focus
                 }
                 return true;
             }
@@ -1013,10 +1056,45 @@ impl MainMenu {
 
     fn start_patch_check(&self) {
         // C++ starts async patch discovery here. Keep behavior hook even when backend is absent.
+        TheScriptEngine::signal_ui_interact("ShellMainMenuOnlinePushed");
+        // Non-network Rust builds do not yet run the real patch-check/http flow.
+        // Without the C++ callbacks, the main menu would remain transition-locked.
+        get_main_menu().handle_canceled_download(true);
         log::info!("StartPatchCheck requested");
     }
 
     fn start_downloading_patches(&self) {
+        let has_queued_downloads = download_manager()
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|manager| manager.is_active() || manager.is_file_queued_for_download())
+            })
+            .unwrap_or(false);
+
+        if !has_queued_downloads {
+            get_main_menu().handle_canceled_download(true);
+            log::info!("StartDownloadingPatches requested with empty queue");
+            return;
+        }
+
+        with_window_manager(|manager| {
+            if let Ok((layout, _info)) =
+                manager.create_layout_with_windows("Menus/DownloadMenu.wnd")
+            {
+                {
+                    let layout_ref = layout.borrow();
+                    layout_ref.run_init(None);
+                    layout_ref.hide(false);
+                }
+                layout.borrow_mut().bring_forward();
+            }
+        });
+
+        get_main_menu().handle_canceled_download(false);
+
         if let Ok(mut guard) = download_manager().lock() {
             if let Some(manager) = guard.as_mut() {
                 let _ = manager.download_next_queued_file();
@@ -1379,6 +1457,7 @@ impl MainMenu {
             if state.campaign_selected || state.dont_allow_transitions {
                 return Ok(());
             }
+            state.launch_challenge_menu = false;
             state.button_pushed = true;
             state.campaign_selected = true;
             state.drop_down = DropdownType::Single;
@@ -1456,6 +1535,7 @@ impl MainMenu {
                 return Ok(());
             }
 
+            state.drop_down = DropdownType::Difficulty;
             self.transition_set_group("MainMenuFactionTraining", false);
             self.hide_window_by_name(state, "MainMenu.wnd:WinFactionTraining", true);
             self.transition_reverse("MainMenuSinglePlayerMenuBackTraining");
@@ -1470,6 +1550,8 @@ impl MainMenu {
             if state.campaign_selected || state.dont_allow_transitions {
                 return Ok(());
             }
+            state.launch_challenge_menu = false;
+            state.drop_down = DropdownType::Difficulty;
             get_campaign_manager().set_campaign("USA");
             self.transition_set_group("MainMenuFactionUS", false);
             self.transition_remove("MainMenuFactionUS", true);
@@ -1486,6 +1568,8 @@ impl MainMenu {
             if state.campaign_selected || state.dont_allow_transitions {
                 return Ok(());
             }
+            state.launch_challenge_menu = false;
+            state.drop_down = DropdownType::Difficulty;
             get_campaign_manager().set_campaign("GLA");
             self.transition_set_group("MainMenuFactionGLA", false);
             self.transition_remove("MainMenuFactionGLA", true);
@@ -1502,6 +1586,8 @@ impl MainMenu {
             if state.campaign_selected || state.dont_allow_transitions {
                 return Ok(());
             }
+            state.launch_challenge_menu = false;
+            state.drop_down = DropdownType::Difficulty;
             get_campaign_manager().set_campaign("China");
             self.transition_set_group("MainMenuFactionChina", false);
             self.transition_remove("MainMenuFactionChina", true);
@@ -1540,6 +1626,8 @@ impl MainMenu {
                 return Ok(());
             }
             state.dont_allow_transitions = true;
+            state.launch_challenge_menu = false;
+            state.drop_down = DropdownType::Single;
             get_campaign_manager().set_campaign("");
             self.diff_reverse_side(state);
             state.campaign_selected = false;
@@ -1665,6 +1753,10 @@ impl MainMenu {
             let mut campaign_manager = get_campaign_manager();
             campaign_manager.set_game_difficulty(Self::to_campaign_difficulty(diff));
         }
+        let mut prefs = UserPreferences::new();
+        let _ = prefs.load("Options.ini");
+        prefs.set_int("CampaignDifficulty", diff as i32);
+        let _ = prefs.write();
         TheScriptEngine::set_global_difficulty(diff as i32);
 
         state.button_pushed = false;
@@ -1805,10 +1897,16 @@ impl MainMenu {
             get_header_template_manager().header_notify_resolution_change();
             // TheMouse->mouseNotifyResolutionChange();
 
-            // Write preferences
-            // OptionPreferences optionPref;
-            // optionPref["Resolution"] = prefString;
-            // optionPref.write();
+            let mut prefs = UserPreferences::new();
+            let _ = prefs.load("Options.ini");
+            prefs.set_string(
+                "Resolution",
+                format!(
+                    "{} {}",
+                    state.new_disp_settings.x_res, state.new_disp_settings.y_res
+                ),
+            );
+            let _ = prefs.write();
 
             // Recreate shell
             // delete TheShell;
@@ -1825,6 +1923,17 @@ impl MainMenu {
         }
 
         Ok(())
+    }
+
+    pub fn set_pending_resolution_change(
+        &mut self,
+        old_settings: DisplaySettings,
+        new_settings: DisplaySettings,
+    ) {
+        let mut state = self.state.write().unwrap();
+        state.old_disp_settings = old_settings;
+        state.new_disp_settings = new_settings;
+        state.disp_changed = true;
     }
 
     /// Show resolution dialog
@@ -1855,6 +1964,7 @@ impl MainMenu {
 
         if reset_dropdown {
             self.set_dropdown_hidden(&state, DropdownType::Main, false);
+            state.drop_down = DropdownType::Main;
             self.transition_set_group("MainMenuDefaultMenuLogoFade", false);
             log::info!("Download canceled - resetting dropdown");
         }

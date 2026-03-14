@@ -1,6 +1,6 @@
 use anyhow::Result;
-use egui_winit::winit;
 use std::sync::Arc;
+use winit;
 use winit::event::{Event, WindowEvent};
 
 /// Application focus state for coordinating subsystems

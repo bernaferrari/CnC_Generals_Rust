@@ -16,7 +16,7 @@ use crate::cnc_game_engine::CnCGameEngine;
 /// `integration` crate and mirror the same timings/diagnostics the C++ tools
 /// see.  `IntegrationTelemetryBridge` orchestrates this by running the
 /// integration loop with the shared `FrameClock`, feeding each frame's
-/// `SystemDiagnostics` back into the game engine so the egui debug overlay
+/// `SystemDiagnostics` back into the game engine so the active UI overlay
 /// presents authoritative subsystem health.
 pub struct IntegrationTelemetryBridge {
     integration: IntegrationSystem,

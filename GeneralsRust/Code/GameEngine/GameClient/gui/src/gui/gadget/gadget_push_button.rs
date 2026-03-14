@@ -128,14 +128,29 @@ impl PushButtonState {
 }
 
 pub fn render_demo(label: &str) -> AnyElement {
+    render(label, &PushButtonState::default())
+}
+
+pub fn render(label: impl Into<String>, state: &PushButtonState) -> AnyElement {
+    let label = label.into();
     div()
         .px_4()
         .py_2()
         .rounded_md()
         .border_1()
-        .border_color(rgb(0xd1a65d))
-        .bg(rgb(0x1f1910))
-        .child(label.to_string())
+        .border_color(if state.selected || state.hilited {
+            rgb(0xd1a65d)
+        } else {
+            rgb(0x35506b)
+        })
+        .bg(if state.selected {
+            rgb(0x2a2011)
+        } else if state.hilited {
+            rgb(0x182231)
+        } else {
+            rgb(0x101720)
+        })
+        .child(label)
         .into_any_element()
 }
 

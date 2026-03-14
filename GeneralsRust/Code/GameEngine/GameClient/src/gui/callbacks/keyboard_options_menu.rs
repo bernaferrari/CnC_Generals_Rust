@@ -487,7 +487,17 @@ pub fn keyboard_options_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-        let _ = get_shell().pop();
+        let state_handle = keyboard_options_menu_state();
+        let state = state_handle
+            .lock()
+            .expect("keyboard options menu state lock poisoned");
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = parent.borrow_mut().send_system_message(
+                WindowMessage::GadgetSelected,
+                state.button_back_id as u32,
+                state.button_back_id as u32,
+            );
+        }
         return WindowMsgHandled::Handled;
     }
 

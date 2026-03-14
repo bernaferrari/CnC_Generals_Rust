@@ -13,10 +13,10 @@ use std::sync::{Arc, Mutex};
 pub mod audio;
 pub mod campaign_menu;
 pub mod credits_screen;
-pub mod egui_hud;
 pub mod events;
 pub mod faction_selection;
 pub mod hud;
+pub mod hud_state;
 pub mod layout_manager;
 pub mod loading_screen;
 pub mod main_menu;
@@ -38,19 +38,18 @@ pub mod widgets;
 // Re-exports for convenience
 pub use campaign_menu::{CampaignFaction, CampaignMenu, MedalType, Mission};
 pub use credits_screen::CreditsScreen;
-pub use egui_hud::{
-    BuildQueueEntry, DiagnosticsOverlayStats, EguiHUD, GameUIState, MinimapActionKind, MinimapDot,
-    MinimapInteraction, UnitDisplayInfo, VictoryOverlayAction,
+pub use hud_state::{
+    color_for_player, default_minimap_viewport, normalized_minimap_rect, BuildQueueEntry,
+    DiagnosticsOverlayStats, GameUIState, MinimapActionKind, MinimapDot, MinimapInteraction,
+    RadarMessageEntry, RadarPing, RadarPingKind, UiColor, UiPos2, UiRect, UiTextureId, UiVec2,
+    UnitDisplayInfo, VictoryOverlayAction,
 };
 pub use events::{InputEvent, KeyEvent, MouseEvent, UIEventHandler};
 pub use faction_selection::{Faction, FactionSelectionScreen};
 pub use hud::{GameHUD, MiniMap, ResourceDisplay};
 pub use loading_screen::LoadingScreen;
 pub use main_menu::{MainMenu, MainMenuState};
-pub use minimap_panel::{
-    color_for_player, render_minimap_panel, update_minimap_state, BeaconDot, MinimapClickEvent,
-    MinimapUIState,
-};
+pub use minimap_panel::{update_minimap_state, BeaconDot, MinimapClickEvent, MinimapUIState};
 pub use options_menu::{GraphicsQuality, OptionsMenu, OptionsTab, Resolution};
 pub use pause_menu::{PauseMenu, PauseMenuAction};
 pub use quit_dialog::QuitDialog;

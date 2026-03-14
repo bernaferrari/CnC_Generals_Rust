@@ -1207,6 +1207,11 @@ impl UIRenderer {
         &self.last_frame_stats
     }
 
+    /// Number of queued draw commands for the current frame before render().
+    pub fn queued_draw_command_count(&self) -> usize {
+        self.draw_commands.len()
+    }
+
     // Convenience methods for backward compatibility
 
     /// Draw a filled rectangle with scissor support (convenience wrapper)

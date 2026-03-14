@@ -904,18 +904,13 @@ impl GameWindow {
     /// Hide or show the window
     pub fn hide(&mut self, hide: bool) -> WindowResult<()> {
         if hide {
-            // C++ parity: windowHiding clears keyboard focus, mouse capture, and modal
-            // state when a window is hidden. We clear our status first, then propagate
-            // to children recursively.
+            // C++ parity: parent visibility suppresses child rendering/input through
+            // ancestry checks in is_hidden(), rather than permanently mutating every
+            // child hidden bit when the parent is toggled.
             self.status |= WindowStatus::HIDDEN;
             self.inst_data.status = self.status;
             if let Some(widget) = &mut self.widget {
                 widget.set_visible(false);
-            }
-            // Recursively hide children and clear their widget visibility
-            for child_rc in &self.children {
-                let mut child = child_rc.borrow_mut();
-                let _ = child.hide(true);
             }
         } else {
             self.status &= !WindowStatus::HIDDEN;
@@ -2175,18 +2170,6 @@ pub fn legacy_default_draw_callback(_window: &GameWindow, _inst_data: &WindowIns
 }
 
 pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
-    fn report_startup_image_lookup(name: &str, outcome: &str) {
-        static REPORTED: OnceLock<std::sync::Mutex<HashMap<String, ()>>> = OnceLock::new();
-        let reported = REPORTED.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-        let key = format!("{name}:{outcome}");
-        let Ok(mut guard) = reported.lock() else {
-            return;
-        };
-        if guard.insert(key, ()).is_none() {
-            eprintln!("DEBUG_STARTUP_IMAGE_LOOKUP: name={name} outcome={outcome}");
-        }
-    }
-
     let video_frame = _inst_data.video_buffer.as_ref().and_then(read_video_frame);
     let _ = with_ui_renderer(|renderer| {
         let mut renderer = renderer.write().unwrap();
@@ -2230,19 +2213,6 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
                         let collection = get_mapped_image_collection();
                         let mut collection = collection.write();
                         if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
-                            if matches!(
-                                image.name.as_str(),
-                                "MainMenuBackdrop"
-                                    | "MainMenuPulse"
-                                    | "MainMenuRuler"
-                                    | "GeneralsLogo"
-                                    | "BlackSquare"
-                            ) {
-                                report_startup_image_lookup(
-                                    &image.name,
-                                    &format!("mapped file={}", mapped.get_filename()),
-                                );
-                            }
                             if mapped.get_gpu_texture().is_none() {
                                 let _ =
                                     mapped.create_gpu_texture(renderer.device(), renderer.queue());
@@ -2254,30 +2224,8 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
                                     UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
                                 )
                             });
-                            if texture.is_none()
-                                && matches!(
-                                    image.name.as_str(),
-                                    "MainMenuBackdrop"
-                                        | "MainMenuPulse"
-                                        | "MainMenuRuler"
-                                        | "GeneralsLogo"
-                                        | "BlackSquare"
-                                )
-                            {
-                                report_startup_image_lookup(&image.name, "gpu_texture_missing");
-                            }
                             texture
                         } else {
-                            if matches!(
-                                image.name.as_str(),
-                                "MainMenuBackdrop"
-                                    | "MainMenuPulse"
-                                    | "MainMenuRuler"
-                                    | "GeneralsLogo"
-                                    | "BlackSquare"
-                            ) {
-                                report_startup_image_lookup(&image.name, "mapped_missing");
-                            }
                             None
                         }
                     };
@@ -2973,6 +2921,22 @@ mod tests {
         window.clear_status(WindowStatus::ENABLED);
         assert!(!window.get_status().contains(WindowStatus::ENABLED));
         assert!(window.get_status().contains(WindowStatus::ACTIVE));
+    }
+
+    #[test]
+    fn test_parent_hide_does_not_permanently_hide_children() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+        child.borrow_mut().set_parent(Some(&parent));
+        parent.borrow_mut().add_child(child.clone());
+
+        parent.borrow_mut().hide(true).unwrap();
+        assert!(parent.borrow().is_hidden());
+        assert!(child.borrow().is_hidden());
+
+        parent.borrow_mut().hide(false).unwrap();
+        assert!(!parent.borrow().is_hidden());
+        assert!(!child.borrow().is_hidden());
     }
 
     #[test]

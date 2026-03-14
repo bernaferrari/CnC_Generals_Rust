@@ -162,6 +162,36 @@ fn play_sound(event_name: &str) {
     }
 }
 
+fn with_game_window_ref<R>(
+    win_rc: &Rc<RefCell<GameWindow>>,
+    f: impl FnOnce(&GameWindow) -> R,
+) -> R {
+    if let Ok(window) = win_rc.try_borrow() {
+        f(&window)
+    } else {
+        let ptr = win_rc.as_ptr();
+        // SAFETY: transition callbacks run on the legacy single-threaded UI path and need
+        // the same re-entrant access fallback used by the rest of the window system.
+        let window = unsafe { &*ptr };
+        f(window)
+    }
+}
+
+fn with_game_window_mut<R>(
+    win_rc: &Rc<RefCell<GameWindow>>,
+    f: impl FnOnce(&mut GameWindow) -> R,
+) -> R {
+    if let Ok(mut window) = win_rc.try_borrow_mut() {
+        f(&mut window)
+    } else {
+        let ptr = win_rc.as_ptr();
+        // SAFETY: transition callbacks run on the legacy single-threaded UI path and need
+        // the same re-entrant access fallback used by the rest of the window system.
+        let window = unsafe { &mut *ptr };
+        f(window)
+    }
+}
+
 trait Transition {
     fn init(
         &mut self,
@@ -218,9 +248,9 @@ impl Transition for FlashTransition {
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
-            let (w, h) = win_ref.get_size();
-            let (x, y) = win_ref.get_screen_position();
+            let ((w, h), (x, y)) = with_game_window_ref(&win_rc, |win_ref| {
+                (win_ref.get_size(), win_ref.get_screen_position())
+            });
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
         }
@@ -238,7 +268,7 @@ impl Transition for FlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.is_finished = true;
                 }
             }
@@ -247,19 +277,19 @@ impl Transition for FlashTransition {
                     play_sound("GUIBoarderFadeIn");
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = frame;
                 }
             }
             2 | 3 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = frame;
                 }
             }
             4 | 5 | 6 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                     self.draw_state = frame;
                 }
             }
@@ -268,7 +298,7 @@ impl Transition for FlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                     self.is_finished = true;
                 }
             }
@@ -352,10 +382,11 @@ impl ButtonFlashTransition {
         let Some(win_rc) = self.with_window() else {
             return;
         };
-        let win_ref = win_rc.borrow();
-        let draw = win_ref
-            .get_enabled_draw_data(0)
-            .unwrap_or(WindowDrawData::default());
+        let draw = with_game_window_ref(&win_rc, |win_ref| {
+            win_ref
+                .get_enabled_draw_data(0)
+                .unwrap_or(WindowDrawData::default())
+        });
         let rect = UIRect::new(
             self.pos.x as f32,
             self.pos.y as f32,
@@ -377,9 +408,9 @@ impl Transition for ButtonFlashTransition {
     ) {
         self.win = win.as_ref().map(Rc::downgrade);
         if let Some(win_rc) = win {
-            let win_ref = win_rc.borrow();
-            let (w, h) = win_ref.get_size();
-            let (x, y) = win_ref.get_screen_position();
+            let ((w, h), (x, y)) = with_game_window_ref(&win_rc, |win_ref| {
+                (win_ref.get_size(), win_ref.get_screen_position())
+            });
             self.size = ICoord2D { x: w, y: h };
             self.pos = ICoord2D { x, y };
         }
@@ -397,13 +428,13 @@ impl Transition for ButtonFlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.is_finished = true;
                 }
             }
             1 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     if self.is_forward {
                         play_sound("GUIButtonsFadeIn");
                         self.draw_state = frame;
@@ -414,47 +445,47 @@ impl Transition for ButtonFlashTransition {
             }
             2 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = if self.is_forward { frame } else { 6 };
                 }
             }
             3 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = if self.is_forward { frame } else { 5 };
                 }
             }
             4 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = 4;
                 }
             }
             5 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = if self.is_forward { frame } else { 3 };
                 }
             }
             6 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = if self.is_forward { frame } else { 2 };
                 }
             }
             7 => {
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(true);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                     self.draw_state = if self.is_forward { frame } else { 1 };
                 }
             }
             11 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = win_rc.borrow_mut().hide(false);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                         self.draw_state = frame;
                     } else {
-                        let _ = win_rc.borrow_mut().hide(true);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                         self.draw_state = 14;
                     }
                 }
@@ -462,10 +493,10 @@ impl Transition for ButtonFlashTransition {
             12 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = win_rc.borrow_mut().hide(false);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                         self.draw_state = frame;
                     } else {
-                        let _ = win_rc.borrow_mut().hide(true);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                         self.draw_state = 13;
                     }
                 }
@@ -473,10 +504,10 @@ impl Transition for ButtonFlashTransition {
             13 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = win_rc.borrow_mut().hide(false);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                         self.draw_state = frame;
                     } else {
-                        let _ = win_rc.borrow_mut().hide(true);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(true));
                         self.draw_state = 12;
                     }
                 }
@@ -484,10 +515,10 @@ impl Transition for ButtonFlashTransition {
             14 => {
                 if let Some(win_rc) = self.with_window() {
                     if self.is_forward {
-                        let _ = win_rc.borrow_mut().hide(false);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                         self.draw_state = frame;
                     } else {
-                        let _ = win_rc.borrow_mut().hide(false);
+                        let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                         self.draw_state = 11;
                     }
                 }
@@ -497,7 +528,7 @@ impl Transition for ButtonFlashTransition {
                     return;
                 }
                 if let Some(win_rc) = self.with_window() {
-                    let _ = win_rc.borrow_mut().hide(false);
+                    let _ = with_game_window_mut(&win_rc, |window| window.hide(false));
                     self.is_finished = true;
                 }
             }

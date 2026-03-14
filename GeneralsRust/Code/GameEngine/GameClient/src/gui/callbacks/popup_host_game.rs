@@ -132,6 +132,16 @@ fn sync_limit_armies_state(state: &PopupHostState) {
     }
 }
 
+fn clear_popup_host_refs(state: &mut PopupHostState) {
+    state.parent = None;
+    state.text_entry_game_name = None;
+    state.text_entry_game_description = None;
+    state.text_entry_game_password = None;
+    state.check_box_allow_observers = None;
+    state.check_box_limit_armies = None;
+    state.check_box_use_stats = None;
+}
+
 pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = popup_host_state()
         .lock()
@@ -227,15 +237,13 @@ pub fn popup_host_game_input(
     let mut state = popup_host_state()
         .lock()
         .expect("PopupHostGame state lock poisoned");
-    close_overlay(GameSpyOverlayType::GameOptions);
-    set_lobby_attempt_host_join(false);
-    state.parent = None;
-    state.text_entry_game_name = None;
-    state.text_entry_game_description = None;
-    state.text_entry_game_password = None;
-    state.check_box_allow_observers = None;
-    state.check_box_limit_armies = None;
-    state.check_box_use_stats = None;
+    if let Some(parent) = state.parent.as_ref() {
+        let _ = parent.borrow_mut().send_system_message(
+            WindowMessage::GadgetSelected,
+            state.button_cancel_id as u32,
+            state.button_cancel_id as u32,
+        );
+    }
 
     WindowMsgHandled::Handled
 }
@@ -254,15 +262,15 @@ pub fn popup_host_game_system(
                 .expect("PopupHostGame state lock poisoned");
             let control_id = data1 as i32;
             if control_id == state.button_cancel_id {
+                // Clear modal before closing - matches C++ GWM_DESTROY handling
+                if let Some(parent) = state.parent.as_ref() {
+                    with_window_manager(|manager| {
+                        let _ = manager.unset_modal(parent);
+                    });
+                }
                 close_overlay(GameSpyOverlayType::GameOptions);
                 set_lobby_attempt_host_join(false);
-                state.parent = None;
-                state.text_entry_game_name = None;
-                state.text_entry_game_description = None;
-                state.text_entry_game_password = None;
-                state.check_box_allow_observers = None;
-                state.check_box_limit_armies = None;
-                state.check_box_use_stats = None;
+                clear_popup_host_refs(&mut state);
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_create_game_id {
@@ -299,9 +307,15 @@ pub fn popup_host_game_system(
                     use_stats,
                     limit_armies,
                 });
+                // Clear modal before closing
+                if let Some(parent) = state.parent.as_ref() {
+                    with_window_manager(|manager| {
+                        let _ = manager.unset_modal(parent);
+                    });
+                }
                 close_overlay(GameSpyOverlayType::GameOptions);
                 set_lobby_attempt_host_join(false);
-                state.parent = None;
+                clear_popup_host_refs(&mut state);
             }
             WindowMsgHandled::Handled
         }

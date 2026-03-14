@@ -11,11 +11,11 @@ use game_engine::common::system::{file::FileAccess, file_system::get_file_system
 use glam::{Vec2, Vec3};
 use image::{self, GenericImageView};
 use log::warn;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureView};
 
@@ -610,6 +610,67 @@ impl TextureManager {
         id
     }
 
+    fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
+        if path.exists() {
+            return Some(path.to_path_buf());
+        }
+
+        let mut resolved = PathBuf::new();
+
+        for component in path.components() {
+            match component {
+                Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
+                Component::RootDir => resolved.push(component.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !resolved.pop() {
+                        return None;
+                    }
+                }
+                Component::Normal(part) => {
+                    let exact = resolved.join(part);
+                    if exact.exists() {
+                        resolved = exact;
+                        continue;
+                    }
+
+                    let search_dir = if resolved.as_os_str().is_empty() {
+                        Path::new(".")
+                    } else {
+                        resolved.as_path()
+                    };
+                    let part = part.to_string_lossy();
+                    let entries = fs::read_dir(search_dir).ok()?;
+                    let matched = entries.filter_map(Result::ok).find_map(|entry| {
+                        let name = entry.file_name();
+                        if name.to_string_lossy().eq_ignore_ascii_case(&part) {
+                            Some(entry.path())
+                        } else {
+                            None
+                        }
+                    })?;
+                    resolved = matched;
+                }
+            }
+        }
+
+        resolved.exists().then_some(resolved)
+    }
+
+    pub(crate) fn can_resolve_texture_path(diffuse_path: &str) -> bool {
+        Self::resolve_texture_path(diffuse_path).is_some()
+    }
+
+    pub(crate) fn is_available_terrain_texture_path(texture_path: &str) -> bool {
+        let target = Path::new(texture_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(texture_path);
+        Self::available_terrain_textures()
+            .iter()
+            .any(|available| available.eq_ignore_ascii_case(target))
+    }
+
     pub fn resolve_texture_path(diffuse_path: &str) -> Option<PathBuf> {
         let raw = Path::new(diffuse_path);
         let mut candidates = Vec::new();
@@ -651,6 +712,9 @@ impl TextureManager {
         }
 
         for candidate in candidates {
+            if let Some(resolved) = Self::resolve_existing_path_case_insensitive(&candidate) {
+                return Some(resolved);
+            }
             if candidate.exists() {
                 return Some(candidate);
             }
@@ -668,42 +732,56 @@ impl TextureManager {
             .map(|ext| ext.to_ascii_lowercase());
         let has_extension = extension.is_some();
         let mut candidates = Vec::new();
+        let mut seen = HashSet::new();
 
-        fn push_unique(candidates: &mut Vec<String>, candidate: String) {
-            if !candidate.is_empty() && !candidates.iter().any(|existing| existing == &candidate) {
+        fn push_unique(
+            candidates: &mut Vec<String>,
+            seen: &mut HashSet<String>,
+            candidate: String,
+        ) {
+            let key = candidate.replace('\\', "/").to_ascii_lowercase();
+            if !candidate.is_empty() && seen.insert(key) {
                 candidates.push(candidate);
             }
         }
 
         if let Some(alias) = Self::terrain_texture_alias(&bare) {
-            push_unique(&mut candidates, alias.to_string());
+            push_unique(&mut candidates, &mut seen, alias.to_string());
         }
 
-        push_unique(&mut candidates, bare.clone());
+        push_unique(&mut candidates, &mut seen, bare.clone());
 
         for class_candidate in Self::terrain_class_candidates(&bare) {
-            push_unique(&mut candidates, class_candidate);
+            push_unique(&mut candidates, &mut seen, class_candidate);
         }
 
         for available_candidate in Self::terrain_available_family_candidates(&bare) {
-            push_unique(&mut candidates, available_candidate);
+            push_unique(&mut candidates, &mut seen, available_candidate);
         }
 
         for prefix_candidate in Self::terrain_prefix_fallback_candidates(&bare) {
-            push_unique(&mut candidates, prefix_candidate);
+            push_unique(&mut candidates, &mut seen, prefix_candidate);
         }
 
         if !bare.starts_with("Data/") {
-            push_unique(&mut candidates, format!("Data/{bare}"));
+            push_unique(&mut candidates, &mut seen, format!("Data/{bare}"));
         }
 
         if !bare.contains('/') {
-            push_unique(&mut candidates, format!("Art/Terrain/{bare}"));
-            push_unique(&mut candidates, format!("Art/Textures/{bare}"));
-            push_unique(&mut candidates, format!("Art/W3D/{bare}"));
-            push_unique(&mut candidates, format!("Data/Art/Terrain/{bare}"));
-            push_unique(&mut candidates, format!("Data/Art/Textures/{bare}"));
-            push_unique(&mut candidates, format!("Data/Art/W3D/{bare}"));
+            push_unique(&mut candidates, &mut seen, format!("Art/Terrain/{bare}"));
+            push_unique(&mut candidates, &mut seen, format!("Art/Textures/{bare}"));
+            push_unique(&mut candidates, &mut seen, format!("Art/W3D/{bare}"));
+            push_unique(
+                &mut candidates,
+                &mut seen,
+                format!("Data/Art/Terrain/{bare}"),
+            );
+            push_unique(
+                &mut candidates,
+                &mut seen,
+                format!("Data/Art/Textures/{bare}"),
+            );
+            push_unique(&mut candidates, &mut seen, format!("Data/Art/W3D/{bare}"));
         }
 
         if has_extension {
@@ -720,16 +798,16 @@ impl TextureManager {
                 for seed in &seeds {
                     let seed_base = seed.strip_suffix(&format!(".{ext}")).unwrap_or(seed);
                     for alt in alt_exts {
-                        push_unique(&mut candidates, format!("{seed_base}.{alt}"));
+                        push_unique(&mut candidates, &mut seen, format!("{seed_base}.{alt}"));
                     }
                 }
-                push_unique(&mut candidates, base.to_string());
+                push_unique(&mut candidates, &mut seen, base.to_string());
             }
         } else {
             let seeds = candidates.clone();
             for seed in &seeds {
                 for ext in ["tga", "dds", "png", "jpg", "jpeg", "bmp"] {
-                    push_unique(&mut candidates, format!("{seed}.{ext}"));
+                    push_unique(&mut candidates, &mut seen, format!("{seed}.{ext}"));
                 }
             }
         }
@@ -756,6 +834,7 @@ impl TextureManager {
                 for sibling in &sibling_variants {
                     push_unique(
                         &mut candidates,
+                        &mut seen,
                         format!("{stem_without_variant}{sibling}.{variant_ext}"),
                     );
                 }
@@ -788,6 +867,7 @@ impl TextureManager {
                         }
                         push_unique(
                             &mut candidates,
+                            &mut seen,
                             format!(
                                 "{stem_prefix}{candidate_number:02}{family_suffix}.{family_ext}"
                             ),

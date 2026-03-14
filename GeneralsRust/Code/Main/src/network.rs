@@ -27,7 +27,7 @@ use bincode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock as StdRwLock};
 use std::time::Duration;
 use tokio::runtime::Handle;
 use tokio::sync::{Mutex, RwLock};
@@ -214,6 +214,43 @@ pub struct NetworkInterface {
     statistics: RwLock<NetworkStatistics>,
     callbacks: RwLock<LobbyCallbacks>,
     lan_api: Mutex<Option<LanApi>>,
+}
+
+fn active_interface_slot() -> &'static StdRwLock<Option<Arc<RwLock<NetworkInterface>>>> {
+    static SLOT: OnceLock<StdRwLock<Option<Arc<RwLock<NetworkInterface>>>>> = OnceLock::new();
+    SLOT.get_or_init(|| StdRwLock::new(None))
+}
+
+fn set_active_network_interface(interface: Arc<RwLock<NetworkInterface>>) {
+    if let Ok(mut slot) = active_interface_slot().write() {
+        *slot = Some(interface);
+    }
+}
+
+pub fn clear_active_network_interface() {
+    if let Ok(mut slot) = active_interface_slot().write() {
+        *slot = None;
+    }
+}
+
+pub fn has_active_network_interface() -> bool {
+    active_interface_slot()
+        .read()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|_| true))
+        .unwrap_or(false)
+}
+
+pub fn active_session_frame_data_ready() -> Option<bool> {
+    let interface = active_interface_slot()
+        .read()
+        .ok()
+        .and_then(|slot| slot.as_ref().cloned())?;
+    let handle = Handle::try_current().ok()?;
+    Some(handle.block_on(async {
+        let net_guard = interface.read().await;
+        net_guard.is_ready_for_commands().await
+    }))
 }
 
 impl NetworkInterface {
@@ -632,6 +669,7 @@ impl NetworkInterface {
         log::info!("Shutting down network interface");
         let guard = self.inner.read().await;
         let _ = guard.shutdown().await;
+        clear_active_network_interface();
     }
 
     async fn port(&self) -> u16 {
@@ -645,7 +683,9 @@ pub fn init_network() -> NetworkResult<Arc<RwLock<NetworkInterface>>> {
     // Return a future that will be resolved by the caller
     // This is a synchronous function that returns an async-ready interface
     let interface = NetworkInterface::new(NetworkConfig::default())?;
-    Ok(Arc::new(RwLock::new(interface)))
+    let interface = Arc::new(RwLock::new(interface));
+    set_active_network_interface(interface.clone());
+    Ok(interface)
 }
 
 /// Helper function to create network interface with proper async initialization
@@ -653,7 +693,9 @@ pub fn create_network_interface(
     config: NetworkConfig,
 ) -> NetworkResult<Arc<RwLock<NetworkInterface>>> {
     let interface = NetworkInterface::new(config)?;
-    Ok(Arc::new(RwLock::new(interface)))
+    let interface = Arc::new(RwLock::new(interface));
+    set_active_network_interface(interface.clone());
+    Ok(interface)
 }
 
 fn to_game_command_data(command: &UnitCommand) -> GameCommandData {

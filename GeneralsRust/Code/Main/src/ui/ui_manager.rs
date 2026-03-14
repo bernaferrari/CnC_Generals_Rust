@@ -158,7 +158,8 @@ impl UIManager {
             ui_scale: 1.0,
             debug_mode: false,
             quick_start_enabled: false,
-            last_delta_time: 1.0 / 60.0,
+            // C++ gameplay logic advances at 30 logic frames/second.
+            last_delta_time: 1.0 / 30.0,
         }
     }
 
@@ -178,9 +179,9 @@ impl UIManager {
             font_manager.load_font("hud", "fonts/generals_hud.ttf", 16.0)?;
         }
 
-        // C++ parity: startup/menu visuals come from the legacy shell window system
+        // C++ parity: startup/menu visuals come from the shell window system
         // (WindowZH + mapped images + draw callbacks), not from a second Rust-local
-        // texture pack. Keep the temporary UI layer textureless when the legacy shell
+        // texture pack. Keep the temporary UI layer textureless when the shell
         // path is compiled in so startup does not depend on fake asset names.
         #[cfg(not(feature = "game_client"))]
         {
@@ -628,10 +629,13 @@ impl UIManager {
         }
     }
 
-    pub(crate) fn suspend_for_legacy_shell(&mut self) {
+    pub(crate) fn suspend_for_shell_overlay(&mut self) {
         self.current_screen = None;
+        self.current_state = UIState::Loading;
         self.transitioning = false;
         self.transition_elapsed = 0.0;
+        self.event_queue.clear();
+        self.keys_pressed.clear();
     }
 
     /// Process queued events

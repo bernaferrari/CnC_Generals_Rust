@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::localization;
-use gamelogic::scripting::core::{Script, ScriptList};
+use gamelogic::scripting::core::{Script, ScriptAction, ScriptActionType, ScriptList};
 use gamelogic::scripting::engine::{
     get_script_engine, initialize_script_engine, ScriptActionHandler,
 };
 use gamelogic::scripting::evaluator::ScriptEvaluator;
+use gamelogic::team::get_team_factory;
 use gamelogic::{GameLogicError, GameLogicResult};
 use glam::Vec3;
 
@@ -250,6 +252,38 @@ fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
 struct ScriptState {
     completed: bool,
     next_frame_allowed: u64,
+    pending_condition_cursor: Option<ShellPendingConditionCursor>,
+    pending_action_cursor: Option<ShellPendingActionCursor>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ScriptActionBranch {
+    TrueAction,
+    FalseAction,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShellPendingActionCursor {
+    branch: ScriptActionBranch,
+    next_action_index: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShellPendingConditionCursor {
+    next_or_index: usize,
+    next_and_index: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ShellConditionChunkResult {
+    Pending(ShellPendingConditionCursor),
+    Complete(bool),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ShellConditionStepOutcome {
+    Advance(ShellPendingConditionCursor),
+    Complete(bool),
 }
 
 impl ScriptState {
@@ -257,6 +291,8 @@ impl ScriptState {
         Self {
             completed: false,
             next_frame_allowed: 0,
+            pending_condition_cursor: None,
+            pending_action_cursor: None,
         }
     }
 }
@@ -276,9 +312,19 @@ pub struct MissionScriptRuntime {
     script_lookup: HashMap<String, usize>,
     original_lookup: HashMap<String, usize>,
     frame_counter: u64,
+    next_script_index: usize,
 }
 
 impl MissionScriptRuntime {
+    // Shell/map menu mode should remain responsive; defer known heavy attack-wave scripts briefly
+    // during startup, then allow them to run with adaptive backoff based on observed runtime.
+    const SHELL_HEAVY_SCRIPT_WARMUP_FRAMES: u64 = 600;
+    const SHELL_SLOW_SCRIPT_WARN_MS: u64 = 40;
+    const SHELL_HEAVY_CONDITIONS_PER_SLICE: usize = 12;
+    const SHELL_HEAVY_CONDITION_SLICE_MS: u64 = 4;
+    const SHELL_HEAVY_ACTIONS_PER_SLICE: usize = 3;
+    const SHELL_HEAVY_SLICE_MS: u64 = 6;
+
     fn new() -> GameLogicResult<Self> {
         let _ = initialize_script_engine();
         let engine = get_script_engine();
@@ -289,6 +335,7 @@ impl MissionScriptRuntime {
             script_lookup: HashMap::new(),
             original_lookup: HashMap::new(),
             frame_counter: 0,
+            next_script_index: 0,
         })
     }
 
@@ -297,6 +344,7 @@ impl MissionScriptRuntime {
         self.script_lookup.clear();
         self.original_lookup.clear();
         self.frame_counter = 0;
+        self.next_script_index = 0;
 
         for (list_index, list) in lists.iter().enumerate() {
             self.collect_chain(
@@ -338,10 +386,8 @@ impl MissionScriptRuntime {
         );
         for script in self.scripts.iter().filter(|script| {
             script.name.contains("Move_Camera")
-                || script
-                    .original_name
-                    .as_deref()
-                    .is_some_and(|name| matches!(
+                || script.original_name.as_deref().is_some_and(|name| {
+                    matches!(
                         name,
                         "move camera"
                             | "restart camera script"
@@ -349,9 +395,10 @@ impl MissionScriptRuntime {
                             | "restart camera really"
                             | "unshroud"
                             | "turn off sirens"
-                    ))
+                    )
+                })
         }) {
-            log::info!(
+            log::debug!(
                 "Mission script install: runtime='{}' original={:?} enabled={} script_active={}",
                 script.name,
                 script.original_name,
@@ -362,6 +409,31 @@ impl MissionScriptRuntime {
     }
 
     fn update(&mut self, current_frame: u64) -> GameLogicResult<()> {
+        self.update_budgeted(current_frame, None)
+    }
+
+    fn update_shell_budgeted(
+        &mut self,
+        current_frame: u64,
+        max_scripts_per_frame: Option<usize>,
+    ) -> GameLogicResult<()> {
+        self.update_budgeted_internal(current_frame, max_scripts_per_frame, true)
+    }
+
+    fn update_budgeted(
+        &mut self,
+        current_frame: u64,
+        max_scripts_per_frame: Option<usize>,
+    ) -> GameLogicResult<()> {
+        self.update_budgeted_internal(current_frame, max_scripts_per_frame, false)
+    }
+
+    fn update_budgeted_internal(
+        &mut self,
+        current_frame: u64,
+        max_scripts_per_frame: Option<usize>,
+        shell_safe_mode: bool,
+    ) -> GameLogicResult<()> {
         if self.scripts.is_empty() {
             return Ok(());
         }
@@ -373,16 +445,87 @@ impl MissionScriptRuntime {
                 .filter(|script| script.enabled)
                 .map(|script| script.name.as_str())
                 .collect();
-            log::info!(
+            log::debug!(
                 "Mission script runtime frame {} enabled scripts sample: {:?}",
                 current_frame,
                 enabled.into_iter().take(24).collect::<Vec<_>>()
             );
         }
-        for index in 0..self.scripts.len() {
-            self.evaluate_script(index)?;
+        match max_scripts_per_frame {
+            Some(0) => return Ok(()),
+            Some(budget) => {
+                let len = self.scripts.len();
+                let to_evaluate = budget.min(len);
+                for _ in 0..to_evaluate {
+                    let index = self.next_script_index % len;
+                    if shell_safe_mode
+                        && Self::should_defer_heavy_shell_script(
+                            &self.scripts[index],
+                            self.frame_counter,
+                        )
+                    {
+                        self.next_script_index = (self.next_script_index + 1) % len;
+                        continue;
+                    }
+                    self.evaluate_script(index, shell_safe_mode)?;
+                    self.next_script_index = (self.next_script_index + 1) % len;
+                }
+            }
+            None => {
+                for index in 0..self.scripts.len() {
+                    if shell_safe_mode
+                        && Self::should_defer_heavy_shell_script(
+                            &self.scripts[index],
+                            self.frame_counter,
+                        )
+                    {
+                        continue;
+                    }
+                    self.evaluate_script(index, shell_safe_mode)?;
+                }
+                self.next_script_index = 0;
+            }
         }
         Ok(())
+    }
+
+    fn should_defer_heavy_shell_script(script: &RuntimeScript, frame_counter: u64) -> bool {
+        frame_counter < Self::SHELL_HEAVY_SCRIPT_WARMUP_FRAMES
+            && Self::is_shell_heavy_attack_script(script)
+    }
+
+    fn is_shell_heavy_attack_script(script: &RuntimeScript) -> bool {
+        let runtime = script.name.to_ascii_lowercase();
+        let original = script
+            .original_name
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        let combined = format!("{runtime} {original}");
+        (combined.contains("spawn") && combined.contains("attack"))
+            || combined.contains("go_hunt")
+            || combined.contains("go hunt")
+            || combined.contains("gount")
+            || combined.contains("mig")
+                && (combined.contains("hunt") || combined.contains("attack"))
+    }
+
+    fn shell_slow_script_cooldown_frames(elapsed: Duration) -> u64 {
+        let ms = elapsed.as_millis() as u64;
+        if ms >= 500 {
+            600
+        } else if ms >= 250 {
+            360
+        } else if ms >= 120 {
+            180
+        } else if ms >= 80 {
+            90
+        } else if ms >= Self::SHELL_SLOW_SCRIPT_WARN_MS {
+            30
+        } else {
+            0
+        }
     }
 
     fn set_script_enabled(&mut self, name: &str, enabled: bool) -> GameLogicResult<()> {
@@ -396,11 +539,13 @@ impl MissionScriptRuntime {
             let entry = &mut self.scripts[idx];
             entry.enabled = enabled;
             entry.script.set_active(enabled);
+            entry.state.pending_condition_cursor = None;
+            entry.state.pending_action_cursor = None;
             if enabled {
                 entry.state.completed = false;
                 entry.state.next_frame_allowed = self.frame_counter;
             }
-            log::info!(
+            log::debug!(
                 "Mission script runtime set '{}' enabled={} (runtime='{}')",
                 name,
                 enabled,
@@ -455,13 +600,17 @@ impl MissionScriptRuntime {
         }
     }
 
-    fn evaluate_script(&mut self, index: usize) -> GameLogicResult<()> {
+    fn evaluate_script(&mut self, index: usize, shell_safe_mode: bool) -> GameLogicResult<()> {
         let entry = &mut self.scripts[index];
         if !entry.enabled {
+            entry.state.pending_condition_cursor = None;
+            entry.state.pending_action_cursor = None;
             return Ok(());
         }
 
         if entry.script.is_one_shot() && entry.state.completed {
+            entry.state.pending_condition_cursor = None;
+            entry.state.pending_action_cursor = None;
             return Ok(());
         }
 
@@ -469,23 +618,338 @@ impl MissionScriptRuntime {
             return Ok(());
         }
 
-        match self.evaluator.evaluate_script(&mut entry.script) {
-            Ok(true) => {
-                if entry.script.is_one_shot() {
-                    entry.state.completed = true;
-                } else {
-                    entry.state.next_frame_allowed =
-                        self.frame_counter + delay_frames(entry.script.delay_evaluation_seconds);
-                }
-                Ok(())
-            }
-            Ok(false) => {
-                entry.state.next_frame_allowed =
-                    self.frame_counter + delay_frames(entry.script.delay_evaluation_seconds);
-                Ok(())
-            }
-            Err(err) => Err(err),
+        let shell_chunk_heavy =
+            shell_safe_mode && Self::is_shell_heavy_attack_script(entry);
+        let eval_started = Instant::now();
+        let (condition_result, yielded) = if shell_chunk_heavy {
+            Self::evaluate_shell_heavy_script_chunked(&self.evaluator, entry)?
+        } else {
+            entry.state.pending_condition_cursor = None;
+            entry.state.pending_action_cursor = None;
+            (self.evaluator.evaluate_script(&mut entry.script)?, false)
+        };
+        let eval_elapsed = eval_started.elapsed();
+        if eval_elapsed >= Duration::from_millis(Self::SHELL_SLOW_SCRIPT_WARN_MS) {
+            log::warn!(
+                "Slow mission script evaluate: '{}' original={:?} took {:?} (frame={})",
+                entry.name,
+                entry.original_name,
+                eval_elapsed,
+                self.frame_counter
+            );
         }
+
+        if yielded {
+            entry.state.next_frame_allowed = self.frame_counter.saturating_add(1);
+            return Ok(());
+        }
+
+        if condition_result && entry.script.is_one_shot() {
+            entry.state.completed = true;
+        } else {
+            entry.state.next_frame_allowed =
+                self.frame_counter + delay_frames(entry.script.delay_evaluation_seconds);
+        }
+
+        if shell_safe_mode {
+            let cooldown = Self::shell_slow_script_cooldown_frames(eval_elapsed);
+            if cooldown > 0 {
+                let deferred_until = self.frame_counter.saturating_add(cooldown);
+                entry.state.next_frame_allowed = entry.state.next_frame_allowed.max(deferred_until);
+                log::warn!(
+                    "Shell script backoff: '{}' original={:?} eval={:?} cooldown={}f until_frame={}",
+                    entry.name,
+                    entry.original_name,
+                    eval_elapsed,
+                    cooldown,
+                    entry.state.next_frame_allowed
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn evaluate_shell_heavy_script_chunked(
+        evaluator: &ScriptEvaluator,
+        entry: &mut RuntimeScript,
+    ) -> GameLogicResult<(bool, bool)> {
+        let (branch, condition_result, start_index) = match entry.state.pending_action_cursor {
+            Some(cursor) => (
+                cursor.branch,
+                matches!(cursor.branch, ScriptActionBranch::TrueAction),
+                cursor.next_action_index,
+            ),
+            None => {
+                let condition_result = match Self::evaluate_shell_heavy_conditions_chunked(
+                    evaluator,
+                    &mut entry.script,
+                    entry.state.pending_condition_cursor,
+                )? {
+                    ShellConditionChunkResult::Pending(cursor) => {
+                        entry.state.pending_condition_cursor = Some(cursor);
+                        return Ok((false, true));
+                    }
+                    ShellConditionChunkResult::Complete(result) => {
+                        entry.state.pending_condition_cursor = None;
+                        result
+                    }
+                };
+                let branch = if condition_result {
+                    ScriptActionBranch::TrueAction
+                } else {
+                    ScriptActionBranch::FalseAction
+                };
+                (branch, condition_result, 0)
+            }
+        };
+
+        let Some(first_action) = Self::script_action_for_branch(&entry.script, branch) else {
+            entry.state.pending_action_cursor = None;
+            return Ok((condition_result, false));
+        };
+
+        let Some(action) = Self::script_action_at_index(first_action, start_index) else {
+            entry.state.pending_action_cursor = None;
+            return Ok((condition_result, false));
+        };
+
+        let (next_action_index, yielded, has_more_actions) =
+            Self::execute_script_action_slice(evaluator, action, start_index, true, &entry.name)?;
+
+        if yielded && has_more_actions {
+            entry.state.pending_action_cursor = Some(ShellPendingActionCursor {
+                branch,
+                next_action_index,
+            });
+            log::debug!(
+                "Chunked heavy shell script '{}' at action {}",
+                entry.name,
+                next_action_index
+            );
+            Ok((condition_result, true))
+        } else {
+            entry.state.pending_action_cursor = None;
+            Ok((condition_result, false))
+        }
+    }
+
+    fn evaluate_shell_heavy_conditions_chunked(
+        evaluator: &ScriptEvaluator,
+        script: &mut Script,
+        pending_cursor: Option<ShellPendingConditionCursor>,
+    ) -> GameLogicResult<ShellConditionChunkResult> {
+        if script.condition.is_none() {
+            return Ok(ShellConditionChunkResult::Complete(true));
+        }
+
+        let mut cursor = pending_cursor.unwrap_or(ShellPendingConditionCursor {
+            next_or_index: 0,
+            next_and_index: 0,
+        });
+        let slice_started = Instant::now();
+        let mut evaluated_conditions = 0usize;
+
+        loop {
+            let step = Self::evaluate_shell_condition_step(evaluator, script, cursor)?;
+            match step {
+                ShellConditionStepOutcome::Complete(result) => {
+                    return Ok(ShellConditionChunkResult::Complete(result));
+                }
+                ShellConditionStepOutcome::Advance(next_cursor) => {
+                    cursor = next_cursor;
+                    evaluated_conditions += 1;
+                    if evaluated_conditions >= Self::SHELL_HEAVY_CONDITIONS_PER_SLICE
+                        || slice_started.elapsed()
+                            >= Duration::from_millis(Self::SHELL_HEAVY_CONDITION_SLICE_MS)
+                    {
+                        return Ok(ShellConditionChunkResult::Pending(cursor));
+                    }
+                }
+            }
+        }
+    }
+
+    fn evaluate_shell_condition_step(
+        evaluator: &ScriptEvaluator,
+        script: &mut Script,
+        cursor: ShellPendingConditionCursor,
+    ) -> GameLogicResult<ShellConditionStepOutcome> {
+        let Some(first_or) = script.condition.as_deref_mut() else {
+            return Ok(ShellConditionStepOutcome::Complete(true));
+        };
+
+        let mut current_or = Some(first_or);
+        for _ in 0..cursor.next_or_index {
+            current_or = current_or.and_then(|or_node| or_node.next_or.as_deref_mut());
+        }
+        let Some(or_node) = current_or else {
+            return Ok(ShellConditionStepOutcome::Complete(false));
+        };
+
+        let mut current_and = or_node.first_and.as_deref_mut();
+        for _ in 0..cursor.next_and_index {
+            current_and = current_and.and_then(|and_node| and_node.next_and_condition.as_deref_mut());
+        }
+
+        let Some(and_node) = current_and else {
+            if or_node.next_or.is_some() {
+                return Ok(ShellConditionStepOutcome::Advance(ShellPendingConditionCursor {
+                    next_or_index: cursor.next_or_index + 1,
+                    next_and_index: 0,
+                }));
+            }
+            return Ok(ShellConditionStepOutcome::Complete(false));
+        };
+
+        let (condition_result, has_next_and) = {
+            let result = evaluator.evaluate_condition(and_node)?;
+            (result, and_node.next_and_condition.is_some())
+        };
+
+        if condition_result {
+            if has_next_and {
+                Ok(ShellConditionStepOutcome::Advance(ShellPendingConditionCursor {
+                    next_or_index: cursor.next_or_index,
+                    next_and_index: cursor.next_and_index + 1,
+                }))
+            } else {
+                Ok(ShellConditionStepOutcome::Complete(true))
+            }
+        } else if or_node.next_or.is_some() {
+            Ok(ShellConditionStepOutcome::Advance(ShellPendingConditionCursor {
+                next_or_index: cursor.next_or_index + 1,
+                next_and_index: 0,
+            }))
+        } else {
+            Ok(ShellConditionStepOutcome::Complete(false))
+        }
+    }
+
+    fn execute_script_action_slice(
+        evaluator: &ScriptEvaluator,
+        start_action: &ScriptAction,
+        start_index: usize,
+        shell_safe_mode: bool,
+        script_name: &str,
+    ) -> GameLogicResult<(usize, bool, bool)> {
+        let slice_started = Instant::now();
+        let mut current_action = Some(start_action);
+        let mut executed = 0usize;
+        let mut next_action_index = start_index;
+
+        while let Some(action) = current_action {
+            if shell_safe_mode && Self::should_skip_shell_pathological_action(action) {
+                let team_ctx = Self::describe_action_team_context(action);
+                log::warn!(
+                    "Skipping pathological shell action script='{}' action={:?}{} to preserve menu responsiveness",
+                    script_name,
+                    action.get_action_type(),
+                    team_ctx
+                );
+                executed += 1;
+                next_action_index += 1;
+                current_action = action.get_next();
+                continue;
+            }
+            let action_started = Instant::now();
+            evaluator.execute_action(action)?;
+            let action_elapsed = action_started.elapsed();
+            if action_elapsed >= Duration::from_millis(Self::SHELL_SLOW_SCRIPT_WARN_MS) {
+                let team_ctx = Self::describe_action_team_context(action);
+                log::warn!(
+                    "Slow mission script action execute: script='{}' action={:?} took {:?}{}",
+                    script_name,
+                    action.get_action_type(),
+                    action_elapsed,
+                    team_ctx
+                );
+            }
+            executed += 1;
+            next_action_index += 1;
+            let next = action.get_next();
+            let has_more = next.is_some();
+
+            if has_more
+                && (executed >= Self::SHELL_HEAVY_ACTIONS_PER_SLICE
+                    || slice_started.elapsed()
+                        >= Duration::from_millis(Self::SHELL_HEAVY_SLICE_MS))
+            {
+                return Ok((next_action_index, true, true));
+            }
+
+            current_action = next;
+        }
+
+        Ok((next_action_index, false, false))
+    }
+
+    fn should_skip_shell_pathological_action(action: &ScriptAction) -> bool {
+        let _ = action;
+        false
+    }
+
+    fn describe_action_team_context(action: &ScriptAction) -> String {
+        let Some(team_name_param) = action.get_parameter(0) else {
+            return String::new();
+        };
+        let team_name = team_name_param.get_string();
+        if team_name.is_empty() {
+            return String::new();
+        }
+
+        let mut total_members = 0usize;
+        let mut alive_members = 0usize;
+        if let Ok(mut factory) = get_team_factory().lock() {
+            if let Some(team_arc) = factory.find_team(team_name) {
+                if let Ok(team) = team_arc.read() {
+                    let members = team.get_members();
+                    total_members = members.len();
+                    let mut alive = 0usize;
+                    for member in members {
+                        let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(*member)
+                        else {
+                            continue;
+                        };
+                        let Ok(obj_guard) = obj.read() else {
+                            continue;
+                        };
+                        if !obj_guard.is_effectively_dead() {
+                            alive += 1;
+                        }
+                    }
+                    alive_members = alive;
+                }
+            }
+        }
+
+        format!(
+            " team='{}' members={} alive={}",
+            team_name, total_members, alive_members
+        )
+    }
+
+    fn script_action_for_branch(
+        script: &Script,
+        branch: ScriptActionBranch,
+    ) -> Option<&ScriptAction> {
+        match branch {
+            ScriptActionBranch::TrueAction => script.get_action(),
+            ScriptActionBranch::FalseAction => script.get_false_action(),
+        }
+    }
+
+    fn script_action_at_index(
+        start_action: &ScriptAction,
+        index: usize,
+    ) -> Option<&ScriptAction> {
+        let mut current = Some(start_action);
+        let mut offset = 0usize;
+        while offset < index {
+            current = current?.get_next();
+            offset += 1;
+        }
+        current
     }
 }
 
@@ -629,30 +1093,79 @@ impl MissionScriptHooks {
     }
 
     pub fn update(&self, frame: u64) -> GameLogicResult<()> {
+        self.update_budgeted(frame, None)
+    }
+
+    pub fn update_shell_budgeted(
+        &self,
+        frame: u64,
+        max_scripts_per_frame: Option<usize>,
+    ) -> GameLogicResult<()> {
         self.frame_counter.store(frame, Ordering::Relaxed);
-        let mut runtime = self.runtime.lock().map_err(|_| {
-            GameLogicError::Configuration("Mission script runtime mutex poisoned".to_string())
-        })?;
-        runtime.update(frame)?;
         let pending = self
             .pending_script_enabled_updates
             .lock()
             .map(|mut queue| queue.drain(..).collect::<Vec<_>>())
             .unwrap_or_default();
+        let mut runtime = self.runtime.lock().map_err(|_| {
+            GameLogicError::Configuration("Mission script runtime mutex poisoned".to_string())
+        })?;
         for (name, enabled) in pending {
             runtime.set_script_enabled(&name, enabled)?;
         }
+        runtime.update_shell_budgeted(frame, max_scripts_per_frame)?;
+        Ok(())
+    }
+
+    pub fn update_budgeted(
+        &self,
+        frame: u64,
+        max_scripts_per_frame: Option<usize>,
+    ) -> GameLogicResult<()> {
+        self.frame_counter.store(frame, Ordering::Relaxed);
+        let pending = self
+            .pending_script_enabled_updates
+            .lock()
+            .map(|mut queue| queue.drain(..).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let mut runtime = self.runtime.lock().map_err(|_| {
+            GameLogicError::Configuration("Mission script runtime mutex poisoned".to_string())
+        })?;
+        for (name, enabled) in pending {
+            runtime.set_script_enabled(&name, enabled)?;
+        }
+        runtime.update_budgeted(frame, max_scripts_per_frame)?;
         Ok(())
     }
 
     pub fn set_script_enabled(&self, name: &str, enabled: bool) -> GameLogicResult<()> {
         let mut queue = self.pending_script_enabled_updates.lock().map_err(|_| {
-            GameLogicError::Configuration(
-                "Mission script enable queue mutex poisoned".to_string(),
-            )
+            GameLogicError::Configuration("Mission script enable queue mutex poisoned".to_string())
         })?;
         queue.push((name.to_string(), enabled));
         Ok(())
+    }
+
+    pub fn disable_attack_wave_scripts(&self) -> usize {
+        let mut disabled = 0usize;
+        if let Ok(mut runtime) = self.runtime.lock() {
+            for entry in runtime.scripts.iter_mut() {
+                let runtime_name = entry.name.to_ascii_lowercase();
+                let original_name = entry.original_name.clone().unwrap_or_default();
+                let original_name = original_name.to_ascii_lowercase();
+                let looks_like_attack_wave = (runtime_name.contains("attack")
+                    && runtime_name.contains("spawn"))
+                    || (original_name.contains("and attack")
+                        && original_name.contains("spawn"));
+                if looks_like_attack_wave && entry.enabled {
+                    entry.enabled = false;
+                    entry.script.set_active(false);
+                    entry.state.completed = true;
+                    disabled += 1;
+                }
+            }
+        }
+        disabled
     }
 
     pub fn push_message(&self, text: String) {
@@ -2153,6 +2666,29 @@ fn delay_frames(seconds: i32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, ScriptActionType};
+
+    fn build_noop_action_chain(count: usize) -> Option<Box<ScriptAction>> {
+        let mut head = None;
+        for _ in 0..count {
+            let mut action = Box::new(ScriptAction::new(ScriptActionType::NoOp));
+            action.set_next_action(head);
+            head = Some(action);
+        }
+        head
+    }
+
+    fn build_true_condition_chain(count: usize) -> Option<Box<OrCondition>> {
+        let mut head = None;
+        for _ in 0..count {
+            let mut condition = Box::new(Condition::new(ConditionType::ConditionTrue));
+            condition.set_next_condition(head);
+            head = Some(condition);
+        }
+        let mut or_condition = Box::new(OrCondition::new());
+        or_condition.set_first_and_condition(head);
+        Some(or_condition)
+    }
 
     #[test]
     fn handler_forwards_camera_pitch_rotate_and_mod_requests() {
@@ -2602,6 +3138,192 @@ mod tests {
                 SuperweaponObjectDisplayMutation::Hide { object_id: 77 },
                 SuperweaponObjectDisplayMutation::Show { object_id: 77 }
             ]
+        );
+    }
+
+    #[test]
+    fn heavy_shell_scripts_only_defer_during_warmup() {
+        let heavy = RuntimeScript {
+            name: "List3::Tech_Attacks::Spawn_Techs_And_Attack".to_string(),
+            original_name: Some("spawn techs and attack".to_string()),
+            script: Script::new(),
+            state: ScriptState::new(),
+            enabled: true,
+        };
+
+        assert!(MissionScriptRuntime::should_defer_heavy_shell_script(
+            &heavy,
+            MissionScriptRuntime::SHELL_HEAVY_SCRIPT_WARMUP_FRAMES - 1
+        ));
+        assert!(!MissionScriptRuntime::should_defer_heavy_shell_script(
+            &heavy,
+            MissionScriptRuntime::SHELL_HEAVY_SCRIPT_WARMUP_FRAMES
+        ));
+    }
+
+    #[test]
+    fn shell_heavy_script_detection_matches_attack_wave_patterns() {
+        let heavy = RuntimeScript {
+            name: "List3::Combat_Cycle_Attacks::Spawn_Bikes_And_Attack".to_string(),
+            original_name: Some("spawn bikes and attack".to_string()),
+            script: Script::new(),
+            state: ScriptState::new(),
+            enabled: true,
+        };
+        let allowed = RuntimeScript {
+            name: "List0::Move_Camera".to_string(),
+            original_name: Some("move camera".to_string()),
+            script: Script::new(),
+            state: ScriptState::new(),
+            enabled: true,
+        };
+
+        assert!(MissionScriptRuntime::is_shell_heavy_attack_script(&heavy));
+        assert!(!MissionScriptRuntime::is_shell_heavy_attack_script(&allowed));
+    }
+
+    #[test]
+    fn heavy_shell_script_actions_are_chunked_across_frames() {
+        let runtime =
+            MissionScriptRuntime::new().expect("mission script runtime should initialize");
+        let mut script = Script::new();
+        script.set_name("spawn techs and attack".to_string());
+        script.set_action(build_noop_action_chain(5));
+
+        let mut entry = RuntimeScript {
+            name: "List3::Tech_Attacks::Spawn_Techs_And_Attack".to_string(),
+            original_name: Some("spawn techs and attack".to_string()),
+            script,
+            state: ScriptState::new(),
+            enabled: true,
+        };
+
+        let (condition_result, yielded) =
+            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(&runtime.evaluator, &mut entry)
+                .expect("first shell chunk should run");
+        assert!(condition_result);
+        assert!(yielded);
+        let first = &entry;
+
+        assert!(
+            first.state.pending_action_cursor.is_some(),
+            "heavy shell script should yield after first action slice"
+        );
+        assert!(
+            !first.state.completed,
+            "one-shot script should not complete until the full action chain runs"
+        );
+
+        let (_, second_yielded) =
+            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(&runtime.evaluator, &mut entry)
+                .expect("second shell chunk should complete remaining actions");
+        assert!(!second_yielded);
+        if entry.script.is_one_shot() {
+            entry.state.completed = true;
+        }
+
+        let second = &entry;
+        assert!(
+            second.state.pending_action_cursor.is_none(),
+            "second slice should finish the action chain"
+        );
+        assert!(second.state.completed, "one-shot script should complete");
+    }
+
+    #[test]
+    fn heavy_shell_script_conditions_are_chunked_across_frames() {
+        let runtime =
+            MissionScriptRuntime::new().expect("mission script runtime should initialize");
+        let mut script = Script::new();
+        script.set_name("spawn bikes and attack".to_string());
+        script.set_or_condition(build_true_condition_chain(
+            MissionScriptRuntime::SHELL_HEAVY_CONDITIONS_PER_SLICE + 6,
+        ));
+        script.set_action(build_noop_action_chain(1));
+
+        let mut entry = RuntimeScript {
+            name: "List3::Combat_Cycle_Attacks::Spawn_Bikes_And_Attack".to_string(),
+            original_name: Some("spawn bikes and attack".to_string()),
+            script,
+            state: ScriptState::new(),
+            enabled: true,
+        };
+
+        let (_, yielded_first) =
+            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(&runtime.evaluator, &mut entry)
+                .expect("condition slice should run");
+        assert!(
+            yielded_first,
+            "long heavy condition chains should yield to the next frame"
+        );
+        assert!(
+            entry.state.pending_condition_cursor.is_some(),
+            "yielded condition pass must retain continuation cursor"
+        );
+        assert!(
+            entry.state.pending_action_cursor.is_none(),
+            "action evaluation must not begin before condition pass completes"
+        );
+    }
+
+    #[test]
+    fn disabling_script_clears_pending_shell_action_cursor() {
+        let mut runtime =
+            MissionScriptRuntime::new().expect("mission script runtime should initialize");
+        let mut script = Script::new();
+        script.set_name("spawn techs and attack".to_string());
+        script.set_action(build_noop_action_chain(5));
+
+        runtime.scripts.push(RuntimeScript {
+            name: "List3::Tech_Attacks::Spawn_Techs_And_Attack".to_string(),
+            original_name: Some("spawn techs and attack".to_string()),
+            script,
+            state: ScriptState::new(),
+            enabled: true,
+        });
+        runtime.original_lookup.insert("spawn techs and attack".to_string(), 0);
+        runtime.scripts[0].state.pending_condition_cursor = Some(ShellPendingConditionCursor {
+            next_or_index: 1,
+            next_and_index: 0,
+        });
+        runtime.scripts[0].state.pending_action_cursor = Some(ShellPendingActionCursor {
+            branch: ScriptActionBranch::TrueAction,
+            next_action_index: 2,
+        });
+
+        assert!(runtime.scripts[0].state.pending_condition_cursor.is_some());
+        assert!(runtime.scripts[0].state.pending_action_cursor.is_some());
+
+        runtime
+            .set_script_enabled("spawn techs and attack", false)
+            .expect("disable script should succeed");
+        assert!(
+            runtime.scripts[0].state.pending_condition_cursor.is_none(),
+            "disabling must clear pending condition cursor to avoid stale continuation"
+        );
+        assert!(
+            runtime.scripts[0].state.pending_action_cursor.is_none(),
+            "disabling must clear pending cursor to avoid stale continuation"
+        );
+    }
+
+    #[test]
+    fn shell_slow_script_backoff_scales_with_runtime() {
+        assert_eq!(
+            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(10)),
+            0
+        );
+        assert_eq!(
+            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(45)),
+            30
+        );
+        assert_eq!(
+            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(120)),
+            180
+        );
+        assert_eq!(
+            MissionScriptRuntime::shell_slow_script_cooldown_frames(Duration::from_millis(500)),
+            600
         );
     }
 }

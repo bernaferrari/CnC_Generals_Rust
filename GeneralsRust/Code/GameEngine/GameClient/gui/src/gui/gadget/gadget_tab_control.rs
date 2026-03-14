@@ -155,17 +155,30 @@ impl TabControlState {
 }
 
 pub fn render_demo(labels: &[&str], active: &str) -> AnyElement {
+    let active_index = labels.iter().position(|label| *label == active).unwrap_or(0);
+    let state = TabControlState {
+        active_tab: active_index,
+        tab_count: labels.len(),
+        disabled: vec![false; labels.len()],
+        ..Default::default()
+    };
+    render(labels, &state)
+}
+
+pub fn render(labels: &[&str], state: &TabControlState) -> AnyElement {
     div()
         .flex()
         .gap_1()
-        .children(labels.iter().map(|label| {
+        .children(labels.iter().enumerate().map(|(index, label)| {
             div()
                 .px_3()
                 .py_1()
                 .rounded_t_md()
                 .border_1()
                 .border_color(rgb(0x22303f))
-                .bg(if *label == active {
+                .bg(if state.disabled.get(index).copied().unwrap_or(false) {
+                    rgb(0x0b1018)
+                } else if state.active_tab == index {
                     rgb(0x18232f)
                 } else {
                     rgb(0x101720)
