@@ -214,7 +214,7 @@ impl PlayerMoney {
         if let Ok(list) = player_list().read() {
             if let Some(player) = list.get_player(self.player_index) {
                 if let Ok(mut player_guard) = player.write() {
-                    player_guard.get_academy_stats_mut().record_income();
+                    player_guard.get_academy_stats_mut().record_income(amount as Int);
                 }
             }
         }
@@ -535,6 +535,8 @@ pub struct AcademyStats {
     upgrades_purchased: Int,
     cleared_garrisoned_buildings: Int,
     special_powers_used: Int,
+    /// Total money earned (for scoreboard / academy stats).
+    total_income: Int,
 }
 
 impl AcademyStats {
@@ -550,6 +552,7 @@ impl AcademyStats {
             upgrades_purchased: 0,
             cleared_garrisoned_buildings: 0,
             special_powers_used: 0,
+            total_income: 0,
         }
     }
 
@@ -602,7 +605,10 @@ impl AcademyStats {
             .or_insert(0) += 1;
     }
 
-    pub fn record_income(&mut self) {}
+    /// Record income earned (for scoreboard). Matches C++ AcademyStats::recordIncome.
+    pub fn record_income(&mut self, amount: Int) {
+        self.total_income = self.total_income.saturating_add(amount);
+    }
 
     /// Record upgrade acquisition (matches C++ AcademyStats::recordUpgrade)
     pub fn record_upgrade(&mut self, upgrade: &UpgradeTemplate, granted: Bool) {
