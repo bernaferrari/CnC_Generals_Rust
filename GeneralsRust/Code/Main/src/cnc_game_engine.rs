@@ -27,7 +27,7 @@ use crate::subsystem_manager::{
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
-    UIEvent, UIManager, UISystemEvent, UISystemState, WgpuUISystem,
+    UIEvent, UIManager, UISystemState,
 };
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
@@ -43,9 +43,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::{PI, TAU};
 use std::fs;
 use std::future::Future;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::AtomicU32;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -118,9 +118,17 @@ mod tests {
 
     #[test]
     fn menu_caustic_warmup_waits_for_stable_menu_frames() {
-        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(None, 200));
-        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(Some(100), 219));
-        assert!(CnCGameEngine::should_trigger_menu_caustic_warmup(Some(100), 220));
+        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(
+            None, 200
+        ));
+        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(
+            Some(100),
+            219
+        ));
+        assert!(CnCGameEngine::should_trigger_menu_caustic_warmup(
+            Some(100),
+            220
+        ));
     }
 
     #[test]
@@ -340,6 +348,8 @@ pub struct CnCGameEngine {
     mouse_world_position: Vec3,
     is_dragging: bool,
     selection_start: Option<Vec3>,
+    last_click_time: Option<Instant>,
+    last_click_position: Option<Vec3>,
 
     // Game state
     selected_objects: Vec<ObjectId>,
@@ -360,17 +370,17 @@ pub struct CnCGameEngine {
 
     // UI system
     ui_manager: UIManager,
-    wgpu_ui_system: WgpuUISystem,
     game_hud: GameHUD,
     active_menu_shell_hook: Option<&'static str>,
-    gpui_menu_bridge: Option<GpuiMenuBridge>,
+    runtime_host_headless: bool,
+    runtime_host_ui_screen_override: Option<String>,
 
     // Model loading state
     models_loaded: bool,
     pending_shell_model_prewarm: VecDeque<String>,
     menu_enter_frame: Option<u64>,
     shell_ui_enqueued_frame: Option<u64>,
-    last_menu_stall_warning: Option<Instant>,
+    last_shell_prewarm_log: Option<Instant>,
     match_over: bool,
     victory_summary: Option<VictorySummary>,
 }
@@ -468,198 +478,271 @@ struct StartupCameraDefaults {
     max_camera_height: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GpuiMenuAction {
-    StartSkirmish,
-    ExitGame,
-    OpenOptions,
-}
-
-impl GpuiMenuAction {
-    fn parse(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "start_skirmish" => Some(Self::StartSkirmish),
-            "exit_game" => Some(Self::ExitGame),
-            "open_options" => Some(Self::OpenOptions),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct GpuiMenuWindowPlacement {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-}
-
-#[derive(Debug)]
-struct GpuiMenuBridge {
-    child: Child,
-    ipc_path: PathBuf,
-    launch_label: &'static str,
-}
-
-impl GpuiMenuBridge {
-    fn spawn(placement: Option<GpuiMenuWindowPlacement>) -> Result<Self> {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let ipc_path = std::env::temp_dir().join(format!(
-            "generals_gpui_menu_action_{}_{}.txt",
-            std::process::id(),
-            now
-        ));
-        let _ = fs::remove_file(&ipc_path);
-
-        if let Ok(bridge) = Self::spawn_from_binary(&ipc_path, placement) {
-            return Ok(bridge);
-        }
-
-        Self::spawn_from_cargo(&ipc_path, placement)
-    }
-
-    fn spawn_from_binary(
-        ipc_path: &Path,
-        placement: Option<GpuiMenuWindowPlacement>,
-    ) -> Result<Self> {
-        let helper_name = if cfg!(target_os = "windows") {
-            "gpui-gui.exe"
-        } else {
-            "gpui-gui"
-        };
-        let current_exe = std::env::current_exe()
-            .map_err(|err| anyhow::anyhow!("failed to resolve current executable path: {err}"))?;
-        let helper = current_exe.with_file_name(helper_name);
-        if !helper.is_file() {
-            return Err(anyhow::anyhow!("gpui helper binary not found at {:?}", helper));
-        }
-
-        let mut command = Command::new(&helper);
-        command
-            .arg("--runtime-menu-ipc")
-            .arg(ipc_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        if let Some(placement) = placement {
-            command
-                .env("GENERALS_GPUI_MENU_X", placement.x.to_string())
-                .env("GENERALS_GPUI_MENU_Y", placement.y.to_string())
-                .env("GENERALS_GPUI_MENU_WIDTH", placement.width.to_string())
-                .env("GENERALS_GPUI_MENU_HEIGHT", placement.height.to_string());
-        }
-        let child = command
-            .spawn()
-            .map_err(|err| anyhow::anyhow!("failed to spawn gpui helper binary: {err}"))?;
-
-        Ok(Self {
-            child,
-            ipc_path: ipc_path.to_path_buf(),
-            launch_label: "binary",
-        })
-    }
-
-    fn spawn_from_cargo(
-        ipc_path: &Path,
-        placement: Option<GpuiMenuWindowPlacement>,
-    ) -> Result<Self> {
-        let workspace_manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.toml");
-        let mut command = Command::new("cargo");
-        command
-            .arg("run")
-            .arg("--manifest-path")
-            .arg(workspace_manifest)
-            .arg("-p")
-            .arg("gpui-gui")
-            .arg("--")
-            .arg("--runtime-menu-ipc")
-            .arg(ipc_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        if let Some(placement) = placement {
-            command
-                .env("GENERALS_GPUI_MENU_X", placement.x.to_string())
-                .env("GENERALS_GPUI_MENU_Y", placement.y.to_string())
-                .env("GENERALS_GPUI_MENU_WIDTH", placement.width.to_string())
-                .env("GENERALS_GPUI_MENU_HEIGHT", placement.height.to_string());
-        }
-        let child = command
-            .spawn()
-            .map_err(|err| anyhow::anyhow!("failed to spawn gpui helper via cargo run: {err}"))?;
-
-        Ok(Self {
-            child,
-            ipc_path: ipc_path.to_path_buf(),
-            launch_label: "cargo",
-        })
-    }
-
-    fn poll_action(&mut self) -> Option<GpuiMenuAction> {
-        let raw = fs::read_to_string(&self.ipc_path).ok()?;
-        let _ = fs::remove_file(&self.ipc_path);
-        GpuiMenuAction::parse(&raw)
-    }
-
-    fn has_exited(&mut self) -> bool {
-        self.child.try_wait().ok().flatten().is_some()
-    }
-
-    fn terminate(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let _ = fs::remove_file(&self.ipc_path);
-    }
-}
-
-impl Drop for GpuiMenuBridge {
-    fn drop(&mut self) {
-        self.terminate();
-    }
-}
-
 impl CnCGameEngine {
     const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
     const CAUSTIC_WARMUP_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
-    fn menu_uses_gpui_bridge(&self) -> bool {
+    fn runtime_host_enabled(&self) -> bool {
+        self.runtime_host_headless
+    }
+
+    fn wgpu_menu_backend_enabled(&self) -> bool {
         false
     }
 
-    fn current_menu_window_placement(&self) -> Option<GpuiMenuWindowPlacement> {
-        let size = self.window.inner_size();
-        let position = self.window.outer_position().ok()?;
-        Some(GpuiMenuWindowPlacement {
-            x: position.x,
-            y: position.y,
-            width: size.width.max(1),
-            height: size.height.max(1),
-        })
+    fn set_wgpu_ui_state(&mut self, state: UISystemState) {
+        let _ = state;
     }
 
-    fn ensure_gpui_menu_bridge(&mut self) {
-        // Runtime menu is rendered in the main game window.
+    fn update_wgpu_ui_backend(&mut self) {}
+
+    fn set_runtime_host_ui_screen_override(&mut self, screen: Option<&str>) {
+        self.runtime_host_ui_screen_override = screen.map(|value| value.trim().to_string());
     }
 
-    fn shutdown_gpui_menu_bridge(&mut self) {
-        if let Some(mut bridge) = self.gpui_menu_bridge.take() {
-            bridge.terminate();
+    fn runtime_host_status_snapshot(&self) -> RuntimeHostSnapshot {
+        let map_name = self.game_logic.get_current_map_name().trim();
+        let map_name = if map_name.is_empty() {
+            "-".to_string()
+        } else {
+            map_name.to_string()
+        };
+
+        let ui_screen = self
+            .runtime_host_ui_screen_override
+            .as_ref()
+            .map(|screen| format!("Some({screen})"))
+            .unwrap_or_else(|| format!("{:?}", self.ui_manager.current_screen()));
+
+        let startup_progress = if matches!(self.current_state, GameState::Loading | GameState::Menu)
+        {
+            self.startup_last_reported_progress.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+
+        RuntimeHostSnapshot {
+            state: format!("{:?}", self.current_state),
+            ui_screen,
+            paused: self.game_paused,
+            fps: self.fps.max(0.0),
+            startup_progress,
+            map: map_name,
+            frame: self.frame_counter,
         }
     }
 
-    fn poll_gpui_menu_actions(&mut self) -> bool {
-        false
+    fn parse_runtime_host_mode(mode: Option<&str>) -> GameMode {
+        match mode
+            .unwrap_or("skirmish")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "singleplayer" | "single_player" | "single" => GameMode::SinglePlayer,
+            "skirmish" => GameMode::Skirmish,
+            "multiplayer" | "multi" => GameMode::Multiplayer,
+            "internet" | "online" => GameMode::Internet,
+            "network" | "lan" => GameMode::Lan,
+            "replay" => GameMode::Replay,
+            _ => GameMode::Skirmish,
+        }
     }
 
-    fn shell_ui_active(&self) -> bool {
-        false
-    }
+    fn apply_runtime_host_command(&mut self, raw_command: &str) {
+        let mut parts = raw_command.split('|');
+        let command = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
+        if command.is_empty() {
+            return;
+        }
 
-    fn shell_ui_owns_menu(&self) -> bool {
-        self.current_state == GameState::Menu && self.shell_ui_active()
+        let mut args = HashMap::<String, String>::new();
+        for part in parts {
+            if let Some((key, value)) = part.split_once('=') {
+                args.insert(
+                    key.trim().to_ascii_lowercase(),
+                    value.trim().trim_matches('"').to_string(),
+                );
+            }
+        }
+
+        match command.as_str() {
+            "exit" => {
+                self.request_state_change(GameState::Exiting);
+            }
+            "menu" => {
+                self.set_runtime_host_ui_screen_override(None);
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.request_state_change(GameState::Menu);
+            }
+            "toggle_pause" => match self.current_state {
+                GameState::Playing => self.request_state_change(GameState::Paused),
+                GameState::Paused => self.request_state_change(GameState::Playing),
+                _ => {}
+            },
+            "open_message_of_the_day" | "open_motd" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("MessageOfDay"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_get_updates" | "open_updates" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("GetUpdates"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_world_builder" | "launch_world_builder" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("WorldBuilder"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_options" => {
+                self.set_runtime_host_ui_screen_override(None);
+                self.ui_manager.transition_to_screen(Screen::Options);
+                if self.current_state == GameState::Playing {
+                    self.request_state_change(GameState::Paused);
+                } else if self.current_state != GameState::Paused {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_credits" => {
+                self.set_runtime_host_ui_screen_override(None);
+                self.ui_manager.transition_to_screen(Screen::Credits);
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_single_player_menu" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("SinglePlayer"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_multiplayer_menu" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("Multiplayer"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_load_replay_menu" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("LoadReplay"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_difficulty_menu" => {
+                let campaign = args
+                    .get("campaign")
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .unwrap_or_else(|| "usa".to_string());
+                let override_screen = match campaign.as_str() {
+                    "challenge" | "training" => "DifficultyChallenge",
+                    "gla" => "DifficultyGla",
+                    "china" => "DifficultyChina",
+                    _ => "DifficultyUsa",
+                };
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some(override_screen));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_skirmish_menu" => {
+                self.set_runtime_host_ui_screen_override(None);
+                self.ui_manager.transition_to_screen(Screen::Skirmish);
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_load_game" => {
+                self.set_runtime_host_ui_screen_override(None);
+                self.ui_manager.transition_to_screen(Screen::LoadGame);
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_online" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("Online"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_network" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("Network"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_replay" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("Replay"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "open_challenge_menu" => {
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("Challenge"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            "start_game" => {
+                let mode = Self::parse_runtime_host_mode(args.get("mode").map(String::as_str));
+                let faction = args
+                    .get("faction")
+                    .cloned()
+                    .unwrap_or_else(|| "USA".to_string());
+                let map = args
+                    .get("map")
+                    .cloned()
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+                self.set_runtime_host_ui_screen_override(None);
+                self.start_game_from_ui(mode, faction, map);
+                self.request_state_change(GameState::Playing);
+            }
+            "load_game" => {
+                let slot = args.get("slot").map(|slot| slot.trim()).unwrap_or_default();
+                if !slot.is_empty() {
+                    self.set_runtime_host_ui_screen_override(None);
+                    self.load_game_from_ui(slot);
+                    if matches!(self.ui_manager.current_screen(), Some(Screen::GameHUD)) {
+                        self.request_state_change(GameState::Playing);
+                    }
+                }
+            }
+            "replay" => {
+                let slot = args
+                    .get("slot")
+                    .cloned()
+                    .unwrap_or_else(|| "latest".to_string());
+                warn!(
+                    "Runtime host replay command requested for slot '{slot}', replay startup path is not wired yet"
+                );
+                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.set_runtime_host_ui_screen_override(Some("Replay"));
+                if self.current_state != GameState::Menu {
+                    self.request_state_change(GameState::Menu);
+                }
+            }
+            _ => {
+                debug!(
+                    "Ignoring unknown runtime host command '{}'",
+                    raw_command.trim()
+                );
+            }
+        }
     }
 
     fn loading_visual_phase(elapsed_seconds: f32) -> (&'static str, f32) {
@@ -692,14 +775,17 @@ impl CnCGameEngine {
     }
 
     fn ensure_shell_loading_overlay(&mut self) {
-        let _ = (SHELL_LOADING_LAYOUT, SHELL_LOADING_PARENT_NAME, SHELL_LOADING_PROGRESS_NAME);
+        let _ = (
+            SHELL_LOADING_LAYOUT,
+            SHELL_LOADING_PARENT_NAME,
+            SHELL_LOADING_PROGRESS_NAME,
+        );
     }
 
-    fn hide_shell_loading_overlay(&mut self) {
-    }
+    fn hide_shell_loading_overlay(&mut self) {}
 
     fn update_shell_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
-        self.wgpu_ui_system.set_loading_progress(progress, phase);
+        let _ = (progress, phase);
     }
 
     fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
@@ -866,11 +952,9 @@ impl CnCGameEngine {
             // C++ load screens are full-screen UI overlays; they do not render live terrain/world.
             return true;
         }
-        if self.current_state != GameState::Menu || !self.shell_ui_owns_menu() {
-            return false;
-        }
-        // Keep shell menu UI isolated from world rendering to avoid startup race/stall behavior.
-        true
+        // C++ shell menus keep the shell map running in the background (e.g. ShellMap flyover).
+        // GPUI overlays should sit on top of this world render, not replace it with a black scene.
+        false
     }
 
     #[cfg(not(feature = "game_client"))]
@@ -1255,8 +1339,47 @@ impl CnCGameEngine {
         }
 
         if result.start_in_menu {
+            self.update_shell_loading_progress(0.98, Some("Prewarming shell scene"));
+            self.pending_shell_model_prewarm = Self::collect_shell_scene_models_for_prewarm(
+                &self.game_logic,
+                self.camera_target,
+                120,
+            );
+            self.last_shell_prewarm_log = None;
+
+            // Prewarm a near-camera subset during loading so first visible menu frames are stable.
+            let immediate_budget = self.pending_shell_model_prewarm.len().min(48);
+            if immediate_budget > 0 {
+                let mut loaded = 0usize;
+                let mut failed = 0usize;
+                for _ in 0..immediate_budget {
+                    let Some(model_name) = self.pending_shell_model_prewarm.pop_front() else {
+                        break;
+                    };
+                    match Self::load_model_into_graphics_system_blocking(
+                        &mut self.graphics_system,
+                        &model_name,
+                    ) {
+                        Ok(_) => loaded += 1,
+                        Err(err) => {
+                            failed += 1;
+                            warn!(
+                                "Shell startup prewarm failed for model '{}': {}",
+                                model_name, err
+                            );
+                        }
+                    }
+                }
+                info!(
+                    "Shell startup prewarm complete: loaded={} failed={} pending={}",
+                    loaded,
+                    failed,
+                    self.pending_shell_model_prewarm.len()
+                );
+            }
+
             self.ui_manager.transition_to_screen(Screen::MainMenu);
-            self.wgpu_ui_system.set_state(UISystemState::MainMenu);
+            self.set_wgpu_ui_state(UISystemState::MainMenu);
         }
 
         if let Some(target_state) = self.startup_target_state.take() {
@@ -1406,6 +1529,7 @@ impl CnCGameEngine {
             }
         }
 
+        let runtime_host_headless = RuntimeHostBridge::is_headless_mode(command_line.as_ref());
         let size = window.inner_size();
 
         // Initialize WW3D engine to own the swapchain/device
@@ -1413,7 +1537,16 @@ impl CnCGameEngine {
         engine_config.width = size.width.max(1);
         engine_config.height = size.height.max(1);
 
-        if let Err(err) = ww3d_engine::init_with_window(window.clone(), engine_config).await {
+        if runtime_host_headless {
+            if let Err(err) = ww3d_engine::init_headless(engine_config).await {
+                if !matches!(err, EngineError::AlreadyInitialised) {
+                    return Err(anyhow::anyhow!(
+                        "Failed to initialize WW3D headless engine: {err:?}"
+                    ));
+                }
+            }
+        } else if let Err(err) = ww3d_engine::init_with_window(window.clone(), engine_config).await
+        {
             if !matches!(err, EngineError::AlreadyInitialised) {
                 return Err(anyhow::anyhow!("Failed to initialize WW3D engine: {err:?}"));
             }
@@ -1569,10 +1702,6 @@ impl CnCGameEngine {
             .initialize()
             .map_err(|err| anyhow::anyhow!("failed to initialize startup UI: {err}"))?;
         ui_manager.transition_to_screen(Screen::Loading);
-        let mut wgpu_ui_system = WgpuUISystem::new(window.as_ref())
-            .await
-            .map_err(|err| anyhow::anyhow!("failed to initialize runtime UI backend: {err}"))?;
-        wgpu_ui_system.set_state(UISystemState::Loading);
         let initial_state = GameState::Loading;
         let pending_state = None;
 
@@ -1651,6 +1780,8 @@ impl CnCGameEngine {
             mouse_world_position: Vec3::ZERO,
             is_dragging: false,
             selection_start: None,
+            last_click_time: None,
+            last_click_position: None,
             selected_objects: Vec::new(),
             control_groups: HashMap::new(),
             current_player_id: 0,
@@ -1665,15 +1796,15 @@ impl CnCGameEngine {
             menu_loading_last_tick: Instant::now(),
             diagnostics_overlay: None,
             ui_manager,
-            wgpu_ui_system,
             game_hud: GameHUD::new(),
             active_menu_shell_hook: None,
-            gpui_menu_bridge: None,
+            runtime_host_headless,
+            runtime_host_ui_screen_override: None,
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
             menu_enter_frame: if start_in_menu { Some(0) } else { None },
             shell_ui_enqueued_frame: None,
-            last_menu_stall_warning: None,
+            last_shell_prewarm_log: None,
             match_over: false,
             victory_summary: None,
         };
@@ -2061,7 +2192,6 @@ impl CnCGameEngine {
                 DEFAULT_VIEW_FAR_CLIP,
             );
             self.ui_manager.resize(new_size.width, new_size.height);
-            self.wgpu_ui_system.resize(new_size);
         }
     }
 
@@ -2135,17 +2265,6 @@ impl CnCGameEngine {
                 true
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                let use_wgpu_menu_input = self.current_state != GameState::Exiting;
-                let (ui_x, ui_y) = if use_wgpu_menu_input {
-                    let (x, y) = self.resolve_wgpu_ui_input_coordinates(
-                        self.mouse_position.0,
-                        self.mouse_position.1,
-                    );
-                    let _ = self.wgpu_ui_system.handle_mouse_move(x, y);
-                    (x, y)
-                } else {
-                    (self.mouse_position.0, self.mouse_position.1)
-                };
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
                 let route_mouse_to_legacy_ui =
@@ -2154,41 +2273,6 @@ impl CnCGameEngine {
                     let ui_button = Self::to_ui_mouse_button(*button);
                     if let Some(ui_button) = ui_button {
                         let _ = self.ui_manager.handle_mouse_click(x, y, ui_button);
-                    }
-                }
-                if use_wgpu_menu_input {
-                    let ui_event = self.wgpu_ui_system.handle_mouse_click(
-                        ui_x,
-                        ui_y,
-                        Self::to_wgpu_ui_button(*button),
-                        *state == ElementState::Pressed,
-                    );
-                    if matches!(self.current_state, GameState::Menu | GameState::Loading)
-                        && *state == ElementState::Pressed
-                        && *button == MouseButton::Left
-                        && matches!(ui_event, UISystemEvent::None)
-                    {
-                        let passive_hit = self
-                            .wgpu_ui_system
-                            .element_name_at_position(ui_x, ui_y)
-                            .unwrap_or("<none>");
-                        let interactive_hit = self
-                            .wgpu_ui_system
-                            .interactive_element_name_at_position(ui_x, ui_y)
-                            .unwrap_or("<none>");
-                        debug!(
-                            "Menu/loading left click produced no action at raw=({:.1}, {:.1}) resolved=({:.1}, {:.1}) scale={:.2}; passive_hit={} interactive_hit={}",
-                            self.mouse_position.0,
-                            self.mouse_position.1,
-                            ui_x,
-                            ui_y,
-                            self.window.scale_factor(),
-                            passive_hit,
-                            interactive_hit
-                        );
-                    }
-                    if self.handle_runtime_ui_event(ui_event) {
-                        return true;
                     }
                 }
 
@@ -2215,54 +2299,16 @@ impl CnCGameEngine {
                     self.ui_manager
                         .handle_mouse_move(position.x as i32, position.y as i32);
                 }
-                if self.current_state != GameState::Exiting {
-                    let (ui_x, ui_y) = self
-                        .resolve_wgpu_ui_input_coordinates(position.x as f32, position.y as f32);
-                    let _ = self.wgpu_ui_system.handle_mouse_move(ui_x, ui_y);
+                true
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if matches!(self.current_state, GameState::Playing | GameState::Paused) {
+                    self.handle_mouse_wheel(delta);
                 }
                 true
             }
             _ => false,
         }
-    }
-
-    fn resolve_wgpu_ui_input_coordinates(&self, x: f32, y: f32) -> (f32, f32) {
-        let scale_factor = self.window.scale_factor() as f32;
-        if !scale_factor.is_finite() || scale_factor <= f32::EPSILON {
-            return (x, y);
-        }
-
-        let candidates = if (scale_factor - 1.0).abs() < f32::EPSILON {
-            [(x, y), (x, y), (x, y)]
-        } else {
-            [
-                (x, y),
-                (x * scale_factor, y * scale_factor),
-                (x / scale_factor, y / scale_factor),
-            ]
-        };
-
-        let mut passive_hit: Option<(f32, f32)> = None;
-        for (candidate_x, candidate_y) in candidates {
-            if self
-                .wgpu_ui_system
-                .interactive_element_name_at_position(candidate_x, candidate_y)
-                .is_some()
-            {
-                return (candidate_x, candidate_y);
-            }
-
-            if passive_hit.is_none()
-                && self
-                    .wgpu_ui_system
-                    .element_name_at_position(candidate_x, candidate_y)
-                    .is_some()
-            {
-                passive_hit = Some((candidate_x, candidate_y));
-            }
-        }
-
-        passive_hit.unwrap_or((x, y))
     }
 
     fn to_ui_mouse_button(button: MouseButton) -> Option<crate::ui::MouseButton> {
@@ -2273,17 +2319,6 @@ impl CnCGameEngine {
             MouseButton::Back => Some(crate::ui::MouseButton::Other(4)),
             MouseButton::Forward => Some(crate::ui::MouseButton::Other(5)),
             MouseButton::Other(id) => Some(crate::ui::MouseButton::Other(id as u8)),
-        }
-    }
-
-    fn to_wgpu_ui_button(button: MouseButton) -> u32 {
-        match button {
-            MouseButton::Left => 0,
-            MouseButton::Right => 1,
-            MouseButton::Middle => 2,
-            MouseButton::Back => 4,
-            MouseButton::Forward => 5,
-            MouseButton::Other(id) => id as u32,
         }
     }
 
@@ -2354,38 +2389,6 @@ impl CnCGameEngine {
                 }
             }
             _ => None,
-        }
-    }
-
-    fn handle_runtime_ui_event(&mut self, event: UISystemEvent) -> bool {
-        match event {
-            UISystemEvent::None => false,
-            UISystemEvent::StartGame { mode, faction } => {
-                self.start_game_from_ui(mode, faction, DEFAULT_SKIRMISH_MAP.to_string());
-                self.request_state_change(GameState::Playing);
-                true
-            }
-            UISystemEvent::ExitGame => {
-                self.request_state_change(GameState::Exiting);
-                true
-            }
-            UISystemEvent::ShowOptions => {
-                self.ui_manager.transition_to_screen(Screen::Options);
-                true
-            }
-            UISystemEvent::LoadGame => {
-                self.ui_manager.transition_to_screen(Screen::LoadGame);
-                true
-            }
-            UISystemEvent::BackToMainMenu => {
-                self.request_state_change(GameState::Menu);
-                true
-            }
-            UISystemEvent::PauseToggle => {
-                self.toggle_pause();
-                true
-            }
-            UISystemEvent::ButtonClicked { .. } => true,
         }
     }
 
@@ -2537,43 +2540,40 @@ impl CnCGameEngine {
                 self.game_logic.set_paused(false);
                 self.active_menu_shell_hook = None;
                 self.hide_gameplay_layouts();
-                self.ui_manager.transition_to_screen(crate::ui::Screen::MainMenu);
-                self.wgpu_ui_system.set_state(UISystemState::MainMenu);
+                self.ui_manager
+                    .transition_to_screen(crate::ui::Screen::MainMenu);
+                self.set_wgpu_ui_state(UISystemState::MainMenu);
             }
             GameState::Loading => {
                 info!("Entering Loading state");
-                self.shutdown_gpui_menu_bridge();
                 // Show loading screen, prepare assets
                 self.ensure_shell_loading_overlay();
                 self.update_shell_loading_progress(0.0, Some("Loading assets..."));
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::Loading);
-                self.wgpu_ui_system.set_state(UISystemState::Loading);
+                self.set_wgpu_ui_state(UISystemState::Loading);
             }
             GameState::Playing => {
                 info!("Entering Playing state");
-                self.shutdown_gpui_menu_bridge();
                 // Start game logic, enable input
                 self.game_paused = false;
                 self.game_logic.set_paused(false);
                 self.ensure_gameplay_layouts();
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::GameHUD);
-                self.wgpu_ui_system.set_state(UISystemState::InGame);
+                self.set_wgpu_ui_state(UISystemState::InGame);
             }
             GameState::Paused => {
                 info!("Entering Paused state");
-                self.shutdown_gpui_menu_bridge();
                 // Freeze game logic, show pause menu
                 self.game_paused = true;
                 self.game_logic.set_paused(true);
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::PauseMenu);
-                self.wgpu_ui_system.set_state(UISystemState::PauseMenu);
+                self.set_wgpu_ui_state(UISystemState::PauseMenu);
             }
             GameState::Exiting => {
                 info!("Entering Exiting state - beginning shutdown");
-                self.shutdown_gpui_menu_bridge();
                 // Cleanup will happen in drop
             }
         }
@@ -2585,10 +2585,12 @@ impl CnCGameEngine {
         }
         if new_state == GameState::Menu {
             self.menu_enter_frame = Some(self.current_startup_logic_frame());
+            self.last_shell_prewarm_log = None;
         } else {
             self.menu_enter_frame = None;
             self.shell_ui_enqueued_frame = None;
             self.active_menu_shell_hook = None;
+            self.last_shell_prewarm_log = None;
         }
     }
 
@@ -2656,6 +2658,7 @@ impl CnCGameEngine {
         match self.current_state {
             GameState::Menu => {
                 self.cleanup_sound_effects();
+                self.pump_shell_scene_model_prewarm();
                 if self.game_logic.isInShellGame() && !self.game_paused {
                     let shell_update_started = Instant::now();
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
@@ -2678,8 +2681,25 @@ impl CnCGameEngine {
                         );
                     }
                 }
-                self.wgpu_ui_system.set_state(UISystemState::MainMenu);
-                self.wgpu_ui_system.update();
+
+                if !self.pending_shell_model_prewarm.is_empty()
+                    && self
+                        .last_shell_prewarm_log
+                        .map(|last| last.elapsed() >= Duration::from_millis(800))
+                        .unwrap_or(true)
+                {
+                    info!(
+                        "Shell prewarm progress: pending_models={} render_items={} missing_models={} budget_skips={}",
+                        self.pending_shell_model_prewarm.len(),
+                        self.render_pipeline.debug_render_item_count(),
+                        self.render_pipeline.debug_last_model_missing(),
+                        self.render_pipeline.debug_last_model_budget_skips()
+                    );
+                    self.last_shell_prewarm_log = Some(Instant::now());
+                }
+
+                self.set_wgpu_ui_state(UISystemState::MainMenu);
+                self.update_wgpu_ui_backend();
                 if let Err(err) = self.ui_manager.update(dt) {
                     warn!("UI manager update failed in menu state: {}", err);
                 }
@@ -2696,8 +2716,8 @@ impl CnCGameEngine {
                     // Loading completed and transitioned this frame; avoid re-applying loading UI.
                     return;
                 }
-                self.wgpu_ui_system.set_state(UISystemState::Loading);
-                self.wgpu_ui_system.update();
+                self.set_wgpu_ui_state(UISystemState::Loading);
+                self.update_wgpu_ui_backend();
                 // After loading completes, the state will transition to Playing
                 // This is handled by the initialization code setting pending_state
                 return;
@@ -2707,8 +2727,8 @@ impl CnCGameEngine {
                 // (matches C++ where TheGameLogic->isGamePaused() prevents update)
                 self.update_camera(visual_dt);
                 self.cleanup_sound_effects();
-                self.wgpu_ui_system.set_state(UISystemState::PauseMenu);
-                self.wgpu_ui_system.update();
+                self.set_wgpu_ui_state(UISystemState::PauseMenu);
+                self.update_wgpu_ui_backend();
                 if let Err(err) = self.ui_manager.update(dt) {
                     warn!("UI manager update failed in paused state: {}", err);
                 }
@@ -2768,15 +2788,23 @@ impl CnCGameEngine {
             }
         }
 
+        // Update HUD with current player resources
+        if let Some(player) = self.game_logic.get_player(self.current_player_id) {
+            let money = player.resources.supplies as i32;
+            let power = player.resources.power as i32;
+            let max_power = player.resources.power.max(0).abs(); // Use power as max for now
+            self.game_hud.update_resources(money, power, max_power);
+        }
+
         // Update camera
         self.update_camera(visual_dt);
 
         // Update audio
         self.cleanup_sound_effects();
         if self.current_state == GameState::Playing {
-            self.wgpu_ui_system.set_state(UISystemState::InGame);
+            self.set_wgpu_ui_state(UISystemState::InGame);
         }
-        self.wgpu_ui_system.update();
+        self.update_wgpu_ui_backend();
 
         // Process queued commands in game logic
         self.game_logic.process_commands();
@@ -3051,17 +3079,6 @@ impl CnCGameEngine {
             }
         }
 
-        if matches!(
-            self.current_state,
-            GameState::Menu | GameState::Loading | GameState::Paused
-        ) {
-            self.wgpu_ui_system
-                .render()
-                .map_err(|err| anyhow::anyhow!("runtime UI backend render failed: {err}"))?;
-            self.drain_renderer_attachments();
-            return Ok(());
-        }
-
         // Execute the main game render pipeline using the WW3D frame.
         let render_time_delta = if self.game_logic.is_time_frozen_for_simulation() {
             0.0
@@ -3071,8 +3088,10 @@ impl CnCGameEngine {
                 .unwrap_or(0.0)
                 * self.game_logic.visual_speed_multiplier().max(0.0)
         };
+        // Keep shell/menu rendering deterministic: avoid heavy synchronous model loads in
+        // render() and rely on explicit startup/menu prewarm paths instead.
         let allow_sync_model_loads =
-            !matches!(self.current_state, GameState::Menu | GameState::Loading);
+            matches!(self.current_state, GameState::Playing | GameState::Paused);
         let deferred_startup_model_load_budget = Self::startup_deferred_model_load_budget(
             self.current_state,
             self.shell_start_frame(),
@@ -3137,7 +3156,7 @@ impl CnCGameEngine {
                     info!("UI requested exit to menu");
                     self.game_paused = false;
                     self.ui_manager.transition_to_screen(Screen::MainMenu);
-                    self.wgpu_ui_system.set_state(UISystemState::MainMenu);
+                    self.set_wgpu_ui_state(UISystemState::MainMenu);
                 }
                 UIEvent::ExitGame => {
                     info!("UI requested exit");
@@ -3146,13 +3165,11 @@ impl CnCGameEngine {
                 UIEvent::ChangeScreen(screen) => {
                     self.ui_manager.transition_to_screen(screen);
                     match screen {
-                        Screen::MainMenu => self.wgpu_ui_system.set_state(UISystemState::MainMenu),
-                        Screen::Loading => self.wgpu_ui_system.set_state(UISystemState::Loading),
-                        Screen::GameHUD => self.wgpu_ui_system.set_state(UISystemState::InGame),
-                        Screen::PauseMenu => {
-                            self.wgpu_ui_system.set_state(UISystemState::PauseMenu)
-                        }
-                        Screen::Victory => self.wgpu_ui_system.set_state(UISystemState::Victory),
+                        Screen::MainMenu => self.set_wgpu_ui_state(UISystemState::MainMenu),
+                        Screen::Loading => self.set_wgpu_ui_state(UISystemState::Loading),
+                        Screen::GameHUD => self.set_wgpu_ui_state(UISystemState::InGame),
+                        Screen::PauseMenu => self.set_wgpu_ui_state(UISystemState::PauseMenu),
+                        Screen::Victory => self.set_wgpu_ui_state(UISystemState::Victory),
                         _ => {}
                     }
                 }
@@ -3321,6 +3338,11 @@ impl CnCGameEngine {
             let _ = self.game_logic.load_map(DEFAULT_SKIRMISH_MAP);
         }
 
+        // Set up AI opponents for skirmish mode
+        if mode == GameMode::Skirmish {
+            self.game_logic.setup_skirmish_ai(self.current_player_id);
+        }
+
         // Reset transient state.
         self.game_logic.set_paused(false);
         self.game_paused = false;
@@ -3355,7 +3377,7 @@ impl CnCGameEngine {
             );
         self.sync_orbit_from_camera_transform();
         self.ui_manager.transition_to_screen(Screen::GameHUD);
-        self.wgpu_ui_system.set_state(UISystemState::InGame);
+        self.set_wgpu_ui_state(UISystemState::InGame);
     }
 
     fn apply_map_lighting(
@@ -3977,7 +3999,7 @@ impl CnCGameEngine {
     fn exit_to_main_menu_from_victory(&mut self) {
         self.reset_match_state();
         self.ui_manager.transition_to_screen(Screen::MainMenu);
-        self.wgpu_ui_system.set_state(UISystemState::MainMenu);
+        self.set_wgpu_ui_state(UISystemState::MainMenu);
     }
 
     fn handle_key_press(&mut self, key: &Key) {
@@ -4144,6 +4166,24 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("d") => {
                 self.debug_show_victory(None);
             }
+            Key::Character(c) if c.eq_ignore_ascii_case("p") => {
+                // Toggle pause with 'P' key
+                self.toggle_pause();
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("s")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+            {
+                // Ctrl+S: Quick save (placeholder)
+                info!("Quick save requested (not yet implemented)");
+            }
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("l")
+                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
+            {
+                // Ctrl+L: Quick load (placeholder)
+                info!("Quick load requested (not yet implemented)");
+            }
             Key::Named(NamedKey::Escape) => {
                 info!("Escape key pressed - should exit game");
             }
@@ -4167,17 +4207,78 @@ impl CnCGameEngine {
         let mouse_pos = self.mouse_world_position;
         let clicked_object = self.find_object_at_position(mouse_pos, &self.game_logic, false);
 
-        if let Some(object_id) = clicked_object {
-            // Select this object
-            self.game_logic
-                .select_objects(self.current_player_id, vec![object_id]);
-            self.selected_objects = vec![object_id];
-            self.play_sound_effect(SoundType::Select);
+        // Check for double-click
+        let now = Instant::now();
+        let is_double_click = if let (Some(last_time), Some(last_pos)) =
+            (self.last_click_time, self.last_click_position)
+        {
+            let time_delta = now.duration_since(last_time).as_millis();
+            let pos_delta = (mouse_pos - last_pos).length();
+            time_delta < 500 && pos_delta < 10.0
         } else {
-            // Clear selection
-            self.selected_objects.clear();
+            false
+        };
+
+        self.last_click_time = Some(now);
+        self.last_click_position = Some(mouse_pos);
+
+        if is_double_click && clicked_object.is_some() {
+            // Double-click: select all similar units
+            if let Some(object_id) = clicked_object {
+                self.select_similar_units(object_id);
+            }
+        } else {
+            // Single-click behavior
+            if let Some(object_id) = clicked_object {
+                // Select this object
+                self.game_logic
+                    .select_objects(self.current_player_id, vec![object_id]);
+                self.selected_objects = vec![object_id];
+                self.play_sound_effect(SoundType::Select);
+            } else {
+                // Clear selection
+                self.selected_objects.clear();
+                self.game_logic
+                    .select_objects(self.current_player_id, Vec::new());
+            }
+        }
+    }
+
+    fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
+        let Some(clicked_obj) = self.game_logic.find_object(clicked_object_id) else {
+            return;
+        };
+
+        let Some(player) = self.game_logic.get_player(self.current_player_id) else {
+            return;
+        };
+
+        let player_team = player.team;
+        if clicked_obj.team != player_team || !clicked_obj.is_selectable() {
+            return;
+        }
+
+        let template = clicked_obj.template_name.clone();
+        let mut similar_units: Vec<ObjectId> = self
+            .game_logic
+            .get_objects()
+            .iter()
+            .filter(|(_, obj)| {
+                obj.team == player_team && obj.is_selectable() && obj.template_name == template
+            })
+            .map(|(&id, _)| id)
+            .collect();
+
+        if !similar_units.is_empty() {
             self.game_logic
-                .select_objects(self.current_player_id, Vec::new());
+                .select_objects(self.current_player_id, similar_units.clone());
+            self.selected_objects = similar_units;
+            self.play_sound_effect(SoundType::Select);
+            info!(
+                "Selected {} similar units ({})",
+                self.selected_objects.len(),
+                template
+            );
         }
     }
 
@@ -4274,6 +4375,24 @@ impl CnCGameEngine {
             self.game_logic
                 .command_move(self.current_player_id, mouse_pos);
             self.play_sound_effect(SoundType::Command);
+        }
+    }
+
+    fn handle_mouse_wheel(&mut self, delta: &winit::event::MouseScrollDelta) {
+        use winit::event::MouseScrollDelta;
+
+        let delta_y = match delta {
+            MouseScrollDelta::LineDelta(_, y) => *y,
+            MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
+        };
+
+        // Zoom camera with mouse wheel
+        let zoom_speed = 0.1;
+        let new_zoom = (self.camera_zoom - delta_y * zoom_speed).clamp(0.1, 5.0);
+
+        if (new_zoom - self.camera_zoom).abs() > 0.001 {
+            self.camera_zoom = new_zoom;
+            debug!("Camera zoom changed to {:.2}", self.camera_zoom);
         }
     }
 
@@ -4956,6 +5075,372 @@ impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
 }
 
+#[derive(Debug, Clone)]
+struct RuntimeHostSnapshot {
+    state: String,
+    ui_screen: String,
+    paused: bool,
+    fps: f32,
+    startup_progress: f32,
+    map: String,
+    frame: u32,
+}
+
+#[derive(Debug)]
+struct RuntimeHostBridge {
+    control_path: PathBuf,
+    status_path: PathBuf,
+    frame_path: PathBuf,
+    capture_path: PathBuf,
+    frame_meta_path: PathBuf,
+    fallback_frame_png: Option<Vec<u8>>,
+    fallback_frame_luma: f32,
+    last_published_frame: u32,
+    last_capture_request_at: Option<Instant>,
+    capture_request_in_flight: bool,
+    capture_request_started_at: Option<Instant>,
+    screenshot_enqueue_failed: bool,
+    has_published_live_frame: bool,
+    created_at: Instant,
+    last_capture_health_log_at: Option<Instant>,
+}
+
+impl RuntimeHostBridge {
+    const CAPTURE_REQUEST_INTERVAL_LOADING: Duration = Duration::from_millis(120);
+    const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(40);
+    const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+
+    fn capture_interval_for_state(state: &str) -> Duration {
+        match state {
+            "Menu" | "Playing" | "Paused" => Self::CAPTURE_REQUEST_INTERVAL_INTERACTIVE,
+            _ => Self::CAPTURE_REQUEST_INTERVAL_LOADING,
+        }
+    }
+
+    fn is_headless_mode(args: &CommandLineArgs) -> bool {
+        args.get_option_value("runtime_host")
+            .map(|mode| mode.trim().eq_ignore_ascii_case("headless"))
+            .unwrap_or(false)
+    }
+
+    fn from_command_line(args: &CommandLineArgs) -> Option<Self> {
+        if !Self::is_headless_mode(args) {
+            return None;
+        }
+        let control_path = PathBuf::from(args.get_option_value("gpui_control")?);
+        let status_path = PathBuf::from(args.get_option_value("gpui_status")?);
+        let frame_path = PathBuf::from(args.get_option_value("gpui_frame")?);
+        let capture_path = frame_path.with_extension("png.capture");
+        let frame_meta_path = frame_path.with_extension("png.meta");
+
+        let _ = fs::remove_file(&control_path);
+        let _ = fs::remove_file(&status_path);
+        let _ = fs::remove_file(&frame_path);
+        let _ = fs::remove_file(&capture_path);
+        let _ = fs::remove_file(&frame_meta_path);
+
+        let (fallback_frame_png, fallback_frame_luma) = Self::load_fallback_frame_png();
+        Some(Self {
+            control_path,
+            status_path,
+            frame_path,
+            capture_path,
+            frame_meta_path,
+            fallback_frame_png,
+            fallback_frame_luma,
+            last_published_frame: 0,
+            last_capture_request_at: None,
+            capture_request_in_flight: false,
+            capture_request_started_at: None,
+            screenshot_enqueue_failed: false,
+            has_published_live_frame: false,
+            created_at: Instant::now(),
+            last_capture_health_log_at: None,
+        })
+    }
+
+    fn drain_commands(&mut self) -> Vec<String> {
+        let mut control_file = match fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&self.control_path)
+        {
+            Ok(file) => file,
+            Err(_) => return Vec::new(),
+        };
+        let mut payload = String::new();
+        if control_file.read_to_string(&mut payload).is_err() {
+            return Vec::new();
+        }
+        if payload.trim().is_empty() {
+            return Vec::new();
+        }
+        if let Err(err) = control_file.set_len(0) {
+            warn!(
+                "Runtime host failed truncating control file {}: {err}",
+                self.control_path.display()
+            );
+        } else {
+            let _ = control_file.seek(SeekFrom::Start(0));
+        }
+        payload
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(|line| line.to_string())
+            .collect()
+    }
+
+    fn publish_booting(&mut self) {
+        let snapshot = RuntimeHostSnapshot {
+            state: "Booting".to_string(),
+            ui_screen: "None".to_string(),
+            paused: false,
+            fps: 0.0,
+            startup_progress: 0.0,
+            map: "-".to_string(),
+            frame: self.last_published_frame,
+        };
+        self.publish_status(&snapshot);
+    }
+
+    fn publish_runtime(&mut self, snapshot: &RuntimeHostSnapshot) {
+        self.publish_status(snapshot);
+        self.publish_frame(snapshot.frame, &snapshot.state);
+    }
+
+    fn publish_status(&mut self, snapshot: &RuntimeHostSnapshot) {
+        let mut payload = String::new();
+        payload.push_str(&format!("state={}\n", snapshot.state));
+        payload.push_str(&format!("ui_screen={}\n", snapshot.ui_screen));
+        payload.push_str(&format!("paused={}\n", snapshot.paused));
+        payload.push_str(&format!("fps={:.3}\n", snapshot.fps.max(0.0)));
+        payload.push_str(&format!(
+            "startup_progress={:.4}\n",
+            snapshot.startup_progress.clamp(0.0, 1.0)
+        ));
+        payload.push_str(&format!("map={}\n", snapshot.map));
+        payload.push_str(&format!("frame={}\n", snapshot.frame));
+        payload.push_str(&format!(
+            "frame_path={}\n",
+            self.frame_path.to_string_lossy()
+        ));
+        let _ = fs::write(&self.status_path, payload);
+    }
+
+    fn publish_frame(&mut self, frame: u32, state: &str) {
+        if frame <= self.last_published_frame {
+            return;
+        }
+        self.last_published_frame = frame;
+
+        self.promote_capture_frame_if_ready();
+
+        if self.capture_request_in_flight {
+            let timed_out = self
+                .capture_request_started_at
+                .map(|started| started.elapsed() >= Self::CAPTURE_REQUEST_TIMEOUT)
+                .unwrap_or(false);
+            if timed_out {
+                warn!(
+                    "Runtime host capture request timed out after {:?} (frame={}, in_flight={})",
+                    Self::CAPTURE_REQUEST_TIMEOUT,
+                    frame,
+                    self.capture_request_in_flight
+                );
+                self.capture_request_in_flight = false;
+                self.capture_request_started_at = None;
+            }
+        }
+
+        let capture_interval = Self::capture_interval_for_state(state);
+        let should_request_capture = !self.capture_request_in_flight
+            && self
+                .last_capture_request_at
+                .map(|last| last.elapsed() >= capture_interval)
+                .unwrap_or(true);
+        if should_request_capture {
+            let requested_at = Instant::now();
+            match ww3d_engine::make_screenshot(&self.capture_path) {
+                Ok(()) => {
+                    self.last_capture_request_at = Some(requested_at);
+                    self.capture_request_in_flight = true;
+                    self.capture_request_started_at = Some(requested_at);
+                    self.screenshot_enqueue_failed = false;
+                }
+                Err(err) => {
+                    if !self.screenshot_enqueue_failed {
+                        warn!(
+                            "Runtime host frame capture unavailable ({err:?}); falling back to static frame"
+                        );
+                        self.screenshot_enqueue_failed = true;
+                    }
+                }
+            }
+        }
+
+        self.promote_capture_frame_if_ready();
+
+        if Self::png_file_looks_usable(&self.frame_path) {
+            self.has_published_live_frame = true;
+            return;
+        }
+        if self.has_published_live_frame {
+            // Keep the most recent live frame while a newer capture is pending.
+            return;
+        }
+
+        let should_log_capture_health = self
+            .last_capture_health_log_at
+            .map(|last| last.elapsed() >= Duration::from_secs(2))
+            .unwrap_or_else(|| self.created_at.elapsed() >= Duration::from_secs(2));
+        if should_log_capture_health {
+            warn!(
+                "Runtime host awaiting first live frame: frame={} in_flight={} enqueue_failed={} capture_path={}",
+                frame,
+                self.capture_request_in_flight,
+                self.screenshot_enqueue_failed,
+                self.capture_path.display()
+            );
+            self.last_capture_health_log_at = Some(Instant::now());
+        }
+
+        let fallback_bytes = if let Some(bytes) = self.fallback_frame_png.as_ref() {
+            bytes.clone()
+        } else {
+            let (generated, generated_luma) = Self::build_procedural_fallback_png();
+            self.fallback_frame_luma = generated_luma;
+            let generated = generated.unwrap_or_else(|| {
+                // 1x1 opaque black PNG
+                vec![
+                    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0,
+                    0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156,
+                    99, 96, 96, 96, 248, 15, 0, 1, 4, 1, 0, 95, 161, 122, 86, 0, 0, 0, 0, 73, 69,
+                    78, 68, 174, 66, 96, 130,
+                ]
+            });
+            self.fallback_frame_png = Some(generated.clone());
+            generated
+        };
+        if let Err(err) = fs::write(&self.frame_path, &fallback_bytes) {
+            warn!(
+                "Failed writing GPUI runtime fallback frame {:?}: {err}",
+                self.frame_path
+            );
+        } else {
+            let _ = fs::write(
+                &self.frame_meta_path,
+                format!("luma={:.3}\n", self.fallback_frame_luma),
+            );
+        }
+    }
+
+    fn promote_capture_frame_if_ready(&mut self) {
+        if !Self::png_file_looks_usable(&self.capture_path) {
+            return;
+        }
+        if let Err(err) = fs::rename(&self.capture_path, &self.frame_path) {
+            warn!(
+                "Failed to promote GPUI runtime capture {:?} -> {:?}: {err}",
+                self.capture_path, self.frame_path
+            );
+            self.capture_request_in_flight = false;
+            self.capture_request_started_at = None;
+            return;
+        }
+        self.capture_request_in_flight = false;
+        self.capture_request_started_at = None;
+        if !self.has_published_live_frame {
+            info!(
+                "Runtime host promoted first live frame from capture (frame={})",
+                self.last_published_frame
+            );
+        }
+        self.has_published_live_frame = true;
+        let _ = fs::write(&self.frame_meta_path, "luma=0.0\n");
+    }
+
+    fn png_file_looks_usable(path: &Path) -> bool {
+        let Ok(metadata) = fs::metadata(path) else {
+            return false;
+        };
+        if metadata.len() < 128 {
+            return false;
+        }
+        let mut signature = [0u8; 8];
+        let Ok(mut file) = fs::File::open(path) else {
+            return false;
+        };
+        if file.read_exact(&mut signature).is_err() {
+            return false;
+        }
+        signature == [137, 80, 78, 71, 13, 10, 26, 10]
+    }
+
+    fn load_fallback_frame_png() -> (Option<Vec<u8>>, f32) {
+        let candidates = [
+            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+            "windows_game/extracted_big_files/MapsZH/Maps/ShellMapMD/ShellMapMD.tga",
+        ];
+        for candidate in candidates {
+            let Ok(bytes) = fs::read(candidate) else {
+                continue;
+            };
+            let Ok(image) = image::load_from_memory(&bytes) else {
+                continue;
+            };
+            let rgba = image.to_rgba8();
+            let luma = if rgba.is_empty() {
+                0.0
+            } else {
+                let sum = rgba
+                    .chunks_exact(4)
+                    .map(|px| {
+                        0.2126 * px[0] as f32 / 255.0
+                            + 0.7152 * px[1] as f32 / 255.0
+                            + 0.0722 * px[2] as f32 / 255.0
+                    })
+                    .sum::<f32>();
+                (sum / (rgba.len() as f32 / 4.0)).clamp(0.0, 1.0) * 255.0
+            };
+            let mut png_bytes = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut png_bytes);
+            if image.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                return (Some(png_bytes), luma);
+            }
+        }
+        Self::build_procedural_fallback_png()
+    }
+
+    fn build_procedural_fallback_png() -> (Option<Vec<u8>>, f32) {
+        let width = 1280u32;
+        let height = 720u32;
+        let mut rgba = image::RgbaImage::new(width, height);
+        for y in 0..height {
+            let v = y as f32 / (height.saturating_sub(1).max(1)) as f32;
+            for x in 0..width {
+                let u = x as f32 / (width.saturating_sub(1).max(1)) as f32;
+                let r = (22.0 + 26.0 * (1.0 - v) + 12.0 * u).clamp(0.0, 255.0) as u8;
+                let g = (34.0 + 38.0 * (1.0 - v)).clamp(0.0, 255.0) as u8;
+                let b = (48.0 + 58.0 * v).clamp(0.0, 255.0) as u8;
+                rgba.put_pixel(x, y, image::Rgba([r, g, b, 255]));
+            }
+        }
+
+        let mut png_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut png_bytes);
+        if image::DynamicImage::ImageRgba8(rgba)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .is_ok()
+        {
+            return (Some(png_bytes), 96.0);
+        }
+        (None, 0.0)
+    }
+}
+
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -4967,8 +5452,7 @@ pub async fn run_cnc_game(
     let mut pending_window_attributes = Some(window_attributes);
     let mut window: Option<Arc<Window>> = None;
     let mut pending_engine_window: Option<Arc<Window>> = None;
-    let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> =
-        None;
+    let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> = None;
     let mut engine_init_started_at: Option<Instant> = None;
     let mut engine_init_last_log_at: Option<Instant> = None;
     let mut engine: Option<CnCGameEngine> = None;
@@ -4976,6 +5460,11 @@ pub async fn run_cnc_game(
     let mut next_redraw_at = Instant::now();
     let mut last_slow_frame_log = None::<Instant>;
     const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+    let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
+    let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
+    if let Some(bridge) = runtime_host_bridge.as_mut() {
+        bridge.publish_booting();
+    }
 
     #[cfg(feature = "integration-diagnostics")]
     let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
@@ -4986,11 +5475,23 @@ pub async fn run_cnc_game(
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
 
-        let mut drive_frame = |engine: &mut CnCGameEngine, current_window: &Arc<Window>| {
+        let mut drive_frame = |
+            engine: &mut CnCGameEngine,
+            current_window: &Arc<Window>,
+            runtime_host_bridge: &mut Option<RuntimeHostBridge>,
+        | {
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                for command in bridge.drain_commands() {
+                    engine.apply_runtime_host_command(&command);
+                }
+            }
+
             let frame_started = Instant::now();
             let mut ww3d_elapsed = Duration::ZERO;
-            let frame_timing = if matches!(engine.get_state(), GameState::Playing | GameState::Paused)
-            {
+            let frame_timing = if matches!(
+                engine.get_state(),
+                GameState::Loading | GameState::Menu | GameState::Playing | GameState::Paused
+            ) {
                 let ww3d_started = Instant::now();
                 let timing = match ww3d_engine::update() {
                     Ok(_) => match ww3d_engine::timing() {
@@ -5083,6 +5584,11 @@ pub async fn run_cnc_game(
                     last_slow_frame_log = Some(frame_started);
                 }
             }
+
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                let snapshot = engine.runtime_host_status_snapshot();
+                bridge.publish_runtime(&snapshot);
+            }
         };
 
         if matches!(event, Event::Resumed) && engine.is_none() {
@@ -5112,9 +5618,14 @@ pub async fn run_cnc_game(
                 }
             );
 
-            created_window.set_visible(true);
-            created_window.set_minimized(false);
-            created_window.focus_window();
+            if runtime_headless_mode {
+                created_window.set_visible(false);
+                created_window.set_minimized(false);
+            } else {
+                created_window.set_visible(true);
+                created_window.set_minimized(false);
+                created_window.focus_window();
+            }
             created_window.request_redraw();
             window = Some(created_window.clone());
             pending_engine_window = Some(created_window);
@@ -5135,6 +5646,17 @@ pub async fn run_cnc_game(
                     }
                 }
                 Event::AboutToWait => {
+                    if let Some(bridge) = runtime_host_bridge.as_mut() {
+                        bridge.publish_booting();
+                        for command in bridge.drain_commands() {
+                            if command.trim().eq_ignore_ascii_case("exit") {
+                                info!("Runtime host received exit command during startup");
+                                elwt.exit();
+                                return;
+                            }
+                        }
+                    }
+
                     if engine_init_future.is_none() {
                         if let Some(created_window) = pending_engine_window.take() {
                             #[cfg(target_os = "windows")]
@@ -5171,12 +5693,19 @@ pub async fn run_cnc_game(
                             Poll::Ready(Ok(new_engine)) => {
                                 if let Some(created_window) = window.as_ref() {
                                     info!("C&C Game engine initialized successfully!");
-                                    created_window.focus_window();
+                                    if !runtime_headless_mode {
+                                        created_window.focus_window();
+                                    }
                                     created_window.request_redraw();
                                 }
                                 engine_init_future = None;
                                 engine_init_started_at = None;
                                 engine_init_last_log_at = None;
+                                let new_engine = new_engine;
+                                if let Some(bridge) = runtime_host_bridge.as_mut() {
+                                    let snapshot = new_engine.runtime_host_status_snapshot();
+                                    bridge.publish_runtime(&snapshot);
+                                }
                                 engine = Some(new_engine);
                                 #[cfg(feature = "integration-diagnostics")]
                                 if cmd_args.wants_integration_diagnostics() {
@@ -5241,6 +5770,10 @@ pub async fn run_cnc_game(
                 info!("Engine shutting down");
                 shutdown_logged = true;
             }
+            if let Some(bridge) = runtime_host_bridge.as_mut() {
+                let snapshot = engine.runtime_host_status_snapshot();
+                bridge.publish_runtime(&snapshot);
+            }
             elwt.exit();
             return;
         }
@@ -5304,7 +5837,9 @@ pub async fn run_cnc_game(
                             engine.resize(current_window.inner_size());
                         }
                         WindowEvent::RedrawRequested => {
-                            drive_frame(engine, current_window);
+                            if !runtime_headless_mode {
+                                drive_frame(engine, current_window, &mut runtime_host_bridge);
+                            }
                         }
                         _ => {}
                     }
@@ -5313,7 +5848,11 @@ pub async fn run_cnc_game(
             Event::AboutToWait => {
                 let now = Instant::now();
                 if now >= next_redraw_at {
-                    current_window.request_redraw();
+                    if runtime_headless_mode {
+                        drive_frame(engine, current_window, &mut runtime_host_bridge);
+                    } else {
+                        current_window.request_redraw();
+                    }
                     next_redraw_at = now + FRAME_INTERVAL;
                 }
                 elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
@@ -5883,20 +6422,11 @@ impl CnCGameEngine {
         let startup_age = self
             .current_startup_logic_frame()
             .saturating_sub(menu_enter_frame);
-        if startup_age < 10 {
+        if startup_age < 6 {
             return;
         }
-        let prewarm_budget = if startup_age < 30 {
-            1
-        } else if startup_age < 60 {
-            2
-        } else if startup_age < 90 {
-            3
-        } else if startup_age < 180 {
-            4
-        } else {
-            6
-        };
+        // Keep menu interaction responsive while remaining models stream in.
+        let prewarm_budget = if startup_age < 240 { 1 } else { 2 };
         for _ in 0..prewarm_budget {
             let Some(model_name) = self.pending_shell_model_prewarm.pop_front() else {
                 return;
