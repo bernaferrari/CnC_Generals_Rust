@@ -3,7 +3,8 @@
 //! Core terrain rendering system that matches the C++ TerrainVisual implementation exactly.
 //! Handles heightmaps, texturing, water, roads, and all visual terrain features.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -203,6 +204,10 @@ pub struct TerrainVisualImpl {
 
     /// Shared visible-terrain texture set used to keep adjacent chunks on the same slot map.
     active_chunk_texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
+    /// Signature of the visible chunk set used to avoid recomputing texture slots every frame.
+    last_visible_chunk_signature: u64,
+    /// Per-frame budget for expensive CPU/GPU chunk mesh uploads.
+    max_chunk_mesh_uploads_per_frame: usize,
 
     /// Current oversize amount (in tiles).
     oversize_amount: i32,
@@ -251,6 +256,8 @@ const MAX_OVERSIZE_TILES: i32 = 4;
 // The current live terrain path uses four diffuse terrain layers with four
 // blend weights active per vertex.
 const MAX_TEXTURES_PER_CHUNK: usize = 4;
+const MAX_TEXTURE_SAMPLE_CHUNKS: usize = 24;
+const MAX_TEXTURE_SAMPLES_PER_CHUNK: usize = 128;
 
 fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
     matrix.to_cols_array_2d()
@@ -297,6 +304,8 @@ impl TerrainVisualImpl {
             terrain_sampler: None,
             chunk_texture_bindings: HashMap::new(),
             active_chunk_texture_ids: None,
+            last_visible_chunk_signature: 0,
+            max_chunk_mesh_uploads_per_frame: 2,
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
             sun_color: [1.0, 0.9, 0.8],
             ambient_color: [0.2, 0.2, 0.2],
@@ -852,6 +861,8 @@ impl TerrainVisualImpl {
         self.texture_rules = rules;
         self.chunk_texture_bindings.clear();
         self.chunk_meshes.clear();
+        self.active_chunk_texture_ids = None;
+        self.last_visible_chunk_signature = 0;
     }
 
     fn derive_rule_for_texture(texture_id: TextureId, name: &str) -> TextureRule {
@@ -1234,102 +1245,27 @@ impl TerrainVisualImpl {
         };
 
         let visible_chunk_ids = self.visible_chunk_ids_for_draw_area();
-        let mut visible_texture_contributions: HashMap<TextureId, f32> = HashMap::new();
+        let visible_signature = self.visible_chunk_signature(&visible_chunk_ids);
+        let refresh_texture_slots = self.active_chunk_texture_ids.is_none()
+            || self.last_visible_chunk_signature != visible_signature;
 
-        for &chunk_id in &visible_chunk_ids {
-            let Some(chunk) = self.chunk_manager.get_chunk(chunk_id) else {
-                continue;
-            };
-            if chunk.vertices.is_empty() {
-                continue;
-            }
+        let stable_texture_ids = if refresh_texture_slots {
+            let ids = self.select_stable_chunk_texture_ids(&visible_chunk_ids);
+            self.active_chunk_texture_ids = Some(ids);
+            self.last_visible_chunk_signature = visible_signature;
+            ids
+        } else {
+            self.active_chunk_texture_ids.unwrap_or([0; MAX_TEXTURES_PER_CHUNK])
+        };
 
-            for vertex in &chunk.vertices {
-                let position =
-                    Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
-                let normal_vec = Vec3::new(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
-                let mut normal = if normal_vec.length_squared() > f32::EPSILON {
-                    normal_vec.normalize()
-                } else {
-                    Vec3::Y
-                };
-                if !normal.y.is_finite() {
-                    normal = Vec3::Y;
-                }
-
-                let height = position.y;
-                let slope = normal.dot(Vec3::Y).clamp(-1.0, 1.0).acos();
-                let base_weights = self.texture_system.generate_texture_weights(
-                    height,
-                    slope,
-                    vertex.tex_coords,
-                    &self.texture_rules,
-                );
-                let blended = self.texture_system.blend_textures_at_position(
-                    position,
-                    height,
-                    normal,
-                    vertex.tex_coords,
-                    &base_weights,
-                    &self.texture_rules,
-                );
-
-                for (texture_id, weight) in blended.iter_pairs() {
-                    visible_texture_contributions
-                        .entry(texture_id)
-                        .and_modify(|total| *total += weight)
-                        .or_insert(weight);
-                }
-            }
-        }
-
-        let mut sorted_visible_textures: Vec<(TextureId, f32)> =
-            visible_texture_contributions.into_iter().collect();
-        sorted_visible_textures
-            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut selected_textures = Vec::new();
-        for (texture_id, _) in &sorted_visible_textures {
-            if selected_textures
-                .iter()
-                .all(|candidate| candidate != texture_id)
-            {
-                selected_textures.push(*texture_id);
-                if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
-                    break;
-                }
-            }
-        }
-
-        if selected_textures.is_empty() {
-            if let Some(rule) = self.texture_rules.first() {
-                selected_textures.push(rule.texture_id);
-            } else {
-                selected_textures.push(0);
-            }
-        }
-
-        while selected_textures.len() < MAX_TEXTURES_PER_CHUNK {
-            let fallback = *selected_textures.first().unwrap_or(&0);
-            selected_textures.push(fallback);
-        }
-
-        let mut stable_texture_ids = [0; MAX_TEXTURES_PER_CHUNK];
-        for (idx, texture_id) in selected_textures
-            .iter()
-            .enumerate()
-            .take(MAX_TEXTURES_PER_CHUNK)
-        {
-            stable_texture_ids[idx] = *texture_id;
-        }
-        let texture_slots_changed = self.active_chunk_texture_ids != Some(stable_texture_ids);
-        self.active_chunk_texture_ids = Some(stable_texture_ids);
+        let texture_slots_changed = refresh_texture_slots;
 
         let mut shared_slot_map: HashMap<TextureId, usize> = HashMap::new();
         for (slot, texture_id) in stable_texture_ids.iter().enumerate() {
             shared_slot_map.entry(*texture_id).or_insert(slot);
         }
 
+        let mut upload_budget = self.max_chunk_mesh_uploads_per_frame.max(1);
         for chunk_id in visible_chunk_ids {
             let chunk = match self.chunk_manager.get_chunk(chunk_id) {
                 Some(chunk) => chunk.clone(),
@@ -1352,6 +1288,11 @@ impl TerrainVisualImpl {
             };
 
             if needs_upload {
+                if upload_budget == 0 {
+                    continue;
+                }
+                upload_budget -= 1;
+
                 if chunk.vertices.is_empty() || chunk.indices.is_empty() {
                     continue;
                 }
@@ -1499,6 +1440,116 @@ impl TerrainVisualImpl {
             .sum();
 
         Ok(())
+    }
+
+    fn visible_chunk_signature(&self, visible_chunk_ids: &[ChunkId]) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        visible_chunk_ids.len().hash(&mut hasher);
+        for &chunk_id in visible_chunk_ids {
+            chunk_id.hash(&mut hasher);
+            if let Some(chunk) = self.chunk_manager.get_chunk(chunk_id) {
+                chunk.geometry_revision.hash(&mut hasher);
+                chunk.lod_level.hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+
+    fn select_stable_chunk_texture_ids(
+        &mut self,
+        visible_chunk_ids: &[ChunkId],
+    ) -> [TextureId; MAX_TEXTURES_PER_CHUNK] {
+        let mut visible_texture_contributions: HashMap<TextureId, f32> = HashMap::new();
+
+        for &chunk_id in visible_chunk_ids.iter().take(MAX_TEXTURE_SAMPLE_CHUNKS) {
+            let Some(chunk) = self.chunk_manager.get_chunk(chunk_id) else {
+                continue;
+            };
+            if chunk.vertices.is_empty() {
+                continue;
+            }
+
+            let sample_step =
+                (chunk.vertices.len() / MAX_TEXTURE_SAMPLES_PER_CHUNK.max(1)).max(1);
+            for vertex in chunk.vertices.iter().step_by(sample_step) {
+                let position =
+                    Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
+                let normal_vec = Vec3::new(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
+                let mut normal = if normal_vec.length_squared() > f32::EPSILON {
+                    normal_vec.normalize()
+                } else {
+                    Vec3::Y
+                };
+                if !normal.y.is_finite() {
+                    normal = Vec3::Y;
+                }
+
+                let height = position.y;
+                let slope = normal.dot(Vec3::Y).clamp(-1.0, 1.0).acos();
+                let base_weights = self.texture_system.generate_texture_weights(
+                    height,
+                    slope,
+                    vertex.tex_coords,
+                    &self.texture_rules,
+                );
+                let blended = self.texture_system.blend_textures_at_position(
+                    position,
+                    height,
+                    normal,
+                    vertex.tex_coords,
+                    &base_weights,
+                    &self.texture_rules,
+                );
+
+                for (texture_id, weight) in blended.iter_pairs() {
+                    visible_texture_contributions
+                        .entry(texture_id)
+                        .and_modify(|total| *total += weight)
+                        .or_insert(weight);
+                }
+            }
+        }
+
+        let mut sorted_visible_textures: Vec<(TextureId, f32)> =
+            visible_texture_contributions.into_iter().collect();
+        sorted_visible_textures
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut selected_textures = Vec::new();
+        for (texture_id, _) in &sorted_visible_textures {
+            if selected_textures
+                .iter()
+                .all(|candidate| candidate != texture_id)
+            {
+                selected_textures.push(*texture_id);
+                if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
+                    break;
+                }
+            }
+        }
+
+        if selected_textures.is_empty() {
+            if let Some(rule) = self.texture_rules.first() {
+                selected_textures.push(rule.texture_id);
+            } else {
+                selected_textures.push(0);
+            }
+        }
+
+        while selected_textures.len() < MAX_TEXTURES_PER_CHUNK {
+            let fallback = *selected_textures.first().unwrap_or(&0);
+            selected_textures.push(fallback);
+        }
+
+        let mut stable_texture_ids = [0; MAX_TEXTURES_PER_CHUNK];
+        for (idx, texture_id) in selected_textures
+            .iter()
+            .enumerate()
+            .take(MAX_TEXTURES_PER_CHUNK)
+        {
+            stable_texture_ids[idx] = *texture_id;
+        }
+        stable_texture_ids
     }
 
     pub fn record_chunk_draws<'pass>(&self, pass: &mut RenderPass<'pass>) {
@@ -2490,6 +2541,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.chunk_meshes.clear();
         self.texture_rules.clear();
         self.chunk_texture_bindings.clear();
+        self.active_chunk_texture_ids = None;
+        self.last_visible_chunk_signature = 0;
         self.water_plane = None;
         self.skybox_background_view = None;
         self.skybox_background_bind_group = None;

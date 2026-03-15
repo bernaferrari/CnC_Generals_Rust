@@ -38,6 +38,8 @@ pub const CHUNK_SIZE: f32 = 128.0;
 
 /// Maximum LOD level (0 = highest detail)
 pub const MAX_LOD_LEVEL: u8 = 4;
+/// Keep expensive geometry regeneration incremental to avoid long main-thread stalls.
+const MAX_GEOMETRY_UPDATES_PER_FRAME: usize = 2;
 
 /// Terrain chunk containing geometry and rendering data
 #[derive(Debug, Clone)]
@@ -1261,6 +1263,7 @@ impl ChunkManager {
 
         let camera_position = self.camera_position;
         let view_frustum = self.view_frustum.clone();
+        let mut geometry_budget = MAX_GEOMETRY_UPDATES_PER_FRAME;
 
         self.stats.visible_chunks = 0;
         self.stats.rendered_chunks = 0;
@@ -1282,7 +1285,7 @@ impl ChunkManager {
             }
 
             // Regenerate geometry if needed
-            if chunk.dirty && chunk.visible {
+            if chunk.dirty && chunk.visible && geometry_budget > 0 {
                 let resolution = match chunk.lod_level {
                     0 => 65,
                     1 => 33,
@@ -1295,6 +1298,7 @@ impl ChunkManager {
                     log::warn!("Failed to generate geometry for chunk {}: {}", chunk.id, e);
                 } else {
                     self.stats.geometry_updates += 1;
+                    geometry_budget -= 1;
                 }
             }
         }

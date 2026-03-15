@@ -2324,17 +2324,16 @@ impl GameLogic {
                 );
                 if self.game_mode != GameMode::Shell {
                     report_progress(0.40, "Syncing runtime objects");
-                    let sync_started = Instant::now();
-                    self.sync_legacy_runtime_from_chunky(path, &chunky.bytes);
-                    log::info!(
-                        "Map '{}' legacy runtime sync finished in {:.2}s",
-                        map_name,
-                        sync_started.elapsed().as_secs_f32()
-                    );
                 } else {
                     report_progress(0.40, "Syncing shell runtime");
-                    self.sync_legacy_runtime_from_fast_chunky(path, &chunky);
                 }
+                let sync_started = Instant::now();
+                self.sync_legacy_runtime_from_fast_chunky(path, &chunky);
+                log::info!(
+                    "Map '{}' legacy runtime sync finished in {:.2}s (fast path)",
+                    map_name,
+                    sync_started.elapsed().as_secs_f32()
+                );
 
                 let heightmap_started = Instant::now();
                 report_progress(0.46, "Parsing terrain heightmap");
@@ -2466,53 +2465,8 @@ impl GameLogic {
                         }
                         report_progress(0.80, "World objects spawned");
                         self.spawned_map_object_ids = spawned_object_ids;
-                        // Ensure each map-defined team has at least one structure *after* map
-                        // placements are spawned. This avoids injecting extra bases on maps that
-                        // already define player starts.
-                        if !map_player_to_team.is_empty() {
-                            report_progress(0.82, "Finalizing world objects");
-                            let teams: Vec<Team> = map_player_to_team.values().cloned().collect();
-                            let positions = if let Some(ref meta) = parsed_settings {
-                                if let (Some(min), Some(max)) = (meta.world_min, meta.world_max) {
-                                    let min = Vec3::new(min.x, min.y, min.z);
-                                    let max = Vec3::new(max.x, max.y, max.z);
-                                    let center = (min + max) * 0.5;
-                                    let span = max - min;
-                                    [
-                                        Vec3::new(min.x + span.x * 0.2, 0.0, min.z + span.z * 0.2),
-                                        Vec3::new(max.x - span.x * 0.2, 0.0, max.z - span.z * 0.2),
-                                        Vec3::new(max.x - span.x * 0.2, 0.0, min.z + span.z * 0.2),
-                                        Vec3::new(min.x + span.x * 0.2, 0.0, max.z - span.z * 0.2),
-                                    ]
-                                    .map(|p| Vec3::new(p.x, center.y, p.z))
-                                } else {
-                                    [
-                                        Vec3::new(-300.0, 0.0, -300.0),
-                                        Vec3::new(300.0, 0.0, 300.0),
-                                        Vec3::new(300.0, 0.0, -300.0),
-                                        Vec3::new(-300.0, 0.0, 300.0),
-                                    ]
-                                }
-                            } else {
-                                [
-                                    Vec3::new(-300.0, 0.0, -300.0),
-                                    Vec3::new(300.0, 0.0, 300.0),
-                                    Vec3::new(300.0, 0.0, -300.0),
-                                    Vec3::new(-300.0, 0.0, 300.0),
-                                ]
-                            };
-
-                            for (idx, team) in teams.iter().enumerate() {
-                                let has_base = self
-                                    .objects
-                                    .values()
-                                    .any(|o| o.team == *team && o.is_kind_of(KindOf::Structure));
-                                if !has_base {
-                                    let pos = positions.get(idx).cloned().unwrap_or(Vec3::ZERO);
-                                    self.create_object("CommandCenter", *team, pos);
-                                }
-                            }
-                        }
+                        report_progress(0.82, "Finalizing world objects");
+                        self.ensure_non_shell_player_presence(parsed_settings.as_ref());
                         log::info!(
                             "Spawned {} objects from map placement data for '{}' in {:.2}s",
                             self.objects.len(),
@@ -2906,6 +2860,97 @@ impl GameLogic {
                     }
                 }
             }
+        }
+    }
+
+    fn ensure_non_shell_player_presence(
+        &mut self,
+        parsed_settings: Option<&super::script_loader::MapMetadata>,
+    ) {
+        if self.game_mode == GameMode::Shell {
+            return;
+        }
+
+        let mut team_order = Vec::new();
+        let mut player_ids: Vec<u32> = self.players.keys().copied().collect();
+        player_ids.sort_unstable();
+        for player_id in player_ids {
+            let Some(player) = self.players.get(&player_id) else {
+                continue;
+            };
+            if player.team == Team::Neutral || team_order.contains(&player.team) {
+                continue;
+            }
+            team_order.push(player.team);
+        }
+        if team_order.is_empty() {
+            return;
+        }
+
+        let default_bounds_min = Vec3::new(-300.0, 0.0, -300.0);
+        let default_bounds_max = Vec3::new(300.0, 0.0, 300.0);
+        let (bounds_min, bounds_max) = parsed_settings
+            .and_then(|meta| {
+                meta.world_min.zip(meta.world_max).map(|(min, max)| {
+                    (
+                        Vec3::new(min.x, min.y, min.z),
+                        Vec3::new(max.x, max.y, max.z),
+                    )
+                })
+            })
+            .filter(|(min, max)| (max.x - min.x).abs() >= 1.0 && (max.z - min.z).abs() >= 1.0)
+            .unwrap_or((default_bounds_min, default_bounds_max));
+
+        let span = bounds_max - bounds_min;
+        let spawn_positions = [
+            Vec3::new(bounds_min.x + span.x * 0.20, 0.0, bounds_min.z + span.z * 0.20),
+            Vec3::new(bounds_max.x - span.x * 0.20, 0.0, bounds_max.z - span.z * 0.20),
+            Vec3::new(bounds_max.x - span.x * 0.20, 0.0, bounds_min.z + span.z * 0.20),
+            Vec3::new(bounds_min.x + span.x * 0.20, 0.0, bounds_max.z - span.z * 0.20),
+            Vec3::new(bounds_min.x + span.x * 0.50, 0.0, bounds_min.z + span.z * 0.15),
+            Vec3::new(bounds_min.x + span.x * 0.50, 0.0, bounds_max.z - span.z * 0.15),
+        ];
+
+        let mut spawned_count = 0usize;
+        for (index, team) in team_order.into_iter().enumerate() {
+            let has_presence = self
+                .objects
+                .values()
+                .any(|object| object.team == team && object.is_alive());
+            if has_presence {
+                continue;
+            }
+
+            let mut spawn_position = spawn_positions[index % spawn_positions.len()];
+            if let Some(ground_height) =
+                self.terrain_height_at(Vec3::new(spawn_position.x, 0.0, spawn_position.z))
+            {
+                spawn_position.y = ground_height;
+            }
+
+            let primary_template = match team {
+                Team::USA => "CommandCenter",
+                Team::GLA => "GLA_CommandCenter",
+                Team::China => "China_CommandCenter",
+                Team::Neutral => "CommandCenter",
+            };
+
+            if self
+                .create_object(primary_template, team, spawn_position)
+                .is_none()
+                && primary_template != "CommandCenter"
+            {
+                let _ = self.create_object("CommandCenter", team, spawn_position);
+            }
+            spawned_count += 1;
+        }
+
+        if spawned_count > 0 {
+            log::info!(
+                "Seeded {} fallback player start structures for non-shell map '{}'",
+                spawned_count,
+                self.map_name
+            );
         }
     }
 
