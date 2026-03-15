@@ -491,6 +491,11 @@ impl UIManager {
         self.current_state
     }
 
+    /// Get the current screen being displayed
+    pub fn current_screen(&self) -> Option<Screen> {
+        self.current_screen
+    }
+
     /// Set game state (called from game logic)
     pub fn set_game_paused(&mut self, paused: bool) {
         if paused {
