@@ -33,7 +33,12 @@ struct EditorApp {
     menu_note: Option<String>,
     menu_logo_image: Option<Arc<Image>>,
     menu_ruler_image: Option<Arc<Image>>,
+    menu_backdrop_image: Option<Arc<Image>>,
     loading_background_image: Option<Arc<Image>>,
+    selected_challenge_general: usize,
+    selected_challenge_difficulty: Option<GameDifficultyPort>,
+    last_menu_screen: String,
+    menu_input_cooldown_until: Option<Instant>,
 }
 
 #[derive(Clone, Copy)]
@@ -43,6 +48,9 @@ enum MenuButtonAction {
     LoadReplay,
     Options,
     Credits,
+    MessageOfDay,
+    GetUpdates,
+    WorldBuilder,
     ExitGame,
     Back,
     Challenge,
@@ -60,9 +68,60 @@ enum MenuButtonAction {
     DifficultyEasy,
     DifficultyMedium,
     DifficultyHard,
+    ChallengeGeneral(usize),
+    ChallengeStart,
+    OnlineQuickMatch,
+    OnlineCustomMatch,
+    NetworkHost,
+    NetworkJoin,
     TogglePause,
     MainMenu,
 }
+
+#[derive(Clone, Copy)]
+struct ChallengeGeneralEntry {
+    id: &'static str,
+    label: &'static str,
+}
+
+const CHALLENGE_GENERALS: [ChallengeGeneralEntry; 9] = [
+    ChallengeGeneralEntry {
+        id: "townes",
+        label: "General Townes",
+    },
+    ChallengeGeneralEntry {
+        id: "kwai",
+        label: "General Kwai",
+    },
+    ChallengeGeneralEntry {
+        id: "alexander",
+        label: "General Alexander",
+    },
+    ChallengeGeneralEntry {
+        id: "tao",
+        label: "General Tao",
+    },
+    ChallengeGeneralEntry {
+        id: "thrax",
+        label: "Dr. Thrax",
+    },
+    ChallengeGeneralEntry {
+        id: "fai",
+        label: "General Fai",
+    },
+    ChallengeGeneralEntry {
+        id: "juhziz",
+        label: "Prince Kassad",
+    },
+    ChallengeGeneralEntry {
+        id: "demolitions",
+        label: "General Demo",
+    },
+    ChallengeGeneralEntry {
+        id: "boss",
+        label: "General Leang",
+    },
+];
 
 impl EditorApp {
     fn new() -> Self {
@@ -71,8 +130,35 @@ impl EditorApp {
             menu_note: None,
             menu_logo_image: Self::load_menu_logo_image(),
             menu_ruler_image: Self::load_menu_ruler_image(),
+            menu_backdrop_image: Self::load_menu_backdrop_image(),
             loading_background_image: Self::load_loading_background_image(),
+            selected_challenge_general: 0,
+            selected_challenge_difficulty: None,
+            last_menu_screen: "MainMenu".to_string(),
+            menu_input_cooldown_until: None,
         }
+    }
+
+    fn sync_menu_screen(&mut self) {
+        let screen = self.current_menu_screen().to_string();
+        if screen != self.last_menu_screen {
+            self.last_menu_screen = screen;
+            self.menu_input_cooldown_until = Some(Instant::now() + Duration::from_millis(120));
+            self.menu_note = None;
+            if self.current_menu_screen() != "Challenge" {
+                self.selected_challenge_general = 0;
+            }
+        }
+    }
+
+    fn can_accept_menu_input(&self) -> bool {
+        self.menu_input_cooldown_until
+            .map(|deadline| Instant::now() >= deadline)
+            .unwrap_or(true)
+    }
+
+    fn mark_menu_input_handled(&mut self) {
+        self.menu_input_cooldown_until = Some(Instant::now() + Duration::from_millis(80));
     }
 
     fn send_runtime_command(&mut self, command: &str, success_note: String) {
@@ -83,6 +169,14 @@ impl EditorApp {
             Err(err) => {
                 self.menu_note = Some(format!("Runtime command '{command}' failed: {err}"));
             }
+        }
+    }
+
+    fn difficulty_token(difficulty: GameDifficultyPort) -> &'static str {
+        match difficulty {
+            GameDifficultyPort::Easy => "easy",
+            GameDifficultyPort::Normal => "medium",
+            GameDifficultyPort::Hard => "hard",
         }
     }
 
@@ -104,15 +198,14 @@ impl EditorApp {
     fn start_selected_difficulty(&mut self, difficulty: GameDifficultyPort) {
         let campaign = self.current_difficulty_campaign();
         if campaign == Some(CampaignSidePort::Training) {
-            let command = Self::build_start_game_command(
-                "singleplayer",
-                "USA",
-                CampaignSidePort::Training.default_map(),
-                Some(difficulty),
+            self.selected_challenge_difficulty = Some(difficulty);
+            let command = format!(
+                "open_challenge_menu|difficulty={}",
+                Self::difficulty_token(difficulty)
             );
             self.send_runtime_command(
                 &command,
-                format!("Starting challenge campaign ({})", difficulty.label()),
+                format!("Opening challenge menu ({})", difficulty.label()),
             );
             return;
         }
@@ -147,6 +240,12 @@ impl EditorApp {
     }
 
     fn handle_menu_button(&mut self, action: MenuButtonAction, cx: &mut Context<Self>) {
+        if !self.can_accept_menu_input() {
+            cx.notify();
+            return;
+        }
+        self.mark_menu_input_handled();
+
         match action {
             MenuButtonAction::ExitGame => {
                 self.send_runtime_command("exit", "Requested runtime shutdown.".to_string());
@@ -176,6 +275,18 @@ impl EditorApp {
             MenuButtonAction::Credits => {
                 self.send_runtime_command("open_credits", "Opening credits.".to_string());
             }
+            MenuButtonAction::MessageOfDay => {
+                self.send_runtime_command(
+                    "open_message_of_the_day",
+                    "Opening message of the day.".to_string(),
+                );
+            }
+            MenuButtonAction::GetUpdates => {
+                self.send_runtime_command("open_get_updates", "Opening updates.".to_string());
+            }
+            MenuButtonAction::WorldBuilder => {
+                self.send_runtime_command("open_world_builder", "Launching World Builder.".to_string());
+            }
             MenuButtonAction::Back => match self.current_menu_screen() {
                 "DifficultyChallenge" | "DifficultyUsa" | "DifficultyGla" | "DifficultyChina" => {
                     self.send_runtime_command(
@@ -184,7 +295,8 @@ impl EditorApp {
                     );
                 }
                 "SinglePlayer" | "Multiplayer" | "LoadReplay" | "Options" | "Credits"
-                | "Skirmish" | "LoadGame" | "Online" | "Network" | "Replay" | "Challenge" => {
+                | "Skirmish" | "LoadGame" | "Online" | "Network" | "Replay" | "Challenge"
+                | "MessageOfDay" | "GetUpdates" | "WorldBuilder" => {
                     self.send_runtime_command("menu", "Returning to main menu.".to_string());
                 }
                 _ => {
@@ -272,6 +384,63 @@ impl EditorApp {
             MenuButtonAction::DifficultyHard => {
                 self.start_selected_difficulty(GameDifficultyPort::Hard)
             }
+            MenuButtonAction::ChallengeGeneral(index) => {
+                if index < CHALLENGE_GENERALS.len() {
+                    self.selected_challenge_general = index;
+                    self.menu_note =
+                        Some(format!("Selected {}", CHALLENGE_GENERALS[index].label));
+                }
+            }
+            MenuButtonAction::ChallengeStart => {
+                let Some(difficulty) = self.selected_challenge_difficulty else {
+                    self.menu_note = Some(
+                        "Pick challenge difficulty first (Easy/Medium/Hard).".to_string(),
+                    );
+                    cx.notify();
+                    return;
+                };
+                let general = CHALLENGE_GENERALS[self.selected_challenge_general];
+                let command = format!(
+                    "start_game|mode=challenge|faction=USA|map=ChallengeLadder|difficulty={}|opponent={}",
+                    Self::difficulty_token(difficulty),
+                    general.id
+                );
+                self.send_runtime_command(
+                    &command,
+                    format!(
+                        "Starting Generals Challenge vs {} ({})",
+                        general.label,
+                        difficulty.label()
+                    ),
+                );
+            }
+            MenuButtonAction::OnlineQuickMatch => {
+                let command = Self::build_start_game_command(
+                    "internet",
+                    "USA",
+                    CampaignSidePort::Skirmish.default_map(),
+                    None,
+                );
+                self.send_runtime_command(&command, "Starting online quick match.".to_string());
+            }
+            MenuButtonAction::OnlineCustomMatch => {
+                self.send_runtime_command(
+                    "open_online",
+                    "Opening online custom match browser.".to_string(),
+                );
+            }
+            MenuButtonAction::NetworkHost => {
+                let command = Self::build_start_game_command(
+                    "network",
+                    "USA",
+                    CampaignSidePort::Skirmish.default_map(),
+                    None,
+                );
+                self.send_runtime_command(&command, "Hosting LAN match.".to_string());
+            }
+            MenuButtonAction::NetworkJoin => {
+                self.send_runtime_command("open_network", "Opening LAN join panel.".to_string());
+            }
             MenuButtonAction::TogglePause => {
                 self.send_runtime_command("toggle_pause", "Toggled pause.".to_string());
             }
@@ -323,14 +492,17 @@ impl EditorApp {
                 (MenuButtonAction::LoadReplay, "Load / Replay"),
                 (MenuButtonAction::Options, "Options"),
                 (MenuButtonAction::Credits, "Credits"),
+                (MenuButtonAction::MessageOfDay, "Message of the Day"),
+                (MenuButtonAction::GetUpdates, "Get Updates"),
+                (MenuButtonAction::WorldBuilder, "World Builder"),
                 (MenuButtonAction::ExitGame, "Exit"),
             ],
             "SinglePlayer" => vec![
-                (MenuButtonAction::Challenge, "Challenge"),
-                (MenuButtonAction::Skirmish, "Skirmish"),
                 (MenuButtonAction::UsaCampaign, "USA Campaign"),
                 (MenuButtonAction::GlaCampaign, "GLA Campaign"),
                 (MenuButtonAction::ChinaCampaign, "China Campaign"),
+                (MenuButtonAction::Challenge, "Challenge"),
+                (MenuButtonAction::Skirmish, "Skirmish"),
                 (MenuButtonAction::Back, "Back"),
             ],
             "Multiplayer" => vec![
@@ -360,13 +532,29 @@ impl EditorApp {
                 (MenuButtonAction::LoadLatestSave, "Load Latest Save"),
                 (MenuButtonAction::Back, "Back"),
             ],
-            "Online" => vec![(MenuButtonAction::Back, "Back")],
-            "Network" => vec![(MenuButtonAction::Back, "Back")],
+            "Online" => vec![
+                (MenuButtonAction::OnlineQuickMatch, "Quick Match"),
+                (MenuButtonAction::OnlineCustomMatch, "Custom Match"),
+                (MenuButtonAction::Back, "Back"),
+            ],
+            "Network" => vec![
+                (MenuButtonAction::NetworkHost, "Host"),
+                (MenuButtonAction::NetworkJoin, "Join"),
+                (MenuButtonAction::Back, "Back"),
+            ],
             "Replay" => vec![
                 (MenuButtonAction::ReplayLatest, "Play Latest Replay"),
                 (MenuButtonAction::Back, "Back"),
             ],
-            "Challenge" => vec![(MenuButtonAction::Back, "Back")],
+            "Challenge" => {
+                let mut buttons = Vec::with_capacity(CHALLENGE_GENERALS.len() + 2);
+                for (index, general) in CHALLENGE_GENERALS.iter().enumerate() {
+                    buttons.push((MenuButtonAction::ChallengeGeneral(index), general.label));
+                }
+                buttons.push((MenuButtonAction::ChallengeStart, "Start Challenge"));
+                buttons.push((MenuButtonAction::Back, "Back"));
+                buttons
+            }
             "MessageOfDay" | "GetUpdates" | "WorldBuilder" => {
                 vec![(MenuButtonAction::Back, "Back")]
             }
@@ -388,10 +576,10 @@ impl EditorApp {
         text_padding_left: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let (border, background) = if danger {
-            (rgb(0x642430), rgb(0x2e1119))
+        let (border, background, text_color) = if danger {
+            (rgb(0xf3c7c7), hsla(0.98, 0.55, 0.31, 0.94), rgb(0xfff6f6))
         } else {
-            (rgb(0x2f57a8), rgb(0x131a2a))
+            (rgb(0xe2e8ff), hsla(0.62, 0.62, 0.34, 0.95), rgb(0xffffff))
         };
         div()
             .id(id)
@@ -405,8 +593,8 @@ impl EditorApp {
             .bg(background)
             .cursor_pointer()
             .pl(px(text_padding_left))
-            .text_color(rgb(0xf5e9d7))
-            .text_xs()
+            .text_color(text_color)
+            .text_base()
             .child(label)
             .on_click(cx.listener(move |this, _, _, cx| this.handle_menu_button(action, cx)))
             .into_any_element()
@@ -462,6 +650,16 @@ impl EditorApp {
         let candidates = [
             "windows_game/extracted_big_files/TexturesZH/Art/Textures/mainmenuruleruserinterface.tga",
             "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/mainmenuruleruserinterface.tga",
+        ];
+        Self::load_image_candidates(&candidates)
+    }
+
+    fn load_menu_backdrop_image() -> Option<Arc<Image>> {
+        let candidates = [
+            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
         ];
         Self::load_image_candidates(&candidates)
     }
@@ -548,20 +746,40 @@ impl EditorApp {
                 .into_any_element();
         }
 
-        let scale_x = (viewport_width / 800.0).max(0.5);
-        let scale_y = (viewport_height / 600.0).max(0.5);
-        let logo_left = 504.0 * scale_x;
-        let logo_top = 16.0 * scale_y;
-        let logo_width = (791.0 - 504.0) * scale_x;
-        let logo_height = (110.0 - 16.0) * scale_y;
+        let canvas_scale = (viewport_width / 800.0).min(viewport_height / 600.0).max(0.55);
+        let canvas_width = 800.0 * canvas_scale;
+        let canvas_height = 600.0 * canvas_scale;
+        let canvas_left = ((viewport_width - canvas_width) * 0.5).max(0.0);
+        let canvas_top = ((viewport_height - canvas_height) * 0.5).max(0.0);
+        let show_menu_overlay = !(runtime_state == "Playing" && self.current_menu_screen() == "GameHUD");
+        if !show_menu_overlay {
+            return div()
+                .id("viewport-menu-overlay-empty")
+                .absolute()
+                .top_0()
+                .left_0()
+                .w_full()
+                .h_full()
+                .into_any_element();
+        }
 
-        let panel_left = 532.0 * scale_x;
-        let panel_top = 108.0 * scale_y;
-        let panel_width = (756.0 - 532.0) * scale_x;
-        let panel_padding = (8.0 * scale_x).max(5.0);
-        let button_width = (748.0 - 540.0) * scale_x;
-        let button_height = (152.0 - 116.0) * scale_y;
-        let text_padding_left = (26.0 * scale_x).max(10.0);
+        let logo_left = canvas_left + 504.0 * canvas_scale;
+        let logo_top = canvas_top + 16.0 * canvas_scale;
+        let logo_width = (791.0 - 504.0) * canvas_scale;
+        let logo_height = (110.0 - 16.0) * canvas_scale;
+
+        let ruler_left = canvas_left + 532.0 * canvas_scale;
+        let ruler_top = canvas_top + 102.0 * canvas_scale;
+        let ruler_width = (756.0 - 532.0) * canvas_scale;
+        let ruler_height = (116.0 - 102.0) * canvas_scale;
+
+        let panel_left = canvas_left + 532.0 * canvas_scale;
+        let panel_top = canvas_top + 108.0 * canvas_scale;
+        let panel_width = (756.0 - 532.0) * canvas_scale;
+        let panel_padding = (8.0 * canvas_scale).max(6.0);
+        let button_width = (panel_width - panel_padding * 2.0).max(140.0);
+        let button_height = (34.0 * canvas_scale.clamp(0.7, 1.3)).max(24.0);
+        let text_padding_left = (18.0 * canvas_scale).max(10.0);
 
         div()
             .id("viewport-menu-overlay")
@@ -573,14 +791,31 @@ impl EditorApp {
             .child(
                 div()
                     .absolute()
-                    .top_0()
-                    .left_0()
-                    .w_full()
-                    .h_full()
-                    .when_some(self.menu_ruler_image.clone(), |layer, image| {
+                    .top(px(canvas_top))
+                    .left(px(canvas_left))
+                    .w(px(canvas_width))
+                    .h(px(canvas_height))
+                    .when_some(self.menu_backdrop_image.clone(), |layer, image| {
                         layer.child(img(image).w_full().h_full().max_w_full())
-                    }),
+                    })
+                    .when(self.menu_backdrop_image.is_none(), |layer| {
+                        layer.bg(hsla(0.60, 0.30, 0.10, 0.52))
+                    })
+                    .child(div().absolute().top_0().left_0().w_full().h_full().bg(hsla(
+                        0.60, 0.22, 0.08, 0.22,
+                    ))),
             )
+            .when_some(self.menu_ruler_image.clone(), |overlay, ruler| {
+                overlay.child(
+                    div()
+                        .absolute()
+                        .top(px(ruler_top))
+                        .left(px(ruler_left))
+                        .w(px(ruler_width))
+                        .h(px(ruler_height.max(6.0)))
+                        .child(img(ruler).w_full().h_full().max_w_full()),
+                )
+            })
             .when_some(self.menu_logo_image.clone(), |overlay, logo| {
                 overlay.child(
                     div()
@@ -600,24 +835,12 @@ impl EditorApp {
                     .w(px(panel_width))
                     .p(px(panel_padding))
                     .border_1()
-                    .border_color(rgb(0x324f96))
-                    .bg(hsla(0.62, 0.34, 0.08, 0.72))
+                    .border_color(rgb(0x3a4f97))
+                    .bg(hsla(0.61, 0.56, 0.20, 0.68))
                     .flex()
                     .flex_col()
                     .items_start()
                     .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(0xf5d28f))
-                            .child(self.menu_panel_title()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0xbdccda))
-                            .child(self.runtime.status_line()),
-                    )
                     .children(self.menu_buttons().into_iter().map(|(action, label)| {
                         let id = match action {
                             MenuButtonAction::SinglePlayer => "menu-single-player",
@@ -625,6 +848,9 @@ impl EditorApp {
                             MenuButtonAction::LoadReplay => "menu-load-replay",
                             MenuButtonAction::Options => "menu-options",
                             MenuButtonAction::Credits => "menu-credits",
+                            MenuButtonAction::MessageOfDay => "menu-motd",
+                            MenuButtonAction::GetUpdates => "menu-updates",
+                            MenuButtonAction::WorldBuilder => "menu-world-builder",
                             MenuButtonAction::ExitGame => "menu-exit-game",
                             MenuButtonAction::Back => "menu-back",
                             MenuButtonAction::Challenge => "menu-challenge",
@@ -642,6 +868,21 @@ impl EditorApp {
                             MenuButtonAction::DifficultyEasy => "menu-difficulty-easy",
                             MenuButtonAction::DifficultyMedium => "menu-difficulty-medium",
                             MenuButtonAction::DifficultyHard => "menu-difficulty-hard",
+                            MenuButtonAction::ChallengeGeneral(0) => "menu-challenge-general-0",
+                            MenuButtonAction::ChallengeGeneral(1) => "menu-challenge-general-1",
+                            MenuButtonAction::ChallengeGeneral(2) => "menu-challenge-general-2",
+                            MenuButtonAction::ChallengeGeneral(3) => "menu-challenge-general-3",
+                            MenuButtonAction::ChallengeGeneral(4) => "menu-challenge-general-4",
+                            MenuButtonAction::ChallengeGeneral(5) => "menu-challenge-general-5",
+                            MenuButtonAction::ChallengeGeneral(6) => "menu-challenge-general-6",
+                            MenuButtonAction::ChallengeGeneral(7) => "menu-challenge-general-7",
+                            MenuButtonAction::ChallengeGeneral(8) => "menu-challenge-general-8",
+                            MenuButtonAction::ChallengeGeneral(_) => "menu-challenge-general",
+                            MenuButtonAction::ChallengeStart => "menu-challenge-start",
+                            MenuButtonAction::OnlineQuickMatch => "menu-online-quickmatch",
+                            MenuButtonAction::OnlineCustomMatch => "menu-online-custom",
+                            MenuButtonAction::NetworkHost => "menu-network-host",
+                            MenuButtonAction::NetworkJoin => "menu-network-join",
                             MenuButtonAction::TogglePause => "menu-toggle-pause",
                             MenuButtonAction::MainMenu => "menu-main-menu",
                         };
@@ -657,6 +898,30 @@ impl EditorApp {
                             cx,
                         )
                     }))
+                    .when(self.current_menu_screen() == "Challenge", |menu| {
+                        let selected = CHALLENGE_GENERALS
+                            .get(self.selected_challenge_general)
+                            .map(|entry| entry.label)
+                            .unwrap_or(CHALLENGE_GENERALS[0].label);
+                        let difficulty = self
+                            .selected_challenge_difficulty
+                            .map(|value| value.label())
+                            .unwrap_or("Not selected");
+                        menu.child(
+                            div()
+                                .w(px(button_width))
+                                .text_xs()
+                                .text_color(rgb(0xd8c78c))
+                                .child(format!("Challenge: {selected} | Difficulty: {difficulty}")),
+                        )
+                    })
+                    .child(
+                        div()
+                            .w(px(button_width))
+                            .text_xs()
+                            .text_color(rgb(0xaec0d3))
+                            .child(self.menu_panel_title()),
+                    )
                     .when_some(self.menu_note.as_ref(), |menu, note| {
                         menu.child(
                             div()
@@ -674,6 +939,7 @@ impl EditorApp {
 impl Render for EditorApp {
     fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         self.runtime.poll();
+        self.sync_menu_screen();
         let runtime_viewport_image = self.runtime.viewport_image();
         let viewport_size = window.viewport_size();
         let viewport_width = f32::from(viewport_size.width).max(1.0);
@@ -755,6 +1021,32 @@ impl RuntimeBridge {
                 .get(0..8)
                 .map(|sig| sig == [137, 80, 78, 71, 13, 10, 26, 10])
                 .unwrap_or(false)
+    }
+
+    fn estimate_luma_from_image_bytes(bytes: &[u8]) -> Option<f32> {
+        let decoded = image::load_from_memory(bytes).ok()?;
+        let rgba = decoded.to_rgba8();
+        let raw = rgba.as_raw();
+        if raw.is_empty() {
+            return Some(0.0);
+        }
+        let pixels = raw.len() / 4;
+        let stride = (pixels / 8192).max(1);
+        let mut sum = 0.0f32;
+        let mut count = 0usize;
+        for index in (0..pixels).step_by(stride) {
+            let base = index * 4;
+            let r = raw[base] as f32;
+            let g = raw[base + 1] as f32;
+            let b = raw[base + 2] as f32;
+            sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            count += 1;
+        }
+        if count == 0 {
+            Some(0.0)
+        } else {
+            Some((sum / count as f32).clamp(0.0, 255.0))
+        }
     }
 
     fn runtime_executable() -> std::io::Result<PathBuf> {
@@ -923,9 +1215,10 @@ impl RuntimeBridge {
             .append(true)
             .open(&self.control_path)?;
         self.command_sequence = self.command_sequence.saturating_add(1);
-        let command = command.trim();
+        let command = command.trim().replace('\n', " ");
         writeln!(file, "{}", command)?;
         file.flush()?;
+        let _ = file.sync_data();
         info!(
             "GPUI runtime bridge command#{} -> {}",
             self.command_sequence, command
@@ -1023,6 +1316,9 @@ impl RuntimeBridge {
             if let Ok(bytes) = fs::read(&self.frame_path) {
                 if Self::bytes_look_like_png(&bytes) {
                     let first_frame = self.latest_frame_image.is_none();
+                    if let Some(luma) = Self::estimate_luma_from_image_bytes(&bytes) {
+                        self.latest_frame_luma = luma;
+                    }
                     self.latest_frame_image =
                         Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)));
                     self.loaded_frame_count = self.loaded_frame_count.saturating_add(1);
