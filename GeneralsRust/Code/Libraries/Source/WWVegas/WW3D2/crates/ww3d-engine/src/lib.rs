@@ -1476,16 +1476,7 @@ impl Engine {
     fn finish_screenshot_readback(&self, pending: ScreenshotReadback) -> EngineResult<()> {
         let buffer_slice = pending.buffer.slice(..);
         let data = buffer_slice.get_mapped_range();
-        let mut image_data = vec![0u8; pending.width as usize * pending.height as usize * 4];
-
-        for (row_index, dest_chunk) in image_data
-            .chunks_exact_mut(pending.width as usize * 4)
-            .enumerate()
-        {
-            let src_offset = row_index * pending.padded_row_size;
-            let src_slice = &data[src_offset..src_offset + pending.row_size];
-            convert_row_to_rgba(pending.format, src_slice, dest_chunk)?;
-        }
+        let mapped_bytes = data.to_vec();
 
         drop(data);
         pending.buffer.unmap();
@@ -1493,7 +1484,25 @@ impl Engine {
         let path = pending.path;
         let width = pending.width;
         let height = pending.height;
+        let format = pending.format;
+        let row_size = pending.row_size;
+        let padded_row_size = pending.padded_row_size;
         std::thread::spawn(move || {
+            let mut image_data = vec![0u8; width as usize * height as usize * 4];
+            for (row_index, dest_chunk) in image_data.chunks_exact_mut(width as usize * 4).enumerate()
+            {
+                let src_offset = row_index * padded_row_size;
+                let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
+                if let Err(err) = convert_row_to_rgba(format, src_slice, dest_chunk) {
+                    eprintln!(
+                        "WW3D screenshot row conversion failed for {}: {}",
+                        path.display(),
+                        err
+                    );
+                    return;
+                }
+            }
+
             if let Err(err) = write_screenshot_png(path.as_path(), width, height, &image_data) {
                 eprintln!(
                     "WW3D screenshot encode/write failed for {}: {}",
