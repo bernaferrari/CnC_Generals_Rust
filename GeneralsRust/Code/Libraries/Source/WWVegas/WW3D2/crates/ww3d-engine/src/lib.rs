@@ -18,7 +18,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{GpuDevice, GpuError};
 
@@ -197,6 +197,28 @@ struct ScreenshotRequest {
 impl ScreenshotRequest {
     fn new(path: PathBuf) -> Self {
         Self { path }
+    }
+}
+
+struct ScreenshotReadback {
+    path: PathBuf,
+    buffer: wgpu::Buffer,
+    width: u32,
+    height: u32,
+    format: wgpu::TextureFormat,
+    row_size: usize,
+    padded_row_size: usize,
+    completion: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+}
+
+impl std::fmt::Debug for ScreenshotReadback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScreenshotReadback")
+            .field("path", &self.path)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("format", &self.format)
+            .finish()
     }
 }
 
@@ -725,6 +747,7 @@ pub struct Engine {
     /// Previous sync time in milliseconds (matches WW3D::PreviousSyncTime)
     /// Reference: ww3d.cpp:88, ww3d.h:297
     previous_sync_time: u32,
+    pending_screenshot_readbacks: Vec<ScreenshotReadback>,
 }
 
 impl Engine {
@@ -795,6 +818,7 @@ impl Engine {
             // Initialize sync time to 0 (matches C++ ww3d.cpp:87-88)
             sync_time: 0,
             previous_sync_time: 0,
+            pending_screenshot_readbacks: Vec::new(),
         })
     }
 
@@ -860,6 +884,7 @@ impl Engine {
             // Initialize sync time to 0 (matches C++ ww3d.cpp:87-88)
             sync_time: 0,
             previous_sync_time: 0,
+            pending_screenshot_readbacks: Vec::new(),
         })
     }
 
@@ -1246,6 +1271,9 @@ impl Engine {
         &mut self,
         surface_texture: Option<&wgpu::SurfaceTexture>,
     ) -> EngineResult<()> {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        self.flush_pending_screenshot_readbacks();
+
         let mut requests = Vec::new();
         while let Some(request) = self.settings.pending_screenshots.pop_front() {
             requests.push(request);
@@ -1262,7 +1290,7 @@ impl Engine {
         }
 
         match &self.surface {
-            SurfaceMode::Windowed(surface_state) => {
+            SurfaceMode::Windowed(_) => {
                 let Some(surface_texture) = surface_texture else {
                     for request in &requests {
                         if request.path.to_string_lossy().contains("generals_internal_frame") {
@@ -1278,9 +1306,16 @@ impl Engine {
                     return Ok(());
                 };
 
-                let width = surface_state.config.width;
-                let height = surface_state.config.height;
-                let format = surface_state.config.format;
+                let (width, height, format) = {
+                    let SurfaceMode::Windowed(surface_state) = &self.surface else {
+                        unreachable!()
+                    };
+                    (
+                        surface_state.config.width,
+                        surface_state.config.height,
+                        surface_state.config.format,
+                    )
+                };
                 let texture_ref = &surface_texture.texture;
 
                 for request in requests {
@@ -1293,26 +1328,180 @@ impl Engine {
                             format
                         );
                     }
-                    self.capture_texture_to_file(
+                    if let Err(err) = self.queue_texture_capture_readback(
                         texture_ref,
                         width,
                         height,
                         format,
                         &request.path,
-                    )?;
+                    ) {
+                        eprintln!(
+                            "WW3D screenshot queue failed for {}: {}",
+                            request.path.display(),
+                            err
+                        );
+                    }
                 }
             }
-            SurfaceMode::Headless(target) => {
-                let (width, height) = target.size();
-                let format = self.color_format;
-                let texture = target.texture();
+            SurfaceMode::Headless(_) => {
+                let (width, height, format, texture) = {
+                    let SurfaceMode::Headless(target) = &self.surface else {
+                        unreachable!()
+                    };
+                    let (width, height) = target.size();
+                    (
+                        width,
+                        height,
+                        self.color_format,
+                        target.texture().clone(),
+                    )
+                };
 
                 for request in requests {
-                    self.capture_texture_to_file(texture, width, height, format, &request.path)?;
+                    if let Err(err) = self.queue_texture_capture_readback(
+                        &texture,
+                        width,
+                        height,
+                        format,
+                        &request.path,
+                    ) {
+                        eprintln!(
+                            "WW3D screenshot queue failed for {}: {}",
+                            request.path.display(),
+                            err
+                        );
+                    }
                 }
             }
         }
 
+        Ok(())
+    }
+
+    fn queue_texture_capture_readback(
+        &mut self,
+        texture: &wgpu::Texture,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        path: &Path,
+    ) -> EngineResult<()> {
+        let bytes_per_pixel = texture_bytes_per_pixel(format).ok_or_else(|| {
+            EngineError::Screenshot(format!(
+                "Unsupported texture format {:?} for screenshot",
+                format
+            ))
+        })?;
+
+        let row_size = bytes_per_pixel * width as usize;
+        let padded_row_size = align_to(row_size, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize);
+        let buffer_size = padded_row_size * height as usize;
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("WW3D Screenshot Buffer"),
+            size: buffer_size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .gpu_device
+            .create_command_encoder(Some("WW3D Screenshot Encoder"));
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_row_size as u32),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let buffer_slice = buffer.slice(..);
+        let (sender, receiver) = mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+
+        self.pending_screenshot_readbacks.push(ScreenshotReadback {
+            path: path.to_path_buf(),
+            buffer,
+            width,
+            height,
+            format,
+            row_size,
+            padded_row_size,
+            completion: receiver,
+        });
+
+        Ok(())
+    }
+
+    fn flush_pending_screenshot_readbacks(&mut self) {
+        let mut remaining = Vec::new();
+        for pending in std::mem::take(&mut self.pending_screenshot_readbacks) {
+            match pending.completion.try_recv() {
+                Ok(Ok(())) => {
+                    if let Err(err) = self.finish_screenshot_readback(pending) {
+                        eprintln!("WW3D screenshot finalize failed: {}", err);
+                    }
+                }
+                Ok(Err(err)) => {
+                    eprintln!("WW3D screenshot GPU map failed: {}", err);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => remaining.push(pending),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    eprintln!("WW3D screenshot completion channel disconnected");
+                }
+            }
+        }
+        self.pending_screenshot_readbacks = remaining;
+    }
+
+    fn finish_screenshot_readback(&self, pending: ScreenshotReadback) -> EngineResult<()> {
+        let buffer_slice = pending.buffer.slice(..);
+        let data = buffer_slice.get_mapped_range();
+        let mut image_data = vec![0u8; pending.width as usize * pending.height as usize * 4];
+
+        for (row_index, dest_chunk) in image_data
+            .chunks_exact_mut(pending.width as usize * 4)
+            .enumerate()
+        {
+            let src_offset = row_index * pending.padded_row_size;
+            let src_slice = &data[src_offset..src_offset + pending.row_size];
+            convert_row_to_rgba(pending.format, src_slice, dest_chunk)?;
+        }
+
+        drop(data);
+        pending.buffer.unmap();
+
+        let path = pending.path;
+        let width = pending.width;
+        let height = pending.height;
+        std::thread::spawn(move || {
+            if let Err(err) = write_screenshot_png(path.as_path(), width, height, &image_data) {
+                eprintln!(
+                    "WW3D screenshot encode/write failed for {}: {}",
+                    path.display(),
+                    err
+                );
+            }
+        });
         Ok(())
     }
 
@@ -1393,47 +1582,117 @@ impl Engine {
         drop(data);
         buffer.unmap();
 
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|err| {
-                    EngineError::Screenshot(format!(
-                        "Failed to create screenshot directory {:?}: {}",
-                        parent, err
-                    ))
-                })?;
-            }
-        }
-
-        let file = File::create(path).map_err(|err| {
-            EngineError::Screenshot(format!(
-                "Failed to create screenshot file {:?}: {}",
-                path, err
-            ))
-        })?;
-
-        let mut encoder = png::Encoder::new(file, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-
-        let mut writer = encoder
-            .write_header()
-            .map_err(|err| EngineError::Screenshot(format!("PNG header error: {err}")))?
-            .into_stream_writer()
-            .map_err(|err| EngineError::Screenshot(format!("PNG stream writer error: {err}")))?;
-
-        writer
-            .write_all(&image_data)
-            .map_err(|err| EngineError::Screenshot(format!("PNG write error: {err}")))?;
-        writer
-            .finish()
-            .map_err(|err| EngineError::Screenshot(format!("PNG finalise error: {err}")))?;
-
-        if path.to_string_lossy().contains("generals_internal_frame") {
-            eprintln!("DEBUG_SCREENSHOT: wrote path={}", path.display());
-        }
-
-        Ok(())
+        write_screenshot_png(path, width, height, &image_data)
     }
+
+}
+
+fn write_screenshot_png(path: &Path, width: u32, height: u32, image_data: &[u8]) -> EngineResult<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| {
+                EngineError::Screenshot(format!(
+                    "Failed to create screenshot directory {:?}: {}",
+                    parent, err
+                ))
+            })?;
+        }
+    }
+
+    let temp_path = unique_temp_path(path);
+
+    let file = File::create(&temp_path).map_err(|err| {
+        EngineError::Screenshot(format!(
+            "Failed to create screenshot file {:?}: {}",
+            temp_path, err
+        ))
+    })?;
+
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Fast);
+    encoder.set_filter(png::FilterType::NoFilter);
+
+    let mut writer = encoder
+        .write_header()
+        .map_err(|err| EngineError::Screenshot(format!("PNG header error: {err}")))?
+        .into_stream_writer()
+        .map_err(|err| EngineError::Screenshot(format!("PNG stream writer error: {err}")))?;
+
+    writer
+        .write_all(image_data)
+        .map_err(|err| EngineError::Screenshot(format!("PNG write error: {err}")))?;
+    writer
+        .finish()
+        .map_err(|err| EngineError::Screenshot(format!("PNG finalise error: {err}")))?;
+
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+    fs::rename(&temp_path, path).map_err(|err| {
+        EngineError::Screenshot(format!(
+            "Failed to promote screenshot {:?} -> {:?}: {}",
+            temp_path, path, err
+        ))
+    })?;
+
+    let luma = compute_image_luma_u8(image_data);
+    let meta_path = screenshot_meta_path(path);
+    let meta_tmp_path = unique_temp_path(&meta_path);
+    if fs::write(&meta_tmp_path, format!("luma={luma:.3}\n")).is_ok() {
+        let _ = fs::rename(&meta_tmp_path, &meta_path);
+    }
+
+    if path.to_string_lossy().contains("generals_internal_frame") {
+        eprintln!("DEBUG_SCREENSHOT: wrote path={}", path.display());
+    }
+
+    Ok(())
+}
+
+fn unique_temp_path(path: &Path) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id();
+    let base_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("ww3d-screenshot");
+    let temp_name = format!(".{base_name}.{pid}.{stamp}.tmp");
+    path.with_file_name(temp_name)
+}
+
+fn compute_image_luma_u8(image_data: &[u8]) -> f32 {
+    if image_data.len() < 4 {
+        return 0.0;
+    }
+    let mut accum = 0.0f32;
+    let mut pixels = 0usize;
+    for rgba in image_data.chunks_exact(4) {
+        let luma = 0.2126 * rgba[0] as f32 + 0.7152 * rgba[1] as f32 + 0.0722 * rgba[2] as f32;
+        accum += luma;
+        pixels += 1;
+    }
+    if pixels == 0 {
+        0.0
+    } else {
+        accum / pixels as f32
+    }
+}
+
+fn screenshot_meta_path(path: &Path) -> PathBuf {
+    let is_capture_path = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("capture"))
+        .unwrap_or(false);
+    if is_capture_path {
+        return path.with_extension("").with_extension("png.meta");
+    }
+    path.with_extension("png.meta")
 }
 
 fn align_to(value: usize, alignment: usize) -> usize {
@@ -1756,7 +2015,11 @@ where
 
 /// Schedule a screenshot that will be captured on the next completed frame.
 pub fn make_screenshot<P: AsRef<Path>>(path: P) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
+    let Some(mut slot) = global_engine().try_lock() else {
+        return Err(EngineError::Rendering(
+            "WW3D screenshot scheduling skipped because engine is busy".to_string(),
+        ));
+    };
     match slot.as_mut() {
         Some(engine) => {
             engine.queue_screenshot(path.as_ref().to_path_buf());
