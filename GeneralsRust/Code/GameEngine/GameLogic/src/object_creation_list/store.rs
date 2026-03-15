@@ -1394,6 +1394,8 @@ pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, Strin
         return Ok(0);
     }
 
+    let count_loaded = parsed.len();
+
     if get_object_creation_list_store().as_ref().is_none() {
         init_object_creation_list_store();
     }
@@ -1416,7 +1418,7 @@ pub fn load_object_creation_lists_from_str(content: &str) -> Result<usize, Strin
         }
     }
 
-    Ok(store.get_ocl_count())
+    Ok(count_loaded)
 }
 
 pub fn load_object_creation_lists_from_path<P: AsRef<Path>>(path: P) -> Result<usize, String> {
@@ -1632,9 +1634,9 @@ End
 "#;
 
         let count_a = load_object_creation_lists_from_str(a).expect("load A failed");
-        assert!(count_a >= 1);
+        assert_eq!(count_a, 1);
         let count_b = load_object_creation_lists_from_str(b).expect("load B failed");
-        assert!(count_b >= 2);
+        assert_eq!(count_b, 1);
 
         let store = get_object_creation_list_store();
         let store = store.as_ref().expect("store missing");

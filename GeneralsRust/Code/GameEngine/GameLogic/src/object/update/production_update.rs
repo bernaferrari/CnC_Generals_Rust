@@ -7,6 +7,7 @@ use crate::player::PlayerArcExt;
 use crate::prelude::*;
 use crate::upgrade::template::UpgradeType;
 use crate::upgrade::UpgradeStatus as CrateUpgradeStatus;
+use std::sync::{Arc, RwLock};
 
 const DOOR_COUNT_MAX: usize = 4;
 
@@ -547,10 +548,351 @@ impl ProductionUpdate {
         UpdateSleepTime::None
     }
 
+    /// Handle production completion — creates units or applies upgrades.
+    /// Matches C++ ProductionUpdate::onProductionCompleteData (lines 702-962).
     fn handle_production_complete(&mut self, idx: usize, ctx: &mut UpdateContext<'_>) {
-        // Implementation would handle unit/upgrade completion
-        // This is a complex method that creates units, handles exits, doors, etc.
-        // Omitted for brevity but would be fully implemented
+        if idx >= self.production_queue.len() {
+            return;
+        }
+
+        let production = &mut self.production_queue[idx];
+        let production_type = production.production_type;
+
+        match production_type {
+            ProductionType::Unit => self.handle_unit_production_complete(idx, ctx),
+            ProductionType::Upgrade => self.handle_upgrade_production_complete(idx, ctx),
+            ProductionType::Invalid => {}
+        }
+    }
+
+    /// Handle unit production: spawn the produced object via TheThingFactory,
+    /// run door animations, and hand the unit off to the exit interface.
+    fn handle_unit_production_complete(&mut self, idx: usize, ctx: &mut UpdateContext<'_>) {
+        // We need the building as Arc<RwLock<Object>> for on_unit_created and exit interface.
+        let building = crate::helpers::TheGameLogic::find_object_by_id(self.thing);
+
+        let building = match building {
+            Some(b) => b,
+            None => {
+                self.remove_from_production_queue(idx, ctx);
+                return;
+            }
+        };
+
+        let player = {
+            let obj_guard = building.read().ok();
+            let player_opt = obj_guard.and_then(|g| g.get_controlling_player());
+            match player_opt {
+                Some(p) => p,
+                None => {
+                    self.remove_from_production_queue(idx, ctx);
+                    return;
+                }
+            }
+        };
+
+        let template_id = match self.production_queue[idx].object_to_produce {
+            Some(id) => id,
+            None => {
+                self.remove_from_production_queue(idx, ctx);
+                return;
+            }
+        };
+
+        let template = match ctx
+            .thing_factory
+            .as_ref()
+            .and_then(|tf| tf.get_template(template_id))
+        {
+            Some(t) => t,
+            None => {
+                self.remove_from_production_queue(idx, ctx);
+                return;
+            }
+        };
+
+        let exit_interface = {
+            let obj_guard = building.read().ok();
+            obj_guard.and_then(|g| g.get_object_exit_interface())
+        };
+
+        let Some(exit_interface) = exit_interface else {
+            // No exit interface — create the unit directly
+            self.create_unit_no_exit(&template, &player, &building, idx, ctx);
+            return;
+        };
+
+        let now = ctx.game_logic.get_frame();
+        let exit_door = self.production_queue[idx].exit_door;
+        let qty_produced = self.production_queue[idx].production_quantity_produced;
+
+        // No door animation needed — create immediately
+        if exit_door == ExitDoorType::NoneAvailable || exit_door == ExitDoorType::NoneNeeded {
+            self.spawn_unit_from_door(
+                &template,
+                &player,
+                &building,
+                &exit_interface,
+                crate::modules::ExitDoorType::None,
+                idx,
+                ctx,
+            );
+            return;
+        }
+
+        // Door animation path: check if door is open
+        if self.is_door_open(exit_door, now) {
+            let modules_door = exit_door.to_modules_exit_door_type();
+            self.spawn_unit_from_door(
+                &template, &player, &building, &exit_interface, modules_door, idx, ctx,
+            );
+        } else {
+            // Start opening the door if not already animating
+            self.start_door_opening(exit_door, now);
+
+            // Set construction complete condition on first time
+            if qty_produced == 0 {
+                self.set_flags
+                    .insert(ModelConditionFlag::ConstructionComplete);
+                self.flags_dirty = true;
+                self.construction_complete_frame = now;
+            }
+        }
+    }
+
+    /// Spawn a unit through the exit interface after the door is open.
+    fn spawn_unit_from_door(
+        &mut self,
+        template: &Arc<dyn crate::common::ThingTemplate>,
+        player: &Arc<RwLock<crate::player::Player>>,
+        building: &Arc<RwLock<crate::object::Object>>,
+        exit_interface: &Arc<std::sync::Mutex<dyn crate::modules::ExitInterface>>,
+        door: crate::modules::ExitDoorType,
+        idx: usize,
+        ctx: &mut UpdateContext<'_>,
+    ) {
+        // Get the player's default team for the new unit
+        let team: Option<Arc<RwLock<crate::team::Team>>> = {
+            let player_guard = player.read().ok();
+            player_guard.and_then(|p| p.get_default_team())
+        };
+
+        // Create the new object via TheObjectFactory
+        let new_obj = match crate::system::game_logic::TheObjectFactory::new_object(
+            Arc::clone(template),
+            team,
+        ) {
+            Ok(obj) => obj,
+            Err(e) => {
+                log::warn!("ProductionUpdate: failed to create unit: {e}");
+                return;
+            }
+        };
+
+        // Run on_build_complete for all Create modules on the new object
+        if let Ok(mut new_obj_guard) = new_obj.write() {
+            new_obj_guard.on_build_complete();
+        }
+
+        // Exit the object via the door (positions it at rally point)
+        if let Ok(mut exit_guard) = exit_interface.lock() {
+            let _ = exit_guard.exit_object_via_door(&new_obj, door);
+        }
+
+        // Notify player that a unit was created
+        if let Ok(mut player_guard) = player.write() {
+            player_guard.on_unit_created(building, &new_obj);
+        }
+
+        // Set construction complete on first spawn in this batch
+        if self.production_queue[idx].production_quantity_produced == 0 {
+            let now = ctx.game_logic.get_frame();
+            self.set_flags
+                .insert(ModelConditionFlag::ConstructionComplete);
+            self.flags_dirty = true;
+            self.construction_complete_frame = now;
+        }
+
+        // Mark one unit as produced
+        self.production_queue[idx].one_production_successful();
+
+        // Remove from queue if all units in this production entry are done
+        if self.production_queue[idx].get_production_quantity_remaining() <= 0 {
+            self.remove_from_production_queue(idx, ctx);
+        }
+    }
+
+    /// Create a unit when there is no exit interface.
+    fn create_unit_no_exit(
+        &mut self,
+        template: &Arc<dyn crate::common::ThingTemplate>,
+        player: &Arc<RwLock<crate::player::Player>>,
+        building: &Arc<RwLock<crate::object::Object>>,
+        idx: usize,
+        ctx: &mut UpdateContext<'_>,
+    ) {
+        let team: Option<Arc<RwLock<crate::team::Team>>> =
+            player.read().ok().and_then(|p| p.get_default_team());
+
+        let new_obj = match crate::system::game_logic::TheObjectFactory::new_object(
+            Arc::clone(template),
+            team,
+        ) {
+            Ok(obj) => obj,
+            Err(e) => {
+                log::warn!("ProductionUpdate: failed to create unit (no exit): {e}");
+                return;
+            }
+        };
+
+        // Run on_build_complete for all Create modules
+        if let Ok(mut new_obj_guard) = new_obj.write() {
+            new_obj_guard.on_build_complete();
+        }
+
+        // Notify player
+        if let Ok(mut player_guard) = player.write() {
+            player_guard.on_unit_created(building, &new_obj);
+        }
+
+        // Set construction complete on first spawn
+        if self.production_queue[idx].production_quantity_produced == 0 {
+            let now = ctx.game_logic.get_frame();
+            self.set_flags
+                .insert(ModelConditionFlag::ConstructionComplete);
+            self.flags_dirty = true;
+            self.construction_complete_frame = now;
+        }
+
+        self.production_queue[idx].one_production_successful();
+
+        if self.production_queue[idx].get_production_quantity_remaining() <= 0 {
+            self.remove_from_production_queue(idx, ctx);
+        }
+    }
+
+    /// Handle upgrade production: apply the upgrade to the player or object.
+    fn handle_upgrade_production_complete(&mut self, idx: usize, ctx: &mut UpdateContext<'_>) {
+        let Some(object) = ctx.game_logic.find_object(self.thing) else {
+            self.remove_from_production_queue(idx, ctx);
+            return;
+        };
+
+        let Some(player) = object.get_controlling_player() else {
+            self.remove_from_production_queue(idx, ctx);
+            return;
+        };
+
+        let Some(upgrade_id) = self.production_queue[idx].upgrade_to_research else {
+            self.remove_from_production_queue(idx, ctx);
+            return;
+        };
+
+        // Extract upgrade info from the context before we need &mut ctx later.
+        let upgrade_type;
+        let upgrade_cost;
+        let upgrade_name;
+        {
+            let Some(upgrade_any) =
+                ctx.upgrade_center.as_ref().and_then(|uc| uc.find_upgrade(upgrade_id))
+            else {
+                self.remove_from_production_queue(idx, ctx);
+                return;
+            };
+
+            let Some(upgrade) = upgrade_any.downcast_ref::<UpgradeTemplate>() else {
+                self.remove_from_production_queue(idx, ctx);
+                return;
+            };
+
+            upgrade_type = upgrade.get_upgrade_type();
+            upgrade_name = upgrade.get_name().clone();
+            upgrade_cost = {
+                let player_guard = player.read().ok();
+                player_guard
+                    .map(|p| upgrade.calc_cost_to_build(&*p).max(0) as u32)
+                    .unwrap_or(0)
+            };
+
+            // Apply the upgrade based on type (while we still hold the reference)
+            match upgrade_type {
+                UpgradeType::Player => {
+                    player.add_upgrade(upgrade, CrateUpgradeStatus::Complete);
+                }
+                UpgradeType::Object => {
+                    // Need &mut Object for give_upgrade — use find_object_mut
+                    if let Some(obj_mut) = ctx.game_logic.find_object_mut(self.thing) {
+                        obj_mut.give_upgrade(upgrade);
+                    }
+                }
+            }
+
+            // Record in academy stats
+            if let Ok(mut player_guard) = player.write() {
+                player_guard.get_academy_stats_mut().record_upgrade(upgrade, false);
+            }
+        }
+        // Borrow on ctx.upgrade_center is now dropped.
+
+        // Record money spent
+        if let Ok(mut player_guard) = player.write() {
+            player_guard.get_score_keeper_mut().add_money_spent(upgrade_cost);
+        }
+
+        // Notify script engine of completed upgrade
+        let se_ref = crate::scripting::engine::get_script_engine();
+        match se_ref.write() {
+            Ok(mut se_guard) => {
+                if let Some(se) = se_guard.as_mut() {
+                    let player_index = player
+                        .read()
+                        .ok()
+                        .map(|p| p.get_player_index() as usize)
+                        .unwrap_or(0);
+                    se.notify_of_completed_upgrade(
+                        player_index,
+                        upgrade_name.as_str(),
+                        self.thing,
+                    );
+                }
+            }
+            Err(_) => {
+                log::warn!("ProductionUpdate: script engine lock poisoned");
+            }
+        }
+
+        // Remove from production queue
+        self.remove_from_production_queue(idx, ctx);
+    }
+
+    /// Check whether a given exit door is fully open (wait_open state).
+    fn is_door_open(&self, exit_door: ExitDoorType, _now: u32) -> bool {
+        match exit_door {
+            ExitDoorType::Door(door_idx) if (door_idx as usize) < DOOR_COUNT_MAX => {
+                let door = &self.doors[door_idx as usize];
+                // Door is "open" when it's in the wait_open state (fully opened)
+                door.door_wait_open_frame > 0 || door.hold_open
+            }
+            ExitDoorType::NoneNeeded => true,
+            _ => false,
+        }
+    }
+
+    /// Begin the door opening animation for the given door.
+    fn start_door_opening(&mut self, exit_door: ExitDoorType, now: u32) {
+        if let ExitDoorType::Door(door_idx) = exit_door {
+            if (door_idx as usize) < DOOR_COUNT_MAX {
+                let door = &mut self.doors[door_idx as usize];
+                // Only start opening if not already animating
+                if door.door_opened_frame == 0
+                    && door.door_wait_open_frame == 0
+                    && door.door_closed_frame == 0
+                {
+                    door.door_opened_frame = now;
+                    self.flags_dirty = true;
+                }
+            }
+        }
     }
 
     fn update_doors(&mut self, now: u32, _ctx: &UpdateContext<'_>) {
