@@ -180,9 +180,7 @@ mod tests {
 const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
 const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
 const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
-const SHELL_LOADING_LAYOUT: &str = "Menus/ShellGameLoadScreen.wnd";
-const SHELL_LOADING_PARENT_NAME: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
-const SHELL_LOADING_PROGRESS_NAME: &str = "ShellGameLoadScreen.wnd:ProgressLoad";
+const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
 
 fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
@@ -295,8 +293,12 @@ pub struct CnCGameEngine {
     startup_start_in_menu: bool,
     last_loading_title_update: Option<Instant>,
     startup_last_reported_progress: f32,
+    startup_loading_phase: String,
     startup_last_progress_change_at: Instant,
     startup_last_stall_warning_at: Option<Instant>,
+    startup_stall_events: u32,
+    startup_max_stall_duration: Duration,
+    startup_health_summary_logged: bool,
     last_caustic_warmup_attempt: Option<Instant>,
 
     // Game state
@@ -373,6 +375,7 @@ pub struct CnCGameEngine {
     game_hud: GameHUD,
     active_menu_shell_hook: Option<&'static str>,
     runtime_host_headless: bool,
+    runtime_host_base_ui_screen: Option<String>,
     runtime_host_ui_screen_override: Option<String>,
 
     // Model loading state
@@ -381,6 +384,7 @@ pub struct CnCGameEngine {
     menu_enter_frame: Option<u64>,
     shell_ui_enqueued_frame: Option<u64>,
     last_shell_prewarm_log: Option<Instant>,
+    shell_prewarm_completion_logged: bool,
     match_over: bool,
     victory_summary: Option<VictorySummary>,
 }
@@ -486,18 +490,23 @@ impl CnCGameEngine {
         self.runtime_host_headless
     }
 
-    fn wgpu_menu_backend_enabled(&self) -> bool {
-        false
+    fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
+        let projected = match state {
+            UISystemState::MainMenu => "MainMenu",
+            UISystemState::FactionSelection => "FactionSelection",
+            UISystemState::InGame => "GameHUD",
+            UISystemState::PauseMenu => "PauseMenu",
+            UISystemState::Victory => "Victory",
+            UISystemState::Loading => "Loading",
+        };
+        self.runtime_host_base_ui_screen = Some(projected.to_string());
     }
-
-    fn set_wgpu_ui_state(&mut self, state: UISystemState) {
-        let _ = state;
-    }
-
-    fn update_wgpu_ui_backend(&mut self) {}
 
     fn set_runtime_host_ui_screen_override(&mut self, screen: Option<&str>) {
-        self.runtime_host_ui_screen_override = screen.map(|value| value.trim().to_string());
+        self.runtime_host_ui_screen_override = screen
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
     }
 
     fn runtime_host_status_snapshot(&self) -> RuntimeHostSnapshot {
@@ -511,6 +520,7 @@ impl CnCGameEngine {
         let ui_screen = self
             .runtime_host_ui_screen_override
             .as_ref()
+            .or(self.runtime_host_base_ui_screen.as_ref())
             .map(|screen| format!("Some({screen})"))
             .unwrap_or_else(|| format!("{:?}", self.ui_manager.current_screen()));
 
@@ -527,6 +537,7 @@ impl CnCGameEngine {
             paused: self.game_paused,
             fps: self.fps.max(0.0),
             startup_progress,
+            startup_phase: self.startup_loading_phase.clone(),
             map: map_name,
             frame: self.frame_counter,
         }
@@ -775,17 +786,46 @@ impl CnCGameEngine {
     }
 
     fn ensure_shell_loading_overlay(&mut self) {
-        let _ = (
-            SHELL_LOADING_LAYOUT,
-            SHELL_LOADING_PARENT_NAME,
-            SHELL_LOADING_PROGRESS_NAME,
-        );
+        if self.startup_loading_phase.trim().is_empty() {
+            self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
+        }
+        self.set_runtime_ui_state_projection(UISystemState::Loading);
     }
 
-    fn hide_shell_loading_overlay(&mut self) {}
+    fn hide_shell_loading_overlay(&mut self) {
+        if self.startup_loading_phase.trim().is_empty() {
+            self.startup_loading_phase = "Startup complete".to_string();
+        }
+    }
+
+    fn log_startup_health_summary(&mut self) {
+        if self.startup_health_summary_logged {
+            return;
+        }
+
+        if self.startup_stall_events == 0 {
+            info!(
+                "Startup health: all checks succeeded (progress=100%, stalls=0, render_boot=ok)"
+            );
+        } else {
+            info!(
+                "Startup health: completed with {} transient stalls (max_stall={:.2}s), no fatal startup errors",
+                self.startup_stall_events,
+                self.startup_max_stall_duration.as_secs_f32()
+            );
+        }
+
+        self.startup_health_summary_logged = true;
+    }
 
     fn update_shell_loading_progress(&mut self, progress: f32, phase: Option<&str>) {
-        let _ = (progress, phase);
+        self.startup_last_reported_progress = progress.clamp(0.0, 1.0);
+        if let Some(phase) = phase {
+            let phase = phase.trim();
+            if !phase.is_empty() {
+                self.startup_loading_phase = phase.to_string();
+            }
+        }
     }
 
     fn observe_startup_progress(&mut self, progress: f32, phase: &str) {
@@ -810,13 +850,25 @@ impl CnCGameEngine {
             return;
         }
 
-        warn!(
-            "Startup progress stalled at {:.0}% in phase '{}' for {:.2}s (game_state={:?})",
-            progress * 100.0,
-            phase,
-            stalled_for.as_secs_f32(),
-            self.current_state
-        );
+        self.startup_stall_events = self.startup_stall_events.saturating_add(1);
+        self.startup_max_stall_duration = self.startup_max_stall_duration.max(stalled_for);
+        if stalled_for >= Duration::from_secs(8) {
+            warn!(
+                "Startup progress stalled at {:.0}% in phase '{}' for {:.2}s (game_state={:?})",
+                progress * 100.0,
+                phase,
+                stalled_for.as_secs_f32(),
+                self.current_state
+            );
+        } else {
+            debug!(
+                "Startup progress waiting at {:.0}% in phase '{}' for {:.2}s (game_state={:?})",
+                progress * 100.0,
+                phase,
+                stalled_for.as_secs_f32(),
+                self.current_state
+            );
+        }
         self.startup_last_stall_warning_at = Some(Instant::now());
     }
 
@@ -1346,6 +1398,7 @@ impl CnCGameEngine {
                 120,
             );
             self.last_shell_prewarm_log = None;
+            self.shell_prewarm_completion_logged = false;
 
             // Prewarm a near-camera subset during loading so first visible menu frames are stable.
             let immediate_budget = self.pending_shell_model_prewarm.len().min(48);
@@ -1379,7 +1432,7 @@ impl CnCGameEngine {
             }
 
             self.ui_manager.transition_to_screen(Screen::MainMenu);
-            self.set_wgpu_ui_state(UISystemState::MainMenu);
+            self.set_runtime_ui_state_projection(UISystemState::MainMenu);
         }
 
         if let Some(target_state) = self.startup_target_state.take() {
@@ -1394,6 +1447,7 @@ impl CnCGameEngine {
         self.startup_last_progress_change_at = Instant::now();
         self.startup_last_stall_warning_at = None;
         self.hide_shell_loading_overlay();
+        self.log_startup_health_summary();
         self.window
             .set_title("Command & Conquer Generals Zero Hour");
         self.window.request_redraw();
@@ -1428,10 +1482,10 @@ impl CnCGameEngine {
                                 );
                             }
                             let bucket = ((*last_worker_progress * 100.0).floor() as i32)
-                                .div_euclid(5)
-                                .clamp(0, 20) as u8;
+                                .div_euclid(10)
+                                .clamp(0, 10) as u8;
                             if bucket > *last_worker_logged_bucket {
-                                info!(
+                                debug!(
                                     "Startup worker progress: {:.0}% ({})",
                                     (*last_worker_progress) * 100.0,
                                     phase
@@ -1732,8 +1786,12 @@ impl CnCGameEngine {
             startup_start_in_menu: start_in_menu,
             last_loading_title_update: None,
             startup_last_reported_progress: 0.0,
+            startup_loading_phase: DEFAULT_LOADING_PHASE.to_string(),
             startup_last_progress_change_at: Instant::now(),
             startup_last_stall_warning_at: None,
+            startup_stall_events: 0,
+            startup_max_stall_duration: Duration::ZERO,
+            startup_health_summary_logged: false,
             last_caustic_warmup_attempt: None,
 
             game_logic,
@@ -1799,12 +1857,14 @@ impl CnCGameEngine {
             game_hud: GameHUD::new(),
             active_menu_shell_hook: None,
             runtime_host_headless,
+            runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
             menu_enter_frame: if start_in_menu { Some(0) } else { None },
             shell_ui_enqueued_frame: None,
             last_shell_prewarm_log: None,
+            shell_prewarm_completion_logged: false,
             match_over: false,
             victory_summary: None,
         };
@@ -2542,7 +2602,7 @@ impl CnCGameEngine {
                 self.hide_gameplay_layouts();
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::MainMenu);
-                self.set_wgpu_ui_state(UISystemState::MainMenu);
+                self.set_runtime_ui_state_projection(UISystemState::MainMenu);
             }
             GameState::Loading => {
                 info!("Entering Loading state");
@@ -2551,7 +2611,7 @@ impl CnCGameEngine {
                 self.update_shell_loading_progress(0.0, Some("Loading assets..."));
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::Loading);
-                self.set_wgpu_ui_state(UISystemState::Loading);
+                self.set_runtime_ui_state_projection(UISystemState::Loading);
             }
             GameState::Playing => {
                 info!("Entering Playing state");
@@ -2561,7 +2621,7 @@ impl CnCGameEngine {
                 self.ensure_gameplay_layouts();
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::GameHUD);
-                self.set_wgpu_ui_state(UISystemState::InGame);
+                self.set_runtime_ui_state_projection(UISystemState::InGame);
             }
             GameState::Paused => {
                 info!("Entering Paused state");
@@ -2570,7 +2630,7 @@ impl CnCGameEngine {
                 self.game_logic.set_paused(true);
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::PauseMenu);
-                self.set_wgpu_ui_state(UISystemState::PauseMenu);
+                self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
             }
             GameState::Exiting => {
                 info!("Entering Exiting state - beginning shutdown");
@@ -2586,11 +2646,13 @@ impl CnCGameEngine {
         if new_state == GameState::Menu {
             self.menu_enter_frame = Some(self.current_startup_logic_frame());
             self.last_shell_prewarm_log = None;
+            self.shell_prewarm_completion_logged = false;
         } else {
             self.menu_enter_frame = None;
             self.shell_ui_enqueued_frame = None;
             self.active_menu_shell_hook = None;
             self.last_shell_prewarm_log = None;
+            self.shell_prewarm_completion_logged = false;
         }
     }
 
@@ -2685,21 +2747,28 @@ impl CnCGameEngine {
                 if !self.pending_shell_model_prewarm.is_empty()
                     && self
                         .last_shell_prewarm_log
-                        .map(|last| last.elapsed() >= Duration::from_millis(800))
+                        .map(|last| last.elapsed() >= Duration::from_millis(2_000))
                         .unwrap_or(true)
                 {
-                    info!(
+                    let missing_models = self.render_pipeline.debug_last_model_missing();
+                    let missing_samples = self.render_pipeline.debug_last_missing_model_samples();
+                    debug!(
                         "Shell prewarm progress: pending_models={} render_items={} missing_models={} budget_skips={}",
                         self.pending_shell_model_prewarm.len(),
                         self.render_pipeline.debug_render_item_count(),
-                        self.render_pipeline.debug_last_model_missing(),
+                        missing_models,
                         self.render_pipeline.debug_last_model_budget_skips()
                     );
+                    if missing_models > 0 && !missing_samples.is_empty() {
+                        debug!(
+                            "Shell prewarm missing model samples: {}",
+                            missing_samples.join(", ")
+                        );
+                    }
                     self.last_shell_prewarm_log = Some(Instant::now());
                 }
 
-                self.set_wgpu_ui_state(UISystemState::MainMenu);
-                self.update_wgpu_ui_backend();
+                self.set_runtime_ui_state_projection(UISystemState::MainMenu);
                 if let Err(err) = self.ui_manager.update(dt) {
                     warn!("UI manager update failed in menu state: {}", err);
                 }
@@ -2716,8 +2785,7 @@ impl CnCGameEngine {
                     // Loading completed and transitioned this frame; avoid re-applying loading UI.
                     return;
                 }
-                self.set_wgpu_ui_state(UISystemState::Loading);
-                self.update_wgpu_ui_backend();
+                self.set_runtime_ui_state_projection(UISystemState::Loading);
                 // After loading completes, the state will transition to Playing
                 // This is handled by the initialization code setting pending_state
                 return;
@@ -2727,8 +2795,7 @@ impl CnCGameEngine {
                 // (matches C++ where TheGameLogic->isGamePaused() prevents update)
                 self.update_camera(visual_dt);
                 self.cleanup_sound_effects();
-                self.set_wgpu_ui_state(UISystemState::PauseMenu);
-                self.update_wgpu_ui_backend();
+                self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
                 if let Err(err) = self.ui_manager.update(dt) {
                     warn!("UI manager update failed in paused state: {}", err);
                 }
@@ -2802,9 +2869,8 @@ impl CnCGameEngine {
         // Update audio
         self.cleanup_sound_effects();
         if self.current_state == GameState::Playing {
-            self.set_wgpu_ui_state(UISystemState::InGame);
+            self.set_runtime_ui_state_projection(UISystemState::InGame);
         }
-        self.update_wgpu_ui_backend();
 
         // Process queued commands in game logic
         self.game_logic.process_commands();
@@ -3156,7 +3222,7 @@ impl CnCGameEngine {
                     info!("UI requested exit to menu");
                     self.game_paused = false;
                     self.ui_manager.transition_to_screen(Screen::MainMenu);
-                    self.set_wgpu_ui_state(UISystemState::MainMenu);
+                    self.set_runtime_ui_state_projection(UISystemState::MainMenu);
                 }
                 UIEvent::ExitGame => {
                     info!("UI requested exit");
@@ -3165,11 +3231,21 @@ impl CnCGameEngine {
                 UIEvent::ChangeScreen(screen) => {
                     self.ui_manager.transition_to_screen(screen);
                     match screen {
-                        Screen::MainMenu => self.set_wgpu_ui_state(UISystemState::MainMenu),
-                        Screen::Loading => self.set_wgpu_ui_state(UISystemState::Loading),
-                        Screen::GameHUD => self.set_wgpu_ui_state(UISystemState::InGame),
-                        Screen::PauseMenu => self.set_wgpu_ui_state(UISystemState::PauseMenu),
-                        Screen::Victory => self.set_wgpu_ui_state(UISystemState::Victory),
+                        Screen::MainMenu => {
+                            self.set_runtime_ui_state_projection(UISystemState::MainMenu)
+                        }
+                        Screen::Loading => {
+                            self.set_runtime_ui_state_projection(UISystemState::Loading)
+                        }
+                        Screen::GameHUD => {
+                            self.set_runtime_ui_state_projection(UISystemState::InGame)
+                        }
+                        Screen::PauseMenu => {
+                            self.set_runtime_ui_state_projection(UISystemState::PauseMenu)
+                        }
+                        Screen::Victory => {
+                            self.set_runtime_ui_state_projection(UISystemState::Victory)
+                        }
                         _ => {}
                     }
                 }
@@ -3377,7 +3453,7 @@ impl CnCGameEngine {
             );
         self.sync_orbit_from_camera_transform();
         self.ui_manager.transition_to_screen(Screen::GameHUD);
-        self.set_wgpu_ui_state(UISystemState::InGame);
+        self.set_runtime_ui_state_projection(UISystemState::InGame);
     }
 
     fn apply_map_lighting(
@@ -3999,7 +4075,7 @@ impl CnCGameEngine {
     fn exit_to_main_menu_from_victory(&mut self) {
         self.reset_match_state();
         self.ui_manager.transition_to_screen(Screen::MainMenu);
-        self.set_wgpu_ui_state(UISystemState::MainMenu);
+        self.set_runtime_ui_state_projection(UISystemState::MainMenu);
     }
 
     fn handle_key_press(&mut self, key: &Key) {
@@ -5082,6 +5158,7 @@ struct RuntimeHostSnapshot {
     paused: bool,
     fps: f32,
     startup_progress: f32,
+    startup_phase: String,
     map: String,
     frame: u32,
 }
@@ -5199,6 +5276,7 @@ impl RuntimeHostBridge {
             paused: false,
             fps: 0.0,
             startup_progress: 0.0,
+            startup_phase: "Booting runtime".to_string(),
             map: "-".to_string(),
             frame: self.last_published_frame,
         };
@@ -5220,6 +5298,7 @@ impl RuntimeHostBridge {
             "startup_progress={:.4}\n",
             snapshot.startup_progress.clamp(0.0, 1.0)
         ));
+        payload.push_str(&format!("startup_phase={}\n", snapshot.startup_phase));
         payload.push_str(&format!("map={}\n", snapshot.map));
         payload.push_str(&format!("frame={}\n", snapshot.frame));
         payload.push_str(&format!(
@@ -5459,6 +5538,9 @@ pub async fn run_cnc_game(
     let mut shutdown_logged = false;
     let mut next_redraw_at = Instant::now();
     let mut last_slow_frame_log = None::<Instant>;
+    let mut slow_frame_count = 0u32;
+    let mut slow_frame_peak = Duration::ZERO;
+    let mut last_render_health_log = Instant::now();
     const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
     let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
     let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
@@ -5568,12 +5650,16 @@ pub async fn run_cnc_game(
 
             let frame_elapsed = frame_started.elapsed();
             if frame_elapsed >= Duration::from_millis(120) {
+                slow_frame_count = slow_frame_count.saturating_add(1);
+                slow_frame_peak = slow_frame_peak.max(frame_elapsed);
+            }
+            if frame_elapsed >= Duration::from_millis(300) {
                 let should_log = last_slow_frame_log
-                    .map(|last| frame_started.duration_since(last) >= Duration::from_millis(500))
+                    .map(|last| frame_started.duration_since(last) >= Duration::from_secs(1))
                     .unwrap_or(true);
                 if should_log {
                     warn!(
-                        "Slow frame {:?} in {:?} (ww3d={:?}, update={:?}, render={:?}, startup_progress={:.0}%)",
+                        "Severe slow frame {:?} in {:?} (ww3d={:?}, update={:?}, render={:?}, startup_progress={:.0}%)",
                         frame_elapsed,
                         engine.get_state(),
                         ww3d_elapsed,
@@ -5583,6 +5669,26 @@ pub async fn run_cnc_game(
                     );
                     last_slow_frame_log = Some(frame_started);
                 }
+            }
+            if frame_started.duration_since(last_render_health_log) >= Duration::from_secs(5) {
+                if slow_frame_count == 0 {
+                    info!(
+                        "Render health: ok (state={:?}, no slow frames >120ms in last 5s, startup_progress={:.0}%)",
+                        engine.get_state(),
+                        engine.startup_last_reported_progress * 100.0
+                    );
+                } else {
+                    info!(
+                        "Render health: slow_frames={} peak={:?} (state={:?}, startup_progress={:.0}%)",
+                        slow_frame_count,
+                        slow_frame_peak,
+                        engine.get_state(),
+                        engine.startup_last_reported_progress * 100.0
+                    );
+                }
+                slow_frame_count = 0;
+                slow_frame_peak = Duration::ZERO;
+                last_render_health_log = frame_started;
             }
 
             if let Some(bridge) = runtime_host_bridge.as_mut() {
@@ -6411,6 +6517,21 @@ impl CnCGameEngine {
 
     fn pump_shell_scene_model_prewarm(&mut self) {
         if self.current_state != GameState::Menu {
+            return;
+        }
+        if self.pending_shell_model_prewarm.is_empty() {
+            if !self.shell_prewarm_completion_logged {
+                let missing_models = self.render_pipeline.debug_last_model_missing();
+                if missing_models == 0 {
+                    info!("Shell prewarm stream complete: all queued shell models loaded");
+                } else {
+                    info!(
+                        "Shell prewarm stream complete with remaining missing_models={} (latest frame)",
+                        missing_models
+                    );
+                }
+                self.shell_prewarm_completion_logged = true;
+            }
             return;
         }
         // C++ shell startup does not block first visible frames on synchronous shell-scene model

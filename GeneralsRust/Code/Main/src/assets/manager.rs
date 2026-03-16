@@ -16,7 +16,6 @@ use crate::assets::{
 use crate::localization;
 use crate::subsystem_manager::{with_subsystem, GlobalDataSubsystem};
 use anyhow::{anyhow, Result};
-use glam::{Mat4, Vec3};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -50,156 +49,7 @@ pub struct AssetManager {
 }
 
 impl AssetManager {
-    fn pt_vegetation_alias_mode() -> &'static str {
-        static MODE: OnceLock<String> = OnceLock::new();
-        MODE.get_or_init(|| {
-            env::var("GENERALS_PT_VEGETATION_ALIAS_MODE")
-                .unwrap_or_else(|_| "all_fir".to_string())
-                .to_ascii_lowercase()
-        })
-        .as_str()
-    }
-
-    fn remap_pt_vegetation_alias(model_name_lower: &str) -> Option<&'static str> {
-        let tree_target = match Self::pt_vegetation_alias_mode() {
-            "trees_birch" | "all_birch" => Some("PTXBirch06"),
-            "trees_oak" | "all_oak" => Some("PTXOak06"),
-            "trees_palm" | "all_palm" => Some("PTPalm01"),
-            "trees_maple" | "all_maple" => Some("PTMaple02"),
-            "trees" | "trees_fir" | "all" | "all_fir" | "tree_pine1" | "tree_pine2"
-            | "tree_spruce2" | "tree_spruce05" | "trees_pines" | "trees_spruces"
-            | "trees_three" | "bushes_pines" | "bushes_spruces" => Some("PTXFir07"),
-            _ => None,
-        };
-
-        match Self::pt_vegetation_alias_mode() {
-            "bushes" => match model_name_lower {
-                "ptbush02" => Some("PTBush17"),
-                "ptbush03" => Some("PTBush18"),
-                "ptbush08" => Some("PTBush20"),
-                "ptbush11" => Some("PTBush21"),
-                _ => None,
-            },
-            "trees" | "trees_fir" | "trees_birch" | "trees_oak" | "trees_palm" | "trees_maple" => {
-                match model_name_lower {
-                    "ptpine01" | "ptpine02" | "ptspruce01_hi" | "ptxpine05" => tree_target,
-                    _ => None,
-                }
-            }
-            "tree_pine1" => match model_name_lower {
-                "ptpine01" => tree_target,
-                _ => None,
-            },
-            "tree_pine2" => match model_name_lower {
-                "ptpine02" => tree_target,
-                _ => None,
-            },
-            "tree_spruce2" => match model_name_lower {
-                "ptspruce01_hi" => tree_target,
-                _ => None,
-            },
-            "tree_spruce05" => match model_name_lower {
-                "ptxpine05" => tree_target,
-                _ => None,
-            },
-            "trees_pines" => match model_name_lower {
-                "ptpine01" | "ptpine02" => tree_target,
-                _ => None,
-            },
-            "trees_spruces" => match model_name_lower {
-                "ptspruce01_hi" | "ptxpine05" => tree_target,
-                _ => None,
-            },
-            "trees_three" => match model_name_lower {
-                "ptpine01" | "ptpine02" | "ptspruce01_hi" => tree_target,
-                _ => None,
-            },
-            "bushes_pines" => match model_name_lower {
-                "ptbush02" => Some("PTBush17"),
-                "ptbush03" => Some("PTBush18"),
-                "ptbush08" => Some("PTBush20"),
-                "ptbush11" => Some("PTBush21"),
-                "ptpine01" | "ptpine02" => tree_target,
-                _ => None,
-            },
-            "bushes_spruces" => match model_name_lower {
-                "ptbush02" => Some("PTBush17"),
-                "ptbush03" => Some("PTBush18"),
-                "ptbush08" => Some("PTBush20"),
-                "ptbush11" => Some("PTBush21"),
-                "ptspruce01_hi" | "ptxpine05" => tree_target,
-                _ => None,
-            },
-            "all" | "all_fir" | "all_birch" | "all_oak" | "all_palm" | "all_maple" => {
-                match model_name_lower {
-                    "ptbush02" => Some("PTBush17"),
-                    "ptbush03" => Some("PTBush18"),
-                    "ptbush08" => Some("PTBush20"),
-                    "ptbush11" => Some("PTBush21"),
-                    "ptpine01" | "ptpine02" | "ptspruce01_hi" | "ptxpine05" => tree_target,
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
-    }
-
-    fn remap_known_model_alias(model_name: &str) -> &str {
-        let model_name_lower = model_name.to_ascii_lowercase();
-        if let Some(alias) = Self::remap_pt_vegetation_alias(&model_name_lower) {
-            return alias;
-        }
-
-        match model_name_lower.as_str() {
-            // Model ids that appear in challenge/skirmish map objects but do not ship as direct W3D ids.
-            "100dollarcrate" | "200dollarcrate" | "1000dollarcrate" | "1500dollarcrate"
-            | "2500dollarcrate" => "PMWldCrate",
-            "salvagecrate" | "smalllevelupcrate" | "mediumlevelupcrate" | "2freecrusaderscrate" => {
-                "PMWldCrate"
-            }
-            "ubcmdhq" => "UBCmdHQ_FA",
-            "ubsupply" => "UBSupplyF",
-            "nbconyard" => "NBConYard_FA",
-            "uvtechjeep" => "UVTechJeep_d4",
-            "uvtechvan" => "UVTechVan_d1",
-            "uvtechtrck" => "UVTechTrck_D4",
-            "nvssupplytk" => "NVSSupplyTk_B",
-            "cbtaltower" => "CBTalTower_N",
-            "cbtaltower_tr" => "CBTalTower_N",
-            "cbtower01_tr" => "CBTower02_TR",
-            "cbtower05_tr" => "CBTower05_N",
-            "cbtower04_tr" => "CBTower03_SN",
-            "pmoilsttk" => "CBOilRefny",
-            "zzsupplydock" => "PMWldCrate",
-            // Decorative map-object aliases observed in challenge/skirmish maps.
-            "pmboulders" => "PMBoulders_D",
-            "pmlclusters" => "PMLClusters_D",
-            "pmmcluster" => "PMMCluster_D",
-            "pmcluster" => "PMCluster_D",
-            "pmrocks02" | "pmrocks03" | "pmrocks05" | "pmrocks06" | "pmrocks07" => "PMBoulders_D",
-            "pmtrshpp03" | "pmtrshpl02" => "PMBrnTrshPl_D",
-            "pmpump" => "PMWldCrate",
-            "pmcrates" => "PMWldCrate",
-            // Shell-map aliases already remapped in GameLogic; keep the render-side resolver in sync
-            // so startup visuals do not fall back to placeholder meshes.
-            "pmrocks01b" | "pmrocks02b" => "PMBoulders_D",
-            "ptcypress01" => "PTXARBVT01",
-            "ptxpine03" => "PTXFIR07",
-            "pmswing" => "PMBikeRack",
-            "pmplygdst" => "PMPavilion",
-            "avamphib" => "AVChinook_A2",
-            "avpaladin" => "AVCrusader_A",
-            "cbsandbw2" => "CBSandBWY1",
-            "cbsandbw4c" => "CBSandBWX",
-            "cvtruck" => "CVTruck_D1",
-            "cbnshack" => "CBNShack_S",
-            // gc_tankgeneral renderer stability: these models can trip WW3D frame-state.
-            "zbartplat" | "zbsmalpile_s" => "PMWldCrate",
-            _ => model_name,
-        }
-    }
-
-    fn normalize_model_lookup_key(model_name: &str) -> String {
+    fn canonical_model_name(model_name: &str) -> String {
         model_name
             .rsplit(['/', '\\'])
             .next()
@@ -207,197 +57,12 @@ impl AssetManager {
             .trim()
             .trim_end_matches(".w3d")
             .trim_end_matches(".W3D")
-            .to_ascii_lowercase()
+            .to_string()
     }
 
-    fn trim_model_variant_suffixes(model_key: &str) -> String {
-        let mut trimmed = model_key
-            .trim_end_matches(|ch: char| ch.is_ascii_digit())
-            .to_string();
-        for suffix in [
-            "_dsng", "_esn", "_rsn", "_dsn", "_sng", "_dsg", "_sg", "_sn", "_dn", "_en", "_rn",
-            "_ds", "_es", "_rs", "_ng", "_dg", "_ns", "_s", "_n", "_d", "_e", "_r", "_g", "_a",
-            "_b", "_c",
-        ] {
-            if let Some(stripped) = trimmed.strip_suffix(suffix) {
-                trimmed = stripped.to_string();
-                break;
-            }
-        }
-        trimmed
-    }
-
-    fn compact_model_signature(model_key: &str) -> String {
-        model_key
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_ascii_lowercase()
-    }
-
-    fn levenshtein_distance(left: &str, right: &str) -> usize {
-        if left == right {
-            return 0;
-        }
-        if left.is_empty() {
-            return right.len();
-        }
-        if right.is_empty() {
-            return left.len();
-        }
-
-        let left_chars: Vec<char> = left.chars().collect();
-        let right_chars: Vec<char> = right.chars().collect();
-        let mut previous: Vec<usize> = (0..=right_chars.len()).collect();
-        let mut current = vec![0usize; right_chars.len() + 1];
-
-        for (i, left_char) in left_chars.iter().enumerate() {
-            current[0] = i + 1;
-            for (j, right_char) in right_chars.iter().enumerate() {
-                let substitution_cost = usize::from(left_char != right_char);
-                current[j + 1] = (previous[j + 1] + 1)
-                    .min(current[j] + 1)
-                    .min(previous[j] + substitution_cost);
-            }
-            previous.clone_from_slice(&current);
-        }
-
-        previous[right_chars.len()]
-    }
-
-    fn best_available_model_match<I>(requested_key: &str, available_models: I) -> Option<String>
-    where
-        I: Iterator<Item = String>,
-    {
-        let requested_trimmed = Self::trim_model_variant_suffixes(requested_key);
-        let requested_signature = Self::compact_model_signature(&requested_trimmed);
-        let mut best_match: Option<(i32, String)> = None;
-
-        for available_model in available_models {
-            let candidate_key = Self::normalize_model_lookup_key(&available_model);
-            let candidate_trimmed = Self::trim_model_variant_suffixes(&candidate_key);
-            let candidate_signature = Self::compact_model_signature(&candidate_trimmed);
-            let score = if candidate_key == requested_key {
-                10_000
-            } else if candidate_key.starts_with(requested_key) {
-                9_000 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
-            } else if requested_key.starts_with(&candidate_key) {
-                8_800 - (requested_key.len() as i32 - candidate_key.len() as i32).abs()
-            } else if candidate_trimmed == requested_trimmed {
-                8_400 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
-            } else if candidate_trimmed.starts_with(&requested_trimmed)
-                || requested_trimmed.starts_with(&candidate_trimmed)
-            {
-                8_000 - (candidate_trimmed.len() as i32 - requested_trimmed.len() as i32).abs()
-            } else if !requested_signature.is_empty() && candidate_signature == requested_signature
-            {
-                7_600 - (candidate_key.len() as i32 - requested_key.len() as i32).abs()
-            } else if !requested_signature.is_empty()
-                && candidate_signature.contains(&requested_signature)
-            {
-                7_200 - (candidate_signature.len() as i32 - requested_signature.len() as i32).abs()
-            } else {
-                let distance =
-                    Self::levenshtein_distance(&requested_signature, &candidate_signature);
-                if distance <= 2 {
-                    6_000 - distance as i32 * 100
-                } else {
-                    continue;
-                }
-            };
-
-            match &best_match {
-                Some((best_score, _)) if *best_score >= score => {}
-                _ => {
-                    let canonical = available_model
-                        .rsplit(['/', '\\'])
-                        .next()
-                        .unwrap_or(&available_model)
-                        .trim_end_matches(".w3d")
-                        .trim_end_matches(".W3D")
-                        .to_string();
-                    best_match = Some((score, canonical));
-                }
-            }
-        }
-
-        best_match.map(|(_, model)| model)
-    }
-
-    fn model_variant_candidates(model_name: &str) -> Vec<String> {
-        let base = model_name
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(model_name)
-            .trim()
-            .trim_end_matches(".w3d")
-            .trim_end_matches(".W3D");
-        let mut candidates = vec![base.to_string()];
-        for suffix in [
-            "_d4", "_d3", "_d2", "_d1", "_d", "_dsn", "_dsng", "_ds", "_dsg", "_esn", "_es", "_en",
-            "_rsn", "_rs", "_rn", "_sng", "_sn", "_sg", "_s", "_ng", "_n", "_g", "_a", "_b", "_c",
-        ] {
-            candidates.push(format!("{base}{suffix}"));
-        }
-        candidates
-    }
-
-    fn resolve_available_model_name(&mut self, model_name: &str) -> String {
-        static MODEL_RESOLUTION_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> =
-            OnceLock::new();
-
-        let remapped_name = Self::remap_known_model_alias(model_name);
-        let requested_key = Self::normalize_model_lookup_key(remapped_name);
-        let cache = MODEL_RESOLUTION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&requested_key) {
-                return cached.clone().unwrap_or_else(|| remapped_name.to_string());
-            }
-        }
-
-        for candidate in Self::model_variant_candidates(remapped_name) {
-            for path in [
-                format!("art/w3d/{candidate}.w3d"),
-                format!("Art/W3D/{candidate}.W3D"),
-                format!("{candidate}.w3d"),
-                format!("{candidate}.W3D"),
-            ] {
-                if self.can_open_file_sync(&path) {
-                    if let Ok(mut cache) = cache.lock() {
-                        cache.insert(requested_key.clone(), Some(candidate.clone()));
-                    }
-                    if !candidate.eq_ignore_ascii_case(remapped_name) {
-                        info!(
-                            "Resolved W3D model '{}' -> fast variant '{}'",
-                            model_name, candidate
-                        );
-                    }
-                    return candidate;
-                }
-            }
-        }
-
-        let resolved = Self::best_available_model_match(
-            &requested_key,
-            self.list_available_models().into_iter(),
-        );
-
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(requested_key, resolved.clone());
-        }
-
-        if let Some(resolved) = resolved {
-            if !resolved.eq_ignore_ascii_case(remapped_name) {
-                info!(
-                    "Resolved W3D model '{}' -> closest shipped asset '{}'",
-                    model_name, resolved
-                );
-            }
-            resolved
-        } else {
-            remapped_name.to_string()
-        }
+    fn resolve_available_model_name(&self, model_name: &str) -> String {
+        // C++ parity: request the model name as-authored instead of fuzzy suffix/alias remaps.
+        Self::canonical_model_name(model_name)
     }
 
     /// Create new asset manager
@@ -902,79 +567,46 @@ impl AssetManager {
 
     /// Load a model asynchronously by cloning from cache or loading fresh
     pub async fn load_w3d_model_async(&mut self, model_name: &str) -> Result<W3DModel> {
-        let remapped_name = self.resolve_available_model_name(model_name);
+        let resolved_name = self.resolve_available_model_name(model_name);
         let model_key = model_name.to_lowercase();
-        let remapped_key = remapped_name.to_lowercase();
+        let resolved_key = resolved_name.to_lowercase();
 
         // Check cache first
         if let Some(model) = self.model_cache.get(&model_key) {
             return Ok(model.clone());
         }
-        if remapped_key != model_key {
-            if let Some(model) = self.model_cache.get(&remapped_key).cloned() {
+        if resolved_key != model_key {
+            if let Some(model) = self.model_cache.get(&resolved_key).cloned() {
                 self.model_cache.insert(model_key.clone(), model.clone());
                 return Ok(model);
             }
         }
 
-        if remapped_name != model_name {
-            info!(
-                "Loading W3D model: {} (alias -> {})",
-                model_name, remapped_name
-            );
-        } else {
-            info!("Loading W3D model: {}", model_name);
-        }
+        info!("Loading W3D model: {}", resolved_name);
 
-        // Use the actual W3D loader to parse the model with global timeout protection
+        // Use the actual W3D loader to parse the model.
         let w3d_loader = W3DLoader::new();
-
-        // CRITICAL FIX: Add global timeout to prevent infinite hangs in W3D parsing
-        let global_timeout = tokio::time::Duration::from_secs(15);
-        let load_result = tokio::time::timeout(
-            global_timeout,
-            w3d_loader.load_model(&mut self.archive_system, &remapped_name),
-        )
-        .await;
-
-        let model = match load_result {
-            Ok(Ok(model)) => model,
-            Ok(Err(e)) => {
-                warn!(
-                    "W3D loader failed for '{}': {}. Using fallback mesh.",
-                    model_name, e
-                );
-                let fallback = Self::build_fallback_model(model_name);
-                self.model_cache.insert(model_key.clone(), fallback.clone());
-                if remapped_key != model_key {
-                    self.model_cache.insert(remapped_key, fallback.clone());
-                }
-                return Ok(fallback);
-            }
-            Err(_) => {
-                warn!(
-                    "W3D loading timed out after 15s for '{}'. Using fallback mesh.",
-                    model_name
-                );
-                let fallback = Self::build_fallback_model(model_name);
-                self.model_cache.insert(model_key.clone(), fallback.clone());
-                if remapped_key != model_key {
-                    self.model_cache.insert(remapped_key, fallback.clone());
-                }
-                return Ok(fallback);
+        let model = match w3d_loader
+            .load_model(&mut self.archive_system, &resolved_name)
+            .await
+        {
+            Ok(model) => model,
+            Err(e) => {
+                warn!("W3D loader failed for '{}': {}", model_name, e);
+                return Err(anyhow!("W3D load failed for '{}': {e}", model_name));
             }
         };
 
         info!(
             "✅ Successfully loaded W3D model '{}' with {} meshes, {} total vertices",
-            remapped_name,
+            resolved_name,
             model.meshes.len(),
             model.meshes.iter().map(|m| m.vertices.len()).sum::<usize>()
         );
 
         // Cache the model
-        self.model_cache.insert(remapped_key, model.clone());
-        if remapped_name != model_name {
+        self.model_cache.insert(resolved_key, model.clone());
+        if resolved_name != model_name {
             self.model_cache.insert(model_key, model.clone());
         }
         Ok(model)
@@ -988,16 +620,16 @@ impl AssetManager {
 
     /// Load a model synchronously by cloning from cache or loading through the W3D parser path.
     pub fn load_w3d_model(&mut self, model_name: &str) -> Result<W3DModel> {
-        let remapped_name = self.resolve_available_model_name(model_name);
+        let resolved_name = self.resolve_available_model_name(model_name);
         let model_key = model_name.to_lowercase();
-        let remapped_key = remapped_name.to_lowercase();
+        let resolved_key = resolved_name.to_lowercase();
 
         // Check cache first
         if let Some(model) = self.model_cache.get(&model_key) {
             return Ok(model.clone());
         }
-        if remapped_key != model_key {
-            if let Some(model) = self.model_cache.get(&remapped_key).cloned() {
+        if resolved_key != model_key {
+            if let Some(model) = self.model_cache.get(&resolved_key).cloned() {
                 self.model_cache.insert(model_key.clone(), model.clone());
                 return Ok(model);
             }
@@ -1006,22 +638,10 @@ impl AssetManager {
         let model = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
                 tokio::task::block_in_place(|| {
-                    handle.block_on(async {
-                        let global_timeout = tokio::time::Duration::from_secs(15);
-                        match tokio::time::timeout(
-                            global_timeout,
-                            self.model_loader
-                                .load_model(&mut self.archive_system, &remapped_name),
-                        )
-                        .await
-                        {
-                            Ok(result) => result,
-                            Err(_) => Err(anyhow!(
-                                "Synchronous W3D loading timed out after 15s for '{}'",
-                                remapped_name
-                            )),
-                        }
-                    })
+                    handle.block_on(
+                        self.model_loader
+                            .load_model(&mut self.archive_system, &resolved_name),
+                    )
                 })
             } else {
                 Err(anyhow!(
@@ -1032,79 +652,33 @@ impl AssetManager {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
-            runtime.block_on(async {
-                let global_timeout = tokio::time::Duration::from_secs(15);
-                match tokio::time::timeout(
-                    global_timeout,
-                    self.model_loader
-                        .load_model(&mut self.archive_system, &remapped_name),
-                )
-                .await
-                {
-                    Ok(result) => result,
-                    Err(_) => Err(anyhow!(
-                        "Synchronous W3D loading timed out after 15s for '{}'",
-                        remapped_name
-                    )),
-                }
-            })
+            runtime.block_on(
+                self.model_loader
+                    .load_model(&mut self.archive_system, &resolved_name),
+            )
         };
 
         let model = match model {
             Ok(model) => model,
             Err(err) => {
                 warn!(
-                    "Synchronous W3D load failed for '{}': {}. Using fallback mesh.",
-                    remapped_name, err
+                    "Synchronous W3D load failed for '{}': {}",
+                    resolved_name, err
                 );
-                Self::build_fallback_model(&remapped_name)
+                return Err(anyhow!(
+                    "Synchronous W3D load failed for '{}': {}",
+                    resolved_name,
+                    err
+                ));
             }
         };
 
         // Cache the model
-        self.model_cache.insert(remapped_key, model.clone());
-        if remapped_name != model_name {
+        self.model_cache.insert(resolved_key, model.clone());
+        if resolved_name != model_name {
             self.model_cache.insert(model_key, model.clone());
         }
         Ok(model)
-    }
-
-    fn build_fallback_model(model_name: &str) -> W3DModel {
-        let mut fallback_mesh = crate::assets::models::W3DMesh::new(format!("{}_mesh", model_name));
-        fallback_mesh.vertices = vec![
-            crate::assets::models::W3DVertex {
-                position: [-1.0, -1.0, 0.0],
-                normal: [0.0, 0.0, 1.0],
-                uv: [0.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-            },
-            crate::assets::models::W3DVertex {
-                position: [1.0, -1.0, 0.0],
-                normal: [0.0, 0.0, 1.0],
-                uv: [1.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-            },
-            crate::assets::models::W3DVertex {
-                position: [0.0, 1.0, 0.0],
-                normal: [0.0, 0.0, 1.0],
-                uv: [0.5, 1.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-            },
-        ];
-        fallback_mesh.indices = vec![0, 1, 2];
-        fallback_mesh.material = crate::assets::models::W3DMaterial::default();
-        fallback_mesh.transform = Mat4::IDENTITY;
-        fallback_mesh.stage_uv_channels = vec![0];
-
-        W3DModel {
-            name: model_name.to_string(),
-            meshes: vec![fallback_mesh],
-            materials: HashMap::new(),
-            texture_names: Vec::new(),
-            ww3d_mesh_models: HashMap::new(),
-            bounding_box_min: Vec3::new(-1.0, -1.0, 0.0),
-            bounding_box_max: Vec3::new(1.0, 1.0, 0.0),
-        }
     }
 
     /// Play faction-specific music
@@ -1421,39 +995,4 @@ mod tests {
         assert_eq!(results.audio.len(), 1);
     }
 
-    #[test]
-    fn remap_known_model_alias_covers_shell_map_aliases() {
-        assert_eq!(
-            AssetManager::remap_known_model_alias("PMRocks01b"),
-            "PMBoulders_D"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("PMRocks02b"),
-            "PMBoulders_D"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("PTCypress01"),
-            "PTXARBVT01"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("PTXPine03"),
-            "PTXFIR07"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("PMSwing"),
-            "PMBikeRack"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("PMPlygdSt"),
-            "PMPavilion"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("AVAMPHIB"),
-            "AVChinook_A2"
-        );
-        assert_eq!(
-            AssetManager::remap_known_model_alias("AVPaladin"),
-            "AVCrusader_A"
-        );
-    }
 }

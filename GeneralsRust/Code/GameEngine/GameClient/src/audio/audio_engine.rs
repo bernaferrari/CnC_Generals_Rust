@@ -12,10 +12,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kira::manager::{AudioManager as KiraManager, AudioManagerSettings};
-use kira::sound::static_sound::StaticSoundSettings;
+use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings, StaticSoundHandle};
 use kira::sound::streaming::StreamingSoundSettings;
 use kira::tween::Tween;
-use kira::{Volume, PlaybackRate};
+use kira::Volume;
+use kira::sound::PlaybackRate;
 
 use crate::system::{SubsystemInterface, TimeOfDay};
 
@@ -39,7 +40,7 @@ pub enum AudioAffect {
     SystemSetting = 0x10,
 }
 
-impl std::fmt::BitOr for AudioAffect {
+impl std::ops::BitOr for AudioAffect {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self::Output {
         AudioAffect::from_bits(self as u32 | rhs as u32)
@@ -273,7 +274,7 @@ impl AudioCache {
 /// Tracks a currently playing sound instance.
 struct PlayingInstance {
     handle: AudioHandle,
-    kira_handle: kira::sound::Handle,
+    kira_handle: StaticSoundHandle,
     info: AudioEventInfo,
     volume: f32,
     position: Option<AudioPosition>,
@@ -760,26 +761,29 @@ impl AudioEngine {
         path: &Path,
         volume: f32,
         looping: bool,
-    ) -> Result<kira::sound::Handle, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<StaticSoundHandle, Box<dyn std::error::Error + Send + Sync>> {
         // Try to load from cache first, then from disk.
         let _cached = self.cache.get_or_load(&path.to_string_lossy());
 
         // kira's StaticSoundData::from_file handles loading directly.
         // If the file is missing we fall back gracefully.
-        let sound_data = kira::sound::static_sound::StaticSoundData::from_file(
+        let mut sound_data = StaticSoundData::from_file(
             path,
             StaticSoundSettings::new()
                 .volume(Volume::Amplitude(volume as f64))
                 .playback_rate(PlaybackRate::Factor(1.0)),
         )?;
 
-        let mut play_settings = kira::sound::PlaybackSettings::default();
         if looping {
-            // kira loop via start_at / loop_region or by re-triggering.
-            // For now we just play the sound once; the music system handles looping.
+            sound_data = sound_data.with_settings(
+                StaticSoundSettings::new()
+                    .volume(Volume::Amplitude(volume as f64))
+                    .playback_rate(PlaybackRate::Factor(1.0))
+                    .loop_region(..),
+            );
         }
 
-        let mut handle = self.kira.play(sound_data)?;
+        let handle = self.kira.play(sound_data)?;
         Ok(handle)
     }
 }

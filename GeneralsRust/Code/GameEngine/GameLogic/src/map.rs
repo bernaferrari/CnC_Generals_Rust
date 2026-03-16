@@ -15,12 +15,18 @@ use bitflags::bitflags;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+pub mod map_loader;
+pub mod object_placer;
 pub mod polygon_trigger;
 pub mod sides_list;
+pub mod terrain_loader;
 pub mod terrain_logic;
 
+pub use map_loader::*;
+pub use object_placer::*;
 pub use polygon_trigger::*;
 pub use sides_list::*;
+pub use terrain_loader::*;
 
 // Map object flags (matching C++ definitions)
 bitflags! {

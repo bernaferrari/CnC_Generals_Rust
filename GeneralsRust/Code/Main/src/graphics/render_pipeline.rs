@@ -62,6 +62,26 @@ pub(crate) fn gameplay_to_render_transform(matrix: Mat4) -> Mat4 {
     matrix
 }
 
+fn transform_has_finite_components(transform: Mat4) -> bool {
+    transform.to_cols_array().into_iter().all(|value| value.is_finite())
+}
+
+fn transform_is_reasonable_for_mesh(transform: Mat4) -> bool {
+    if !transform_has_finite_components(transform) {
+        return false;
+    }
+    let x = transform.x_axis.truncate().length();
+    let y = transform.y_axis.truncate().length();
+    let z = transform.z_axis.truncate().length();
+    let translation = transform.w_axis.truncate();
+
+    let scales_ok = [x, y, z]
+        .into_iter()
+        .all(|len| len.is_finite() && len > 1.0e-4 && len < 1.0e4);
+    let translation_ok = translation.is_finite() && translation.length() < 2.0e5;
+    scales_ok && translation_ok
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CachedLighting {
     pub sun_direction: Option<[f32; 3]>,
@@ -133,6 +153,7 @@ pub struct RenderPipeline {
     debug_last_model_budget_skips: usize,
     debug_last_zero_mesh_models: usize,
     debug_last_missing_model_samples: Vec<String>,
+    debug_warned_bad_mesh_transforms: HashSet<String>,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -400,6 +421,7 @@ impl RenderPipeline {
             debug_last_model_budget_skips: 0,
             debug_last_zero_mesh_models: 0,
             debug_last_missing_model_samples: Vec::new(),
+            debug_warned_bad_mesh_transforms: HashSet::new(),
         })
     }
 
@@ -457,6 +479,7 @@ impl RenderPipeline {
             self.debug_last_model_budget_skips = 0;
             self.debug_last_zero_mesh_models = 0;
             self.debug_last_missing_model_samples.clear();
+            self.debug_warned_bad_mesh_transforms.clear();
 
             // Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
             self.collect_render_items(
@@ -760,37 +783,39 @@ impl RenderPipeline {
                     for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                         let mut material = mesh.material.clone();
 
-                        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
-                            if let Ok(asset_manager) = asset_manager_arc.lock() {
-                                if let Some(obj_def) = asset_manager
-                                    .resolve_object_definition(&object.template_name, model_hint)
-                                {
-                                    if let Some(texture_from_ini) = obj_def.get_primary_texture() {
-                                        material.texture_name = Some(texture_from_ini.to_string());
-                                        trace!(
-                                            "WW3D material override: object {} ('{}') -> texture {}",
-                                            object_id,
-                                            object.template_name,
-                                            texture_from_ini
-                                        );
+                        if material.texture_name.is_none() {
+                            if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+                                if let Ok(asset_manager) = asset_manager_arc.lock() {
+                                    if let Some(obj_def) = asset_manager
+                                        .resolve_object_definition(&object.template_name, model_hint)
+                                    {
+                                        if let Some(texture_from_ini) = obj_def.get_primary_texture() {
+                                            material.texture_name = Some(texture_from_ini.to_string());
+                                            trace!(
+                                                "WW3D material fallback: object {} ('{}') -> texture {}",
+                                                object_id,
+                                                object.template_name,
+                                                texture_from_ini
+                                            );
+                                        } else if self
+                                            .missing_ini_objects
+                                            .insert(format!("{}::texture", object.template_name))
+                                        {
+                                            debug!(
+                                                "WW3D assets: INI definition for '{}' defines no textures",
+                                                object.template_name
+                                            );
+                                        }
                                     } else if self
                                         .missing_ini_objects
-                                        .insert(format!("{}::texture", object.template_name))
+                                        .insert(object.template_name.clone())
                                     {
                                         debug!(
-                                            "WW3D assets: INI definition for '{}' defines no textures",
-                                            object.template_name
+                                            "WW3D assets: no INI definition for '{}' (model hint: {:?})",
+                                            object.template_name,
+                                            model_hint
                                         );
                                     }
-                                } else if self
-                                    .missing_ini_objects
-                                    .insert(object.template_name.clone())
-                                {
-                                    debug!(
-                                        "WW3D assets: no INI definition for '{}' (model hint: {:?})",
-                                        object.template_name,
-                                        model_hint
-                                    );
                                 }
                             }
                         }
@@ -798,6 +823,29 @@ impl RenderPipeline {
                         let world_matrix =
                             gameplay_to_render_transform(object.get_transform_matrix());
                         let world_position = world_matrix.w_axis.truncate();
+                        // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
+                        // source gameplay basis. If we axis-convert vertex payload at mesh build
+                        // time, local transforms must be converted into the same render basis.
+                        let mesh_local_transform = if mesh.vertices_in_render_space {
+                            mesh.transform
+                        } else {
+                            let axis = gameplay_to_render_axis_matrix();
+                            axis * mesh.transform * axis.inverse()
+                        };
+                        let mesh_local_transform = if transform_is_reasonable_for_mesh(mesh_local_transform)
+                        {
+                            mesh_local_transform
+                        } else {
+                            let key =
+                                format!("{}::{}::{}", object.template_name, model_name, mesh.name);
+                            if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
+                                warn!(
+                                    "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
+                                    key, object.template_name, model_name, mesh.name
+                                );
+                            }
+                            Mat4::IDENTITY
+                        };
                         let mut render_item = RenderItem::new(
                             object_id,
                             model_name.to_string(),
@@ -807,7 +855,7 @@ impl RenderPipeline {
                             &material,
                             Self::render_pass_for_material(&material),
                         );
-                        render_item.set_mesh_local_transform(mesh.transform);
+                        render_item.set_mesh_local_transform(mesh_local_transform);
                         render_item.distance = world_position.distance(camera_position);
                         render_item.set_fow_visibility(visibility);
 

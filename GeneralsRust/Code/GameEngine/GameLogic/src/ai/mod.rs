@@ -2320,14 +2320,10 @@ pub trait PartitionFilter {
 pub static THE_AI: Lazy<Arc<RwLock<AI>>> = Lazy::new(|| Arc::new(RwLock::new(AI::new())));
 
 // Core AI systems
-pub mod ai;
 pub mod ai_core; // Complete AI system integration
 pub mod ai_update; // AI update interfaces and coordination
 
 // AI behavior modules
-pub mod ai_dock;
-pub mod ai_guard;
-pub mod ai_guard_retaliate;
 pub mod dock;
 pub mod formations; // Formation offset calculations for group movement
 pub mod group;
@@ -2336,7 +2332,6 @@ pub mod guard_retaliate;
 
 // AI player systems
 pub mod ai_player; // Base AIPlayer implementation
-pub mod ai_skirmish_player;
 pub mod skirmish_player; // Skirmish-specific AI
 
 pub use self::group::AIGroup;
@@ -2346,14 +2341,11 @@ pub use self::group::GuardMode;
 #[deprecated(note = "Use pathfinding_system instead")]
 pub mod pathfind; // Legacy pathfinding (deprecated)
 #[deprecated(note = "Use pathfinding_system instead")]
-pub mod pathfinding; // Advanced pathfinding (deprecated)
-#[deprecated(note = "Use pathfinding_system instead")]
 pub mod pathfinding_system; // Production pathfinding system (USE THIS)
 
 // NEW: Complete pathfinding system - faithful C++ port
 // Reference: /GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
 // These modules provide 100% C++ compatible pathfinding with all constants matching exactly
-pub mod ai_pathfind;
 pub mod group_pathfinding;
 pub mod path_optimization; // Path smoothing (AIPathfind.cpp:450-696)
 pub mod pathfind_astar; // A* algorithm (AIPathfind.cpp:6438-6694)
@@ -2363,8 +2355,6 @@ pub mod pathfind_complete; // Complete system (all features integrated) // Group
 mod pathfinding_tests;
 
 // Legacy AIPlayer implementation superseded by ai_player.
-pub mod ai_tn_guard;
-pub mod aitn_guard;
 pub mod squad;
 pub mod states;
 pub mod tn_guard;

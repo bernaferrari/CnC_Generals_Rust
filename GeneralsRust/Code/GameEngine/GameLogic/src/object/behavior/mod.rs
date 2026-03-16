@@ -95,7 +95,6 @@ pub mod height_die_update;
 pub mod helicopter_slow_death_behavior;
 pub mod helicopter_slow_death_update;
 pub mod lifetime_update;
-pub mod neuton_blast_behavior;
 pub mod neutron_blast_behavior;
 pub mod neutron_missile_slow_death_update;
 pub mod neutron_missile_update;
@@ -305,7 +304,6 @@ pub use helicopter_slow_death_behavior::{
 };
 pub use helicopter_slow_death_update::*;
 pub use lifetime_update::{LifetimeUpdate, LifetimeUpdateFactory, LifetimeUpdateModuleData};
-pub use neuton_blast_behavior::*;
 pub use neutron_blast_behavior::{
     NeutronBlastBehavior, NeutronBlastBehaviorFactory, NeutronBlastBehaviorModuleData,
 };

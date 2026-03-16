@@ -738,10 +738,16 @@ impl EditorApp {
                                 ),
                         )
                         .child(div().text_sm().text_color(rgb(0xf5e9d7)).child(format!(
-                            "Loading assets {:.0}% | {}",
-                            progress * 100.0,
-                            self.runtime.status_line()
-                        ))),
+                            "{} {:.0}%",
+                            self.runtime.startup_phase(),
+                            progress * 100.0
+                        )))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0xc9d6e2))
+                                .child(self.runtime.status_line()),
+                        ),
                 )
                 .into_any_element();
         }
@@ -971,6 +977,7 @@ struct RuntimeStatus {
     paused: bool,
     fps: f32,
     startup_progress: f32,
+    startup_phase: String,
     map: String,
     frame: u32,
 }
@@ -983,6 +990,7 @@ impl Default for RuntimeStatus {
             paused: false,
             fps: 0.0,
             startup_progress: 0.0,
+            startup_phase: "Loading assets".to_string(),
             map: "-".to_string(),
             frame: 0,
         }
@@ -1257,6 +1265,7 @@ impl RuntimeBridge {
                 "startup_progress" => {
                     next.startup_progress = value.trim().parse().unwrap_or(next.startup_progress)
                 }
+                "startup_phase" => next.startup_phase = value.trim().to_string(),
                 "map" => next.map = value.trim().to_string(),
                 "frame" => next.frame = value.trim().parse().unwrap_or(next.frame),
                 "frame_path" => {
@@ -1438,9 +1447,10 @@ impl RuntimeBridge {
             return "Runtime booting...".to_string();
         }
         format!(
-            "State={} | UI={} | FPS={:.1} | Load={:.0}% | Map={} | Frame={} | FrameAge={}ms",
+            "State={} | UI={} | Phase={} | FPS={:.1} | Load={:.0}% | Map={} | Frame={} | FrameAge={}ms",
             self.status.state,
             self.status.ui_screen,
+            self.status.startup_phase,
             self.status.fps,
             self.status.startup_progress * 100.0,
             self.status.map,
@@ -1515,6 +1525,15 @@ impl RuntimeBridge {
 
     fn startup_progress(&self) -> f32 {
         self.status.startup_progress.clamp(0.0, 1.0)
+    }
+
+    fn startup_phase(&self) -> &str {
+        let phase = self.status.startup_phase.trim();
+        if phase.is_empty() {
+            "Loading assets"
+        } else {
+            phase
+        }
     }
 }
 
