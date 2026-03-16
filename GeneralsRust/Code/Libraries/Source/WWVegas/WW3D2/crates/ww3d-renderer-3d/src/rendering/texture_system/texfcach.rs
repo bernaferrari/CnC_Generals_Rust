@@ -23,6 +23,7 @@ use ww3d_core::ww3d::WW3D;
 
 const CACHE_MAGIC: [u8; 4] = *b"WWTC";
 const CACHE_VERSION: u32 = 20000814; // Matches FileHeader::TCF_VERSION in the legacy renderer.
+const MAX_CACHED_SURFACES: usize = 16;
 
 /// Minimal stand-in for the legacy `srColorSurface` interface.
 #[derive(Debug, Clone)]
@@ -45,6 +46,70 @@ impl SrColorSurfaceIFace {
 
     pub fn data_size(&self) -> usize {
         self.bytes.len()
+    }
+
+    pub fn copy_from(&mut self, source: &SrColorSurfaceIFace) {
+        if self.width == source.width && self.height == source.height {
+            let copy_len = self.bytes.len().min(source.bytes.len());
+            self.bytes[..copy_len].copy_from_slice(&source.bytes[..copy_len]);
+            return;
+        }
+
+        // Faithful intent: legacy surface copy scales source mip data into destination.
+        // We use deterministic nearest-neighbour scaling for parity-safe behaviour.
+        let src_bpp = if source.width == 0 || source.height == 0 {
+            0
+        } else {
+            source.bytes.len() / (source.width as usize * source.height as usize)
+        };
+        let dst_bpp = if self.width == 0 || self.height == 0 {
+            0
+        } else {
+            self.bytes.len() / (self.width as usize * self.height as usize)
+        };
+        if src_bpp == 0 || src_bpp != dst_bpp {
+            return;
+        }
+
+        let src_w = source.width.max(1) as usize;
+        let src_h = source.height.max(1) as usize;
+        let dst_w = self.width.max(1) as usize;
+        let dst_h = self.height.max(1) as usize;
+
+        for y in 0..dst_h {
+            let sy = (y * src_h) / dst_h;
+            for x in 0..dst_w {
+                let sx = (x * src_w) / dst_w;
+                let src_offset = (sy * src_w + sx) * src_bpp;
+                let dst_offset = (y * dst_w + x) * dst_bpp;
+                self.bytes[dst_offset..dst_offset + dst_bpp]
+                    .copy_from_slice(&source.bytes[src_offset..src_offset + src_bpp]);
+            }
+        }
+    }
+}
+
+/// Rust equivalent of `srTextureIFace::MultiRequest`.
+#[derive(Debug, Clone)]
+pub struct TextureMultiRequest {
+    pub levels: Vec<Option<SrColorSurfaceIFace>>,
+    pub large_lod: u32,
+    pub small_lod: u32,
+}
+
+impl TextureMultiRequest {
+    pub fn new(max_lod: usize) -> Self {
+        Self {
+            levels: vec![None; max_lod.max(1)],
+            large_lod: 0,
+            small_lod: 0,
+        }
+    }
+}
+
+impl Default for TextureMultiRequest {
+    fn default() -> Self {
+        Self::new(MAX_CACHED_SURFACES)
     }
 }
 
@@ -163,6 +228,7 @@ pub struct TextureFileCache {
     entries: HashMap<String, TextureCacheEntry>,
     config: TextureCacheConfig,
     total_memory_usage: u64,
+    current_texture: Option<String>,
 }
 
 impl TextureFileCache {
@@ -179,7 +245,12 @@ impl TextureFileCache {
             entries: HashMap::new(),
             config,
             total_memory_usage: 0,
+            current_texture: None,
         }
+    }
+
+    fn key_for(name: &str) -> String {
+        name.to_ascii_lowercase()
     }
 
     fn cache_path(&self) -> PathBuf {
@@ -216,10 +287,24 @@ impl TextureFileCache {
 
         self.entries.clear();
         self.total_memory_usage = 0;
-        self.scan_index(&mut file)?;
+        if self.scan_index(&mut file).is_err() {
+            Self::reset_file_internal(&mut file)?;
+            self.entries.clear();
+            self.total_memory_usage = 0;
+            self.scan_index(&mut file)?;
+        }
         file.seek(SeekFrom::End(0))?;
 
         self.file = Some(file);
+        Ok(())
+    }
+
+    fn reset_file_internal(file: &mut File) -> RendererResult<()> {
+        file.set_len(0)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(&CACHE_MAGIC)?;
+        write_u32(file, CACHE_VERSION)?;
+        file.flush()?;
         Ok(())
     }
 
@@ -275,7 +360,7 @@ impl TextureFileCache {
             file.seek(SeekFrom::Current(total_size as i64))?;
 
             let entry = TextureCacheEntry::new(header.clone(), offsets, data_offset, total_size);
-            self.entries.insert(name, entry);
+            self.entries.insert(Self::key_for(&name), entry);
         }
 
         Ok(())
@@ -329,7 +414,6 @@ impl TextureFileCache {
         write_u32(file, name.len() as u32)?;
         file.write_all(name.as_bytes())?;
         write_block_header(file, &header)?;
-        write_u32(file, header.num_mipmaps)?;
         for offset in &offsets {
             write_u64(file, offset.relative_offset)?;
             write_u64(file, offset.size)?;
@@ -360,7 +444,8 @@ impl TextureFileCache {
         let texture_arc = Arc::new(texture);
         let memory = Self::estimate_texture_memory(texture_arc.as_ref());
 
-        if let Some(previous) = self.entries.insert(name.to_string(), entry) {
+        let key = Self::key_for(name);
+        if let Some(previous) = self.entries.insert(key.clone(), entry) {
             if let Some(old_texture) = previous.texture {
                 self.total_memory_usage = self
                     .total_memory_usage
@@ -369,7 +454,7 @@ impl TextureFileCache {
         }
 
         self.total_memory_usage = self.total_memory_usage.saturating_add(memory);
-        if let Some(entry) = self.entries.get_mut(name) {
+        if let Some(entry) = self.entries.get_mut(&key) {
             entry.texture = Some(texture_arc.clone());
             entry.ref_count.store(1, Ordering::SeqCst);
         }
@@ -382,6 +467,7 @@ impl TextureFileCache {
         if self.ensure_file_open().is_err() {
             return false;
         }
+        let key = Self::key_for(texturename);
 
         let Some(source_path) = self.find_source_path(texturename) else {
             return false;
@@ -389,7 +475,7 @@ impl TextureFileCache {
 
         let file_time = file_time_seconds(&source_path).unwrap_or(0);
 
-        if let Some(entry) = self.entries.get(texturename) {
+        if let Some(entry) = self.entries.get(&key) {
             if entry.file_time == file_time {
                 return true;
             }
@@ -418,6 +504,270 @@ impl TextureFileCache {
 
         self.add_entry(texturename, texture, header, offsets, serialized)
             .is_ok()
+    }
+
+    /// C++ parity: reset cache file and rewrite version header.
+    pub fn reset_file(&mut self) {
+        if self.ensure_file_open().is_err() {
+            return;
+        }
+        if let Some(file) = self.file.as_mut() {
+            if Self::reset_file_internal(file).is_ok() {
+                self.entries.clear();
+                self.total_memory_usage = 0;
+                self.current_texture = None;
+            }
+        }
+    }
+
+    /// C++ parity: check if texture tag exists in cache.
+    pub fn texture_exists(&mut self, fname: &str) -> bool {
+        if self.ensure_file_open().is_err() {
+            return false;
+        }
+        self.entries.contains_key(&Self::key_for(fname))
+    }
+
+    fn open_texture_handle(&mut self, fname: &str) -> bool {
+        if let Some(current) = &self.current_texture {
+            if current.eq_ignore_ascii_case(fname) {
+                return self.entries.contains_key(&Self::key_for(fname));
+            }
+            self.close_texture_handle();
+        }
+        if !self.validate_texture(fname) {
+            return false;
+        }
+        if self.entries.contains_key(&Self::key_for(fname)) {
+            self.current_texture = Some(fname.to_string());
+            true
+        } else {
+            false
+        }
+    }
+
+    fn close_texture_handle(&mut self) {
+        self.current_texture = None;
+    }
+
+    /// C++ parity: create source-sized surface shell using original dimensions.
+    pub fn load_original_texture_surface(&mut self, texturename: &str) -> Option<SrColorSurfaceIFace> {
+        if !self.open_texture_handle(texturename) {
+            return None;
+        }
+        let key = Self::key_for(texturename);
+        let entry = self.entries.get(&key)?;
+        let bytes_per_pixel = approximate_bpp(entry.header.source_format).ceil().max(1.0) as usize;
+        let size = (entry.header.source_width.max(1) as usize)
+            * (entry.header.source_height.max(1) as usize)
+            * bytes_per_pixel;
+        Some(SrColorSurfaceIFace::new(
+            entry.header.source_width.max(1),
+            entry.header.source_height.max(1),
+            entry.header.source_format,
+            vec![0u8; size.max(1)],
+        ))
+    }
+
+    /// C++ parity: save an explicit mip chain into cache.
+    pub fn save_texture(
+        &mut self,
+        texturename: &str,
+        mreq: &TextureMultiRequest,
+        origsurface: &SrColorSurfaceIFace,
+    ) -> bool {
+        if self.ensure_file_open().is_err() {
+            return false;
+        }
+        if mreq.small_lod < mreq.large_lod {
+            return false;
+        }
+
+        let mut levels = Vec::new();
+        for lod in mreq.large_lod..=mreq.small_lod {
+            let Some(surface) = mreq.levels.get(lod as usize).and_then(|s| s.clone()) else {
+                return false;
+            };
+            levels.push(surface);
+        }
+        if levels.is_empty() {
+            return false;
+        }
+
+        let source_path = self.find_source_path(texturename);
+        let file_time = source_path
+            .as_deref()
+            .and_then(file_time_seconds)
+            .unwrap_or(0);
+
+        let largest = &levels[0];
+        let header = TextureBlockHeader {
+            file_time,
+            num_mipmaps: levels.len() as u32,
+            largest_width: largest.width.max(1),
+            largest_height: largest.height.max(1),
+            source_width: origsurface.width.max(1),
+            source_height: origsurface.height.max(1),
+            source_format: origsurface.format,
+            stored_format: largest.format,
+            asset_type: TexAssetType::Regular,
+        };
+
+        let mut serialized = Vec::new();
+        let mut offsets = Vec::with_capacity(levels.len());
+        for level in &levels {
+            let relative_offset = serialized.len() as u64;
+            let compressed = level.bytes.clone(); // C++ parity: compressor is identity.
+            serialized.extend_from_slice(&compressed);
+            offsets.push(MipOffset {
+                relative_offset,
+                size: compressed.len() as u64,
+            });
+        }
+
+        let mut texture = TextureBaseClass::new(
+            header.largest_width,
+            header.largest_height,
+            header.num_mipmaps,
+            PoolType::Managed,
+            header.asset_type,
+        );
+        texture.set_name(texturename);
+        texture.set_format(header.stored_format);
+        texture.set_dimensions(
+            header.largest_width,
+            header.largest_height,
+            1,
+            header.num_mipmaps,
+        );
+        texture.set_system_memory(serialized.clone());
+        let mut mip_layout = Vec::with_capacity(levels.len());
+        let mut cursor = 0usize;
+        for level in &levels {
+            let size = level.bytes.len();
+            mip_layout.push(crate::rendering::texture_system::texture_base::SystemMipLevel {
+                offset: cursor,
+                size,
+                width: level.width.max(1),
+                height: level.height.max(1),
+                depth_or_layers: 1,
+                slice_stride: size,
+            });
+            cursor += size;
+        }
+        texture.set_system_mip_levels(mip_layout);
+
+        self.add_entry(texturename, texture, header.clone(), offsets, serialized)
+            .is_ok()
+    }
+
+    /// C++ parity: load texture data into requested mip surfaces.
+    pub fn load_texture(&mut self, texturename: &str, mreq: &mut TextureMultiRequest) -> bool {
+        if !self.open_texture_handle(texturename) {
+            return false;
+        }
+        if mreq.small_lod < mreq.large_lod {
+            return false;
+        }
+
+        let key = Self::key_for(texturename);
+        let Some(entry) = self.entries.get(&key) else {
+            return false;
+        };
+        let num_mips = entry.header.num_mipmaps as usize;
+        let mip_sizes: Vec<usize> = entry.offsets.iter().map(|o| o.size as usize).collect();
+        if num_mips == 0 {
+            return false;
+        }
+
+        let mut idx_size = mip_sizes.first().copied().unwrap_or(0);
+        let mut lod = mreq.large_lod as usize;
+        let mut lod_size = usize::MAX;
+
+        while lod <= mreq.small_lod as usize {
+            let Some(level) = mreq.levels.get(lod).and_then(|s| s.as_ref()) else {
+                return false;
+            };
+            lod_size = level.data_size();
+            if lod_size <= idx_size {
+                break;
+            }
+            lod += 1;
+        }
+        if lod_size == usize::MAX {
+            return false;
+        }
+
+        let mut idx = 0usize;
+        while idx < num_mips {
+            idx_size = *mip_sizes.get(idx).unwrap_or(&0);
+            if idx_size <= lod_size {
+                break;
+            }
+            idx += 1;
+        }
+
+        let first_lod = lod;
+        if idx < num_mips && idx_size == lod_size {
+            while lod <= mreq.small_lod as usize && idx < num_mips {
+                let Some(dest) = mreq.levels.get_mut(lod).and_then(|s| s.as_mut()) else {
+                    return false;
+                };
+                if let Some(src) = self.get_surface(texturename, idx as u32) {
+                    dest.copy_from(&src);
+                } else {
+                    return false;
+                }
+                idx += 1;
+                lod += 1;
+            }
+        }
+
+        let last_lod = lod.saturating_sub(1);
+        let mut working_surface = if first_lod < last_lod {
+            mreq.levels
+                .get(first_lod)
+                .and_then(|s| s.as_ref())
+                .cloned()
+        } else {
+            None
+        };
+
+        if (mreq.large_lod as usize) < first_lod {
+            if working_surface.is_none() {
+                working_surface = self.create_first_texture_as_surface(texturename, mreq.large_lod as usize);
+            }
+            if let Some(surface) = working_surface.clone() {
+                for target_lod in mreq.large_lod as usize..=first_lod {
+                    if let Some(dest) = mreq.levels.get_mut(target_lod).and_then(|s| s.as_mut()) {
+                        dest.copy_from(&surface);
+                    }
+                }
+            }
+        }
+
+        if last_lod < mreq.small_lod as usize {
+            if working_surface.is_none() {
+                working_surface = self.create_first_texture_as_surface(texturename, mreq.large_lod as usize);
+            }
+            if let Some(surface) = working_surface.clone() {
+                for target_lod in (last_lod + 1)..=mreq.small_lod as usize {
+                    if let Some(dest) = mreq.levels.get_mut(target_lod).and_then(|s| s.as_mut()) {
+                        dest.copy_from(&surface);
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    fn create_first_texture_as_surface(
+        &mut self,
+        texturename: &str,
+        _requested_lod: usize,
+    ) -> Option<SrColorSurfaceIFace> {
+        self.get_surface(texturename, 0)
     }
 
     fn prepare_serialization(
@@ -486,9 +836,10 @@ impl TextureFileCache {
         if !self.validate_texture(fname) {
             return None;
         }
+        let key = Self::key_for(fname);
 
         let load_request = {
-            let entry = self.entries.get_mut(fname)?;
+            let entry = self.entries.get_mut(&key)?;
             entry.add_ref();
             entry.touch();
             if let Some(texture) = entry.texture.clone() {
@@ -508,7 +859,7 @@ impl TextureFileCache {
         let texture = Arc::new(restored);
         let memory = Self::estimate_texture_memory(texture.as_ref());
 
-        let entry = self.entries.get_mut(fname)?;
+        let entry = self.entries.get_mut(&key)?;
         if entry.texture.is_none() {
             entry.texture = Some(texture.clone());
             self.total_memory_usage = self.total_memory_usage.saturating_add(memory);
@@ -529,7 +880,8 @@ impl TextureFileCache {
 
     /// Release a texture reference. When the reference count hits zero the resident copy is dropped.
     pub fn release_texture(&mut self, fname: &str) {
-        if let Some(entry) = self.entries.get_mut(fname) {
+        let key = Self::key_for(fname);
+        if let Some(entry) = self.entries.get_mut(&key) {
             if entry.release_ref() == 0 {
                 if let Some(texture) = entry.drop_texture() {
                     self.total_memory_usage = self
@@ -549,9 +901,10 @@ impl TextureFileCache {
         if !self.validate_texture(texturename) {
             return None;
         }
+        let key = Self::key_for(texturename);
 
         let load_request = {
-            let entry = self.entries.get_mut(texturename)?;
+            let entry = self.entries.get_mut(&key)?;
             let level_index = (reduce_factor as usize).min(entry.offsets.len().saturating_sub(1));
             if let Some(surface) = entry.cached_surfaces[level_index].clone() {
                 entry.touch();
@@ -574,7 +927,7 @@ impl TextureFileCache {
             .ok()?;
 
         let surface = SrColorSurfaceIFace::new(width, height, header.stored_format, bytes);
-        let entry = self.entries.get_mut(texturename)?;
+        let entry = self.entries.get_mut(&key)?;
         entry.cached_surfaces[level_index] = Some(surface.clone());
         Some(surface)
     }
@@ -657,6 +1010,7 @@ impl TextureFileCache {
     pub fn clear_cache(&mut self) {
         self.entries.clear();
         self.total_memory_usage = 0;
+        self.current_texture = None;
         if let Some(ref mut file) = self.file {
             file.set_len(0).ok();
             file.seek(SeekFrom::Start(0)).ok();
@@ -677,6 +1031,7 @@ impl TextureFileCache {
             let _ = file.flush();
         }
         self.file = None;
+        self.current_texture = None;
     }
 
     /// Persisted cache path.

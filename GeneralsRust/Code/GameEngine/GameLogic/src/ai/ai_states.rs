@@ -14,7 +14,7 @@ use crate::ai::guard::{AIGuardMachine, GuardStateType};
 use crate::ai::guard_retaliate::{AIGuardRetaliateMachine, GuardRetaliateStateType};
 use crate::ai::integration::with_ai_integration;
 use crate::ai::object_registry::get_legacy_object;
-use crate::ai::pathfind::PATHFIND_CLOSE_ENOUGH;
+use crate::path::PATHFIND_CLOSE_ENOUGH;
 use crate::ai::states::{AIAttackThenIdleStateMachine, AIStateType as LegacyAIStateType};
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::GuardMode;

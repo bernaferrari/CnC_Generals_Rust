@@ -11,7 +11,7 @@
 use crate::assets::archive::ArchiveFileSystem;
 use crate::assets::ini_parser::{IniParser, ObjectDefinition};
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 
 /// WW3D Asset Manager - Manages object definitions and their associated assets
@@ -21,8 +21,6 @@ pub struct WW3DAssetManager {
     object_definitions: HashMap<String, ObjectDefinition>,
     /// Lowercase -> canonical name lookup for case-insensitive matches
     normalized_name_lookup: HashMap<String, String>,
-    /// Arbitrary alias (e.g. USA_Humvee) -> canonical INI object name
-    alias_lookup: HashMap<String, String>,
     /// Normalized model name -> object names that reference that model
     model_lookup: HashMap<String, Vec<String>>,
 
@@ -45,7 +43,6 @@ impl WW3DAssetManager {
         Self {
             object_definitions: HashMap::new(),
             normalized_name_lookup: HashMap::new(),
-            alias_lookup: HashMap::new(),
             model_lookup: HashMap::new(),
             ini_parser: IniParser::new(),
             texture_cache: HashMap::new(),
@@ -80,13 +77,8 @@ impl WW3DAssetManager {
                 ini_file
             );
 
-            // Add timeout per file to prevent hanging
-            let file_timeout = tokio::time::Duration::from_secs(10);
-            let load_result =
-                tokio::time::timeout(file_timeout, archive_system.open_file(ini_file)).await;
-
-            match load_result {
-                Ok(Ok(data)) => {
+            match archive_system.open_file(ini_file).await {
+                Ok(data) => {
                     // Try to parse as UTF-8
                     match String::from_utf8(data) {
                         Ok(content) => {
@@ -107,15 +99,9 @@ impl WW3DAssetManager {
                         }
                     }
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     // File not found or other error - continue with next
                     debug!("File not found or not accessible: {}: {}", ini_file, e);
-                }
-                Err(_) => {
-                    error!(
-                        "⏰ TIMEOUT loading {} after 10 seconds - continuing with next file",
-                        ini_file
-                    );
                 }
             }
         }
@@ -262,26 +248,6 @@ impl WW3DAssetManager {
         discovered.sort_by_key(|path| path.to_ascii_lowercase());
         discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
 
-        if discovered.is_empty() {
-            // Fallback for partial archive mounts.
-            discovered = vec![
-                "data/ini/object/americainfantry.ini".to_string(),
-                "data/ini/object/americavehicle.ini".to_string(),
-                "data/ini/object/americaair.ini".to_string(),
-                "data/ini/object/chinainfantry.ini".to_string(),
-                "data/ini/object/chinavehicle.ini".to_string(),
-                "data/ini/object/chinaair.ini".to_string(),
-                "data/ini/object/glainfantry.ini".to_string(),
-                "data/ini/object/glavehicle.ini".to_string(),
-                "data/ini/object/glaair.ini".to_string(),
-                "data/ini/object/civilianbuilding.ini".to_string(),
-                "data/ini/object/civilianprop.ini".to_string(),
-                "data/ini/object/techbuildings.ini".to_string(),
-                "data/ini/object/system.ini".to_string(),
-                "data/ini/crate.ini".to_string(),
-            ];
-        }
-
         discovered
     }
 
@@ -312,12 +278,6 @@ impl WW3DAssetManager {
         object_name: &str,
         model_hint: Option<&str>,
     ) -> Option<&ObjectDefinition> {
-        if let Some(canonical) = self.alias_lookup.get(object_name) {
-            if let Some(def) = self.object_definitions.get(canonical) {
-                return Some(def);
-            }
-        }
-
         if let Some(def) = self.object_definitions.get(object_name) {
             return Some(def);
         }
@@ -386,10 +346,6 @@ impl WW3DAssetManager {
         self.normalized_name_lookup
             .entry(Self::normalize_object_key(name))
             .or_insert_with(|| name.to_string());
-        self.alias_lookup
-            .entry(name.to_string())
-            .or_insert_with(|| name.to_string());
-        self.register_derived_aliases(name);
 
         if let Some(model_name) = &def.model_name {
             for key in Self::normalized_model_keys(model_name) {
@@ -426,13 +382,6 @@ impl WW3DAssetManager {
             }
         }
 
-        // Last-resort fallback: return the first texture we know about to keep rendering alive
-        for (_, def) in self.object_definitions.iter() {
-            if let Some(texture) = def.get_primary_texture() {
-                return Some(texture.to_string());
-            }
-        }
-
         None
     }
 
@@ -442,72 +391,11 @@ impl WW3DAssetManager {
     }
 
     fn normalized_model_keys(model_name: &str) -> Vec<String> {
-        let mut base = model_name.trim().to_ascii_lowercase();
-        if let Some(stripped) = base.strip_suffix(".w3d") {
-            base = stripped.to_string();
+        let mut key = model_name.trim().to_ascii_lowercase();
+        if let Some(stripped) = key.strip_suffix(".w3d") {
+            key = stripped.to_string();
         }
-
-        let mut keys = vec![base.clone()];
-
-        for suffix in &["_d", "_damaged", "_lod0", "_lod1", "_lod2", "_lod3"] {
-            if base.ends_with(suffix) {
-                let trimmed = base.trim_end_matches(suffix).to_string();
-                if !trimmed.is_empty() {
-                    keys.push(trimmed);
-                }
-            }
-        }
-
-        if let Some(idx) = base.rfind('_') {
-            if idx > 0 {
-                keys.push(base[..idx].to_string());
-            }
-        }
-
-        keys.sort();
-        keys.dedup();
-        keys
-    }
-
-    fn register_derived_aliases(&mut self, canonical: &str) {
-        const FACTION_PREFIXES: &[(&str, &str)] =
-            &[("america", "USA_"), ("china", "China_"), ("gla", "GLA_")];
-
-        let lower = canonical.to_ascii_lowercase();
-        for (canon_prefix, alias_prefix) in FACTION_PREFIXES {
-            if lower.starts_with(canon_prefix) {
-                let remainder = &canonical[canon_prefix.len()..];
-                if let Some(rest) = Self::strip_category(remainder) {
-                    if !rest.is_empty() {
-                        let alias = format!("{}{}", alias_prefix, rest);
-                        self.alias_lookup
-                            .entry(alias)
-                            .or_insert_with(|| canonical.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    fn strip_category(remainder: &str) -> Option<String> {
-        let trimmed = remainder.trim_start_matches(|c: char| c == '_' || c == '-');
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let mut split_index = None;
-        for (idx, ch) in trimmed.char_indices().skip(1) {
-            if ch.is_uppercase() {
-                split_index = Some(idx);
-                break;
-            }
-        }
-
-        if let Some(idx) = split_index {
-            return Some(trimmed[idx..].to_string());
-        }
-
-        Some(trimmed.to_string())
+        vec![key]
     }
 
     fn find_definition_by_model(
@@ -515,55 +403,15 @@ impl WW3DAssetManager {
         object_name: Option<&str>,
         model_hint: &str,
     ) -> Option<&ObjectDefinition> {
-        let mut best: Option<(&ObjectDefinition, usize)> = None;
-        let object_lower = object_name.map(|n| n.to_ascii_lowercase());
-
+        let _ = object_name;
         for key in Self::normalized_model_keys(model_hint) {
             if let Some(entries) = self.model_lookup.get(&key) {
-                for candidate in entries {
-                    if let Some(def) = self.object_definitions.get(candidate) {
-                        let score = Self::score_model_candidate(object_lower.as_deref(), candidate);
-                        match best {
-                            Some((_, current)) if current >= score => continue,
-                            _ => best = Some((def, score)),
-                        }
-                    }
+                if let Some(candidate) = entries.first() {
+                    return self.object_definitions.get(candidate);
                 }
             }
         }
-
-        best.map(|(def, _)| def)
-    }
-
-    fn score_model_candidate(object_name: Option<&str>, candidate_name: &str) -> usize {
-        let candidate_lower = candidate_name.to_ascii_lowercase();
-        if let Some(object) = object_name {
-            let mut score = 1usize;
-
-            if object.contains("usa") && candidate_lower.contains("america") {
-                score += 5;
-            }
-            if object.contains("china") && candidate_lower.contains("china") {
-                score += 5;
-            }
-            if object.contains("gla") && candidate_lower.contains("gla") {
-                score += 5;
-            }
-
-            let mut tail = object.to_string();
-            for prefix in &["usa_", "china_", "gla_"] {
-                if tail.starts_with(prefix) {
-                    tail = tail[prefix.len()..].to_string();
-                }
-            }
-            if !tail.is_empty() && candidate_lower.contains(&tail) {
-                score += 3;
-            }
-
-            return score;
-        }
-
-        1
+        None
     }
 }
 
@@ -598,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn test_alias_resolution_for_usa_units() {
+    fn test_model_hint_resolution() {
         let mut manager = WW3DAssetManager::new();
         let mut def = ObjectDefinition::new("AmericaVehicleHumvee".to_string());
         def.model_name = Some("AVHUMMER".to_string());
@@ -610,7 +458,8 @@ mod tests {
             .insert("AmericaVehicleHumvee".to_string(), def.clone());
         manager.register_definition_indices("AmericaVehicleHumvee", &def);
 
-        let texture = manager.get_texture_for_object_with_model("USA_Humvee", Some("avhummer"));
+        let texture =
+            manager.get_texture_for_object_with_model("NotInDefinitions", Some("avhummer"));
         assert_eq!(texture, Some("avhummer.tga".to_string()));
     }
 }

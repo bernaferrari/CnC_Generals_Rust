@@ -15,7 +15,7 @@ use crate::helpers::{
     ThePartitionManager, TheTerrainLogic,
 };
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::special_powers::OclCreateLocType;
+use super::types::OclCreateLocType;
 use crate::player::player_list;
 use crate::terrain::get_terrain_logic;
 use std::sync::{Arc, RwLock};

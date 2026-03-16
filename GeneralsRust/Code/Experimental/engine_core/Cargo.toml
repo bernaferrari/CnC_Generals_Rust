@@ -1,0 +1,13 @@
+[package]
+name = "experimental-engine-core"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+wgpu-backend = ["dep:wgpu"]
+
+[dependencies]
+anyhow.workspace = true
+glam.workspace = true
+wgpu = { workspace = true, optional = true }

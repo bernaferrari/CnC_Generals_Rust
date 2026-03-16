@@ -329,8 +329,8 @@ pub fn initialize_single_instance_protection_with_copy_protection() -> Result<Si
         Err(e) => {
             // In development mode, we might want to allow override
             if copy_protection::is_development_mode() {
-                warn!("Development mode: Multiple instance detected but proceeding anyway");
-                warn!("Error was: {}", e);
+                info!("Development mode: Multiple instance detected; proceeding with dev lock");
+                info!("Original lock error: {}", e);
 
                 // Try to create a development instance with different name
                 let dev_app_name = format!("{}_dev_{}", APP_NAME, std::process::id());
@@ -340,7 +340,7 @@ pub fn initialize_single_instance_protection_with_copy_protection() -> Result<Si
                         return Ok(guard);
                     }
                     Err(dev_e) => {
-                        warn!("Failed to create development instance lock: {}", dev_e);
+                        info!("Failed to create development instance lock: {}", dev_e);
                     }
                 }
             }

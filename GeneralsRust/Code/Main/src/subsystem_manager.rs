@@ -1,7 +1,7 @@
 use crate::config::GlobalData;
 use crate::input_system::InputSystem;
 use anyhow::{anyhow, Result};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
@@ -1191,7 +1191,7 @@ impl SubsystemManager {
             // This could pause/resume audio based on focus state
             info!("Audio focus change handled by AudioManager subsystem");
         } else {
-            warn!("Audio subsystem not available during focus change notification");
+            debug!("Audio subsystem not available during focus change notification");
         }
 
         Ok(())
