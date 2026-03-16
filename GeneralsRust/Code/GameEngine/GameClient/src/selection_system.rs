@@ -153,7 +153,7 @@ impl SelectionState {
 
     /// Convenience: add a single object to the selection.
     pub fn add_single(&mut self, id: u32) {
-        if !self.set.contains(id) {
+        if !self.set.contains(&id) {
             self.set.insert(id);
             self.objects.push(id);
         }
@@ -458,8 +458,8 @@ impl SelectionManager {
     pub fn double_click_select(&mut self, player: i32, x: i32, y: i32) {
         if let Some(id) = self.picker.pick_at_point(player, x, y) {
             let all_kind = self.picker.pick_all_of_same_kind(player, id);
+            let trimmed = self.trim_selection(&all_kind);
             if let Some(state) = self.state_mut(player) {
-                let trimmed = self.trim_selection(&all_kind);
                 state.apply(trimmed, SelectionType::Replace);
             }
         }

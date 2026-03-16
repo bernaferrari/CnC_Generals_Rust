@@ -318,7 +318,7 @@ struct BridgeRenderObject {
 
 impl RenderObject for BridgeRenderObject {
     fn class_id(&self) -> ww3d_core::RenderObjClassId {
-        ww3d_core::RenderObjClassId::from(0) // generic
+        ww3d_core::RenderObjClassId::Mesh
     }
 
     fn name(&self) -> &str {
@@ -350,12 +350,12 @@ impl RenderObject for BridgeRenderObject {
         self.submission.bounding_box
     }
 
-    fn get_transform(&self) -> glam::Mat4 {
-        self.submission.world_transform
+    fn get_transform(&self) -> ww3d_core::glam::Mat4 {
+        ww3d_core::glam::Mat4::from_cols_array(&self.submission.world_transform.to_cols_array())
     }
 
-    fn set_transform(&mut self, transform: glam::Mat4) {
-        self.submission.world_transform = transform;
+    fn set_transform(&mut self, transform: ww3d_core::glam::Mat4) {
+        self.submission.world_transform = glam::Mat4::from_cols_array(&transform.to_cols_array());
     }
 
     fn get_sort_level(&self) -> i32 {
@@ -448,9 +448,7 @@ pub struct RenderBridge {
 impl RenderBridge {
     /// Create a new render bridge with default scene settings.
     pub fn new() -> Self {
-        let scene = SceneBuilder::new()
-            .name("GameLogic Bridge Scene".to_string())
-            .build();
+        let scene = SceneBuilder::new("GameLogic Bridge Scene".to_string()).build();
 
         Self {
             scene,
@@ -473,17 +471,19 @@ impl RenderBridge {
     /// * `delta_time` — frame delta in seconds.
     pub fn begin_frame(&mut self, camera: &Camera, delta_time: f32) {
         self.pending.clear();
-        self.camera = Some(camera.clone());
+        let mut frame_camera = camera.clone();
         self.elapsed_time += delta_time;
 
         self.render_info = RenderInfo {
-            view_projection: camera.view_projection_matrix(),
-            view: camera.view_matrix(),
-            projection: camera.projection_matrix(),
-            camera_position: camera.position(),
+            view_projection: frame_camera.view_projection_matrix(),
+            view: frame_camera.view_matrix(),
+            projection: frame_camera.projection_matrix(),
+            camera_position: frame_camera.position(),
             delta_time,
             elapsed_time: self.elapsed_time,
         };
+
+        self.camera = Some(frame_camera);
     }
 
     /// Submit one draw module's render data to the bridge.
@@ -530,8 +530,10 @@ impl RenderBridge {
             .into_iter()
             .filter(|s| {
                 // Transform bounding sphere to world space for frustum test.
-                let world_center = s.world_transform.transform_point3(s.bounding_sphere.center);
-                let world_sphere = BoundingSphere::new(world_center, s.bounding_sphere.radius);
+                let local_center = ww_to_game_vec3(s.bounding_sphere.center);
+                let world_center = s.world_transform.transform_point3(local_center);
+                let world_sphere =
+                    BoundingSphere::new(game_to_ww_vec3(world_center), s.bounding_sphere.radius);
 
                 if camera.is_sphere_visible(&world_sphere) {
                     true
@@ -675,8 +677,18 @@ impl Default for RenderBridge {
 /// transform as the object centre.
 fn distance_sq_to_camera(submission: &DrawSubmission, camera: &Camera) -> f32 {
     let obj_pos = submission.world_transform.transform_point3(glam::Vec3::ZERO);
-    let cam_pos = camera.position();
+    let cam_pos = ww_to_game_vec3(camera.position());
     (obj_pos - cam_pos).length_squared()
+}
+
+#[inline]
+fn ww_to_game_vec3(v: ww3d_core::glam::Vec3) -> glam::Vec3 {
+    glam::Vec3::new(v.x, v.y, v.z)
+}
+
+#[inline]
+fn game_to_ww_vec3(v: glam::Vec3) -> ww3d_core::glam::Vec3 {
+    ww3d_core::glam::Vec3::new(v.x, v.y, v.z)
 }
 
 /// Convert a GameLogic `Matrix3D` (which is `glam::Mat4`) to the WWVegas
@@ -720,10 +732,7 @@ pub fn apply_render_state_to_material(
 /// 4. Transparent objects (sort 200)
 /// 5. Post-FX / selection circles (sort 300)
 pub fn create_default_game_scene() -> Scene {
-    let mut builder = SceneBuilder::new()
-        .name("Game World".to_string());
-
-    let scene = builder.build();
+    let scene = SceneBuilder::new("Game World".to_string()).build();
 
     // Layers will be added dynamically by the bridge during flush().
     scene
