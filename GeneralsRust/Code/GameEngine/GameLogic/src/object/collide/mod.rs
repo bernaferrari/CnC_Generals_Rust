@@ -16,6 +16,7 @@ pub mod collision_response;
 pub mod collision_system;
 pub mod crate_collide;
 pub mod fire_weapon_collide;
+pub mod partition_filters;
 pub mod partition_manager;
 pub mod squish_collide;
 
@@ -32,7 +33,8 @@ pub use collision_system::{
     COLLISION_SYSTEM,
 };
 pub use partition_manager::{
-    CellCoord, PartitionFilter, PartitionManager, PartitionStatistics, PARTITION_MANAGER,
+    CellCoord, FindPositionFlags, FindPositionOptions, PartitionFilter, PartitionManager,
+    PartitionStatistics, PARTITION_MANAGER, RANDOM_START_ANGLE, ValueOrThreat,
 };
 
 use crate::common::{

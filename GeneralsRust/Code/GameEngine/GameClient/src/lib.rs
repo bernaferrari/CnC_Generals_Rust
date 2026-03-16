@@ -78,6 +78,9 @@ extern crate self as game_network;
 // Platform abstraction layer
 pub mod platform;
 
+// Render bridge — connects GameLogic draw modules to WWVegas W3D renderer
+pub mod render_bridge;
+
 // Revolutionary W3D Engine
 #[cfg(feature = "w3d_support")]
 pub mod w3d;
@@ -105,5 +108,7 @@ pub mod gadget_slider;
 pub mod game_window_id;
 pub mod gui_callbacks;
 pub mod key_defs;
+pub mod input_bridge;
+pub mod selection_system;
 pub mod shadow;
 pub mod shell_hooks;

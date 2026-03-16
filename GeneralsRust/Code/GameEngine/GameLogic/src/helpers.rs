@@ -1672,6 +1672,18 @@ impl TheGameClient {
         Some(CLIENT.get_or_init(|| TheGameClient))
     }
 
+    /// Synchronize the client frame counter with the logic frame.
+    ///
+    /// ## C++ Reference: GameLogic.cpp line 3596
+    /// C++: TheGameClient->setFrame(now);
+    pub fn set_frame(&self, _frame: UnsignedInt) {
+        // In the full implementation, this would sync the drawable/camera
+        // frame counter so client-side animations and effects advance
+        // in lock-step with the simulation. The current Rust client-side
+        // does not maintain a separate frame counter.
+        let _ = _frame; // suppress unused warning until full implementation
+    }
+
     pub fn create_drawable(&self, template: &dyn crate::common::ThingTemplate) -> u32 {
         let id = Drawable::allocate_drawable_id();
         let beam_width = template
