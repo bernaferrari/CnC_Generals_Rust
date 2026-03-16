@@ -265,13 +265,13 @@ impl FormationBehavior {
     }
 
     async fn update_formation_center(&mut self, objects: &[&Object]) -> GameLogicResult<()> {
+        let obj_map: std::collections::HashMap<ObjectId, &Object> =
+            objects.iter().map(|obj| (obj.get_id(), *obj)).collect();
+
         match self.config.leader_strategy {
             LeaderStrategy::FirstUnit => {
                 if let Some(first_slot) = self.formation_slots.first() {
-                    if let Some(leader_obj) = objects
-                        .iter()
-                        .find(|obj| obj.get_id() == first_slot.unit_id)
-                    {
+                    if let Some(leader_obj) = obj_map.get(&first_slot.unit_id) {
                         let pos = leader_obj.get_position();
                         self.formation_center = Point2::new(pos.x, pos.y);
                         self.leader_id = Some(first_slot.unit_id);
@@ -283,7 +283,7 @@ impl FormationBehavior {
                 let mut sum_y = 0.0;
                 let mut count = 0;
                 for slot in &self.formation_slots {
-                    if let Some(obj) = objects.iter().find(|o| o.get_id() == slot.unit_id) {
+                    if let Some(obj) = obj_map.get(&slot.unit_id) {
                         let pos = obj.get_position();
                         sum_x += pos.x;
                         sum_y += pos.y;
@@ -299,11 +299,11 @@ impl FormationBehavior {
                 let mut highest_rank_obj: Option<&Object> = None;
                 let mut highest_rank = -1;
                 for slot in &self.formation_slots {
-                    if let Some(obj) = objects.iter().find(|o| o.get_id() == slot.unit_id) {
+                    if let Some(obj) = obj_map.get(&slot.unit_id) {
                         let rank = obj.get_veterancy_level() as i32;
                         if rank > highest_rank {
                             highest_rank = rank;
-                            highest_rank_obj = Some(obj);
+                            highest_rank_obj = Some(*obj);
                         }
                     }
                 }
@@ -315,7 +315,7 @@ impl FormationBehavior {
             }
             LeaderStrategy::PlayerDesignated => {
                 if let Some(leader_id) = self.leader_id {
-                    if let Some(leader_obj) = objects.iter().find(|obj| obj.get_id() == leader_id) {
+                    if let Some(leader_obj) = obj_map.get(&leader_id) {
                         let pos = leader_obj.get_position();
                         self.formation_center = Point2::new(pos.x, pos.y);
                     }
@@ -326,9 +326,12 @@ impl FormationBehavior {
     }
 
     fn calculate_cohesion_forces(&mut self, objects: &[&Object]) {
+        let obj_map: std::collections::HashMap<ObjectId, &Object> =
+            objects.iter().map(|obj| (obj.get_id(), *obj)).collect();
+
         self.cohesion_forces.clear();
         for (i, slot) in self.formation_slots.iter().enumerate() {
-            if let Some(obj) = objects.iter().find(|o| o.get_id() == slot.unit_id) {
+            if let Some(obj) = obj_map.get(&slot.unit_id) {
                 let current_pos = obj.get_position();
                 let target_pos = self
                     .target_formation_positions
@@ -351,9 +354,12 @@ impl FormationBehavior {
     }
 
     fn is_formation_dispersed(&self, objects: &[&Object]) -> bool {
+        let obj_map: std::collections::HashMap<ObjectId, &Object> =
+            objects.iter().map(|obj| (obj.get_id(), *obj)).collect();
+
         let mut max_distance = 0.0;
         for slot in &self.formation_slots {
-            if let Some(obj) = objects.iter().find(|o| o.get_id() == slot.unit_id) {
+            if let Some(obj) = obj_map.get(&slot.unit_id) {
                 let pos = obj.get_position();
                 let distance = ((pos.x - self.formation_center.x).powi(2)
                     + (pos.y - self.formation_center.y).powi(2))

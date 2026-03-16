@@ -460,97 +460,129 @@ impl Unit {
         _delta_time: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.advance_order_queue();
-        if let Some(ref current_order) = self.current_order.clone() {
-            if !matches!(current_order, UnitOrder::AttackMove { .. }) {
-                self.attack_move_active = false;
-            }
-
-            match current_order {
-                UnitOrder::Stop => {
-                    self.stop_movement();
-                    self.current_order = None;
-                    self.advance_order_queue();
+        let order = self.current_order.take();
+        match order {
+            None => {
+                // No current order, check for auto-behaviors
+                if self.auto_acquire_enemies {
+                    self.look_for_enemies()?;
                 }
 
-                UnitOrder::Move {
-                    destination,
-                    use_formation,
-                    waypoints,
-                } => {
-                    if self.movement_state == MovementState::Idle
-                        && self.target_position.is_none()
-                        && self.waypoint_queue.is_empty()
-                    {
-                        let delta = self.get_position() - *destination;
-                        if (delta.x * delta.x + delta.y * delta.y).sqrt() <= 1.0 {
-                            self.current_order = None;
-                            self.advance_order_queue();
-                            return Ok(());
-                        }
+                if self.return_to_formation {
+                    self.return_to_formation_position()?;
+                }
+            }
+            Some(current_order) => {
+                if !matches!(current_order, UnitOrder::AttackMove { .. }) {
+                    self.attack_move_active = false;
+                }
+
+                match current_order {
+                    UnitOrder::Stop => {
+                        self.stop_movement();
+                        // Don't restore — order is consumed
+                        self.advance_order_queue();
                     }
-                    self.process_move_order(*destination, *use_formation, waypoints)?;
-                }
 
-                UnitOrder::Attack { target, pursue } => {
-                    self.process_attack_order(*target, *pursue)?;
-                }
+                    UnitOrder::Move {
+                        destination,
+                        use_formation,
+                        waypoints,
+                    } => {
+                        if self.movement_state == MovementState::Idle
+                            && self.target_position.is_none()
+                            && self.waypoint_queue.is_empty()
+                        {
+                            let delta = self.get_position() - destination;
+                            if (delta.x * delta.x + delta.y * delta.y).sqrt() <= 1.0 {
+                                // Don't restore — order completed
+                                self.advance_order_queue();
+                                return Ok(());
+                            }
+                        }
+                        self.process_move_order(destination, use_formation, &waypoints)?;
+                        // Restore — move order continues across frames
+                        self.current_order = Some(UnitOrder::Move {
+                            destination,
+                            use_formation,
+                            waypoints,
+                        });
+                    }
 
-                UnitOrder::AttackMove {
-                    destination,
-                    engage_enemies,
-                } => {
-                    self.process_attack_move_order(*destination, *engage_enemies)?;
-                }
+                    UnitOrder::Attack { target, pursue } => {
+                        self.process_attack_order(target, pursue)?;
+                        self.current_order = Some(UnitOrder::Attack { target, pursue });
+                    }
 
-                UnitOrder::Guard {
-                    position,
-                    area_radius,
-                } => {
-                    self.process_guard_order(*position, *area_radius)?;
-                }
+                    UnitOrder::AttackMove {
+                        destination,
+                        engage_enemies,
+                    } => {
+                        self.process_attack_move_order(destination, engage_enemies)?;
+                        self.current_order = Some(UnitOrder::AttackMove {
+                            destination,
+                            engage_enemies,
+                        });
+                    }
 
-                UnitOrder::Follow { target, distance } => {
-                    self.process_follow_order(*target, *distance)?;
-                }
+                    UnitOrder::Guard {
+                        position,
+                        area_radius,
+                    } => {
+                        self.process_guard_order(position, area_radius)?;
+                        self.current_order = Some(UnitOrder::Guard {
+                            position,
+                            area_radius,
+                        });
+                    }
 
-                UnitOrder::Patrol {
-                    waypoints,
-                    loop_patrol,
-                } => {
-                    self.process_patrol_order(waypoints, *loop_patrol)?;
-                }
+                    UnitOrder::Follow { target, distance } => {
+                        self.process_follow_order(target, distance)?;
+                        self.current_order = Some(UnitOrder::Follow { target, distance });
+                    }
 
-                UnitOrder::Garrison { building } => {
-                    self.process_garrison_order(*building)?;
-                }
+                    UnitOrder::Patrol {
+                        waypoints,
+                        loop_patrol,
+                    } => {
+                        self.process_patrol_order(&waypoints, loop_patrol)?;
+                        self.current_order = Some(UnitOrder::Patrol {
+                            waypoints,
+                            loop_patrol,
+                        });
+                    }
 
-                UnitOrder::Ungarrison { exit_position } => {
-                    self.process_ungarrison_order(*exit_position)?;
-                }
+                    UnitOrder::Garrison { building } => {
+                        self.process_garrison_order(building)?;
+                        self.current_order = Some(UnitOrder::Garrison { building });
+                    }
 
-                UnitOrder::Capture { building } => {
-                    self.process_capture_order(*building)?;
-                }
+                    UnitOrder::Ungarrison { exit_position } => {
+                        self.process_ungarrison_order(exit_position)?;
+                        self.current_order = Some(UnitOrder::Ungarrison { exit_position });
+                    }
 
-                UnitOrder::Retreat {
-                    safe_position,
-                    organized,
-                } => {
-                    self.process_retreat_order(*safe_position, *organized)?;
-                }
+                    UnitOrder::Capture { building } => {
+                        self.process_capture_order(building)?;
+                        self.current_order = Some(UnitOrder::Capture { building });
+                    }
 
-                _ => {
-                    // Handle other order types
-                }
-            }
-        } else {
-            // No current order, check for auto-behaviors
-            if self.auto_acquire_enemies {
-                self.look_for_enemies()?;
-            }
+                    UnitOrder::Retreat {
+                        safe_position,
+                        organized,
+                    } => {
+                        self.process_retreat_order(safe_position, organized)?;
+                        self.current_order = Some(UnitOrder::Retreat {
+                            safe_position,
+                            organized,
+                        });
+                    }
 
-            if self.return_to_formation {
-                self.return_to_formation_position()?;
+                    other => {
+                        // Restore unhandled order types
+                        self.current_order = Some(other);
+                    }
+                }
             }
         }
 
@@ -1026,18 +1058,25 @@ impl Unit {
         if completed_move {
             match prev_movement_state {
                 MovementState::Patrolling => {
+                    let order = self.current_order.take();
                     if let Some(UnitOrder::Patrol {
                         waypoints,
                         loop_patrol,
-                    }) = self.current_order.clone()
+                    }) = order
                     {
                         let _ = self.process_patrol_order(&waypoints, loop_patrol);
+                        self.current_order = Some(UnitOrder::Patrol {
+                            waypoints,
+                            loop_patrol,
+                        });
                     }
                 }
                 MovementState::Following => {
-                    if let Some(UnitOrder::Follow { target, distance }) = self.current_order.clone()
+                    let order = self.current_order.take();
+                    if let Some(UnitOrder::Follow { target, distance }) = order
                     {
                         let _ = self.process_follow_order(target, distance);
+                        self.current_order = Some(UnitOrder::Follow { target, distance });
                     }
                 }
                 MovementState::Retreating => {
@@ -5595,7 +5634,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         guard.current_speed = 0.0;
         guard.path_index = 0;
         guard.path_following_state = None;
-        guard.current_path = Some(path.iter().map(|pos| Coord2D::new(pos.x, pos.y)).collect());
+        guard.current_path = Some({
+            let mut v = Vec::with_capacity(path.len());
+            v.extend(path.iter().map(|pos| Coord2D::new(pos.x, pos.y)));
+            v
+        });
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
         self.path_timestamp = TheGameLogic::get_frame();
