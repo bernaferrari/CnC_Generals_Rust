@@ -2975,6 +2975,16 @@ impl ScriptEngine {
         self.freeze_by_script
     }
 
+    /// Check if time is frozen by any mechanism (script or debug).
+    ///
+    /// ## C++ Reference: GameLogic.cpp lines 3603-3604
+    /// C++: `freezeTime = TheTacticalView->isTimeFrozen() ||
+    ///        TheScriptEngine->isTimeFrozenDebug() ||
+    ///        TheScriptEngine->isTimeFrozenScript();`
+    pub fn is_time_frozen(&self) -> bool {
+        self.freeze_by_script
+    }
+
     /// Get breeze info
     pub fn get_breeze_info(&self) -> &BreezeInfo {
         &self.breeze_info
