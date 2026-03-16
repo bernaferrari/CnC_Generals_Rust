@@ -3,6 +3,29 @@
 use crate::common::*;
 use std::fmt;
 
+/// OCL create location type (matching C++ OclCreateLocType)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OclCreateLocType {
+    /// Create at edge nearest to source object
+    CreateAtEdgeNearSource,
+    /// Create at edge nearest to target location
+    CreateAtEdgeNearTarget,
+    /// Create at exact target location
+    CreateAtLocation,
+    /// Use owner object's location
+    UseOwnerObject,
+    /// Create above target location (airborne)
+    CreateAboveLocation,
+    /// Create at edge farthest from target
+    CreateAtEdgeFarthestFromTarget,
+}
+
+impl Default for OclCreateLocType {
+    fn default() -> Self {
+        OclCreateLocType::CreateAtEdgeNearSource
+    }
+}
+
 /// Special power identifier type
 pub type SpecialPowerID = UnsignedInt;
 

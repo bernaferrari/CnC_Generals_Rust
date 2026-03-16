@@ -12,7 +12,7 @@ use crate::helpers::{
     TheAudio, TheGameLogic, TheObjectCreationListStore, ThePartitionManager, TheTerrainLogic,
 };
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::special_powers::OclCreateLocType;
+use super::types::OclCreateLocType;
 use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};

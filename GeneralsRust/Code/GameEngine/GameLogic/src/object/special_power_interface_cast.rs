@@ -4,42 +4,12 @@ use std::any::Any;
 
 pub(crate) enum SpecialPowerModuleKindMut<'a> {
     SpecialPowerModule(&'a mut crate::object::special_power_module::SpecialPowerModule),
-    BaikonurLaunchPower(
-        &'a mut crate::object::special_powers::baikonur_launch_power::BaikonurLaunchPower,
-    ),
-    CashBountyPower(&'a mut crate::object::special_powers::cash_bounty_power::CashBountyPower),
-    CashHackSpecialPower(
-        &'a mut crate::object::special_powers::cash_hack_special_power::CashHackSpecialPower,
-    ),
-    CleanupAreaPower(&'a mut crate::object::special_powers::cleanup_area_power::CleanupAreaPower),
-    DefectorSpecialPower(
-        &'a mut crate::object::special_powers::defector_special_power::DefectorSpecialPower,
-    ),
-    DemoralizeSpecialPower(
-        &'a mut crate::object::special_powers::demoralize_special_power::DemoralizeSpecialPower,
-    ),
-    FireWeaponPower(&'a mut crate::object::special_powers::fire_weapon_power::FireWeaponPower),
-    OclSpecialPower(&'a mut crate::object::special_powers::ocl_special_power::OclSpecialPower),
-    SpecialAbility(&'a mut crate::object::special_powers::special_ability::SpecialAbility),
-    SpyVisionSpecialPower(
-        &'a mut crate::object::special_powers::spy_vision_special_power::SpyVisionSpecialPower,
-    ),
 }
 
 impl<'a> SpecialPowerModuleKindMut<'a> {
     pub(crate) fn into_interface(self) -> &'a mut dyn SpecialPowerModuleInterface {
         match self {
             Self::SpecialPowerModule(module) => module,
-            Self::BaikonurLaunchPower(module) => module,
-            Self::CashBountyPower(module) => module,
-            Self::CashHackSpecialPower(module) => module,
-            Self::CleanupAreaPower(module) => module,
-            Self::DefectorSpecialPower(module) => module,
-            Self::DemoralizeSpecialPower(module) => module,
-            Self::FireWeaponPower(module) => module,
-            Self::OclSpecialPower(module) => module,
-            Self::SpecialAbility(module) => module,
-            Self::SpyVisionSpecialPower(module) => module,
         }
     }
 
@@ -48,7 +18,6 @@ impl<'a> SpecialPowerModuleKindMut<'a> {
     ) -> Option<&'a mut crate::object::special_power_module::SpecialPowerModule> {
         match self {
             Self::SpecialPowerModule(module) => Some(module),
-            _ => None,
         }
     }
 }
@@ -103,96 +72,6 @@ pub(crate) fn module_special_power_kind(
             .downcast_mut::<crate::object::special_power_module::SpecialPowerModule>()
             .expect("type check and downcast must match");
         return Some(SpecialPowerModuleKindMut::SpecialPowerModule(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::baikonur_launch_power::BaikonurLaunchPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::baikonur_launch_power::BaikonurLaunchPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::BaikonurLaunchPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::cash_bounty_power::CashBountyPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::cash_bounty_power::CashBountyPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::CashBountyPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::cash_hack_special_power::CashHackSpecialPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::cash_hack_special_power::CashHackSpecialPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::CashHackSpecialPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::cleanup_area_power::CleanupAreaPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::cleanup_area_power::CleanupAreaPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::CleanupAreaPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::defector_special_power::DefectorSpecialPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::defector_special_power::DefectorSpecialPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::DefectorSpecialPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::demoralize_special_power::DemoralizeSpecialPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::demoralize_special_power::DemoralizeSpecialPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::DemoralizeSpecialPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::fire_weapon_power::FireWeaponPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::fire_weapon_power::FireWeaponPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::FireWeaponPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::ocl_special_power::OclSpecialPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::ocl_special_power::OclSpecialPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::OclSpecialPower(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::special_ability::SpecialAbility>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::special_ability::SpecialAbility>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::SpecialAbility(module));
-    }
-    if module
-        .as_any()
-        .is::<crate::object::special_powers::spy_vision_special_power::SpyVisionSpecialPower>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_powers::spy_vision_special_power::SpyVisionSpecialPower>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::SpyVisionSpecialPower(module));
     }
 
     None

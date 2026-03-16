@@ -9,7 +9,7 @@
 use crate::assets::archive::ArchiveFileSystem;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Texture formats supported by C&C Generals
 #[derive(Debug, Clone, Copy)]
@@ -231,55 +231,9 @@ impl TextureManager {
 
         info!("Loading texture from archive: {}", requested_name);
 
-        // C++ approach: try filename with common W3D texture paths
-        // Textures in BIG archives are stored in art/w3d/ and art/textures/ subdirectories
-        // Based on actual archive investigation:
-        // - art/w3d/*.tga for W3D textures
-        // - art/textures/*.dds for DDS compressed textures
-        // - art/textures/*.tga for some TGA textures
-        let base_name = requested_name
-            .trim_end_matches(".tga")
-            .trim_end_matches(".dds");
-        let base_name_lower = base_name.to_lowercase();
-        let alias_base = Self::texture_alias_base(&base_name_lower);
-
-        let mut candidates = vec![
-            // Try W3D directory with TGA (most common for W3D models)
-            format!("art/w3d/{}.tga", base_name),
-            format!("art/w3d/{}.tga", base_name_lower),
-            // Try textures directory with DDS
-            format!("art/textures/{}.dds", base_name),
-            format!("art/textures/{}.dds", base_name_lower),
-            // Try textures directory with TGA
-            format!("art/textures/{}.tga", base_name),
-            format!("art/textures/{}.tga", base_name_lower),
-            // Some startup/shell props legitimately reference terrain art directly.
-            format!("art/terrain/{}.tga", base_name),
-            format!("art/terrain/{}.tga", base_name_lower),
-            // Try with original name (in case it has extension)
-            format!("art/w3d/{}", requested_name),
-            format!("art/textures/{}", requested_name),
-            format!("art/terrain/{}", requested_name),
-            // Fallback: try without directory
-            requested_name.to_string(),
-            requested_name.to_lowercase(),
-            format!("{}.tga", base_name),
-            format!("{}.tga", base_name_lower),
-            format!("{}.dds", base_name),
-            format!("{}.dds", base_name_lower),
-        ];
-        if let Some(alias) = alias_base {
-            debug!(
-                "Applying texture alias: '{}' -> '{}'",
-                base_name_lower, alias
-            );
-            candidates.insert(0, format!("art/textures/{}.dds", alias));
-            candidates.insert(1, format!("art/textures/{}.tga", alias));
-            candidates.insert(2, format!("art/w3d/{}.tga", alias));
-            candidates.insert(3, format!("art/terrain/{}.tga", alias));
-            candidates.insert(4, format!("{}.dds", alias));
-            candidates.insert(5, format!("{}.tga", alias));
-        }
+        // C++ parity: keep deterministic filename resolution.
+        // WW3D tries compressed DDS first (same base name), then uncompressed.
+        let candidates = Self::build_texture_candidates(requested_name);
 
         let mut texture_data = None;
         let mut actual_filename = String::new();
@@ -296,20 +250,6 @@ impl TextureManager {
                     log::trace!("Texture candidate not found: {}", candidate);
                     continue;
                 }
-            }
-        }
-
-        if texture_data.is_none() {
-            if let Some((data, resolved_name)) = self
-                .try_fuzzy_texture_lookup(archive_system, &base_name_lower)
-                .await
-            {
-                info!(
-                    "Resolved texture '{}' using fuzzy archive lookup: {}",
-                    requested_name, resolved_name
-                );
-                texture_data = Some(data);
-                actual_filename = resolved_name;
             }
         }
 
@@ -365,164 +305,66 @@ impl TextureManager {
             .expect("Just inserted texture should be in cache"))
     }
 
-    async fn try_fuzzy_texture_lookup(
-        &self,
-        archive_system: &mut ArchiveFileSystem,
-        requested_base_lower: &str,
-    ) -> Option<(Vec<u8>, String)> {
-        let requested_norm = Self::normalize_texture_key(requested_base_lower);
-        if requested_norm.is_empty() {
-            return None;
-        }
+    fn build_texture_candidates(requested_name: &str) -> Vec<String> {
+        let normalized = requested_name.trim().replace('\\', "/");
+        let normalized = normalized.trim_start_matches("./");
+        let requested_lower = normalized.to_ascii_lowercase();
 
-        let all_files = archive_system.list_all_files();
-        let mut ranked_candidates: Vec<(u8, String)> = Vec::new();
+        let (dir_part, file_part) = match normalized.rsplit_once('/') {
+            Some((dir, file)) if !file.is_empty() => (Some(dir), file),
+            _ => (None, normalized),
+        };
 
-        for file in all_files {
-            let lower = file.to_lowercase();
-            if !(lower.ends_with(".tga") || lower.ends_with(".dds") || lower.ends_with(".bmp")) {
-                continue;
-            }
+        let (stem, ext_hint) = match file_part.rsplit_once('.') {
+            Some((stem, ext)) if !stem.is_empty() => (stem, Some(ext.to_ascii_lowercase())),
+            _ => (file_part, None),
+        };
 
-            let leaf = lower.rsplit(['/', '\\']).next().unwrap_or(lower.as_str());
-            let stem = leaf.rsplit_once('.').map(|(s, _)| s).unwrap_or(leaf);
+        let mut exts: Vec<&str> = match ext_hint.as_deref() {
+            Some("dds") => vec!["dds", "tga"],
+            Some("tga") => vec!["dds", "tga"],
+            Some(_) => vec![],
+            None => vec!["dds", "tga"],
+        };
 
-            if let Some(score) =
-                Self::texture_match_score(stem, requested_base_lower, &requested_norm)
-            {
-                ranked_candidates.push((score, file));
-            }
-        }
-
-        if ranked_candidates.is_empty() {
-            return None;
-        }
-
-        ranked_candidates.sort_by(|a, b| {
-            a.0.cmp(&b.0)
-                .then_with(|| a.1.len().cmp(&b.1.len()))
-                .then_with(|| a.1.cmp(&b.1))
-        });
-        ranked_candidates.dedup_by(|a, b| a.1.eq_ignore_ascii_case(&b.1));
-
-        for (_, candidate) in ranked_candidates.into_iter().take(24) {
-            match archive_system.open_file(&candidate).await {
-                Ok(data) => return Some((data, candidate)),
-                Err(_) => continue,
+        // Preserve exact extension requests for uncommon formats.
+        if let Some(ext) = ext_hint.as_deref() {
+            if ext != "dds" && ext != "tga" && ext != "bmp" {
+                exts.push(ext);
             }
         }
 
-        None
-    }
+        let mut candidates = Vec::new();
+        let mut seen = HashSet::new();
+        let mut push_unique = |candidate: String| {
+            let key = candidate.to_ascii_lowercase();
+            if seen.insert(key) {
+                candidates.push(candidate);
+            }
+        };
 
-    fn texture_match_score(
-        stem_lower: &str,
-        requested_base_lower: &str,
-        requested_norm: &str,
-    ) -> Option<u8> {
-        let stem_norm = Self::normalize_texture_key(stem_lower);
-        if stem_norm.is_empty() {
-            return None;
+        // First, attempt exact request (C++ name-as-provided path).
+        push_unique(normalized.to_string());
+        push_unique(requested_lower.clone());
+
+        let dirs: Vec<&str> = match dir_part {
+            Some(dir) => vec![dir],
+            None => vec!["art/textures", "art/w3d", "art/terrain", ""],
+        };
+
+        for dir in dirs {
+            for ext in &exts {
+                let leaf = format!("{stem}.{ext}");
+                let candidate = if dir.is_empty() {
+                    leaf
+                } else {
+                    format!("{dir}/{leaf}")
+                };
+                push_unique(candidate);
+            }
         }
 
-        if stem_lower == requested_base_lower || stem_norm == requested_norm {
-            return Some(0);
-        }
-
-        if stem_lower.ends_with(requested_base_lower)
-            || requested_base_lower.ends_with(stem_lower)
-            || stem_norm.ends_with(requested_norm)
-            || requested_norm.ends_with(&stem_norm)
-        {
-            return Some(1);
-        }
-
-        if requested_norm.len() >= 4
-            && stem_norm.len() >= 4
-            && (stem_lower.contains(requested_base_lower)
-                || requested_base_lower.contains(stem_lower)
-                || stem_norm.contains(requested_norm)
-                || requested_norm.contains(&stem_norm))
-        {
-            return Some(2);
-        }
-
-        None
-    }
-
-    fn normalize_texture_key(value: &str) -> String {
-        value
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_lowercase()
-    }
-
-    fn texture_alias_base(base_lower: &str) -> Option<&'static str> {
-        match base_lower {
-            // FX textures referenced by legacy names in INI/W3D content.
-            "exanthraxstream" => Some("extoxinstreamp"),
-            "excleanupstream" => Some("exbinarystream32"),
-            "exnoise02" => Some("exsinewave"),
-            "exfthrowerstream" => Some("exfthrower04"),
-            "exfthrowerstreamupgraded" => Some("exfthrower05"),
-            // Defcon6 civilian remap texture compat.
-            "cbtower2_n" => Some("cbtower2_dg"),
-            "cbtower2_s" => Some("cbtower2_dsg"),
-            "cbtower_n" => Some("cbtower01"),
-            "pmtmbweed02" => Some("pmtmbweed01"),
-            "shadowi" => Some("shadows"),
-            "pmredlight" => Some("pmstoplite"),
-            "ctcrateboxes_s" => Some("pmwldcrate"),
-            "ctcrateboxes" => Some("pmwldcrate"),
-            "exgrid" => Some("exsinewave"),
-            "extnkmzl01" => Some("extnktracr"),
-            "atcanon" => Some("sccparticlecanon_usa"),
-            "pmrunwaylight" => Some("pmstoplite"),
-            "pmrunwaylightr" => Some("pmstoplite"),
-            "pmwallchn2" => Some("pmwallwd2_ds"),
-            "ntbambfence01" => Some("utsandbags2_d"),
-            "ntscaffold" => Some("atscaffold01_d"),
-            "ntpwrwires" => Some("atsecwall"),
-            "lakedusk" => Some("exwater03"),
-            "blnklit_n" => Some("atyellowlite"),
-            "cbtoildepo_s" => Some("cboilrfny_s"),
-            "cbtoildepo_n" => Some("cboilrfny_n"),
-            "cxsupcent" => Some("cboilrfny"),
-            "zbsupdrop" => Some("zzsupplydocksize"),
-            "utcampfire" => Some("exfireball01"),
-            "utcloths" => Some("utcloth2s_d"),
-            "nvsupplytk" => Some("cvspplytrk"),
-            "uvrockbug" => Some("uvpowtruck_d1"),
-            "uvtechjeep_d" => Some("uvpowtruck_d1"),
-            "avhummer" => Some("avpowtruck_d1"),
-            // Shell/startup scene compatibility aliases for shipped extracted content.
-            "avcomanche_p" => Some("avcomancheag_p"),
-            "avamphib" => Some("avcomancheag_p"),
-            "avchinook" => Some("avcomancheag_p"),
-            "avbattlesh" => Some("avbattlesh_d"),
-            "coplight" => Some("yellowlight"),
-            "housecolor2" => Some("housecolor3"),
-            "zhca_uirtunfan" => Some("housecolor3"),
-            "nbwall" => Some("pmwallwd1_ds"),
-            "pmwallchn1_d" => Some("pmwallwd1_ds"),
-            "uirebel" => Some("sccparticlecanon_usa"),
-            "nvovrlrd_u" => Some("sccparticlecanon_usa"),
-            "lightbeam" => Some("yellowlight"),
-            "pmtaltower" => Some("pmtower"),
-            "pmtaltower_n" => Some("pmtower_n"),
-            "pmcactus" => Some("pmprklypr"),
-            "pmvines02" => Some("pmvines01_d"),
-            // Challenge-map texture compatibility aliases.
-            "pmbarbwire2" => Some("pmwallwd2_ds"),
-            "ubstingers02" => Some("utsandbags2_d"),
-            "uvtechweap" => Some("uvpowtruck_d1"),
-            "uvtoxintrk" => Some("uvpowtruck_d1"),
-            "cbmogwell01" => Some("cboilrfny"),
-            "ubundtunn01" => Some("utsandbags2_d"),
-            "ubundtunnd" => Some("utsandbags2_d"),
-            _ => None,
-        }
+        candidates
     }
 
     /// Get texture by name (loads if not cached), returns default on error
@@ -1710,52 +1552,23 @@ mod tests {
     }
 
     #[test]
-    fn shell_scene_texture_aliases_cover_current_startup_misses() {
-        assert_eq!(
-            TextureManager::texture_alias_base("avcomanche_p"),
-            Some("avcomancheag_p")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("avamphib"),
-            Some("avcomancheag_p")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("avchinook"),
-            Some("avcomancheag_p")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("avbattlesh"),
-            Some("avbattlesh_d")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("coplight"),
-            Some("yellowlight")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("housecolor2"),
-            Some("housecolor3")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("nbwall"),
-            Some("pmwallwd1_ds")
-        );
-        assert_eq!(
-            TextureManager::texture_alias_base("pmwallchn1_d"),
-            Some("pmwallwd1_ds")
-        );
+    fn candidate_generation_prefers_dds_then_tga_without_remaps() {
+        let candidates = TextureManager::build_texture_candidates("AVComanche.tga");
+
+        assert_eq!(candidates[0], "AVComanche.tga");
+        assert_eq!(candidates[1], "art/textures/AVComanche.dds");
+        assert!(candidates.contains(&"art/textures/AVComanche.dds".to_string()));
+        assert!(candidates.contains(&"art/textures/AVComanche.tga".to_string()));
+        assert!(candidates.contains(&"art/w3d/AVComanche.dds".to_string()));
+        assert!(candidates.contains(&"art/w3d/AVComanche.tga".to_string()));
+        assert!(!candidates.iter().any(|c| c.contains("avcomancheag_p")));
     }
 
     #[test]
-    fn fuzzy_texture_lookup_normalizes_backslash_virtual_paths() {
-        let lower = "art\\w3d\\avchinook.tga";
-        let leaf = lower.rsplit(['/', '\\']).next().unwrap_or(lower);
-        let stem = leaf.rsplit_once('.').map(|(s, _)| s).unwrap_or(leaf);
-
-        assert_eq!(leaf, "avchinook.tga");
-        assert_eq!(stem, "avchinook");
-        assert_eq!(
-            TextureManager::texture_match_score(stem, "avchinook", "avchinook"),
-            Some(0)
-        );
+    fn candidate_generation_normalizes_backslashes() {
+        let candidates = TextureManager::build_texture_candidates("Art\\W3D\\PTXBIRCH05.tga");
+        assert_eq!(candidates[0], "Art/W3D/PTXBIRCH05.tga");
+        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05.dds".to_string()));
+        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05.tga".to_string()));
     }
 }

@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 pub mod browser;
 pub mod lobby;
+pub mod matchmaker;
 pub mod ranking;
 pub mod social;
 
