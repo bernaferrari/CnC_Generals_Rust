@@ -115,6 +115,8 @@ pub mod transport_unified; // Unified transport supporting both UDP and QUIC
 pub mod udp; // Legacy UDP wrapper compatibility
 pub mod utils;
 pub mod wol_browser;
+pub mod bridge; // Network bridge connecting transport to GameLogic
+pub mod sync; // Deterministic lockstep game synchronization
 
 // Re-exports
 pub mod game_spy_thread;
