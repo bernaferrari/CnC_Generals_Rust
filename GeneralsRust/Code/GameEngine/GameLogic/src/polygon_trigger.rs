@@ -8,6 +8,7 @@ use crate::common::{
 };
 use crate::helpers::TheTerrainLogic;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
+use std::collections::HashMap;
 
 /// Polygon trigger identifier
 pub type PolygonTriggerId = Int;
@@ -371,6 +372,8 @@ impl Snapshot for PolygonTrigger {
 /// Matches C++ ThePolygonTriggerListPtr
 pub struct PolygonTriggerList {
     triggers: Vec<PolygonTrigger>,
+    /// Maps trigger ID to index in `triggers` for O(1) lookup.
+    id_index: HashMap<PolygonTriggerId, usize>,
     current_id: PolygonTriggerId,
 }
 
@@ -378,6 +381,7 @@ impl PolygonTriggerList {
     pub fn new() -> Self {
         Self {
             triggers: Vec::new(),
+            id_index: HashMap::new(),
             current_id: 1,
         }
     }
@@ -492,13 +496,17 @@ impl PolygonTriggerList {
 
     /// Add a polygon trigger to the list
     pub fn add(&mut self, trigger: PolygonTrigger) {
+        let idx = self.triggers.len();
+        self.id_index.insert(trigger.id, idx);
         self.triggers.push(trigger);
     }
 
     /// Get polygon trigger by ID
     /// Matches C++ getPolygonTriggerByID
     pub fn get_by_id(&self, trigger_id: PolygonTriggerId) -> Option<&PolygonTrigger> {
-        self.triggers.iter().find(|t| t.id == trigger_id)
+        self.id_index
+            .get(&trigger_id)
+            .map(|&idx| &self.triggers[idx])
     }
 
     /// Get polygon trigger by name
@@ -534,6 +542,7 @@ impl PolygonTriggerList {
 
     pub fn clear(&mut self) {
         self.triggers.clear();
+        self.id_index.clear();
         self.current_id = 1;
     }
 }
