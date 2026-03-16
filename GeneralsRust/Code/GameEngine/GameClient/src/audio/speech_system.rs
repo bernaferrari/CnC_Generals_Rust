@@ -287,8 +287,8 @@ impl SpeechSystem {
     /// Expired entries are dropped, and the next eligible line is played.
     pub fn update(&mut self, engine: &mut AudioEngine) {
         // Drop timed-out entries from both queues.
-        self.expire_queue(&mut self.eva_queue);
-        self.expire_queue(&mut self.unit_queue);
+        Self::expire_queue(&mut self.eva_queue);
+        Self::expire_queue(&mut self.unit_queue);
 
         // Check if currently playing speech has finished.
         if self.current_handle != 0 && !engine.is_playing(self.current_handle) {
@@ -397,7 +397,7 @@ impl SpeechSystem {
     // Internal helpers
     // -----------------------------------------------------------------------
 
-    fn expire_queue(&mut self, queue: &mut VecDeque<QueuedSpeech>) {
+    fn expire_queue(queue: &mut VecDeque<QueuedSpeech>) {
         while let Some(front) = queue.front() {
             if front.queued_at.elapsed() > front.line.timeout {
                 queue.pop_front();
