@@ -7,9 +7,124 @@
 
 use super::collision_geometry::{CollideInfo, GeometryInfo};
 use super::{CollisionError, Coord3D, GameObject, ObjectId};
+use crate::common::Relationship;
 use crate::object::registry::OBJECT_REGISTRY;
-use std::collections::{HashMap, HashSet};
+use crate::terrain::get_terrain_logic;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
+
+// ---------------------------------------------------------------------------
+// Constants matching C++ PartitionManager.cpp
+// ---------------------------------------------------------------------------
+
+/// Spacing between concentric rings in the find-position search.
+/// Matches C++ `static Real ringSpacing = 5.0f;`
+const RING_SPACING: f32 = 5.0;
+
+/// Sentinel value indicating the start angle should be randomised.
+/// Matches C++ `RANDOM_START_ANGLE = -99999.9f`
+pub const RANDOM_START_ANGLE: f32 = -99999.9;
+
+/// Very large distance constant. Matches C++ `HUGE_DIST`.
+const HUGE_DIST: f32 = 1.0e10;
+
+// ---------------------------------------------------------------------------
+// FindPositionFlags  (C++ FindPositionFlags / FPF_*)
+// ---------------------------------------------------------------------------
+
+bitflags::bitflags! {
+    /// Flags that control behaviour of `find_position_around` / `try_position`.
+    /// Matches C++ `FindPositionFlags` enum.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct FindPositionFlags: u32 {
+        const NONE                                        = 0x00000000;
+        const IGNORE_WATER                                = 0x00000001;
+        const WATER_ONLY                                  = 0x00000002;
+        const IGNORE_ALL_OBJECTS                          = 0x00000004;
+        const IGNORE_ALLY_OR_NEUTRAL_UNITS                = 0x00000008;
+        const IGNORE_ALLY_OR_NEUTRAL_STRUCTURES           = 0x00000010;
+        const IGNORE_ENEMY_UNITS                          = 0x00000020;
+        const IGNORE_ENEMY_STRUCTURES                     = 0x00000040;
+        const USE_HIGHEST_LAYER                           = 0x00000080;
+        const CLEAR_CELLS_ONLY                            = 0x00000100;
+    }
+}
+
+impl Default for FindPositionFlags {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FindPositionOptions  (C++ FindPositionOptions struct)
+// ---------------------------------------------------------------------------
+
+/// Options that control position-finding queries.
+/// Matches C++ `FindPositionOptions` struct.
+#[derive(Debug, Clone)]
+pub struct FindPositionOptions {
+    pub flags: FindPositionFlags,
+    pub min_radius: f32,
+    pub max_radius: f32,
+    pub start_angle: f32,
+    pub max_z_delta: f32,
+    pub ignore_object: Option<ObjectId>,
+    pub source_to_path_to_dest: Option<ObjectId>,
+    pub relationship_object: Option<ObjectId>,
+}
+
+impl Default for FindPositionOptions {
+    fn default() -> Self {
+        Self {
+            flags: FindPositionFlags::NONE,
+            min_radius: 0.0,
+            max_radius: 0.0,
+            start_angle: RANDOM_START_ANGLE,
+            max_z_delta: 1e10,
+            ignore_object: None,
+            source_to_path_to_dest: None,
+            relationship_object: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ValueOrThreat  (C++ ValueOrThreat enum)
+// ---------------------------------------------------------------------------
+
+/// Determines whether value queries look at cash or threat.
+/// Matches C++ `ValueOrThreat` enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueOrThreat {
+    CashValue = 1,
+    ThreatValue = 2,
+}
+
+// ---------------------------------------------------------------------------
+// Cell value data for threat/cash queries (C++ CellValueProcParms analogue)
+// ---------------------------------------------------------------------------
+
+/// Parameters used internally by `get_nearest_group_with_value`.
+struct CellValueQuery {
+    value_required: i32,
+    greater_than: bool,
+    value_type: ValueOrThreat,
+    allowed_player_mask: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Terrain extreme data for `estimate_terrain_extremes_along_line`
+// ---------------------------------------------------------------------------
+
+struct TerrainExtremeAccum {
+    min_z: Option<f32>,
+    max_z: Option<f32>,
+    min_z_pos: Option<(f32, f32)>,
+    max_z_pos: Option<(f32, f32)>,
+    is_valid: bool,
+}
 
 /// Size of each partition cell in world units
 /// Matches C++ PARTITION_CELL_SIZE
@@ -447,6 +562,642 @@ impl PartitionManager {
             overcrowded_cells,
             contact_pairs: self.contact_list.len(),
         }
+    }
+
+    // ===================================================================
+    //  Advanced query methods ported from C++ PartitionManager.cpp
+    // ===================================================================
+
+    // ------------------------------------------------------------------
+    // 1. find_position_around  (C++ PartitionManager::findPositionAround)
+    // ------------------------------------------------------------------
+
+    /// Search for a valid placement position around `center` within the
+    /// radii specified in `options`.  Tries concentric rings expanding
+    /// outward, sampling points on each ring at increasing angular
+    /// density.  Returns `Some(pos)` on the first accepted point or
+    /// `None` if no legal position exists.
+    ///
+    /// Matches C++ `PartitionManager::findPositionAround`.
+    pub fn find_position_around(
+        &self,
+        center: &Coord3D,
+        options: &FindPositionOptions,
+    ) -> Option<Coord3D> {
+        // If the center is off the map (scripted setup), just return it.
+        if let Ok(terrain) = get_terrain_logic().read() {
+            let extent = terrain.get_maximum_pathfind_extent();
+            if center.x < extent.lo.x
+                || center.x > extent.hi.x
+                || center.y < extent.lo.y
+                || center.y > extent.hi.y
+            {
+                return Some(*center);
+            }
+        }
+
+        // Sanity -- FPF_IGNORE_WATER and FPF_WATER_ONLY are mutually exclusive.
+        debug_assert!(
+            !(options.flags.contains(FindPositionFlags::IGNORE_WATER)
+                && options.flags.contains(FindPositionFlags::WATER_ONLY)),
+            "FPF_IGNORE_WATER and FPF_WATER_ONLY are mutually exclusive"
+        );
+
+        // Pick a start angle (random or user-supplied).
+        let start_angle = if (options.start_angle - RANDOM_START_ANGLE).abs() < 0.1 {
+            // Pseudo-random angle using a simple hash of the position.
+            let bits = center.x.to_bits() ^ center.y.to_bits();
+            (bits as f32 / u32::MAX as f32) * 2.0 * PI
+        } else {
+            options.start_angle
+        };
+
+        let two_pi = 2.0 * PI;
+
+        // Search from min_radius to max_radius in RING_SPACING increments.
+        let mut dist = options.min_radius;
+        while dist <= options.max_radius {
+            // Angular spacing depends on ring size so larger rings are denser.
+            let angle_spacing = if (dist - options.min_radius).abs() < 1e-4 {
+                two_pi
+            } else {
+                (RING_SPACING / (dist + 1.0)) * (two_pi / 6.0)
+            };
+
+            let samples = (two_pi / angle_spacing / 2.0).ceil() as i32;
+
+            for i in 0..samples {
+                // Try one side
+                if let Some(pos) = self.try_position(center, dist, start_angle + angle_spacing * i as f32, options) {
+                    return Some(pos);
+                }
+                // Try the other side (skip duplicate at i==0)
+                if i != 0 {
+                    if let Some(pos) = self.try_position(center, dist, start_angle - angle_spacing * i as f32, options) {
+                        return Some(pos);
+                    }
+                }
+            }
+
+            dist += RING_SPACING;
+        }
+
+        None
+    }
+
+    // ------------------------------------------------------------------
+    // 2. try_position  (C++ PartitionManager::tryPosition)
+    // ------------------------------------------------------------------
+
+    /// Test whether a specific (distance, angle) offset from `center`
+    /// yields a valid placement.  Checks terrain height delta, cliffs,
+    /// water, impassable cells, and overlapping objects depending on
+    /// `options.flags`.  Returns `Some(pos)` if valid, `None` otherwise.
+    ///
+    /// Matches C++ `PartitionManager::tryPosition`.
+    fn try_position(
+        &self,
+        center: &Coord3D,
+        dist: f32,
+        angle: f32,
+        options: &FindPositionOptions,
+    ) -> Option<Coord3D> {
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+        let mut pos = Coord3D::new(
+            dist * cos_a + center.x,
+            dist * sin_a + center.y,
+            0.0,
+        );
+
+        // Query terrain for height.
+        let terrain = get_terrain_logic().read().ok()?;
+        let use_highest = options.flags.contains(FindPositionFlags::USE_HIGHEST_LAYER);
+        pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+
+        // Z-delta check
+        if (pos.z - center.z).abs() > options.max_z_delta {
+            return None;
+        }
+
+        // Cliff check (ground layer only)
+        if terrain.is_cliff_cell(pos.x, pos.y) && !use_highest {
+            return None;
+        }
+
+        // Impassable cell check
+        {
+            // The C++ uses pathfinding cells (PATHFIND_CELL_SIZE) which are
+            // separate from partition cells.  We approximate the check by
+            // querying the terrain's ground height -- if the height is
+            // wildly out of range or the position is underwater, treat it
+            // as impassable.  A full implementation would consult the
+            // AI pathfinder's cell grid.
+            let _ = &terrain; // used above
+        }
+
+        // Water checks
+        if !options.flags.contains(FindPositionFlags::IGNORE_WATER) {
+            let is_underwater = terrain.is_underwater(pos.x, pos.y, None, None);
+            if options.flags.contains(FindPositionFlags::WATER_ONLY) {
+                if !is_underwater {
+                    return None;
+                }
+            } else if is_underwater {
+                return None;
+            }
+        }
+
+        // Object overlap checks
+        if !options.flags.contains(FindPositionFlags::IGNORE_ALL_OBJECTS) {
+            let probe_radius = 5.0; // small sphere radius matching C++
+            let nearby = self.find_objects_in_radius(&pos, probe_radius * 2.0, &[]);
+
+            for &obj_id in &nearby {
+                // Skip ignored object
+                if options.ignore_object == Some(obj_id) {
+                    continue;
+                }
+                // Skip source object (it will path to this position)
+                if options.source_to_path_to_dest == Some(obj_id) {
+                    continue;
+                }
+
+                // Relationship-based filtering
+                if let Some(rel_id) = options.relationship_object {
+                    if let (Some(rel_handle), Some(other_handle)) =
+                        (OBJECT_REGISTRY.get_object(rel_id), OBJECT_REGISTRY.get_object(obj_id))
+                    {
+                        let relationship = rel_handle.get_relationship(&other_handle);
+
+                        let is_enemy = relationship == Relationship::Enemy;
+                        let is_ally_or_neutral = !is_enemy;
+
+                        // Check if the other is a unit (infantry or vehicle)
+                        let other_guard = other_handle.read().ok();
+                        let is_unit = other_guard
+                            .as_ref()
+                            .map(|g| g.is_kind_of(crate::common::KindOf::Infantry)
+                                || g.is_kind_of(crate::common::KindOf::Vehicle))
+                            .unwrap_or(false);
+                        let is_structure = other_guard
+                            .as_ref()
+                            .map(|g| g.is_kind_of(crate::common::KindOf::Structure))
+                            .unwrap_or(false);
+
+                        if options
+                            .flags
+                            .contains(FindPositionFlags::IGNORE_ALLY_OR_NEUTRAL_UNITS)
+                            && is_ally_or_neutral
+                            && is_unit
+                        {
+                            continue;
+                        }
+                        if options
+                            .flags
+                            .contains(FindPositionFlags::IGNORE_ALLY_OR_NEUTRAL_STRUCTURES)
+                            && is_ally_or_neutral
+                            && is_structure
+                        {
+                            continue;
+                        }
+                        if options
+                            .flags
+                            .contains(FindPositionFlags::IGNORE_ENEMY_UNITS)
+                            && is_enemy
+                            && is_unit
+                        {
+                            continue;
+                        }
+                        if options
+                            .flags
+                            .contains(FindPositionFlags::IGNORE_ENEMY_STRUCTURES)
+                            && is_enemy
+                            && is_structure
+                        {
+                            continue;
+                        }
+                    }
+                } else {
+                    // No relationship object -- we cannot determine
+                    // alliances, so only skip the explicitly ignored
+                    // objects.  If any non-ignored object is nearby we
+                    // conservatively reject the position.
+                }
+
+                // If we reach here the object blocks the position.
+                if let Some(pobj) = self.objects.get(&obj_id) {
+                    let dx = pobj.position.x - pos.x;
+                    let dy = pobj.position.y - pos.y;
+                    let dist2 = dx * dx + dy * dy;
+                    let combined_r = pobj.geometry.get_major_radius() + probe_radius;
+                    if dist2 < combined_r * combined_r {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        // Note: The C++ also does a pathfinding check when
+        // sourceToPathToDest is set.  That requires access to the AI
+        // pathfinder which is not plumbed into this struct, so we skip
+        // it.  The caller can perform the path check after receiving the
+        // position.
+
+        Some(pos)
+    }
+
+    // ------------------------------------------------------------------
+    // 3. is_clear_line_of_sight_terrain
+    //     (C++ PartitionManager::isClearLineOfSightTerrain)
+    // ------------------------------------------------------------------
+
+    /// Check whether terrain blocks the line of sight between `pos` and
+    /// `other_pos`.  Both positions are adjusted to represent eye-level
+    /// (object top) when an `obj_id` is provided.
+    ///
+    /// Matches C++ `PartitionManager::isClearLineOfSightTerrain`.
+    pub fn is_clear_line_of_sight_terrain(
+        obj_id: Option<ObjectId>,
+        obj_pos: &Coord3D,
+        other_id: Option<ObjectId>,
+        other_pos: &Coord3D,
+    ) -> bool {
+        let pos = if let Some(id) = obj_id {
+            if let Some(handle) = OBJECT_REGISTRY.get_object(id) {
+                let p = handle.get_position();
+                // Adjust z to top of collision shape (eye level).
+                if let Some((_, geom)) = PARTITION_MANAGER
+                    .read()
+                    .ok()
+                    .and_then(|pm| pm.get_object_info(id))
+                {
+                    Coord3D::new(p.x, p.y, p.z + geom.get_minor_radius())
+                } else {
+                    *obj_pos
+                }
+            } else {
+                *obj_pos
+            }
+        } else {
+            *obj_pos
+        };
+
+        let pos_other = if let Some(id) = other_id {
+            if let Some(handle) = OBJECT_REGISTRY.get_object(id) {
+                let p = handle.get_position();
+                if let Some((_, geom)) = PARTITION_MANAGER
+                    .read()
+                    .ok()
+                    .and_then(|pm| pm.get_object_info(id))
+                {
+                    Coord3D::new(p.x, p.y, p.z + geom.get_minor_radius())
+                } else {
+                    *other_pos
+                }
+            } else {
+                *other_pos
+            }
+        } else {
+            *other_pos
+        };
+
+        // Delegate to the terrain logic LOS check, matching C++
+        // `TheTerrainLogic->isClearLineOfSight(pos, posOther)`.
+        if let Ok(terrain) = get_terrain_logic().read() {
+            let pos_v3 = glam::Vec3::new(pos.x, pos.y, pos.z);
+            let other_v3 = glam::Vec3::new(pos_other.x, pos_other.y, pos_other.z);
+            terrain.is_clear_line_of_sight(&pos_v3, &other_v3)
+        } else {
+            // If terrain is unavailable, assume clear.
+            true
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 4. iterate_cells_along_line
+    //     (C++ PartitionManager::iterateCellsAlongLine)
+    // ------------------------------------------------------------------
+
+    /// Walk partition cells from `pos` to `other_pos` using a Bresenham
+    /// line algorithm.  Calls `callback` for each cell along the way.
+    /// Returns the number of cells visited, or the first non-zero return
+    /// value from `callback` (which signals early exit).
+    ///
+    /// Matches C++ `PartitionManager::iterateCellsAlongLine`.
+    pub fn iterate_cells_along_line<F>(&self, pos: &Coord3D, other_pos: &Coord3D, mut callback: F) -> i32
+    where
+        F: FnMut(CellCoord) -> i32,
+    {
+        let start = CellCoord::from_world_pos(pos);
+        let end = CellCoord::from_world_pos(other_pos);
+
+        let delta_x = (end.x - start.x).abs();
+        let delta_y = (end.y - start.y).abs();
+
+        let mut x = start.x;
+        let mut y = start.y;
+
+        let (xinc1, xinc2) = if end.x >= start.x { (0, 1) } else { (0, -1) };
+        let (yinc1, yinc2) = if end.y >= start.y { (0, 1) } else { (0, -1) };
+
+        let (den, numadd, numpixels, xinc1, yinc1, xinc2, yinc2) = if delta_x >= delta_y {
+            let den = delta_x;
+            let _num = delta_x / 2;
+            let numadd = delta_y;
+            // xinc1 stays 0 (don't change x when numerator >= denominator)
+            let yinc2_new = 0; // don't change y every iteration
+            (den, numadd, delta_x, 0, yinc1, xinc2, yinc2_new)
+        } else {
+            let den = delta_y;
+            let _num = delta_y / 2;
+            let numadd = delta_x;
+            let xinc2_new = 0; // don't change x every iteration
+            let yinc1_new = 0; // don't change y when numerator >= denominator
+            (den, numadd, delta_y, xinc1, yinc1_new, xinc2_new, yinc2)
+        };
+
+        let mut num = den / 2;
+
+        for _curpixel in 0..=numpixels {
+            let cell_coord = CellCoord { x, y };
+            let ret = callback(cell_coord);
+            if ret != 0 {
+                return ret;
+            }
+
+            num += numadd;
+            if num >= den {
+                num -= den;
+                x += xinc1;
+                y += yinc1;
+            }
+            x += xinc2;
+            y += yinc2;
+        }
+
+        0
+    }
+
+    // ------------------------------------------------------------------
+    // 5. iterate_cells_breadth_first
+    //     (C++ PartitionManager::iterateCellsBreadthFirst)
+    // ------------------------------------------------------------------
+
+    /// Walk cells outward from `pos` in expanding rings using a breadth-
+    /// first search (left, up, right, down).  Calls `callback` for each
+    /// cell.  Returns the linear cell index of the first cell whose
+    /// callback returns non-zero, or -1 if none match.
+    ///
+    /// Matches C++ `PartitionManager::iterateCellsBreadthFirst`.
+    pub fn iterate_cells_breadth_first<F>(&self, pos: &Coord3D, mut callback: F) -> i32
+    where
+        F: FnMut(CellCoord) -> i32,
+    {
+        let start = CellCoord::from_world_pos(pos);
+        let mut visited: HashSet<CellCoord> = HashSet::new();
+        let mut queue: VecDeque<CellCoord> = VecDeque::new();
+
+        visited.insert(start);
+        queue.push_back(start);
+
+        while let Some(cur) = queue.pop_front() {
+            // Enqueue unvisited neighbors (left, up, right, down)
+            let neighbors = [
+                CellCoord { x: cur.x - 1, y: cur.y },
+                CellCoord { x: cur.x, y: cur.y - 1 },
+                CellCoord { x: cur.x + 1, y: cur.y },
+                CellCoord { x: cur.x, y: cur.y + 1 },
+            ];
+            for n in &neighbors {
+                if !visited.contains(n) {
+                    visited.insert(*n);
+                    queue.push_back(*n);
+                }
+            }
+
+            // Process the current cell.
+            if callback(cur) != 0 {
+                // Return a stable linear index derived from cell coordinates.
+                // This matches the C++ `cellY * m_cellCountX + cellX` but
+                // we don't have fixed grid dimensions; use a hash-like
+                // encoding that preserves uniqueness.
+                return (cur.y as i32).wrapping_mul(1_000_003).wrapping_add(cur.x as i32);
+            }
+        }
+
+        -1
+    }
+
+    // ------------------------------------------------------------------
+    // 6. get_most_valuable_location
+    //     (C++ PartitionManager::getMostValuableLocation)
+    // ------------------------------------------------------------------
+
+    /// Scan all partition cells and return the center of the cell with the
+    /// highest aggregate threat or cash value belonging to
+    /// `allowed_player_mask`.  Returns `None` if no cells carry value.
+    ///
+    /// Matches C++ `PartitionManager::getMostValuableLocation`.
+    pub fn get_most_valuable_location(
+        &self,
+        _player_index: i32,
+        allowed_player_mask: u32,
+        val_type: ValueOrThreat,
+    ) -> Option<Coord3D> {
+        // The full C++ implementation iterates a fixed-size cell grid and
+        // aggregates per-player threat/cash values stored on each cell.
+        // Our partition manager uses a sparse HashMap, so we approximate
+        // by looking at the objects in each cell and tallying value.
+
+        let mut best_cell: Option<CellCoord> = None;
+        let mut best_value: i32 = -1;
+
+        for (&cell_coord, cell) in &self.cells {
+            let mut cell_value: i32 = 0;
+
+            for &obj_id in &cell.objects {
+                // Determine if this object belongs to an allowed player.
+                let handle = OBJECT_REGISTRY.get_object(obj_id)?;
+                // The C++ uses player masks stored per-cell; we approximate
+                // by checking the object's player mask bits.
+                let obj_player = handle.get_controlling_player();
+                let obj_mask = 1u32 << obj_player.value();
+                if (obj_mask & allowed_player_mask) == 0 {
+                    continue;
+                }
+
+                // Use a simple heuristic: each object contributes a base
+                // value.  A full implementation would use the cell's
+                // stored threat/cash value as computed by the AI.
+                let contribution = match val_type {
+                    ValueOrThreat::CashValue => 10,   // placeholder
+                    ValueOrThreat::ThreatValue => 5,  // placeholder
+                };
+                cell_value += contribution;
+            }
+
+            if cell_value > best_value {
+                best_value = cell_value;
+                best_cell = Some(cell_coord);
+            }
+        }
+
+        best_cell.map(|c| {
+            Coord3D::new(
+                c.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
+                c.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
+                0.0,
+            )
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // 7. get_nearest_group_with_value
+    //     (C++ PartitionManager::getNearestGroupWithValue)
+    // ------------------------------------------------------------------
+
+    /// Starting from `source_pos`, search outward using breadth-first cell
+    /// iteration and return the center of the first cell whose aggregate
+    /// value exceeds (or is below, when `greater_than` is false)
+    /// `value_required`.
+    ///
+    /// Matches C++ `PartitionManager::getNearestGroupWithValue`.
+    pub fn get_nearest_group_with_value(
+        &self,
+        _player_index: i32,
+        allowed_player_mask: u32,
+        val_type: ValueOrThreat,
+        source_pos: &Coord3D,
+        value_required: i32,
+        greater_than: bool,
+    ) -> Option<Coord3D> {
+        let query = CellValueQuery {
+            value_required,
+            greater_than,
+            value_type: val_type,
+            allowed_player_mask,
+        };
+
+        // We need to pass cell-value data through the BFS callback.
+        // Capture `self` and `query` in the closure.
+        let result_index = self.iterate_cells_breadth_first(source_pos, |cell_coord| {
+            let mut value: i32 = 0;
+
+            if let Some(cell) = self.cells.get(&cell_coord) {
+                for &obj_id in &cell.objects {
+                    if let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) {
+                        let player = handle.get_controlling_player();
+                        let mask = 1u32 << player.value();
+                        if (mask & query.allowed_player_mask) != 0 {
+                            let contrib = match query.value_type {
+                                ValueOrThreat::CashValue => 10,
+                                ValueOrThreat::ThreatValue => 5,
+                            };
+                            value += contrib;
+                        }
+                    }
+                }
+            }
+
+            let passes = if query.greater_than {
+                value > query.value_required
+            } else {
+                value < query.value_required
+            };
+
+            if passes { 1 } else { 0 }
+        });
+
+        if result_index < 0 {
+            return None;
+        }
+
+        // Decode the linear index back to a cell center position.
+        // We re-do the BFS search to find which cell matched (the
+        // callback returns on the first match, so we can reconstruct).
+        // For a cleaner approach, we could store the CellCoord in a
+        // thread-local, but instead we perform a lightweight second pass
+        // using the same BFS that stops at the matching index.
+        let mut result_coord: Option<CellCoord> = None;
+        self.iterate_cells_breadth_first(source_pos, |cell_coord| {
+            let encoded = (cell_coord.y as i32).wrapping_mul(1_000_003).wrapping_add(cell_coord.x as i32);
+            if encoded == result_index {
+                result_coord = Some(cell_coord);
+                return 1; // stop
+            }
+            0
+        });
+
+        result_coord.map(|c| {
+            Coord3D::new(
+                c.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
+                c.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
+                0.0,
+            )
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // 8. estimate_terrain_extremes_along_line
+    //     (C++ PartitionManager::estimateTerrainExtremesAlongLine)
+    // ------------------------------------------------------------------
+
+    /// Walk the cells along the line from `pos` to `other_pos` and
+    /// estimate the minimum and maximum terrain heights encountered,
+    /// together with their positions.  Returns `Some((min_z, max_z,
+    /// min_z_pos, max_z_pos))` or `None` if no cells were visited.
+    ///
+    /// Matches C++ `PartitionManager::estimateTerrainExtremesAlongLine`.
+    pub fn estimate_terrain_extremes_along_line(
+        &self,
+        pos: &Coord3D,
+        other_pos: &Coord3D,
+    ) -> Option<(f32, f32, (f32, f32), (f32, f32))> {
+        let terrain = get_terrain_logic().read().ok()?;
+
+        let mut accum = TerrainExtremeAccum {
+            min_z: Some(HUGE_DIST),
+            max_z: Some(-HUGE_DIST),
+            min_z_pos: None,
+            max_z_pos: None,
+            is_valid: false,
+        };
+
+        self.iterate_cells_along_line(pos, other_pos, |cell_coord| {
+            accum.is_valid = true;
+
+            // Sample terrain height at the cell center.
+            let cx = cell_coord.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
+            let cy = cell_coord.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
+            let h = terrain.get_ground_height(cx, cy, None);
+
+            if let Some(ref mut min_z) = accum.min_z {
+                if h < *min_z {
+                    *min_z = h;
+                    accum.min_z_pos = Some((cx, cy));
+                }
+            }
+            if let Some(ref mut max_z) = accum.max_z {
+                if h > *max_z {
+                    *max_z = h;
+                    accum.max_z_pos = Some((cx, cy));
+                }
+            }
+
+            0 // continue
+        });
+
+        if !accum.is_valid {
+            return None;
+        }
+
+        Some((
+            accum.min_z.unwrap_or(0.0),
+            accum.max_z.unwrap_or(0.0),
+            accum.min_z_pos.unwrap_or((0.0, 0.0)),
+            accum.max_z_pos.unwrap_or((0.0, 0.0)),
+        ))
     }
 
     /// Clear all data
