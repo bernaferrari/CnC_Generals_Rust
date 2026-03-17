@@ -1347,6 +1347,11 @@ impl GameLogic {
         }
     }
 
+    #[cfg(feature = "game_client")]
+    pub fn terrain_heightmap_snapshot(&self) -> Option<game_client::terrain::height_map::HeightMap> {
+        self.terrain.as_ref().map(|terrain| terrain.heightmap_clone())
+    }
+
     /// Export terrain/pathing passability as a compact grid mask for save/load parity.
     pub fn snapshot_pathfinding_passability(&self) -> (u32, u32, Vec<bool>) {
         let width = self.pathfinding_system.grid.width().max(0) as u32;
@@ -5174,11 +5179,14 @@ impl GameLogic {
             "pmwtrtwr" => "PMTower".to_string(),
             "pmwtrtwr02" => "PMTower2".to_string(),
             "pmctrslpy" => "PMDock08".to_string(),
-            "absupplyct" => "ABSupplyCT_A2".to_string(),
+            // ZH-only archive set in this workspace ships ABSupplyCT as the _A2* family.
+            // Use a mesh-root variant instead of the animation-root ABSupplyCT_A2 file.
+            "absupplyct" => "ABSupplyCT_A2U".to_string(),
+            "absupplyct_a2" => "ABSupplyCT_A2U".to_string(),
             "ubsupply" => "UBSupplyF".to_string(),
             "ubcmdhq" => "UBCmdHQ_FA".to_string(),
             "absupdrop" => "PMWldCrate".to_string(),
-            "nbsupcent" => "ABSupplyCT_A2".to_string(),
+            "nbsupcent" => "ABSupplyCT_A2U".to_string(),
             "nbconyard" => "NBConYard_FA".to_string(),
             "uvtechjeep" => "UVTechJeep_d4".to_string(),
             "uvtechvan" => "UVTechVan_d1".to_string(),
@@ -5215,7 +5223,9 @@ impl GameLogic {
             "ptxpine03" => "PTXFIR07".to_string(),
             "pmswing" => "PMBikeRack".to_string(),
             "pmplygdst" => "PMPavilion".to_string(),
-            "avamphib" | "avamphib_a" | "avamphib_a1" => "AVChinook_A2".to_string(),
+            // AVChinook_A2 is an animation-root file; route model fallback to renderable mesh.
+            "avamphib" | "avamphib_a" | "avamphib_a1" => "AVChinook".to_string(),
+            "avchinook_a2" => "AVChinook_A2MSH".to_string(),
             "avpaladin" => "AVCrusader_A".to_string(),
             "avpaladin_d" => "avcrusader_d".to_string(),
             "avpaladin_d1" | "avpaladin_d2" | "avpaladin_d3" => "avcrusader_d1".to_string(),
@@ -8930,7 +8940,15 @@ mod tests {
         );
         assert_eq!(
             GameLogic::remap_known_model_alias("AVAMPHIB"),
-            "AVChinook_A2"
+            "AVChinook"
+        );
+        assert_eq!(
+            GameLogic::remap_known_model_alias("AVChinook_A2"),
+            "AVChinook_A2MSH"
+        );
+        assert_eq!(
+            GameLogic::remap_known_model_alias("ABSupplyCT_A2"),
+            "ABSupplyCT_A2U"
         );
         assert_eq!(
             GameLogic::remap_known_model_alias("AVPaladin"),

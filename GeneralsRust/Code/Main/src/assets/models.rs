@@ -37,20 +37,32 @@ const W3D_CHUNK_VERTEX_SHADE_INDICES: u32 = 0x00000022;
 const W3D_CHUNK_MATERIAL_INFO: u32 = 0x00000028;
 const W3D_CHUNK_SHADERS: u32 = 0x00000029;
 const W3D_CHUNK_VERTEX_MATERIALS: u32 = 0x0000002A;
-const W3D_CHUNK_MATERIALS3: u32 = 0x0000002B;
-const W3D_CHUNK_MATERIAL3: u32 = 0x0000002C;
-const W3D_CHUNK_MATERIAL3_NAME: u32 = 0x0000002D;
-const W3D_CHUNK_MATERIAL3_INFO: u32 = 0x0000002E;
-const W3D_CHUNK_MATERIAL3_DC_MAP: u32 = 0x0000002F;
-const W3D_CHUNK_MAP3_FILENAME: u32 = 0x0000001A; // FIXED: Was 0x30
-const W3D_CHUNK_MAP3_INFO: u32 = 0x0000001B; // FIXED: Was 0x31
+const W3D_CHUNK_VERTEX_MATERIAL: u32 = 0x0000002B;
+const W3D_CHUNK_VERTEX_MATERIAL_NAME: u32 = 0x0000002C;
+const W3D_CHUNK_VERTEX_MATERIAL_INFO: u32 = 0x0000002D;
+const W3D_CHUNK_VERTEX_MAPPER_ARGS0: u32 = 0x0000002E;
+const W3D_CHUNK_VERTEX_MAPPER_ARGS1: u32 = 0x0000002F;
+// Obsolete v3 material chunks from w3d_obsolete.h (still used by shipped content).
+const W3D_CHUNK_MATERIALS3: u32 = 0x00000015;
+const W3D_CHUNK_MATERIAL3: u32 = 0x00000016;
+const W3D_CHUNK_MATERIAL3_NAME: u32 = 0x00000017;
+const W3D_CHUNK_MATERIAL3_INFO: u32 = 0x00000018;
+const W3D_CHUNK_MATERIAL3_DC_MAP: u32 = 0x00000019;
+const W3D_CHUNK_MAP3_FILENAME: u32 = 0x0000001A;
+const W3D_CHUNK_MAP3_INFO: u32 = 0x0000001B;
 const W3D_CHUNK_TEXTURES: u32 = 0x00000030; // FIXED: Was 0x32
 const W3D_CHUNK_TEXTURE: u32 = 0x00000031; // FIXED: Was 0x33
 const W3D_CHUNK_TEXTURE_NAME: u32 = 0x00000032; // FIXED: Was 0x34
 const W3D_CHUNK_TEXTURE_INFO: u32 = 0x00000033; // FIXED: Was 0x35
 const W3D_CHUNK_MATERIAL_PASS: u32 = 0x00000038;
+const W3D_CHUNK_VERTEX_MATERIAL_IDS: u32 = 0x00000039;
+const W3D_CHUNK_SHADER_IDS: u32 = 0x0000003A;
+const W3D_CHUNK_DCG: u32 = 0x0000003B;
+const W3D_CHUNK_DIG: u32 = 0x0000003C;
 const W3D_CHUNK_TEXTURE_STAGE: u32 = 0x00000048;
 const W3D_CHUNK_TEXTURE_IDS: u32 = 0x00000049; // NEW: Texture index array
+const W3D_CHUNK_STAGE_TEXCOORDS: u32 = 0x0000004A;
+const W3D_CHUNK_PER_FACE_TEXCOORD_IDS: u32 = 0x0000004B;
 
 // Additional W3D chunks
 const W3D_CHUNK_VERTEX_COLORS: u32 = 0x00000008;
@@ -61,6 +73,24 @@ const W3D_CHUNK_ANIMATION: u32 = 0x00000200;
 const W3D_CHUNK_HMODEL: u32 = 0x00000300;
 const W3D_CHUNK_LODMODEL: u32 = 0x00000400;
 const W3D_CHUNK_HLOD: u32 = 0x00000700; // NEW: Hierarchical LOD model
+
+#[derive(Debug, Default)]
+struct ParsedTextureStage {
+    texture_ids: Vec<u32>,
+    texcoords: Vec<[f32; 2]>,
+    per_face_texcoord_ids: Vec<[u32; 3]>,
+}
+
+#[derive(Debug, Default)]
+struct ParsedMaterialPass {
+    stage_texture_ids: Vec<Vec<u32>>,
+    stage_texcoords: Vec<Vec<[f32; 2]>>,
+    stage_per_face_texcoord_ids: Vec<Vec<[u32; 3]>>,
+    vertex_material_ids: Vec<u32>,
+    shader_ids: Vec<u32>,
+    dcg_colors: Vec<W3dRGBAStruct>,
+    dig_colors: Vec<W3dRGBAStruct>,
+}
 
 // Mesh types
 const W3D_MESH_FLAG_NONE: u32 = 0;
@@ -876,6 +906,10 @@ impl W3DLoader {
 
         // Go through each mesh and resolve texture indices
         for mesh in &mut model.meshes {
+            if mesh.texture_library.is_empty() {
+                mesh.texture_library = model.texture_names.clone();
+            }
+
             if let Some(ref texture_ref) = mesh.material.texture_name {
                 // Try to parse texture_ref as an index
                 if let Ok(index) = texture_ref.parse::<usize>() {
@@ -902,6 +936,33 @@ impl W3DLoader {
                     );
                 }
             }
+
+            if !mesh.per_pass_stage_texture_ids.is_empty() {
+                let mut per_pass_names = Vec::with_capacity(mesh.per_pass_stage_texture_ids.len());
+                for stages in &mesh.per_pass_stage_texture_ids {
+                    let mut stage_names = Vec::with_capacity(stages.len());
+                    for ids in stages {
+                        let names = ids
+                            .iter()
+                            .filter_map(|texture_id| {
+                                if *texture_id == u32::MAX {
+                                    None
+                                } else {
+                                    mesh.texture_name_from_library(*texture_id)
+                                        .map(|name| name.to_string())
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        stage_names.push(names);
+                    }
+                    per_pass_names.push(stage_names);
+                }
+                mesh.per_pass_stage_texture_names = per_pass_names;
+
+                if mesh.material.texture_name.is_none() {
+                    mesh.material.texture_name = Self::stage_texture_from_mesh(mesh, 0, 0);
+                }
+            }
         }
 
         // Also update materials map if they have texture references
@@ -921,6 +982,395 @@ impl W3DLoader {
                 }
             }
         }
+    }
+
+    fn parse_u32_array(&self, data: &[u8]) -> Result<Vec<u32>> {
+        if data.len() % 4 != 0 {
+            return Err(anyhow!("invalid u32 array length {}", data.len()));
+        }
+        let mut values = Vec::with_capacity(data.len() / 4);
+        let mut offset = 0usize;
+        while offset + 4 <= data.len() {
+            values.push(u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]));
+            offset += 4;
+        }
+        Ok(values)
+    }
+
+    fn parse_rgba_colors(&self, data: &[u8]) -> Result<Vec<W3dRGBAStruct>> {
+        if data.len() % 4 != 0 {
+            return Err(anyhow!("invalid RGBA array length {}", data.len()));
+        }
+        let mut colors = Vec::with_capacity(data.len() / 4);
+        let mut offset = 0usize;
+        while offset + 4 <= data.len() {
+            colors.push(W3dRGBAStruct {
+                r: data[offset],
+                g: data[offset + 1],
+                b: data[offset + 2],
+                a: data[offset + 3],
+            });
+            offset += 4;
+        }
+        Ok(colors)
+    }
+
+    fn parse_per_face_texcoord_ids(&self, data: &[u8]) -> Result<Vec<[u32; 3]>> {
+        if data.len() % 12 != 0 {
+            return Err(anyhow!(
+                "invalid per-face texcoord id array length {}",
+                data.len()
+            ));
+        }
+        let mut values = Vec::with_capacity(data.len() / 12);
+        let mut offset = 0usize;
+        while offset + 12 <= data.len() {
+            values.push([
+                u32::from_le_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]),
+                u32::from_le_bytes([
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
+                ]),
+                u32::from_le_bytes([
+                    data[offset + 8],
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                ]),
+            ]);
+            offset += 12;
+        }
+        Ok(values)
+    }
+
+    fn parse_texture_stage_chunk(&self, data: &[u8]) -> Result<ParsedTextureStage> {
+        let mut stage = ParsedTextureStage::default();
+        let mut offset = 0usize;
+        while offset + 8 <= data.len() {
+            let chunk_type = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let raw_chunk_size = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
+
+            if offset + 8 + chunk_size > data.len() {
+                break;
+            }
+
+            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
+            match chunk_type {
+                W3D_CHUNK_TEXTURE_IDS => {
+                    stage.texture_ids = self.parse_u32_array(chunk_data)?;
+                }
+                W3D_CHUNK_STAGE_TEXCOORDS | W3D_CHUNK_TEXCOORDS => {
+                    stage.texcoords = self.parse_texcoords(chunk_data)?;
+                }
+                W3D_CHUNK_PER_FACE_TEXCOORD_IDS => {
+                    stage.per_face_texcoord_ids = self.parse_per_face_texcoord_ids(chunk_data)?;
+                }
+                _ => {}
+            }
+
+            offset += 8 + chunk_size;
+        }
+        Ok(stage)
+    }
+
+    fn parse_material_pass_chunk(&self, data: &[u8]) -> Result<ParsedMaterialPass> {
+        let mut pass = ParsedMaterialPass::default();
+        let mut offset = 0usize;
+        while offset + 8 <= data.len() {
+            let chunk_type = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let raw_chunk_size = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
+
+            if offset + 8 + chunk_size > data.len() {
+                break;
+            }
+
+            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
+            match chunk_type {
+                W3D_CHUNK_VERTEX_MATERIAL_IDS => {
+                    pass.vertex_material_ids = self.parse_u32_array(chunk_data)?;
+                }
+                W3D_CHUNK_SHADER_IDS => {
+                    pass.shader_ids = self.parse_u32_array(chunk_data)?;
+                }
+                W3D_CHUNK_DCG => {
+                    pass.dcg_colors = self.parse_rgba_colors(chunk_data)?;
+                }
+                W3D_CHUNK_DIG => {
+                    // C++ reads DIG as W3dRGBAStruct and uses RGB channels.
+                    pass.dig_colors = self.parse_rgba_colors(chunk_data)?;
+                }
+                W3D_CHUNK_TEXTURE_STAGE => {
+                    let stage = self.parse_texture_stage_chunk(chunk_data)?;
+                    pass.stage_texture_ids.push(stage.texture_ids);
+                    pass.stage_texcoords.push(stage.texcoords);
+                    pass.stage_per_face_texcoord_ids
+                        .push(stage.per_face_texcoord_ids);
+                }
+                _ => {}
+            }
+
+            offset += 8 + chunk_size;
+        }
+
+        Ok(pass)
+    }
+
+    fn parse_shaders_chunk(&self, data: &[u8]) -> Result<Vec<W3dShaderStruct>> {
+        // C++ W3dShaderStruct is 16 bytes (15 data bytes + 1 pad byte).
+        if data.len() % 16 != 0 {
+            return Err(anyhow!("invalid shader chunk length {}", data.len()));
+        }
+
+        let mut shaders = Vec::with_capacity(data.len() / 16);
+        let mut offset = 0usize;
+        while offset + 16 <= data.len() {
+            shaders.push(W3dShaderStruct {
+                depth_compare: data[offset],
+                depth_mask: data[offset + 1],
+                color_mask: data[offset + 2],
+                dest_blend: data[offset + 3],
+                fog_func: data[offset + 4],
+                pri_gradient: data[offset + 5],
+                sec_gradient: data[offset + 6],
+                src_blend: data[offset + 7],
+                texturing: data[offset + 8],
+                detail_color_func: data[offset + 9],
+                detail_alpha_func: data[offset + 10],
+                shader_preset: data[offset + 11],
+                alpha_test: data[offset + 12],
+                post_detail_color_func: data[offset + 13],
+                post_detail_alpha_func: data[offset + 14],
+            });
+            offset += 16;
+        }
+        Ok(shaders)
+    }
+
+    fn default_vertex_material() -> W3dVertexMaterialStruct {
+        W3dVertexMaterialStruct {
+            attributes: 0,
+            ambient: W3dRGBAStruct {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            diffuse: W3dRGBAStruct {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            specular: W3dRGBAStruct {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            emissive: W3dRGBAStruct {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            shininess: 1.0,
+            opacity: 1.0,
+            translucency: 0.0,
+        }
+    }
+
+    fn parse_vertex_material_info_chunk(&self, data: &[u8]) -> Result<W3dVertexMaterialStruct> {
+        // C++ W3dVertexMaterialStruct uses 3-byte RGB triplets with 4-byte alignment.
+        // Accept both canonical 28-byte layout and 32-byte RGBA-expanded variant.
+        if data.len() < 28 {
+            return Err(anyhow!(
+                "vertex material info chunk too small: {} bytes",
+                data.len()
+            ));
+        }
+
+        let mut material = Self::default_vertex_material();
+        material.attributes = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+
+        if data.len() >= 32 {
+            material.ambient = W3dRGBAStruct {
+                r: data[4],
+                g: data[5],
+                b: data[6],
+                a: data[7],
+            };
+            material.diffuse = W3dRGBAStruct {
+                r: data[8],
+                g: data[9],
+                b: data[10],
+                a: data[11],
+            };
+            material.specular = W3dRGBAStruct {
+                r: data[12],
+                g: data[13],
+                b: data[14],
+                a: data[15],
+            };
+            material.emissive = W3dRGBAStruct {
+                r: data[16],
+                g: data[17],
+                b: data[18],
+                a: data[19],
+            };
+            material.shininess = f32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+            material.opacity = f32::from_le_bytes([data[24], data[25], data[26], data[27]]);
+            material.translucency =
+                f32::from_le_bytes([data[28], data[29], data[30], data[31]]);
+        } else {
+            material.ambient = W3dRGBAStruct {
+                r: data[4],
+                g: data[5],
+                b: data[6],
+                a: 255,
+            };
+            material.diffuse = W3dRGBAStruct {
+                r: data[7],
+                g: data[8],
+                b: data[9],
+                a: 255,
+            };
+            material.specular = W3dRGBAStruct {
+                r: data[10],
+                g: data[11],
+                b: data[12],
+                a: 255,
+            };
+            material.emissive = W3dRGBAStruct {
+                r: data[13],
+                g: data[14],
+                b: data[15],
+                a: 255,
+            };
+            material.shininess = f32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+            material.opacity = f32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+            material.translucency =
+                f32::from_le_bytes([data[24], data[25], data[26], data[27]]);
+        }
+
+        Ok(material)
+    }
+
+    fn parse_single_vertex_material_chunk(
+        &self,
+        data: &[u8],
+    ) -> Result<(W3dVertexMaterialStruct, VertexMapperConfig)> {
+        let mut material = Self::default_vertex_material();
+        let mapper = VertexMapperConfig::default();
+        let mut offset = 0usize;
+
+        while offset + 8 <= data.len() {
+            let chunk_type = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let raw_chunk_size = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
+
+            if offset + 8 + chunk_size > data.len() {
+                break;
+            }
+
+            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
+            match chunk_type {
+                W3D_CHUNK_VERTEX_MATERIAL_INFO => {
+                    material = self.parse_vertex_material_info_chunk(chunk_data)?;
+                }
+                W3D_CHUNK_VERTEX_MATERIAL_NAME
+                | W3D_CHUNK_VERTEX_MAPPER_ARGS0
+                | W3D_CHUNK_VERTEX_MAPPER_ARGS1 => {}
+                _ => {}
+            }
+
+            offset += 8 + chunk_size;
+        }
+
+        Ok((material, mapper))
+    }
+
+    fn parse_vertex_materials_chunk(
+        &self,
+        data: &[u8],
+    ) -> Result<(Vec<W3dVertexMaterialStruct>, Vec<VertexMapperConfig>)> {
+        let mut materials = Vec::new();
+        let mut mappers = Vec::new();
+        let mut offset = 0usize;
+
+        while offset + 8 <= data.len() {
+            let chunk_type = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let raw_chunk_size = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
+
+            if offset + 8 + chunk_size > data.len() {
+                break;
+            }
+
+            if chunk_type == W3D_CHUNK_VERTEX_MATERIAL {
+                let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
+                let (material, mapper) = self.parse_single_vertex_material_chunk(chunk_data)?;
+                materials.push(material);
+                mappers.push(mapper);
+            }
+
+            offset += 8 + chunk_size;
+        }
+
+        Ok((materials, mappers))
     }
 
     /// Parse a W3D mesh chunk
@@ -1057,38 +1507,79 @@ impl W3DLoader {
                     );
                 }
                 W3D_CHUNK_SHADERS => {
-                    // Shader definitions - skip for now
-                    debug!("Skipping W3D_CHUNK_SHADERS ({} bytes)", chunk_size);
+                    match self.parse_shaders_chunk(chunk_data) {
+                        Ok(shaders) => {
+                            debug!("Parsed {} shaders", shaders.len());
+                            mesh.shaders = shaders;
+                        }
+                        Err(err) => {
+                            warn!("Failed to parse W3D_CHUNK_SHADERS: {}", err);
+                        }
+                    }
                 }
                 W3D_CHUNK_VERTEX_MATERIALS => {
-                    // Parse vertex materials container
-                    debug!("Parsing W3D_CHUNK_VERTEX_MATERIALS ({} bytes)", chunk_size);
-                    let mut vmat_offset = 0;
-                    while vmat_offset + 8 <= chunk_data.len() {
-                        let vmat_type = u32::from_le_bytes([
-                            chunk_data[vmat_offset],
-                            chunk_data[vmat_offset + 1],
-                            chunk_data[vmat_offset + 2],
-                            chunk_data[vmat_offset + 3],
-                        ]);
-                        let vmat_size = u32::from_le_bytes([
-                            chunk_data[vmat_offset + 4],
-                            chunk_data[vmat_offset + 5],
-                            chunk_data[vmat_offset + 6],
-                            chunk_data[vmat_offset + 7],
-                        ]) as usize;
-
-                        if vmat_type == 0x00000027 {
-                            // W3D_CHUNK_VERTEX_MATERIAL
-                            // Skip parsing individual vertex materials for now
-                            debug!("Found W3D_CHUNK_VERTEX_MATERIAL, size: {}", vmat_size);
+                    match self.parse_vertex_materials_chunk(chunk_data) {
+                        Ok((materials, mappers)) => {
+                            debug!(
+                                "Parsed {} vertex materials and {} mapper configs",
+                                materials.len(),
+                                mappers.len()
+                            );
+                            mesh.vertex_materials = materials;
+                            mesh.vertex_mappers = mappers;
                         }
-                        vmat_offset += 8 + vmat_size;
+                        Err(err) => {
+                            warn!("Failed to parse W3D_CHUNK_VERTEX_MATERIALS: {}", err);
+                        }
                     }
                 }
                 W3D_CHUNK_MATERIAL_PASS => {
-                    // Material pass definitions - skip for now
-                    debug!("Skipping W3D_CHUNK_MATERIAL_PASS ({} bytes)", chunk_size);
+                    match self.parse_material_pass_chunk(chunk_data) {
+                        Ok(pass_data) => {
+                            let mut stage_texture_names = Vec::new();
+                            for texture_ids in &pass_data.stage_texture_ids {
+                                let names = texture_ids
+                                    .iter()
+                                    .filter_map(|texture_id| {
+                                        if *texture_id == u32::MAX {
+                                            return None;
+                                        }
+                                        texture_names.get(*texture_id as usize).cloned()
+                                    })
+                                    .collect::<Vec<_>>();
+                                stage_texture_names.push(names);
+                            }
+
+                            mesh.passes.push(MaterialPassInfo {
+                                vm_id: pass_data.vertex_material_ids.first().copied().unwrap_or(0),
+                                shader_id: pass_data.shader_ids.first().copied().unwrap_or(0),
+                                texture_count: pass_data.stage_texture_ids.len() as u32,
+                            });
+                            mesh.per_pass_vertex_material_ids
+                                .push(pass_data.vertex_material_ids.clone());
+                            mesh.per_pass_shader_ids.push(pass_data.shader_ids.clone());
+                            mesh.per_pass_dcg_colors.push(pass_data.dcg_colors.clone());
+                            mesh.per_pass_dig_colors.push(pass_data.dig_colors.clone());
+                            mesh.per_pass_stage_texture_ids
+                                .push(pass_data.stage_texture_ids.clone());
+                            mesh.per_pass_stage_texture_names.push(stage_texture_names);
+
+                            for (stage_index, stage_uvs) in pass_data.stage_texcoords.iter().enumerate()
+                            {
+                                mesh.stage_texcoords.push(stage_uvs.clone());
+                                mesh.per_stage_face_texcoord_ids.push(
+                                    pass_data
+                                        .stage_per_face_texcoord_ids
+                                        .get(stage_index)
+                                        .cloned()
+                                        .unwrap_or_default(),
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Failed to parse W3D_CHUNK_MATERIAL_PASS: {}", err);
+                        }
+                    }
                 }
                 W3D_CHUNK_TEXTURES => {
                     // Parse textures container - C++ read_textures() equivalent
@@ -1121,6 +1612,8 @@ impl W3DLoader {
             return Err(anyhow!("mesh chunk missing required W3D mesh header"));
         }
 
+        let stage0_fallback_texcoords = texcoords.clone();
+
         // Build final mesh (logging disabled)
         self.build_mesh_from_data(
             &mut mesh,
@@ -1131,13 +1624,59 @@ impl W3DLoader {
             triangles,
         )?;
 
-        // C++ behavior: Associate first texture with material (index 0)
         if !texture_names.is_empty() {
+            mesh.texture_library = texture_names.clone();
+        }
+
+        if mesh.stage_texcoords.is_empty() && !stage0_fallback_texcoords.is_empty() {
+            mesh.stage_texcoords.push(stage0_fallback_texcoords);
+            mesh.stage_uv_channels = vec![0];
+            if mesh.per_stage_face_texcoord_ids.is_empty() {
+                mesh.per_stage_face_texcoord_ids.push(Vec::new());
+            }
+        } else if !mesh.stage_texcoords.is_empty() {
+            let (unique_layers, stage_channels) =
+                deduplicate_stage_uv_layers(mesh.stage_texcoords.clone());
+            mesh.stage_texcoords = unique_layers;
+            mesh.stage_uv_channels = stage_channels;
+            if mesh.per_stage_face_texcoord_ids.is_empty() {
+                mesh.per_stage_face_texcoord_ids = vec![Vec::new(); mesh.stage_texcoords.len()];
+            }
+        }
+
+        if !mesh.per_pass_stage_texture_ids.is_empty() {
+            let mut per_pass_names = Vec::with_capacity(mesh.per_pass_stage_texture_ids.len());
+            for stage_set in &mesh.per_pass_stage_texture_ids {
+                let mut stage_names = Vec::with_capacity(stage_set.len());
+                for ids in stage_set {
+                    let names = ids
+                        .iter()
+                        .filter_map(|texture_id| {
+                            if *texture_id == u32::MAX {
+                                None
+                            } else {
+                                mesh.texture_name_from_library(*texture_id)
+                                    .map(|name| name.to_string())
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    stage_names.push(names);
+                }
+                per_pass_names.push(stage_names);
+            }
+            mesh.per_pass_stage_texture_names = per_pass_names;
+        }
+
+        // C++ behavior: single-material fallback uses first texture if pass data does not bind one.
+        if mesh.material.texture_name.is_none() && !texture_names.is_empty() {
             mesh.material.texture_name = Some(texture_names[0].clone());
-            debug!(
-                "Mesh '{}' will use texture: '{}'",
-                mesh.name, texture_names[0]
-            );
+        }
+        if mesh.material.texture_name.is_none() {
+            mesh.material.texture_name = Self::stage_texture_from_mesh(&mesh, 0, 0);
+        }
+
+        if let Some(texture_name) = &mesh.material.texture_name {
+            debug!("Mesh '{}' will use texture: '{}'", mesh.name, texture_name);
         }
 
         Ok(mesh)
@@ -1360,7 +1899,8 @@ impl W3DLoader {
                 data[offset + 6],
                 data[offset + 7],
             ]);
-            texcoords.push([u, v]);
+            // C++ parity: WW3D stores V upside-down in chunk payload and flips on load.
+            texcoords.push([u, 1.0 - v]);
         }
 
         Ok(texcoords)
@@ -1368,32 +1908,39 @@ impl W3DLoader {
 
     /// Parse vertex colors array
     fn parse_vertex_colors(&self, data: &[u8]) -> Result<Vec<[f32; 4]>> {
-        if data.len() % 4 != 0 {
-            return Err(anyhow!("Invalid vertex colors data size: {}", data.len()));
+        let mut colors = Vec::new();
+
+        if data.len() % 3 == 0 {
+            let color_count = data.len() / 3;
+            colors.reserve(color_count);
+            for i in 0..color_count {
+                let offset = i * 3;
+                colors.push([
+                    data[offset] as f32 / 255.0,
+                    data[offset + 1] as f32 / 255.0,
+                    data[offset + 2] as f32 / 255.0,
+                    1.0,
+                ]);
+            }
+            return Ok(colors);
         }
 
-        let color_count = data.len() / 4;
-        let mut colors = Vec::with_capacity(color_count);
-
-        for i in 0..color_count {
-            let offset = i * 4;
-            let color_rgba = u32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-
-            // Convert RGBA to float components
-            let r = ((color_rgba >> 16) & 0xFF) as f32 / 255.0;
-            let g = ((color_rgba >> 8) & 0xFF) as f32 / 255.0;
-            let b = (color_rgba & 0xFF) as f32 / 255.0;
-            let a = ((color_rgba >> 24) & 0xFF) as f32 / 255.0;
-
-            colors.push([r, g, b, a]);
+        if data.len() % 4 == 0 {
+            let color_count = data.len() / 4;
+            colors.reserve(color_count);
+            for i in 0..color_count {
+                let offset = i * 4;
+                colors.push([
+                    data[offset] as f32 / 255.0,
+                    data[offset + 1] as f32 / 255.0,
+                    data[offset + 2] as f32 / 255.0,
+                    data[offset + 3] as f32 / 255.0,
+                ]);
+            }
+            return Ok(colors);
         }
 
-        Ok(colors)
+        Err(anyhow!("Invalid vertex colors data size: {}", data.len()))
     }
 
     /// Parse material info

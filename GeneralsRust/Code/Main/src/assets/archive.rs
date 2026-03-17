@@ -9,6 +9,7 @@
 use anyhow::{anyhow, Result};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::archive_file_system as core;
+use log::warn;
 use std::future::Future;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -65,8 +66,14 @@ impl ArchiveFileSystem {
                 unique.insert(root.join("assets"));
                 unique.insert(root.join("windows_game/Command & Conquer Generals Zero Hour"));
                 unique.insert(root.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+                // Zero Hour installs depend on base Generals archives (e.g. Textures.big/W3D.big)
+                // in many setups. Include base-game roots in the default probe set.
+                unique.insert(root.join("windows_game/Command & Conquer Generals"));
+                unique.insert(root.join("windows_game/Command & Conquer Generals/Data"));
                 unique.insert(root.join("Command & Conquer Generals Zero Hour"));
                 unique.insert(root.join("Command & Conquer Generals Zero Hour/Data"));
+                unique.insert(root.join("Command & Conquer Generals"));
+                unique.insert(root.join("Command & Conquer Generals/Data"));
             }
         }
 
@@ -88,7 +95,37 @@ impl ArchiveFileSystem {
     pub async fn init(&mut self) -> Result<()> {
         self.add_default_search_paths();
         self.core.init().map_err(anyhow::Error::from)?;
+        self.warn_if_base_archives_missing();
         Ok(())
+    }
+
+    fn warn_if_base_archives_missing(&self) {
+        let loaded = self.core.get_loaded_big_files();
+        let has_textures_big = loaded
+            .iter()
+            .map(|name| name.as_str().to_ascii_lowercase())
+            .any(|name| name.ends_with("textures.big"));
+        let has_w3d_big = loaded
+            .iter()
+            .map(|name| name.as_str().to_ascii_lowercase())
+            .any(|name| name.ends_with("w3d.big"));
+
+        if has_textures_big && has_w3d_big {
+            return;
+        }
+
+        let mut missing = Vec::new();
+        if !has_textures_big {
+            missing.push("Textures.big");
+        }
+        if !has_w3d_big {
+            missing.push("W3D.big");
+        }
+
+        warn!(
+            "Base Generals archives not loaded (missing: {}). Zero Hour models may reference textures unavailable in ZH-only archives.",
+            missing.join(", ")
+        );
     }
 
     /// Load a single BIG archive from disk.

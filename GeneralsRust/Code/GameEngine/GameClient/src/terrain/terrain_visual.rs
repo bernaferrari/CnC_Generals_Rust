@@ -305,7 +305,7 @@ impl TerrainVisualImpl {
             chunk_texture_bindings: HashMap::new(),
             active_chunk_texture_ids: None,
             last_visible_chunk_signature: 0,
-            max_chunk_mesh_uploads_per_frame: 2,
+            max_chunk_mesh_uploads_per_frame: 1,
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
             sun_color: [1.0, 0.9, 0.8],
             ambient_color: [0.2, 0.2, 0.2],
@@ -438,14 +438,16 @@ impl TerrainVisualImpl {
 
     fn visible_chunk_ids_for_draw_area(&self) -> Vec<ChunkId> {
         let chunks = self.chunk_manager.get_visible_chunks();
-        match self.map_sample_dimensions() {
+        let mut chunk_ids: Vec<ChunkId> = match self.map_sample_dimensions() {
             Some(_) => chunks
                 .into_iter()
                 .filter(|chunk| self.chunk_intersects_draw_area(chunk))
                 .map(|chunk| chunk.id)
                 .collect(),
             None => chunks.into_iter().map(|chunk| chunk.id).collect(),
-        }
+        };
+        chunk_ids.sort_unstable();
+        chunk_ids
     }
 
     /// Current world size in world units.
@@ -1094,10 +1096,11 @@ impl TerrainVisualImpl {
         &mut self,
         chunk_id: ChunkId,
         texture_ids: &[TextureId],
-        slot_map: HashMap<TextureId, usize>,
+        slot_map: &HashMap<TextureId, usize>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> TerrainResult<()> {
+        let started = std::time::Instant::now();
         let layout = match &self.terrain_texture_bind_group_layout {
             Some(layout) => Arc::clone(layout),
             None => return Ok(()),
@@ -1131,6 +1134,28 @@ impl TerrainVisualImpl {
             for idx in texture_ids.len()..MAX_TEXTURES_PER_CHUNK {
                 final_ids[idx] = texture_ids[0];
             }
+        }
+
+        if let Some(existing) = self.chunk_texture_bindings.values().find(|binding| {
+            binding.texture_ids == final_ids && binding.slot_map == *slot_map
+        }) {
+            self.chunk_texture_bindings.insert(
+                chunk_id,
+                ChunkTextureBinding {
+                    bind_group: existing.bind_group.clone(),
+                    slot_map: existing.slot_map.clone(),
+                    texture_ids: existing.texture_ids,
+                    diffuse_views: existing.diffuse_views.clone(),
+                },
+            );
+            let elapsed = started.elapsed();
+            if elapsed >= std::time::Duration::from_millis(50) {
+                warn!(
+                    "Terrain chunk texture binding reuse slow: chunk={} elapsed={:?}",
+                    chunk_id, elapsed
+                );
+            }
+            return Ok(());
         }
 
         for texture_id in final_ids.iter() {
@@ -1176,11 +1201,28 @@ impl TerrainVisualImpl {
             chunk_id,
             ChunkTextureBinding {
                 bind_group,
-                slot_map,
+                slot_map: slot_map.clone(),
                 texture_ids: final_ids,
                 diffuse_views,
             },
         );
+
+        let elapsed = started.elapsed();
+        if elapsed >= std::time::Duration::from_millis(50) {
+            let texture_paths: Vec<String> = final_ids
+                .iter()
+                .map(|texture_id| {
+                    self.texture_system
+                        .get_texture(*texture_id)
+                        .map(|texture| texture.diffuse_path.clone())
+                        .unwrap_or_else(|| format!("<unknown:{}>", texture_id))
+                })
+                .collect();
+            warn!(
+                "Terrain chunk texture binding create slow: chunk={} elapsed={:?} textures={:?} paths={:?}",
+                chunk_id, elapsed, final_ids, texture_paths
+            );
+        }
 
         Ok(())
     }
@@ -1234,6 +1276,7 @@ impl TerrainVisualImpl {
     }
 
     fn update_chunk_meshes(&mut self) -> TerrainResult<()> {
+        let started = std::time::Instant::now();
         let device = match &self.device {
             Some(device) => Arc::clone(device),
             None => return Ok(()),
@@ -1249,6 +1292,7 @@ impl TerrainVisualImpl {
         let refresh_texture_slots = self.active_chunk_texture_ids.is_none()
             || self.last_visible_chunk_signature != visible_signature;
 
+        let select_slots_started = std::time::Instant::now();
         let stable_texture_ids = if refresh_texture_slots {
             let ids = self.select_stable_chunk_texture_ids(&visible_chunk_ids);
             self.active_chunk_texture_ids = Some(ids);
@@ -1257,6 +1301,7 @@ impl TerrainVisualImpl {
         } else {
             self.active_chunk_texture_ids.unwrap_or([0; MAX_TEXTURES_PER_CHUNK])
         };
+        let select_slots_elapsed = select_slots_started.elapsed();
 
         let texture_slots_changed = refresh_texture_slots;
 
@@ -1266,38 +1311,60 @@ impl TerrainVisualImpl {
         }
 
         let mut upload_budget = self.max_chunk_mesh_uploads_per_frame.max(1);
-        for chunk_id in visible_chunk_ids {
-            let chunk = match self.chunk_manager.get_chunk(chunk_id) {
-                Some(chunk) => chunk.clone(),
+        let mut binding_updates = 0usize;
+        let mut mesh_uploads = 0usize;
+        let mut vertices_uploaded = 0usize;
+        let mut indices_uploaded = 0usize;
+        let mut binding_prep_elapsed = std::time::Duration::ZERO;
+        let mut mesh_upload_elapsed = std::time::Duration::ZERO;
+        for &chunk_id in &visible_chunk_ids {
+            let (chunk_revision, has_chunk_geometry) = match self.chunk_manager.get_chunk(chunk_id) {
+                Some(chunk) => (
+                    chunk.geometry_revision,
+                    !(chunk.vertices.is_empty() || chunk.indices.is_empty()),
+                ),
                 None => continue,
             };
 
-            let needs_upload = match self.chunk_meshes.get(&chunk.id) {
-                Some(mesh)
-                    if mesh.revision == chunk.geometry_revision
-                        && !texture_slots_changed
-                        && self
-                            .chunk_texture_bindings
-                            .get(&chunk.id)
-                            .map(|binding| binding.texture_ids == stable_texture_ids)
-                            .unwrap_or(false) =>
-                {
-                    false
-                }
-                _ => true,
+            let binding_up_to_date = self
+                .chunk_texture_bindings
+                .get(&chunk_id)
+                .map(|binding| binding.texture_ids == stable_texture_ids)
+                .unwrap_or(false);
+            if !binding_up_to_date {
+                let binding_started = std::time::Instant::now();
+                self.prepare_chunk_texture_binding(
+                    chunk_id,
+                    &stable_texture_ids,
+                    &shared_slot_map,
+                    device.as_ref(),
+                    queue.as_ref(),
+                )?;
+                binding_prep_elapsed += binding_started.elapsed();
+                binding_updates += 1;
+            }
+
+            let needs_mesh_upload = match self.chunk_meshes.get(&chunk_id) {
+                Some(mesh) => mesh.revision != chunk_revision || texture_slots_changed,
+                None => true,
             };
 
-            if needs_upload {
+            if needs_mesh_upload {
                 if upload_budget == 0 {
                     continue;
                 }
-                upload_budget -= 1;
-
-                if chunk.vertices.is_empty() || chunk.indices.is_empty() {
+                if !has_chunk_geometry {
                     continue;
                 }
+                upload_budget -= 1;
+                let upload_started = std::time::Instant::now();
 
-                let mut gpu_vertices = chunk.vertices.clone();
+                let (chunk_vertices, chunk_indices) = match self.chunk_manager.get_chunk(chunk_id) {
+                    Some(chunk) => (chunk.vertices.clone(), chunk.indices.clone()),
+                    None => continue,
+                };
+
+                let mut gpu_vertices = chunk_vertices;
                 let mut vertex_weights = Vec::with_capacity(gpu_vertices.len());
 
                 for vertex in &gpu_vertices {
@@ -1393,35 +1460,31 @@ impl TerrainVisualImpl {
                     vertex.blend_weights = packed_weights;
                 }
 
-                self.prepare_chunk_texture_binding(
-                    chunk.id,
-                    &stable_texture_ids,
-                    shared_slot_map.clone(),
-                    device.as_ref(),
-                    queue.as_ref(),
-                )?;
-
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("Terrain Chunk {} Vertex Buffer", chunk.id)),
+                    label: Some(&format!("Terrain Chunk {} Vertex Buffer", chunk_id)),
                     contents: cast_slice(&gpu_vertices),
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 });
 
                 let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("Terrain Chunk {} Index Buffer", chunk.id)),
-                    contents: cast_slice(&chunk.indices),
+                    label: Some(&format!("Terrain Chunk {} Index Buffer", chunk_id)),
+                    contents: cast_slice(&chunk_indices),
                     usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
                 });
 
                 self.chunk_meshes.insert(
-                    chunk.id,
+                    chunk_id,
                     GpuChunkMesh {
                         vertex_buffer,
                         index_buffer,
-                        index_count: chunk.indices.len() as u32,
-                        revision: chunk.geometry_revision,
+                        index_count: chunk_indices.len() as u32,
+                        revision: chunk_revision,
                     },
                 );
+                mesh_upload_elapsed += upload_started.elapsed();
+                mesh_uploads += 1;
+                vertices_uploaded += gpu_vertices.len();
+                indices_uploaded += chunk_indices.len();
             }
         }
 
@@ -1431,13 +1494,30 @@ impl TerrainVisualImpl {
         self.chunk_texture_bindings
             .retain(|id, _| self.chunk_manager.has_chunk(*id));
 
-        let visible_chunks = self.visible_chunk_ids_for_draw_area();
-        self.stats.rendered_chunks = visible_chunks.len();
-        self.stats.triangles_rendered = visible_chunks
+        self.stats.rendered_chunks = visible_chunk_ids.len();
+        self.stats.triangles_rendered = visible_chunk_ids
             .iter()
             .filter_map(|chunk_id| self.chunk_manager.get_chunk(*chunk_id))
             .map(|chunk| chunk.stats.triangle_count as usize)
             .sum();
+
+        let elapsed = started.elapsed();
+        if elapsed >= std::time::Duration::from_millis(200) {
+            warn!(
+                "TerrainVisual::update_chunk_meshes breakdown: total={:?} visible={} refresh_texture_slots={} select_slots={:?} binding_updates={} binding_prep={:?} mesh_uploads={} uploaded_vertices={} uploaded_indices={} mesh_upload={:?} pending_visible={}",
+                elapsed,
+                visible_chunk_ids.len(),
+                refresh_texture_slots,
+                select_slots_elapsed,
+                binding_updates,
+                binding_prep_elapsed,
+                mesh_uploads,
+                vertices_uploaded,
+                indices_uploaded,
+                mesh_upload_elapsed,
+                self.chunk_manager.pending_visible_chunk_count()
+            );
+        }
 
         Ok(())
     }
@@ -1447,10 +1527,6 @@ impl TerrainVisualImpl {
         visible_chunk_ids.len().hash(&mut hasher);
         for &chunk_id in visible_chunk_ids {
             chunk_id.hash(&mut hasher);
-            if let Some(chunk) = self.chunk_manager.get_chunk(chunk_id) {
-                chunk.geometry_revision.hash(&mut hasher);
-                chunk.lod_level.hash(&mut hasher);
-            }
         }
         hasher.finish()
     }
@@ -2029,6 +2105,55 @@ impl TerrainVisualImpl {
         self.load_heightmap_with_world_size(path, None)
     }
 
+    /// Load terrain heightmap from runtime map data (C++ parity fallback when no external hint exists).
+    pub fn load_heightmap_from_data(
+        &mut self,
+        mut heightmap: HeightMap,
+        source_hint: Option<&Path>,
+        world_size: Option<(f32, f32)>,
+    ) -> TerrainResult<()> {
+        if heightmap.width == 0 || heightmap.height == 0 {
+            return Err(TerrainError::HeightmapError(
+                "Runtime heightmap has invalid dimensions".to_string(),
+            ));
+        }
+        if heightmap.heights.len()
+            != (heightmap.width as usize).saturating_mul(heightmap.height as usize)
+        {
+            return Err(TerrainError::HeightmapError(
+                "Runtime heightmap sample count does not match dimensions".to_string(),
+            ));
+        }
+
+        self.filename = source_hint
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<runtime_heightmap>".to_string());
+        self.ensure_terrain_definitions(source_hint)?;
+        if self.texture_rules.is_empty() {
+            self.ensure_default_textures();
+        }
+
+        if let Some((world_width, world_height)) = world_size {
+            let sample_width = heightmap.width.saturating_sub(1).max(1) as f32;
+            let sample_height = heightmap.height.saturating_sub(1).max(1) as f32;
+            let scale_x = world_width / sample_width;
+            let scale_z = world_height / sample_height;
+            heightmap.scale = ((scale_x + scale_z) * 0.5).max(f32::EPSILON);
+        }
+
+        self.config.heightmap_resolution = (heightmap.width, heightmap.height);
+        self.config.world_size = world_size.unwrap_or((
+            heightmap.width as f32 * heightmap.scale,
+            heightmap.height as f32 * heightmap.scale,
+        ));
+        self.chunk_manager.set_config(self.config.clone());
+        self.chunk_manager
+            .load_heightmap(&heightmap, &self.config)?;
+        self.height_map = Some(heightmap);
+        self.reset_draw_area_state();
+        Ok(())
+    }
+
     pub fn load_heightmap_with_world_size(
         &mut self,
         path: &str,
@@ -2558,23 +2683,56 @@ impl SubsystemInterface for TerrainVisualImpl {
             return Ok(());
         }
 
+        let update_started = std::time::Instant::now();
+
         // Update seismic simulations
         self.update_seismic_simulations();
 
         // Update subsystems
+        let texture_started = std::time::Instant::now();
         self.texture_system.update()?;
+        let texture_elapsed = texture_started.elapsed();
+
+        let water_started = std::time::Instant::now();
         self.water_system.update()?;
+        let water_elapsed = water_started.elapsed();
+
+        let road_started = std::time::Instant::now();
         self.road_system.update()?;
+        let road_elapsed = road_started.elapsed();
+
         if let Some(height_map) = self.height_map.as_ref() {
             self.road_system
                 .apply_terrain_normals(|pos| height_map.get_normal_at(pos.x, pos.z));
         }
+
+        let chunk_manager_started = std::time::Instant::now();
         self.chunk_manager.update()?;
+        let chunk_manager_elapsed = chunk_manager_started.elapsed();
+
+        let chunk_meshes_started = std::time::Instant::now();
         self.update_chunk_meshes()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        let chunk_meshes_elapsed = chunk_meshes_started.elapsed();
 
         self.stats.update_time_ms =
             self.chunk_manager.get_stats().update_time.as_secs_f64() * 1000.0;
+
+        let update_elapsed = update_started.elapsed();
+        if update_elapsed >= std::time::Duration::from_millis(200) {
+            warn!(
+                "TerrainVisual::update breakdown: total={:?} texture={:?} water={:?} roads={:?} chunk_manager={:?} chunk_meshes={:?} visible={} pending_visible={} total_chunks={}",
+                update_elapsed,
+                texture_elapsed,
+                water_elapsed,
+                road_elapsed,
+                chunk_manager_elapsed,
+                chunk_meshes_elapsed,
+                self.chunk_manager.get_visible_chunks().len(),
+                self.chunk_manager.pending_visible_chunk_count(),
+                self.chunk_manager.total_chunk_count()
+            );
+        }
 
         Ok(())
     }
