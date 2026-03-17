@@ -142,6 +142,160 @@ pub struct TextureManager {
     known_missing_textures: HashSet<String>,
 }
 
+pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
+    fn push_unique_case_insensitive(items: &mut Vec<String>, seen: &mut HashSet<String>, value: String) {
+        let key = value.to_ascii_lowercase();
+        if seen.insert(key) {
+            items.push(value);
+        }
+    }
+
+    fn legacy_zh_only_aliases(stem_lower: &str) -> &'static [&'static str] {
+        match stem_lower {
+            // House-color palette textures moved around between base Generals and ZH-only sets.
+            "housecolor2" => &["housecolor", "housecolor3"],
+            // Coplight variants are inconsistent across data sets; prefer closest ZH equivalents.
+            "coplight" => &["coplight4", "coplight3", "yellowlight"],
+            // AVAMPHIB references base-game textures in some installs; fallback to shipped ZH body set.
+            "avamphib" => &["avchinook", "avbattlesh"],
+            _ => &[],
+        }
+    }
+
+    let normalized = requested_name.trim().replace('\\', "/");
+    let normalized = normalized.trim_start_matches("./");
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+
+    let (dir_part, file_part) = match normalized.rsplit_once('/') {
+        Some((dir, file)) if !file.is_empty() => (Some(dir), file),
+        _ => (None, normalized),
+    };
+
+    let (stem, ext_hint) = match file_part.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, Some(ext.to_ascii_lowercase())),
+        _ => (file_part, None),
+    };
+
+    let mut candidates = Vec::new();
+    let mut seen_candidates = HashSet::new();
+    let mut push_candidate = |candidate: String| {
+        let key = candidate.to_ascii_lowercase();
+        if seen_candidates.insert(key) {
+            candidates.push(candidate);
+        }
+    };
+
+    let mut stems = vec![stem.to_string()];
+    let compact_stem = stem.replace(' ', "");
+    if !compact_stem.is_empty() && compact_stem != stem {
+        stems.push(compact_stem);
+    }
+
+    let mut remapped_stems = Vec::new();
+    let mut seen_stems = HashSet::new();
+    for stem_name in stems {
+        if seen_stems.insert(stem_name.to_ascii_lowercase()) {
+            remapped_stems.push(stem_name);
+        }
+    }
+
+    // Add targeted compatibility aliases for ZH-only archive mounts before suffix expansion.
+    let stem_lower = stem.to_ascii_lowercase();
+    for alias in legacy_zh_only_aliases(&stem_lower) {
+        if seen_stems.insert(alias.to_ascii_lowercase()) {
+            remapped_stems.push((*alias).to_string());
+        }
+    }
+
+    let original_len = remapped_stems.len();
+    for i in 0..original_len {
+        let stem_name = remapped_stems[i].clone();
+        let stem_lower = stem_name.to_ascii_lowercase();
+        if stem_lower.ends_with("_d") || stem_lower.ends_with("_d1") {
+            continue;
+        }
+
+        let d_candidate = format!("{stem_name}_d");
+        if seen_stems.insert(d_candidate.to_ascii_lowercase()) {
+            remapped_stems.push(d_candidate);
+        }
+
+        let d1_candidate = format!("{stem_name}_d1");
+        if seen_stems.insert(d1_candidate.to_ascii_lowercase()) {
+            remapped_stems.push(d1_candidate);
+        }
+    }
+
+    let mut ext_candidates: Vec<String> = Vec::new();
+    let mut push_ext = |ext: &str| {
+        if !ext_candidates.iter().any(|existing| existing == ext) {
+            ext_candidates.push(ext.to_string());
+        }
+    };
+    match ext_hint.as_deref() {
+        Some("tga") => {
+            push_ext("dds");
+            push_ext("tga");
+        }
+        Some("dds") => {
+            push_ext("dds");
+            push_ext("tga");
+        }
+        Some(other_ext) => {
+            push_ext(other_ext);
+            push_ext("dds");
+            push_ext("tga");
+        }
+        None => {
+            push_ext("dds");
+            push_ext("tga");
+        }
+    }
+
+    let mut locations = Vec::<String>::new();
+    let mut seen_locations = HashSet::new();
+    let mut push_location = |location: String| {
+        push_unique_case_insensitive(&mut locations, &mut seen_locations, location);
+    };
+
+    // If caller passed an explicit virtual path, honor that first.
+    if let Some(dir) = dir_part {
+        if !dir.is_empty() {
+            push_location(dir.to_string());
+        }
+    }
+
+    // C++ searches texture roots and W3D-local art roots depending on where references originate.
+    for root in [
+        "Data/English/Art/Textures",
+        "Art/Textures",
+        "Data/English/Art/W3D",
+        "Art/W3D",
+    ] {
+        match dir_part {
+            Some(dir) if !dir.is_empty() => push_location(format!("{root}/{dir}")),
+            _ => push_location(root.to_string()),
+        }
+    }
+
+    for location in &locations {
+        for stem_name in &remapped_stems {
+            for ext in &ext_candidates {
+                let candidate = if location.is_empty() {
+                    format!("{stem_name}.{ext}")
+                } else {
+                    format!("{location}/{stem_name}.{ext}")
+                };
+                push_candidate(candidate);
+            }
+        }
+    }
+
+    candidates
+}
+
 impl Default for TextureManager {
     fn default() -> Self {
         Self::new()
@@ -391,63 +545,7 @@ impl TextureManager {
     }
 
     fn build_texture_candidates(requested_name: &str) -> Vec<String> {
-        let normalized = requested_name.trim().replace('\\', "/");
-        let normalized = normalized.trim_start_matches("./");
-
-        let (dir_part, file_part) = match normalized.rsplit_once('/') {
-            Some((dir, file)) if !file.is_empty() => (Some(dir), file),
-            _ => (None, normalized),
-        };
-
-        let (stem, ext_hint) = match file_part.rsplit_once('.') {
-            Some((stem, ext)) if !stem.is_empty() => (stem, Some(ext.to_ascii_lowercase())),
-            _ => (file_part, None),
-        };
-
-        let mut candidates = Vec::new();
-        let mut seen = HashSet::new();
-        let mut push_unique = |candidate: String| {
-            let key = candidate.to_ascii_lowercase();
-            if seen.insert(key) {
-                candidates.push(candidate);
-            }
-        };
-
-        // C++ parity path: authored filename first.
-        push_unique(normalized.to_string());
-        if let Some(dir) = dir_part {
-            let basename = format!("{stem}{}", ext_hint.as_ref().map_or(String::new(), |ext| format!(".{ext}")));
-            if !dir.is_empty() {
-                push_unique(basename);
-            }
-        }
-
-        // TextureLoader parity: when a format path fails, try DDS/TGA sibling.
-        match ext_hint.as_deref() {
-            Some("tga") => {
-                push_unique(format!("{stem}.dds"));
-                if let Some(dir) = dir_part {
-                    push_unique(format!("{dir}/{stem}.dds"));
-                }
-            }
-            Some("dds") => {
-                push_unique(format!("{stem}.tga"));
-                if let Some(dir) = dir_part {
-                    push_unique(format!("{dir}/{stem}.tga"));
-                }
-            }
-            Some(_) => {}
-            None => {
-                push_unique(format!("{stem}.dds"));
-                push_unique(format!("{stem}.tga"));
-                if let Some(dir) = dir_part {
-                    push_unique(format!("{dir}/{stem}.dds"));
-                    push_unique(format!("{dir}/{stem}.tga"));
-                }
-            }
-        }
-
-        candidates
+        texture_candidate_paths(requested_name)
     }
 
     /// Get texture by name (loads if not cached), returns default on error
@@ -1647,20 +1745,48 @@ mod tests {
     fn candidate_generation_prefers_dds_then_tga_without_remaps() {
         let candidates = TextureManager::build_texture_candidates("AVComanche.tga");
 
-        assert_eq!(candidates[0], "AVComanche.tga");
-        assert_eq!(candidates[1], "art/textures/AVComanche.dds");
-        assert!(candidates.contains(&"art/textures/AVComanche.dds".to_string()));
-        assert!(candidates.contains(&"art/textures/AVComanche.tga".to_string()));
-        assert!(candidates.contains(&"art/w3d/AVComanche.dds".to_string()));
-        assert!(candidates.contains(&"art/w3d/AVComanche.tga".to_string()));
+        assert_eq!(candidates[0], "Data/English/Art/Textures/AVComanche.dds");
+        assert_eq!(candidates[1], "Data/English/Art/Textures/AVComanche.tga");
+        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d.dds".to_string()));
+        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d.tga".to_string()));
+        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d1.dds".to_string()));
+        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d1.tga".to_string()));
+        assert!(candidates.contains(&"Art/Textures/AVComanche.dds".to_string()));
+        assert!(candidates.contains(&"Art/Textures/AVComanche.tga".to_string()));
+        assert!(candidates.contains(&"Art/Textures/AVComanche_d.dds".to_string()));
+        assert!(candidates.contains(&"Art/Textures/AVComanche_d.tga".to_string()));
+        assert!(candidates.contains(&"Art/Textures/AVComanche_d1.dds".to_string()));
+        assert!(candidates.contains(&"Art/Textures/AVComanche_d1.tga".to_string()));
+        assert!(candidates.contains(&"Data/English/Art/W3D/AVComanche.dds".to_string()));
+        assert!(candidates.contains(&"Art/W3D/AVComanche.tga".to_string()));
         assert!(!candidates.iter().any(|c| c.contains("avcomancheag_p")));
     }
 
     #[test]
     fn candidate_generation_normalizes_backslashes() {
         let candidates = TextureManager::build_texture_candidates("Art\\W3D\\PTXBIRCH05.tga");
-        assert_eq!(candidates[0], "Art/W3D/PTXBIRCH05.tga");
-        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05.dds".to_string()));
+        assert_eq!(candidates[0], "Art/W3D/PTXBIRCH05.dds");
         assert!(candidates.contains(&"Art/W3D/PTXBIRCH05.tga".to_string()));
+        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d.dds".to_string()));
+        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d.tga".to_string()));
+        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d1.dds".to_string()));
+        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d1.tga".to_string()));
+        assert!(candidates.contains(&"Data/English/Art/W3D/Art/W3D/PTXBIRCH05.dds".to_string()));
+        assert!(candidates.contains(&"Data/English/Art/Textures/Art/W3D/PTXBIRCH05.tga".to_string()));
+    }
+
+    #[test]
+    fn candidate_generation_applies_zh_compat_aliases() {
+        let av = TextureManager::build_texture_candidates("Avamphib.tga");
+        assert!(av.contains(&"Data/English/Art/Textures/avbattlesh_d.dds".to_string()));
+        assert!(av.contains(&"Art/Textures/avchinook.dds".to_string()));
+
+        let cop = TextureManager::build_texture_candidates("Coplight.tga");
+        assert!(cop.contains(&"Data/English/Art/Textures/yellowlight.dds".to_string()));
+        assert!(cop.contains(&"Art/Textures/coplight4.tga".to_string()));
+
+        let house = TextureManager::build_texture_candidates("Housecolor2.tga");
+        assert!(house.contains(&"Data/English/Art/Textures/housecolor3.dds".to_string()));
+        assert!(house.contains(&"Art/W3D/housecolor.tga".to_string()));
     }
 }
