@@ -600,20 +600,24 @@ impl ShaderClass {
 
     /// Build a shader instance from a legacy W3D shader definition.
     pub fn from_w3d_shader(shader: &W3dShaderStruct) -> Self {
+        // Match C++ W3dUtilityClass::Convert_Shader (w3d_util.cpp):
+        // - ColorMask in W3D struct is obsolete/ignored -> force color writes enabled.
+        // - FogFunc in W3D struct is obsolete/ignored -> force fog disabled here.
+        // - Post-detail funcs are populated from detail_* fields, not post_detail_*.
         let bits = shade_const(
             shader.depth_compare as u32,
             shader.depth_mask as u32,
-            shader.color_mask as u32,
+            ColorMaskType::Enable as u32,
             shader.src_blend as u32,
             shader.dest_blend as u32,
-            shader.fog_func as u32,
+            FogFuncType::Disable as u32,
             shader.pri_gradient as u32,
             shader.sec_gradient as u32,
             shader.texturing as u32,
             shader.alpha_test as u32,
             CullModeType::Enable as u32,
-            shader.post_detail_color_func as u32,
-            shader.post_detail_alpha_func as u32,
+            shader.detail_color_func as u32,
+            shader.detail_alpha_func as u32,
         );
 
         let mut shader_class = ShaderClass::new();

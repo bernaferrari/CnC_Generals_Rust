@@ -58,6 +58,11 @@ impl TerrainData {
     }
 
     #[cfg(feature = "game_client")]
+    pub fn heightmap_clone(&self) -> HeightMap {
+        self.heightmap.clone()
+    }
+
+    #[cfg(feature = "game_client")]
     fn sample_normalized(&self, x: u32, z: u32) -> f32 {
         let x = x.min(self.heightmap.width.saturating_sub(1));
         let z = z.min(self.heightmap.height.saturating_sub(1));

@@ -19,6 +19,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use log::info;
 use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{GpuDevice, GpuError};
 
@@ -260,6 +261,15 @@ impl WindowSurfaceState {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+
+        info!(
+            "WW3D surface configured: size={}x{} format={:?} present_mode={:?} alpha_mode={:?}",
+            surface_config.width,
+            surface_config.height,
+            surface_config.format,
+            surface_config.present_mode,
+            surface_config.alpha_mode
+        );
 
         let depth = config.enable_depth.then(|| {
             DepthTarget::new(

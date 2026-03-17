@@ -741,7 +741,9 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
                 }
             }
 
-            for ext in ["hmp", "tga", "raw"] {
+            // C++ parity: only treat dedicated heightmap companions as terrain sources.
+            // Generic *.tga beside a map is commonly preview/sky art, not elevation data.
+            for ext in ["hmp", "raw"] {
                 let mut candidate = dir.join(map_path.file_stem().unwrap_or_default());
                 candidate.set_extension(ext);
                 if candidate.exists() {
