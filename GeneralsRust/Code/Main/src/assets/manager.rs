@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
@@ -130,6 +131,7 @@ impl AssetManager {
         self.texture_manager
             .init(device, queue)
             .map_err(|e| anyhow!("Failed to initialize texture manager: {}", e))?;
+        self.warmup_texture_lookup_metadata();
 
         // Keep startup/menu responsive: defer non-critical animated water caustic uploads.
         // These frames are optional polish and are not required for shell/menu initialization.
@@ -162,6 +164,16 @@ impl AssetManager {
         info!("  Models cached: {}", stats.models_cached);
 
         Ok(())
+    }
+
+    fn warmup_texture_lookup_metadata(&mut self) {
+        let indexed_paths = self
+            .texture_manager
+            .warmup_texture_path_index(&self.archive_system);
+        debug!(
+            "Texture lookup metadata warmup indexed {} canonical texture paths",
+            indexed_paths
+        );
     }
 
     fn runtime_overrides() -> (String, Option<PathBuf>) {
@@ -838,6 +850,7 @@ impl AssetSearchResults {
 /// Global asset manager instance
 static ASSET_MANAGER: OnceLock<Arc<Mutex<AssetManager>>> = OnceLock::new();
 static CAUSTIC_WARMUP_STARTED: AtomicBool = AtomicBool::new(false);
+static TEXTURE_PRIME_QUEUE: OnceLock<Sender<String>> = OnceLock::new();
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
@@ -929,6 +942,56 @@ pub fn warmup_caustic_textures_async(device: Arc<wgpu::Device>, queue: Arc<wgpu:
     });
 
     true
+}
+
+/// Queue a background task to prime raw texture data without blocking the caller.
+pub fn queue_prime_texture_raw(texture_name: &str) -> bool {
+    let Some(manager_arc) = get_asset_manager() else {
+        return false;
+    };
+    let name = texture_name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("none") {
+        return false;
+    }
+
+    texture_prime_sender(manager_arc)
+        .send(name.to_string())
+        .is_ok()
+}
+
+fn texture_prime_sender(manager_arc: Arc<Mutex<AssetManager>>) -> &'static Sender<String> {
+    TEXTURE_PRIME_QUEUE.get_or_init(move || {
+        let (tx, rx) = mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(err) => {
+                    error!("Failed to initialize texture prime runtime: {}", err);
+                    return;
+                }
+            };
+
+            while let Ok(name) = rx.recv() {
+                let Ok(mut manager) = manager_arc.lock() else {
+                    continue;
+                };
+                let (texture_manager, archive_system) = {
+                    let manager_ref: &mut AssetManager = &mut manager;
+                    (&mut manager_ref.texture_manager, &mut manager_ref.archive_system)
+                };
+
+                let _ = runtime.block_on(async {
+                    texture_manager
+                        .prime_raw_texture(archive_system, &name)
+                        .await
+                });
+            }
+        });
+        tx
+    })
 }
 
 /// Convenience functions for common operations

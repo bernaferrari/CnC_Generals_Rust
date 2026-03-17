@@ -16,7 +16,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureView};
 
 /// Unique identifier for terrain textures
@@ -36,6 +36,19 @@ pub enum TextureKind {
 }
 
 type TextureCacheKey = (TextureId, TextureKind);
+
+type PathCache = Mutex<HashMap<String, Option<PathBuf>>>;
+type ImageCache = Mutex<HashMap<String, Option<Arc<image::DynamicImage>>>>;
+
+static RESOLVED_PATH_CACHE: OnceLock<PathCache> = OnceLock::new();
+static GAME_FS_IMAGE_CACHE: OnceLock<ImageCache> = OnceLock::new();
+static FALLBACK_IMAGE_CACHE: OnceLock<ImageCache> = OnceLock::new();
+
+fn normalized_texture_key(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_start_matches("./")
+        .to_ascii_lowercase()
+}
 
 /// Terrain texture with material properties
 #[derive(Debug, Clone)]
@@ -87,6 +100,12 @@ pub struct TerrainTexture {
 
     /// Cached height image data for gradient sampling
     pub height_image: Option<Arc<HeightImage>>,
+
+    /// Cached diffuse decode to avoid repeated loads during first GPU upload
+    cached_diffuse_image: Option<Arc<image::DynamicImage>>,
+
+    /// Cached height decode to avoid repeated loads during first GPU upload
+    cached_height_image: Option<Arc<image::DynamicImage>>,
 }
 
 /// Material properties for terrain textures
@@ -289,6 +308,8 @@ impl TerrainTexture {
             resolved_normal_path: None,
             resolved_height_path: None,
             height_image: None,
+            cached_diffuse_image: None,
+            cached_height_image: None,
         }
     }
 
@@ -599,11 +620,9 @@ impl TextureManager {
     }
 
     fn resolve_texture_path_cached(diffuse_path: &str) -> Option<PathBuf> {
-        static RESOLVED_PATH_CACHE: OnceLock<std::sync::Mutex<HashMap<String, Option<PathBuf>>>> =
-            OnceLock::new();
-        let key = diffuse_path.replace('\\', "/").to_ascii_lowercase();
+        let key = normalized_texture_key(diffuse_path);
         if let Ok(cache) = RESOLVED_PATH_CACHE
-            .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+            .get_or_init(|| Mutex::new(HashMap::new()))
             .lock()
         {
             if let Some(cached) = cache.get(&key) {
@@ -613,7 +632,7 @@ impl TextureManager {
 
         let resolved = Self::resolve_texture_path(diffuse_path);
         if let Ok(mut cache) = RESOLVED_PATH_CACHE
-            .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+            .get_or_init(|| Mutex::new(HashMap::new()))
             .lock()
         {
             cache.insert(key, resolved.clone());
@@ -1091,7 +1110,28 @@ impl TextureManager {
         Some((prefix, number, suffix, ext))
     }
 
-    fn load_image_from_game_fs(path: &str) -> Option<image::DynamicImage> {
+    fn load_image_from_game_fs(path: &str) -> Option<Arc<image::DynamicImage>> {
+        let key = normalized_texture_key(path);
+        if let Ok(cache) = GAME_FS_IMAGE_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+        {
+            if let Some(cached) = cache.get(&key) {
+                return cached.clone();
+            }
+        }
+
+        let result = Self::load_image_from_game_fs_uncached(path).map(Arc::new);
+        if let Ok(mut cache) = GAME_FS_IMAGE_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+        {
+            cache.insert(key, result.clone());
+        }
+        result
+    }
+
+    fn load_image_from_game_fs_uncached(path: &str) -> Option<image::DynamicImage> {
         if path.trim().is_empty() {
             return None;
         }
@@ -1119,14 +1159,32 @@ impl TextureManager {
     fn load_image_with_fallback(
         requested_path: &str,
         resolved_path: Option<&PathBuf>,
-    ) -> Option<image::DynamicImage> {
-        if let Some(path) = resolved_path {
-            if let Ok(image) = image::open(path) {
-                return Some(image);
+    ) -> Option<Arc<image::DynamicImage>> {
+        let key = normalized_texture_key(requested_path);
+        if let Ok(cache) = FALLBACK_IMAGE_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+        {
+            if let Some(cached) = cache.get(&key) {
+                return cached.clone();
             }
         }
 
-        Self::load_image_from_game_fs(requested_path)
+        let result = if let Some(path) = resolved_path {
+            image::open(path).ok().map(Arc::new)
+        } else {
+            None
+        }
+        .or_else(|| Self::load_image_from_game_fs(requested_path));
+
+        if let Ok(mut cache) = FALLBACK_IMAGE_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+        {
+            cache.insert(key, result.clone());
+        }
+
+        result
     }
 
     pub fn acquire_texture_view(
@@ -1209,9 +1267,34 @@ impl TextureManager {
                 }
             };
 
-            if let Some(image) =
-                Self::load_image_with_fallback(&requested_path, resolved_path.as_ref())
-            {
+            let cached_image = match kind {
+                TextureKind::Diffuse => texture.cached_diffuse_image.clone(),
+                TextureKind::Height => texture.cached_height_image.clone(),
+                TextureKind::Normal => None,
+            };
+
+            let image = cached_image.or_else(|| {
+                let loaded =
+                    Self::load_image_with_fallback(&requested_path, resolved_path.as_ref());
+                if let Some(img) = loaded.as_ref() {
+                    match kind {
+                        TextureKind::Diffuse => {
+                            texture
+                                .cached_diffuse_image
+                                .get_or_insert_with(|| img.clone());
+                        }
+                        TextureKind::Height => {
+                            texture
+                                .cached_height_image
+                                .get_or_insert_with(|| img.clone());
+                        }
+                        TextureKind::Normal => {}
+                    }
+                }
+                loaded
+            });
+
+            if let Some(image) = image {
                 let label = resolved_path
                     .as_ref()
                     .map(|path| format!("Terrain Texture {}", path.display()))
@@ -1248,13 +1331,20 @@ impl TextureManager {
             texture.resolved_path = Some(path.clone());
         }
 
-        if let Some(img) =
-            Self::load_image_with_fallback(&texture.diffuse_path, texture.resolved_path.as_ref())
-        {
-            texture.dimensions = Some(img.dimensions());
-        } else {
-            warn!("Terrain texture '{}' failed to decode", texture.diffuse_path);
-            texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
+        let diffuse_image =
+            Self::load_image_with_fallback(&texture.diffuse_path, texture.resolved_path.as_ref());
+        match diffuse_image {
+            Some(img) => {
+                texture.dimensions = Some(img.dimensions());
+                texture.cached_diffuse_image = Some(img);
+            }
+            None => {
+                warn!(
+                    "Terrain texture '{}' failed to decode",
+                    texture.diffuse_path
+                );
+                texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
+            }
         }
 
         if texture.normal_path.is_none() {
@@ -1301,6 +1391,7 @@ impl TextureManager {
                 Self::load_image_with_fallback(&height_path, resolved_height.as_ref())
             {
                 let luma = img.to_luma8();
+                texture.cached_height_image = Some(img.clone());
                 texture.height_image = Some(Arc::new(HeightImage {
                     width: luma.width(),
                     height: luma.height(),
