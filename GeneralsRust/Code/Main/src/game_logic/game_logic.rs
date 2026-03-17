@@ -6896,7 +6896,9 @@ impl GameLogic {
                     gamelogic::scripting::engine::get_script_engine().write()
                 {
                     if let Some(engine) = engine_guard.as_mut() {
-                        engine.clear_script_lists();
+                        // C++ parity: ScriptEngine::newMap() resets transient script runtime state
+                        // on every map load before installing map-owned script lists.
+                        engine.reset();
                         for (idx, list) in self.loaded_script_lists.iter().enumerate() {
                             let _ = engine
                                 .set_script_list_for_player(idx, Some(Box::new(list.clone())));
@@ -6934,7 +6936,7 @@ impl GameLogic {
                     gamelogic::scripting::engine::get_script_engine().write()
                 {
                     if let Some(engine) = engine_guard.as_mut() {
-                        engine.clear_script_lists();
+                        engine.reset();
                     }
                 }
 
@@ -6965,7 +6967,7 @@ impl GameLogic {
                     gamelogic::scripting::engine::get_script_engine().write()
                 {
                     if let Some(engine) = engine_guard.as_mut() {
-                        engine.clear_script_lists();
+                        engine.reset();
                     }
                 }
             }

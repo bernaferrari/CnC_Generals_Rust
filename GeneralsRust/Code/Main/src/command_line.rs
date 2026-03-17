@@ -156,15 +156,15 @@ impl CommandLineArgs {
                         }
                     }
                     "host" => parsed.network_host = value,
-                    "displaydebug" | "display_debug" | "displayDebug" => {
+                    "displaydebug" | "display_debug" => {
                         parsed.display_debug_overlay = true;
                     }
                     "integrationdiagnostics"
                     | "integration_diagnostics"
                     | "integrationdiag"
-                    | "integrationDiagnostic"
+                    | "integrationdiagnostic"
                     | "integrationdiagostics"
-                    | "integrationdiagDebug" => {
+                    | "integrationdiagdebug" => {
                         parsed.integration_diagnostics = true;
                     }
                     _ => {
@@ -201,7 +201,7 @@ impl CommandLineArgs {
 
         // Check if this is a combined argument like -width=1024
         if let Some(equals_pos) = option_name.find('=') {
-            let name = option_name[..equals_pos].to_string();
+            let name = option_name[..equals_pos].to_ascii_lowercase();
             let value = option_name[equals_pos + 1..].to_string();
             Ok((name, Some(value)))
         } else {
@@ -209,10 +209,10 @@ impl CommandLineArgs {
             if *index + 1 < args.len() && !args[*index + 1].starts_with('-') {
                 *index += 1;
                 let value = args[*index].clone();
-                Ok((option_name.to_string(), Some(value)))
+                Ok((option_name.to_ascii_lowercase(), Some(value)))
             } else {
                 // Flag without value
-                Ok((option_name.to_string(), None))
+                Ok((option_name.to_ascii_lowercase(), None))
             }
         }
     }
@@ -265,12 +265,14 @@ impl CommandLineArgs {
 
     /// Check if a specific option was provided
     pub fn has_option(&self, option: &str) -> bool {
-        self.options.contains_key(option)
+        let key = option.to_ascii_lowercase();
+        self.options.contains_key(&key)
     }
 
     /// Get the value of a specific option
     pub fn get_option_value(&self, option: &str) -> Option<&String> {
-        self.options.get(option).and_then(|v| v.as_ref())
+        let key = option.to_ascii_lowercase();
+        self.options.get(&key).and_then(|v| v.as_ref())
     }
 
     /// Get display resolution from command line or defaults
