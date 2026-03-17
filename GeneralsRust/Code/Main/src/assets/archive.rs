@@ -118,8 +118,41 @@ impl ArchiveFileSystem {
             }
         };
 
+        let home_dir = std::env::var("HOME").ok().map(PathBuf::from);
+
         for root in root_candidates {
-            push_install_layout_paths(&mut push_unique, &root);
+            for ancestor in root.ancestors().take(8) {
+                let ancestor = ancestor.to_path_buf();
+                push_install_layout_paths(&mut push_unique, &ancestor);
+
+                // Non-Windows parity substitute for registry install path lookup:
+                // probe one directory level for sibling install bundles.
+                let should_scan_siblings = home_dir
+                    .as_ref()
+                    .map_or(false, |home| ancestor.starts_with(home))
+                    || ancestor.starts_with("/Users/Shared");
+                if !should_scan_siblings {
+                    continue;
+                }
+
+                let Ok(entries) = std::fs::read_dir(&ancestor) else {
+                    continue;
+                };
+                for entry in entries.flatten().take(256) {
+                    let child = entry.path();
+                    if !child.is_dir() {
+                        continue;
+                    }
+                    let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                    if !name.contains("generals") {
+                        continue;
+                    }
+                    if !(name.contains("zero hour") || name.contains("zh")) {
+                        continue;
+                    }
+                    push_install_layout_paths(&mut push_unique, &child);
+                }
+            }
         }
 
         for path in ordered {
