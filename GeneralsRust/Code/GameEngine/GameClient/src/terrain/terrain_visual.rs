@@ -3,8 +3,7 @@
 //! Core terrain rendering system that matches the C++ TerrainVisual implementation exactly.
 //! Handles heightmaps, texturing, water, roads, and all visual terrain features.
 
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,11 +26,16 @@ use super::{
 };
 use bytemuck::cast_slice;
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::global_data;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::ini::ini_terrain;
 use game_engine::common::ini::ini_terrain::{TerrainSurface, TerrainType};
+use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
+use game_engine::common::system::file_system::paths::{
+    MAP_PREVIEW_DIR_PATH, TERRAIN_TGA_DIR_PATH, USER_TGA_DIR_PATH,
+};
 use image::GenericImageView;
 use image::ImageFormat;
 
@@ -204,8 +208,6 @@ pub struct TerrainVisualImpl {
 
     /// Shared visible-terrain texture set used to keep adjacent chunks on the same slot map.
     active_chunk_texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
-    /// Signature of the visible chunk set used to avoid recomputing texture slots every frame.
-    last_visible_chunk_signature: u64,
     /// Per-frame budget for expensive CPU/GPU chunk mesh uploads.
     max_chunk_mesh_uploads_per_frame: usize,
 
@@ -256,8 +258,11 @@ const MAX_OVERSIZE_TILES: i32 = 4;
 // The current live terrain path uses four diffuse terrain layers with four
 // blend weights active per vertex.
 const MAX_TEXTURES_PER_CHUNK: usize = 4;
-const MAX_TEXTURE_SAMPLE_CHUNKS: usize = 24;
-const MAX_TEXTURE_SAMPLES_PER_CHUNK: usize = 128;
+// `ChunkManager` internally regenerates up to 24 visible chunks per update pass.
+// Drain startup backlog in a bounded number of same-frame passes so terrain does
+// not visibly fill tile-by-tile after map load.
+const STARTUP_GEOMETRY_PASS_CHUNK_BUDGET: usize = 24;
+const MAX_STARTUP_GEOMETRY_CATCHUP_PASSES: usize = 16;
 
 fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
     matrix.to_cols_array_2d()
@@ -304,7 +309,6 @@ impl TerrainVisualImpl {
             terrain_sampler: None,
             chunk_texture_bindings: HashMap::new(),
             active_chunk_texture_ids: None,
-            last_visible_chunk_signature: 0,
             max_chunk_mesh_uploads_per_frame: 16,
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
             sun_color: [1.0, 0.9, 0.8],
@@ -448,6 +452,36 @@ impl TerrainVisualImpl {
         };
         chunk_ids.sort_unstable();
         chunk_ids
+    }
+
+    fn catch_up_startup_visible_chunk_geometry(&mut self) -> TerrainResult<usize> {
+        // Keep this startup-only to avoid changing steady-state frame pacing.
+        if !self.chunk_meshes.is_empty() {
+            return Ok(0);
+        }
+
+        let mut pending = self.chunk_manager.pending_visible_chunk_count();
+        if pending == 0 {
+            return Ok(0);
+        }
+
+        let mut extra_updates = 0usize;
+        let catchup_passes = ((pending + STARTUP_GEOMETRY_PASS_CHUNK_BUDGET - 1)
+            / STARTUP_GEOMETRY_PASS_CHUNK_BUDGET)
+            .min(MAX_STARTUP_GEOMETRY_CATCHUP_PASSES);
+
+        for _ in 0..catchup_passes {
+            self.chunk_manager.update()?;
+            extra_updates += 1;
+
+            let next_pending = self.chunk_manager.pending_visible_chunk_count();
+            if next_pending == 0 || next_pending >= pending {
+                break;
+            }
+            pending = next_pending;
+        }
+
+        Ok(extra_updates)
     }
 
     /// Current world size in world units.
@@ -653,14 +687,14 @@ impl TerrainVisualImpl {
         }
 
         let fallback_paths = [
-            "windows_game/extracted_big_files/INIZH/Data/INI/Default/Terrain.ini",
-            "windows_game/extracted_big_files/INIZH/Data/INI/Terrain.ini",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/Terrain.ini",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Terrain.ini",
-            "../windows_game/extracted_big_files/INIZH/Data/INI/Default/Terrain.ini",
-            "../windows_game/extracted_big_files/INIZH/Data/INI/Terrain.ini",
-            "../windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/Terrain.ini",
-            "../windows_game/extracted_big_files_v2/INIZH/Data/INI/Terrain.ini",
+            "windows_game/Command & Conquer Generals Zero Hour/Data/INI/Default/Terrain.ini",
+            "windows_game/Command & Conquer Generals Zero Hour/Data/INI/Terrain.ini",
+            "windows_game/Command & Conquer Generals/Data/INI/Default/Terrain.ini",
+            "windows_game/Command & Conquer Generals/Data/INI/Terrain.ini",
+            "../windows_game/Command & Conquer Generals Zero Hour/Data/INI/Default/Terrain.ini",
+            "../windows_game/Command & Conquer Generals Zero Hour/Data/INI/Terrain.ini",
+            "../windows_game/Command & Conquer Generals/Data/INI/Default/Terrain.ini",
+            "../windows_game/Command & Conquer Generals/Data/INI/Terrain.ini",
         ];
 
         for fallback in fallback_paths {
@@ -764,68 +798,47 @@ impl TerrainVisualImpl {
 
             for surface in desired_surfaces {
                 let terrains = guard.get_terrains_by_surface(&surface);
-                let mut fallback_candidate = None;
-                let mut resolved_candidate = None;
-
                 for terrain in terrains {
                     let texture = terrain.texture_name.as_str().trim();
                     if texture.is_empty() {
                         continue;
                     }
+                    let Some(normalized_texture) = Self::normalize_terrain_texture_path(texture)
+                    else {
+                        continue;
+                    };
 
-                    let texture_key = texture.to_ascii_lowercase();
+                    let texture_key = normalized_texture.to_ascii_lowercase();
                     if !used_textures.insert(texture_key) {
                         continue;
                     }
 
-                    if resolved_candidate.is_none()
-                        && TerrainTextures::is_available_terrain_texture_path(texture)
-                    {
-                        resolved_candidate = Some(terrain);
-                        break;
+                    if !TerrainTextures::is_available_terrain_texture_path(&normalized_texture) {
+                        continue;
                     }
 
-                    if fallback_candidate.is_none() {
-                        fallback_candidate = Some(terrain);
-                    }
-                }
-
-                let candidate = resolved_candidate.or(fallback_candidate);
-
-                if let Some(terrain) = candidate {
                     let texture_id = self.texture_system.register_texture(TerrainTexture::new(
                         0,
                         terrain.name.as_str().to_string(),
-                        terrain.texture_name.as_str().to_string(),
+                        normalized_texture,
                     ));
                     defaults.push(texture_id);
+                    break;
                 }
             }
         }
 
-        if defaults.is_empty() {
-            let grass = self.texture_system.register_texture(TerrainTexture::new(
-                0,
-                "Grass".to_string(),
-                "Data/Terrain/Grass.dds".to_string(),
-            ));
-            let cliff = self.texture_system.register_texture(TerrainTexture::new(
-                0,
-                "Cliff".to_string(),
-                "Data/Terrain/Cliff.dds".to_string(),
-            ));
-            let snow = self.texture_system.register_texture(TerrainTexture::new(
-                0,
-                "Snow".to_string(),
-                "Data/Terrain/Snow.dds".to_string(),
-            ));
-            let sand = self.texture_system.register_texture(TerrainTexture::new(
-                0,
-                "Sand".to_string(),
-                "Data/Terrain/Sand.dds".to_string(),
-            ));
+        // If no INI terrain types resolve, leave rules empty (mirror C++ missing-terrain behavior).
 
-            defaults.extend([grass, cliff, snow, sand]);
+        // Startup parity/perf: decode default terrain textures before first menu frame so
+        // terrain does not appear to stream tile-by-tile after shell-map load.
+        for texture_id in &defaults {
+            if let Err(err) = self.texture_system.load_texture(*texture_id) {
+                warn!(
+                    "Failed to preload startup terrain texture {}: {}",
+                    texture_id, err
+                );
+            }
         }
 
         self.build_rules_from_textures(&defaults);
@@ -864,7 +877,6 @@ impl TerrainVisualImpl {
         self.chunk_texture_bindings.clear();
         self.chunk_meshes.clear();
         self.active_chunk_texture_ids = None;
-        self.last_visible_chunk_signature = 0;
     }
 
     fn derive_rule_for_texture(texture_id: TextureId, name: &str) -> TextureRule {
@@ -1092,6 +1104,24 @@ impl TerrainVisualImpl {
         }
     }
 
+    fn normalize_terrain_texture_path(path: &str) -> Option<String> {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let normalized = trimmed
+            .replace('\\', "/")
+            .chars()
+            .filter(|c| *c != ' ')
+            .collect::<String>();
+        if normalized.contains('/') {
+            Some(normalized)
+        } else {
+            Some(format!("{TERRAIN_TGA_DIR_PATH}{normalized}"))
+        }
+    }
+
     fn prepare_chunk_texture_binding(
         &mut self,
         chunk_id: ChunkId,
@@ -1125,20 +1155,21 @@ impl TerrainVisualImpl {
             .expect("terrain sampler should be initialised");
 
         let mut final_ids = [0; MAX_TEXTURES_PER_CHUNK];
-        if texture_ids.is_empty() {
-            final_ids = [0; MAX_TEXTURES_PER_CHUNK];
-        } else {
-            for (idx, id) in texture_ids.iter().enumerate().take(MAX_TEXTURES_PER_CHUNK) {
-                final_ids[idx] = *id;
+        let fallback_texture_id = self.texture_system.first_texture_id();
+
+        for idx in 0..MAX_TEXTURES_PER_CHUNK {
+            let mut texture_id = *texture_ids.get(idx).unwrap_or(&0);
+            if texture_id == 0 || self.texture_system.get_texture(texture_id).is_none() {
+                texture_id = fallback_texture_id.unwrap_or(0);
             }
-            for idx in texture_ids.len()..MAX_TEXTURES_PER_CHUNK {
-                final_ids[idx] = texture_ids[0];
-            }
+            final_ids[idx] = texture_id;
         }
 
-        if let Some(existing) = self.chunk_texture_bindings.values().find(|binding| {
-            binding.texture_ids == final_ids && binding.slot_map == *slot_map
-        }) {
+        if let Some(existing) = self
+            .chunk_texture_bindings
+            .values()
+            .find(|binding| binding.texture_ids == final_ids && binding.slot_map == *slot_map)
+        {
             self.chunk_texture_bindings.insert(
                 chunk_id,
                 ChunkTextureBinding {
@@ -1159,6 +1190,9 @@ impl TerrainVisualImpl {
         }
 
         for texture_id in final_ids.iter() {
+            if *texture_id == 0 {
+                continue;
+            }
             if let Err(err) = self.texture_system.load_texture(*texture_id) {
                 warn!("Failed to load terrain texture {}: {}", texture_id, err);
             }
@@ -1168,13 +1202,23 @@ impl TerrainVisualImpl {
 
         for (binding, texture_id) in final_ids.iter().enumerate() {
             let diffuse_fallback = DEFAULT_TERRAIN_COLORS[binding % DEFAULT_TERRAIN_COLORS.len()];
-            let diffuse_view = self.texture_system.acquire_texture_view(
-                *texture_id,
-                TextureKind::Diffuse,
-                device,
-                queue,
-                diffuse_fallback,
-            )?;
+            let diffuse_view = if *texture_id == 0 {
+                self.texture_system.acquire_texture_view(
+                    0,
+                    TextureKind::Diffuse,
+                    device,
+                    queue,
+                    diffuse_fallback,
+                )?
+            } else {
+                self.texture_system.acquire_texture_view(
+                    *texture_id,
+                    TextureKind::Diffuse,
+                    device,
+                    queue,
+                    diffuse_fallback,
+                )?
+            };
             diffuse_views.push(diffuse_view);
         }
 
@@ -1288,18 +1332,16 @@ impl TerrainVisualImpl {
         };
 
         let visible_chunk_ids = self.visible_chunk_ids_for_draw_area();
-        let visible_signature = self.visible_chunk_signature(&visible_chunk_ids);
-        let refresh_texture_slots = self.active_chunk_texture_ids.is_none()
-            || self.last_visible_chunk_signature != visible_signature;
+        let refresh_texture_slots = self.active_chunk_texture_ids.is_none();
 
         let select_slots_started = std::time::Instant::now();
         let stable_texture_ids = if refresh_texture_slots {
             let ids = self.select_stable_chunk_texture_ids(&visible_chunk_ids);
             self.active_chunk_texture_ids = Some(ids);
-            self.last_visible_chunk_signature = visible_signature;
             ids
         } else {
-            self.active_chunk_texture_ids.unwrap_or([0; MAX_TEXTURES_PER_CHUNK])
+            self.active_chunk_texture_ids
+                .unwrap_or([0; MAX_TEXTURES_PER_CHUNK])
         };
         let select_slots_elapsed = select_slots_started.elapsed();
 
@@ -1310,7 +1352,16 @@ impl TerrainVisualImpl {
             shared_slot_map.entry(*texture_id).or_insert(slot);
         }
 
-        let mut upload_budget = self.max_chunk_mesh_uploads_per_frame.max(1);
+        let missing_visible_meshes = visible_chunk_ids
+            .iter()
+            .filter(|chunk_id| !self.chunk_meshes.contains_key(chunk_id))
+            .count();
+        // C++ terrain path does not intentionally stream visible chunks over many frames.
+        // Upload at least all currently-missing visible chunk meshes in one pass.
+        let mut upload_budget = self
+            .max_chunk_mesh_uploads_per_frame
+            .max(1)
+            .max(missing_visible_meshes);
         let mut binding_updates = 0usize;
         let mut mesh_uploads = 0usize;
         let mut vertices_uploaded = 0usize;
@@ -1318,7 +1369,8 @@ impl TerrainVisualImpl {
         let mut binding_prep_elapsed = std::time::Duration::ZERO;
         let mut mesh_upload_elapsed = std::time::Duration::ZERO;
         for &chunk_id in &visible_chunk_ids {
-            let (chunk_revision, has_chunk_geometry) = match self.chunk_manager.get_chunk(chunk_id) {
+            let (chunk_revision, has_chunk_geometry) = match self.chunk_manager.get_chunk(chunk_id)
+            {
                 Some(chunk) => (
                     chunk.geometry_revision,
                     !(chunk.vertices.is_empty() || chunk.indices.is_empty()),
@@ -1522,82 +1574,21 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
-    fn visible_chunk_signature(&self, visible_chunk_ids: &[ChunkId]) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        visible_chunk_ids.len().hash(&mut hasher);
-        for &chunk_id in visible_chunk_ids {
-            chunk_id.hash(&mut hasher);
-        }
-        hasher.finish()
-    }
-
     fn select_stable_chunk_texture_ids(
         &mut self,
-        visible_chunk_ids: &[ChunkId],
+        _visible_chunk_ids: &[ChunkId],
     ) -> [TextureId; MAX_TEXTURES_PER_CHUNK] {
-        let mut visible_texture_contributions: HashMap<TextureId, f32> = HashMap::new();
-
-        for &chunk_id in visible_chunk_ids.iter().take(MAX_TEXTURE_SAMPLE_CHUNKS) {
-            let Some(chunk) = self.chunk_manager.get_chunk(chunk_id) else {
-                continue;
-            };
-            if chunk.vertices.is_empty() {
+        let mut selected_textures: Vec<TextureId> = Vec::new();
+        for rule in &self.texture_rules {
+            let texture_id = rule.texture_id;
+            if texture_id == 0 || self.texture_system.get_texture(texture_id).is_none() {
                 continue;
             }
-
-            let sample_step =
-                (chunk.vertices.len() / MAX_TEXTURE_SAMPLES_PER_CHUNK.max(1)).max(1);
-            for vertex in chunk.vertices.iter().step_by(sample_step) {
-                let position =
-                    Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
-                let normal_vec = Vec3::new(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
-                let mut normal = if normal_vec.length_squared() > f32::EPSILON {
-                    normal_vec.normalize()
-                } else {
-                    Vec3::Y
-                };
-                if !normal.y.is_finite() {
-                    normal = Vec3::Y;
-                }
-
-                let height = position.y;
-                let slope = normal.dot(Vec3::Y).clamp(-1.0, 1.0).acos();
-                let base_weights = self.texture_system.generate_texture_weights(
-                    height,
-                    slope,
-                    vertex.tex_coords,
-                    &self.texture_rules,
-                );
-                let blended = self.texture_system.blend_textures_at_position(
-                    position,
-                    height,
-                    normal,
-                    vertex.tex_coords,
-                    &base_weights,
-                    &self.texture_rules,
-                );
-
-                for (texture_id, weight) in blended.iter_pairs() {
-                    visible_texture_contributions
-                        .entry(texture_id)
-                        .and_modify(|total| *total += weight)
-                        .or_insert(weight);
-                }
-            }
-        }
-
-        let mut sorted_visible_textures: Vec<(TextureId, f32)> =
-            visible_texture_contributions.into_iter().collect();
-        sorted_visible_textures
-            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut selected_textures = Vec::new();
-        for (texture_id, _) in &sorted_visible_textures {
             if selected_textures
                 .iter()
-                .all(|candidate| candidate != texture_id)
+                .all(|candidate| *candidate != texture_id)
             {
-                selected_textures.push(*texture_id);
+                selected_textures.push(texture_id);
                 if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
                     break;
                 }
@@ -1607,14 +1598,21 @@ impl TerrainVisualImpl {
         if selected_textures.is_empty() {
             if let Some(rule) = self.texture_rules.first() {
                 selected_textures.push(rule.texture_id);
-            } else {
-                selected_textures.push(0);
+            } else if let Some(texture_id) = self.texture_system.first_texture_id() {
+                selected_textures.push(texture_id);
             }
         }
 
+        if selected_textures.is_empty() {
+            return [0; MAX_TEXTURES_PER_CHUNK];
+        }
+
         while selected_textures.len() < MAX_TEXTURES_PER_CHUNK {
-            let fallback = *selected_textures.first().unwrap_or(&0);
-            selected_textures.push(fallback);
+            if let Some(&fallback) = selected_textures.first() {
+                selected_textures.push(fallback);
+            } else {
+                break;
+            }
         }
 
         let mut stable_texture_ids = [0; MAX_TEXTURES_PER_CHUNK];
@@ -2211,7 +2209,12 @@ impl TerrainVisualImpl {
     /// Load terrain textures
     pub fn load_textures(&mut self, texture_paths: &[&str]) -> TerrainResult<()> {
         self.ensure_terrain_definitions(None)?;
-        let ids = self.texture_system.load_textures(texture_paths)?;
+        let normalized_paths: Vec<String> = texture_paths
+            .iter()
+            .filter_map(|path| Self::normalize_terrain_texture_path(path))
+            .collect();
+        let normalized_refs: Vec<&str> = normalized_paths.iter().map(String::as_str).collect();
+        let ids = self.texture_system.load_textures(&normalized_refs)?;
 
         if ids.is_empty() {
             if self.texture_rules.is_empty() {
@@ -2461,12 +2464,6 @@ impl TerrainVisualImpl {
             if let Some(image) = self.try_load_image_from_filesystem(&candidate)? {
                 return Ok(image);
             }
-
-            if candidate.exists() {
-                if let Ok(image) = image::open(&candidate) {
-                    return Ok(image);
-                }
-            }
         }
 
         Err(TerrainError::TextureError(GameImageError::LoadError {
@@ -2529,102 +2526,50 @@ impl TerrainVisualImpl {
     fn runtime_texture_candidates(&self, path: &str) -> Vec<PathBuf> {
         let normalized = path.replace('\\', "/");
         let bare = normalized.trim_start_matches("./").to_string();
+        if bare.is_empty() {
+            return Vec::new();
+        }
+
         let mut candidates = Vec::<PathBuf>::new();
-
-        if !bare.is_empty() {
-            Self::push_unique_path(&mut candidates, PathBuf::from(&bare));
-        }
-
-        if !bare.contains('/') {
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(format!("Art/Textures/{bare}")),
-            );
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(format!("Art/Terrain/{bare}")),
-            );
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(format!("Data/Art/Textures/{bare}")),
-            );
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(format!("Data/Art/Terrain/{bare}")),
-            );
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(format!("English/Art/Textures/{bare}")),
-            );
-            Self::push_unique_path(
-                &mut candidates,
-                PathBuf::from(format!("Data/English/Art/Textures/{bare}")),
-            );
-        }
-
-        if Path::new(&bare).extension().is_none() {
-            let current = candidates.clone();
-            for base in current {
-                for ext in ["tga", "dds", "png", "jpg", "jpeg", "bmp"] {
-                    Self::push_unique_path(
-                        &mut candidates,
-                        PathBuf::from(format!("{}.{}", base.display(), ext)),
-                    );
-                }
+        let mut seen: HashSet<PathBuf> = HashSet::new();
+        let mut push_unique = |candidate: PathBuf| {
+            if seen.insert(candidate.clone()) {
+                candidates.push(candidate);
             }
+        };
+
+        let extension = Path::new(&bare)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+        let is_tga_or_dds = matches!(extension.as_deref(), Some("tga") | Some("dds"));
+
+        let language = get_registry_language().as_str().to_string();
+        if !language.is_empty() {
+            push_unique(PathBuf::from(format!(
+                "Data/{language}/Art/Textures/{bare}"
+            )));
         }
 
-        for root in self.runtime_texture_search_roots() {
-            let current = candidates.clone();
-            for candidate in current {
-                Self::push_unique_path(&mut candidates, root.join(candidate));
+        push_unique(PathBuf::from(format!("Art/Textures/{bare}")));
+
+        let global_data = global_data::read();
+        let user_data = global_data.get_user_data_dir();
+        if !user_data.is_empty() {
+            let user_textures = Path::new(&user_data)
+                .join(USER_TGA_DIR_PATH.replace("%s", ""))
+                .join(&bare);
+            push_unique(user_textures);
+
+            if is_tga_or_dds {
+                let user_previews = Path::new(&user_data)
+                    .join(MAP_PREVIEW_DIR_PATH.replace("%s", ""))
+                    .join(&bare);
+                push_unique(user_previews);
             }
         }
 
         candidates
-    }
-
-    fn push_unique_path(list: &mut Vec<PathBuf>, candidate: PathBuf) {
-        if !list.iter().any(|existing| existing == &candidate) {
-            list.push(candidate);
-        }
-    }
-
-    fn runtime_texture_search_roots(&self) -> Vec<PathBuf> {
-        let mut roots = Vec::new();
-        let mut push_unique = |candidate: PathBuf| {
-            if !roots.iter().any(|existing| existing == &candidate) {
-                roots.push(candidate);
-            }
-        };
-
-        let mut bases = Vec::new();
-        if let Ok(cwd) = std::env::current_dir() {
-            bases.push(cwd);
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                bases.push(parent.to_path_buf());
-            }
-        }
-        bases.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-
-        for base in bases {
-            for ancestor in base.ancestors().take(8) {
-                let ancestor = ancestor.to_path_buf();
-                push_unique(ancestor.clone());
-                push_unique(ancestor.join("windows_game/extracted_big_files/TexturesZH"));
-                push_unique(ancestor.join("windows_game/extracted_big_files/EnglishZH"));
-                push_unique(ancestor.join("windows_game/extracted_big_files_v2/TexturesZH"));
-                push_unique(ancestor.join("windows_game/extracted_big_files_v2/EnglishZH"));
-                push_unique(ancestor.join("windows_game/Command & Conquer Generals Zero Hour"));
-                push_unique(
-                    ancestor.join("windows_game/Command & Conquer Generals Zero Hour/Data"),
-                );
-            }
-        }
-
-        roots
     }
 }
 
@@ -2667,7 +2612,6 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.texture_rules.clear();
         self.chunk_texture_bindings.clear();
         self.active_chunk_texture_ids = None;
-        self.last_visible_chunk_signature = 0;
         self.water_plane = None;
         self.skybox_background_view = None;
         self.skybox_background_bind_group = None;
@@ -2708,6 +2652,7 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         let chunk_manager_started = std::time::Instant::now();
         self.chunk_manager.update()?;
+        let startup_chunk_catchup_updates = self.catch_up_startup_visible_chunk_geometry()?;
         let chunk_manager_elapsed = chunk_manager_started.elapsed();
 
         let chunk_meshes_started = std::time::Instant::now();
@@ -2721,7 +2666,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         let update_elapsed = update_started.elapsed();
         if update_elapsed >= std::time::Duration::from_millis(200) {
             warn!(
-                "TerrainVisual::update breakdown: total={:?} texture={:?} water={:?} roads={:?} chunk_manager={:?} chunk_meshes={:?} visible={} pending_visible={} total_chunks={}",
+                "TerrainVisual::update breakdown: total={:?} texture={:?} water={:?} roads={:?} chunk_manager={:?} chunk_meshes={:?} visible={} pending_visible={} total_chunks={} startup_catchup_updates={}",
                 update_elapsed,
                 texture_elapsed,
                 water_elapsed,
@@ -2730,7 +2675,8 @@ impl SubsystemInterface for TerrainVisualImpl {
                 chunk_meshes_elapsed,
                 self.chunk_manager.get_visible_chunks().len(),
                 self.chunk_manager.pending_visible_chunk_count(),
-                self.chunk_manager.total_chunk_count()
+                self.chunk_manager.total_chunk_count(),
+                startup_chunk_catchup_updates
             );
         }
 

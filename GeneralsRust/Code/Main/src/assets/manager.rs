@@ -39,6 +39,8 @@ pub struct AssetManager {
     ww3d_manager: WW3DAssetManager,
     /// Cache of loaded models
     model_cache: HashMap<String, W3DModel>,
+    /// Known-missing model keys to keep repeated lookups O(1) like C++ hash misses.
+    missing_model_keys: HashSet<String>,
     /// Initialization status
     initialized: bool,
     /// Active localization language
@@ -50,6 +52,17 @@ pub struct AssetManager {
 }
 
 impl AssetManager {
+    fn should_resolve_object_texture_name(name: &str) -> bool {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        let has_path = trimmed.contains('/') || trimmed.contains('\\');
+        let has_extension = Path::new(trimmed).extension().is_some();
+        !has_path && !has_extension
+    }
+
     fn canonical_model_name(model_name: &str) -> String {
         model_name
             .rsplit(['/', '\\'])
@@ -79,6 +92,7 @@ impl AssetManager {
             texture_manager: TextureManager::new(),
             ww3d_manager: WW3DAssetManager::new(),
             model_cache: HashMap::new(),
+            missing_model_keys: HashSet::new(),
             initialized: false,
             language,
             active_mod_path,
@@ -379,8 +393,16 @@ impl AssetManager {
             return self.texture_manager.get_default_texture();
         }
 
+        let lookup_name = if Self::should_resolve_object_texture_name(texture_name) {
+            self.ww3d_manager
+                .get_texture_for_object(texture_name)
+                .unwrap_or_else(|| texture_name.to_string())
+        } else {
+            texture_name.to_string()
+        };
+
         self.texture_manager
-            .get_texture_or_default(&mut self.archive_system, device, queue, texture_name)
+            .get_texture_or_default(&mut self.archive_system, device, queue, &lookup_name)
             .await
     }
 
@@ -410,6 +432,47 @@ impl AssetManager {
                 texture_name.to_string()
             })
         })
+    }
+
+    /// Prime a batch of raw texture payloads synchronously (no GPU upload).
+    pub fn prime_textures_raw_blocking<I, S>(&mut self, texture_names: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let unique: Vec<String> = {
+            let mut seen = HashSet::new();
+            texture_names
+                .into_iter()
+                .filter_map(|name| {
+                    let trimmed = name.as_ref().trim();
+                    if trimmed.is_empty() {
+                        return None;
+                    }
+                    let key = trimmed.to_ascii_lowercase();
+                    if seen.insert(key) {
+                        Some(trimmed.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        if unique.is_empty() {
+            return;
+        }
+
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                for name in unique {
+                    let _ = self
+                        .texture_manager
+                        .prime_raw_texture(&mut self.archive_system, &name)
+                        .await;
+                }
+            })
+        });
     }
 
     /// Get default texture
@@ -611,6 +674,15 @@ impl AssetManager {
             }
         }
 
+        if self.missing_model_keys.contains(&model_key)
+            || self.missing_model_keys.contains(&resolved_key)
+        {
+            return Err(anyhow!(
+                "W3D load skipped for known-missing model '{}'",
+                resolved_name
+            ));
+        }
+
         info!("Loading W3D model: {}", resolved_name);
 
         // Use the actual W3D loader to parse the model.
@@ -621,6 +693,8 @@ impl AssetManager {
         {
             Ok(model) => model,
             Err(e) => {
+                self.missing_model_keys.insert(model_key.clone());
+                self.missing_model_keys.insert(resolved_key.clone());
                 warn!("W3D loader failed for '{}': {}", model_name, e);
                 return Err(anyhow!("W3D load failed for '{}': {e}", model_name));
             }
@@ -638,6 +712,9 @@ impl AssetManager {
         if resolved_name != model_name {
             self.model_cache.insert(model_key, model.clone());
         }
+        self.missing_model_keys.remove(&model_name.to_lowercase());
+        self.missing_model_keys
+            .remove(&resolved_name.to_lowercase());
         Ok(model)
     }
 
@@ -662,6 +739,15 @@ impl AssetManager {
                 self.model_cache.insert(model_key.clone(), model.clone());
                 return Ok(model);
             }
+        }
+
+        if self.missing_model_keys.contains(&model_key)
+            || self.missing_model_keys.contains(&resolved_key)
+        {
+            return Err(anyhow!(
+                "Synchronous W3D load skipped for known-missing model '{}'",
+                resolved_name
+            ));
         }
 
         let model = if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -690,6 +776,8 @@ impl AssetManager {
         let model = match model {
             Ok(model) => model,
             Err(err) => {
+                self.missing_model_keys.insert(model_key.clone());
+                self.missing_model_keys.insert(resolved_key.clone());
                 warn!(
                     "Synchronous W3D load failed for '{}': {}",
                     resolved_name, err
@@ -707,6 +795,9 @@ impl AssetManager {
         if resolved_name != model_name {
             self.model_cache.insert(model_key, model.clone());
         }
+        self.missing_model_keys.remove(&model_name.to_lowercase());
+        self.missing_model_keys
+            .remove(&resolved_name.to_lowercase());
         Ok(model)
     }
 
@@ -758,6 +849,7 @@ impl AssetManager {
     pub fn clear_caches(&mut self) {
         info!("Clearing asset caches");
         self.model_cache.clear();
+        self.missing_model_keys.clear();
         self.texture_manager.clear_cache();
     }
 
@@ -919,12 +1011,23 @@ pub fn warmup_caustic_textures_async(device: Arc<wgpu::Device>, queue: Arc<wgpu:
         return false;
     };
 
+    let handle = tokio::runtime::Handle::current();
+
     tokio::task::spawn_blocking(move || {
         let result = {
             let mut manager = manager_arc.lock().expect("asset manager mutex poisoned");
-            manager
-                .texture_manager
-                .load_caustic_textures(device.as_ref(), queue.as_ref())
+            let (texture_manager, archive_system) = {
+                let manager_ref: &mut AssetManager = &mut manager;
+                (
+                    &mut manager_ref.texture_manager,
+                    &mut manager_ref.archive_system,
+                )
+            };
+            handle.block_on(async {
+                texture_manager
+                    .load_caustic_textures(archive_system, device.as_ref(), queue.as_ref())
+                    .await
+            })
         };
 
         match result {
@@ -980,7 +1083,10 @@ fn texture_prime_sender(manager_arc: Arc<Mutex<AssetManager>>) -> &'static Sende
                 };
                 let (texture_manager, archive_system) = {
                     let manager_ref: &mut AssetManager = &mut manager;
-                    (&mut manager_ref.texture_manager, &mut manager_ref.archive_system)
+                    (
+                        &mut manager_ref.texture_manager,
+                        &mut manager_ref.archive_system,
+                    )
                 };
 
                 let _ = runtime.block_on(async {
@@ -1074,5 +1180,4 @@ mod tests {
         assert_eq!(results.textures.len(), 1);
         assert_eq!(results.audio.len(), 1);
     }
-
 }
