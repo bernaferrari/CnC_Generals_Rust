@@ -46,11 +46,7 @@ impl ArchiveFileSystem {
     /// Register an additional search path for BIG archives.
     pub fn add_search_path<P: AsRef<Path>>(&mut self, path: P) {
         let path = path.as_ref();
-        if let Ok(canon) = path.canonicalize() {
-            if !self.search_paths.iter().any(|p| p == &canon) {
-                self.search_paths.push(canon);
-            }
-        } else if !self.search_paths.iter().any(|p| p == path) {
+        if !self.search_paths.iter().any(|p| p == path) {
             self.search_paths.push(path.to_path_buf());
         }
     }

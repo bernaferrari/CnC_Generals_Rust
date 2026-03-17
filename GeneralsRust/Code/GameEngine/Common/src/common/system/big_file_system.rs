@@ -1037,23 +1037,13 @@ impl BigFileSystem {
         }
     }
 
-    /// Initialize the BIG file system with a set of default search paths.
+    /// Initialize BIG file system state.
+    ///
+    /// C++ parity note:
+    /// Archive discovery is driven by `ArchiveFileSystem`/Win32BIGFileSystem init.
+    /// Do not scan implicit directories here because that can alter mount order
+    /// and shadow files differently than the original engine.
     pub fn init(&mut self) -> io::Result<()> {
-        self.load_big_files_from_directory(".", "*.big", false)?;
-
-        let potential_paths = [
-            "./Data",
-            "../Data",
-            "C:/Program Files/EA Games/Command & Conquer Generals Zero Hour",
-            "C:/Program Files (x86)/EA Games/Command & Conquer Generals Zero Hour",
-        ];
-
-        for path in &potential_paths {
-            if std::path::Path::new(path).exists() {
-                let _ = self.load_big_files_from_directory(path, "*.big", false);
-            }
-        }
-
         Ok(())
     }
 
@@ -1231,7 +1221,11 @@ impl BigFileSystem {
         self.file_index.get(&canonical).cloned()
     }
 
-    fn prepare_entry(&mut self, filename: &str) -> io::Result<Option<PreparedEntry>> {
+    fn prepare_entry(
+        &mut self,
+        filename: &str,
+        streaming: bool,
+    ) -> io::Result<Option<PreparedEntry>> {
         let locator = match self.resolve_locator(filename) {
             Some(locator) => locator,
             None => return Ok(None),
@@ -1258,7 +1252,7 @@ impl BigFileSystem {
                 data: Some(data),
                 stream: None,
             }))
-        } else {
+        } else if streaming {
             let file = archive.big_file.clone_underlying_file()?;
             Ok(Some(PreparedEntry {
                 entry,
@@ -1266,6 +1260,15 @@ impl BigFileSystem {
                 original_path: locator.original_path,
                 data: None,
                 stream: Some(file),
+            }))
+        } else {
+            let data = archive.big_file.extract_file_data(&entry)?;
+            Ok(Some(PreparedEntry {
+                entry,
+                normalized_path: locator.normalized_path,
+                original_path: locator.original_path,
+                data: Some(data),
+                stream: None,
             }))
         }
     }
@@ -1403,6 +1406,7 @@ impl BigFileSystem {
     ) -> Result<Box<dyn Read + Send>, io::Error> {
         const FILE_READ: i32 = 0x00000001;
         const FILE_WRITE: i32 = 0x00000002;
+        const FILE_STREAMING: i32 = 0x00000100;
 
         if (access & FILE_WRITE) != 0 {
             return Err(io::Error::new(
@@ -1417,7 +1421,9 @@ impl BigFileSystem {
             ));
         }
 
-        let prepared = match self.prepare_entry(filename)? {
+        let streaming = (access & FILE_STREAMING) != 0;
+
+        let prepared = match self.prepare_entry(filename, streaming)? {
             Some(entry) => entry,
             None => {
                 return Err(io::Error::new(
@@ -1489,19 +1495,8 @@ impl BigArchiveBackend {
 
     pub fn add_search_path<P: AsRef<Path>>(&mut self, path: P) {
         let incoming = path.as_ref();
-        let canonical = std::fs::canonicalize(incoming).unwrap_or_else(|_| incoming.to_path_buf());
-
-        if !self
-            .search_paths
-            .iter()
-            .any(|existing| existing == &canonical)
-        {
-            self.search_paths.push(canonical.clone());
-            if self.initialized {
-                if let Err(err) = self.load_archives_from_path(&canonical) {
-                    warn!("Failed to load archives from {:?}: {}", canonical, err);
-                }
-            }
+        if !self.search_paths.iter().any(|existing| existing == incoming) {
+            self.search_paths.push(incoming.to_path_buf());
         }
     }
 
@@ -1565,7 +1560,9 @@ impl FileSystemBackend for BigArchiveBackend {
             return None;
         }
 
-        let prepared = match self.big_system.prepare_entry(filename) {
+        let streaming = access.contains(FileAccess::STREAMING);
+
+        let prepared = match self.big_system.prepare_entry(filename, streaming) {
             Ok(Some(entry)) => entry,
             Ok(None) => return None,
             Err(err) => {
