@@ -1,10 +1,16 @@
 use crate::config::GlobalData;
 use crate::input_system::InputSystem;
 use anyhow::{anyhow, Result};
+use game_engine::common::system::{
+    big_file_system::BigArchiveBackend, file_system::get_file_system,
+    local_file_system::LocalFileSystem,
+    subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
+};
 use log::{debug, error, info, warn};
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 use ww3d_engine::FrameTiming;
@@ -65,6 +71,75 @@ impl SubsystemInterface for FileSystemSubsystem {
 
     fn init(&mut self) -> Result<()> {
         info!("Initializing FileSystem subsystem");
+
+        // Initialize the shared Common file system used by INI/map/texture loaders.
+        let mut search_paths = vec![
+            PathBuf::from("."),
+            PathBuf::from("Data"),
+            PathBuf::from("Art"),
+            PathBuf::from("Code/Main/assets"),
+            PathBuf::from("GeneralsRust/Code/Main/assets"),
+            PathBuf::from("windows_game"),
+            PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
+            PathBuf::from("windows_game/Command & Conquer Generals Zero Hour/Data"),
+            PathBuf::from("windows_game/Command & Conquer Generals"),
+            PathBuf::from("windows_game/Command & Conquer Generals/Data"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"),
+        ];
+
+        if let Ok(cwd) = std::env::current_dir() {
+            search_paths.push(cwd.clone());
+            search_paths.push(cwd.join("Data"));
+            search_paths.push(cwd.join("Art"));
+            search_paths.push(cwd.join("Code/Main/assets"));
+            search_paths.push(cwd.join("GeneralsRust/Code/Main/assets"));
+            search_paths.push(cwd.join("windows_game"));
+            search_paths.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour"));
+            search_paths.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+            search_paths.push(cwd.join("windows_game/Command & Conquer Generals"));
+            search_paths.push(cwd.join("windows_game/Command & Conquer Generals/Data"));
+        }
+
+        let mut deduped = Vec::new();
+        let mut seen = HashSet::new();
+        for path in search_paths {
+            let key = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+            if seen.insert(key) {
+                deduped.push(path);
+            }
+        }
+
+        {
+            let file_system = get_file_system();
+            let mut fs_guard = file_system
+                .lock()
+                .map_err(|_| anyhow!("Failed to lock Common FileSystem"))?;
+
+            {
+                let local_backend: &mut LocalFileSystem =
+                    fs_guard.ensure_backend(LocalFileSystem::new);
+                for path in &deduped {
+                    local_backend.add_search_path(path);
+                }
+            }
+
+            {
+                let big_backend: &mut BigArchiveBackend =
+                    fs_guard.ensure_backend(BigArchiveBackend::new);
+                for path in &deduped {
+                    big_backend.add_search_path(path);
+                }
+            }
+
+            fs_guard.clear_cache();
+            let _ = CommonSubsystemInterface::init(&mut *fs_guard);
+
+            if fs_guard.does_file_exist("INIZH.big") {
+                info!("Common FileSystem: INIZH.big detected");
+            } else {
+                warn!("Common FileSystem: INIZH.big not detected in configured search paths");
+            }
+        }
 
         // Create local file system first (matches C++ order)
         let local_fs = crate::assets::LocalFileSystem::new();
@@ -883,13 +958,10 @@ impl<T: 'static> SubsystemHandle<T> {
     }
 
     pub fn get<'a>(&self, manager: &'a SubsystemManager) -> Option<&'a T> {
-        manager.subsystems.get(self.index).and_then(|slot| {
-            if slot.type_id() == self.type_id {
-                slot.as_any().downcast_ref::<T>()
-            } else {
-                None
-            }
-        })
+        manager
+            .subsystems
+            .get(self.index)
+            .and_then(|slot| slot.as_any().downcast_ref::<T>())
     }
 
     pub fn get_mut<'a>(&self, manager: &'a mut SubsystemManager) -> Option<&'a mut T> {
@@ -899,11 +971,7 @@ impl<T: 'static> SubsystemHandle<T> {
         let slot_ptr: *mut dyn SubsystemStorage = manager.subsystems[self.index].as_mut();
         unsafe {
             let slot = &mut *slot_ptr;
-            if slot.type_id() == self.type_id {
-                slot.as_any_mut().downcast_mut::<T>()
-            } else {
-                None
-            }
+            slot.as_any_mut().downcast_mut::<T>()
         }
     }
 }
@@ -958,7 +1026,8 @@ impl SubsystemManager {
     ) -> SubsystemHandle<T> {
         let slot = Box::new(TypedSubsystemStorage::new(subsystem));
         let name = slot.name();
-        let type_id = slot.type_id();
+        // Index by the concrete subsystem type to guarantee handle_for/get/get_mut parity.
+        let type_id = TypeId::of::<T>();
         self.subsystems.push(slot);
         let index = self.subsystems.len() - 1;
         self.indices_by_name.insert(name, index);

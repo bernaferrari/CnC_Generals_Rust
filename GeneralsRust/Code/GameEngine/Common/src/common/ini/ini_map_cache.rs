@@ -518,7 +518,8 @@ pub fn parse_display_name(
     tokens: &[&str],
 ) -> INIResult<()> {
     if tokens.is_empty() {
-        return Err(INIError::InvalidData);
+        reader.ascii_display_name.clear();
+        return Ok(());
     }
     let joined = tokens.join(" ");
     reader.ascii_display_name = INI::parse_ascii_string(&joined)?;
@@ -531,7 +532,8 @@ pub fn parse_name_lookup_tag(
     tokens: &[&str],
 ) -> INIResult<()> {
     if tokens.is_empty() {
-        return Err(INIError::InvalidData);
+        reader.ascii_name_lookup_tag.clear();
+        return Ok(());
     }
     let joined = tokens.join(" ");
     reader.ascii_name_lookup_tag = INI::parse_ascii_string(&joined)?;

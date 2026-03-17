@@ -8,15 +8,22 @@
 */
 
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::env;
 use std::sync::OnceLock;
 
 use game_engine::common::dict::Dict;
 use game_engine::common::ini::{get_terrain_roads, INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{DataChunkInfo, DataChunkInput};
+use game_engine::common::system::{
+    file::FileAccess,
+    file_system::get_file_system,
+    DataChunkInfo,
+    DataChunkInput,
+};
 use gamelogic::common::MAP_XY_FACTOR;
 use gamelogic::scripting::core::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
@@ -48,58 +55,177 @@ struct SidesScriptContext {
     scripts: ScriptListReadInfo,
 }
 
-const MAP_SEARCH_ROOT_SUFFIXES: &[&str] = &[
-    "windows_game/extracted_big_files/MapsZH/Maps",
-    "windows_game/extracted_big_files_v2/MapsZH/Maps",
-    "windows_game/Command & Conquer Generals Zero Hour/Data/Maps",
-    "windows_game/Command & Conquer Generals Zero Hour/Maps",
-    "Data/Maps",
-];
-
 static TERRAIN_ROADS_LOAD_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
 
-fn resolve_runtime_ini_path(requested: &Path) -> Option<PathBuf> {
-    if requested.exists() {
-        return Some(requested.to_path_buf());
+fn normalize_virtual_path(path: &Path) -> String {
+    normalize_virtual_path_str(&path.to_string_lossy())
+}
+
+fn normalize_virtual_path_str(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim()
+        .trim_matches('"')
+        .to_string()
+}
+
+fn normalize_lookup_path(path: &str) -> String {
+    normalize_virtual_path_str(path)
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_string()
+}
+
+fn push_unique_string(vec: &mut Vec<String>, candidate: String) {
+    if !vec.iter().any(|existing| existing == &candidate) {
+        vec.push(candidate);
+    }
+}
+
+fn resolve_with_file_system(path: &Path) -> Option<PathBuf> {
+    let normalized = normalize_virtual_path(path);
+    if normalized.is_empty() {
+        return None;
     }
 
-    let requested_normalized = requested.to_string_lossy().replace('\\', "/");
-    let mut relative_candidates = vec![requested_normalized.clone()];
-
-    if let Some(stripped) = requested_normalized.strip_prefix("./") {
-        relative_candidates.push(stripped.to_string());
-    }
-    if let Some(stripped) = requested_normalized.strip_prefix("Data/") {
-        relative_candidates.push(format!("Data/{}", stripped));
-    }
-
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd);
-    }
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-
-    let mut search_roots: Vec<PathBuf> = Vec::new();
-    for root in roots {
-        for ancestor in root.ancestors().take(8) {
-            let base = ancestor.to_path_buf();
-            search_roots.push(base.clone());
-            search_roots.push(base.join("windows_game/extracted_big_files/INIZH"));
-            search_roots.push(base.join("windows_game/extracted_big_files_v2/INIZH"));
-            search_roots.push(base.join("windows_game/Command & Conquer Generals Zero Hour"));
-            search_roots.push(base.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+    if let Ok(file_system) = get_file_system().lock() {
+        if file_system.does_file_exist(&normalized) {
+            return Some(PathBuf::from(&normalized));
         }
     }
 
-    search_roots.sort();
-    search_roots.dedup();
+    None
+}
 
-    for root in search_roots {
-        for rel in &relative_candidates {
-            let candidate = root.join(rel);
-            if candidate.exists() {
-                return Some(candidate);
-            }
+fn read_file_bytes_via_file_system(path: &Path) -> Option<Vec<u8>> {
+    let normalized = normalize_virtual_path(path);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let access = FileAccess::READ.combine(FileAccess::BINARY);
+    let file_system = get_file_system();
+    let mut file_system = file_system.lock().ok()?;
+    let mut file = file_system.open_file(&normalized, access)?;
+    file.read_entire_and_close().ok()
+}
+
+fn read_file_bytes_for_runtime(path: &Path) -> Option<Vec<u8>> {
+    read_file_bytes_via_file_system(path).or_else(|| {
+        let normalized = normalize_virtual_path(path);
+        if normalized.is_empty() {
+            None
+        } else if Path::new(&normalized).exists() {
+            fs::read(&normalized).ok()
+        } else {
+            None
+        }
+    })
+}
+
+fn read_text_via_file_system(path: &Path) -> Option<String> {
+    let bytes = read_file_bytes_via_file_system(path)?;
+    String::from_utf8(bytes).ok()
+}
+
+fn read_text_with_fallback(path: &Path) -> Option<String> {
+    if let Some(contents) = read_text_via_file_system(path) {
+        return Some(contents);
+    }
+    if normalize_lookup_path(path.to_string_lossy().as_ref()).is_empty() {
+        return None;
+    }
+    if path.exists() {
+        fs::read_to_string(path).ok()
+    } else {
+        None
+    }
+}
+
+fn path_is_accessible(path: &Path) -> bool {
+    resolve_with_file_system(path).is_some() || path.exists()
+}
+
+fn resolve_path_candidate(candidate: &Path) -> Option<PathBuf> {
+    if let Some(found) = resolve_with_file_system(candidate) {
+        return Some(found);
+    }
+    if candidate.exists() {
+        return Some(candidate.to_path_buf());
+    }
+
+    None
+}
+
+fn materialize_to_temporary(path: &str, bytes: &[u8]) -> Option<PathBuf> {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    bytes.len().hash(&mut hasher);
+    bytes.hash(&mut hasher);
+    let filename_hash = hasher.finish();
+
+    let path_obj = Path::new(path);
+    let base = path_obj
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("asset");
+    let extension = path_obj.extension().and_then(|ext| ext.to_str()).unwrap_or("bin");
+
+    let temp_dir = env::temp_dir().join("generals_zero_hour");
+    fs::create_dir_all(&temp_dir).ok()?;
+
+    let temp_path = temp_dir.join(format!("{}_{}.{}", base, filename_hash, extension));
+    if let Ok(existing) = fs::metadata(&temp_path) {
+        if existing.len() == bytes.len() as u64 {
+            return Some(temp_path);
+        }
+    }
+
+    fs::write(&temp_path, bytes).ok()?;
+    Some(temp_path)
+}
+
+fn resolve_runtime_path(path: &Path) -> Option<PathBuf> {
+    let normalized = normalize_virtual_path(path);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let candidate = Path::new(&normalized);
+    if let Some(bytes) = read_file_bytes_via_file_system(candidate) {
+        return materialize_to_temporary(&normalized, &bytes);
+    }
+
+    if candidate.exists() {
+        Some(candidate.to_path_buf())
+    } else {
+        None
+    }
+}
+
+fn resolve_runtime_ini_path(requested: &Path) -> Option<PathBuf> {
+    let requested_normalized = normalize_virtual_path(requested);
+    if requested_normalized.is_empty() {
+        return None;
+    }
+
+    let mut candidates = Vec::new();
+    push_unique_string(&mut candidates, normalize_lookup_path(&requested_normalized));
+    if let Some(stripped) = requested_normalized
+        .strip_prefix("Data/")
+        .or_else(|| requested_normalized.strip_prefix("data/"))
+    {
+        push_unique_string(&mut candidates, stripped.to_string());
+    }
+
+    candidates.sort();
+    candidates.dedup();
+
+    for candidate in candidates {
+        let Some(candidate_path) = resolve_path_candidate(Path::new(&candidate)) else {
+            continue;
+        };
+        if let Some(runtime_path) = resolve_runtime_path(&candidate_path) {
+            return Some(runtime_path);
         }
     }
 
@@ -482,7 +608,7 @@ fn load_sides_list_fallback(
 
 /// Attempt to locate and decode scripts for the provided map.
 pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResult>> {
-    let Some(map_path) = find_map_file(map_name) else {
+    let Some(map_path) = locate_map_file(map_name) else {
         warn!(
             "No .map file could be found for '{}'; mission scripts unavailable",
             map_name
@@ -490,11 +616,11 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
         return Ok(None);
     };
 
-    let raw_bytes = fs::read(&map_path).map_err(|err| {
+    let raw_bytes = read_file_bytes_for_runtime(&map_path).ok_or_else(|| {
         GameLogicError::Configuration(format!(
             "Failed to read map '{}': {}",
             map_path.display(),
-            err
+            "path not found in virtual file system"
         ))
     })?;
 
@@ -566,7 +692,7 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
 
 /// Public helper to resolve a map name to an on-disk .map file if present.
 pub fn find_map_file(map_name: &str) -> Option<PathBuf> {
-    locate_map_file(map_name).map(|p| p.canonicalize().unwrap_or(p))
+    locate_map_file(map_name)
 }
 
 /// List the chunky chunk labels present in a map file (for debugging/loading).
@@ -580,12 +706,15 @@ pub fn inspect_map_chunks(map_name: &str) -> Option<Vec<String>> {
 
 /// Load and decompress a chunky map file, returning metadata for further parsing.
 pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
-    let Some(path) = find_map_file(map_name) else {
+    let Some(path) = locate_map_file(map_name) else {
         return Ok(None);
     };
 
-    let raw_bytes = std::fs::read(&path).map_err(|err| {
-        configuration_error(format!("Failed to read map '{}': {}", path.display(), err))
+    let raw_bytes = read_file_bytes_for_runtime(&path).ok_or_else(|| {
+        configuration_error(format!(
+            "Failed to read map '{}': path not found in virtual file system",
+            path.display()
+        ))
     })?;
     let bytes = if raw_bytes.starts_with(CHUNK_MAGIC) {
         raw_bytes
@@ -699,11 +828,11 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     meta.initial_camera_position = parse_initial_camera_position(map_name).ok().flatten();
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
-    if let Some(map_path) = find_map_file(map_name) {
+    if let Some(map_path) = locate_map_file(map_name) {
         if let Some(dir) = map_path.parent() {
             let companion_ini_candidates = [dir.join("Map.ini"), dir.join("map.ini")];
             for ini_path in companion_ini_candidates {
-                let Ok(contents) = std::fs::read_to_string(&ini_path) else {
+                let Some(contents) = read_text_with_fallback(&ini_path) else {
                     continue;
                 };
                 let mut skybox_textures: [Option<String>; 5] = [None, None, None, None, None];
@@ -744,10 +873,15 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
             // C++ parity: only treat dedicated heightmap companions as terrain sources.
             // Generic *.tga beside a map is commonly preview/sky art, not elevation data.
             for ext in ["hmp", "raw"] {
-                let mut candidate = dir.join(map_path.file_stem().unwrap_or_default());
+                let stem = map_path.file_stem().and_then(|stem| stem.to_str());
+                let Some(stem) = stem else {
+                    continue;
+                };
+
+                let mut candidate = dir.join(stem);
                 candidate.set_extension(ext);
-                if candidate.exists() {
-                    meta.heightmap_path = Some(candidate);
+                if let Some(heightmap_path) = resolve_runtime_path(&candidate) {
+                    meta.heightmap_path = Some(heightmap_path);
                     break;
                 }
             }
@@ -758,7 +892,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
             for (i, face) in faces.iter().enumerate() {
                 let mut candidate = dir.to_path_buf();
                 candidate.push(format!("Sky{}.tga", face));
-                if candidate.exists() {
+                if path_is_accessible(&candidate) {
                     textures[i] = Some(candidate.to_string_lossy().to_string());
                     continue;
                 }
@@ -768,7 +902,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
                     map_path.file_stem().unwrap_or_default().to_string_lossy(),
                     face
                 ));
-                if alt.exists() {
+                if path_is_accessible(&alt) {
                     textures[i] = Some(alt.to_string_lossy().to_string());
                 }
             }
@@ -2149,24 +2283,11 @@ fn locate_map_file(map_name: &str) -> Option<PathBuf> {
         }
     }
 
-    let search_roots = collect_map_search_roots();
     let candidates = build_relative_candidates(trimmed);
     for candidate in candidates {
-        for base in &search_roots {
-            if !base.exists() {
-                continue;
-            }
-            if let Some(path) = resolve_case_insensitive(base, &candidate) {
-                if path.is_file() {
-                    trace!(
-                        "Resolved map '{}' to '{}' via root '{}'",
-                        map_name,
-                        path.display(),
-                        base.display()
-                    );
-                    return Some(path);
-                }
-            }
+        if let Some(path) = resolve_path_candidate(&candidate) {
+            trace!("Resolved map '{}' to '{}'", map_name, path.display());
+            return Some(path);
         }
     }
 
@@ -2221,74 +2342,20 @@ fn build_relative_candidates(input: &str) -> Vec<PathBuf> {
         }
 
         if base.components().count() == 1 {
-            let leaf = base
-                .file_name()
-                .and_then(OsStr::to_str)
-                .unwrap_or(&sanitized);
-            let mut nested = PathBuf::from(&sanitized);
-            nested.push(format!("{leaf}.map"));
-            push_unique(&mut results, nested);
+            if let Some(file_name) = base.file_name() {
+                let leaf = file_name.to_string_lossy();
+                let mut nested = PathBuf::from(&sanitized);
+                nested.push(format!("{leaf}.map"));
+                push_unique(&mut results, nested);
+            }
         }
     }
 
     results
 }
 
-fn collect_map_search_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd);
-    }
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-
-    let mut resolved = Vec::new();
-    for root in roots {
-        for ancestor in root.ancestors().take(8) {
-            let base = ancestor.to_path_buf();
-            for suffix in MAP_SEARCH_ROOT_SUFFIXES {
-                push_unique(&mut resolved, base.join(suffix));
-            }
-        }
-    }
-
-    resolved
-}
-
 fn push_unique(vec: &mut Vec<PathBuf>, candidate: PathBuf) {
     if !vec.iter().any(|existing| existing == &candidate) {
         vec.push(candidate);
     }
-}
-
-fn resolve_case_insensitive(base: &Path, rel: &Path) -> Option<PathBuf> {
-    let mut current = PathBuf::from(base);
-    for component in rel.components() {
-        let comp_os = component.as_os_str();
-        let direct = current.join(comp_os);
-        if direct.exists() {
-            current = direct;
-            continue;
-        }
-
-        let target = comp_os.to_string_lossy();
-        let mut match_path = None;
-        if let Ok(entries) = fs::read_dir(&current) {
-            for entry in entries.flatten() {
-                if entry
-                    .file_name()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(&target)
-                {
-                    match_path = Some(entry.path());
-                    break;
-                }
-            }
-        }
-        current = match match_path {
-            Some(path) => path,
-            None => return None,
-        };
-    }
-    Some(current)
 }

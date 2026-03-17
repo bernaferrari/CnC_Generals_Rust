@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::system::file::FileAccess;
+use crate::common::system::file_system::get_file_system;
 
 /// INI constant defines
 pub const INI_MAX_CHARS_PER_LINE: usize = 1028;
@@ -131,6 +133,7 @@ fn get_extra_block_parser(token: &str) -> Option<INIBlockParse> {
 /// INI Reader interface
 pub struct INI {
     file: Option<BufReader<File>>,
+    staged_temp_file: Option<PathBuf>,
     read_buffer: [u8; INI_READ_BUFFER],
     read_buffer_next: usize,
     read_buffer_used: usize,
@@ -828,6 +831,7 @@ impl INI {
     pub fn new() -> Self {
         Self {
             file: None,
+            staged_temp_file: None,
             read_buffer: [0; INI_READ_BUFFER],
             read_buffer_next: 0,
             read_buffer_used: 0,
@@ -948,7 +952,18 @@ impl INI {
             return Err(INIError::FileAlreadyOpen);
         }
 
-        let file = File::open(&filename).map_err(|_| INIError::CantOpenFile)?;
+        self.staged_temp_file = None;
+        let file = match File::open(&filename) {
+            Ok(file) => file,
+            Err(_) => {
+                let staged = self
+                    .stage_virtual_file_to_temp(filename.as_ref())
+                    .ok_or(INIError::CantOpenFile)?;
+                let file = File::open(&staged).map_err(|_| INIError::CantOpenFile)?;
+                self.staged_temp_file = Some(staged);
+                file
+            }
+        };
         self.file = Some(BufReader::new(file));
         self.filename = filename.as_ref().to_string_lossy().to_string();
         self.load_type = load_type;
@@ -961,12 +976,39 @@ impl INI {
     /// Clean up after file reading
     fn un_prep_file(&mut self) {
         self.file = None;
+        if let Some(path) = self.staged_temp_file.take() {
+            let _ = fs::remove_file(path);
+        }
         self.read_buffer_used = 0;
         self.read_buffer_next = 0;
         self.filename = "None".to_string();
         self.load_type = INILoadType::Invalid;
         self.line_num = 0;
         self.end_of_file = false;
+    }
+
+    fn stage_virtual_file_to_temp(&self, filename: &Path) -> Option<PathBuf> {
+        let virtual_name = filename.to_string_lossy().to_string();
+        let file_system = get_file_system();
+        let mut fs_guard = file_system.lock().ok()?;
+        let mut file = fs_guard.open_file(
+            &virtual_name,
+            FileAccess::READ.combine(FileAccess::BINARY),
+        )?;
+        let bytes = file.read_entire_and_close().ok()?;
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let staged = std::env::temp_dir().join(format!(
+            "generals_ini_stage_{}_{}.ini",
+            std::process::id(),
+            nanos
+        ));
+
+        fs::write(&staged, bytes).ok()?;
+        Some(staged)
     }
 
     /// Parse the entire file

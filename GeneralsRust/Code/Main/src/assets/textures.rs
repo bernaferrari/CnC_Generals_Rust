@@ -153,156 +153,50 @@ pub struct TextureManager {
 }
 
 pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
-    fn push_unique_case_insensitive(items: &mut Vec<String>, seen: &mut HashSet<String>, value: String) {
-        let key = value.to_ascii_lowercase();
-        if seen.insert(key) {
+    fn push_unique_case_insensitive(
+        items: &mut Vec<String>,
+        seen: &mut HashSet<String>,
+        value: String,
+    ) {
+        if seen.insert(value.to_ascii_lowercase()) {
             items.push(value);
         }
     }
 
-    fn legacy_zh_only_aliases(stem_lower: &str) -> &'static [&'static str] {
-        match stem_lower {
-            // House-color palette textures moved around between base Generals and ZH-only sets.
-            "housecolor2" => &["housecolor", "housecolor3"],
-            // Coplight variants are inconsistent across data sets; prefer closest ZH equivalents.
-            "coplight" => &["coplight4", "coplight3", "yellowlight"],
-            // AVAMPHIB references base-game textures in some installs; fallback to shipped ZH body set.
-            "avamphib" => &["avchinook", "avbattlesh"],
-            _ => &[],
-        }
-    }
-
-    let normalized = requested_name.trim().replace('\\', "/");
-    let normalized = normalized.trim_start_matches("./");
+    let normalized = requested_name
+        .trim()
+        .replace(' ', "")
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .to_string();
     if normalized.is_empty() {
         return Vec::new();
     }
 
-    let (dir_part, file_part) = match normalized.rsplit_once('/') {
-        Some((dir, file)) if !file.is_empty() => (Some(dir), file),
-        _ => (None, normalized),
+    let file_part = match normalized.rsplit_once('/') {
+        Some((_, file)) if !file.is_empty() => file,
+        _ => normalized.as_str(),
     };
 
-    let (stem, ext_hint) = match file_part.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => (stem, Some(ext.to_ascii_lowercase())),
-        _ => (file_part, None),
+    let ext_hint = match file_part.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => Some(ext.to_ascii_lowercase()),
+        _ => None,
     };
 
     let mut candidates = Vec::new();
     let mut seen_candidates = HashSet::new();
-    let mut push_candidate = |candidate: String| {
-        let key = candidate.to_ascii_lowercase();
-        if seen_candidates.insert(key) {
-            candidates.push(candidate);
-        }
-    };
 
-    let mut stems = vec![stem.to_string()];
-    let compact_stem = stem.replace(' ', "");
-    if !compact_stem.is_empty() && compact_stem != stem {
-        stems.push(compact_stem);
-    }
+    // C++ texture lookup uses exact virtual path first.
+    push_unique_case_insensitive(&mut candidates, &mut seen_candidates, normalized.clone());
 
-    let mut remapped_stems = Vec::new();
-    let mut seen_stems = HashSet::new();
-    for stem_name in stems {
-        if seen_stems.insert(stem_name.to_ascii_lowercase()) {
-            remapped_stems.push(stem_name);
-        }
-    }
-
-    // Add targeted compatibility aliases for ZH-only archive mounts before suffix expansion.
-    let stem_lower = stem.to_ascii_lowercase();
-    for alias in legacy_zh_only_aliases(&stem_lower) {
-        if seen_stems.insert(alias.to_ascii_lowercase()) {
-            remapped_stems.push((*alias).to_string());
-        }
-    }
-
-    let original_len = remapped_stems.len();
-    for i in 0..original_len {
-        let stem_name = remapped_stems[i].clone();
-        let stem_lower = stem_name.to_ascii_lowercase();
-        if stem_lower.ends_with("_d") || stem_lower.ends_with("_d1") {
-            continue;
-        }
-
-        let d_candidate = format!("{stem_name}_d");
-        if seen_stems.insert(d_candidate.to_ascii_lowercase()) {
-            remapped_stems.push(d_candidate);
-        }
-
-        let d1_candidate = format!("{stem_name}_d1");
-        if seen_stems.insert(d1_candidate.to_ascii_lowercase()) {
-            remapped_stems.push(d1_candidate);
-        }
-    }
-
-    let mut ext_candidates: Vec<String> = Vec::new();
-    let mut push_ext = |ext: &str| {
-        if !ext_candidates.iter().any(|existing| existing == ext) {
-            ext_candidates.push(ext.to_string());
-        }
-    };
-    match ext_hint.as_deref() {
-        Some("tga") => {
-            push_ext("dds");
-            push_ext("tga");
-        }
-        Some("dds") => {
-            push_ext("dds");
-            push_ext("tga");
-        }
-        Some(other_ext) => {
-            push_ext(other_ext);
-            push_ext("dds");
-            push_ext("tga");
-        }
-        None => {
-            push_ext("dds");
-            push_ext("tga");
-        }
-    }
-
-    let mut locations = Vec::<String>::new();
-    let mut seen_locations = HashSet::new();
-    let mut push_location = |location: String| {
-        push_unique_case_insensitive(&mut locations, &mut seen_locations, location);
-    };
-
-    // If caller passed an explicit virtual path, honor that first.
-    if let Some(dir) = dir_part {
-        if !dir.is_empty() {
-            push_location(dir.to_string());
-        }
-    }
-
-    // C++ searches texture roots and W3D-local art roots depending on where references originate.
-    // Zero Hour terrain textures also ship in Art/Terrain and are requested by bare filename.
-    for root in [
-        "Data/English/Art/Textures",
-        "Art/Textures",
-        "Data/English/Art/Terrain",
-        "Art/Terrain",
-        "Data/English/Art/W3D",
-        "Art/W3D",
-    ] {
-        match dir_part {
-            Some(dir) if !dir.is_empty() => push_location(format!("{root}/{dir}")),
-            _ => push_location(root.to_string()),
-        }
-    }
-
-    for location in &locations {
-        for stem_name in &remapped_stems {
-            for ext in &ext_candidates {
-                let candidate = if location.is_empty() {
-                    format!("{stem_name}.{ext}")
-                } else {
-                    format!("{location}/{stem_name}.{ext}")
-                };
-                push_candidate(candidate);
-            }
+    let is_known_texture_ext = matches!(
+        ext_hint.as_deref(),
+        Some("dds") | Some("tga") | Some("bmp") | Some("jpg") | Some("jpeg") | Some("png")
+    );
+    if is_known_texture_ext {
+        for prefix in ["Data/English/Art/Textures/", "Art/Textures/"] {
+            let candidate = format!("{prefix}{normalized}");
+            push_unique_case_insensitive(&mut candidates, &mut seen_candidates, candidate);
         }
     }
 
@@ -484,100 +378,50 @@ impl TextureManager {
 
         debug!("Loading raw texture from archive: {}", requested_name);
 
-        let mut texture_data = None;
-        let mut actual_filename = String::new();
-        let mut resolved_from_cache = false;
-
-        if let Some(cached_resolution) = self.resolved_texture_paths.get(&texture_key) {
-            match cached_resolution {
-                Some(canonical_path) => {
-                    let canonical_key = Self::canonical_texture_cache_key(canonical_path);
-                    if self.raw_cache.contains_key(&canonical_key)
-                        || self.known_missing_textures.contains(&canonical_key)
-                    {
-                        return Ok(canonical_key);
-                    }
-
-                    match archive_system.open_file(canonical_path).await {
-                        Ok(data) => {
-                            debug!(
-                                "Resolved texture '{}' via canonical cache: {} ({} bytes)",
-                                requested_name,
-                                canonical_path,
-                                data.len()
-                            );
-                            texture_data = Some(data);
-                            actual_filename = canonical_path.clone();
-                            resolved_from_cache = true;
-                        }
-                        Err(err) => {
-                            warn!(
-                                "Cached texture path '{}' for '{}' failed to open: {}; rebuilding lookup",
-                                canonical_path, requested_name, err
-                            );
-                            self.resolved_texture_paths.remove(&texture_key);
-                        }
-                    }
-                }
-                None => {
+        let canonical_path = match self.resolved_texture_paths.get(&texture_key).cloned() {
+            Some(Some(path)) => path,
+            Some(None) => {
+                self.cache_missing_fallback(&texture_key, requested_name);
+                return Ok(texture_key);
+            }
+            None => {
+                self.ensure_texture_path_index(archive_system);
+                let Some(path) =
+                    self.resolve_texture_path_from_index(requested_name, texture_key.as_str())
+                else {
+                    self.resolved_texture_paths
+                        .insert(texture_key.clone(), None);
                     self.cache_missing_fallback(&texture_key, requested_name);
                     return Ok(texture_key);
-                }
+                };
+                path
             }
-        }
-
-        if texture_data.is_none() {
-            self.ensure_texture_path_index(archive_system);
-
-            if let Some(canonical_path) =
-                self.resolve_texture_path_from_index(requested_name, texture_key.as_str())
-            {
-                match archive_system.open_file(&canonical_path).await {
-                    Ok(data) => {
-                        debug!(
-                            "Resolved texture '{}' via texture index: {} ({} bytes)",
-                            requested_name,
-                            canonical_path,
-                            data.len()
-                        );
-                        actual_filename = canonical_path.clone();
-                        texture_data = Some(data);
-                        self.resolved_texture_paths
-                            .insert(texture_key.clone(), Some(canonical_path));
-                        resolved_from_cache = true;
-                    }
-                    Err(err) => {
-                        warn!(
-                            "Indexed texture path '{}' for '{}' failed to open: {}; falling back to probes",
-                            canonical_path, requested_name, err
-                        );
-                        self.resolved_texture_paths.remove(&texture_key);
-                    }
-                }
-            }
-        }
-
-        // C++ parity/perf: avoid repeated broad path probing on misses. The texture index above
-        // already resolves aliases and extension/root fallbacks; if it cannot resolve a filename,
-        // treat it as missing immediately.
-
-        let Some(texture_data) = texture_data else {
-            self.resolved_texture_paths.insert(texture_key.clone(), None);
-            self.cache_missing_fallback(&texture_key, requested_name);
-            return Ok(texture_key);
         };
 
-        let cache_key = if actual_filename.is_empty() {
-            texture_key.clone()
-        } else {
-            Self::canonical_texture_cache_key(&actual_filename)
-        };
-
-        if !resolved_from_cache {
-            self.remember_resolved_texture_path(&texture_key, &actual_filename);
+        let cache_key = Self::canonical_texture_cache_key(&canonical_path);
+        if self.raw_cache.contains_key(&cache_key)
+            || self.known_missing_textures.contains(&cache_key)
+        {
+            self.remember_resolved_texture_path(&texture_key, &canonical_path);
+            return Ok(cache_key);
         }
 
-        let format = TextureFormat::from_filename(&actual_filename);
+        let texture_data = match archive_system.open_file(&canonical_path).await {
+            Ok(data) => data,
+            Err(err) => {
+                warn!(
+                    "Texture '{}' resolved to '{}' but failed to open: {}",
+                    requested_name, canonical_path, err
+                );
+                self.resolved_texture_paths
+                    .insert(texture_key.clone(), None);
+                self.cache_missing_fallback(&texture_key, requested_name);
+                return Ok(texture_key);
+            }
+        };
+        self.remember_resolved_texture_path(&texture_key, &canonical_path);
+
+        let format = TextureFormat::from_filename(&canonical_path);
         let parse_result = match format {
             TextureFormat::TGA => self.parse_tga(&texture_data, requested_name.to_string()),
             TextureFormat::DDS => self.parse_dds(&texture_data, requested_name.to_string()),
@@ -587,7 +431,10 @@ impl TextureManager {
                     "Unsupported texture format for '{}', using fallback",
                     requested_name
                 );
-                self.cache_missing_fallback(&cache_key, requested_name);
+                self.cache_missing_fallback(&texture_key, requested_name);
+                if cache_key != texture_key {
+                    self.cache_missing_fallback(&cache_key, requested_name);
+                }
                 return Ok(cache_key);
             }
         };
@@ -603,7 +450,10 @@ impl TextureManager {
                     "Texture parse failed for '{}': {}; using fallback",
                     requested_name, err
                 );
-                self.cache_missing_fallback(&cache_key, requested_name);
+                self.cache_missing_fallback(&texture_key, requested_name);
+                if cache_key != texture_key {
+                    self.cache_missing_fallback(&cache_key, requested_name);
+                }
             }
         }
 
@@ -611,16 +461,10 @@ impl TextureManager {
     }
 
     fn cache_missing_fallback(&mut self, texture_key: &str, requested_name: &str) {
-        self.record_missing_texture(requested_name);
+        let already_known = self.known_missing_textures.contains(texture_key);
         self.known_missing_textures.insert(texture_key.to_string());
-        if self.raw_cache.contains_key(texture_key) {
-            return;
-        }
-
-        if let Some(default_raw) = self.raw_cache.get(&self.default_texture_name).cloned() {
-            let mut fallback_raw = default_raw;
-            fallback_raw.name = requested_name.to_string();
-            self.raw_cache.insert(texture_key.to_string(), fallback_raw);
+        if !already_known {
+            self.record_missing_texture(requested_name);
         }
     }
 
@@ -751,7 +595,8 @@ impl TextureManager {
 
     fn ensure_texture_path_index(&mut self, archive_system: &ArchiveFileSystem) {
         let archive_signature = archive_system.get_statistics().unique_files;
-        if archive_signature == self.indexed_archive_unique_files && !self.texture_exact_index.is_empty()
+        if archive_signature == self.indexed_archive_unique_files
+            && !self.texture_exact_index.is_empty()
         {
             return;
         }
@@ -799,33 +644,34 @@ impl TextureManager {
         requested_name: &str,
         texture_key: &str,
     ) -> Option<String> {
-        let normalized = requested_name.trim().replace('\\', "/");
-        let normalized = normalized.trim_start_matches("./");
-
-        if let Some(path) = texture_exact_index.get(&normalized.to_ascii_lowercase()) {
+        if let Some(path) = texture_exact_index.get(texture_key) {
             return Some(path.clone());
         }
 
-        let file_part = normalized
+        let normalized = requested_name
+            .trim()
+            .replace('\\', "/")
+            .trim_start_matches("./")
+            .to_ascii_lowercase();
+
+        if let Some(path) = texture_exact_index.get(&normalized) {
+            return Some(path.clone());
+        }
+
+        let basename = normalized
             .rsplit('/')
             .next()
-            .filter(|value| !value.is_empty())
-            .unwrap_or(texture_key);
-        let file_key = file_part.to_ascii_lowercase();
-
-        if let Some(path) = texture_exact_index.get(&file_key) {
+            .filter(|name| !name.is_empty())
+            .unwrap_or(normalized.as_str());
+        if let Some(path) = texture_basename_index.get(basename) {
             return Some(path.clone());
         }
 
-        if let Some(path) = texture_basename_index.get(&file_key) {
-            return Some(path.clone());
-        }
-
-        if let Some((stem, _)) = file_key.rsplit_once('.') {
-            if let Some(path) = texture_stem_index.get(stem) {
-                return Some(path.clone());
-            }
-        } else if let Some(path) = texture_stem_index.get(&file_key) {
+        let stem = basename
+            .rsplit_once('.')
+            .map(|(stem, _)| stem)
+            .unwrap_or(basename);
+        if let Some(path) = texture_stem_index.get(stem) {
             return Some(path.clone());
         }
 
@@ -842,7 +688,12 @@ impl TextureManager {
         self.index_texture_path(actual_filename);
         self.resolved_texture_paths.insert(
             texture_key.to_string(),
-            Some(actual_filename.replace('\\', "/").trim_start_matches("./").to_string()),
+            Some(
+                actual_filename
+                    .replace('\\', "/")
+                    .trim_start_matches("./")
+                    .to_string(),
+            ),
         );
     }
 
@@ -862,6 +713,13 @@ impl TextureManager {
             return self.gpu_cache.get(&texture_key).unwrap();
         }
 
+        if self.is_known_missing_texture(texture_name) {
+            return self
+                .gpu_cache
+                .get(&default_key)
+                .unwrap_or_else(|| self.get_default_texture());
+        }
+
         // Try to load new texture
         if let Err(e) = self
             .load_texture(archive_system, device, queue, texture_name)
@@ -877,7 +735,10 @@ impl TextureManager {
 
         if self.is_known_missing_texture(texture_name) {
             return self.gpu_cache.get(&default_key).unwrap_or_else(|| {
-                panic!("Known-missing texture fallback unavailable: {}", texture_name)
+                panic!(
+                    "Known-missing texture fallback unavailable: {}",
+                    texture_name
+                )
             });
         }
 
@@ -1853,74 +1714,33 @@ impl TextureManager {
     }
 
     /// Load caustic animation textures for water effects
-    pub fn load_caustic_textures(
+    pub async fn load_caustic_textures(
         &mut self,
+        archive_system: &mut ArchiveFileSystem,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Vec<String>> {
         info!("Loading caustic animation textures for water effects");
 
         let mut caustic_names = Vec::new();
+        let mut all_names: Vec<String> = Vec::with_capacity(64);
 
-        // Load caustic animation frames (caust00.tga to caust31.tga)
         for i in 0..32 {
-            let caustic_name = format!("caust{:02}.tga", i);
-            let _texture_path = format!(
-                "../../../windows_game/Command & Conquer Generals Zero Hour/Data/WaterPlane/{}",
-                caustic_name
-            );
+            all_names.push(format!("caust{:02}.tga", i));
+            all_names.push(format!("caustS{:02}.tga", i));
+        }
 
-            // For now, create animated caustic patterns
-            let frame_offset = i as f32 / 32.0 * 2.0 * std::f32::consts::PI;
-            let caustic_texture =
-                self.create_animated_caustic_texture(caustic_name.clone(), 64, 64, frame_offset);
-            let gpu_texture = self.create_gpu_texture(device, queue, &caustic_texture)?;
+        for caustic_name in all_names {
+            self.load_texture(archive_system, device, queue, &caustic_name)
+                .await?;
 
-            self.raw_cache.insert(caustic_name.clone(), caustic_texture);
-            self.gpu_cache.insert(caustic_name.clone(), gpu_texture);
-            caustic_names.push(caustic_name);
+            if !self.is_known_missing_texture(&caustic_name) {
+                caustic_names.push(caustic_name);
+            }
         }
 
         info!("Loaded {} caustic animation frames", caustic_names.len());
         Ok(caustic_names)
-    }
-
-    /// Create animated caustic texture pattern
-    fn create_animated_caustic_texture(
-        &self,
-        name: String,
-        width: u32,
-        height: u32,
-        phase: f32,
-    ) -> RawTexture {
-        let mut data = Vec::with_capacity((width * height * 4) as usize);
-
-        for y in 0..height {
-            for x in 0..width {
-                let fx = x as f32 / width as f32 - 0.5;
-                let fy = y as f32 / height as f32 - 0.5;
-
-                // Create caustic-like pattern
-                let wave1 = ((fx * 10.0 + phase).sin() * (fy * 8.0 + phase * 0.7).cos()).abs();
-                let wave2 =
-                    ((fx * 12.0 - phase * 0.8).cos() * (fy * 6.0 + phase * 1.2).sin()).abs();
-                let intensity = ((wave1 + wave2) * 0.5).clamp(0.0, 1.0);
-
-                let blue_value = (100.0 + intensity * 155.0) as u8;
-                let alpha = (intensity * 128.0 + 64.0) as u8;
-
-                data.extend_from_slice(&[50, 150, blue_value, alpha]);
-            }
-        }
-
-        RawTexture {
-            name,
-            width,
-            height,
-            data,
-            format: TextureFormat::Unknown,
-            has_alpha: true,
-        }
     }
 
     /// Clear texture cache
@@ -2004,35 +1824,51 @@ mod tests {
     }
 
     #[test]
-    fn texture_candidate_paths_include_terrain_roots() {
-        let candidates = texture_candidate_paths("PTPalm02a.tga");
+    fn texture_candidate_paths_have_cpp_roots_only() {
+        let candidates = texture_candidate_paths("  PTPalm02a.tga ");
 
-        assert!(candidates
-            .iter()
-            .any(|path| path.eq_ignore_ascii_case("Data/English/Art/Terrain/PTPalm02a.dds")));
-        assert!(candidates
-            .iter()
-            .any(|path| path.eq_ignore_ascii_case("Art/Terrain/PTPalm02a.tga")));
+        assert_eq!(candidates[0], "PTPalm02a.tga");
+        assert_eq!(candidates[1], "Data/English/Art/Textures/PTPalm02a.tga");
+        assert_eq!(candidates[2], "Art/Textures/PTPalm02a.tga");
     }
 
     #[test]
-    fn indexed_lookup_prefers_texture_root_for_bare_name() {
+    fn texture_candidate_paths_ignore_terrain_w3d_aliases() {
+        let candidates = texture_candidate_paths("PTPalm02a.tga");
+
+        assert!(candidates.iter().all(|path| !path.contains("Terrain")));
+        assert!(candidates.iter().all(|path| !path.contains("W3D/")));
+    }
+
+    #[test]
+    fn texture_candidate_paths_normalize_backslashes() {
+        let candidates = TextureManager::build_texture_candidates("Art\\W3D\\PTXBIRCH05.tga");
+
+        assert_eq!(candidates[0], "Art/W3D/PTXBIRCH05.tga");
+        assert_eq!(
+            candidates[1],
+            "Data/English/Art/Textures/Art/W3D/PTXBIRCH05.tga"
+        );
+        assert_eq!(candidates[2], "Art/Textures/Art/W3D/PTXBIRCH05.tga");
+    }
+
+    #[test]
+    fn resolve_texture_path_prefers_language_texture_root_candidate() {
         let mut exact = HashMap::new();
         exact.insert(
             "art/terrain/ptpalm02a.tga".to_string(),
             "Art/Terrain/PTPalm02a.tga".to_string(),
         );
         exact.insert(
+            "data/english/art/textures/ptpalm02a.tga".to_string(),
+            "Data/English/Art/Textures/PTPalm02a.tga".to_string(),
+        );
+        exact.insert(
             "art/textures/ptpalm02a.tga".to_string(),
             "Art/Textures/PTPalm02a.tga".to_string(),
         );
 
-        let mut basename = HashMap::new();
-        basename.insert(
-            "ptpalm02a.tga".to_string(),
-            "Art/Textures/PTPalm02a.tga".to_string(),
-        );
-
+        let basename = HashMap::new();
         let stem = HashMap::new();
 
         assert_eq!(
@@ -2043,29 +1879,7 @@ mod tests {
                 "PTPalm02a.tga",
                 "ptpalm02a.tga"
             ),
-            Some("Art/Textures/PTPalm02a.tga".to_string())
-        );
-    }
-
-    #[test]
-    fn indexed_lookup_uses_stem_when_extension_is_omitted() {
-        let exact = HashMap::new();
-        let basename = HashMap::new();
-        let mut stem = HashMap::new();
-        stem.insert(
-            "ptmaple02".to_string(),
-            "Art/Terrain/PTMaple02.tga".to_string(),
-        );
-
-        assert_eq!(
-            TextureManager::resolve_texture_path_from_maps(
-                &exact,
-                &basename,
-                &stem,
-                "PTMaple02",
-                "ptmaple02"
-            ),
-            Some("Art/Terrain/PTMaple02.tga".to_string())
+            Some("Data/English/Art/Textures/PTPalm02a.tga".to_string())
         );
     }
 
@@ -2102,54 +1916,5 @@ mod tests {
         assert_eq!(rgba_at(&decoded, 4, 1, 1)[3], 204);
         assert_eq!(rgba_at(&decoded, 4, 2, 1)[3], 0);
         assert_eq!(rgba_at(&decoded, 4, 3, 1)[3], 255);
-    }
-
-    #[test]
-    fn candidate_generation_prefers_dds_then_tga_without_remaps() {
-        let candidates = TextureManager::build_texture_candidates("AVComanche.tga");
-
-        assert_eq!(candidates[0], "Data/English/Art/Textures/AVComanche.dds");
-        assert_eq!(candidates[1], "Data/English/Art/Textures/AVComanche.tga");
-        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d.dds".to_string()));
-        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d.tga".to_string()));
-        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d1.dds".to_string()));
-        assert!(candidates.contains(&"Data/English/Art/Textures/AVComanche_d1.tga".to_string()));
-        assert!(candidates.contains(&"Art/Textures/AVComanche.dds".to_string()));
-        assert!(candidates.contains(&"Art/Textures/AVComanche.tga".to_string()));
-        assert!(candidates.contains(&"Art/Textures/AVComanche_d.dds".to_string()));
-        assert!(candidates.contains(&"Art/Textures/AVComanche_d.tga".to_string()));
-        assert!(candidates.contains(&"Art/Textures/AVComanche_d1.dds".to_string()));
-        assert!(candidates.contains(&"Art/Textures/AVComanche_d1.tga".to_string()));
-        assert!(candidates.contains(&"Data/English/Art/W3D/AVComanche.dds".to_string()));
-        assert!(candidates.contains(&"Art/W3D/AVComanche.tga".to_string()));
-        assert!(!candidates.iter().any(|c| c.contains("avcomancheag_p")));
-    }
-
-    #[test]
-    fn candidate_generation_normalizes_backslashes() {
-        let candidates = TextureManager::build_texture_candidates("Art\\W3D\\PTXBIRCH05.tga");
-        assert_eq!(candidates[0], "Art/W3D/PTXBIRCH05.dds");
-        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05.tga".to_string()));
-        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d.dds".to_string()));
-        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d.tga".to_string()));
-        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d1.dds".to_string()));
-        assert!(candidates.contains(&"Art/W3D/PTXBIRCH05_d1.tga".to_string()));
-        assert!(candidates.contains(&"Data/English/Art/W3D/Art/W3D/PTXBIRCH05.dds".to_string()));
-        assert!(candidates.contains(&"Data/English/Art/Textures/Art/W3D/PTXBIRCH05.tga".to_string()));
-    }
-
-    #[test]
-    fn candidate_generation_applies_zh_compat_aliases() {
-        let av = TextureManager::build_texture_candidates("Avamphib.tga");
-        assert!(av.contains(&"Data/English/Art/Textures/avbattlesh_d.dds".to_string()));
-        assert!(av.contains(&"Art/Textures/avchinook.dds".to_string()));
-
-        let cop = TextureManager::build_texture_candidates("Coplight.tga");
-        assert!(cop.contains(&"Data/English/Art/Textures/yellowlight.dds".to_string()));
-        assert!(cop.contains(&"Art/Textures/coplight4.tga".to_string()));
-
-        let house = TextureManager::build_texture_candidates("Housecolor2.tga");
-        assert!(house.contains(&"Data/English/Art/Textures/housecolor3.dds".to_string()));
-        assert!(house.contains(&"Art/W3D/housecolor.tga".to_string()));
     }
 }

@@ -11,7 +11,7 @@ use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use wgpu::{Device, Queue, Sampler, Texture, TextureView};
@@ -23,9 +23,10 @@ use game_engine::common::ini::ini_mapped_image::{
     get_mapped_image_collection as get_common_mapped_image_collection,
     ImageCollection as CommonImageCollection,
 };
+use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::big_file_system::BigArchiveBackend;
 use game_engine::common::system::file::FileAccess;
-use game_engine::common::system::file_system::get_file_system;
+use game_engine::common::system::file_system::{get_file_system, FileSystemBackend};
 use game_engine::common::system::local_file_system::LocalFileSystem;
 use game_engine::common::system::subsystem_interface::{
     SubsystemInterface as CommonSubsystemInterface, SubsystemState,
@@ -528,9 +529,8 @@ impl Image {
             return Err(GameImageError::ImageNotFound(self.name.clone()));
         }
 
-        let virtual_candidates = candidate_texture_resource_names(&self.filename);
-        for candidate in &virtual_candidates {
-            if let Some(decoded) = try_load_image_from_engine_filesystem(candidate) {
+        for candidate in candidate_texture_resource_names(&self.filename) {
+            if let Some(decoded) = try_load_image_from_engine_filesystem(&candidate) {
                 let (width, height) = decoded.dimensions();
                 if self.texture_size.x == 0 || self.texture_size.y == 0 {
                     self.texture_size = ICoord2D::new(width as i32, height as i32);
@@ -544,133 +544,6 @@ impl Image {
                 self.image_data = Some(decoded);
                 return Ok(());
             }
-        }
-
-        let fallback_virtual_candidates =
-            startup_shell_fallback_resource_names(&self.name, &self.filename);
-        for candidate in &fallback_virtual_candidates {
-            if let Some(decoded) = try_load_image_from_engine_filesystem(candidate) {
-                let requested = self.filename.clone();
-                let (width, height) = decoded.dimensions();
-                if self.texture_size.x == 0 || self.texture_size.y == 0 {
-                    self.texture_size = ICoord2D::new(width as i32, height as i32);
-                }
-                if self.image_size.x == 0 || self.image_size.y == 0 {
-                    self.image_size = ICoord2D::new(width as i32, height as i32);
-                }
-                if decoded.color().has_alpha() {
-                    self.status |= ImageStatus::HAS_ALPHA;
-                }
-                self.image_data = Some(decoded);
-                self.filename = candidate.clone();
-                if is_startup_shell_image(&self.name) {
-                    log_startup_shell_image_once(
-                        &self.name,
-                        format!("fallback_loaded requested={requested} resolved={candidate}"),
-                    );
-                }
-                return Ok(());
-            }
-        }
-
-        let candidates = candidate_texture_paths(&self.filename, &virtual_candidates);
-        for path in candidates {
-            let Some(path) = resolve_case_insensitive_path(&path) else {
-                continue;
-            };
-
-            let loaded = image::open(&path).map_err(|source| GameImageError::LoadError {
-                path: path.to_string_lossy().to_string(),
-                source: Box::new(source),
-            })?;
-
-            let (width, height) = loaded.dimensions();
-            if self.texture_size.x == 0 || self.texture_size.y == 0 {
-                self.texture_size = ICoord2D::new(width as i32, height as i32);
-            }
-            if self.image_size.x == 0 || self.image_size.y == 0 {
-                self.image_size = ICoord2D::new(width as i32, height as i32);
-            }
-            if loaded.color().has_alpha() {
-                self.status |= ImageStatus::HAS_ALPHA;
-            }
-            self.image_data = Some(loaded);
-            return Ok(());
-        }
-
-        let fallback_paths = candidate_texture_paths(&self.filename, &fallback_virtual_candidates);
-        for path in fallback_paths {
-            let Some(path) = resolve_case_insensitive_path(&path) else {
-                continue;
-            };
-            let requested = self.filename.clone();
-
-            let loaded = image::open(&path).map_err(|source| GameImageError::LoadError {
-                path: path.to_string_lossy().to_string(),
-                source: Box::new(source),
-            })?;
-
-            let (width, height) = loaded.dimensions();
-            if self.texture_size.x == 0 || self.texture_size.y == 0 {
-                self.texture_size = ICoord2D::new(width as i32, height as i32);
-            }
-            if self.image_size.x == 0 || self.image_size.y == 0 {
-                self.image_size = ICoord2D::new(width as i32, height as i32);
-            }
-            if loaded.color().has_alpha() {
-                self.status |= ImageStatus::HAS_ALPHA;
-            }
-            self.image_data = Some(loaded);
-            self.filename = path.to_string_lossy().to_string();
-            if is_startup_shell_image(&self.name) {
-                log_startup_shell_image_once(
-                    &self.name,
-                    format!(
-                        "fallback_loaded requested={} resolved={}",
-                        requested,
-                        path.to_string_lossy()
-                    ),
-                );
-            }
-            return Ok(());
-        }
-
-        if self.name.eq_ignore_ascii_case("MainMenuBackdrop") {
-            let width = self.texture_size.x.max(1024) as u32;
-            let height = self.texture_size.y.max(1024) as u32;
-            self.image_data = Some(DynamicImage::ImageRgba8(ImageBuffer::from_pixel(
-                width,
-                height,
-                image::Rgba([0, 0, 0, 0]),
-            )));
-            self.filename = "__synthetic_transparent_main_menu_backdrop__".to_string();
-            self.status |= ImageStatus::HAS_ALPHA;
-            if is_startup_shell_image(&self.name) {
-                log_startup_shell_image_once(
-                    &self.name,
-                    "fallback_loaded requested=MainMenuBackdrop synthetic=transparent".to_string(),
-                );
-            }
-            return Ok(());
-        }
-
-        if self.name.eq_ignore_ascii_case("BlackSquare") {
-            self.image_data = Some(DynamicImage::ImageRgba8(ImageBuffer::from_pixel(
-                1,
-                1,
-                image::Rgba([255, 255, 255, 255]),
-            )));
-            self.filename = "__synthetic_black_square__".to_string();
-            self.texture_size = ICoord2D::new(1, 1);
-            self.image_size = ICoord2D::new(1, 1);
-            self.status |= ImageStatus::HAS_ALPHA;
-            if is_startup_shell_image(&self.name) {
-                log_startup_shell_image_once(
-                    &self.name,
-                    "fallback_loaded requested=BlackSquare synthetic=white".to_string(),
-                );
-            }
-            return Ok(());
         }
 
         Err(GameImageError::ImageNotFound(self.filename.clone()))
@@ -923,7 +796,40 @@ pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
 fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
     let normalized = filename.replace('\\', "/");
     let bare = normalized.trim_start_matches("./").to_string();
-    let has_extension = Path::new(&bare).extension().is_some();
+    if bare.is_empty() {
+        return Vec::new();
+    }
+
+    let extension = Path::new(&bare)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase());
+    let file_type = match extension.as_deref() {
+        Some("w3d") => Some("w3d"),
+        Some("tga") => Some("tga"),
+        Some("dds") => Some("dds"),
+        _ => None,
+    };
+
+    let language = {
+        let lang = get_registry_language();
+        let lang = lang.as_str().trim();
+        if lang.is_empty() {
+            "English".to_string()
+        } else {
+            lang.to_string()
+        }
+    };
+
+    let user_data_dir = get_runtime_global_data().and_then(|runtime| {
+        let user_data = runtime.read().get_path_user_data().trim().to_string();
+        if user_data.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(user_data))
+        }
+    });
+
     let mut candidates = Vec::new();
     let mut push_unique = |list: &mut Vec<String>, candidate: String| {
         if !list.iter().any(|existing| existing == &candidate) {
@@ -931,215 +837,49 @@ fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
         }
     };
 
-    if !bare.is_empty() {
-        push_unique(&mut candidates, bare.clone());
+    match file_type {
+        Some("w3d") => push_unique(&mut candidates, format!("Data/{language}/Art/W3D/{bare}")),
+        Some("tga") | Some("dds") => {
+            push_unique(&mut candidates, format!("Data/{language}/Art/Textures/{bare}"))
+        }
+        _ => {}
     }
 
-    // C++ parity: mapped image texture names are often bare filenames that resolve
-    // under Art/Textures via search paths/backends.
-    if !bare.contains('/') {
-        push_unique(&mut candidates, format!("Art/Textures/{bare}"));
-        push_unique(&mut candidates, format!("Art/Terrain/{bare}"));
-        push_unique(&mut candidates, format!("English/Art/Textures/{bare}"));
-        push_unique(&mut candidates, format!("Data/Art/Textures/{bare}"));
-        push_unique(&mut candidates, format!("Data/Art/Terrain/{bare}"));
-        push_unique(&mut candidates, format!("Data/English/Art/Textures/{bare}"));
+    match file_type {
+        Some("w3d") => push_unique(&mut candidates, format!("Art/W3D/{bare}")),
+        Some("tga") | Some("dds") => push_unique(&mut candidates, format!("Art/Textures/{bare}")),
+        _ => push_unique(&mut candidates, bare.clone()),
     }
 
-    if !bare.starts_with("Data/") {
-        push_unique(&mut candidates, format!("Data/{bare}"));
-    }
-
-    if !has_extension {
-        let base_candidates = candidates.clone();
-        for base in &base_candidates {
-            for ext in ["tga", "dds", "png", "jpg", "jpeg", "bmp"] {
-                push_unique(&mut candidates, format!("{base}.{ext}"));
+    if let Some(user_data_dir) = user_data_dir {
+        match file_type {
+            Some("w3d") => {
+                let path = user_data_dir.join("W3D").join(&bare);
+                push_unique(
+                    &mut candidates,
+                    path.to_string_lossy().replace('\\', "/").to_string(),
+                );
             }
+            Some("tga") | Some("dds") => {
+                let path = user_data_dir.join("Textures").join(&bare);
+                push_unique(
+                    &mut candidates,
+                    path.to_string_lossy().replace('\\', "/").to_string(),
+                );
+            }
+            _ => {}
+        }
+
+        if matches!(file_type, Some("tga")) {
+            let path = user_data_dir.join("MapPreviews").join(&bare);
+            push_unique(
+                &mut candidates,
+                path.to_string_lossy().replace('\\', "/").to_string(),
+            );
         }
     }
 
     candidates
-}
-
-fn candidate_texture_paths(filename: &str, virtual_candidates: &[String]) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    let mut push_unique = |candidate: PathBuf| {
-        if !paths.iter().any(|existing| existing == &candidate) {
-            paths.push(candidate);
-        }
-    };
-
-    for candidate in virtual_candidates {
-        push_unique(PathBuf::from(candidate));
-    }
-
-    if !filename.is_empty() {
-        push_unique(PathBuf::from(filename));
-    }
-
-    for root in runtime_texture_search_roots() {
-        for candidate in virtual_candidates {
-            push_unique(root.join(candidate));
-        }
-    }
-
-    paths
-}
-
-fn resolve_case_insensitive_path(path: &Path) -> Option<PathBuf> {
-    if path.exists() {
-        return Some(path.to_path_buf());
-    }
-
-    let mut resolved = PathBuf::new();
-
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
-            Component::RootDir => resolved.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !resolved.pop() {
-                    return None;
-                }
-            }
-            Component::Normal(part) => {
-                let exact = resolved.join(part);
-                if exact.exists() {
-                    resolved = exact;
-                    continue;
-                }
-
-                let search_dir = if resolved.as_os_str().is_empty() {
-                    Path::new(".")
-                } else {
-                    resolved.as_path()
-                };
-                let part = part.to_string_lossy();
-                let entries = search_dir.read_dir().ok()?;
-                let matched = entries.filter_map(Result::ok).find_map(|entry| {
-                    let name = entry.file_name();
-                    if name.to_string_lossy().eq_ignore_ascii_case(&part) {
-                        Some(entry.path())
-                    } else {
-                        None
-                    }
-                })?;
-                resolved = matched;
-            }
-        }
-    }
-
-    resolved.exists().then_some(resolved)
-}
-
-fn runtime_root_candidates() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd);
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            roots.push(parent.to_path_buf());
-        }
-    }
-    roots
-}
-
-fn candidate_texture_search_roots_from_base(base: &Path) -> Vec<PathBuf> {
-    let mut roots = vec![
-        PathBuf::from("windows_game/extracted_big_files/EnglishZH"),
-        PathBuf::from("windows_game/extracted_big_files/TexturesZH"),
-        PathBuf::from("windows_game/extracted_big_files_v2/EnglishZH"),
-        PathBuf::from("windows_game/extracted_big_files_v2/TexturesZH"),
-        PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
-    ];
-
-    for ancestor in base.ancestors() {
-        roots.push(ancestor.join("windows_game/extracted_big_files/EnglishZH"));
-        roots.push(ancestor.join("windows_game/extracted_big_files/TexturesZH"));
-        roots.push(ancestor.join("windows_game/extracted_big_files_v2/EnglishZH"));
-        roots.push(ancestor.join("windows_game/extracted_big_files_v2/TexturesZH"));
-        roots.push(ancestor.join("windows_game/Command & Conquer Generals Zero Hour"));
-    }
-
-    roots
-}
-
-fn runtime_texture_search_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    for base in runtime_root_candidates() {
-        if !roots.iter().any(|existing| existing == &base) {
-            roots.push(base.clone());
-        }
-        for root in candidate_texture_search_roots_from_base(&base) {
-            if !roots.iter().any(|existing| existing == &root) {
-                roots.push(root);
-            }
-        }
-    }
-    roots
-}
-
-fn startup_shell_fallback_resource_names(name: &str, filename: &str) -> Vec<String> {
-    let mut with_explicit_english_texture_path = |file: &str, out: &mut Vec<String>| {
-        let explicit = format!("Data/English/Art/Textures/{file}");
-        if !out.iter().any(|existing| existing == &explicit) {
-            out.push(explicit);
-        }
-        for candidate in candidate_texture_resource_names(file) {
-            if !out.iter().any(|existing| existing == &candidate) {
-                out.push(candidate);
-            }
-        }
-    };
-
-    if name.eq_ignore_ascii_case("MainMenuBackdrop")
-        && (filename.eq_ignore_ascii_case("MainMenuBackdropuserinterface.tga")
-            || filename.eq_ignore_ascii_case("MainMenuBackdrop.tga"))
-    {
-        // C++-compat fallback chain: prefer the authored MainMenuBackdrop payload
-        // when present, but allow TitleScreen as the known stock fallback in
-        // trimmed asset sets.
-        let mut fallback = Vec::new();
-        with_explicit_english_texture_path("MainMenuBackdropuserinterface.tga", &mut fallback);
-        with_explicit_english_texture_path("MainMenuBackdrop.tga", &mut fallback);
-        with_explicit_english_texture_path("TitleScreenuserinterface.tga", &mut fallback);
-        return fallback;
-    }
-
-    if name.eq_ignore_ascii_case("MainMenuPulse")
-        && filename.eq_ignore_ascii_case("MainMenuPulseuserinterface.tga")
-    {
-        let mut fallback = Vec::new();
-        with_explicit_english_texture_path("SCShellUserInterface512_001.tga", &mut fallback);
-        with_explicit_english_texture_path("SCSmShellUserInterface512_001.tga", &mut fallback);
-        return fallback;
-    }
-
-    if name.eq_ignore_ascii_case("GeneralsLogo")
-        && filename.eq_ignore_ascii_case("GeneralsLogouserinterface.tga")
-    {
-        let mut fallback = Vec::new();
-        with_explicit_english_texture_path("SCSmShellUserInterface512_001.tga", &mut fallback);
-        with_explicit_english_texture_path("SCShellUserInterface512_001.tga", &mut fallback);
-        return fallback;
-    }
-
-    if name.eq_ignore_ascii_case("MainMenuRuler")
-        && filename.eq_ignore_ascii_case("MainMenuRuleruserinterface.tga")
-    {
-        let mut fallback = vec!["Art/Textures/MainMenuRuleruserinterface.tga".to_string()];
-        for candidate in candidate_texture_resource_names("MainMenuRuleruserinterface.tga") {
-            if !fallback.iter().any(|existing| existing == &candidate) {
-                fallback.push(candidate);
-            }
-        }
-        return fallback;
-    }
-
-    Vec::new()
 }
 
 fn try_load_image_from_engine_filesystem(resource_name: &str) -> Option<DynamicImage> {
@@ -1148,8 +888,28 @@ fn try_load_image_from_engine_filesystem(resource_name: &str) -> Option<DynamicI
     let fs = get_file_system();
     let bytes = {
         let mut fs_guard = fs.lock().ok()?;
-        let mut file = fs_guard.open_file(resource_name, FileAccess::READ)?;
-        file.read_entire_and_close().ok()?
+        let read_access = FileAccess::READ.combine(FileAccess::BINARY);
+
+        let from_big_first = if let Some(big_backend) =
+            fs_guard.get_backend_mut::<BigArchiveBackend>()
+        {
+            if let Some(mut file) =
+                FileSystemBackend::open_file(big_backend, resource_name, read_access)
+            {
+                file.read_entire_and_close().ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(bytes) = from_big_first {
+            bytes
+        } else {
+            let mut file = fs_guard.open_file(resource_name, read_access)?;
+            file.read_entire_and_close().ok()?
+        }
     };
 
     decode_image_from_bytes(resource_name, &bytes).ok()
@@ -1200,50 +960,14 @@ fn ensure_engine_filesystem_backends() {
         data.writable.clone()
     };
 
-    let mut search_paths = vec![
-        PathBuf::from("."),
-        PathBuf::from("Data"),
-        PathBuf::from("Art"),
-        PathBuf::from("English"),
-        PathBuf::from("Maps"),
-        PathBuf::from("Assets"),
-        PathBuf::from("Mods"),
-        PathBuf::from("windows_game"),
-        PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
-        PathBuf::from("windows_game/extracted_big_files"),
-        PathBuf::from("windows_game/extracted_big_files/EnglishZH"),
-        PathBuf::from("windows_game/extracted_big_files/TexturesZH"),
-        PathBuf::from("windows_game/extracted_big_files_v2"),
-        PathBuf::from("windows_game/extracted_big_files_v2/EnglishZH"),
-        PathBuf::from("windows_game/extracted_big_files_v2/TexturesZH"),
-        PathBuf::from("GeneralsRust/Code/Main/assets"),
-    ];
+    let mut search_paths = vec![PathBuf::from(".")];
 
-    for base in runtime_root_candidates() {
-        search_paths.push(base.clone());
-        search_paths.push(base.join("Data"));
-        search_paths.push(base.join("Art"));
-        search_paths.push(base.join("English"));
-        search_paths.push(base.join("Maps"));
-        search_paths.push(base.join("Assets"));
-        search_paths.push(base.join("Mods"));
-        search_paths.push(base.join("windows_game"));
-        search_paths.push(base.join("windows_game/Command & Conquer Generals Zero Hour"));
-        search_paths.push(base.join("windows_game/extracted_big_files"));
-        search_paths.push(base.join("windows_game/extracted_big_files/EnglishZH"));
-        search_paths.push(base.join("windows_game/extracted_big_files/TexturesZH"));
-        search_paths.push(base.join("windows_game/extracted_big_files_v2"));
-        search_paths.push(base.join("windows_game/extracted_big_files_v2/EnglishZH"));
-        search_paths.push(base.join("windows_game/extracted_big_files_v2/TexturesZH"));
-        for ancestor in base.ancestors() {
-            search_paths.push(ancestor.join("windows_game"));
-            search_paths.push(ancestor.join("windows_game/Command & Conquer Generals Zero Hour"));
-            search_paths.push(ancestor.join("windows_game/extracted_big_files"));
-            search_paths.push(ancestor.join("windows_game/extracted_big_files/EnglishZH"));
-            search_paths.push(ancestor.join("windows_game/extracted_big_files/TexturesZH"));
-            search_paths.push(ancestor.join("windows_game/extracted_big_files_v2"));
-            search_paths.push(ancestor.join("windows_game/extracted_big_files_v2/EnglishZH"));
-            search_paths.push(ancestor.join("windows_game/extracted_big_files_v2/TexturesZH"));
+    if let Ok(cwd) = std::env::current_dir() {
+        search_paths.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_paths.push(parent.to_path_buf());
         }
     }
 
@@ -1256,16 +980,23 @@ fn ensure_engine_filesystem_backends() {
         }
     }
 
+    let mut deduped = Vec::new();
+    for path in search_paths {
+        if !deduped.iter().any(|existing: &PathBuf| existing == &path) {
+            deduped.push(path);
+        }
+    }
+
     {
         let local_backend: &mut LocalFileSystem = fs_guard.ensure_backend(LocalFileSystem::new);
-        for path in &search_paths {
+        for path in &deduped {
             local_backend.add_search_path(path);
         }
     }
 
     {
         let big_backend: &mut BigArchiveBackend = fs_guard.ensure_backend(BigArchiveBackend::new);
-        for path in &search_paths {
+        for path in &deduped {
             big_backend.add_search_path(path);
         }
     }
@@ -1393,8 +1124,6 @@ pub fn get_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
 
     #[test]
     fn test_image_creation() {
@@ -1506,67 +1235,8 @@ mod tests {
     }
 
     #[test]
-    fn startup_shell_fallback_resource_names_prefers_real_shipped_shell_assets() {
-        let backdrop = startup_shell_fallback_resource_names(
-            "MainMenuBackdrop",
-            "MainMenuBackdropuserinterface.tga",
-        );
-        assert!(backdrop.iter().any(|v| v.ends_with("MainMenuBackdrop.tga")));
-        assert!(backdrop
-            .iter()
-            .any(|v| v.ends_with("Data/English/Art/Textures/MainMenuBackdrop.tga")));
-        assert!(backdrop
-            .iter()
-            .any(|v| v.ends_with("TitleScreenuserinterface.tga")));
-
-        let logo =
-            startup_shell_fallback_resource_names("GeneralsLogo", "GeneralsLogouserinterface.tga");
-        assert!(logo
-            .iter()
-            .any(|v| v.ends_with("SCSmShellUserInterface512_001.tga")));
-
-        let ruler = startup_shell_fallback_resource_names(
-            "MainMenuRuler",
-            "MainMenuRuleruserinterface.tga",
-        );
-        assert!(ruler
-            .iter()
-            .any(|v| v.ends_with("Art/Textures/MainMenuRuleruserinterface.tga")));
-    }
-
-    #[test]
-    fn black_square_synthesizes_when_no_backing_asset_exists() {
-        let mut image = Image::with_name("BlackSquare");
-        image.set_filename("DefinitelyMissingBlackSquareAsset.tga".to_string());
-
-        image
-            .ensure_image_data_loaded()
-            .expect("BlackSquare should synthesize a fallback texture");
-
-        assert_eq!(image.get_image_width(), 1);
-        assert_eq!(image.get_image_height(), 1);
-        assert!(image.has_alpha());
-    }
-
-    #[test]
-    fn resolve_case_insensitive_path_matches_mixed_case_asset_paths() {
-        let temp_dir = TempDir::new().expect("temp dir");
-        let asset_path = temp_dir
-            .path()
-            .join("Art")
-            .join("Textures")
-            .join("mainmenuruleruserinterface.tga");
-        fs::create_dir_all(asset_path.parent().expect("asset parent")).expect("create dirs");
-        fs::write(&asset_path, b"test").expect("write asset");
-
-        let requested = temp_dir
-            .path()
-            .join("art")
-            .join("textures")
-            .join("MainMenuRuleruserinterface.tga");
-        let resolved =
-            resolve_case_insensitive_path(&requested).expect("case-insensitive path resolution");
-
-        assert_eq!(resolved, asset_path);
+    fn unknown_texture_type_keeps_raw_filename_candidate() {
+        let candidates = candidate_texture_resource_names("UI/MyTexture.bin");
+        assert_eq!(candidates, vec!["UI/MyTexture.bin".to_string()]);
     }
 }

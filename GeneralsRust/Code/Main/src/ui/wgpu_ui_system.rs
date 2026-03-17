@@ -6,9 +6,11 @@ use crate::{
 };
 use glam::Vec2;
 use glam::Vec4;
+use game_engine::common::ini::ini_webpage_url::get_registry_language;
+use game_engine::common::system::file::FileAccess;
+use game_engine::common::system::file_system::get_file_system;
 use log::{debug, info, warn};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use ww3d_engine::FrameTiming;
@@ -180,26 +182,17 @@ impl WgpuUISystem {
 
     fn initialize_loading_background(&mut self) {
         let candidates = [
-            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
-            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/Skirmish_Loaduserinterface.tga",
-            "windows_game/extracted_big_files/TexturesZH/Art/Textures/mp_loaduserinterface_00b.tga",
-            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
-            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/Skirmish_Loaduserinterface.tga",
-            "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/mp_loaduserinterface_00b.tga",
+            "Data/English/Art/Textures/loadpageuserinterface.tga",
+            "Data/English/Art/Textures/Skirmish_Loaduserinterface.tga",
+            "Art/Textures/mp_loaduserinterface_00b.tga",
+            "Art/Textures/loadpageuserinterface.tga",
+            "Art/Textures/Skirmish_Loaduserinterface.tga",
         ];
 
         for candidate in candidates {
-            let path = Path::new(candidate);
-            if !path.exists() {
-                continue;
-            }
-            let Ok(decoded) = image::open(path) else {
+            let Some(texture_id) = self.load_texture_from_virtual_path(candidate) else {
                 continue;
             };
-
-            let rgba = decoded.to_rgba8();
-            let (width, height) = rgba.dimensions();
-            let texture_id = self.renderer.load_texture(width, height, rgba.as_raw());
 
             if let Some(overlay_id) = self.loading_elements.get("LoadingOverlay").copied() {
                 if let Some(overlay) = self.layout_manager.get_element_mut(overlay_id) {
@@ -208,7 +201,7 @@ impl WgpuUISystem {
                 }
             }
 
-            info!("Loaded loading background image from '{}'", path.display());
+            info!("Loaded loading background image from '{}'", candidate);
             return;
         }
 
@@ -444,10 +437,10 @@ impl WgpuUISystem {
             .load_shell_mapped_texture("MainMenuBackdrop")
             .or_else(|| {
                 self.load_texture_from_candidates(&[
-                    "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
-                    "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
-                    "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
-                    "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
+                    "Data/English/Art/Textures/TitleScreenuserinterface.tga",
+                    "Art/Textures/TitleScreenuserinterface.tga",
+                    "Data/English/Art/Textures/loadpageuserinterface.tga",
+                    "Art/Textures/loadpageuserinterface.tga",
                 ])
             });
         info!("MainMenu backdrop texture id: {:?}", backdrop_texture);
@@ -473,8 +466,8 @@ impl WgpuUISystem {
         }
 
         let ruler_texture = self.load_texture_from_candidates(&[
-            "windows_game/extracted_big_files/TexturesZH/Art/Textures/mainmenuruleruserinterface.tga",
-            "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/mainmenuruleruserinterface.tga",
+            "Data/English/Art/Textures/mainmenuruleruserinterface.tga",
+            "Art/Textures/mainmenuruleruserinterface.tga",
         ]);
         info!("MainMenu ruler texture id: {:?}", ruler_texture);
         if let Some(ruler_id) = self.main_menu_elements.get("MainMenuRuler").copied() {
@@ -487,27 +480,55 @@ impl WgpuUISystem {
 
     fn mapped_image_ini_candidates() -> &'static [&'static str] {
         &[
-            "windows_game/extracted_big_files/INIZH/Data/INI/MappedImages/TextureSize_512/SCSmShellUserInterface512.INI",
-            "windows_game/extracted_big_files/INIZH/Data/INI/MappedImages/TextureSize_512/HandCreatedMappedImages.INI",
-            "windows_game/extracted_big_files/INIZH/Data/INI/MappedImages/HandCreated/HandCreatedMappedImages.INI",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/MappedImages/TextureSize_512/SCSmShellUserInterface512.INI",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/MappedImages/TextureSize_512/HandCreatedMappedImages.INI",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/MappedImages/HandCreated/HandCreatedMappedImages.INI",
+            "Data/INI/MappedImages/TextureSize_512/SCSmShellUserInterface512.INI",
+            "Data/INI/MappedImages/TextureSize_512/HandCreatedMappedImages.INI",
+            "Data/INI/MappedImages/HandCreated/HandCreatedMappedImages.INI",
         ]
+    }
+
+    fn load_texture_from_virtual_path(&mut self, virtual_path: &str) -> Option<u32> {
+        let data = Self::read_virtual_file_bytes(virtual_path)?;
+        let decoded = Self::decode_image_from_bytes(virtual_path, &data)?;
+        let rgba = decoded.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        Some(self.renderer.load_texture(w, h, rgba.as_raw()))
+    }
+
+    fn read_virtual_file_bytes(path: &str) -> Option<Vec<u8>> {
+        let fs = get_file_system();
+        let mut guard = fs.lock().ok()?;
+        let mut file = guard.open_file(path, FileAccess::READ.combine(FileAccess::BINARY))?;
+        file.read_entire_and_close().ok()
+    }
+
+    fn read_virtual_file_string(path: &str) -> Option<String> {
+        let bytes = Self::read_virtual_file_bytes(path)?;
+        String::from_utf8(bytes).ok()
+    }
+
+    fn decode_image_from_bytes(path: &str, bytes: &[u8]) -> Option<image::DynamicImage> {
+        let extension = std::path::Path::new(path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+
+        match extension.as_deref() {
+            Some("tga") => image::load_from_memory_with_format(bytes, image::ImageFormat::Tga).ok(),
+            Some("dds") => image::load_from_memory_with_format(bytes, image::ImageFormat::Dds).ok(),
+            Some("png") => image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok(),
+            Some("jpg") | Some("jpeg") => {
+                image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()
+            }
+            Some("bmp") => image::load_from_memory_with_format(bytes, image::ImageFormat::Bmp).ok(),
+            _ => image::load_from_memory(bytes).ok(),
+        }
     }
 
     fn load_texture_from_candidates(&mut self, candidates: &[&str]) -> Option<u32> {
         for path in candidates {
-            let p = Path::new(path);
-            if !p.exists() {
-                continue;
+            if let Some(texture_id) = self.load_texture_from_virtual_path(path) {
+                return Some(texture_id);
             }
-            let Ok(decoded) = image::open(p) else {
-                continue;
-            };
-            let rgba = decoded.to_rgba8();
-            let (w, h) = rgba.dimensions();
-            return Some(self.renderer.load_texture(w, h, rgba.as_raw()));
         }
         None
     }
@@ -518,64 +539,27 @@ impl WgpuUISystem {
         }
 
         for ini_path in Self::mapped_image_ini_candidates() {
-            let ini = Path::new(ini_path);
-            let Some(def) = Self::parse_mapped_image(ini, mapped_name) else {
+            let Some(def) = Self::parse_mapped_image(ini_path, mapped_name) else {
                 continue;
             };
-            let is_v2 = ini_path.contains("extracted_big_files_v2");
-            let mut texture_paths = if is_v2 {
-                vec![
-                    format!(
-                        "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/{}",
-                        def.texture
-                    ),
-                    format!(
-                        "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/{}",
-                        def.texture
-                    ),
-                ]
-            } else {
-                vec![
-                    format!(
-                        "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/{}",
-                        def.texture
-                    ),
-                    format!(
-                        "windows_game/extracted_big_files/TexturesZH/Art/Textures/{}",
-                        def.texture
-                    ),
-                ]
-            };
+
+            let language = get_registry_language().as_str().to_string();
+            let mut texture_paths = vec![
+                format!("Data/{language}/Art/Textures/{}", def.texture),
+                format!("Art/Textures/{}", def.texture),
+            ];
+
             if !def.texture.to_ascii_lowercase().ends_with(".tga") {
                 // Most mapped images are TGA; if extension is missing, try tga fallback.
-                if is_v2 {
-                    texture_paths.push(format!(
-                        "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/{}.tga",
-                        def.texture
-                    ));
-                    texture_paths.push(format!(
-                        "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures/{}.tga",
-                        def.texture
-                    ));
-                } else {
-                    texture_paths.push(format!(
-                        "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/{}.tga",
-                        def.texture
-                    ));
-                    texture_paths.push(format!(
-                        "windows_game/extracted_big_files/TexturesZH/Art/Textures/{}.tga",
-                        def.texture
-                    ));
-                }
+                texture_paths.push(format!("Data/{language}/Art/Textures/{}.tga", def.texture));
+                texture_paths.push(format!("Art/Textures/{}.tga", def.texture));
             }
 
             for texture_path in texture_paths {
-                let path = Path::new(&texture_path);
-                if !path.exists() {
+                let Some(bytes) = Self::read_virtual_file_bytes(&texture_path) else {
                     continue;
-                }
-
-                let Ok(decoded) = image::open(path) else {
+                };
+                let Some(decoded) = Self::decode_image_from_bytes(&texture_path, &bytes) else {
                     continue;
                 };
                 let rgba = decoded.to_rgba8();
@@ -602,8 +586,8 @@ impl WgpuUISystem {
 
         if mapped_name.eq_ignore_ascii_case("MainMenuBackdrop") {
             if let Some(texture_id) = self.load_texture_from_candidates(&[
-                "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
-                "windows_game/extracted_big_files_v2/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
+                "Data/English/Art/Textures/TitleScreenuserinterface.tga",
+                "Art/Textures/TitleScreenuserinterface.tga",
             ]) {
                 self.ui_textures.insert(mapped_name.to_string(), texture_id);
                 return Some(texture_id);
@@ -614,8 +598,8 @@ impl WgpuUISystem {
         None
     }
 
-    fn parse_mapped_image(path: &Path, mapped_name: &str) -> Option<MappedImageDef> {
-        let content = std::fs::read_to_string(path).ok()?;
+    fn parse_mapped_image(path: &str, mapped_name: &str) -> Option<MappedImageDef> {
+        let content = Self::read_virtual_file_string(path)?;
         let mut in_target = false;
         let mut texture: Option<String> = None;
         let mut left: Option<u32> = None;

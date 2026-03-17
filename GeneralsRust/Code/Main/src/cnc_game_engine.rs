@@ -896,57 +896,38 @@ impl CnCGameEngine {
     }
 
     fn configured_startup_shell_map() -> Option<String> {
-        let resolve_shell_map = |map_name: &str| -> Option<String> {
-            if map_name.trim().is_empty() {
-                return None;
-            }
-
-            if crate::game_logic::script_loader::find_map_file(map_name).is_some() {
-                Some(map_name.to_string())
-            } else {
-                None
-            }
-        };
-
-        if let Some(shell_map) =
+        let shell_map_name =
             crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
                 subsystem.get_global_data().and_then(|global| {
-                    if !global.shell_map_on {
-                        return None;
-                    }
-                    resolve_shell_map(&global.shell_map_name).or_else(|| {
-                        warn!(
-                            "Configured shell map '{}' was not found; disabling shell-map startup",
-                            global.shell_map_name
-                        );
+                    if global.shell_map_on {
+                        Some(global.shell_map_name.clone())
+                    } else {
                         None
-                    })
+                    }
                 })
             })
-        {
-            // If GlobalData is already live, its ShellMapOn/ShellMapName are authoritative.
-            return shell_map;
-        }
+            .flatten();
 
-        let mut global = GlobalData::new();
-        let _ = global.load_ini("Data/INI/Default/GameData.ini");
-        let _ = global.load_ini("Data/INI/GameData.ini");
-        #[cfg(any(debug_assertions, feature = "internal"))]
-        {
-            let _ = global.load_ini("Data/INI/GameDataDebug.ini");
-        }
-
-        if !global.shell_map_on {
+        let Some(shell_map_name) = shell_map_name else {
             return None;
+        };
+
+        if game_client::map_util::is_map_cached_without_refresh(&shell_map_name) {
+            return Some(shell_map_name);
         }
 
-        resolve_shell_map(&global.shell_map_name).or_else(|| {
-            warn!(
-                "Configured shell map '{}' was not found; disabling shell-map startup",
-                global.shell_map_name
-            );
-            None
-        })
+        let _ =
+            crate::subsystem_manager::with_subsystem_mut::<GlobalDataSubsystem, _>(|subsystem| {
+                if let Some(global) = subsystem.get_global_data_mut() {
+                    global.shell_map_on = false;
+                }
+            });
+
+        warn!(
+            "Configured shell map '{}' was not found in map cache; disabling shell-map startup",
+            shell_map_name
+        );
+        None
     }
 
     fn current_startup_logic_frame(&self) -> u64 {
@@ -1449,13 +1430,49 @@ impl CnCGameEngine {
                     self.camera_target,
                     120,
                 );
-                self.pending_shell_model_prewarm = queued_models;
+
+                self.pending_shell_model_prewarm =
+                    Self::prewarm_shell_scene_models_blocking(&mut self.graphics_system, queued_models);
                 self.last_shell_prewarm_log = None;
                 self.shell_prewarm_completion_logged = self.pending_shell_model_prewarm.is_empty();
                 info!(
-                    "Shell startup prewarm queued for menu streaming: pending_models={}",
+                    "Shell startup model prewarm complete: pending_models_for_retry={}",
                     self.pending_shell_model_prewarm.len()
                 );
+
+                let texture_names = Self::collect_cached_model_texture_names(&self.graphics_system);
+                let mut seen = HashSet::new();
+                let unique_textures: Vec<String> = texture_names
+                    .into_iter()
+                    .filter(|name| seen.insert(name.to_ascii_lowercase()))
+                    .collect();
+
+                if !unique_textures.is_empty() {
+                    self.update_shell_loading_progress(0.99, Some("Prewarming shell textures"));
+                    match self
+                        .render_pipeline
+                        .prewarm_textures_blocking(unique_textures.iter().map(|name| name.as_str()))
+                    {
+                        Ok(stats) => {
+                            info!(
+                                "Shell startup texture prewarm: requested={} resolved={} missing={} cache_hits={} queued_remaining={}",
+                                stats.requested,
+                                stats.resolved,
+                                stats.missing,
+                                stats.cache_hits,
+                                stats.queued_remaining
+                            );
+                        }
+                        Err(err) => {
+                            warn!("Shell startup texture prewarm failed: {}", err);
+                        }
+                    }
+                }
+
+                // Prime subsystem one-time work before the UI transition so first visible menu
+                // frames do not stall on terrain/UI cache setup.
+                self.update_shell_loading_progress(0.995, Some("Priming shell subsystems"));
+                self.prime_subsystems_before_menu_transition();
             } else {
                 self.pending_shell_model_prewarm.clear();
                 self.last_shell_prewarm_log = None;
@@ -1742,17 +1759,46 @@ impl CnCGameEngine {
         let (fallback_cube_vertex_buffer, fallback_cube_index_buffer, fallback_cube_index_count) =
             Self::create_fallback_cube(graphics_system.device());
 
-        let startup_cli_map = Self::command_line_option_value_case_insensitive(&command_line, "file")
-            .map(|value| value.trim().to_string())
-            .filter(|value| value.to_ascii_lowercase().ends_with(".map"));
-        let start_in_menu = startup_cli_map.is_none();
+        // C++ GameEngine::init updates MapCache before shell-map startup checks.
+        game_client::map_util::refresh_map_cache();
+
+        let startup_initial_file =
+            crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
+                subsystem.get_global_data().and_then(|global| {
+                    if global.initial_file.is_empty() {
+                        None
+                    } else {
+                        Some(global.initial_file.clone())
+                    }
+                })
+            })
+            .flatten();
+
+        let startup_initial_map = startup_initial_file
+            .as_ref()
+            .filter(|value| value.to_ascii_lowercase().ends_with(".map"))
+            .cloned();
+
+        if let Some(initial_map) = startup_initial_map.as_ref() {
+            let _ =
+                crate::subsystem_manager::with_subsystem_mut::<GlobalDataSubsystem, _>(|subsystem| {
+                    if let Some(global) = subsystem.get_global_data_mut() {
+                        global.shell_map_on = false;
+                        global.play_intro = false;
+                        global.after_intro = true;
+                        global.pending_file = initial_map.clone();
+                    }
+                });
+        }
+
+        let start_in_menu = startup_initial_map.is_none();
         let startup_shell_map = start_in_menu
             .then(Self::configured_startup_shell_map)
             .flatten();
         let map_to_load = if start_in_menu {
             startup_shell_map
         } else {
-            startup_cli_map
+            startup_initial_map
         };
         let startup_load_state = Self::spawn_startup_map_load(
             start_in_menu,
@@ -1957,6 +2003,7 @@ impl CnCGameEngine {
         )
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+
         let initial_file_override = Self::command_line_option_value_case_insensitive(
             command_line,
             "file",
@@ -2787,6 +2834,32 @@ impl CnCGameEngine {
                 error!("Error updating subsystems: {}", e);
             }
         }
+    }
+
+    fn prime_subsystems_before_menu_transition(&mut self) {
+        let started = Instant::now();
+        let mut max_step = Duration::ZERO;
+        let mut steps = 0usize;
+
+        // Keep warmup bounded. This should absorb one-time startup work, not become a new stall.
+        while steps < 2 && started.elapsed() < Duration::from_millis(900) {
+            let step_started = Instant::now();
+            self.update_runtime_subsystems(0.0);
+            let elapsed = step_started.elapsed();
+            max_step = max_step.max(elapsed);
+            steps += 1;
+
+            if elapsed < Duration::from_millis(50) {
+                break;
+            }
+        }
+
+        info!(
+            "Shell subsystem warmup before menu: steps={} elapsed={:?} max_step={:?}",
+            steps,
+            started.elapsed(),
+            max_step
+        );
     }
 
     fn update_internal(&mut self, dt: f32) {
@@ -5671,10 +5744,55 @@ impl RuntimeHostBridge {
 
     fn load_fallback_frame_png() -> (Option<Vec<u8>>, f32) {
         let candidates = [
-            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/loadpageuserinterface.tga",
-            "windows_game/extracted_big_files/EnglishZH/Data/English/Art/Textures/TitleScreenuserinterface.tga",
-            "windows_game/extracted_big_files/MapsZH/Maps/ShellMapMD/ShellMapMD.tga",
+            "Data/English/Art/Textures/loadpageuserinterface.tga",
+            "Data/English/Art/Textures/TitleScreenuserinterface.tga",
+            "MapsZH/Maps/ShellMapMD/ShellMapMD.tga",
         ];
+
+        // Use the mounted game file system first (C++ W3DFileSystem semantics).
+        {
+            let fs = game_engine::common::system::file_system::get_file_system();
+            let fs_guard_result = fs.lock();
+            if let Ok(mut fs_guard) = fs_guard_result {
+                for candidate in candidates {
+                    if let Some(mut file) = fs_guard
+                        .open_file(
+                            candidate,
+                            game_engine::common::system::file::FileAccess::READ
+                                .combine(game_engine::common::system::file::FileAccess::BINARY),
+                        )
+                    {
+                        let Ok(bytes) = file.read_entire_and_close() else {
+                            continue;
+                        };
+                        let Ok(image) = image::load_from_memory(&bytes) else {
+                            continue;
+                        };
+                        let rgba = image.to_rgba8();
+                        let luma = if rgba.is_empty() {
+                            0.0
+                        } else {
+                            let sum = rgba
+                                .chunks_exact(4)
+                                .map(|px| {
+                                    0.2126 * px[0] as f32 / 255.0
+                                        + 0.7152 * px[1] as f32 / 255.0
+                                        + 0.0722 * px[2] as f32 / 255.0
+                                })
+                                .sum::<f32>();
+                            (sum / (rgba.len() as f32 / 4.0)).clamp(0.0, 1.0) * 255.0
+                        };
+                        let mut png_bytes = Vec::new();
+                        let mut cursor = std::io::Cursor::new(&mut png_bytes);
+                        if image.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                            return (Some(png_bytes), luma);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Final local fallback: try plain filesystem copies.
         for candidate in candidates {
             let Ok(bytes) = fs::read(candidate) else {
                 continue;
