@@ -1264,6 +1264,19 @@ impl BigFileSystem {
             return Some(locator.clone());
         }
 
+        if !canonical.contains('/') {
+            // C++ file factory behavior frequently resolves by bare filename.
+            // Search by basename when caller provides no directory.
+            let mut best: Option<FileLocator> = None;
+            for (path, locator) in &self.file_index {
+                let basename = path.rsplit('/').next().unwrap_or(path.as_str());
+                if basename == canonical {
+                    best = self.select_preferred_locator(best, locator);
+                }
+            }
+            return best;
+        }
+
         // Allow callers to provide suffix paths (for example "audio/tracks/foo.mp3" when
         // the archive stores "data/audio/tracks/foo.mp3").
         let mut best: Option<FileLocator> = None;
@@ -1272,21 +1285,7 @@ impl BigFileSystem {
                 best = self.select_preferred_locator(best, locator);
             }
         }
-        if best.is_some() {
-            return best;
-        }
-
-        // Final fallback: basename match.
-        let requested_leaf = canonical.rsplit('/').next().unwrap_or(canonical.as_str());
-        let mut best_leaf: Option<FileLocator> = None;
-        for (path, locator) in &self.file_index {
-            let leaf = path.rsplit('/').next().unwrap_or(path.as_str());
-            if leaf == requested_leaf {
-                best_leaf = self.select_preferred_locator(best_leaf, locator);
-            }
-        }
-
-        best_leaf
+        best
     }
 
     fn prepare_entry(&mut self, filename: &str) -> io::Result<Option<PreparedEntry>> {

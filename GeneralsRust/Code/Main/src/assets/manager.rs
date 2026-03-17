@@ -387,6 +387,19 @@ impl AssetManager {
         })
     }
 
+    /// Prime only raw texture data synchronously (no GPU texture upload).
+    pub fn prime_texture_raw_blocking(&mut self, texture_name: &str) -> String {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let _ = self
+                    .texture_manager
+                    .prime_raw_texture(&mut self.archive_system, texture_name)
+                    .await;
+                texture_name.to_string()
+            })
+        })
+    }
+
     /// Get default texture
     pub fn get_default_texture(&self) -> &GPUTexture {
         self.texture_manager.get_default_texture()
@@ -395,6 +408,10 @@ impl AssetManager {
     /// Get raw texture data if it's cached.
     pub fn get_raw_texture(&self, texture_name: &str) -> Option<&RawTexture> {
         self.texture_manager.get_raw_texture(texture_name)
+    }
+
+    pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
+        self.texture_manager.is_known_missing_texture(texture_name)
     }
 
     /// Get colored default texture (for indicating different states)

@@ -1,14 +1,15 @@
 use crate::runtime::hooks::ATTACHMENT_HOOKS;
 use log::{trace, warn};
+use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 use ww3d_renderer_3d::AttachmentRecord;
 
 pub struct AttachmentDispatcher;
 const MAX_PENDING_ATTACHMENTS: usize = 4096;
 
-fn pending_attachment_queue() -> &'static Mutex<Vec<AttachmentRecord>> {
-    static QUEUE: OnceLock<Mutex<Vec<AttachmentRecord>>> = OnceLock::new();
-    QUEUE.get_or_init(|| Mutex::new(Vec::new()))
+fn pending_attachment_queue() -> &'static Mutex<VecDeque<AttachmentRecord>> {
+    static QUEUE: OnceLock<Mutex<VecDeque<AttachmentRecord>>> = OnceLock::new();
+    QUEUE.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
 impl AttachmentDispatcher {
@@ -29,9 +30,9 @@ impl AttachmentDispatcher {
                     "Attachment queue overflow (>{}), dropping oldest event",
                     MAX_PENDING_ATTACHMENTS
                 );
-                queued.remove(0);
+                let _ = queued.pop_front();
             }
-            queued.push(record);
+            queued.push_back(record);
         }
     }
 
@@ -40,6 +41,6 @@ impl AttachmentDispatcher {
         let mut queued = pending_attachment_queue()
             .lock()
             .expect("attachment queue poisoned");
-        std::mem::take(&mut *queued)
+        queued.drain(..).collect()
     }
 }

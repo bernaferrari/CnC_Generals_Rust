@@ -1356,20 +1356,12 @@ impl CnCGameEngine {
 
             Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
             Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
-            // Keep loading->menu transition non-blocking: shell startup should paint menu first.
-            // Heightmap hint remains queued in RenderPipeline and can load lazily after startup.
-            if !result.start_in_menu {
-                if let Err(err) = self.render_pipeline.load_heightmap_from_hint(
-                    &self.graphics_system.device_arc(),
-                    &self.graphics_system.queue_arc(),
-                    Some(self.game_logic.world_bounds()),
-                ) {
-                    warn!(
-                        "Failed to preload startup heightmap hint for '{}': {}",
-                        active_map_name, err
-                    );
-                }
-            }
+            Self::sync_render_terrain_visual(
+                &mut self.render_pipeline,
+                &self.graphics_system,
+                &self.game_logic,
+                active_map_name.as_str(),
+            );
             Self::reinitialize_minimap_renderer(
                 &mut self.render_pipeline,
                 &self.graphics_system,
@@ -1399,37 +1391,10 @@ impl CnCGameEngine {
             );
             self.last_shell_prewarm_log = None;
             self.shell_prewarm_completion_logged = false;
-
-            // Prewarm a near-camera subset during loading so first visible menu frames are stable.
-            let immediate_budget = self.pending_shell_model_prewarm.len().min(48);
-            if immediate_budget > 0 {
-                let mut loaded = 0usize;
-                let mut failed = 0usize;
-                for _ in 0..immediate_budget {
-                    let Some(model_name) = self.pending_shell_model_prewarm.pop_front() else {
-                        break;
-                    };
-                    match Self::load_model_into_graphics_system_blocking(
-                        &mut self.graphics_system,
-                        &model_name,
-                    ) {
-                        Ok(_) => loaded += 1,
-                        Err(err) => {
-                            failed += 1;
-                            warn!(
-                                "Shell startup prewarm failed for model '{}': {}",
-                                model_name, err
-                            );
-                        }
-                    }
-                }
-                info!(
-                    "Shell startup prewarm complete: loaded={} failed={} pending={}",
-                    loaded,
-                    failed,
-                    self.pending_shell_model_prewarm.len()
-                );
-            }
+            info!(
+                "Shell startup prewarm queued: pending_models={}",
+                self.pending_shell_model_prewarm.len()
+            );
 
             self.ui_manager.transition_to_screen(Screen::MainMenu);
             self.set_runtime_ui_state_projection(UISystemState::MainMenu);
@@ -2725,7 +2690,7 @@ impl CnCGameEngine {
                     let shell_update_started = Instant::now();
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
                     // catch-up loops to block the UI thread.
-                    self.game_logic.update_shell_with_budget(dt, 2);
+                    self.game_logic.update_shell_with_budget(dt, 1);
                     if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
                         self.apply_script_fps_limit_request(fps);
                     }
@@ -3164,6 +3129,7 @@ impl CnCGameEngine {
             self.current_startup_logic_frame(),
         );
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
+        let render_pipeline_started = Instant::now();
         self.render_pipeline.execute(
             &mut self.graphics_system,
             &self.game_logic,
@@ -3175,8 +3141,26 @@ impl CnCGameEngine {
             deferred_startup_model_load_budget,
             skip_world_scene,
         )?;
+        let render_pipeline_elapsed = render_pipeline_started.elapsed();
 
+        let attachments_started = Instant::now();
         self.drain_renderer_attachments();
+        let attachments_elapsed = attachments_started.elapsed();
+        let total_elapsed = render_started.elapsed();
+        if total_elapsed >= Duration::from_millis(200) {
+            warn!(
+                "Render breakdown: total={:?} pipeline={:?} attachments={:?} state={:?} render_items={} model_missing={} deferred_loads={}/{} startup_progress={:.0}%",
+                total_elapsed,
+                render_pipeline_elapsed,
+                attachments_elapsed,
+                self.current_state,
+                self.render_pipeline.debug_render_item_count(),
+                self.render_pipeline.debug_last_model_missing(),
+                self.render_pipeline.debug_last_deferred_model_loads(),
+                self.render_pipeline.debug_last_deferred_model_load_budget(),
+                self.startup_last_reported_progress * 100.0
+            );
+        }
         Ok(())
     }
 
@@ -3343,6 +3327,12 @@ impl CnCGameEngine {
 
                 Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
                 Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+                Self::sync_render_terrain_visual(
+                    &mut self.render_pipeline,
+                    &self.graphics_system,
+                    &self.game_logic,
+                    save_info.map_name.as_str(),
+                );
                 if let Err(err) = Self::reinitialize_minimap_renderer(
                     &mut self.render_pipeline,
                     &self.graphics_system,
@@ -3429,6 +3419,12 @@ impl CnCGameEngine {
         // Update minimap/world bounds and camera to the new map.
         Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
         Self::apply_skybox_hint(&mut self.render_pipeline, &self.game_logic);
+        Self::sync_render_terrain_visual(
+            &mut self.render_pipeline,
+            &self.graphics_system,
+            &self.game_logic,
+            map_name.as_str(),
+        );
         if let Err(err) = Self::reinitialize_minimap_renderer(
             &mut self.render_pipeline,
             &self.graphics_system,
@@ -3461,8 +3457,20 @@ impl CnCGameEngine {
         render_pipeline: &mut RenderPipeline,
         game_logic: &GameLogic,
     ) {
+        const FALLBACK_AMBIENT: [f32; 3] = [0.30, 0.30, 0.30];
+        const FALLBACK_SUN_COLOR: [f32; 3] = [1.00, 0.90, 0.80];
+        const FALLBACK_SUN_DIRECTION: [f32; 3] = [-0.5, -1.0, -0.5];
+
         if let Some(meta) = game_logic.last_parsed_map_settings() {
             let fog_color = meta.sky_color.or(meta.sun_color);
+            info!(
+                "Applying map lighting: ambient={:?} sun_color={:?} sun_dir={:?} sky={:?} fog={:?}",
+                meta.ambient_color,
+                meta.sun_color,
+                meta.sun_direction,
+                meta.sky_color,
+                meta.fog_start.zip(meta.fog_end)
+            );
             render_pipeline.set_environment_lighting(
                 meta.sun_direction,
                 meta.sun_color,
@@ -3477,7 +3485,22 @@ impl CnCGameEngine {
                 meta.sky_color,
             );
         } else {
-            render_pipeline.clear_environment_lighting();
+            warn!(
+                "Map settings provide no lighting metadata; using fallback ambient/sun defaults"
+            );
+            render_pipeline.set_environment_lighting(
+                Some(FALLBACK_SUN_DIRECTION),
+                Some(FALLBACK_SUN_COLOR),
+                Some(FALLBACK_AMBIENT),
+                None,
+                None,
+            );
+            graphics_system.set_lighting(
+                Some(FALLBACK_AMBIENT),
+                Some(FALLBACK_SUN_COLOR),
+                Some(FALLBACK_SUN_DIRECTION),
+                None,
+            );
         }
     }
 
@@ -3486,7 +3509,63 @@ impl CnCGameEngine {
             .heightmap_hint()
             .and_then(|p| p.to_str().map(|s| s.to_string()))
         {
+            // Keep renderer parity-safe: map-adjacent TGA companions are frequently preview art.
+            // Feeding those into terrain elevation creates severe startup terrain corruption.
+            if path.to_ascii_lowercase().ends_with(".tga") {
+                render_pipeline.set_heightmap_hint(None);
+                return;
+            }
             render_pipeline.set_heightmap_hint(Some(path));
+        } else {
+            render_pipeline.set_heightmap_hint(None);
+        }
+    }
+
+    fn sync_render_terrain_visual(
+        render_pipeline: &mut RenderPipeline,
+        graphics_system: &GraphicsSystem,
+        game_logic: &GameLogic,
+        map_name: &str,
+    ) {
+        let hint_loaded = if render_pipeline.heightmap_hint().is_some() {
+            match render_pipeline.load_heightmap_from_hint(
+                &graphics_system.device_arc(),
+                &graphics_system.queue_arc(),
+                Some(game_logic.world_bounds()),
+            ) {
+                Ok(()) => true,
+                Err(err) => {
+                    warn!(
+                        "Failed to load terrain visual from heightmap hint for '{}': {}",
+                        map_name, err
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        if !hint_loaded {
+            match render_pipeline.load_heightmap_from_runtime_terrain(
+                &graphics_system.device_arc(),
+                &graphics_system.queue_arc(),
+                game_logic,
+            ) {
+                Ok(true) => {}
+                Ok(false) => {
+                    warn!(
+                        "No runtime terrain heightmap available for '{}'; terrain visual may remain empty",
+                        map_name
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to load terrain visual from runtime terrain for '{}': {}",
+                        map_name, err
+                    );
+                }
+            }
         }
     }
 
@@ -5540,6 +5619,9 @@ pub async fn run_cnc_game(
     let mut last_slow_frame_log = None::<Instant>;
     let mut slow_frame_count = 0u32;
     let mut slow_frame_peak = Duration::ZERO;
+    let mut slow_ww3d_peak = Duration::ZERO;
+    let mut slow_update_peak = Duration::ZERO;
+    let mut slow_render_peak = Duration::ZERO;
     let mut last_render_health_log = Instant::now();
     const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
     let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
@@ -5652,6 +5734,9 @@ pub async fn run_cnc_game(
             if frame_elapsed >= Duration::from_millis(120) {
                 slow_frame_count = slow_frame_count.saturating_add(1);
                 slow_frame_peak = slow_frame_peak.max(frame_elapsed);
+                slow_ww3d_peak = slow_ww3d_peak.max(ww3d_elapsed);
+                slow_update_peak = slow_update_peak.max(update_elapsed);
+                slow_render_peak = slow_render_peak.max(render_elapsed);
             }
             if frame_elapsed >= Duration::from_millis(300) {
                 let should_log = last_slow_frame_log
@@ -5673,21 +5758,29 @@ pub async fn run_cnc_game(
             if frame_started.duration_since(last_render_health_log) >= Duration::from_secs(5) {
                 if slow_frame_count == 0 {
                     info!(
-                        "Render health: ok (state={:?}, no slow frames >120ms in last 5s, startup_progress={:.0}%)",
+                        "Render health: ok (state={:?}, render_items={}, no slow frames >120ms in last 5s, startup_progress={:.0}%)",
                         engine.get_state(),
+                        engine.render_pipeline.debug_render_item_count(),
                         engine.startup_last_reported_progress * 100.0
                     );
                 } else {
                     info!(
-                        "Render health: slow_frames={} peak={:?} (state={:?}, startup_progress={:.0}%)",
+                        "Render health: slow_frames={} peak={:?} (ww3d_peak={:?}, update_peak={:?}, render_peak={:?}, state={:?}, render_items={}, startup_progress={:.0}%)",
                         slow_frame_count,
                         slow_frame_peak,
+                        slow_ww3d_peak,
+                        slow_update_peak,
+                        slow_render_peak,
                         engine.get_state(),
+                        engine.render_pipeline.debug_render_item_count(),
                         engine.startup_last_reported_progress * 100.0
                     );
                 }
                 slow_frame_count = 0;
                 slow_frame_peak = Duration::ZERO;
+                slow_ww3d_peak = Duration::ZERO;
+                slow_update_peak = Duration::ZERO;
+                slow_render_peak = Duration::ZERO;
                 last_render_health_log = frame_started;
             }
 
@@ -6475,38 +6568,8 @@ impl CnCGameEngine {
                 }
             }?; // Asset manager lock is released here
 
-            // C++ WW3DAssetManager::Get_Texture() behavior: Load textures BEFORE caching model
-            // Extract unique texture names from model meshes
-            let mut texture_names: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
-            for mesh in &w3d_model.meshes {
-                if let Some(tex_name) = &mesh.material.texture_name {
-                    texture_names.insert(tex_name.clone());
-                }
-            }
-
-            if !texture_names.is_empty() {
-                // Get device and queue from graphics system
-                let device = graphics_system.device();
-                let queue = graphics_system.queue();
-
-                // Load each texture from TexturesZH.big
-                let mut loaded_count = 0;
-                for tex_name in &texture_names {
-                    let mut asset_manager = asset_manager_arc.lock().unwrap();
-                    let _loaded_key = asset_manager.load_texture_blocking(device, queue, tex_name);
-                    // Verify it's in the cache
-                    if asset_manager.get_cached_texture(tex_name).is_some() {
-                        loaded_count += 1;
-                    }
-                    drop(asset_manager); // Release lock between textures
-                }
-                log::debug!(
-                    "Loaded {loaded_count}/{} textures for model '{}'",
-                    texture_names.len(),
-                    model_name
-                );
-            }
+            // C++ parity: texture file loading is demand-driven by the renderer path.
+            // Avoid synchronous model-time texture preloads, which can stall startup/menu frames.
             // Now cache model without holding the asset manager lock - no deadlock possible
             graphics_system.cache_model(model_name.to_string(), w3d_model);
             Ok(true)
@@ -6547,7 +6610,18 @@ impl CnCGameEngine {
             return;
         }
         // Keep menu interaction responsive while remaining models stream in.
-        let prewarm_budget = if startup_age < 240 { 1 } else { 2 };
+        // Pace model prewarm in early menu frames instead of loading every frame.
+        let should_tick = if startup_age < 180 {
+            startup_age % 6 == 0
+        } else if startup_age < 600 {
+            startup_age % 4 == 0
+        } else {
+            startup_age % 3 == 0
+        };
+        if !should_tick {
+            return;
+        }
+        let prewarm_budget = 1usize;
         for _ in 0..prewarm_budget {
             let Some(model_name) = self.pending_shell_model_prewarm.pop_front() else {
                 return;

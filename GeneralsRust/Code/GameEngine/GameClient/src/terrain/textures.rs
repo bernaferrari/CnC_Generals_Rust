@@ -13,8 +13,8 @@ use image::{self, GenericImageView};
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureView};
@@ -598,6 +598,29 @@ impl TextureManager {
         Ok(())
     }
 
+    fn resolve_texture_path_cached(diffuse_path: &str) -> Option<PathBuf> {
+        static RESOLVED_PATH_CACHE: OnceLock<std::sync::Mutex<HashMap<String, Option<PathBuf>>>> =
+            OnceLock::new();
+        let key = diffuse_path.replace('\\', "/").to_ascii_lowercase();
+        if let Ok(cache) = RESOLVED_PATH_CACHE
+            .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+            .lock()
+        {
+            if let Some(cached) = cache.get(&key) {
+                return cached.clone();
+            }
+        }
+
+        let resolved = Self::resolve_texture_path(diffuse_path);
+        if let Ok(mut cache) = RESOLVED_PATH_CACHE
+            .get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+            .lock()
+        {
+            cache.insert(key, resolved.clone());
+        }
+        resolved
+    }
+
     /// Register new terrain texture
     pub fn register_texture(&mut self, mut texture: TerrainTexture) -> TextureId {
         texture.id = self.next_texture_id;
@@ -673,6 +696,12 @@ impl TextureManager {
 
     pub fn resolve_texture_path(diffuse_path: &str) -> Option<PathBuf> {
         let raw = Path::new(diffuse_path);
+        if let Some(file_name) = raw.file_name().and_then(|name| name.to_str()) {
+            let key = file_name.to_ascii_lowercase();
+            if let Some(path) = Self::available_terrain_texture_path_map().get(&key) {
+                return Some(path.clone());
+            }
+        }
         let mut candidates = Vec::new();
 
         if raw.is_absolute() {
@@ -726,11 +755,11 @@ impl TextureManager {
     fn resource_candidates(filename: &str) -> Vec<String> {
         let normalized = filename.replace('\\', "/");
         let bare = normalized.trim_start_matches("./").to_string();
-        let extension = Path::new(&bare)
+        let ext = Path::new(&bare)
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.to_ascii_lowercase());
-        let has_extension = extension.is_some();
+        let has_extension = ext.is_some();
         let mut candidates = Vec::new();
         let mut seen = HashSet::new();
 
@@ -745,22 +774,12 @@ impl TextureManager {
             }
         }
 
-        if let Some(alias) = Self::terrain_texture_alias(&bare) {
-            push_unique(&mut candidates, &mut seen, alias.to_string());
-        }
-
         push_unique(&mut candidates, &mut seen, bare.clone());
 
-        for class_candidate in Self::terrain_class_candidates(&bare) {
-            push_unique(&mut candidates, &mut seen, class_candidate);
-        }
-
-        for available_candidate in Self::terrain_available_family_candidates(&bare) {
-            push_unique(&mut candidates, &mut seen, available_candidate);
-        }
-
-        for prefix_candidate in Self::terrain_prefix_fallback_candidates(&bare) {
-            push_unique(&mut candidates, &mut seen, prefix_candidate);
+        if let Some(file_name) = Path::new(&bare).file_name().and_then(|n| n.to_str()) {
+            if !file_name.eq_ignore_ascii_case(&bare) {
+                push_unique(&mut candidates, &mut seen, file_name.to_string());
+            }
         }
 
         if !bare.starts_with("Data/") {
@@ -770,7 +789,6 @@ impl TextureManager {
         if !bare.contains('/') {
             push_unique(&mut candidates, &mut seen, format!("Art/Terrain/{bare}"));
             push_unique(&mut candidates, &mut seen, format!("Art/Textures/{bare}"));
-            push_unique(&mut candidates, &mut seen, format!("Art/W3D/{bare}"));
             push_unique(
                 &mut candidates,
                 &mut seen,
@@ -781,23 +799,21 @@ impl TextureManager {
                 &mut seen,
                 format!("Data/Art/Textures/{bare}"),
             );
-            push_unique(&mut candidates, &mut seen, format!("Data/Art/W3D/{bare}"));
         }
 
         if has_extension {
-            if let Some((base, ext)) = bare.rsplit_once('.') {
-                let alt_exts: &[&str] = match extension.as_deref() {
-                    Some("tga") => &["dds", "png", "bmp", "jpg", "jpeg"],
-                    Some("dds") => &["tga", "png", "bmp", "jpg", "jpeg"],
-                    Some("png") => &["tga", "dds", "bmp", "jpg", "jpeg"],
-                    Some("bmp") => &["tga", "dds", "png", "jpg", "jpeg"],
-                    Some("jpg") | Some("jpeg") => &["tga", "dds", "png", "bmp"],
-                    _ => &["tga", "dds", "png", "jpg", "jpeg", "bmp"],
+            if let Some((base, existing_ext)) = bare.rsplit_once('.') {
+                let alternates: &[&str] = match ext.as_deref() {
+                    Some("tga") => &["dds"],
+                    Some("dds") => &["tga"],
+                    _ => &[],
                 };
                 let seeds = candidates.clone();
                 for seed in &seeds {
-                    let seed_base = seed.strip_suffix(&format!(".{ext}")).unwrap_or(seed);
-                    for alt in alt_exts {
+                    let seed_base = seed
+                        .strip_suffix(&format!(".{existing_ext}"))
+                        .unwrap_or(seed.as_str());
+                    for alt in alternates {
                         push_unique(&mut candidates, &mut seen, format!("{seed_base}.{alt}"));
                     }
                 }
@@ -806,88 +822,12 @@ impl TextureManager {
         } else {
             let seeds = candidates.clone();
             for seed in &seeds {
-                for ext in ["tga", "dds", "png", "jpg", "jpeg", "bmp"] {
-                    push_unique(&mut candidates, &mut seen, format!("{seed}.{ext}"));
-                }
-            }
-        }
-
-        if let Some((variant_prefix, variant_ext, sibling_variants)) =
-            Self::terrain_variant_family(&bare)
-        {
-            let seeds = candidates.clone();
-            for seed in &seeds {
-                let seed_base = seed
-                    .strip_suffix(&format!(".{variant_ext}"))
-                    .unwrap_or(seed);
-                let stem = Path::new(seed_base)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(seed_base);
-                if !stem
-                    .to_ascii_lowercase()
-                    .starts_with(&variant_prefix.to_ascii_lowercase())
-                {
-                    continue;
-                }
-                let stem_without_variant = &seed_base[..seed_base.len().saturating_sub(1)];
-                for sibling in &sibling_variants {
-                    push_unique(
-                        &mut candidates,
-                        &mut seen,
-                        format!("{stem_without_variant}{sibling}.{variant_ext}"),
-                    );
-                }
-            }
-        }
-
-        if let Some((family_prefix, family_number, family_suffix, family_ext)) =
-            Self::terrain_numeric_family(&bare)
-        {
-            let seeds = candidates.clone();
-            for seed in &seeds {
-                let seed_base = seed.strip_suffix(&format!(".{family_ext}")).unwrap_or(seed);
-                let stem = Path::new(seed_base)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(seed_base);
-                if !stem
-                    .to_ascii_lowercase()
-                    .starts_with(&family_prefix.to_ascii_lowercase())
-                {
-                    continue;
-                }
-                let stem_prefix =
-                    &seed_base[..seed_base.len().saturating_sub(family_suffix.len() + 2)];
-                for distance in 1_i32..=20 {
-                    for delta in [distance, -distance] {
-                        let candidate_number = family_number as i32 + delta;
-                        if !(0..=99).contains(&candidate_number) {
-                            continue;
-                        }
-                        push_unique(
-                            &mut candidates,
-                            &mut seen,
-                            format!(
-                                "{stem_prefix}{candidate_number:02}{family_suffix}.{family_ext}"
-                            ),
-                        );
-                    }
-                }
+                push_unique(&mut candidates, &mut seen, format!("{seed}.dds"));
+                push_unique(&mut candidates, &mut seen, format!("{seed}.tga"));
             }
         }
 
         candidates
-    }
-
-    fn terrain_texture_alias(filename: &str) -> Option<&'static str> {
-        match filename.to_ascii_lowercase().as_str() {
-            // The extracted asset set used by the Rust shell path is missing this exact
-            // terrain tile payload even though Terrain.ini still references it.
-            // Use the adjacent rock tile family as a fallback alias.
-            "txrock07a.tga" => Some("TXRock06a.tga"),
-            _ => None,
-        }
     }
 
     fn terrain_class_candidates(filename: &str) -> Vec<String> {
@@ -1046,6 +986,19 @@ impl TextureManager {
     fn available_terrain_textures() -> &'static Vec<String> {
         static AVAILABLE_TERRAIN_TEXTURES: OnceLock<Vec<String>> = OnceLock::new();
         AVAILABLE_TERRAIN_TEXTURES.get_or_init(|| {
+            let mut available: Vec<String> = Self::available_terrain_texture_path_map()
+                .keys()
+                .cloned()
+                .collect();
+            available.sort();
+            available
+        })
+    }
+
+    fn available_terrain_texture_path_map() -> &'static HashMap<String, PathBuf> {
+        static AVAILABLE_TERRAIN_TEXTURE_PATHS: OnceLock<HashMap<String, PathBuf>> =
+            OnceLock::new();
+        AVAILABLE_TERRAIN_TEXTURE_PATHS.get_or_init(|| {
             let search_dirs = [
                 "windows_game/extracted_big_files/TerrainZH/Art/Terrain",
                 "windows_game/extracted_big_files_v2/TerrainZH/Art/Terrain",
@@ -1057,7 +1010,7 @@ impl TextureManager {
                 "../windows_game/extracted_big_files_v2/TexturesZH/Art/Terrain",
             ];
 
-            let mut available = Vec::new();
+            let mut available = HashMap::new();
             for dir in search_dirs {
                 let path = Path::new(dir);
                 let Ok(entries) = std::fs::read_dir(path) else {
@@ -1074,16 +1027,11 @@ impl TextureManager {
                     if !name.contains('.') {
                         continue;
                     }
-                    if !available
-                        .iter()
-                        .any(|existing: &String| existing.eq_ignore_ascii_case(name))
-                    {
-                        available.push(name.to_string());
-                    }
+                    let key = name.to_ascii_lowercase();
+                    available.entry(key).or_insert(candidate);
                 }
             }
 
-            available.sort();
             available
         })
     }
@@ -1144,6 +1092,10 @@ impl TextureManager {
     }
 
     fn load_image_from_game_fs(path: &str) -> Option<image::DynamicImage> {
+        if path.trim().is_empty() {
+            return None;
+        }
+
         let file_system = get_file_system();
         let mut fs = file_system.lock().ok()?;
 
@@ -1161,111 +1113,20 @@ impl TextureManager {
             }
         }
 
-        for archive in Self::archive_candidates() {
-            for candidate in Self::resource_candidates(path) {
-                if let Ok(Some(bytes)) = Self::extract_big_entry(&archive, &[candidate.as_str()]) {
-                    if let Ok(image) = image::load_from_memory(&bytes) {
-                        return Some(image);
-                    }
-                }
-            }
-        }
-
         None
     }
 
-    fn archive_candidates() -> Vec<PathBuf> {
-        let relatives = [
-            "windows_game/Command & Conquer Generals Zero Hour/TerrainZH.big",
-            "windows_game/Command & Conquer Generals Zero Hour/TexturesZH.big",
-            "windows_game/Command & Conquer Generals Zero Hour/W3DZH.big",
-            "../windows_game/Command & Conquer Generals Zero Hour/TerrainZH.big",
-            "../windows_game/Command & Conquer Generals Zero Hour/TexturesZH.big",
-            "../windows_game/Command & Conquer Generals Zero Hour/W3DZH.big",
-        ];
-
-        let mut candidates = Vec::new();
-        for relative in relatives {
-            let path = PathBuf::from(relative);
-            if !candidates.iter().any(|existing| existing == &path) {
-                candidates.push(path.clone());
-            }
-
-            if let Ok(current_dir) = env::current_dir() {
-                for ancestor in current_dir.ancestors() {
-                    let candidate = ancestor.join(relative);
-                    if !candidates.iter().any(|existing| existing == &candidate) {
-                        candidates.push(candidate);
-                    }
-                }
+    fn load_image_with_fallback(
+        requested_path: &str,
+        resolved_path: Option<&PathBuf>,
+    ) -> Option<image::DynamicImage> {
+        if let Some(path) = resolved_path {
+            if let Ok(image) = image::open(path) {
+                return Some(image);
             }
         }
 
-        candidates
-    }
-
-    fn extract_big_entry(
-        candidate: &Path,
-        entry_names: &[&str],
-    ) -> std::io::Result<Option<Vec<u8>>> {
-        let mut file = File::open(candidate)?;
-
-        let mut magic = [0u8; 4];
-        file.read_exact(&mut magic)?;
-        if magic != *b"BIGF" && magic != *b"BIG4" {
-            return Ok(None);
-        }
-
-        let mut buf = [0u8; 4];
-        file.read_exact(&mut buf)?;
-        file.read_exact(&mut buf)?;
-        let entry_count = u32::from_be_bytes(buf);
-        file.read_exact(&mut buf)?;
-
-        let normalized_targets: Vec<String> = entry_names
-            .iter()
-            .map(|name| name.replace('\\', "/").to_lowercase())
-            .collect();
-
-        for _ in 0..entry_count {
-            let mut tmp = [0u8; 4];
-            file.read_exact(&mut tmp)?;
-            let offset = u32::from_be_bytes(tmp) as u64;
-            file.read_exact(&mut tmp)?;
-            let size = u32::from_be_bytes(tmp) as usize;
-
-            let mut name_bytes = Vec::with_capacity(64);
-            loop {
-                let mut b = [0u8; 1];
-                file.read_exact(&mut b)?;
-                if b[0] == 0 {
-                    break;
-                }
-                name_bytes.push(b[0]);
-            }
-
-            let normalized_name = String::from_utf8_lossy(&name_bytes)
-                .replace('\\', "/")
-                .to_lowercase();
-
-            if normalized_targets
-                .iter()
-                .any(|target| *target == normalized_name)
-            {
-                if size == 0 {
-                    return Ok(None);
-                }
-
-                let current_pos = file.stream_position()?;
-                file.seek(SeekFrom::Start(offset))?;
-                let mut data = vec![0u8; size];
-                file.read_exact(&mut data)?;
-                file.seek(SeekFrom::Start(current_pos))?;
-                return Ok(Some(data));
-            }
-        }
-
-        Ok(None)
+        Self::load_image_from_game_fs(requested_path)
     }
 
     pub fn acquire_texture_view(
@@ -1306,84 +1167,65 @@ impl TextureManager {
         fallback_color: [u8; 4],
     ) -> TerrainResult<(Texture, TextureView)> {
         if let Some(texture) = self.textures.get_mut(&texture_id) {
-            let resolved_path = match kind {
+            let (resolved_path, requested_path) = match kind {
                 TextureKind::Diffuse => {
                     if texture.resolved_path.is_none() {
-                        if let Some(path) = Self::resolve_texture_path(&texture.diffuse_path) {
+                        if let Some(path) = Self::resolve_texture_path_cached(&texture.diffuse_path)
+                        {
                             texture.resolved_path = Some(path);
                         }
                     }
-                    texture.resolved_path.clone()
+                    (texture.resolved_path.clone(), texture.diffuse_path.clone())
                 }
                 TextureKind::Normal => {
                     if texture.resolved_normal_path.is_none() {
                         if let Some(normal) = texture.normal_path.clone() {
-                            if let Some(path) = Self::resolve_texture_path(&normal) {
+                            if let Some(path) = Self::resolve_texture_path_cached(&normal) {
                                 texture.resolved_normal_path = Some(path);
                             } else {
                                 warn!("Terrain normal map '{}' not found", normal);
                             }
                         }
                     }
-                    texture.resolved_normal_path.clone()
+                    (
+                        texture.resolved_normal_path.clone(),
+                        texture.normal_path.clone().unwrap_or_default(),
+                    )
                 }
                 TextureKind::Height => {
                     if texture.resolved_height_path.is_none() {
                         if let Some(height) = texture.height_path.clone() {
-                            if let Some(path) = Self::resolve_texture_path(&height) {
+                            if let Some(path) = Self::resolve_texture_path_cached(&height) {
                                 texture.resolved_height_path = Some(path);
                             } else {
                                 warn!("Terrain height map '{}' not found", height);
                             }
                         }
                     }
-                    texture.resolved_height_path.clone()
+                    (
+                        texture.resolved_height_path.clone(),
+                        texture.height_path.clone().unwrap_or_default(),
+                    )
                 }
             };
 
-            if let Some(path) = resolved_path {
-                match image::open(&path) {
-                    Ok(image) => {
-                        let rgba = image.to_rgba8();
-                        let (texture, view) = create_gpu_texture_from_rgba(
-                            device,
-                            queue,
-                            &rgba,
-                            image.width(),
-                            image.height(),
-                            Some(&format!("Terrain Texture {}", path.display())),
-                        );
-                        return Ok((texture, view));
-                    }
-                    Err(err) => {
-                        warn!(
-                            "Failed to open terrain texture '{}': {}; using fallback",
-                            path.display(),
-                            err
-                        );
-                    }
-                }
-            } else {
-                let source_path = match kind {
-                    TextureKind::Diffuse => texture.diffuse_path.as_str(),
-                    TextureKind::Normal => texture.normal_path.as_deref().unwrap_or(""),
-                    TextureKind::Height => texture.height_path.as_deref().unwrap_or(""),
-                };
-
-                if !source_path.is_empty() {
-                    if let Some(image) = Self::load_image_from_game_fs(source_path) {
-                        let rgba = image.to_rgba8();
-                        let (texture, view) = create_gpu_texture_from_rgba(
-                            device,
-                            queue,
-                            &rgba,
-                            image.width(),
-                            image.height(),
-                            Some(&format!("Terrain Texture {}", source_path)),
-                        );
-                        return Ok((texture, view));
-                    }
-                }
+            if let Some(image) =
+                Self::load_image_with_fallback(&requested_path, resolved_path.as_ref())
+            {
+                let label = resolved_path
+                    .as_ref()
+                    .map(|path| format!("Terrain Texture {}", path.display()))
+                    .unwrap_or_else(|| format!("Terrain Texture {}", requested_path));
+                let rgba = image.to_rgba8();
+                let (texture, view) = create_gpu_texture_from_rgba(
+                    device,
+                    queue,
+                    &rgba,
+                    image.width(),
+                    image.height(),
+                    Some(&label),
+                );
+                return Ok((texture, view));
             }
         }
 
@@ -1400,35 +1242,18 @@ impl TextureManager {
             return Ok(());
         }
 
-        let resolved = Self::resolve_texture_path(&texture.diffuse_path);
-        let fallback_image = if resolved.is_none() {
-            Self::load_image_from_game_fs(&texture.diffuse_path)
-        } else {
-            None
-        };
+        let resolved = Self::resolve_texture_path_cached(&texture.diffuse_path);
 
         if let Some(path) = resolved.clone() {
             texture.resolved_path = Some(path.clone());
-            match image::open(&path) {
-                Ok(img) => {
-                    texture.dimensions = Some(img.dimensions());
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to open terrain texture '{}': {}",
-                        path.display(),
-                        err
-                    );
-                    texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
-                }
-            }
-        } else if let Some(img) = fallback_image {
+        }
+
+        if let Some(img) =
+            Self::load_image_with_fallback(&texture.diffuse_path, texture.resolved_path.as_ref())
+        {
             texture.dimensions = Some(img.dimensions());
         } else {
-            warn!(
-                "Terrain texture '{}' could not be resolved; using default dimensions",
-                texture.diffuse_path
-            );
+            warn!("Terrain texture '{}' failed to decode", texture.diffuse_path);
             texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
         }
 
@@ -1452,7 +1277,7 @@ impl TextureManager {
 
         if let Some(normal_path) = texture.normal_path.clone() {
             if texture.resolved_normal_path.is_none() {
-                if let Some(resolved) = Self::resolve_texture_path(&normal_path) {
+                if let Some(resolved) = Self::resolve_texture_path_cached(&normal_path) {
                     texture.resolved_normal_path = Some(resolved);
                 } else {
                     warn!("Terrain normal map '{}' could not be resolved", normal_path);
@@ -1462,7 +1287,7 @@ impl TextureManager {
 
         if let Some(height_path) = texture.height_path.clone() {
             if texture.resolved_height_path.is_none() {
-                if let Some(resolved) = Self::resolve_texture_path(&height_path) {
+                if let Some(resolved) = Self::resolve_texture_path_cached(&height_path) {
                     texture.resolved_height_path = Some(resolved);
                 } else {
                     warn!("Terrain height map '{}' could not be resolved", height_path);
@@ -1470,32 +1295,22 @@ impl TextureManager {
             }
         }
 
-        if let Some(height_resolved) = texture.resolved_height_path.clone() {
-            match image::open(&height_resolved) {
-                Ok(img) => {
-                    let luma = img.to_luma8();
-                    texture.height_image = Some(Arc::new(HeightImage {
-                        width: luma.width(),
-                        height: luma.height(),
-                        data: luma.into_raw(),
-                    }));
-                }
-                Err(err) => {
-                    warn!(
-                        "Failed to open terrain height map '{}': {}",
-                        height_resolved.display(),
-                        err
-                    );
-                }
-            }
-        } else if let Some(height_path) = texture.height_path.clone() {
-            if let Some(img) = Self::load_image_from_game_fs(&height_path) {
+        if let Some(height_path) = texture.height_path.clone() {
+            let resolved_height = texture.resolved_height_path.clone();
+            if let Some(img) =
+                Self::load_image_with_fallback(&height_path, resolved_height.as_ref())
+            {
                 let luma = img.to_luma8();
                 texture.height_image = Some(Arc::new(HeightImage {
                     width: luma.width(),
                     height: luma.height(),
                     data: luma.into_raw(),
                 }));
+            } else if let Some(height_resolved) = resolved_height {
+                warn!(
+                    "Failed to open terrain height map '{}'",
+                    height_resolved.display()
+                );
             }
         }
 

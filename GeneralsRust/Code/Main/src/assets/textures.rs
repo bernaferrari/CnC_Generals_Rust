@@ -42,7 +42,7 @@ impl TextureFormat {
 }
 
 /// Raw texture data
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawTexture {
     pub name: String,
     pub width: u32,
@@ -135,6 +135,11 @@ pub struct TextureManager {
     gpu_cache: HashMap<String, GPUTexture>,
     /// Default white texture for fallback
     default_texture_name: String,
+    /// Compact diagnostics for unresolved texture lookups.
+    missing_texture_total: usize,
+    missing_texture_counts: HashMap<String, usize>,
+    /// Known-missing texture keys to avoid repeated archive probing.
+    known_missing_textures: HashSet<String>,
 }
 
 impl Default for TextureManager {
@@ -150,6 +155,9 @@ impl TextureManager {
             raw_cache: HashMap::new(),
             gpu_cache: HashMap::new(),
             default_texture_name: "default_white".to_string(),
+            missing_texture_total: 0,
+            missing_texture_counts: HashMap::new(),
+            known_missing_textures: HashSet::new(),
         }
     }
 
@@ -216,25 +224,69 @@ impl TextureManager {
         queue: &wgpu::Queue,
         texture_name: &str,
     ) -> Result<&GPUTexture> {
-        let requested_name = texture_name.trim();
-        if requested_name.is_empty() || requested_name.eq_ignore_ascii_case("none") {
+        let texture_key = self
+            .ensure_raw_texture_cached(archive_system, texture_name)
+            .await?;
+
+        if texture_key == self.default_texture_name {
             return Ok(self.get_default_texture());
         }
 
-        // C++ does: convert to lowercase, then try direct filename
-        let texture_key = requested_name.to_lowercase();
+        if self.known_missing_textures.contains(&texture_key) {
+            return Ok(self.get_default_texture());
+        }
 
         // Return cached texture if available
         if self.gpu_cache.contains_key(&texture_key) {
             return Ok(self.gpu_cache.get(&texture_key).unwrap());
         }
 
-        info!("Loading texture from archive: {}", requested_name);
+        let raw_texture = self
+            .raw_cache
+            .get(&texture_key)
+            .ok_or_else(|| anyhow!("Raw texture '{}' not cached after load", texture_key))?;
+        let gpu_texture = self.create_gpu_texture(device, queue, raw_texture)?;
+        self.gpu_cache.insert(texture_key.clone(), gpu_texture);
 
-        // C++ parity: keep deterministic filename resolution.
-        // WW3D tries compressed DDS first (same base name), then uncompressed.
+        // Safe unwrap since we just inserted it
+        Ok(self
+            .gpu_cache
+            .get(&texture_key)
+            .expect("Just inserted texture should be in cache"))
+    }
+
+    /// Prime and cache only raw texture payload (no GPU upload).
+    pub async fn prime_raw_texture(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        texture_name: &str,
+    ) -> Result<()> {
+        let _ = self
+            .ensure_raw_texture_cached(archive_system, texture_name)
+            .await?;
+        Ok(())
+    }
+
+    async fn ensure_raw_texture_cached(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        texture_name: &str,
+    ) -> Result<String> {
+        let requested_name = texture_name.trim();
+        if requested_name.is_empty() || requested_name.eq_ignore_ascii_case("none") {
+            return Ok(self.default_texture_name.clone());
+        }
+
+        let texture_key = requested_name.to_lowercase();
+        if self.raw_cache.contains_key(&texture_key)
+            || self.known_missing_textures.contains(&texture_key)
+        {
+            return Ok(texture_key);
+        }
+
+        debug!("Loading raw texture from archive: {}", requested_name);
+
         let candidates = Self::build_texture_candidates(requested_name);
-
         let mut texture_data = None;
         let mut actual_filename = String::new();
 
@@ -248,67 +300,99 @@ impl TextureManager {
                 }
                 Err(_) => {
                     log::trace!("Texture candidate not found: {}", candidate);
-                    continue;
                 }
             }
         }
 
-        let texture_data = match texture_data {
-            Some(data) => data,
-            None => {
-                warn!("No texture found for: {}", requested_name);
-
-                // C++ behavior: Create a magenta fallback texture and cache it under the requested name
-                // This way future lookups will succeed and materials will find the texture
-                let fallback_texture = RawTexture::solid_color(
-                    requested_name.to_string(),
-                    64,
-                    64,
-                    [255, 0, 255, 255], // MAGENTA - matches C++ MissingTexture
-                );
-                let gpu_fallback = self.create_gpu_texture(device, queue, &fallback_texture)?;
-
-                // Cache the fallback under the requested name
-                self.raw_cache.insert(texture_key.clone(), fallback_texture);
-                self.gpu_cache.insert(texture_key.clone(), gpu_fallback);
-
-                // Return the newly cached fallback
-                return Ok(self.gpu_cache.get(&texture_key).expect("Just inserted"));
-            }
+        let Some(texture_data) = texture_data else {
+            self.cache_missing_fallback(&texture_key, requested_name);
+            return Ok(texture_key);
         };
 
-        // Parse texture based on format
         let format = TextureFormat::from_filename(&actual_filename);
-        let raw_texture = match format {
-            TextureFormat::TGA => self.parse_tga(&texture_data, requested_name.to_string())?,
-            TextureFormat::DDS => self.parse_dds(&texture_data, requested_name.to_string())?,
-            TextureFormat::BMP => self.parse_bmp(&texture_data, requested_name.to_string())?,
+        let parse_result = match format {
+            TextureFormat::TGA => self.parse_tga(&texture_data, requested_name.to_string()),
+            TextureFormat::DDS => self.parse_dds(&texture_data, requested_name.to_string()),
+            TextureFormat::BMP => self.parse_bmp(&texture_data, requested_name.to_string()),
             _ => {
                 warn!(
-                    "Unsupported texture format for {}, using fallback",
+                    "Unsupported texture format for '{}', using fallback",
                     requested_name
                 );
-                return Ok(self.get_default_texture());
+                self.cache_missing_fallback(&texture_key, requested_name);
+                return Ok(texture_key);
             }
         };
 
-        // Create GPU texture
-        let gpu_texture = self.create_gpu_texture(device, queue, &raw_texture)?;
+        match parse_result {
+            Ok(raw_texture) => {
+                self.raw_cache.insert(texture_key.clone(), raw_texture);
+                self.known_missing_textures.remove(&texture_key);
+            }
+            Err(err) => {
+                warn!(
+                    "Texture parse failed for '{}': {}; using fallback",
+                    requested_name, err
+                );
+                self.cache_missing_fallback(&texture_key, requested_name);
+            }
+        }
 
-        self.raw_cache.insert(texture_key.clone(), raw_texture);
-        self.gpu_cache.insert(texture_key.clone(), gpu_texture);
+        Ok(texture_key)
+    }
 
-        // Safe unwrap since we just inserted it
-        Ok(self
-            .gpu_cache
-            .get(&texture_key)
-            .expect("Just inserted texture should be in cache"))
+    fn cache_missing_fallback(&mut self, texture_key: &str, requested_name: &str) {
+        self.record_missing_texture(requested_name);
+        self.known_missing_textures.insert(texture_key.to_string());
+        if self.raw_cache.contains_key(texture_key) {
+            return;
+        }
+
+        if let Some(default_raw) = self.raw_cache.get(&self.default_texture_name).cloned() {
+            let mut fallback_raw = default_raw;
+            fallback_raw.name = requested_name.to_string();
+            self.raw_cache.insert(texture_key.to_string(), fallback_raw);
+        }
+    }
+
+    fn record_missing_texture(&mut self, requested_name: &str) {
+        self.missing_texture_total += 1;
+        let key = requested_name.to_ascii_lowercase();
+        let entry = self.missing_texture_counts.entry(key.clone()).or_insert(0);
+        *entry += 1;
+
+        // Keep logs compact: emit detailed misses only for first occurrences.
+        if self.missing_texture_total <= 16 {
+            warn!(
+                "Missing texture fallback: '{}' (total_misses={}, unique={})",
+                requested_name,
+                self.missing_texture_total,
+                self.missing_texture_counts.len()
+            );
+            return;
+        }
+
+        // Periodic compact summary for long runs.
+        if self.missing_texture_total % 64 == 0 {
+            let mut top: Vec<(&String, &usize)> = self.missing_texture_counts.iter().collect();
+            top.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+            let summary: Vec<String> = top
+                .into_iter()
+                .take(8)
+                .map(|(name, count)| format!("{name}({count})"))
+                .collect();
+            warn!(
+                "Missing texture summary: total_misses={}, unique={}, top={:?}",
+                self.missing_texture_total,
+                self.missing_texture_counts.len(),
+                summary
+            );
+        }
     }
 
     fn build_texture_candidates(requested_name: &str) -> Vec<String> {
         let normalized = requested_name.trim().replace('\\', "/");
         let normalized = normalized.trim_start_matches("./");
-        let requested_lower = normalized.to_ascii_lowercase();
 
         let (dir_part, file_part) = match normalized.rsplit_once('/') {
             Some((dir, file)) if !file.is_empty() => (Some(dir), file),
@@ -320,20 +404,6 @@ impl TextureManager {
             _ => (file_part, None),
         };
 
-        let mut exts: Vec<&str> = match ext_hint.as_deref() {
-            Some("dds") => vec!["dds", "tga"],
-            Some("tga") => vec!["dds", "tga"],
-            Some(_) => vec![],
-            None => vec!["dds", "tga"],
-        };
-
-        // Preserve exact extension requests for uncommon formats.
-        if let Some(ext) = ext_hint.as_deref() {
-            if ext != "dds" && ext != "tga" && ext != "bmp" {
-                exts.push(ext);
-            }
-        }
-
         let mut candidates = Vec::new();
         let mut seen = HashSet::new();
         let mut push_unique = |candidate: String| {
@@ -343,24 +413,37 @@ impl TextureManager {
             }
         };
 
-        // First, attempt exact request (C++ name-as-provided path).
+        // C++ parity path: authored filename first.
         push_unique(normalized.to_string());
-        push_unique(requested_lower.clone());
+        if let Some(dir) = dir_part {
+            let basename = format!("{stem}{}", ext_hint.as_ref().map_or(String::new(), |ext| format!(".{ext}")));
+            if !dir.is_empty() {
+                push_unique(basename);
+            }
+        }
 
-        let dirs: Vec<&str> = match dir_part {
-            Some(dir) => vec![dir],
-            None => vec!["art/textures", "art/w3d", "art/terrain", ""],
-        };
-
-        for dir in dirs {
-            for ext in &exts {
-                let leaf = format!("{stem}.{ext}");
-                let candidate = if dir.is_empty() {
-                    leaf
-                } else {
-                    format!("{dir}/{leaf}")
-                };
-                push_unique(candidate);
+        // TextureLoader parity: when a format path fails, try DDS/TGA sibling.
+        match ext_hint.as_deref() {
+            Some("tga") => {
+                push_unique(format!("{stem}.dds"));
+                if let Some(dir) = dir_part {
+                    push_unique(format!("{dir}/{stem}.dds"));
+                }
+            }
+            Some("dds") => {
+                push_unique(format!("{stem}.tga"));
+                if let Some(dir) = dir_part {
+                    push_unique(format!("{dir}/{stem}.tga"));
+                }
+            }
+            Some(_) => {}
+            None => {
+                push_unique(format!("{stem}.dds"));
+                push_unique(format!("{stem}.tga"));
+                if let Some(dir) = dir_part {
+                    push_unique(format!("{dir}/{stem}.dds"));
+                    push_unique(format!("{dir}/{stem}.tga"));
+                }
             }
         }
 
@@ -406,6 +489,10 @@ impl TextureManager {
         // Return the newly loaded texture (or default if it couldn't be loaded)
         if let Some(tex) = self.gpu_cache.get(&texture_key) {
             tex
+        } else if self.is_known_missing_texture(texture_name) {
+            self.gpu_cache.get(&default_key).unwrap_or_else(|| {
+                panic!("Known-missing texture fallback unavailable: {}", texture_name)
+            })
         } else {
             // Fallback if texture isn't in cache even after load attempt
             error!(
@@ -448,6 +535,11 @@ impl TextureManager {
     pub fn get_raw_texture(&self, texture_name: &str) -> Option<&RawTexture> {
         let texture_key = texture_name.to_lowercase();
         self.raw_cache.get(&texture_key)
+    }
+
+    pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
+        let texture_key = texture_name.to_lowercase();
+        self.known_missing_textures.contains(&texture_key)
     }
 
     /// Create GPU texture from raw data

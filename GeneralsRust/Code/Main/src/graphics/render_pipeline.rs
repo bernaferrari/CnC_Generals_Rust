@@ -7,7 +7,7 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 #[cfg(feature = "game_client")]
 use glam028::Mat4 as GameClientMat4;
 use log::{debug, error, info, trace, warn};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ use ww3d_renderer_3d::rendering::{
     camera_system::CameraClass,
     lighting_system::{LightClass, LightEnvironmentClass},
     mesh_system::{MeshClass, MeshModelClass},
-    shader_system::shader::ShaderClass,
+    shader_system::shader::{ShaderClass, TexturingType},
     wgpu_main_renderer::{WgpuMainRenderer, WgpuMainRendererConfig},
 };
 use ww3d_renderer_3d::texture_system::{TextureClass, TextureFormat};
@@ -169,6 +169,9 @@ pub struct ForwardPass {
     renderer: WgpuMainRenderer,
     mesh_cache: HashMap<String, Arc<MeshModelClass>>,
     texture_cache: HashMap<String, Arc<TextureClass>>,
+    pending_texture_stream: VecDeque<String>,
+    queued_texture_stream: HashSet<String>,
+    fallback_texture: Option<Arc<TextureClass>>,
     camera: CameraClass,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -438,6 +441,7 @@ impl RenderPipeline {
         deferred_startup_model_load_budget: usize,
         skip_world_scene: bool,
     ) -> Result<()> {
+        let execute_started = std::time::Instant::now();
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
         if (self.frame_number + 1) % 300 == 0 {
             debug!(
@@ -464,6 +468,9 @@ impl RenderPipeline {
 
         let render_world_scene = !skip_world_scene;
 
+        let mut collect_elapsed = std::time::Duration::ZERO;
+        let mut sort_elapsed = std::time::Duration::ZERO;
+        let mut terrain_elapsed = std::time::Duration::ZERO;
         if render_world_scene {
             // Shell/menu startup needs to make visible progress without stalling first paint.
             let mut deferred_model_load_budget = if allow_sync_model_loads {
@@ -482,6 +489,7 @@ impl RenderPipeline {
             self.debug_warned_bad_mesh_transforms.clear();
 
             // Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
+            let collect_started = std::time::Instant::now();
             self.collect_render_items(
                 graphics_system,
                 game_logic,
@@ -489,6 +497,7 @@ impl RenderPipeline {
                 allow_sync_model_loads,
                 &mut deferred_model_load_budget,
             )?;
+            collect_elapsed = collect_started.elapsed();
             self.debug_last_deferred_model_load_budget = initial_deferred_model_load_budget;
             self.debug_last_deferred_model_loads = if allow_sync_model_loads {
                 0
@@ -498,11 +507,15 @@ impl RenderPipeline {
             // Removed excessive logging
 
             // Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
+            let sort_started = std::time::Instant::now();
             self.sort_render_items();
+            sort_elapsed = sort_started.elapsed();
             // Removed excessive logging
 
             static LOGGED_STARTUP_RENDER_ITEM_SUMMARY: AtomicBool = AtomicBool::new(false);
-            if !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed) {
+            if self.render_items.len() > 0
+                && !LOGGED_STARTUP_RENDER_ITEM_SUMMARY.swap(true, Ordering::Relaxed)
+            {
                 let sample_items: Vec<String> = self
                     .render_items
                     .iter()
@@ -540,9 +553,12 @@ impl RenderPipeline {
 
         #[cfg(feature = "game_client")]
         if render_world_scene {
+            let terrain_started = std::time::Instant::now();
             self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix)?;
+            terrain_elapsed = terrain_started.elapsed();
         }
 
+        let forward_started = std::time::Instant::now();
         self.forward_pass.render(
             graphics_system,
             &self.render_items,
@@ -551,6 +567,7 @@ impl RenderPipeline {
             camera_position,
             self.cached_lighting.as_ref(),
         )?;
+        let forward_elapsed = forward_started.elapsed();
 
         graphics_system.end_frame();
         if render_world_scene && !game_logic.isInShellGame() {
@@ -558,6 +575,22 @@ impl RenderPipeline {
         }
 
         // Removed excessive logging
+        let execute_elapsed = execute_started.elapsed();
+        if execute_elapsed >= std::time::Duration::from_millis(200) {
+            warn!(
+                "RenderPipeline breakdown: total={:?} collect={:?} sort={:?} terrain={:?} forward={:?} render_world_scene={} render_items={} model_missing={} deferred_loads={}/{}",
+                execute_elapsed,
+                collect_elapsed,
+                sort_elapsed,
+                terrain_elapsed,
+                forward_elapsed,
+                render_world_scene,
+                self.render_items.len(),
+                self.debug_last_model_missing,
+                self.debug_last_deferred_model_loads,
+                self.debug_last_deferred_model_load_budget
+            );
+        }
         Ok(())
     }
 
@@ -601,16 +634,31 @@ impl RenderPipeline {
                     GameClientMat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
                 let client_projection_matrix =
                     GameClientMat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
+                let terrain_render_started = std::time::Instant::now();
                 terrain_visual
                     .render(&client_view_matrix, &client_projection_matrix)
                     .map_err(|e| {
                         anyhow::anyhow!("terrain visual render state update failed: {}", e)
                     })?;
+                let terrain_render_elapsed = terrain_render_started.elapsed();
+                let terrain_update_started = std::time::Instant::now();
                 terrain_visual
                     .update()
                     .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
+                let terrain_update_elapsed = terrain_update_started.elapsed();
 
                 let chunk_count = terrain_visual.chunk_draw_count();
+                if terrain_render_elapsed + terrain_update_elapsed >= std::time::Duration::from_millis(200)
+                {
+                    warn!(
+                        "TerrainVisual breakdown: render={:?} update={:?} visible_chunks={} total_chunks={} pending_visible_chunks={}",
+                        terrain_render_elapsed,
+                        terrain_update_elapsed,
+                        terrain_visual.debug_visible_chunk_count(),
+                        terrain_visual.debug_total_chunk_count(),
+                        terrain_visual.debug_pending_visible_chunk_count()
+                    );
+                }
                 if chunk_count == 0 {
                     if !LOGGED_ZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
                         warn!("Terrain visual updated but no visible chunks were selected for drawing");
@@ -1192,6 +1240,14 @@ impl RenderPipeline {
     }
 
     fn terrain_clear_color(&self) -> wgpu::Color {
+        if std::env::var_os("GENERALS_DEBUG_CLEAR_COLOR").is_some() {
+            return wgpu::Color {
+                r: 0.0,
+                g: 0.55,
+                b: 0.0,
+                a: 1.0,
+            };
+        }
         if self.skybox_enabled {
             if let Some(color) = self
                 .cached_lighting
@@ -1326,6 +1382,73 @@ impl RenderPipeline {
             debug!("Terrain visual bridge disabled; skipping heightmap hint load.");
         }
         Ok(())
+    }
+
+    /// Load terrain visual data from already-parsed runtime terrain (C++ parity fallback when no hint path exists).
+    pub fn load_heightmap_from_runtime_terrain(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        game_logic: &GameLogic,
+    ) -> Result<bool> {
+        #[cfg(feature = "game_client")]
+        {
+            let Some(heightmap) = game_logic.terrain_heightmap_snapshot() else {
+                return Ok(false);
+            };
+            let heightmap_resolution = (heightmap.width, heightmap.height);
+
+            game_client::terrain::terrain_visual::init_terrain_visual()
+                .map_err(|e| anyhow::anyhow!("Terrain visual init failed: {}", e))?;
+
+            let source_hint = game_logic.heightmap_hint();
+            let source_hint_ref = source_hint.as_deref();
+            let world_bounds = game_logic.world_bounds();
+            let world_size = (
+                (world_bounds.1.x - world_bounds.0.x).abs().max(1.0),
+                (world_bounds.1.z - world_bounds.0.z).abs().max(1.0),
+            );
+
+            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
+                if let Some(visual) = guard.as_mut() {
+                    visual
+                        .init_gpu_resources(device.clone(), queue.clone())
+                        .map_err(|e| anyhow::anyhow!("Terrain GPU init failed: {}", e))?;
+                    visual
+                        .load_heightmap_from_data(heightmap, source_hint_ref, Some(world_size))
+                        .map_err(|e| anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e))?;
+                    self.heightmap_world_size = Some(visual.world_size());
+                    self.pending_heightmap_hint_load = false;
+
+                    if let Some(ref lighting) = self.cached_lighting {
+                        visual.set_lighting(
+                            lighting.sun_direction,
+                            lighting.sun_color,
+                            lighting.ambient_color,
+                            lighting.fog_color,
+                            lighting.fog_range,
+                        );
+                    }
+
+                    info!(
+                        "Loaded terrain visual from runtime terrain data ({}x{}, world_size=({:.1}, {:.1}))",
+                        heightmap_resolution.0,
+                        heightmap_resolution.1,
+                        world_size.0,
+                        world_size.1
+                    );
+                    return Ok(true);
+                }
+            }
+
+            return Ok(false);
+        }
+
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (device, queue, game_logic);
+            Ok(false)
+        }
     }
 
     /// World size from the loaded heightmap, if available.
@@ -1599,8 +1722,13 @@ impl RenderPipeline {
 impl ForwardPass {
     fn initialize() -> Result<Self> {
         // Initialize WW3D renderer - this may fail if engine is not initialized
+        let clear_color = if std::env::var_os("GENERALS_DEBUG_WW3D_CLEAR_COLOR").is_some() {
+            Vec4::new(0.0, 0.55, 0.0, 1.0)
+        } else {
+            Vec4::new(0.0, 0.0, 0.0, 1.0)
+        };
         let renderer_config = WgpuMainRendererConfig {
-            clear_color: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            clear_color,
             ..WgpuMainRendererConfig::default()
         };
         let renderer = WgpuMainRenderer::from_engine(renderer_config)
@@ -1618,6 +1746,9 @@ impl ForwardPass {
             renderer,
             mesh_cache: HashMap::new(),
             texture_cache: HashMap::new(),
+            pending_texture_stream: VecDeque::new(),
+            queued_texture_stream: HashSet::new(),
+            fallback_texture: None,
             camera: CameraClass::new(),
             device,
             queue,
@@ -1648,10 +1779,17 @@ impl ForwardPass {
             return Ok(());
         }
 
+        // C++ parity: never stream unlimited textures inside a single frame.
+        // Legacy TextureLoader throttles texture application work per frame.
+        self.stream_pending_textures(1);
+
         // Begin frame - initialize render state
         self.renderer
             .begin_frame()
             .map_err(|e| anyhow::anyhow!("WW3D renderer begin_frame failed: {e:?}"))?;
+
+        let mut queued_count_total = 0usize;
+        let mut queue_error_total = 0usize;
 
         // Scope to ensure mutex lock is released before end_frame
         {
@@ -1681,6 +1819,8 @@ impl ForwardPass {
             self.camera.set_position(camera_position);
             renderer.set_camera(self.camera.clone());
             renderer.set_light_environment(Self::build_light_environment(lighting));
+            Self::log_visibility_probe(render_items, view_matrix, projection_matrix, camera_position);
+            Self::log_material_probe(render_items);
 
             if render_items.is_empty() {
                 trace!("ForwardPass::render - presenting empty scene frame");
@@ -1689,11 +1829,15 @@ impl ForwardPass {
             // Queue opaque + transparent geometry for rendering
             let mut queued_count = 0;
             let mut error_count = 0;
+            let mut hidden_count = 0usize;
             let renderable_passes = [RenderPass::ForwardOpaque, RenderPass::ForwardTransparent];
 
             for item in render_items {
                 if !renderable_passes.contains(&item.render_pass) {
                     continue;
+                }
+                if item.fow_visibility.visibility_alpha <= 0.01 {
+                    hidden_count += 1;
                 }
 
                 // Prepare mesh instance - handles missing models gracefully
@@ -1722,11 +1866,14 @@ impl ForwardPass {
             }
 
             trace!(
-                "ForwardPass::render - queued {}/{} opaque+transparent items ({} errors)",
+                "ForwardPass::render - queued {}/{} opaque+transparent items ({} errors, {} hidden-by-alpha)",
                 queued_count,
                 render_items.len(),
-                error_count
+                error_count,
+                hidden_count
             );
+            queued_count_total = queued_count;
+            queue_error_total = error_count;
         } // Mutex lock released here
 
         // End frame - submit queued work to GPU
@@ -1734,22 +1881,222 @@ impl ForwardPass {
             .end_frame()
             .map_err(|e| anyhow::anyhow!("WW3D renderer end_frame failed: {e:?}"))?;
 
+        let stats = self.renderer.stats();
+        if queued_count_total > 0 {
+            debug!(
+                "ForwardPass presented: queued={} queue_errors={} draw_calls={} meshes={} tris={}",
+                queued_count_total,
+                queue_error_total,
+                stats.draw_calls,
+                stats.meshes_rendered,
+                stats.triangles_rendered
+            );
+        }
+
         Ok(())
     }
 
     fn build_light_environment(lighting: Option<&CachedLighting>) -> Option<LightEnvironmentClass> {
-        let lighting = lighting?;
         let mut env = LightEnvironmentClass::new();
-        if let Some(ambient) = lighting.ambient_color {
-            env.set_ambient(Vec3::from_array(ambient));
-        }
-        if let (Some(direction), Some(color)) = (lighting.sun_direction, lighting.sun_color) {
-            let mut light =
-                LightClass::directional(Vec3::from_array(direction), Vec3::from_array(color), 1.0);
-            light.enabled = true;
-            env.add_light(Arc::new(Mutex::new(light)));
+        let mut using_fallback = false;
+
+        let ambient = lighting
+            .and_then(|v| v.ambient_color)
+            .unwrap_or_else(|| {
+                using_fallback = true;
+                [0.30, 0.30, 0.30]
+            });
+        env.set_ambient(Vec3::from_array(ambient));
+
+        let (direction, color) = match lighting {
+            Some(v) => match (v.sun_direction, v.sun_color) {
+                (Some(direction), Some(color)) => (direction, color),
+                _ => {
+                    using_fallback = true;
+                    ([-0.5, -1.0, -0.5], [1.0, 0.9, 0.8])
+                }
+            },
+            None => {
+                using_fallback = true;
+                ([-0.5, -1.0, -0.5], [1.0, 0.9, 0.8])
+            }
+        };
+
+        let direction = Vec3::from_array(direction).normalize_or_zero();
+        let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
+        light.enabled = true;
+        env.add_light(Arc::new(Mutex::new(light)));
+
+        static LOGGED_FALLBACK_LIGHTING: AtomicBool = AtomicBool::new(false);
+        if using_fallback && !LOGGED_FALLBACK_LIGHTING.swap(true, Ordering::Relaxed) {
+            warn!(
+                "ForwardPass lighting metadata unavailable/incomplete; using fallback ambient+sun lighting"
+            );
         }
         Some(env)
+    }
+
+    fn log_visibility_probe(
+        render_items: &[RenderItem],
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+        camera_position: Vec3,
+    ) {
+        static PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let frame = PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if frame % 120 != 0 {
+            return;
+        }
+
+        let sample_limit = render_items.len().min(512);
+        let view_proj = *projection_matrix * *view_matrix;
+        let mut finite = 0usize;
+        let mut in_front = 0usize;
+        let mut in_ndc = 0usize;
+        let mut ndc_samples: Vec<String> = Vec::new();
+
+        for item in render_items.iter().take(sample_limit) {
+            let world = item.world_position.extend(1.0);
+            let clip = view_proj * world;
+            if !clip.x.is_finite()
+                || !clip.y.is_finite()
+                || !clip.z.is_finite()
+                || !clip.w.is_finite()
+            {
+                continue;
+            }
+            finite += 1;
+            if clip.w <= 0.0 {
+                continue;
+            }
+            in_front += 1;
+
+            let inv_w = 1.0 / clip.w;
+            let ndc = clip * inv_w;
+            if ndc.x >= -1.2
+                && ndc.x <= 1.2
+                && ndc.y >= -1.2
+                && ndc.y <= 1.2
+                && ndc.z >= -0.2
+                && ndc.z <= 1.2
+            {
+                in_ndc += 1;
+                if ndc_samples.len() < 3 {
+                    ndc_samples.push(format!(
+                        "{} ndc=({:.2},{:.2},{:.2}) world=({:.1},{:.1},{:.1})",
+                        item.model_name,
+                        ndc.x,
+                        ndc.y,
+                        ndc.z,
+                        item.world_position.x,
+                        item.world_position.y,
+                        item.world_position.z
+                    ));
+                }
+            }
+        }
+
+        debug!(
+            "VisibilityProbe frame={} items={} sampled={} finite={} in_front={} in_ndc={} cam=({:.1},{:.1},{:.1}) sample={:?}",
+            frame,
+            render_items.len(),
+            sample_limit,
+            finite,
+            in_front,
+            in_ndc,
+            camera_position.x,
+            camera_position.y,
+            camera_position.z,
+            ndc_samples
+        );
+
+        if sample_limit > 0 && in_front > 0 && in_ndc == 0 {
+            warn!(
+                "VisibilityProbe anomaly: no items in NDC despite in_front={} sampled={} (cam=({:.1},{:.1},{:.1})) sample={:?}",
+                in_front,
+                sample_limit,
+                camera_position.x,
+                camera_position.y,
+                camera_position.z,
+                ndc_samples
+            );
+        }
+    }
+
+    fn log_material_probe(render_items: &[RenderItem]) {
+        static MATERIAL_PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let frame = MATERIAL_PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if frame % 120 != 0 {
+            return;
+        }
+
+        let sample_limit = render_items.len().min(512);
+        let mut textured = 0usize;
+        let mut near_black_diffuse = 0usize;
+        let mut near_zero_opacity = 0usize;
+        let mut emissive = 0usize;
+        let mut samples: Vec<String> = Vec::new();
+
+        for item in render_items.iter().take(sample_limit) {
+            let mat = &item.material;
+            if mat.texture_name.is_some() {
+                textured += 1;
+            }
+            let max_diffuse = mat
+                .diffuse_color
+                .x
+                .max(mat.diffuse_color.y)
+                .max(mat.diffuse_color.z);
+            if max_diffuse <= 0.02 {
+                near_black_diffuse += 1;
+            }
+            if mat.opacity <= 0.02 {
+                near_zero_opacity += 1;
+            }
+            if mat.emissive_color.length_squared() > 0.0001 {
+                emissive += 1;
+            }
+
+            if samples.len() < 3 {
+                samples.push(format!(
+                    "{} tex={:?} diffuse=({:.2},{:.2},{:.2}) opacity={:.2} blend={:?}",
+                    mat.name,
+                    mat.texture_name,
+                    mat.diffuse_color.x,
+                    mat.diffuse_color.y,
+                    mat.diffuse_color.z,
+                    mat.opacity,
+                    mat.blend_mode
+                ));
+            }
+        }
+
+        debug!(
+            "MaterialProbe frame={} items={} sampled={} textured={} black_diffuse={} zero_opacity={} emissive={} sample={:?}",
+            frame,
+            render_items.len(),
+            sample_limit,
+            textured,
+            near_black_diffuse,
+            near_zero_opacity,
+            emissive,
+            samples
+        );
+
+        if sample_limit > 0
+            && (near_zero_opacity * 100 / sample_limit >= 90
+                || near_black_diffuse * 100 / sample_limit >= 90)
+        {
+            warn!(
+                "MaterialProbe anomaly: mostly non-visible materials (sampled={} textured={} black_diffuse={} zero_opacity={} emissive={}) sample={:?}",
+                sample_limit,
+                textured,
+                near_black_diffuse,
+                near_zero_opacity,
+                emissive,
+                samples
+            );
+        }
     }
 
     fn prepare_mesh_instance(
@@ -1767,6 +2114,13 @@ impl ForwardPass {
         mesh.model = Some(mesh_model);
         mesh.alpha_override = item.fow_visibility.visibility_alpha;
         mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
+        if std::env::var_os("GENERALS_FORCE_TWO_SIDED").is_some() {
+            static LOGGED_FORCE_TWO_SIDED: AtomicBool = AtomicBool::new(false);
+            if !LOGGED_FORCE_TWO_SIDED.swap(true, Ordering::Relaxed) {
+                warn!("GENERALS_FORCE_TWO_SIDED enabled: forcing two-sided pipelines for mesh diagnostics");
+            }
+            mesh.is_decal_instance = true;
+        }
         mesh.update_cached_bounding_volumes();
 
         Ok(Some(Arc::new(mesh)))
@@ -1869,6 +2223,40 @@ impl ForwardPass {
                 }
             })
             .collect();
+
+        if mesh.has_explicit_vertex_colors && !mesh.vertices.is_empty() {
+            let mut color_sum = Vec4::ZERO;
+            for vertex in &mesh.vertices {
+                color_sum += Vec4::new(
+                    vertex.color[0],
+                    vertex.color[1],
+                    vertex.color[2],
+                    vertex.color[3],
+                );
+            }
+            let inv = 1.0 / mesh.vertices.len() as f32;
+            let avg = color_sum * inv;
+            if avg.x.max(avg.y).max(avg.z) <= 0.05 {
+                static LOW_VERTEX_COLOR_WARNINGS: AtomicUsize = AtomicUsize::new(0);
+                let count = LOW_VERTEX_COLOR_WARNINGS.fetch_add(1, Ordering::Relaxed);
+                if count < 20 {
+                    warn!(
+                        "Mesh '{}' has explicit vertex colors but near-black average ({:.3},{:.3},{:.3},{:.3}); model '{}'",
+                        mesh.name, avg.x, avg.y, avg.z, avg.w, cache_key
+                    );
+                }
+            } else {
+                static EXPLICIT_VERTEX_COLOR_DEBUGS: AtomicUsize = AtomicUsize::new(0);
+                let count = EXPLICIT_VERTEX_COLOR_DEBUGS.fetch_add(1, Ordering::Relaxed);
+                if count < 8 {
+                    debug!(
+                        "Mesh '{}' explicit vertex-color average ({:.3},{:.3},{:.3},{:.3})",
+                        mesh.name, avg.x, avg.y, avg.z, avg.w
+                    );
+                }
+            }
+        }
+
         model.stage_texture_coords = mesh
             .stage_texcoords
             .iter()
@@ -2077,7 +2465,28 @@ impl ForwardPass {
         } else {
             pass.set_shader(Self::shader_for_material(&mesh.material));
         }
-        self.assign_stage_textures_for_pass(&mut pass, mesh, pass_index)?;
+
+        if pass.shader.get_color_mask()
+            == ww3d_renderer_3d::rendering::shader_system::shader::ColorMaskType::Disable
+        {
+            static DISABLED_COLOR_MASK_WARNINGS: AtomicUsize = AtomicUsize::new(0);
+            let count = DISABLED_COLOR_MASK_WARNINGS.fetch_add(1, Ordering::Relaxed);
+            if count < 40 {
+                warn!(
+                    "Shader color mask disabled for mesh='{}' pass={} (shader_bits=0x{:08X})",
+                    mesh.name,
+                    pass_index,
+                    pass.shader.get_bits()
+                );
+            }
+        }
+
+        let has_bound_texture = self.assign_stage_textures_for_pass(&mut pass, mesh, pass_index)?;
+        if !has_bound_texture && pass.shader.get_texturing() != TexturingType::Disable {
+            // C++ parity fallback: if no texture resource resolved, don't keep a texture-enabled
+            // shader state that would sample black and hide otherwise valid geometry.
+            pass.shader.set_texturing_enable(false);
+        }
         Self::assign_vertex_colors_for_pass(&mut pass, mesh, pass_index);
         Self::assign_mapper_for_pass(&mut pass, mesh, pass_index);
         pass.pass_index = pass_index;
@@ -2109,7 +2518,7 @@ impl ForwardPass {
         pass: &mut MaterialPassClass,
         mesh: &crate::assets::models::W3DMesh,
         pass_index: usize,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut assigned = false;
         if let Some(stage_sets) = mesh.per_pass_stage_texture_names.get(pass_index) {
             for (stage, names) in stage_sets.iter().enumerate() {
@@ -2143,8 +2552,9 @@ impl ForwardPass {
             let channel = Self::stage_uv_channel_for(mesh, pass_index, 0);
             pass.set_stage_uv_channel(0, channel);
             self.apply_base_texture(pass, &mesh.material)?;
+            assigned = pass.get_texture(0).is_some();
         }
-        Ok(())
+        Ok(assigned)
     }
 
     fn stage_uv_channel_for(
@@ -2288,33 +2698,23 @@ impl ForwardPass {
             return Ok(Some(texture.clone()));
         }
 
-        let texture = match self.create_texture_from_assets(texture_name) {
-            Ok(texture) => texture,
-            Err(err) => {
-                warn!("Failed to create texture '{}': {}", texture_name, err);
-                self.create_fallback_texture(texture_name)?
-            }
-        };
+        if self.is_known_missing_texture(texture_name) {
+            let fallback = self.ensure_fallback_texture()?;
+            self.texture_cache.insert(cache_key, fallback.clone());
+            return Ok(Some(fallback));
+        }
 
-        self.texture_cache.insert(cache_key, texture.clone());
-        Ok(Some(texture))
+        self.queue_texture_stream(texture_name);
+        Ok(Some(self.ensure_fallback_texture()?))
     }
 
-    fn create_texture_from_assets(&self, texture_name: &str) -> Result<Arc<TextureClass>> {
+    fn create_texture_from_cached_assets(&self, texture_name: &str) -> Result<Arc<TextureClass>> {
         let asset_manager =
             get_asset_manager().ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
-        let mut asset_manager = asset_manager
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;
+        let asset_manager = asset_manager
+            .try_lock()
+            .map_err(|_| anyhow::anyhow!("Asset manager busy"))?;
         let texture_key = texture_name.to_lowercase();
-
-        if asset_manager.get_raw_texture(&texture_key).is_none() {
-            let _ = asset_manager.load_texture_blocking(
-                self.device.as_ref(),
-                self.queue.as_ref(),
-                texture_name,
-            );
-        }
 
         let raw = asset_manager
             .get_raw_texture(&texture_key)
@@ -2322,9 +2722,93 @@ impl ForwardPass {
         self.build_texture(texture_name, raw)
     }
 
+    fn is_known_missing_texture(&self, texture_name: &str) -> bool {
+        let Some(asset_manager_arc) = get_asset_manager() else {
+            return false;
+        };
+        let Ok(asset_manager) = asset_manager_arc.try_lock() else {
+            return false;
+        };
+        asset_manager.is_known_missing_texture(texture_name)
+    }
+
+    fn queue_texture_stream(&mut self, texture_name: &str) {
+        let key = texture_name.to_lowercase();
+        if self.texture_cache.contains_key(&key) || self.queued_texture_stream.contains(&key) {
+            return;
+        }
+
+        self.pending_texture_stream.push_back(texture_name.to_string());
+        self.queued_texture_stream.insert(key);
+    }
+
+    fn stream_pending_textures(&mut self, per_frame_budget: usize) {
+        if per_frame_budget == 0 || self.pending_texture_stream.is_empty() {
+            return;
+        }
+
+        for _ in 0..per_frame_budget {
+            let Some(texture_name) = self.pending_texture_stream.pop_front() else {
+                break;
+            };
+            let cache_key = texture_name.to_lowercase();
+            self.queued_texture_stream.remove(&cache_key);
+
+            if self.texture_cache.contains_key(&cache_key) {
+                continue;
+            }
+
+            if self.is_known_missing_texture(&texture_name) {
+                if let Ok(fallback) = self.ensure_fallback_texture() {
+                    self.texture_cache.insert(cache_key, fallback);
+                }
+                continue;
+            }
+
+            if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
+                self.texture_cache.insert(cache_key, texture);
+                continue;
+            }
+
+            let Some(asset_manager_arc) = get_asset_manager() else {
+                self.queue_texture_stream(&texture_name);
+                continue;
+            };
+            let Ok(mut asset_manager) = asset_manager_arc.try_lock() else {
+                self.queue_texture_stream(&texture_name);
+                continue;
+            };
+            let _ = asset_manager.prime_texture_raw_blocking(&texture_name);
+            drop(asset_manager);
+
+            if self.is_known_missing_texture(&texture_name) {
+                if let Ok(fallback) = self.ensure_fallback_texture() {
+                    self.texture_cache.insert(cache_key, fallback);
+                }
+                continue;
+            }
+
+            if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
+                self.texture_cache
+                    .insert(texture_name.to_lowercase(), texture);
+            } else {
+                self.queue_texture_stream(&texture_name);
+            }
+        }
+    }
+
     fn create_fallback_texture(&self, texture_name: &str) -> Result<Arc<TextureClass>> {
         let raw = RawTexture::solid_color(texture_name.to_string(), 4, 4, [255, 0, 255, 255]);
         self.build_texture(&raw.name, &raw)
+    }
+
+    fn ensure_fallback_texture(&mut self) -> Result<Arc<TextureClass>> {
+        if let Some(texture) = &self.fallback_texture {
+            return Ok(texture.clone());
+        }
+        let texture = self.create_fallback_texture("__missing_texture__")?;
+        self.fallback_texture = Some(texture.clone());
+        Ok(texture)
     }
 
     fn build_texture(&self, texture_name: &str, raw: &RawTexture) -> Result<Arc<TextureClass>> {
