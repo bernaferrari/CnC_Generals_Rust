@@ -1090,14 +1090,30 @@ impl CnCGameEngine {
             .and_then(|meta| meta.initial_camera_position);
         let metadata_target = metadata_initial_camera.map(|pos| Vec2::new(pos.x, pos.y));
 
-        let team_target = game_logic
-            .get_player(current_player_id)
-            .map(|player| player.team)
-            .and_then(|team| game_logic.team_base_position(team));
+        let clamp_focus_to_world = |focus: Vec2| {
+            Vec2::new(
+                focus.x.clamp(world_min.x, world_max.x),
+                focus.y.clamp(world_min.z, world_max.z),
+            )
+        };
+        let focus_2d = if game_logic.isInShellGame() {
+            // Match C++ W3DView::init() shell startup seed before script-driven camera motion.
+            let default_shell_focus = Vec2::new(
+                87.0 * gamelogic::common::MAP_XY_FACTOR,
+                77.0 * gamelogic::common::MAP_XY_FACTOR,
+            );
+            clamp_focus_to_world(default_shell_focus)
+        } else {
+            let team_target = game_logic
+                .get_player(current_player_id)
+                .map(|player| player.team)
+                .and_then(|team| game_logic.team_base_position(team));
 
-        let focus_2d = metadata_target
-            .or(team_target.map(|pos| Vec2::new(pos.x, pos.z)))
-            .unwrap_or(Vec2::new(world_center.x, world_center.z));
+            let fallback_focus = metadata_target
+                .or(team_target.map(|pos| Vec2::new(pos.x, pos.z)))
+                .unwrap_or(Vec2::new(world_center.x, world_center.z));
+            clamp_focus_to_world(fallback_focus)
+        };
 
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.
@@ -1279,9 +1295,9 @@ impl CnCGameEngine {
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
                     if start_in_menu {
-                        if map_to_load.is_some() {
-                            game_logic.start_new_game(GameMode::Shell);
-                        }
+                        game_logic.start_new_game(GameMode::Shell);
+                    } else if map_requested_from_cli {
+                        game_logic.start_new_game(GameMode::SinglePlayer);
                     } else {
                         game_logic.start_new_game(GameMode::Skirmish);
                     }
@@ -1314,28 +1330,7 @@ impl CnCGameEngine {
                                 );
                                 game_logic.clearGameData();
                             } else {
-                                let fallback_map = DEFAULT_SKIRMISH_MAP;
-                                warn!(
-                                    "Failed to load map '{}', falling back to default map '{}'",
-                                    map_to_load, fallback_map
-                                );
-                                Self::emit_startup_load_progress(
-                                    &sender,
-                                    0.45,
-                                    "Retrying with default map",
-                                );
-                                if map_to_load != fallback_map
-                                    && game_logic.load_map_with_progress(
-                                        fallback_map,
-                                        |progress, phase| {
-                                            Self::emit_startup_load_progress(
-                                                &sender, progress, phase,
-                                            );
-                                        },
-                                    )
-                                {
-                                    loaded_map_name = Some(fallback_map.to_string());
-                                }
+                                return Err(format!("Failed to load startup map '{}'", map_to_load));
                             }
                         } else {
                             loaded_map_name = Some(map_to_load.clone());
@@ -1738,7 +1733,7 @@ impl CnCGameEngine {
         let map_to_load = if start_in_menu {
             startup_shell_map
         } else {
-            startup_cli_map.or_else(|| Some(DEFAULT_SKIRMISH_MAP.to_string()))
+            startup_cli_map
         };
         let startup_load_state = Self::spawn_startup_map_load(
             start_in_menu,
@@ -1943,11 +1938,27 @@ impl CnCGameEngine {
         )
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+        let initial_file_override = Self::command_line_option_value_case_insensitive(
+            command_line,
+            "file",
+        )
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
         if let Some(handle) = get_subsystem_manager() {
             let mut manager = handle.lock();
             if let Some(subsystem) = manager.get_mut::<GlobalDataSubsystem>() {
                 if let Some(global) = subsystem.get_global_data_mut() {
+                    if let Some(initial_file) = initial_file_override.as_ref() {
+                        global.initial_file = initial_file.clone();
+                        if initial_file.to_ascii_lowercase().ends_with(".map") {
+                            // C++ GameEngine::init initial-file startup path.
+                            global.shell_map_on = false;
+                            global.play_intro = false;
+                            global.after_intro = true;
+                            global.pending_file = initial_file.clone();
+                        }
+                    }
                     if quick_start {
                         // C++ parseQuickStart: disable intro and shell map startup.
                         global.play_intro = false;
