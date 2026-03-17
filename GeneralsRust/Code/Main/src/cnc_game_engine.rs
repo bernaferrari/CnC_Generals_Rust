@@ -82,54 +82,9 @@ mod tests {
     use super::{CnCGameEngine, GameState};
 
     #[test]
-    fn startup_deferred_budget_menu_has_minimum_without_startup_frame() {
+    fn startup_deferred_budget_is_disabled() {
         let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
-        assert_eq!(budget, 4);
-    }
-
-    #[test]
-    fn startup_deferred_budget_menu_tapers_across_startup_age() {
-        let early =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 120);
-        let mid =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 170);
-        let late =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 400);
-        assert!(early >= mid);
-        assert!(mid >= late);
-        assert!(late >= 2);
-    }
-
-    #[test]
-    fn startup_deferred_budget_keeps_loading_and_menu_progressing() {
-        let loading_early =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Loading, Some(100), 110);
-        let menu_early =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 110);
-        assert!(loading_early >= menu_early);
-        assert!(menu_early > 0);
-    }
-
-    #[test]
-    fn startup_deferred_budget_disabled_during_playing() {
-        let budget =
-            CnCGameEngine::startup_deferred_model_load_budget(GameState::Playing, Some(0), 1000);
         assert_eq!(budget, 0);
-    }
-
-    #[test]
-    fn menu_caustic_warmup_waits_for_stable_menu_frames() {
-        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(
-            None, 200
-        ));
-        assert!(!CnCGameEngine::should_trigger_menu_caustic_warmup(
-            Some(100),
-            219
-        ));
-        assert!(CnCGameEngine::should_trigger_menu_caustic_warmup(
-            Some(100),
-            220
-        ));
     }
 
     #[test]
@@ -948,77 +903,14 @@ impl CnCGameEngine {
         startup_frame: Option<u64>,
         current_logic_frame: u64,
     ) -> usize {
-        if !matches!(current_state, GameState::Menu | GameState::Loading) {
-            return 0;
-        }
-
-        let startup_age = startup_frame
-            .map(|start| current_logic_frame.saturating_sub(start))
-            .unwrap_or(0);
-
-        match current_state {
-            // Keep loading moving briskly so shell scene is complete when menu becomes visible.
-            GameState::Loading => {
-                if startup_age < 120 {
-                    8
-                } else {
-                    4
-                }
-            }
-            // Menu still receives a small budget so background shell assets don't trickle forever.
-            GameState::Menu => {
-                if startup_age < 180 {
-                    4
-                } else {
-                    2
-                }
-            }
-            _ => 0,
-        }
-    }
-
-    fn should_trigger_menu_caustic_warmup(
-        startup_frame: Option<u64>,
-        current_logic_frame: u64,
-    ) -> bool {
-        startup_frame
-            .map(|start| {
-                current_logic_frame.saturating_sub(start) >= Self::MENU_CAUSTIC_WARMUP_DELAY_FRAMES
-            })
-            .unwrap_or(false)
+        let _ = current_state;
+        let _ = startup_frame;
+        let _ = current_logic_frame;
+        0
     }
 
     fn maybe_trigger_deferred_caustic_warmup(&mut self) {
-        let should_start = match self.current_state {
-            GameState::Playing => true,
-            GameState::Menu => Self::should_trigger_menu_caustic_warmup(
-                self.shell_start_frame(),
-                self.current_startup_logic_frame(),
-            ),
-            _ => false,
-        };
-        if !should_start {
-            return;
-        }
-
-        if self
-            .last_caustic_warmup_attempt
-            .is_some_and(|last| last.elapsed() < Self::CAUSTIC_WARMUP_RETRY_INTERVAL)
-        {
-            return;
-        }
-
-        self.last_caustic_warmup_attempt = Some(Instant::now());
-        let queued = crate::assets::manager::warmup_caustic_textures_async(
-            self.graphics_system.device_arc(),
-            self.graphics_system.queue_arc(),
-        );
-        if queued {
-            info!(
-                "Queued deferred caustic texture warmup (state={:?})",
-                self.current_state
-            );
-        }
+        let _ = self;
     }
 
     #[cfg(feature = "game_client")]
@@ -1423,62 +1315,9 @@ impl CnCGameEngine {
         }
 
         if result.start_in_menu {
-            if self.game_logic.isInShellGame() && self.game_logic.isInGame() {
-                self.update_shell_loading_progress(0.98, Some("Prewarming shell scene"));
-                let queued_models = Self::collect_shell_scene_models_for_prewarm(
-                    &self.game_logic,
-                    self.camera_target,
-                    120,
-                );
-
-                self.pending_shell_model_prewarm =
-                    Self::prewarm_shell_scene_models_blocking(&mut self.graphics_system, queued_models);
-                self.last_shell_prewarm_log = None;
-                self.shell_prewarm_completion_logged = self.pending_shell_model_prewarm.is_empty();
-                info!(
-                    "Shell startup model prewarm complete: pending_models_for_retry={}",
-                    self.pending_shell_model_prewarm.len()
-                );
-
-                let texture_names = Self::collect_cached_model_texture_names(&self.graphics_system);
-                let mut seen = HashSet::new();
-                let unique_textures: Vec<String> = texture_names
-                    .into_iter()
-                    .filter(|name| seen.insert(name.to_ascii_lowercase()))
-                    .collect();
-
-                if !unique_textures.is_empty() {
-                    self.update_shell_loading_progress(0.99, Some("Prewarming shell textures"));
-                    match self
-                        .render_pipeline
-                        .prewarm_textures_blocking(unique_textures.iter().map(|name| name.as_str()))
-                    {
-                        Ok(stats) => {
-                            info!(
-                                "Shell startup texture prewarm: requested={} resolved={} missing={} cache_hits={} queued_remaining={}",
-                                stats.requested,
-                                stats.resolved,
-                                stats.missing,
-                                stats.cache_hits,
-                                stats.queued_remaining
-                            );
-                        }
-                        Err(err) => {
-                            warn!("Shell startup texture prewarm failed: {}", err);
-                        }
-                    }
-                }
-
-                // Prime subsystem one-time work before the UI transition so first visible menu
-                // frames do not stall on terrain/UI cache setup.
-                self.update_shell_loading_progress(0.995, Some("Priming shell subsystems"));
-                self.prime_subsystems_before_menu_transition();
-            } else {
-                self.pending_shell_model_prewarm.clear();
-                self.last_shell_prewarm_log = None;
-                self.shell_prewarm_completion_logged = false;
-                info!("Entering menu without a running shell-map scene");
-            }
+            self.pending_shell_model_prewarm.clear();
+            self.last_shell_prewarm_log = None;
+            self.shell_prewarm_completion_logged = true;
 
             self.ui_manager.transition_to_screen(Screen::MainMenu);
             self.set_runtime_ui_state_projection(UISystemState::MainMenu);
@@ -2871,8 +2710,6 @@ impl CnCGameEngine {
             return;
         }
 
-        self.maybe_trigger_deferred_caustic_warmup();
-
         let dt = dt.max(0.0);
         let visual_dt = dt * self.game_logic.visual_speed_multiplier().max(0.0);
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
@@ -2881,7 +2718,6 @@ impl CnCGameEngine {
         match self.current_state {
             GameState::Menu => {
                 self.cleanup_sound_effects();
-                self.pump_shell_scene_model_prewarm();
                 if self.game_logic.isInShellGame() && !self.game_paused {
                     let shell_update_started = Instant::now();
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
@@ -3243,15 +3079,10 @@ impl CnCGameEngine {
                 .unwrap_or(0.0)
                 * self.game_logic.visual_speed_multiplier().max(0.0)
         };
-        // Keep shell/menu rendering deterministic: avoid heavy synchronous model loads in
-        // render() and rely on explicit startup/menu prewarm paths instead.
-        let allow_sync_model_loads =
-            matches!(self.current_state, GameState::Playing | GameState::Paused);
-        let deferred_startup_model_load_budget = Self::startup_deferred_model_load_budget(
-            self.current_state,
-            self.shell_start_frame(),
-            self.current_startup_logic_frame(),
-        );
+        // C++ loads shell/menu assets synchronously when they are needed; do not trickle
+        // startup loads through a frame budget.
+        let allow_sync_model_loads = true;
+        let deferred_startup_model_load_budget = 0usize;
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
         let render_pipeline_started = Instant::now();
         self.render_pipeline.execute(
@@ -6324,149 +6155,6 @@ pub async fn run_cnc_game(
 }
 
 impl CnCGameEngine {
-    fn collect_shell_scene_models_for_prewarm(
-        game_logic: &GameLogic,
-        camera_target: Vec3,
-        max_unique_models: usize,
-    ) -> VecDeque<String> {
-        use std::collections::HashSet;
-
-        let mut candidates: Vec<(f32, String)> = game_logic
-            .get_objects()
-            .values()
-            .filter(|object| object.is_alive())
-            .filter_map(|object| {
-                let model_name = object.get_template().get_model_name();
-                if model_name.is_empty() {
-                    return None;
-                }
-
-                Some((
-                    object.get_position().distance_squared(camera_target),
-                    model_name.to_string(),
-                ))
-            })
-            .collect();
-
-        candidates.sort_by(|a, b| {
-            a.0.partial_cmp(&b.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.1.cmp(&b.1))
-        });
-
-        let mut selected = Vec::new();
-        let mut seen = HashSet::new();
-        for (_, model_name) in candidates {
-            if seen.insert(model_name.clone()) {
-                selected.push(model_name);
-            }
-            if selected.len() >= max_unique_models {
-                break;
-            }
-        }
-
-        if !selected.is_empty() {
-            info!(
-                "Queued {} shell-scene models for incremental startup prewarm",
-                selected.len()
-            );
-        }
-
-        selected.into()
-    }
-
-    fn prewarm_shell_scene_models_blocking(
-        graphics_system: &mut GraphicsSystem,
-        mut queued_models: VecDeque<String>,
-    ) -> VecDeque<String> {
-        let total_models = queued_models.len();
-        if total_models == 0 {
-            return VecDeque::new();
-        }
-
-        let mut loaded = 0usize;
-        let mut retry_queue = VecDeque::new();
-        while let Some(model_name) = queued_models.pop_front() {
-            match Self::load_model_into_graphics_system_blocking(graphics_system, &model_name) {
-                Ok(_) => loaded += 1,
-                Err(err) => {
-                    warn!(
-                        "Shell startup blocking prewarm failed for '{}': {}",
-                        model_name, err
-                    );
-                    retry_queue.push_back(model_name);
-                }
-            }
-        }
-
-        info!(
-            "Shell startup blocking prewarm complete: loaded={}, retries={}, requested={}",
-            loaded,
-            retry_queue.len(),
-            total_models
-        );
-
-        retry_queue
-    }
-
-    fn collect_cached_model_texture_names(graphics_system: &GraphicsSystem) -> Vec<String> {
-        let mut texture_names: HashSet<String> = HashSet::new();
-
-        for (_, model) in graphics_system.get_all_models() {
-            Self::collect_material_textures(model, &mut texture_names);
-
-            for mesh in &model.meshes {
-                if let Some(ref texture_name) = mesh.material.texture_name {
-                    if Self::is_valid_texture_name(texture_name) {
-                        texture_names.insert(texture_name.clone());
-                    }
-                }
-
-                for (pass_idx, stage_sets) in mesh.per_pass_stage_texture_names.iter().enumerate() {
-                    for (stage_idx, names) in stage_sets.iter().enumerate() {
-                        let mut has_explicit_stage_name = false;
-                        for texture_name in names {
-                            if Self::is_valid_texture_name(texture_name) {
-                                texture_names.insert(texture_name.clone());
-                                has_explicit_stage_name = true;
-                            }
-                        }
-
-                        if !has_explicit_stage_name {
-                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
-                                if Self::is_valid_texture_name(&fallback) {
-                                    texture_names.insert(fallback);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if mesh.per_pass_stage_texture_names.is_empty()
-                    && !mesh.per_pass_stage_texture_ids.is_empty()
-                {
-                    for (pass_idx, stages) in mesh.per_pass_stage_texture_ids.iter().enumerate() {
-                        for stage_idx in 0..stages.len() {
-                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
-                                if Self::is_valid_texture_name(&fallback) {
-                                    texture_names.insert(fallback);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut ordered: Vec<String> = texture_names.into_iter().collect();
-        ordered.sort_by(|a, b| {
-            a.to_ascii_lowercase()
-                .cmp(&b.to_ascii_lowercase())
-                .then_with(|| a.cmp(b))
-        });
-        ordered
-    }
-
     /// Preload all models used by game objects into the graphics system
     async fn preload_all_models(
         graphics_system: &mut GraphicsSystem,
@@ -6536,22 +6224,12 @@ impl CnCGameEngine {
                 failed_count
             );
 
-            // Small delay between models like working test
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         }
 
         println!(
             "✅ Loaded {} models ({} failed)",
             loaded_count, failed_count
         );
-
-        // Preload textures using WW3D Asset Manager definitions from INI files
-        // This gets actual texture names from object definitions
-        info!("🎨 Preloading textures from WW3D Asset Manager definitions...");
-        if let Err(e) = Self::preload_ww3d_textures(graphics_system).await {
-            warn!("⚠️ Failed to preload WW3D textures: {}", e);
-            // Continue anyway - textures will use fallback
-        }
 
         Ok(())
     }
@@ -6650,31 +6328,18 @@ impl CnCGameEngine {
         );
 
         if texture_names.is_empty() {
-            log::warn!("⚠️  TEXTURE: No material names found - using fallback model name approach");
-
-            // Fallback: Try using model names as texture names (common in C&C)
-            for (model_name, _) in graphics_system.get_all_models() {
-                if !model_name.is_empty() && model_name != "cube" {
-                    texture_names.insert(model_name.clone());
-                    log::debug!("  📄 Fallback: Using model name as texture: {}", model_name);
-                }
-            }
-
-            if texture_names.is_empty() {
-                log::warn!("⚠️  TEXTURE: Still no texture candidates - skipping preload");
-                return Ok(());
-            }
+            log::warn!("⚠️  TEXTURE: No material names found - skipping preload");
+            return Ok(());
         }
 
-        // Load each texture with improved safety measures
         if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
             let mut loaded_count = 0;
             let mut failed_count = 0;
-            let total_textures = texture_names.len().min(20); // Limit to first 20 textures to prevent overwhelming
-            let texture_names: Vec<_> = texture_names.iter().take(20).collect();
+            let total_textures = texture_names.len();
+            let texture_names: Vec<_> = texture_names.iter().collect();
 
             log::info!(
-                "🎨 TEXTURE: Starting preload of {} textures (limited for safety)",
+                "🎨 TEXTURE: Starting preload of {} textures",
                 total_textures
             );
 
@@ -6686,13 +6351,10 @@ impl CnCGameEngine {
                     texture_name
                 );
 
-                // Shorter timeout to prevent hangs
-                let texture_timeout = tokio::time::Duration::from_millis(500);
-                let load_result = tokio::time::timeout(texture_timeout, async {
-                    // Try to get lock with timeout to prevent deadlocks
-                    match asset_manager_arc.try_lock() {
+                let load_result = async {
+                    match asset_manager_arc.lock() {
                         Ok(mut asset_manager) => {
-                            let _ = asset_manager
+                            asset_manager
                                 .load_texture(
                                     graphics_system.device(),
                                     graphics_system.queue(),
@@ -6709,27 +6371,14 @@ impl CnCGameEngine {
                             false
                         }
                     }
-                })
+                }
                 .await;
 
-                match load_result {
-                    Ok(_) => {
-                        loaded_count += 1;
-                        log::debug!(
-                            "✅ Texture {}/{} loaded: {}",
-                            index + 1,
-                            total_textures,
-                            texture_name
-                        );
-                    }
-                    Err(_) => {
-                        failed_count += 1;
-                        log::warn!("⏰ Texture '{}' timeout (2s)", texture_name);
-                    }
+                if load_result {
+                    loaded_count += 1;
+                } else {
+                    failed_count += 1;
                 }
-
-                // Small delay between textures
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             }
 
             log::info!(
@@ -6911,58 +6560,11 @@ impl CnCGameEngine {
                 }
             }?; // Asset manager lock is released here
 
-            // C++ parity: texture file loading is demand-driven by the renderer path.
-            // Avoid synchronous model-time texture preloads, which can stall startup/menu frames.
-            // Now cache model without holding the asset manager lock - no deadlock possible
+            // C++ parity: cache the loaded model immediately once it is available.
             graphics_system.cache_model(model_name.to_string(), w3d_model);
             Ok(true)
         } else {
             anyhow::bail!("Asset manager not available");
-        }
-    }
-
-    fn pump_shell_scene_model_prewarm(&mut self) {
-        if self.current_state != GameState::Menu {
-            return;
-        }
-        if self.pending_shell_model_prewarm.is_empty() {
-            if !self.shell_prewarm_completion_logged {
-                let missing_models = self.render_pipeline.debug_last_model_missing();
-                if missing_models == 0 {
-                    info!("Shell prewarm stream complete: all queued shell models loaded");
-                } else {
-                    info!(
-                        "Shell prewarm stream complete with remaining missing_models={} (latest frame)",
-                        missing_models
-                    );
-                }
-                self.shell_prewarm_completion_logged = true;
-            }
-            return;
-        }
-        let startup_age = self
-            .shell_start_frame()
-            .map(|frame| self.current_startup_logic_frame().saturating_sub(frame))
-            .unwrap_or(0);
-        // Stream aggressively in early menu frames to avoid prolonged shell pop-in.
-        let prewarm_budget = if startup_age < 180 { 4usize } else { 2usize };
-        for _ in 0..prewarm_budget {
-            let Some(model_name) = self.pending_shell_model_prewarm.pop_front() else {
-                return;
-            };
-
-            match Self::load_model_into_graphics_system_blocking(
-                &mut self.graphics_system,
-                &model_name,
-            ) {
-                Ok(_) => {}
-                Err(err) => {
-                    warn!(
-                        "Shell incremental prewarm failed for model '{}': {}",
-                        model_name, err
-                    );
-                }
-            }
         }
     }
 }

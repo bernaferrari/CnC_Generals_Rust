@@ -1822,9 +1822,10 @@ impl ForwardPass {
 
         // Prime all raw payloads while holding the asset manager lock once, matching C++ upfront loads.
         if let Some(asset_manager_arc) = get_asset_manager() {
-            if let Ok(mut asset_manager) = asset_manager_arc.try_lock() {
-                asset_manager.prime_textures_raw_blocking(requested.iter().map(|(name, _)| name));
-            }
+            let mut asset_manager = asset_manager_arc
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;
+            asset_manager.prime_textures_raw_blocking(requested.iter().map(|(name, _)| name));
         }
 
         for (texture_name, cache_key) in requested {
@@ -1845,18 +1846,24 @@ impl ForwardPass {
                 self.texture_cache.insert(cache_key, texture);
                 stats.resolved += 1;
             } else {
-                self.queue_texture_stream(&texture_name);
+                let _ = self.prime_texture_raw_blocking(&texture_name);
+                if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
+                    self.texture_cache.insert(cache_key, texture);
+                    stats.resolved += 1;
+                } else {
+                    self.queue_texture_stream(&texture_name);
+                }
             }
         }
 
         // Drain queued texture stream before first visible menu frame.
-        for _ in 0..8 {
+        for _ in 0..32 {
             if self.pending_texture_stream.is_empty() {
                 break;
             }
 
             let pending_before = self.pending_texture_stream.len();
-            let budget = pending_before.clamp(32, 512);
+            let budget = pending_before.clamp(64, 2048);
             self.stream_pending_textures(budget);
             if self.pending_texture_stream.len() >= pending_before {
                 break;
@@ -2823,8 +2830,8 @@ impl ForwardPass {
         let asset_manager =
             get_asset_manager().ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
         let asset_manager = asset_manager
-            .try_lock()
-            .map_err(|_| anyhow::anyhow!("Asset manager busy"))?;
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;
         let texture_key = texture_name.to_lowercase();
 
         let raw = asset_manager
@@ -2837,10 +2844,20 @@ impl ForwardPass {
         let Some(asset_manager_arc) = get_asset_manager() else {
             return false;
         };
-        let Ok(asset_manager) = asset_manager_arc.try_lock() else {
+        let Ok(asset_manager) = asset_manager_arc.lock() else {
             return false;
         };
         asset_manager.is_known_missing_texture(texture_name)
+    }
+
+    fn prime_texture_raw_blocking(&self, texture_name: &str) -> Result<()> {
+        let asset_manager =
+            get_asset_manager().ok_or_else(|| anyhow::anyhow!("Asset manager unavailable"))?;
+        let mut asset_manager = asset_manager
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Asset manager mutex poisoned"))?;
+        asset_manager.prime_texture_raw_blocking(texture_name);
+        Ok(())
     }
 
     fn queue_texture_stream(&mut self, texture_name: &str) {
@@ -2852,12 +2869,6 @@ impl ForwardPass {
         self.pending_texture_stream
             .push_back(texture_name.to_string());
         self.queued_texture_stream.insert(key.clone());
-        // Queue raw texture priming work to the background worker; never block
-        // the render thread waiting for archive I/O.
-        if !crate::assets::manager::queue_prime_texture_raw(texture_name) {
-            self.queued_texture_stream.remove(&key);
-            let _ = self.pending_texture_stream.pop_back();
-        }
     }
 
     fn texture_stream_budget(&self) -> usize {
@@ -2898,6 +2909,12 @@ impl ForwardPass {
                 continue;
             }
 
+            if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
+                self.texture_cache.insert(cache_key, texture);
+                continue;
+            }
+
+            let _ = self.prime_texture_raw_blocking(&texture_name);
             if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
                 self.texture_cache.insert(cache_key, texture);
                 continue;
