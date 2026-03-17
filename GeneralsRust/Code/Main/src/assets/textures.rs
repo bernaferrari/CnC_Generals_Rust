@@ -133,6 +133,16 @@ pub struct TextureManager {
     raw_cache: HashMap<String, RawTexture>,
     /// Cache of GPU textures
     gpu_cache: HashMap<String, GPUTexture>,
+    /// Canonical texture path lookup keyed by lowercase virtual path.
+    texture_exact_index: HashMap<String, String>,
+    /// Canonical texture lookup keyed by lowercase basename (for C++-style bare filename requests).
+    texture_basename_index: HashMap<String, String>,
+    /// Canonical texture lookup keyed by lowercase stem when callers omit an extension.
+    texture_stem_index: HashMap<String, String>,
+    /// Memoized requested texture -> resolved canonical virtual path (or known missing).
+    resolved_texture_paths: HashMap<String, Option<String>>,
+    /// Archive signature used to rebuild the texture lookup index when mounts change.
+    indexed_archive_unique_files: usize,
     /// Default white texture for fallback
     default_texture_name: String,
     /// Compact diagnostics for unresolved texture lookups.
@@ -268,9 +278,12 @@ pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
     }
 
     // C++ searches texture roots and W3D-local art roots depending on where references originate.
+    // Zero Hour terrain textures also ship in Art/Terrain and are requested by bare filename.
     for root in [
         "Data/English/Art/Textures",
         "Art/Textures",
+        "Data/English/Art/Terrain",
+        "Art/Terrain",
         "Data/English/Art/W3D",
         "Art/W3D",
     ] {
@@ -303,11 +316,42 @@ impl Default for TextureManager {
 }
 
 impl TextureManager {
+    fn normalize_texture_lookup_key(texture_name: &str) -> String {
+        texture_name.trim().to_ascii_lowercase()
+    }
+
+    fn canonical_texture_cache_key(path: &str) -> String {
+        path.replace('\\', "/")
+            .trim_start_matches("./")
+            .to_ascii_lowercase()
+    }
+
+    fn resolved_cache_key_for_lookup(&self, texture_name: &str) -> String {
+        let request_key = Self::normalize_texture_lookup_key(texture_name);
+        let Some(Some(canonical_path)) = self.resolved_texture_paths.get(&request_key) else {
+            return request_key;
+        };
+        let canonical_key = Self::canonical_texture_cache_key(canonical_path);
+        if self.raw_cache.contains_key(&canonical_key)
+            || self.gpu_cache.contains_key(&canonical_key)
+            || self.known_missing_textures.contains(&canonical_key)
+        {
+            canonical_key
+        } else {
+            request_key
+        }
+    }
+
     /// Create new texture manager
     pub fn new() -> Self {
         Self {
             raw_cache: HashMap::new(),
             gpu_cache: HashMap::new(),
+            texture_exact_index: HashMap::new(),
+            texture_basename_index: HashMap::new(),
+            texture_stem_index: HashMap::new(),
+            resolved_texture_paths: HashMap::new(),
+            indexed_archive_unique_files: 0,
             default_texture_name: "default_white".to_string(),
             missing_texture_total: 0,
             missing_texture_counts: HashMap::new(),
@@ -431,7 +475,7 @@ impl TextureManager {
             return Ok(self.default_texture_name.clone());
         }
 
-        let texture_key = requested_name.to_lowercase();
+        let texture_key = Self::normalize_texture_lookup_key(requested_name);
         if self.raw_cache.contains_key(&texture_key)
             || self.known_missing_textures.contains(&texture_key)
         {
@@ -440,28 +484,98 @@ impl TextureManager {
 
         debug!("Loading raw texture from archive: {}", requested_name);
 
-        let candidates = Self::build_texture_candidates(requested_name);
         let mut texture_data = None;
         let mut actual_filename = String::new();
+        let mut resolved_from_cache = false;
 
-        for candidate in &candidates {
-            match archive_system.open_file(candidate).await {
-                Ok(data) => {
-                    debug!("Found texture file: {} ({} bytes)", candidate, data.len());
-                    texture_data = Some(data);
-                    actual_filename = candidate.clone();
-                    break;
+        if let Some(cached_resolution) = self.resolved_texture_paths.get(&texture_key) {
+            match cached_resolution {
+                Some(canonical_path) => {
+                    let canonical_key = Self::canonical_texture_cache_key(canonical_path);
+                    if self.raw_cache.contains_key(&canonical_key)
+                        || self.known_missing_textures.contains(&canonical_key)
+                    {
+                        return Ok(canonical_key);
+                    }
+
+                    match archive_system.open_file(canonical_path).await {
+                        Ok(data) => {
+                            debug!(
+                                "Resolved texture '{}' via canonical cache: {} ({} bytes)",
+                                requested_name,
+                                canonical_path,
+                                data.len()
+                            );
+                            texture_data = Some(data);
+                            actual_filename = canonical_path.clone();
+                            resolved_from_cache = true;
+                        }
+                        Err(err) => {
+                            warn!(
+                                "Cached texture path '{}' for '{}' failed to open: {}; rebuilding lookup",
+                                canonical_path, requested_name, err
+                            );
+                            self.resolved_texture_paths.remove(&texture_key);
+                        }
+                    }
                 }
-                Err(_) => {
-                    log::trace!("Texture candidate not found: {}", candidate);
+                None => {
+                    self.cache_missing_fallback(&texture_key, requested_name);
+                    return Ok(texture_key);
                 }
             }
         }
 
+        if texture_data.is_none() {
+            self.ensure_texture_path_index(archive_system);
+
+            if let Some(canonical_path) =
+                self.resolve_texture_path_from_index(requested_name, texture_key.as_str())
+            {
+                match archive_system.open_file(&canonical_path).await {
+                    Ok(data) => {
+                        debug!(
+                            "Resolved texture '{}' via texture index: {} ({} bytes)",
+                            requested_name,
+                            canonical_path,
+                            data.len()
+                        );
+                        actual_filename = canonical_path.clone();
+                        texture_data = Some(data);
+                        self.resolved_texture_paths
+                            .insert(texture_key.clone(), Some(canonical_path));
+                        resolved_from_cache = true;
+                    }
+                    Err(err) => {
+                        warn!(
+                            "Indexed texture path '{}' for '{}' failed to open: {}; falling back to probes",
+                            canonical_path, requested_name, err
+                        );
+                        self.resolved_texture_paths.remove(&texture_key);
+                    }
+                }
+            }
+        }
+
+        // C++ parity/perf: avoid repeated broad path probing on misses. The texture index above
+        // already resolves aliases and extension/root fallbacks; if it cannot resolve a filename,
+        // treat it as missing immediately.
+
         let Some(texture_data) = texture_data else {
+            self.resolved_texture_paths.insert(texture_key.clone(), None);
             self.cache_missing_fallback(&texture_key, requested_name);
             return Ok(texture_key);
         };
+
+        let cache_key = if actual_filename.is_empty() {
+            texture_key.clone()
+        } else {
+            Self::canonical_texture_cache_key(&actual_filename)
+        };
+
+        if !resolved_from_cache {
+            self.remember_resolved_texture_path(&texture_key, &actual_filename);
+        }
 
         let format = TextureFormat::from_filename(&actual_filename);
         let parse_result = match format {
@@ -473,26 +587,27 @@ impl TextureManager {
                     "Unsupported texture format for '{}', using fallback",
                     requested_name
                 );
-                self.cache_missing_fallback(&texture_key, requested_name);
-                return Ok(texture_key);
+                self.cache_missing_fallback(&cache_key, requested_name);
+                return Ok(cache_key);
             }
         };
 
         match parse_result {
             Ok(raw_texture) => {
-                self.raw_cache.insert(texture_key.clone(), raw_texture);
+                self.raw_cache.insert(cache_key.clone(), raw_texture);
                 self.known_missing_textures.remove(&texture_key);
+                self.known_missing_textures.remove(&cache_key);
             }
             Err(err) => {
                 warn!(
                     "Texture parse failed for '{}': {}; using fallback",
                     requested_name, err
                 );
-                self.cache_missing_fallback(&texture_key, requested_name);
+                self.cache_missing_fallback(&cache_key, requested_name);
             }
         }
 
-        Ok(texture_key)
+        Ok(cache_key)
     }
 
     fn cache_missing_fallback(&mut self, texture_key: &str, requested_name: &str) {
@@ -548,6 +663,189 @@ impl TextureManager {
         texture_candidate_paths(requested_name)
     }
 
+    fn is_supported_texture_file(filename: &str) -> bool {
+        let filename = filename.to_ascii_lowercase();
+        filename.ends_with(".tga")
+            || filename.ends_with(".dds")
+            || filename.ends_with(".bmp")
+            || filename.ends_with(".jpg")
+            || filename.ends_with(".jpeg")
+            || filename.ends_with(".png")
+    }
+
+    fn texture_path_rank(path: &str) -> (u8, u8, usize, String) {
+        let path_lower = path.to_ascii_lowercase();
+        let root_rank = if path_lower.starts_with("data/english/art/textures/") {
+            0
+        } else if path_lower.starts_with("art/textures/") {
+            1
+        } else if path_lower.starts_with("data/english/art/terrain/") {
+            2
+        } else if path_lower.starts_with("art/terrain/") {
+            3
+        } else if path_lower.starts_with("data/english/art/w3d/") {
+            4
+        } else if path_lower.starts_with("art/w3d/") {
+            5
+        } else {
+            6
+        };
+
+        let ext_rank = if path_lower.ends_with(".dds") {
+            0
+        } else if path_lower.ends_with(".tga") {
+            1
+        } else if path_lower.ends_with(".bmp") {
+            2
+        } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
+            3
+        } else if path_lower.ends_with(".png") {
+            4
+        } else {
+            5
+        };
+
+        (root_rank, ext_rank, path_lower.len(), path_lower)
+    }
+
+    fn should_replace_index_entry(current: &str, candidate: &str) -> bool {
+        Self::texture_path_rank(candidate) < Self::texture_path_rank(current)
+    }
+
+    fn index_texture_path(&mut self, path: &str) {
+        if !Self::is_supported_texture_file(path) {
+            return;
+        }
+
+        let canonical = path.replace('\\', "/").trim_start_matches("./").to_string();
+        let canonical_lower = canonical.to_ascii_lowercase();
+        let basename = canonical_lower
+            .rsplit('/')
+            .next()
+            .unwrap_or(canonical_lower.as_str())
+            .to_string();
+        let stem = basename
+            .rsplit_once('.')
+            .map(|(stem, _)| stem.to_string())
+            .unwrap_or_else(|| basename.clone());
+
+        self.texture_exact_index
+            .entry(canonical_lower)
+            .or_insert_with(|| canonical.clone());
+
+        match self.texture_basename_index.get(&basename) {
+            Some(existing) if !Self::should_replace_index_entry(existing, &canonical) => {}
+            _ => {
+                self.texture_basename_index
+                    .insert(basename, canonical.clone());
+            }
+        }
+
+        match self.texture_stem_index.get(&stem) {
+            Some(existing) if !Self::should_replace_index_entry(existing, &canonical) => {}
+            _ => {
+                self.texture_stem_index.insert(stem, canonical);
+            }
+        }
+    }
+
+    fn ensure_texture_path_index(&mut self, archive_system: &ArchiveFileSystem) {
+        let archive_signature = archive_system.get_statistics().unique_files;
+        if archive_signature == self.indexed_archive_unique_files && !self.texture_exact_index.is_empty()
+        {
+            return;
+        }
+
+        self.texture_exact_index.clear();
+        self.texture_basename_index.clear();
+        self.texture_stem_index.clear();
+        self.resolved_texture_paths.clear();
+        self.indexed_archive_unique_files = archive_signature;
+
+        if archive_signature == 0 {
+            return;
+        }
+
+        for path in archive_system.list_all_files() {
+            self.index_texture_path(&path);
+        }
+    }
+
+    /// Build or refresh canonical texture lookup indexes from the currently mounted archives.
+    /// Returns the number of canonical texture paths indexed.
+    pub fn warmup_texture_path_index(&mut self, archive_system: &ArchiveFileSystem) -> usize {
+        self.ensure_texture_path_index(archive_system);
+        self.texture_exact_index.len()
+    }
+
+    fn resolve_texture_path_from_index(
+        &self,
+        requested_name: &str,
+        texture_key: &str,
+    ) -> Option<String> {
+        Self::resolve_texture_path_from_maps(
+            &self.texture_exact_index,
+            &self.texture_basename_index,
+            &self.texture_stem_index,
+            requested_name,
+            texture_key,
+        )
+    }
+
+    fn resolve_texture_path_from_maps(
+        texture_exact_index: &HashMap<String, String>,
+        texture_basename_index: &HashMap<String, String>,
+        texture_stem_index: &HashMap<String, String>,
+        requested_name: &str,
+        texture_key: &str,
+    ) -> Option<String> {
+        let normalized = requested_name.trim().replace('\\', "/");
+        let normalized = normalized.trim_start_matches("./");
+
+        if let Some(path) = texture_exact_index.get(&normalized.to_ascii_lowercase()) {
+            return Some(path.clone());
+        }
+
+        let file_part = normalized
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(texture_key);
+        let file_key = file_part.to_ascii_lowercase();
+
+        if let Some(path) = texture_exact_index.get(&file_key) {
+            return Some(path.clone());
+        }
+
+        if let Some(path) = texture_basename_index.get(&file_key) {
+            return Some(path.clone());
+        }
+
+        if let Some((stem, _)) = file_key.rsplit_once('.') {
+            if let Some(path) = texture_stem_index.get(stem) {
+                return Some(path.clone());
+            }
+        } else if let Some(path) = texture_stem_index.get(&file_key) {
+            return Some(path.clone());
+        }
+
+        for candidate in Self::build_texture_candidates(requested_name) {
+            if let Some(path) = texture_exact_index.get(&candidate.to_ascii_lowercase()) {
+                return Some(path.clone());
+            }
+        }
+
+        None
+    }
+
+    fn remember_resolved_texture_path(&mut self, texture_key: &str, actual_filename: &str) {
+        self.index_texture_path(actual_filename);
+        self.resolved_texture_paths.insert(
+            texture_key.to_string(),
+            Some(actual_filename.replace('\\', "/").trim_start_matches("./").to_string()),
+        );
+    }
+
     /// Get texture by name (loads if not cached), returns default on error
     pub async fn get_texture_or_default(
         &mut self,
@@ -556,7 +854,7 @@ impl TextureManager {
         queue: &wgpu::Queue,
         texture_name: &str,
     ) -> &GPUTexture {
-        let texture_key = texture_name.to_lowercase();
+        let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         let default_key = self.default_texture_name.clone();
 
         // Return cached texture if available
@@ -570,37 +868,28 @@ impl TextureManager {
             .await
         {
             error!("Failed to load texture {}: {}", texture_name, e);
-            // Return reference to default texture
-            if let Some(default_tex) = self.gpu_cache.get(&default_key) {
-                return default_tex;
-            } else {
-                // Fallback in case default isn't available
-                warn!("Default texture not available, returning first available texture");
-                return self
-                    .gpu_cache
-                    .values()
-                    .next()
-                    .unwrap_or_else(|| panic!("No textures available at all!"));
-            }
         }
 
-        // Return the newly loaded texture (or default if it couldn't be loaded)
-        if let Some(tex) = self.gpu_cache.get(&texture_key) {
-            tex
-        } else if self.is_known_missing_texture(texture_name) {
-            self.gpu_cache.get(&default_key).unwrap_or_else(|| {
-                panic!("Known-missing texture fallback unavailable: {}", texture_name)
-            })
-        } else {
-            // Fallback if texture isn't in cache even after load attempt
-            error!(
-                "Texture {} not in cache after load attempt, returning default",
-                texture_name
-            );
-            self.gpu_cache.get(&default_key).unwrap_or_else(|| {
-                panic!("Neither requested texture nor default texture available!")
-            })
+        let resolved_key = self.resolved_cache_key_for_lookup(texture_name);
+        if let Some(texture) = self.gpu_cache.get(&resolved_key) {
+            return texture;
         }
+
+        if self.is_known_missing_texture(texture_name) {
+            return self.gpu_cache.get(&default_key).unwrap_or_else(|| {
+                panic!("Known-missing texture fallback unavailable: {}", texture_name)
+            });
+        }
+
+        if let Some(default_tex) = self.gpu_cache.get(&default_key) {
+            return default_tex;
+        }
+
+        warn!("Default texture not available, returning first available texture");
+        self.gpu_cache
+            .values()
+            .next()
+            .unwrap_or_else(|| panic!("No textures available at all!"))
     }
 
     /// Get default MAGENTA texture (for missing textures - matches C++ behavior)
@@ -625,18 +914,18 @@ impl TextureManager {
 
     /// Get a cached texture if it exists
     pub fn get_cached_texture(&self, texture_name: &str) -> Option<&GPUTexture> {
-        let texture_key = texture_name.to_lowercase();
+        let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         self.gpu_cache.get(&texture_key)
     }
 
     /// Get cached raw texture data if available.
     pub fn get_raw_texture(&self, texture_name: &str) -> Option<&RawTexture> {
-        let texture_key = texture_name.to_lowercase();
+        let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         self.raw_cache.get(&texture_key)
     }
 
     pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
-        let texture_key = texture_name.to_lowercase();
+        let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         self.known_missing_textures.contains(&texture_key)
     }
 
@@ -1640,6 +1929,14 @@ impl TextureManager {
             .retain(|name, _| name == &self.default_texture_name || name.starts_with("default_"));
         self.gpu_cache
             .retain(|name, _| name == &self.default_texture_name || name.starts_with("default_"));
+        self.known_missing_textures.clear();
+        self.missing_texture_total = 0;
+        self.missing_texture_counts.clear();
+        self.texture_exact_index.clear();
+        self.texture_basename_index.clear();
+        self.texture_stem_index.clear();
+        self.resolved_texture_paths.clear();
+        self.indexed_archive_unique_files = 0;
     }
 
     /// Get cache statistics
@@ -1704,6 +2001,72 @@ mod tests {
         assert_eq!(rgba_at(&decoded, 4, 0, 0), [255, 255, 255, 0]);
         assert_eq!(rgba_at(&decoded, 4, 1, 0), [255, 255, 255, 255]);
         assert_eq!(rgba_at(&decoded, 4, 2, 0), [255, 255, 255, 136]);
+    }
+
+    #[test]
+    fn texture_candidate_paths_include_terrain_roots() {
+        let candidates = texture_candidate_paths("PTPalm02a.tga");
+
+        assert!(candidates
+            .iter()
+            .any(|path| path.eq_ignore_ascii_case("Data/English/Art/Terrain/PTPalm02a.dds")));
+        assert!(candidates
+            .iter()
+            .any(|path| path.eq_ignore_ascii_case("Art/Terrain/PTPalm02a.tga")));
+    }
+
+    #[test]
+    fn indexed_lookup_prefers_texture_root_for_bare_name() {
+        let mut exact = HashMap::new();
+        exact.insert(
+            "art/terrain/ptpalm02a.tga".to_string(),
+            "Art/Terrain/PTPalm02a.tga".to_string(),
+        );
+        exact.insert(
+            "art/textures/ptpalm02a.tga".to_string(),
+            "Art/Textures/PTPalm02a.tga".to_string(),
+        );
+
+        let mut basename = HashMap::new();
+        basename.insert(
+            "ptpalm02a.tga".to_string(),
+            "Art/Textures/PTPalm02a.tga".to_string(),
+        );
+
+        let stem = HashMap::new();
+
+        assert_eq!(
+            TextureManager::resolve_texture_path_from_maps(
+                &exact,
+                &basename,
+                &stem,
+                "PTPalm02a.tga",
+                "ptpalm02a.tga"
+            ),
+            Some("Art/Textures/PTPalm02a.tga".to_string())
+        );
+    }
+
+    #[test]
+    fn indexed_lookup_uses_stem_when_extension_is_omitted() {
+        let exact = HashMap::new();
+        let basename = HashMap::new();
+        let mut stem = HashMap::new();
+        stem.insert(
+            "ptmaple02".to_string(),
+            "Art/Terrain/PTMaple02.tga".to_string(),
+        );
+
+        assert_eq!(
+            TextureManager::resolve_texture_path_from_maps(
+                &exact,
+                &basename,
+                &stem,
+                "PTMaple02",
+                "ptmaple02"
+            ),
+            Some("Art/Terrain/PTMaple02.tga".to_string())
+        );
     }
 
     #[test]

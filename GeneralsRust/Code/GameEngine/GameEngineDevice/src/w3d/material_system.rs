@@ -10,7 +10,7 @@
 
 use super::{W3DError, Result, BoundingBox};
 use crate::video::{ColorFormat, Resolution};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(feature = "w3d")]
@@ -916,6 +916,12 @@ pub struct W3DTextureManager {
     
     /// Loaded textures
     textures: Arc<RwLock<HashMap<String, W3DTexture>>>,
+    /// Cache of resolved texture paths keyed by normalized lookup name
+    resolved_paths: Arc<RwLock<HashMap<String, PathBuf>>>,
+    /// Negative cache to avoid repeated filesystem probes for missing textures
+    missing_paths: Arc<RwLock<HashSet<String>>>,
+    /// Maps normalized aliases/case variants to the canonical texture key
+    alias_map: Arc<RwLock<HashMap<String, String>>>,
     /// Texture atlas
     #[cfg(feature = "w3d")]
     texture_atlas: Mutex<Option<Arc<Texture>>>,
@@ -963,6 +969,8 @@ pub struct W3DTexture {
 }
 
 impl W3DTextureManager {
+    const TEXTURE_EXTENSIONS: [&'static str; 5] = ["tga", "dds", "png", "jpg", "jpeg"];
+
     /// Create new texture manager
     #[cfg(feature = "w3d")]
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Result<Self> {
@@ -985,6 +993,9 @@ impl W3DTextureManager {
             device,
             queue,
             textures: Arc::new(RwLock::new(HashMap::new())),
+            resolved_paths: Arc::new(RwLock::new(HashMap::new())),
+            missing_paths: Arc::new(RwLock::new(HashSet::new())),
+            alias_map: Arc::new(RwLock::new(HashMap::new())),
             texture_atlas: Mutex::new(None),
             atlas_view: Mutex::new(None),
             atlas_layers_used: AtomicU32::new(0),
@@ -1004,6 +1015,9 @@ impl W3DTextureManager {
     pub fn new() -> Result<Self> {
         Ok(Self {
             textures: Arc::new(RwLock::new(HashMap::new())),
+            resolved_paths: Arc::new(RwLock::new(HashMap::new())),
+            missing_paths: Arc::new(RwLock::new(HashSet::new())),
+            alias_map: Arc::new(RwLock::new(HashMap::new())),
             texture_paths: vec![
                 PathBuf::from("textures/"),
                 PathBuf::from("assets/textures/"),
@@ -1068,16 +1082,26 @@ impl W3DTextureManager {
 
     /// Load texture from file
     pub async fn load_texture(&self, path: &str) -> Result<String> {
-        // Check if already loaded
-        if self.textures.read().contains_key(path) {
-            return Ok(path.to_string());
+        // Normalize input to share cache entries across case variants and separators
+        let normalized = Self::normalize_lookup_key(path);
+
+        // Fast path: alias/canonical already present and loaded
+        if let Some(canonical) = self.alias_map.read().get(&normalized).cloned() {
+            if self.textures.read().contains_key(&canonical) {
+                return Ok(canonical);
+            }
         }
 
         tracing::debug!("Loading texture: {}", path);
 
-        // Search for texture file
-        let texture_path = self.find_texture_file(path)?;
-        
+        // Resolve texture path once, recording positive/negative caches
+        let (texture_path, canonical_key) = self.resolve_texture_path(path)?;
+
+        // Another thread may have loaded after resolution
+        if self.textures.read().contains_key(&canonical_key) {
+            return Ok(canonical_key);
+        }
+
         // Load image data
         let image_data = tokio::fs::read(&texture_path).await
             .map_err(|e| W3DError::ResourceError(format!("Failed to read texture {}: {}", path, e)))?;
@@ -1182,7 +1206,7 @@ impl W3DTextureManager {
         let (gpu_texture, gpu_view) = (None, None);
 
         let texture = W3DTexture {
-            name: path.to_string(),
+            name: canonical_key.clone(),
             width,
             height,
             format: ColorFormat::Rgba8,
@@ -1195,43 +1219,100 @@ impl W3DTextureManager {
             gpu_view,
         };
 
-        self.textures.write().insert(path.to_string(), texture);
+        self.textures.write().insert(canonical_key.clone(), texture);
 
-        tracing::info!("Loaded texture: {} ({}x{})", path, width, height);
-        Ok(path.to_string())
+        tracing::info!("Loaded texture: {} ({}x{})", canonical_key, width, height);
+        Ok(canonical_key)
     }
 
-    /// Find texture file in search paths
-    fn find_texture_file(&self, path: &str) -> Result<PathBuf> {
-        let path = Path::new(path);
-        
-        // Try absolute path first
-        if path.is_absolute() && path.exists() {
-            return Ok(path.to_path_buf());
+    /// Resolve texture path with normalized/negative caching
+    fn resolve_texture_path(&self, path: &str) -> Result<(PathBuf, String)> {
+        let normalized = Self::normalize_lookup_key(path);
+
+        if let Some(cached) = self.resolved_paths.read().get(&normalized) {
+            let key = Self::canonical_key_from_path(cached);
+            return Ok((cached.clone(), key));
         }
 
-        // Search in configured paths
-        for search_path in &self.texture_paths {
-            let full_path = search_path.join(path);
-            if full_path.exists() {
-                return Ok(full_path);
-            }
+        if self.missing_paths.read().contains(&normalized) {
+            return Err(W3DError::ResourceError(format!("Texture file not found: {}", path)));
+        }
 
-            // Try common extensions
-            for ext in &["tga", "dds", "png", "jpg", "jpeg"] {
-                let ext_path = full_path.with_extension(ext);
-                if ext_path.exists() {
-                    return Ok(ext_path);
+        let path_obj = Path::new(path);
+        let mut resolved: Option<PathBuf> = None;
+
+        // Try absolute path as-is
+        if path_obj.is_absolute() {
+            if let Some(found) = Self::probe_candidate(path_obj) {
+                resolved = Some(found);
+            }
+        } else {
+            'outer: for search_path in &self.texture_paths {
+                let full_path = search_path.join(path_obj);
+                if let Some(found) = Self::probe_candidate(&full_path) {
+                    resolved = Some(found);
+                    break 'outer;
+                }
+
+                for ext in Self::TEXTURE_EXTENSIONS {
+                    let ext_path = full_path.with_extension(ext);
+                    if let Some(found) = Self::probe_candidate(&ext_path) {
+                        resolved = Some(found);
+                        break 'outer;
+                    }
                 }
             }
         }
 
-        Err(W3DError::ResourceError(format!("Texture file not found: {}", path.display())))
+        match resolved {
+            Some(found) => {
+                let canonical_key = Self::canonical_key_from_path(&found);
+
+                self.resolved_paths
+                    .write()
+                    .insert(normalized.clone(), found.clone());
+                {
+                    let mut alias_map = self.alias_map.write();
+                    alias_map.insert(normalized.clone(), canonical_key.clone());
+                    alias_map.insert(Self::normalize_lookup_key(&canonical_key), canonical_key.clone());
+                }
+                self.missing_paths.write().remove(&normalized);
+
+                Ok((found, canonical_key))
+            }
+            None => {
+                self.missing_paths.write().insert(normalized);
+                Err(W3DError::ResourceError(format!("Texture file not found: {}", path)))
+            }
+        }
+    }
+
+    /// Try a single path without repeating filesystem probes on failure
+    fn probe_candidate(path: &Path) -> Option<PathBuf> {
+        path.try_exists().ok().filter(|exists| *exists).map(|_| path.to_path_buf())
+    }
+
+    /// Normalize lookup key: lowercase + forward slashes
+    fn normalize_lookup_key(path: &str) -> String {
+        path.replace('\\', "/").to_lowercase()
+    }
+
+    /// Canonical key from resolved path to collapse aliases/case variants
+    fn canonical_key_from_path(path: &Path) -> String {
+        Self::normalize_lookup_key(&path.to_string_lossy())
     }
 
     /// Get texture by name
     pub fn get_texture(&self, name: &str) -> Option<W3DTexture> {
-        self.textures.read().get(name).cloned()
+        let normalized = Self::normalize_lookup_key(name);
+        let key = self
+            .alias_map
+            .read()
+            .get(&normalized)
+            .cloned()
+            .unwrap_or(normalized);
+
+        self.textures.read().get(&key).cloned()
     }
 
     /// Get default sampler

@@ -82,32 +82,32 @@ mod tests {
     use super::{CnCGameEngine, GameState};
 
     #[test]
-    fn startup_deferred_budget_menu_is_zero_without_startup_frame() {
+    fn startup_deferred_budget_menu_has_minimum_without_startup_frame() {
         let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
-        assert_eq!(budget, 0);
+        assert_eq!(budget, 4);
     }
 
     #[test]
-    fn startup_deferred_budget_menu_stays_zero_across_startup_age() {
+    fn startup_deferred_budget_menu_tapers_across_startup_age() {
         let early =
             CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 120);
         let mid =
             CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 170);
         let late =
             CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 400);
-        assert_eq!(early, 0);
-        assert_eq!(mid, 0);
-        assert_eq!(late, 0);
+        assert!(early >= mid);
+        assert!(mid >= late);
+        assert!(late >= 2);
     }
 
     #[test]
-    fn startup_deferred_budget_disables_startup_prewarm_for_ui_responsiveness() {
+    fn startup_deferred_budget_keeps_loading_and_menu_progressing() {
         let loading_early =
             CnCGameEngine::startup_deferred_model_load_budget(GameState::Loading, Some(100), 110);
         let menu_early =
             CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(100), 110);
-        assert_eq!(loading_early, 0);
-        assert_eq!(menu_early, 0);
+        assert!(loading_early >= menu_early);
+        assert!(menu_early > 0);
     }
 
     #[test]
@@ -971,11 +971,29 @@ impl CnCGameEngine {
             return 0;
         }
 
-        // Keep loading/menu frames strictly responsive and avoid startup hitches that can
-        // trigger OS "not responding" behavior or hide/show shell UI frames.
-        let _ = startup_frame;
-        let _ = current_logic_frame;
-        0
+        let startup_age = startup_frame
+            .map(|start| current_logic_frame.saturating_sub(start))
+            .unwrap_or(0);
+
+        match current_state {
+            // Keep loading moving briskly so shell scene is complete when menu becomes visible.
+            GameState::Loading => {
+                if startup_age < 120 {
+                    8
+                } else {
+                    4
+                }
+            }
+            // Menu still receives a small budget so background shell assets don't trickle forever.
+            GameState::Menu => {
+                if startup_age < 180 {
+                    4
+                } else {
+                    2
+                }
+            }
+            _ => 0,
+        }
     }
 
     fn should_trigger_menu_caustic_warmup(
@@ -1426,15 +1444,16 @@ impl CnCGameEngine {
         if result.start_in_menu {
             if self.game_logic.isInShellGame() && self.game_logic.isInGame() {
                 self.update_shell_loading_progress(0.98, Some("Prewarming shell scene"));
-                self.pending_shell_model_prewarm = Self::collect_shell_scene_models_for_prewarm(
+                let queued_models = Self::collect_shell_scene_models_for_prewarm(
                     &self.game_logic,
                     self.camera_target,
                     120,
                 );
+                self.pending_shell_model_prewarm = queued_models;
                 self.last_shell_prewarm_log = None;
-                self.shell_prewarm_completion_logged = false;
+                self.shell_prewarm_completion_logged = self.pending_shell_model_prewarm.is_empty();
                 info!(
-                    "Shell startup prewarm queued: pending_models={}",
+                    "Shell startup prewarm queued for menu streaming: pending_models={}",
                     self.pending_shell_model_prewarm.len()
                 );
             } else {
@@ -6238,6 +6257,98 @@ impl CnCGameEngine {
         selected.into()
     }
 
+    fn prewarm_shell_scene_models_blocking(
+        graphics_system: &mut GraphicsSystem,
+        mut queued_models: VecDeque<String>,
+    ) -> VecDeque<String> {
+        let total_models = queued_models.len();
+        if total_models == 0 {
+            return VecDeque::new();
+        }
+
+        let mut loaded = 0usize;
+        let mut retry_queue = VecDeque::new();
+        while let Some(model_name) = queued_models.pop_front() {
+            match Self::load_model_into_graphics_system_blocking(graphics_system, &model_name) {
+                Ok(_) => loaded += 1,
+                Err(err) => {
+                    warn!(
+                        "Shell startup blocking prewarm failed for '{}': {}",
+                        model_name, err
+                    );
+                    retry_queue.push_back(model_name);
+                }
+            }
+        }
+
+        info!(
+            "Shell startup blocking prewarm complete: loaded={}, retries={}, requested={}",
+            loaded,
+            retry_queue.len(),
+            total_models
+        );
+
+        retry_queue
+    }
+
+    fn collect_cached_model_texture_names(graphics_system: &GraphicsSystem) -> Vec<String> {
+        let mut texture_names: HashSet<String> = HashSet::new();
+
+        for (_, model) in graphics_system.get_all_models() {
+            Self::collect_material_textures(model, &mut texture_names);
+
+            for mesh in &model.meshes {
+                if let Some(ref texture_name) = mesh.material.texture_name {
+                    if Self::is_valid_texture_name(texture_name) {
+                        texture_names.insert(texture_name.clone());
+                    }
+                }
+
+                for (pass_idx, stage_sets) in mesh.per_pass_stage_texture_names.iter().enumerate() {
+                    for (stage_idx, names) in stage_sets.iter().enumerate() {
+                        let mut has_explicit_stage_name = false;
+                        for texture_name in names {
+                            if Self::is_valid_texture_name(texture_name) {
+                                texture_names.insert(texture_name.clone());
+                                has_explicit_stage_name = true;
+                            }
+                        }
+
+                        if !has_explicit_stage_name {
+                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
+                                if Self::is_valid_texture_name(&fallback) {
+                                    texture_names.insert(fallback);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if mesh.per_pass_stage_texture_names.is_empty()
+                    && !mesh.per_pass_stage_texture_ids.is_empty()
+                {
+                    for (pass_idx, stages) in mesh.per_pass_stage_texture_ids.iter().enumerate() {
+                        for stage_idx in 0..stages.len() {
+                            for fallback in mesh.stage_texture_names_from_ids(pass_idx, stage_idx) {
+                                if Self::is_valid_texture_name(&fallback) {
+                                    texture_names.insert(fallback);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut ordered: Vec<String> = texture_names.into_iter().collect();
+        ordered.sort_by(|a, b| {
+            a.to_ascii_lowercase()
+                .cmp(&b.to_ascii_lowercase())
+                .then_with(|| a.cmp(b))
+        });
+        ordered
+    }
+
     /// Preload all models used by game objects into the graphics system
     async fn preload_all_models(
         graphics_system: &mut GraphicsSystem,
@@ -6711,31 +6822,12 @@ impl CnCGameEngine {
             }
             return;
         }
-        // C++ shell startup does not block first visible frames on synchronous shell-scene model
-        // warmup. Gate warmup relative to when the menu actually became active, otherwise a late
-        // shell activation can still immediately pre-empt the first visible shell frames.
-        let Some(menu_enter_frame) = self.shell_start_frame() else {
-            return;
-        };
         let startup_age = self
-            .current_startup_logic_frame()
-            .saturating_sub(menu_enter_frame);
-        if startup_age < 6 {
-            return;
-        }
-        // Keep menu interaction responsive while remaining models stream in.
-        // Pace model prewarm in early menu frames instead of loading every frame.
-        let should_tick = if startup_age < 180 {
-            startup_age % 6 == 0
-        } else if startup_age < 600 {
-            startup_age % 4 == 0
-        } else {
-            startup_age % 3 == 0
-        };
-        if !should_tick {
-            return;
-        }
-        let prewarm_budget = 1usize;
+            .shell_start_frame()
+            .map(|frame| self.current_startup_logic_frame().saturating_sub(frame))
+            .unwrap_or(0);
+        // Stream aggressively in early menu frames to avoid prolonged shell pop-in.
+        let prewarm_budget = if startup_age < 180 { 4usize } else { 2usize };
         for _ in 0..prewarm_budget {
             let Some(model_name) = self.pending_shell_model_prewarm.pop_front() else {
                 return;
