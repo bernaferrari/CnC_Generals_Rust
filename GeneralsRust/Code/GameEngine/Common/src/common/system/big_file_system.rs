@@ -11,7 +11,7 @@
 //! BIG files, parsing their directory structures, and extracting individual files.
 //!
 //! BIG File Format:
-//! - Header: "BIGF" or "BIG4" magic bytes (4 bytes)
+//! - Header: "BIGF" magic bytes (4 bytes)
 //! - Archive size: Total size of archive in bytes (4 bytes, little endian)
 //! - File count: Number of files in archive (4 bytes, big endian)
 //! - First file offset: Offset to first file data (4 bytes, big endian)
@@ -22,7 +22,7 @@
 //! Rust conversion: 2025
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -79,9 +79,12 @@ fn wildcard_match(candidate: &str, mask: &str) -> bool {
     mask_idx == mask_bytes.len()
 }
 
+fn normalize_archive_path_key(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/").to_lowercase()
+}
+
 /// BIG file format magic bytes
 pub const BIG_FILE_IDENTIFIER: &[u8; 4] = b"BIGF";
-pub const BIG4_FILE_IDENTIFIER: &[u8; 4] = b"BIG4";
 
 /// BIG file header structure
 #[derive(Debug, Clone)]
@@ -234,7 +237,7 @@ impl BigFile {
         file.read_exact(&mut magic)?;
 
         // Verify magic
-        if magic != *BIG_FILE_IDENTIFIER && magic != *BIG4_FILE_IDENTIFIER {
+        if magic != *BIG_FILE_IDENTIFIER {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Invalid BIG file magic: {:?}", magic),
@@ -351,7 +354,7 @@ impl BigFile {
             };
 
             let archived_file_info = ArchivedFileInfo {
-                filename: AsciiString::from(filename_only),
+                filename: AsciiString::from(filename_only.to_lowercase().as_str()),
                 offset: entry.offset as u64,
                 size: entry.size as u64,
                 compressed_size: None,
@@ -384,12 +387,7 @@ impl BigFile {
             .collect();
 
         // Navigate/create directory structure
-        for (i, token) in path_parts.iter().enumerate() {
-            if i == path_parts.len() - 1 {
-                // This is the filename, don't create a directory for it
-                break;
-            }
-
+        for token in &path_parts {
             if !dir_info.directories.contains_key(token) {
                 let mut new_dir = DetailedArchivedDirectoryInfo::default();
                 new_dir.directory_name = token.clone();
@@ -461,20 +459,10 @@ impl BigFile {
 
     /// Find file entry by filename
     fn find_entry(&self, filename: &str) -> Option<&BigFileEntry> {
-        let search_name = filename.to_lowercase();
-        for entry in &self.entries {
-            let entry_name = entry.filename.to_lowercase();
-            let entry_basename = if let Some(pos) = entry_name.rfind(['/', '\\']) {
-                &entry_name[pos + 1..]
-            } else {
-                &entry_name
-            };
-
-            if entry_basename == search_name || entry_name == search_name {
-                return Some(entry);
-            }
-        }
-        None
+        let search_name = filename.replace('\\', "/").to_lowercase();
+        self.entries
+            .iter()
+            .find(|entry| entry.filename.replace('\\', "/").to_lowercase() == search_name)
     }
 
     /// Get archived file info for a specific file
@@ -1076,6 +1064,7 @@ impl BigFileSystem {
         file_mask: &str,
         overwrite: bool,
     ) -> io::Result<bool> {
+        use std::collections::VecDeque;
         use std::fs;
 
         let dir_path = Path::new(dir);
@@ -1116,26 +1105,42 @@ impl BigFileSystem {
             })
         };
 
-        let mut candidates: Vec<PathBuf> = fs::read_dir(dir_path)?
-            .filter_map(|entry| entry.ok().map(|e| e.path()))
-            .filter(|path| matches_mask(path))
-            .collect();
+        // C++ parity: Win32BIGFileSystem accumulates recursive matches in a
+        // case-insensitive set keyed by full path before mounting in-order.
+        let mut candidates: BTreeMap<String, PathBuf> = BTreeMap::new();
+        let mut pending_dirs = VecDeque::from([dir_path.to_path_buf()]);
+        while let Some(current_dir) = pending_dirs.pop_front() {
+            let entries = match fs::read_dir(&current_dir) {
+                Ok(entries) => entries,
+                Err(err) => {
+                    warn!(
+                        "Failed to enumerate BIG directory {}: {}",
+                        current_dir.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
 
-        candidates.sort_by(|a, b| {
-            let a_name = a
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            let b_name = b
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            a_name.cmp(&b_name)
-        });
+            for entry in entries {
+                let entry_path = match entry {
+                    Ok(entry) => entry.path(),
+                    Err(_) => continue,
+                };
+                if entry_path.is_dir() {
+                    pending_dirs.push_back(entry_path);
+                    continue;
+                }
+                if entry_path.is_file() && matches_mask(&entry_path) {
+                    let key = normalize_archive_path_key(&entry_path);
+                    candidates.entry(key).or_insert(entry_path);
+                }
+            }
+        }
 
         let mut loaded_any = false;
 
-        for candidate in candidates {
+        for (_, candidate) in candidates {
             match self.register_archive(candidate.as_path(), overwrite) {
                 Ok(true) => loaded_any = true,
                 Ok(false) => {}
@@ -1153,23 +1158,15 @@ impl BigFileSystem {
     }
 
     fn register_archive(&mut self, path: &Path, overwrite: bool) -> io::Result<bool> {
-        let name = AsciiString::from(
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .as_ref(),
-        );
-        let name_key = name.as_str().to_lowercase();
+        let archive_key = normalize_archive_path_key(path);
+        let name = AsciiString::from(path.to_string_lossy().as_ref());
 
-        if !overwrite && self.archive_lookup.contains_key(&name_key) {
+        if !overwrite && self.archive_lookup.contains_key(&archive_key) {
             return Ok(false);
         }
 
         let mut big_file = BigFile::new();
         big_file.open(path)?;
-
-        // Ensure deterministic iteration order within the archive itself.
-        big_file.sort_entries();
 
         self.load_counter = self.load_counter.wrapping_add(1);
 
@@ -1181,11 +1178,11 @@ impl BigFileSystem {
             load_sequence: self.load_counter,
         };
 
-        let was_existing = if let Some(index) = self.archive_lookup.get(&name_key).copied() {
+        let was_existing = if let Some(index) = self.archive_lookup.get(&archive_key).copied() {
             self.archives[index] = entry;
             true
         } else {
-            self.archive_lookup.insert(name_key, self.archives.len());
+            self.archive_lookup.insert(archive_key, self.archives.len());
             self.archives.push(entry);
             false
         };
@@ -1229,63 +1226,9 @@ impl BigFileSystem {
         }
     }
 
-    fn select_preferred_locator(
-        &self,
-        current: Option<FileLocator>,
-        candidate: &FileLocator,
-    ) -> Option<FileLocator> {
-        match current {
-            None => Some(candidate.clone()),
-            Some(existing) => {
-                let existing_archive = self.archives.get(existing.archive_index)?;
-                let candidate_archive = self.archives.get(candidate.archive_index)?;
-
-                let existing_rank = (
-                    existing_archive.load_sequence,
-                    existing_archive.override_existing,
-                );
-                let candidate_rank = (
-                    candidate_archive.load_sequence,
-                    candidate_archive.override_existing,
-                );
-
-                if candidate_rank > existing_rank {
-                    Some(candidate.clone())
-                } else {
-                    Some(existing)
-                }
-            }
-        }
-    }
-
     fn resolve_locator(&self, filename: &str) -> Option<FileLocator> {
         let canonical = filename.replace('\\', "/").to_lowercase();
-        if let Some(locator) = self.file_index.get(&canonical) {
-            return Some(locator.clone());
-        }
-
-        if !canonical.contains('/') {
-            // C++ file factory behavior frequently resolves by bare filename.
-            // Search by basename when caller provides no directory.
-            let mut best: Option<FileLocator> = None;
-            for (path, locator) in &self.file_index {
-                let basename = path.rsplit('/').next().unwrap_or(path.as_str());
-                if basename == canonical {
-                    best = self.select_preferred_locator(best, locator);
-                }
-            }
-            return best;
-        }
-
-        // Allow callers to provide suffix paths (for example "audio/tracks/foo.mp3" when
-        // the archive stores "data/audio/tracks/foo.mp3").
-        let mut best: Option<FileLocator> = None;
-        for (path, locator) in &self.file_index {
-            if path.ends_with(&canonical) {
-                best = self.select_preferred_locator(best, locator);
-            }
-        }
-        best
+        self.file_index.get(&canonical).cloned()
     }
 
     fn prepare_entry(&mut self, filename: &str) -> io::Result<Option<PreparedEntry>> {
@@ -1334,7 +1277,7 @@ impl BigFileSystem {
 
     /// Close a specific archive file
     pub fn close_archive_file(&mut self, filename: &str) {
-        let key = filename.to_lowercase();
+        let key = filename.replace('\\', "/").to_lowercase();
         if let Some(index) = self.archive_lookup.remove(&key) {
             self.archives.remove(index);
 
@@ -1342,7 +1285,7 @@ impl BigFileSystem {
             self.archive_lookup.clear();
             for (idx, archive) in self.archives.iter().enumerate() {
                 self.archive_lookup
-                    .insert(archive.name.as_str().to_lowercase(), idx);
+                    .insert(normalize_archive_path_key(&archive.path), idx);
             }
             self.rebuild_file_index();
         }
@@ -1357,7 +1300,7 @@ impl BigFileSystem {
 
     /// Get a mutable reference to a BIG file by archive name
     pub fn get_big_file(&mut self, filename: &str) -> Option<&mut BigFile> {
-        let key = filename.to_lowercase();
+        let key = filename.replace('\\', "/").to_lowercase();
         self.archive_lookup
             .get(&key)
             .and_then(|&idx| self.archives.get_mut(idx))
@@ -1456,8 +1399,24 @@ impl BigFileSystem {
     pub fn open_file(
         &mut self,
         filename: &str,
-        _access: i32,
+        access: i32,
     ) -> Result<Box<dyn Read + Send>, io::Error> {
+        const FILE_READ: i32 = 0x00000001;
+        const FILE_WRITE: i32 = 0x00000002;
+
+        if (access & FILE_WRITE) != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "BIG archive entries are read-only",
+            ));
+        }
+        if (access & FILE_READ) == 0 && access != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "BIG archive access requires read permission",
+            ));
+        }
+
         let prepared = match self.prepare_entry(filename)? {
             Some(entry) => entry,
             None => {
@@ -1602,7 +1561,7 @@ impl FileSystemBackend for BigArchiveBackend {
     fn update(&mut self) {}
 
     fn open_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn GameFile>> {
-        if !access.contains(FileAccess::READ) {
+        if !access.contains(FileAccess::READ) || access.contains(FileAccess::WRITE) {
             return None;
         }
 

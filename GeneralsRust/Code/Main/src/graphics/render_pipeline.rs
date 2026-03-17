@@ -1800,24 +1800,52 @@ impl ForwardPass {
         S: AsRef<str>,
     {
         let mut stats = TexturePrewarmStats::default();
+        let mut unique = HashSet::new();
+        let mut requested: Vec<(String, String)> = Vec::new();
+
         for texture_name in texture_names {
             let texture_name = texture_name.as_ref().trim();
             if !Self::is_valid_texture_name(texture_name) {
                 continue;
             }
-
-            stats.requested += 1;
             let cache_key = texture_name.to_ascii_lowercase();
+            if !unique.insert(cache_key.clone()) {
+                continue;
+            }
+            stats.requested += 1;
+            if self.texture_cache.contains_key(&cache_key) {
+                stats.cache_hits += 1;
+                continue;
+            }
+            requested.push((texture_name.to_string(), cache_key));
+        }
+
+        // Prime all raw payloads while holding the asset manager lock once, matching C++ upfront loads.
+        if let Some(asset_manager_arc) = get_asset_manager() {
+            if let Ok(mut asset_manager) = asset_manager_arc.try_lock() {
+                asset_manager.prime_textures_raw_blocking(requested.iter().map(|(name, _)| name));
+            }
+        }
+
+        for (texture_name, cache_key) in requested {
             if self.texture_cache.contains_key(&cache_key) {
                 stats.cache_hits += 1;
                 continue;
             }
 
-            let _ = self.ensure_texture(texture_name)?;
-            if self.is_known_missing_texture(texture_name) {
+            if self.is_known_missing_texture(&texture_name) {
                 stats.missing += 1;
-            } else if self.texture_cache.contains_key(&cache_key) {
+                if let Ok(fallback) = self.ensure_fallback_texture() {
+                    self.texture_cache.insert(cache_key, fallback);
+                }
+                continue;
+            }
+
+            if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
+                self.texture_cache.insert(cache_key, texture);
                 stats.resolved += 1;
+            } else {
+                self.queue_texture_stream(&texture_name);
             }
         }
 
@@ -2823,8 +2851,13 @@ impl ForwardPass {
 
         self.pending_texture_stream
             .push_back(texture_name.to_string());
-        self.queued_texture_stream.insert(key);
-        let _ = crate::assets::manager::queue_prime_texture_raw(texture_name);
+        self.queued_texture_stream.insert(key.clone());
+        // Queue raw texture priming work to the background worker; never block
+        // the render thread waiting for archive I/O.
+        if !crate::assets::manager::queue_prime_texture_raw(texture_name) {
+            self.queued_texture_stream.remove(&key);
+            let _ = self.pending_texture_stream.pop_back();
+        }
     }
 
     fn texture_stream_budget(&self) -> usize {

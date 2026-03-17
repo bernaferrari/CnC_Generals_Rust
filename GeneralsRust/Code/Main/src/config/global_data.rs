@@ -1,6 +1,8 @@
 use super::{ConfigValue, IniParser, LoadMode};
 use anyhow::Result;
 use crc32fast::Hasher;
+use game_engine::common::system::file::FileAccess;
+use game_engine::common::system::file_system::get_file_system;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -99,7 +101,11 @@ impl GlobalData {
             info!("Resolved INI path {:?} -> {:?}", requested, path);
         }
 
-        let result = self.ini_parser.load_file(&path, LoadMode::MultiFile)?;
+        let contents = Self::read_ini_text(&path).map_err(|err| {
+            anyhow::anyhow!("Failed to read INI '{}': {}", path.display(), err)
+        })?;
+
+        let result = self.ini_parser.load_from_string(&contents, LoadMode::MultiFile)?;
 
         // Load specific settings from the INI
         self.load_settings_from_ini();
@@ -417,52 +423,40 @@ impl GlobalData {
     }
 
     fn resolve_ini_path(requested: &Path) -> Option<PathBuf> {
-        if requested.exists() {
-            return Some(requested.to_path_buf());
+        if requested.as_os_str().is_empty() {
+            return None;
         }
 
-        let requested_normalized = requested.to_string_lossy().replace('\\', "/");
-        let mut relative_candidates = vec![requested_normalized.clone()];
+        let requested_normalized = requested
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim()
+            .to_string();
 
+        let mut candidates = Vec::new();
+        candidates.push(requested_normalized.clone());
         if let Some(stripped) = requested_normalized.strip_prefix("./") {
-            relative_candidates.push(stripped.to_string());
-        }
-        if let Some(stripped) = requested_normalized.strip_prefix("Data/") {
-            relative_candidates.push(format!("Data/{}", stripped));
+            candidates.push(stripped.to_string());
         }
 
-        let mut roots: Vec<PathBuf> = Vec::new();
-        if let Ok(cwd) = std::env::current_dir() {
-            roots.push(cwd);
-        }
-        roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-
-        let mut search_roots: Vec<PathBuf> = Vec::new();
-        for root in roots {
-            for ancestor in root.ancestors().take(8) {
-                let base = ancestor.to_path_buf();
-                search_roots.push(base.clone());
-                search_roots.push(base.join("windows_game/extracted_big_files/INIZH"));
-                search_roots.push(base.join("windows_game/extracted_big_files_v2/INIZH"));
-                search_roots.push(base.join("windows_game/Command & Conquer Generals Zero Hour"));
-                search_roots
-                    .push(base.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+        for candidate in &candidates {
+            if let Some(found) = resolve_via_file_system(Path::new(candidate)) {
+                return Some(found);
             }
-        }
-
-        search_roots.sort();
-        search_roots.dedup();
-
-        for root in search_roots {
-            for rel in &relative_candidates {
-                let candidate = root.join(rel);
-                if candidate.exists() {
-                    return Some(candidate);
-                }
+            if Path::new(candidate).exists() {
+                return Some(Path::new(candidate).to_path_buf());
             }
         }
 
         None
+    }
+
+    fn read_ini_text(path: &Path) -> Result<String> {
+        if let Some(contents) = read_text_via_file_system(path) {
+            return Ok(contents);
+        }
+
+        std::fs::read_to_string(path).map_err(anyhow::Error::from)
     }
 
     /// Validate configuration
@@ -506,6 +500,47 @@ impl GlobalData {
             game_data_path: self.game_data_path.clone(),
         }
     }
+}
+
+fn normalize_virtual_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .trim()
+        .trim_matches('"')
+        .to_string()
+}
+
+fn resolve_via_file_system(path: &Path) -> Option<PathBuf> {
+    let candidate = normalize_virtual_path(path);
+    if candidate.is_empty() {
+        return None;
+    }
+
+    if let Ok(file_system) = get_file_system().lock() {
+        if file_system.does_file_exist(&candidate) {
+            return Some(PathBuf::from(candidate));
+        }
+    }
+
+    None
+}
+
+fn read_text_via_file_system(path: &Path) -> Option<String> {
+    let candidate = normalize_virtual_path(path);
+    if candidate.is_empty() {
+        return None;
+    }
+
+    let access = FileAccess::READ.combine(FileAccess::BINARY);
+    if let Ok(mut file_system) = get_file_system().lock() {
+        if let Some(mut file) = file_system.open_file(&candidate, access) {
+            if let Ok(bytes) = file.read_entire_and_close() {
+                return String::from_utf8(bytes).ok();
+            }
+        }
+    }
+
+    None
 }
 
 /// Global data statistics

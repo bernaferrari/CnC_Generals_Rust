@@ -1,7 +1,7 @@
 //! Map utility and cache helpers.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::display::image::{get_mapped_image_collection, Image};
@@ -105,9 +105,10 @@ impl MapCache {
     }
 
     pub fn find_map(&self, map_name: &str) -> Option<MapMetaData> {
+        let map_name = map_name.to_lowercase();
         get_map_cache()
             .as_ref()
-            .and_then(|cache| cache.get(map_name))
+            .and_then(|cache| cache.get(&map_name))
             .cloned()
     }
 
@@ -125,7 +126,13 @@ impl MapCache {
 
     fn load_standard_maps(&self) {
         let map_cache_path = PathBuf::from(&self.map_dir).join(MAP_CACHE_NAME);
-        if !map_cache_path.exists() {
+        let map_cache_path = map_cache_path.to_string_lossy().into_owned();
+        let map_cache_exists = {
+            let file_system_ref = get_file_system();
+            let file_system = file_system_ref.lock().unwrap();
+            file_system.does_file_exist(&map_cache_path)
+        };
+        if !map_cache_exists {
             return;
         }
         let mut ini = INI::new();
@@ -140,8 +147,16 @@ impl MapCache {
         };
 
         if !build_map_cache {
-            let map_cache_path = PathBuf::from(&map_dir).join(MAP_CACHE_NAME);
-            if map_cache_path.exists() {
+            let map_cache_path = PathBuf::from(&map_dir)
+                .join(MAP_CACHE_NAME)
+                .to_string_lossy()
+                .into_owned();
+            let map_cache_exists = {
+                let file_system_ref = get_file_system();
+                let file_system = file_system_ref.lock().unwrap();
+                file_system.does_file_exist(&map_cache_path)
+            };
+            if map_cache_exists {
                 let mut ini = INI::new();
                 let _ = ini.load(&map_cache_path, INILoadType::Overwrite);
             }
@@ -369,6 +384,15 @@ impl MapCache {
                 let _ = file.print("END\n\n");
             }
         }
+    }
+
+    pub fn has_map(&self, map_name: &str) -> bool {
+        let map_name = map_name.to_lowercase();
+        get_map_cache().as_ref().is_some_and(|cache| cache.get(&map_name).is_some())
+    }
+
+    pub fn has_map_cpp_key(&self, map_name: &str) -> bool {
+        self.has_map(map_name)
     }
 }
 
@@ -658,8 +682,9 @@ pub fn get_map_preview_image(map_name: &str) -> Option<String> {
     let preview_dir = build_map_preview_dir();
     let preview_path = PathBuf::from(&preview_dir).join(&preview_filename);
 
-    if !preview_path.exists() {
-        let _ = copy_from_file_system(&tga_path, preview_path.to_string_lossy().as_ref());
+    let preview_file_path = preview_path.to_string_lossy();
+    if !file_exists(&preview_file_path) {
+        let _ = copy_from_file_system(&tga_path, preview_file_path.as_ref());
     }
 
     let collection = get_mapped_image_collection();
@@ -866,6 +891,29 @@ fn map_extent(heightmap: &gamelogic::system::map_loader::HeightMap) -> Region3D 
     }
 }
 
+pub fn is_map_cached(map_name: &str) -> bool {
+    let cache = get_map_cache_manager();
+    let mut cache_guard = cache.lock().unwrap();
+    cache_guard.update_cache();
+    cache_guard.has_map(map_name)
+}
+
+pub fn refresh_map_cache() {
+    let cache = get_map_cache_manager();
+    let mut cache_guard = cache.lock().unwrap();
+    cache_guard.update_cache();
+}
+
+pub fn is_map_cached_without_refresh(map_name: &str) -> bool {
+    if map_name.is_empty() {
+        return false;
+    }
+
+    let cache = get_map_cache_manager();
+    let cache_guard = cache.lock().unwrap();
+    cache_guard.has_map_cpp_key(map_name)
+}
+
 fn to_ini_coord3d(coord: gamelogic::system::map_loader::Coord3D) -> Coord3D {
     Coord3D::new(coord.x, coord.y, coord.z)
 }
@@ -873,13 +921,10 @@ fn to_ini_coord3d(coord: gamelogic::system::map_loader::Coord3D) -> Coord3D {
 fn read_file_bytes(filename: &str) -> Result<Vec<u8>, std::io::Error> {
     let file_system_ref = get_file_system();
     let mut file_system = file_system_ref.lock().unwrap();
-    if let Some(mut file) =
-        file_system.open_file(filename, FileAccess::READ.combine(FileAccess::BINARY))
-    {
-        let data = file.read_entire_and_close()?;
-        return Ok(data);
-    }
-    std::fs::read(filename)
+    let mut file = file_system
+        .open_file(filename, FileAccess::READ.combine(FileAccess::BINARY))
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"))?;
+    file.read_entire_and_close()
 }
 
 fn copy_from_file_system(source: &str, dest: &str) -> Result<(), std::io::Error> {
@@ -897,13 +942,16 @@ fn copy_from_file_system(source: &str, dest: &str) -> Result<(), std::io::Error>
         file.close();
         return Ok(());
     }
-    std::fs::write(dest, &data)
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "destination file system backend unavailable",
+    ))
 }
 
 fn file_exists(path: &str) -> bool {
     let file_system_ref = get_file_system();
     let file_system = file_system_ref.lock().unwrap();
-    file_system.does_file_exist(path) || Path::new(path).exists()
+    file_system.does_file_exist(path)
 }
 
 fn sanitize_preview_name(map_name: &str) -> String {
@@ -940,30 +988,8 @@ fn collect_map_files(map_dir: &str) -> Vec<String> {
             true,
         );
     }
-
-    let mut files: Vec<String> = filename_list.into_iter().map(|f| f.to_string()).collect();
-    if !files.is_empty() {
-        return files;
-    }
-
-    let root = Path::new(map_dir);
-    if !root.exists() {
-        return files;
-    }
-
-    for entry in walkdir::WalkDir::new(root)
-        .follow_links(true)
+    filename_list
         .into_iter()
-        .filter_map(Result::ok)
-    {
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
-                if ext.eq_ignore_ascii_case(MAP_EXTENSION) {
-                    files.push(entry.path().to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-
-    files
+        .map(|f| f.to_string())
+        .collect::<Vec<_>>()
 }

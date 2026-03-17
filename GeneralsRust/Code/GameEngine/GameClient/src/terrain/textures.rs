@@ -1,21 +1,30 @@
 //! Terrain Texture System
 //!
-//! Manages terrain texturing including texture atlases, blending, and
-//! material properties for realistic terrain rendering.
+//! Manages terrain texturing in a minimal C++-style pipeline: texture IDs
+//! with per-vertex weights.
 
 use crate::terrain::{TerrainError, TerrainResult};
 use bytemuck::cast_slice;
-use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::ini::ini_terrain::get_terrain_types;
-use game_engine::common::system::{file::FileAccess, file_system::get_file_system};
-use glam::{Vec2, Vec3};
-use image::{self, GenericImageView};
+use game_engine::common::global_data;
+use game_engine::common::ini::ini_webpage_url::get_registry_language;
+use game_engine::common::system::{
+    big_file_system::BigArchiveBackend,
+    file::FileAccess,
+    file_system::get_file_system,
+    file_system::paths::{
+        MAP_PREVIEW_DIR_PATH, TERRAIN_TGA_DIR_PATH, TGA_DIR_PATH, USER_TGA_DIR_PATH,
+    },
+    local_file_system::LocalFileSystem,
+    subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
+};
+use glam::Vec3;
+use image::{self, DynamicImage, GenericImageView, ImageFormat, RgbaImage};
 use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureView};
 
@@ -25,32 +34,96 @@ pub type TextureId = u32;
 /// Maximum blend weights tracked per vertex (matches legacy limit)
 pub const MAX_BLEND_WEIGHTS: usize = 4;
 pub const DEFAULT_TEXTURE_DIMENSIONS: (u32, u32) = (256, 256);
-pub const DEFAULT_NORMAL_COLOR: [u8; 4] = [128, 128, 255, 255];
-pub const DEFAULT_HEIGHT_COLOR: [u8; 4] = [128, 128, 128, 255];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureKind {
     Diffuse,
-    Normal,
-    Height,
 }
 
 type TextureCacheKey = (TextureId, TextureKind);
 
 type PathCache = Mutex<HashMap<String, Option<PathBuf>>>;
-type ImageCache = Mutex<HashMap<String, Option<Arc<image::DynamicImage>>>>;
+type DecodedImage = Arc<image::DynamicImage>;
+type ImageCache = Mutex<HashMap<String, Option<DecodedImage>>>;
+type GameFsPathCache = Mutex<HashMap<String, Option<String>>>;
 
 static RESOLVED_PATH_CACHE: OnceLock<PathCache> = OnceLock::new();
+static GAME_FS_PATH_CACHE: OnceLock<GameFsPathCache> = OnceLock::new();
 static GAME_FS_IMAGE_CACHE: OnceLock<ImageCache> = OnceLock::new();
-static FALLBACK_IMAGE_CACHE: OnceLock<ImageCache> = OnceLock::new();
 
 fn normalized_texture_key(path: &str) -> String {
-    path.replace('\\', "/")
-        .trim_start_matches("./")
-        .to_ascii_lowercase()
+    normalize_texture_name(path).to_ascii_lowercase()
 }
 
-/// Terrain texture with material properties
+fn normalize_texture_name(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_start_matches("./")
+        .chars()
+        .filter(|c| *c != ' ')
+        .collect::<String>()
+}
+
+fn runtime_root_candidates() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(current) = env::current_dir() {
+        roots.push(current);
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    roots
+}
+
+fn ensure_engine_filesystem_backends() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let fs = get_file_system();
+        let Ok(mut fs_guard) = fs.lock() else {
+            return;
+        };
+
+        let writable = {
+            let data = global_data::read();
+            data.writable.clone()
+        };
+        let mut search_paths = vec![PathBuf::from(".")];
+
+        for base in runtime_root_candidates() {
+            search_paths.push(base.clone());
+        }
+
+        if !writable.mod_dir.is_empty() {
+            search_paths.push(PathBuf::from(&writable.mod_dir));
+        }
+        if !writable.mod_big.is_empty() {
+            if let Some(parent) = Path::new(&writable.mod_big).parent() {
+                search_paths.push(parent.to_path_buf());
+            }
+        }
+
+        {
+            let local_backend: &mut LocalFileSystem = fs_guard.ensure_backend(LocalFileSystem::new);
+            for path in &search_paths {
+                local_backend.add_search_path(path);
+            }
+        }
+
+        {
+            let big_backend: &mut BigArchiveBackend =
+                fs_guard.ensure_backend(BigArchiveBackend::new);
+            for path in &search_paths {
+                big_backend.add_search_path(path);
+            }
+        }
+
+        fs_guard.clear_cache();
+        let _ = CommonSubsystemInterface::init(&mut *fs_guard);
+    });
+}
+
+/// Terrain texture registration data.
 #[derive(Debug, Clone)]
 pub struct TerrainTexture {
     /// Unique identifier
@@ -62,27 +135,6 @@ pub struct TerrainTexture {
     /// Path to diffuse texture
     pub diffuse_path: String,
 
-    /// Path to normal map (optional)
-    pub normal_path: Option<String>,
-
-    /// Path to height/displacement map (optional)
-    pub height_path: Option<String>,
-
-    /// Path to material properties map (optional)
-    pub material_path: Option<String>,
-
-    /// Texture tiling scale
-    pub scale: Vec2,
-
-    /// Texture rotation in radians
-    pub rotation: f32,
-
-    /// Material properties
-    pub material: TerrainMaterial,
-
-    /// Blending properties
-    pub blend_mode: BlendMode,
-
     /// Whether texture is loaded
     pub loaded: bool,
 
@@ -92,96 +144,15 @@ pub struct TerrainTexture {
     /// Resolved on-disk path for GPU loading
     pub resolved_path: Option<PathBuf>,
 
-    /// Resolved normal map path
-    pub resolved_normal_path: Option<PathBuf>,
-
-    /// Resolved height map path
-    pub resolved_height_path: Option<PathBuf>,
-
-    /// Cached height image data for gradient sampling
-    pub height_image: Option<Arc<HeightImage>>,
-
     /// Cached diffuse decode to avoid repeated loads during first GPU upload
     cached_diffuse_image: Option<Arc<image::DynamicImage>>,
-
-    /// Cached height decode to avoid repeated loads during first GPU upload
-    cached_height_image: Option<Arc<image::DynamicImage>>,
-}
-
-/// Material properties for terrain textures
-#[derive(Debug, Clone)]
-pub struct TerrainMaterial {
-    /// Base color/albedo tint
-    pub albedo: [f32; 3],
-
-    /// Metallic factor (0.0 = dielectric, 1.0 = metallic)
-    pub metallic: f32,
-
-    /// Roughness factor (0.0 = mirror, 1.0 = completely rough)
-    pub roughness: f32,
-
-    /// Normal map intensity
-    pub normal_strength: f32,
-
-    /// Height/displacement strength
-    pub height_strength: f32,
-
-    /// Ambient occlusion strength
-    pub ao_strength: f32,
-
-    /// Specular reflectance for dielectric materials
-    pub specular: f32,
 }
 
 /// Texture blending modes
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlendMode {
-    /// Replace underlying texture
-    Replace,
-    /// Alpha blend with underlying texture
-    AlphaBlend,
-    /// Multiply with underlying texture
-    Multiply,
-    /// Additive blend
-    Add,
-    /// Height-based blending
-    HeightBlend,
-    /// Normal-based blending (blend based on surface slope)
-    SlopeBlend,
-}
-
-/// Texture atlas for efficient GPU usage
-#[derive(Debug)]
-pub struct TextureAtlas {
-    /// Atlas identifier
-    pub id: u32,
-
-    /// Atlas dimensions
-    pub width: u32,
-    pub height: u32,
-
-    /// Individual texture regions in atlas
-    pub regions: HashMap<TextureId, AtlasRegion>,
-
-    /// Whether atlas needs rebuilding
-    pub dirty: bool,
-
-    /// Atlas texture data (RGBA)
-    pub data: Option<Vec<u8>>,
-}
-
-/// Region within texture atlas
-#[derive(Debug, Clone)]
-pub struct AtlasRegion {
-    /// Texture ID this region represents
-    pub texture_id: TextureId,
-
-    /// UV coordinates in atlas space [0,1]
-    pub uv_min: Vec2,
-    pub uv_max: Vec2,
-
-    /// Original texture dimensions
-    pub original_size: (u32, u32),
+    #[default]
+    Neutral,
 }
 
 /// Texture blending weights for terrain vertices
@@ -194,42 +165,19 @@ pub struct TextureWeights {
     pub weights: [f32; 4],
 }
 
-/// Configuration for texture blending
-#[derive(Debug, Clone)]
-pub struct BlendConfig {
-    /// Maximum number of textures per vertex
-    pub max_textures_per_vertex: u8,
-
-    /// Blend sharpness (higher = sharper transitions)
-    pub blend_sharpness: f32,
-
-    /// Height blend contrast
-    pub height_contrast: f32,
-
-    /// Slope blend angle threshold (radians)
-    pub slope_threshold: f32,
-}
-
 /// Manages terrain textures and blending
 #[derive(Debug)]
 pub struct TextureManager {
     /// All registered textures
     textures: HashMap<TextureId, TerrainTexture>,
-
-    /// Texture atlases for GPU efficiency
-    atlases: HashMap<u32, TextureAtlas>,
+    /// C++-style direct name/path lookup for already-registered textures.
+    texture_path_index: HashMap<String, TextureId>,
 
     /// GPU texture cache keyed by texture identifier
     gpu_cache: HashMap<TextureCacheKey, GPUTextureEntry>,
 
     /// Next available texture ID
     next_texture_id: TextureId,
-
-    /// Next available atlas ID
-    next_atlas_id: u32,
-
-    /// Blend configuration
-    blend_config: BlendConfig,
 
     /// Performance statistics
     stats: TextureStats,
@@ -243,9 +191,6 @@ pub struct TextureManager {
 pub struct TextureStats {
     pub total_textures: u32,
     pub loaded_textures: u32,
-    pub total_atlases: u32,
-    pub texture_memory: u64,
-    pub atlas_memory: u64,
     pub blend_operations: u64,
     pub last_update_time: std::time::Duration,
 }
@@ -256,38 +201,6 @@ struct GPUTextureEntry {
     view: Arc<TextureView>,
 }
 
-#[derive(Debug)]
-pub struct HeightImage {
-    width: u32,
-    height: u32,
-    data: Vec<u8>,
-}
-
-impl Default for TerrainMaterial {
-    fn default() -> Self {
-        Self {
-            albedo: [1.0, 1.0, 1.0],
-            metallic: 0.0,
-            roughness: 0.8,
-            normal_strength: 1.0,
-            height_strength: 0.02,
-            ao_strength: 1.0,
-            specular: 0.04,
-        }
-    }
-}
-
-impl Default for BlendConfig {
-    fn default() -> Self {
-        Self {
-            max_textures_per_vertex: 4,
-            blend_sharpness: 8.0,
-            height_contrast: 0.1,
-            slope_threshold: 0.7854, // 45 degrees
-        }
-    }
-}
-
 impl TerrainTexture {
     /// Create new terrain texture
     pub fn new(id: TextureId, name: String, diffuse_path: String) -> Self {
@@ -295,169 +208,16 @@ impl TerrainTexture {
             id,
             name,
             diffuse_path,
-            normal_path: None,
-            height_path: None,
-            material_path: None,
-            scale: Vec2::new(1.0, 1.0),
-            rotation: 0.0,
-            material: TerrainMaterial::default(),
-            blend_mode: BlendMode::AlphaBlend,
             loaded: false,
             dimensions: None,
             resolved_path: None,
-            resolved_normal_path: None,
-            resolved_height_path: None,
-            height_image: None,
             cached_diffuse_image: None,
-            cached_height_image: None,
         }
-    }
-
-    /// Set normal map path
-    pub fn with_normal_map<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.normal_path = Some(path.as_ref().to_string_lossy().to_string());
-        self
-    }
-
-    /// Set height map path
-    pub fn with_height_map<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.height_path = Some(path.as_ref().to_string_lossy().to_string());
-        self
-    }
-
-    /// Set material properties
-    pub fn with_material(mut self, material: TerrainMaterial) -> Self {
-        self.material = material;
-        self
-    }
-
-    /// Set texture scale
-    pub fn with_scale(mut self, scale: Vec2) -> Self {
-        self.scale = scale;
-        self
-    }
-
-    /// Set blend mode
-    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
-        self.blend_mode = blend_mode;
-        self
     }
 
     /// Check if texture has all required maps loaded
     pub fn is_complete(&self) -> bool {
         self.loaded && self.dimensions.is_some()
-    }
-
-    /// Get texture UV coordinates with scale and rotation applied
-    pub fn transform_uv(&self, uv: Vec2) -> Vec2 {
-        // Apply scale
-        let scaled_uv = Vec2::new(uv.x * self.scale.x, uv.y * self.scale.y);
-
-        // Apply rotation
-        if self.rotation != 0.0 {
-            let cos_r = self.rotation.cos();
-            let sin_r = self.rotation.sin();
-            Vec2::new(
-                scaled_uv.x * cos_r - scaled_uv.y * sin_r,
-                scaled_uv.x * sin_r + scaled_uv.y * cos_r,
-            )
-        } else {
-            scaled_uv
-        }
-    }
-}
-
-impl TextureAtlas {
-    /// Create new texture atlas
-    pub fn new(id: u32, width: u32, height: u32) -> Self {
-        Self {
-            id,
-            width,
-            height,
-            regions: HashMap::new(),
-            dirty: true,
-            data: None,
-        }
-    }
-
-    /// Add texture region to atlas
-    pub fn add_region(&mut self, texture_id: TextureId, region: AtlasRegion) {
-        self.regions.insert(texture_id, region);
-        self.dirty = true;
-    }
-
-    /// Get UV coordinates for texture in atlas
-    pub fn get_texture_uv(&self, texture_id: TextureId, original_uv: Vec2) -> Option<Vec2> {
-        if let Some(region) = self.regions.get(&texture_id) {
-            // Remap UV from [0,1] to atlas region
-            let u = region.uv_min.x + (region.uv_max.x - region.uv_min.x) * original_uv.x;
-            let v = region.uv_min.y + (region.uv_max.y - region.uv_min.y) * original_uv.y;
-            Some(Vec2::new(u, v))
-        } else {
-            None
-        }
-    }
-
-    /// Rebuild atlas from constituent textures.
-    pub fn rebuild(&mut self, textures: &HashMap<TextureId, TerrainTexture>) -> TerrainResult<()> {
-        let mut atlas_data = vec![0u8; (self.width * self.height * 4) as usize];
-
-        for region in self.regions.values() {
-            let Some(texture) = textures.get(&region.texture_id) else {
-                continue;
-            };
-
-            let path = texture
-                .resolved_path
-                .as_ref()
-                .map(|p| p.as_path())
-                .unwrap_or_else(|| Path::new(&texture.diffuse_path));
-
-            let Ok(img) = image::open(path) else {
-                warn!("TextureAtlas: unable to open {}", path.display());
-                continue;
-            };
-
-            let region_x = (region.uv_min.x * self.width as f32).round() as u32;
-            let region_y = (region.uv_min.y * self.height as f32).round() as u32;
-            let region_w = ((region.uv_max.x - region.uv_min.x) * self.width as f32).round() as u32;
-            let region_h =
-                ((region.uv_max.y - region.uv_min.y) * self.height as f32).round() as u32;
-
-            if region_w == 0 || region_h == 0 {
-                continue;
-            }
-
-            let resized = image::imageops::resize(
-                &img.to_rgba8(),
-                region_w,
-                region_h,
-                image::imageops::FilterType::Nearest,
-            );
-            let raw = resized.into_raw();
-
-            for y in 0..region_h {
-                let dest_y = region_y + y;
-                if dest_y >= self.height {
-                    continue;
-                }
-                let dest_row = dest_y as usize * self.width as usize * 4;
-                let src_row = y as usize * region_w as usize * 4;
-                for x in 0..region_w {
-                    let dest_x = region_x + x;
-                    if dest_x >= self.width {
-                        continue;
-                    }
-                    let dest_idx = dest_row + dest_x as usize * 4;
-                    let src_idx = src_row + x as usize * 4;
-                    atlas_data[dest_idx..dest_idx + 4].copy_from_slice(&raw[src_idx..src_idx + 4]);
-                }
-            }
-        }
-
-        self.data = Some(atlas_data);
-        self.dirty = false;
-        Ok(())
     }
 }
 
@@ -523,7 +283,7 @@ impl TextureWeights {
 
         pairs.retain(|(_, weight)| *weight > f32::EPSILON);
         if pairs.is_empty() {
-            return Self::single(0);
+            return Self::empty();
         }
 
         pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
@@ -598,43 +358,35 @@ impl TextureManager {
 
         Self {
             textures: HashMap::new(),
-            atlases: HashMap::new(),
+            texture_path_index: HashMap::new(),
             gpu_cache: HashMap::new(),
             next_texture_id: 1,
-            next_atlas_id: 1,
-            blend_config: BlendConfig::default(),
             stats: TextureStats::default(),
             blend_debug_path,
         }
     }
 
-    /// Reset all textures and atlases back to defaults
+    /// Reset all textures back to defaults
     pub fn reset(&mut self) -> TerrainResult<()> {
         self.textures.clear();
-        self.atlases.clear();
+        self.texture_path_index.clear();
         self.gpu_cache.clear();
         self.next_texture_id = 1;
-        self.next_atlas_id = 1;
         self.stats = TextureStats::default();
         Ok(())
     }
 
     fn resolve_texture_path_cached(diffuse_path: &str) -> Option<PathBuf> {
         let key = normalized_texture_key(diffuse_path);
-        if let Ok(cache) = RESOLVED_PATH_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-        {
+        let cache = RESOLVED_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(cache) = cache.lock() {
             if let Some(cached) = cache.get(&key) {
                 return cached.clone();
             }
         }
 
         let resolved = Self::resolve_texture_path(diffuse_path);
-        if let Ok(mut cache) = RESOLVED_PATH_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-        {
+        if let Ok(mut cache) = cache.lock() {
             cache.insert(key, resolved.clone());
         }
         resolved
@@ -644,59 +396,14 @@ impl TextureManager {
     pub fn register_texture(&mut self, mut texture: TerrainTexture) -> TextureId {
         texture.id = self.next_texture_id;
         let id = texture.id;
+        let path_key = normalized_texture_key(&texture.diffuse_path);
 
         self.textures.insert(id, texture);
+        self.texture_path_index.insert(path_key, id);
         self.next_texture_id += 1;
         self.stats.total_textures += 1;
 
         id
-    }
-
-    fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
-        if path.exists() {
-            return Some(path.to_path_buf());
-        }
-
-        let mut resolved = PathBuf::new();
-
-        for component in path.components() {
-            match component {
-                Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
-                Component::RootDir => resolved.push(component.as_os_str()),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    if !resolved.pop() {
-                        return None;
-                    }
-                }
-                Component::Normal(part) => {
-                    let exact = resolved.join(part);
-                    if exact.exists() {
-                        resolved = exact;
-                        continue;
-                    }
-
-                    let search_dir = if resolved.as_os_str().is_empty() {
-                        Path::new(".")
-                    } else {
-                        resolved.as_path()
-                    };
-                    let part = part.to_string_lossy();
-                    let entries = fs::read_dir(search_dir).ok()?;
-                    let matched = entries.filter_map(Result::ok).find_map(|entry| {
-                        let name = entry.file_name();
-                        if name.to_string_lossy().eq_ignore_ascii_case(&part) {
-                            Some(entry.path())
-                        } else {
-                            None
-                        }
-                    })?;
-                    resolved = matched;
-                }
-            }
-        }
-
-        resolved.exists().then_some(resolved)
     }
 
     pub(crate) fn can_resolve_texture_path(diffuse_path: &str) -> bool {
@@ -704,66 +411,115 @@ impl TextureManager {
     }
 
     pub(crate) fn is_available_terrain_texture_path(texture_path: &str) -> bool {
-        let target = Path::new(texture_path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or(texture_path);
-        Self::available_terrain_textures()
-            .iter()
-            .any(|available| available.eq_ignore_ascii_case(target))
+        Self::resolve_game_fs_path_cached(texture_path).is_some()
     }
 
     pub fn resolve_texture_path(diffuse_path: &str) -> Option<PathBuf> {
-        let raw = Path::new(diffuse_path);
-        if let Some(file_name) = raw.file_name().and_then(|name| name.to_str()) {
-            let key = file_name.to_ascii_lowercase();
-            if let Some(path) = Self::available_terrain_texture_path_map().get(&key) {
-                return Some(path.clone());
-            }
+        ensure_engine_filesystem_backends();
+
+        if let Some(fs_path) = Self::resolve_game_fs_path_cached(diffuse_path) {
+            return Some(PathBuf::from(fs_path));
         }
+
+        None
+    }
+
+    fn resource_candidates(filename: &str) -> Vec<String> {
+        let filename = normalize_texture_name(filename);
+        if filename.is_empty() {
+            return Vec::new();
+        }
+
+        let has_path_component = filename.contains('/');
+        let extension = Path::new(&filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+
+        let is_tga_or_dds = matches!(extension.as_deref(), Some("tga") | Some("dds"));
+        if !is_tga_or_dds {
+            if has_path_component {
+                return vec![filename];
+            }
+            return Vec::new();
+        }
+
         let mut candidates = Vec::new();
+        let mut seen = HashSet::new();
+        let mut push_unique = |candidate: String| {
+            let key = candidate.to_ascii_lowercase();
+            if seen.insert(key) {
+                candidates.push(candidate);
+            }
+        };
 
-        if raw.is_absolute() {
-            candidates.push(raw.to_path_buf());
+        if has_path_component {
+            push_unique(filename.clone());
         }
 
-        for resource in Self::resource_candidates(diffuse_path) {
-            candidates.push(PathBuf::from(&resource));
+        let language = get_registry_language().as_str().to_string();
+        if !language.is_empty() {
+            let localized = format!("Data/{language}/{TGA_DIR_PATH}{filename}");
+            push_unique(localized);
+        }
 
-            if let Ok(current_dir) = env::current_dir() {
-                candidates.push(current_dir.join(&resource));
-                for ancestor in current_dir.ancestors() {
-                    candidates.push(ancestor.join(&resource));
-                }
+        push_unique(format!("{TGA_DIR_PATH}{filename}"));
+
+        let user_data = global_data::read().get_user_data_dir().to_string();
+        if !user_data.is_empty() {
+            let mut user_textures = Path::new(&user_data)
+                .join(USER_TGA_DIR_PATH.replace("%s", ""))
+                .join(&filename)
+                .to_string_lossy()
+                .to_string();
+            user_textures = user_textures.replace('\\', "/");
+            push_unique(user_textures);
+
+            if matches!(extension.as_deref(), Some("tga")) {
+                let mut map_previews = Path::new(&user_data)
+                    .join(MAP_PREVIEW_DIR_PATH.replace("%s", ""))
+                    .join(&filename)
+                    .to_string_lossy()
+                    .to_string();
+                map_previews = map_previews.replace('\\', "/");
+                push_unique(map_previews);
             }
         }
 
-        const FALLBACK_DIRS: [&str; 12] = [
-            "windows_game/extracted_big_files",
-            "windows_game/extracted_big_files_v2",
-            "windows_game/extracted_big_files/TexturesZH/Art/Textures",
-            "windows_game/extracted_big_files_v2/TexturesZH/Art/Textures",
-            "windows_game/extracted_big_files/TexturesZH/Art/Terrain",
-            "windows_game/extracted_big_files_v2/TexturesZH/Art/Terrain",
-            "windows_game/extracted_big_files/TerrainZH/Art/Terrain",
-            "windows_game/extracted_big_files_v2/TerrainZH/Art/Terrain",
-            "../windows_game/extracted_big_files/TexturesZH/Art/Textures",
-            "../windows_game/extracted_big_files_v2/TexturesZH/Art/Textures",
-            "../windows_game/extracted_big_files/TerrainZH/Art/Terrain",
-            "../windows_game/extracted_big_files_v2/TerrainZH/Art/Terrain",
-        ];
+        candidates
+    }
 
-        for base in FALLBACK_DIRS.iter() {
-            for resource in Self::resource_candidates(diffuse_path) {
-                candidates.push(Path::new(base).join(resource));
+    fn resolve_game_fs_path_cached(path: &str) -> Option<String> {
+        let key = normalized_texture_key(path);
+        let cache = GAME_FS_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(cache) = cache.lock() {
+            if let Some(cached) = cache.get(&key) {
+                return cached.clone();
             }
         }
 
-        for candidate in candidates {
-            if let Some(resolved) = Self::resolve_existing_path_case_insensitive(&candidate) {
-                return Some(resolved);
-            }
-            if candidate.exists() {
+        let resolved = Self::find_game_fs_path(path);
+        if let Ok(mut cache) = cache.lock() {
+            cache.insert(key, resolved.clone());
+        }
+        resolved
+    }
+
+    fn find_game_fs_path(path: &str) -> Option<String> {
+        if path.trim().is_empty() {
+            return None;
+        }
+
+        ensure_engine_filesystem_backends();
+
+        let file_system = get_file_system();
+        let mut fs = file_system.lock().ok()?;
+
+        for candidate in Self::resource_candidates(path) {
+            if fs
+                .open_file(&candidate, FileAccess::READ.combine(FileAccess::BINARY))
+                .is_some()
+            {
                 return Some(candidate);
             }
         }
@@ -771,420 +527,194 @@ impl TextureManager {
         None
     }
 
-    fn resource_candidates(filename: &str) -> Vec<String> {
-        let normalized = filename.replace('\\', "/");
-        let bare = normalized.trim_start_matches("./").to_string();
-        let ext = Path::new(&bare)
+    fn load_image_from_game_fs(path: &str) -> Option<Arc<image::DynamicImage>> {
+        let Some(candidate) = Self::resolve_game_fs_path_cached(path) else {
+            return None;
+        };
+        let key = normalized_texture_key(&candidate);
+        let cache = GAME_FS_IMAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(cache) = cache.lock() {
+            if let Some(cached) = cache.get(&key) {
+                return cached.clone();
+            }
+        }
+
+        let result = Self::load_image_from_game_fs_path(&candidate).map(Arc::new);
+        if let Ok(mut cache) = cache.lock() {
+            cache.insert(key, result.clone());
+        }
+        result
+    }
+
+    fn load_image_from_game_fs_path(path: &str) -> Option<image::DynamicImage> {
+        let file_system = get_file_system();
+        let mut fs = file_system.lock().ok()?;
+        let mut file = fs.open_file(path, FileAccess::READ.combine(FileAccess::BINARY))?;
+        let bytes = file.read_entire_and_close().ok()?;
+        Self::decode_image_from_bytes(path, &bytes)
+    }
+
+    fn decode_image_from_bytes(resource_name: &str, bytes: &[u8]) -> Option<image::DynamicImage> {
+        let extension = Path::new(resource_name)
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.to_ascii_lowercase());
-        let has_extension = ext.is_some();
-        let mut candidates = Vec::new();
-        let mut seen = HashSet::new();
 
-        fn push_unique(
-            candidates: &mut Vec<String>,
-            seen: &mut HashSet<String>,
-            candidate: String,
+        match extension.as_deref() {
+            Some("tga") => image::load_from_memory_with_format(bytes, ImageFormat::Tga)
+                .ok()
+                .or_else(|| Self::decode_tga_image_manual(bytes)),
+            Some("dds") => image::load_from_memory_with_format(bytes, ImageFormat::Dds).ok(),
+            Some("png") => image::load_from_memory_with_format(bytes, ImageFormat::Png).ok(),
+            Some("jpg") | Some("jpeg") => {
+                image::load_from_memory_with_format(bytes, ImageFormat::Jpeg).ok()
+            }
+            Some("bmp") => image::load_from_memory_with_format(bytes, ImageFormat::Bmp).ok(),
+            _ => image::load_from_memory(bytes).ok(),
+        }
+    }
+
+    fn decode_tga_image_manual(bytes: &[u8]) -> Option<DynamicImage> {
+        if bytes.len() < 18 {
+            return None;
+        }
+
+        let id_length = bytes[0] as usize;
+        let color_map_type = bytes[1];
+        let image_type = bytes[2];
+        let color_map_length = u16::from_le_bytes([bytes[5], bytes[6]]) as usize;
+        let color_map_depth = bytes[7] as usize;
+        let width = u16::from_le_bytes([bytes[12], bytes[13]]) as u32;
+        let height = u16::from_le_bytes([bytes[14], bytes[15]]) as u32;
+        let bits_per_pixel = bytes[16];
+        let descriptor = bytes[17];
+
+        if width == 0 || height == 0 {
+            return None;
+        }
+        if !matches!(
+            (image_type, bits_per_pixel),
+            (2, 24) | (2, 32) | (10, 24) | (10, 32)
         ) {
-            let key = candidate.replace('\\', "/").to_ascii_lowercase();
-            if !candidate.is_empty() && seen.insert(key) {
-                candidates.push(candidate);
-            }
+            return None;
         }
 
-        push_unique(&mut candidates, &mut seen, bare.clone());
-
-        if let Some(file_name) = Path::new(&bare).file_name().and_then(|n| n.to_str()) {
-            if !file_name.eq_ignore_ascii_case(&bare) {
-                push_unique(&mut candidates, &mut seen, file_name.to_string());
-            }
+        let mut offset = 18usize.saturating_add(id_length);
+        if color_map_type == 1 {
+            let cmap_bytes = color_map_length.saturating_mul(color_map_depth.saturating_add(7)) / 8;
+            offset = offset.saturating_add(cmap_bytes);
+        }
+        if offset >= bytes.len() {
+            return None;
         }
 
-        if !bare.starts_with("Data/") {
-            push_unique(&mut candidates, &mut seen, format!("Data/{bare}"));
-        }
-
-        if !bare.contains('/') {
-            push_unique(&mut candidates, &mut seen, format!("Art/Terrain/{bare}"));
-            push_unique(&mut candidates, &mut seen, format!("Art/Textures/{bare}"));
-            push_unique(
-                &mut candidates,
-                &mut seen,
-                format!("Data/Art/Terrain/{bare}"),
-            );
-            push_unique(
-                &mut candidates,
-                &mut seen,
-                format!("Data/Art/Textures/{bare}"),
-            );
-        }
-
-        if has_extension {
-            if let Some((base, existing_ext)) = bare.rsplit_once('.') {
-                let alternates: &[&str] = match ext.as_deref() {
-                    Some("tga") => &["dds"],
-                    Some("dds") => &["tga"],
-                    _ => &[],
-                };
-                let seeds = candidates.clone();
-                for seed in &seeds {
-                    let seed_base = seed
-                        .strip_suffix(&format!(".{existing_ext}"))
-                        .unwrap_or(seed.as_str());
-                    for alt in alternates {
-                        push_unique(&mut candidates, &mut seen, format!("{seed_base}.{alt}"));
-                    }
+        let pixel_count = (width as usize).saturating_mul(height as usize);
+        let mut rgba = Vec::with_capacity(pixel_count.saturating_mul(4));
+        match (image_type, bits_per_pixel) {
+            (2, 24) => {
+                let expected = pixel_count.saturating_mul(3);
+                if bytes.len() < offset.saturating_add(expected) {
+                    return None;
                 }
-                push_unique(&mut candidates, &mut seen, base.to_string());
-            }
-        } else {
-            let seeds = candidates.clone();
-            for seed in &seeds {
-                push_unique(&mut candidates, &mut seen, format!("{seed}.dds"));
-                push_unique(&mut candidates, &mut seen, format!("{seed}.tga"));
-            }
-        }
-
-        candidates
-    }
-
-    fn terrain_class_candidates(filename: &str) -> Vec<String> {
-        let Some(registry) = get_terrain_types() else {
-            return Vec::new();
-        };
-
-        let target = filename.replace('\\', "/").to_ascii_lowercase();
-        let guard = registry.read();
-        let mut matched_class: Option<String> = None;
-        let mut matched_surface = None;
-
-        for terrain_name in guard.get_terrain_names() {
-            let Some(terrain) = guard.find_terrain(&AsciiString::from(terrain_name.as_str()))
-            else {
-                continue;
-            };
-            if terrain
-                .texture_name
-                .as_str()
-                .replace('\\', "/")
-                .to_ascii_lowercase()
-                == target
-            {
-                matched_class = terrain.properties.get("Class").cloned();
-                matched_surface = Some(terrain.surface_type.clone());
-                break;
-            }
-        }
-
-        let Some(surface) = matched_surface else {
-            return Vec::new();
-        };
-
-        let mut class_matches = Vec::new();
-        let mut surface_matches = Vec::new();
-
-        for terrain_name in guard.get_terrain_names() {
-            let Some(terrain) = guard.find_terrain(&AsciiString::from(terrain_name.as_str()))
-            else {
-                continue;
-            };
-            let texture_name = terrain.texture_name.as_str().trim();
-            if texture_name.is_empty() {
-                continue;
-            }
-            let normalized = texture_name.replace('\\', "/");
-            if normalized.eq_ignore_ascii_case(filename) {
-                continue;
-            }
-
-            if let Some(class_name) = matched_class.as_ref() {
-                if terrain
-                    .properties
-                    .get("Class")
-                    .map(|value| value.eq_ignore_ascii_case(class_name))
-                    .unwrap_or(false)
-                {
-                    class_matches.push(normalized.clone());
-                    continue;
+                for chunk in bytes[offset..offset + expected].chunks_exact(3) {
+                    rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], 255]);
                 }
             }
-
-            if terrain.surface_type == surface {
-                surface_matches.push(normalized);
-            }
-        }
-
-        class_matches.sort();
-        class_matches.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-        surface_matches.sort();
-        surface_matches.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-        class_matches.extend(surface_matches);
-        class_matches
-    }
-
-    fn terrain_available_family_candidates(filename: &str) -> Vec<String> {
-        let Some((prefix, number, suffix, ext)) = Self::terrain_numeric_family(filename) else {
-            return Vec::new();
-        };
-
-        let mut matches: Vec<(i32, String)> = Vec::new();
-        for available in Self::available_terrain_textures() {
-            let available_name = Path::new(available)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(available.as_str());
-            let Some((candidate_prefix, candidate_number, candidate_suffix, candidate_ext)) =
-                Self::terrain_numeric_family(available_name)
-            else {
-                continue;
-            };
-
-            if !candidate_prefix.eq_ignore_ascii_case(&prefix) {
-                continue;
-            }
-            if !candidate_ext.eq_ignore_ascii_case(&ext) {
-                continue;
-            }
-
-            let mut score = (candidate_number as i32 - number as i32).abs();
-            if !candidate_suffix.eq_ignore_ascii_case(&suffix) {
-                score += 100;
-            }
-
-            matches.push((score, available_name.to_string()));
-        }
-
-        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-        matches.dedup_by(|a, b| a.1.eq_ignore_ascii_case(&b.1));
-        matches.into_iter().map(|(_, name)| name).take(8).collect()
-    }
-
-    fn terrain_prefix_fallback_candidates(filename: &str) -> Vec<String> {
-        let stem = Path::new(filename)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(filename)
-            .to_ascii_lowercase();
-
-        let preferred = if stem.starts_with("tmgras") || stem.starts_with("tlgras") {
-            &["TMGras37a.tga", "TGGrass02.tga"][..]
-        } else if stem.starts_with("tmcliff")
-            || stem.starts_with("tlcliff")
-            || stem.starts_with("txrock")
-            || stem.starts_with("tmrock")
-        {
-            &["rock01.tga", "TLSandstone01.tga"][..]
-        } else if stem.starts_with("tmsand")
-            || stem.starts_with("txsand")
-            || stem.starts_with("tlsand")
-            || stem.starts_with("tmdirt")
-            || stem.starts_with("tldirt")
-        {
-            &["TGGrcSand01.tga", "TLSandstone01.tga", "TGGrass02.tga"][..]
-        } else {
-            &[
-                "TGGrass02.tga",
-                "TGGrcSand01.tga",
-                "rock01.tga",
-                "TLSandstone01.tga",
-            ][..]
-        };
-
-        preferred
-            .iter()
-            .filter(|candidate| {
-                Self::available_terrain_textures()
-                    .iter()
-                    .any(|available| available.eq_ignore_ascii_case(candidate))
-            })
-            .map(|candidate| (*candidate).to_string())
-            .collect()
-    }
-
-    fn available_terrain_textures() -> &'static Vec<String> {
-        static AVAILABLE_TERRAIN_TEXTURES: OnceLock<Vec<String>> = OnceLock::new();
-        AVAILABLE_TERRAIN_TEXTURES.get_or_init(|| {
-            let mut available: Vec<String> = Self::available_terrain_texture_path_map()
-                .keys()
-                .cloned()
-                .collect();
-            available.sort();
-            available
-        })
-    }
-
-    fn available_terrain_texture_path_map() -> &'static HashMap<String, PathBuf> {
-        static AVAILABLE_TERRAIN_TEXTURE_PATHS: OnceLock<HashMap<String, PathBuf>> =
-            OnceLock::new();
-        AVAILABLE_TERRAIN_TEXTURE_PATHS.get_or_init(|| {
-            let search_dirs = [
-                "windows_game/extracted_big_files/TerrainZH/Art/Terrain",
-                "windows_game/extracted_big_files_v2/TerrainZH/Art/Terrain",
-                "windows_game/extracted_big_files/TexturesZH/Art/Terrain",
-                "windows_game/extracted_big_files_v2/TexturesZH/Art/Terrain",
-                "../windows_game/extracted_big_files/TerrainZH/Art/Terrain",
-                "../windows_game/extracted_big_files_v2/TerrainZH/Art/Terrain",
-                "../windows_game/extracted_big_files/TexturesZH/Art/Terrain",
-                "../windows_game/extracted_big_files_v2/TexturesZH/Art/Terrain",
-            ];
-
-            let mut available = HashMap::new();
-            for dir in search_dirs {
-                let path = Path::new(dir);
-                let Ok(entries) = std::fs::read_dir(path) else {
-                    continue;
-                };
-                for entry in entries.flatten() {
-                    let candidate = entry.path();
-                    if !candidate.is_file() {
-                        continue;
-                    }
-                    let Some(name) = candidate.file_name().and_then(|name| name.to_str()) else {
-                        continue;
-                    };
-                    if !name.contains('.') {
-                        continue;
-                    }
-                    let key = name.to_ascii_lowercase();
-                    available.entry(key).or_insert(candidate);
+            (2, 32) => {
+                let expected = pixel_count.saturating_mul(4);
+                if bytes.len() < offset.saturating_add(expected) {
+                    return None;
+                }
+                for chunk in bytes[offset..offset + expected].chunks_exact(4) {
+                    rgba.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]);
                 }
             }
-
-            available
-        })
-    }
-
-    fn terrain_variant_family(filename: &str) -> Option<(String, String, Vec<char>)> {
-        let path = Path::new(filename);
-        let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-        let stem = path.file_stem()?.to_str()?;
-        let mut chars = stem.chars();
-        let last = chars.next_back()?;
-        let prev = chars.next_back()?;
-        if !last.is_ascii_alphabetic() || !prev.is_ascii_digit() {
-            return None;
-        }
-
-        let variant_prefix = stem[..stem.len().saturating_sub(1)].to_string();
-        let mut siblings = Vec::new();
-        for candidate in ['a', 'b', 'c', 'd'] {
-            if candidate != last.to_ascii_lowercase() {
-                siblings.push(candidate);
+            (10, 24) => {
+                if !Self::decode_tga_rle(bytes, offset, pixel_count, 3, &mut rgba) {
+                    return None;
+                }
             }
-        }
-        Some((variant_prefix, ext, siblings))
-    }
-
-    fn terrain_numeric_family(filename: &str) -> Option<(String, u8, String, String)> {
-        let path = Path::new(filename);
-        let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-        let stem = path.file_stem()?.to_str()?;
-        let chars: Vec<char> = stem.chars().collect();
-        if chars.len() < 3 {
-            return None;
+            (10, 32) => {
+                if !Self::decode_tga_rle(bytes, offset, pixel_count, 4, &mut rgba) {
+                    return None;
+                }
+            }
+            _ => return None,
         }
 
-        let mut digit_end = chars.len();
-        while digit_end > 0 && !chars[digit_end - 1].is_ascii_digit() {
-            digit_end -= 1;
-        }
-        if digit_end < 2 {
-            return None;
-        }
-
-        let mut digit_start = digit_end;
-        while digit_start > 0 && chars[digit_start - 1].is_ascii_digit() {
-            digit_start -= 1;
-        }
-        let digits = &stem[digit_start..digit_end];
-        if digits.len() != 2 {
-            return None;
-        }
-        let number = digits.parse::<u8>().ok()?;
-        let prefix = stem[..digit_start].to_string();
-        let suffix = stem[digit_end..].to_string();
-        if prefix.is_empty() {
-            return None;
-        }
-        Some((prefix, number, suffix, ext))
-    }
-
-    fn load_image_from_game_fs(path: &str) -> Option<Arc<image::DynamicImage>> {
-        let key = normalized_texture_key(path);
-        if let Ok(cache) = GAME_FS_IMAGE_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-        {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
+        // TGA default origin is bottom-left; flip to top-left to match GPU/image crate convention.
+        let origin_upper_left = (descriptor & 0x20) != 0;
+        if !origin_upper_left {
+            let row_bytes = (width as usize).saturating_mul(4);
+            if row_bytes > 0 {
+                for y in 0..(height as usize / 2) {
+                    let top = y * row_bytes;
+                    let bottom = ((height as usize - 1 - y) * row_bytes) as usize;
+                    for x in 0..row_bytes {
+                        rgba.swap(top + x, bottom + x);
+                    }
+                }
             }
         }
 
-        let result = Self::load_image_from_game_fs_uncached(path).map(Arc::new);
-        if let Ok(mut cache) = GAME_FS_IMAGE_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-        {
-            cache.insert(key, result.clone());
-        }
-        result
+        let image = RgbaImage::from_raw(width, height, rgba)?;
+        Some(DynamicImage::ImageRgba8(image))
     }
 
-    fn load_image_from_game_fs_uncached(path: &str) -> Option<image::DynamicImage> {
-        if path.trim().is_empty() {
-            return None;
-        }
+    fn decode_tga_rle(
+        bytes: &[u8],
+        mut offset: usize,
+        pixel_count: usize,
+        bytes_per_pixel: usize,
+        out: &mut Vec<u8>,
+    ) -> bool {
+        let mut written = 0usize;
+        while written < pixel_count && offset < bytes.len() {
+            let header = bytes[offset];
+            offset += 1;
+            let run_len = ((header & 0x7F) as usize).saturating_add(1);
+            let rle_packet = (header & 0x80) != 0;
 
-        let file_system = get_file_system();
-        let mut fs = file_system.lock().ok()?;
-
-        for candidate in Self::resource_candidates(path) {
-            let Some(mut file) =
-                fs.open_file(&candidate, FileAccess::READ.combine(FileAccess::BINARY))
-            else {
-                continue;
-            };
-            let Ok(bytes) = file.read_entire_and_close() else {
-                continue;
-            };
-            if let Ok(image) = image::load_from_memory(&bytes) {
-                return Some(image);
+            if rle_packet {
+                if offset.saturating_add(bytes_per_pixel) > bytes.len() {
+                    return false;
+                }
+                let px = &bytes[offset..offset + bytes_per_pixel];
+                offset += bytes_per_pixel;
+                for _ in 0..run_len {
+                    if written >= pixel_count {
+                        break;
+                    }
+                    match bytes_per_pixel {
+                        3 => out.extend_from_slice(&[px[2], px[1], px[0], 255]),
+                        4 => out.extend_from_slice(&[px[2], px[1], px[0], px[3]]),
+                        _ => return false,
+                    }
+                    written += 1;
+                }
+            } else {
+                let run_bytes = run_len.saturating_mul(bytes_per_pixel);
+                if offset.saturating_add(run_bytes) > bytes.len() {
+                    return false;
+                }
+                for i in 0..run_len {
+                    if written >= pixel_count {
+                        break;
+                    }
+                    let start = offset + i * bytes_per_pixel;
+                    let px = &bytes[start..start + bytes_per_pixel];
+                    match bytes_per_pixel {
+                        3 => out.extend_from_slice(&[px[2], px[1], px[0], 255]),
+                        4 => out.extend_from_slice(&[px[2], px[1], px[0], px[3]]),
+                        _ => return false,
+                    }
+                    written += 1;
+                }
+                offset += run_bytes;
             }
         }
 
-        None
-    }
-
-    fn load_image_with_fallback(
-        requested_path: &str,
-        resolved_path: Option<&PathBuf>,
-    ) -> Option<Arc<image::DynamicImage>> {
-        let key = normalized_texture_key(requested_path);
-        if let Ok(cache) = FALLBACK_IMAGE_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-        {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
-        }
-
-        let result = if let Some(path) = resolved_path {
-            image::open(path).ok().map(Arc::new)
-        } else {
-            None
-        }
-        .or_else(|| Self::load_image_from_game_fs(requested_path));
-
-        if let Ok(mut cache) = FALLBACK_IMAGE_CACHE
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-        {
-            cache.insert(key, result.clone());
-        }
-
-        result
+        written == pixel_count
     }
 
     pub fn acquire_texture_view(
@@ -1225,71 +755,30 @@ impl TextureManager {
         fallback_color: [u8; 4],
     ) -> TerrainResult<(Texture, TextureView)> {
         if let Some(texture) = self.textures.get_mut(&texture_id) {
-            let (resolved_path, requested_path) = match kind {
-                TextureKind::Diffuse => {
-                    if texture.resolved_path.is_none() {
-                        if let Some(path) = Self::resolve_texture_path_cached(&texture.diffuse_path)
-                        {
-                            texture.resolved_path = Some(path);
-                        }
+            if kind != TextureKind::Diffuse {
+                return Ok(create_solid_texture(device, queue, fallback_color));
+            }
+
+            let (resolved_path, requested_path) = {
+                if texture.resolved_path.is_none() {
+                    if let Some(path) = Self::resolve_texture_path_cached(&texture.diffuse_path) {
+                        texture.resolved_path = Some(path);
                     }
-                    (texture.resolved_path.clone(), texture.diffuse_path.clone())
                 }
-                TextureKind::Normal => {
-                    if texture.resolved_normal_path.is_none() {
-                        if let Some(normal) = texture.normal_path.clone() {
-                            if let Some(path) = Self::resolve_texture_path_cached(&normal) {
-                                texture.resolved_normal_path = Some(path);
-                            } else {
-                                warn!("Terrain normal map '{}' not found", normal);
-                            }
-                        }
-                    }
-                    (
-                        texture.resolved_normal_path.clone(),
-                        texture.normal_path.clone().unwrap_or_default(),
-                    )
-                }
-                TextureKind::Height => {
-                    if texture.resolved_height_path.is_none() {
-                        if let Some(height) = texture.height_path.clone() {
-                            if let Some(path) = Self::resolve_texture_path_cached(&height) {
-                                texture.resolved_height_path = Some(path);
-                            } else {
-                                warn!("Terrain height map '{}' not found", height);
-                            }
-                        }
-                    }
-                    (
-                        texture.resolved_height_path.clone(),
-                        texture.height_path.clone().unwrap_or_default(),
-                    )
-                }
+                (texture.resolved_path.clone(), texture.diffuse_path.clone())
             };
 
-            let cached_image = match kind {
-                TextureKind::Diffuse => texture.cached_diffuse_image.clone(),
-                TextureKind::Height => texture.cached_height_image.clone(),
-                TextureKind::Normal => None,
-            };
+            let cached_image = texture.cached_diffuse_image.clone();
 
             let image = cached_image.or_else(|| {
-                let loaded =
-                    Self::load_image_with_fallback(&requested_path, resolved_path.as_ref());
+                let Some(path) = resolved_path.as_deref().and_then(|path| path.to_str()) else {
+                    return None;
+                };
+                let loaded = Self::load_image_from_game_fs(path);
                 if let Some(img) = loaded.as_ref() {
-                    match kind {
-                        TextureKind::Diffuse => {
-                            texture
-                                .cached_diffuse_image
-                                .get_or_insert_with(|| img.clone());
-                        }
-                        TextureKind::Height => {
-                            texture
-                                .cached_height_image
-                                .get_or_insert_with(|| img.clone());
-                        }
-                        TextureKind::Normal => {}
-                    }
+                    texture
+                        .cached_diffuse_image
+                        .get_or_insert_with(|| img.clone());
                 }
                 loaded
             });
@@ -1331,77 +820,28 @@ impl TextureManager {
             texture.resolved_path = Some(path.clone());
         }
 
-        let diffuse_image =
-            Self::load_image_with_fallback(&texture.diffuse_path, texture.resolved_path.as_ref());
+        let diffuse_image = texture
+            .resolved_path
+            .as_ref()
+            .and_then(|path| path.to_str())
+            .and_then(Self::load_image_from_game_fs);
         match diffuse_image {
             Some(img) => {
                 texture.dimensions = Some(img.dimensions());
                 texture.cached_diffuse_image = Some(img);
             }
             None => {
+                let resolved_hint = resolved
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "<none>".to_string());
+                let gamefs_hint = Self::resolve_game_fs_path_cached(&texture.diffuse_path)
+                    .unwrap_or_else(|| "<none>".to_string());
                 warn!(
-                    "Terrain texture '{}' failed to decode",
-                    texture.diffuse_path
+                    "Terrain texture '{}' failed to decode (resolved_path={}, gamefs_path={})",
+                    texture.diffuse_path, resolved_hint, gamefs_hint
                 );
                 texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
-            }
-        }
-
-        if texture.normal_path.is_none() {
-            if let Some(base) = texture.resolved_path.as_ref().or(resolved.as_ref()) {
-                if let Some(candidate) = find_companion_map(base, &["_n.dds", "_normal.dds"]) {
-                    texture.normal_path = Some(candidate.to_string_lossy().into_owned());
-                    texture.resolved_normal_path = Some(candidate);
-                }
-            }
-        }
-
-        if texture.height_path.is_none() {
-            if let Some(base) = texture.resolved_path.as_ref().or(resolved.as_ref()) {
-                if let Some(candidate) = find_companion_map(base, &["_h.dds", "_height.dds"]) {
-                    texture.height_path = Some(candidate.to_string_lossy().into_owned());
-                    texture.resolved_height_path = Some(candidate);
-                }
-            }
-        }
-
-        if let Some(normal_path) = texture.normal_path.clone() {
-            if texture.resolved_normal_path.is_none() {
-                if let Some(resolved) = Self::resolve_texture_path_cached(&normal_path) {
-                    texture.resolved_normal_path = Some(resolved);
-                } else {
-                    warn!("Terrain normal map '{}' could not be resolved", normal_path);
-                }
-            }
-        }
-
-        if let Some(height_path) = texture.height_path.clone() {
-            if texture.resolved_height_path.is_none() {
-                if let Some(resolved) = Self::resolve_texture_path_cached(&height_path) {
-                    texture.resolved_height_path = Some(resolved);
-                } else {
-                    warn!("Terrain height map '{}' could not be resolved", height_path);
-                }
-            }
-        }
-
-        if let Some(height_path) = texture.height_path.clone() {
-            let resolved_height = texture.resolved_height_path.clone();
-            if let Some(img) =
-                Self::load_image_with_fallback(&height_path, resolved_height.as_ref())
-            {
-                let luma = img.to_luma8();
-                texture.cached_height_image = Some(img.clone());
-                texture.height_image = Some(Arc::new(HeightImage {
-                    width: luma.width(),
-                    height: luma.height(),
-                    data: luma.into_raw(),
-                }));
-            } else if let Some(height_resolved) = resolved_height {
-                warn!(
-                    "Failed to open terrain height map '{}'",
-                    height_resolved.display()
-                );
             }
         }
 
@@ -1415,11 +855,14 @@ impl TextureManager {
     pub fn load_textures(&mut self, texture_paths: &[&str]) -> TerrainResult<Vec<TextureId>> {
         let mut ids = Vec::new();
         for path in texture_paths {
-            if self
-                .textures
-                .values()
-                .any(|texture| texture.diffuse_path == *path)
-            {
+            if !Self::can_resolve_texture_path(path) {
+                warn!("Skipping unavailable terrain texture '{}'", path);
+                continue;
+            }
+
+            let path_key = normalized_texture_key(path);
+            if let Some(existing_id) = self.texture_path_index.get(&path_key).copied() {
+                ids.push(existing_id);
                 continue;
             }
 
@@ -1438,54 +881,6 @@ impl TextureManager {
         Ok(ids)
     }
 
-    /// Create texture atlas from multiple textures
-    pub fn create_atlas(
-        &mut self,
-        texture_ids: &[TextureId],
-        atlas_size: (u32, u32),
-    ) -> TerrainResult<u32> {
-        let atlas_id = self.next_atlas_id;
-        let mut atlas = TextureAtlas::new(atlas_id, atlas_size.0, atlas_size.1);
-
-        // Simple grid packing (could be improved with proper bin packing)
-        let cols = (atlas_size.0 as f32 / 256.0).floor() as u32;
-        let rows = (atlas_size.1 as f32 / 256.0).floor() as u32;
-
-        for (i, &texture_id) in texture_ids.iter().enumerate() {
-            if i >= (cols * rows) as usize {
-                break; // Atlas full
-            }
-
-            let col = (i as u32) % cols;
-            let row = (i as u32) / cols;
-
-            let original_size = self
-                .textures
-                .get(&texture_id)
-                .and_then(|texture| texture.dimensions)
-                .unwrap_or(DEFAULT_TEXTURE_DIMENSIONS);
-
-            let region = AtlasRegion {
-                texture_id,
-                uv_min: Vec2::new((col as f32) / (cols as f32), (row as f32) / (rows as f32)),
-                uv_max: Vec2::new(
-                    ((col + 1) as f32) / (cols as f32),
-                    ((row + 1) as f32) / (rows as f32),
-                ),
-                original_size,
-            };
-
-            atlas.add_region(texture_id, region);
-        }
-
-        atlas.rebuild(&self.textures)?;
-        self.atlases.insert(atlas_id, atlas);
-        self.next_atlas_id += 1;
-        self.stats.total_atlases += 1;
-
-        Ok(atlas_id)
-    }
-
     /// Generate texture weights for terrain vertex based on height and slope
     pub fn generate_texture_weights(
         &mut self,
@@ -1497,27 +892,14 @@ impl TextureManager {
         let mut contributions: HashMap<TextureId, f32> = HashMap::new();
 
         for rule in texture_rules {
-            let (gradient, height_strength) = self
-                .textures
-                .get(&rule.texture_id)
-                .map(|texture| {
-                    let gradient = texture
-                        .height_image
-                        .as_deref()
-                        .map(|image| sample_height_gradient(image, tex_coords))
-                        .unwrap_or(0.0);
-                    (gradient, texture.material.height_strength.max(0.0))
-                })
-                .unwrap_or((0.0, 0.0));
-
-            let base_weight = rule.calculate_weight(height, slope, gradient, height_strength);
+            let base_weight = rule.calculate_weight(height, slope, 0.0, 0.0);
             self.record_blend_debug(
                 "rule_base",
                 height,
                 slope,
                 tex_coords,
                 rule.texture_id,
-                Some(gradient),
+                None,
                 base_weight,
             );
             if base_weight <= 0.0 {
@@ -1533,7 +915,7 @@ impl TextureManager {
                 slope,
                 tex_coords,
                 rule.texture_id,
-                Some(gradient),
+                None,
                 weight,
             );
 
@@ -1546,11 +928,11 @@ impl TextureManager {
         self.stats.blend_operations = self.stats.blend_operations.wrapping_add(1);
 
         if contributions.is_empty() {
-            return if let Some(rule) = texture_rules.first() {
-                TextureWeights::single(rule.texture_id)
-            } else {
-                TextureWeights::single(0)
-            };
+            if let Some(rule) = texture_rules.first() {
+                return TextureWeights::single(rule.texture_id);
+            }
+
+            return TextureWeights::empty();
         }
 
         TextureWeights::from_weight_pairs(contributions.into_iter().collect())
@@ -1570,15 +952,14 @@ impl TextureManager {
             if let Some(rule) = texture_rules.first() {
                 return TextureWeights::single(rule.texture_id);
             }
-            return TextureWeights::single(0);
+            return TextureWeights::empty();
         }
 
         let mut adjusted_weights = base_weights.clone();
-        let mut adjusted = false;
         let slope = normal.dot(Vec3::Y).clamp(-1.0, 1.0).acos();
 
         for idx in 0..MAX_BLEND_WEIGHTS {
-            if idx >= adjusted_weights.indices.len() {
+            if idx >= MAX_BLEND_WEIGHTS {
                 break;
             }
 
@@ -1588,53 +969,28 @@ impl TextureManager {
             }
 
             let texture_id = adjusted_weights.indices[idx];
-            if let Some((image, height_strength)) = self.height_image_for(texture_id) {
-                let gradient_mag = sample_height_gradient(image, tex_coords);
-                self.record_blend_debug(
-                    "blend_input",
-                    height,
-                    slope,
-                    tex_coords,
-                    texture_id,
-                    Some(gradient_mag),
-                    weight,
-                );
-                if gradient_mag > f32::EPSILON {
-                    let gradient_factor =
-                        1.0 + gradient_mag * (0.35 + height_strength.clamp(0.0, 1.0));
-                    adjusted_weights.weights[idx] *= gradient_factor;
-                    self.record_blend_debug(
-                        "blend_adjusted",
-                        height,
-                        slope,
-                        tex_coords,
-                        texture_id,
-                        Some(gradient_mag),
-                        adjusted_weights.weights[idx],
-                    );
-                    adjusted = true;
-                }
-            }
+            self.record_blend_debug(
+                "blend_input",
+                height,
+                slope,
+                tex_coords,
+                texture_id,
+                None,
+                weight,
+            );
         }
 
-        if adjusted {
-            adjusted_weights.normalize();
-            if self.blend_debug_path.is_some() {
-                for (texture_id, weight) in adjusted_weights.iter_pairs() {
-                    let gradient = self
-                        .height_image_for(texture_id)
-                        .map(|(image, _)| sample_height_gradient(image, tex_coords));
-                    self.record_blend_debug(
-                        "blend_final",
-                        height,
-                        slope,
-                        tex_coords,
-                        texture_id,
-                        gradient,
-                        weight,
-                    );
-                }
-            }
+        adjusted_weights.normalize();
+        for (texture_id, weight) in adjusted_weights.iter_pairs() {
+            self.record_blend_debug(
+                "blend_final",
+                height,
+                slope,
+                tex_coords,
+                texture_id,
+                None,
+                weight,
+            );
         }
 
         adjusted_weights
@@ -1647,11 +1003,7 @@ impl TextureManager {
 
     /// Sample representative color for the terrain at a world position.
     pub fn sample_color_at(&self, _x: f32, _y: f32) -> TerrainResult<[f32; 3]> {
-        if let Some(texture) = self.textures.values().next() {
-            Ok(texture.material.albedo)
-        } else {
-            Ok([0.5, 0.5, 0.5])
-        }
+        Ok([0.5, 0.5, 0.5])
     }
 
     /// Determine terrain texture identifier at a world position.
@@ -1663,45 +1015,22 @@ impl TextureManager {
         }
     }
 
+    /// Return the lowest registered texture id, if any.
+    pub fn first_texture_id(&self) -> Option<TextureId> {
+        self.textures.keys().copied().min()
+    }
+
     /// Get mutable texture by ID
     pub fn get_texture_mut(&mut self, texture_id: TextureId) -> Option<&mut TerrainTexture> {
         self.textures.get_mut(&texture_id)
     }
 
-    /// Get atlas by ID
-    pub fn get_atlas(&self, atlas_id: u32) -> Option<&TextureAtlas> {
-        self.atlases.get(&atlas_id)
-    }
-
-    /// Update texture system (reload dirty atlases, etc.)
+    /// Update texture system.
     pub fn update(&mut self) -> TerrainResult<()> {
         let start_time = std::time::Instant::now();
 
-        // Rebuild dirty atlases
-        let dirty_atlases: Vec<u32> = self
-            .atlases
-            .values()
-            .filter(|atlas| atlas.dirty)
-            .map(|atlas| atlas.id)
-            .collect();
-
-        for atlas_id in dirty_atlases {
-            if let Some(atlas) = self.atlases.get_mut(&atlas_id) {
-                atlas.rebuild(&self.textures)?;
-            }
-        }
-
         self.stats.last_update_time = start_time.elapsed();
         Ok(())
-    }
-
-    fn height_image_for(&self, texture_id: TextureId) -> Option<(&HeightImage, f32)> {
-        self.textures.get(&texture_id).and_then(|texture| {
-            texture
-                .height_image
-                .as_deref()
-                .map(|image| (image, texture.material.height_strength.max(0.0)))
-        })
     }
 
     fn record_blend_debug(
@@ -1738,12 +1067,11 @@ impl TextureManager {
         &self.stats
     }
 
-    /// Clear all textures and atlases
+    /// Clear all textures
     pub fn clear(&mut self) {
         self.textures.clear();
-        self.atlases.clear();
+        self.texture_path_index.clear();
         self.next_texture_id = 1;
-        self.next_atlas_id = 1;
         self.stats = TextureStats::default();
     }
 }
@@ -1767,21 +1095,30 @@ impl TextureRule {
         &self,
         height: f32,
         slope: f32,
-        gradient: f32,
-        height_strength: f32,
+        _gradient: f32,
+        _height_strength: f32,
     ) -> f32 {
         let height_factor = if height >= self.height_min && height <= self.height_max {
-            1.0 - ((height - (self.height_min + self.height_max) / 2.0).abs()
-                / ((self.height_max - self.height_min) / 2.0))
-                .min(1.0)
+            let height_span = (self.height_max - self.height_min).abs();
+            if height_span <= f32::EPSILON {
+                1.0
+            } else {
+                1.0 - ((height - (self.height_min + self.height_max) / 2.0).abs()
+                    / (height_span / 2.0))
+                    .min(1.0)
+            }
         } else {
             0.0
         };
 
         let slope_factor = if slope >= self.slope_min && slope <= self.slope_max {
-            1.0 - ((slope - (self.slope_min + self.slope_max) / 2.0).abs()
-                / ((self.slope_max - self.slope_min) / 2.0))
-                .min(1.0)
+            let slope_span = (self.slope_max - self.slope_min).abs();
+            if slope_span <= f32::EPSILON {
+                1.0
+            } else {
+                1.0 - ((slope - (self.slope_min + self.slope_max) / 2.0).abs() / (slope_span / 2.0))
+                    .min(1.0)
+            }
         } else {
             0.0
         };
@@ -1790,24 +1127,7 @@ impl TextureRule {
             return 0.0;
         }
 
-        let scaled_gradient = (gradient * 8.0).min(1.0);
-        if scaled_gradient <= f32::EPSILON {
-            return height_factor * slope_factor;
-        }
-
-        let preferred = if self.preferred_gradient >= 0.0 {
-            self.preferred_gradient.clamp(0.0, 1.0)
-        } else {
-            (height_strength * 8.0).clamp(0.0, 1.0)
-        };
-        let material_preference = (height_strength * 4.0).clamp(0.0, 1.0);
-        let combined_preference = ((preferred * 0.7) + (material_preference * 0.3)).clamp(0.0, 1.0);
-        let tolerance = self.gradient_tolerance.max(0.05).min(1.0);
-
-        let gradient_delta = (scaled_gradient - combined_preference) / tolerance;
-        let gradient_factor = (-gradient_delta * gradient_delta).exp().clamp(0.0, 1.0);
-
-        (height_factor * slope_factor * gradient_factor.max(0.0)).max(0.0)
+        (height_factor * slope_factor).max(0.0)
     }
 }
 
@@ -1826,8 +1146,6 @@ pub type TextureLayer = TextureWeights;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Arc;
 
     #[test]
     fn test_texture_creation() {
@@ -1871,29 +1189,6 @@ mod tests {
         assert_eq!(id, 1);
         assert!(manager.get_texture(id).is_some());
         assert_eq!(manager.stats.total_textures, 1);
-    }
-
-    #[test]
-    fn test_atlas_creation() {
-        let mut manager = TextureManager::new();
-        let texture_ids = vec![
-            manager.register_texture(TerrainTexture::new(
-                0,
-                "tex1".to_string(),
-                "tex1.jpg".to_string(),
-            )),
-            manager.register_texture(TerrainTexture::new(
-                0,
-                "tex2".to_string(),
-                "tex2.jpg".to_string(),
-            )),
-        ];
-
-        let atlas_result = manager.create_atlas(&texture_ids, (512, 512));
-        assert!(atlas_result.is_ok());
-
-        let atlas_id = atlas_result.unwrap();
-        assert!(manager.get_atlas(atlas_id).is_some());
     }
 
     #[test]
@@ -1997,69 +1292,47 @@ mod tests {
 
         let rock_weight_steep = rock_rule.calculate_weight(height, slope, steep_gradient, 0.5);
         let rock_weight_shallow = rock_rule.calculate_weight(height, slope, shallow_gradient, 0.5);
-        assert!(rock_weight_steep > rock_weight_shallow);
+        assert!((rock_weight_steep - rock_weight_shallow).abs() < f32::EPSILON);
 
         let dirt_weight_steep = dirt_rule.calculate_weight(height, slope, steep_gradient, 0.5);
         let dirt_weight_shallow = dirt_rule.calculate_weight(height, slope, shallow_gradient, 0.5);
-        assert!(dirt_weight_shallow > dirt_weight_steep);
+        assert!((dirt_weight_shallow - dirt_weight_steep).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn test_generate_texture_weights_gradient_bias() {
+    fn test_generate_texture_weights_height_slope_only() {
         let mut manager = TextureManager::new();
-        let tex_rock = TerrainTexture::new(0, "rock".to_string(), "rock.png".to_string());
-        let tex_dirt = TerrainTexture::new(0, "dirt".to_string(), "dirt.png".to_string());
-
-        let rock_id = manager.register_texture(tex_rock);
-        let dirt_id = manager.register_texture(tex_dirt);
-
-        if let Some(texture) = manager.get_texture_mut(rock_id) {
-            texture.height_image = Some(Arc::new(HeightImage {
-                width: 2,
-                height: 2,
-                data: vec![0, 0, 255, 255],
-            }));
-            texture.material.height_strength = 1.0;
-        }
-        if let Some(texture) = manager.get_texture_mut(dirt_id) {
-            texture.height_image = Some(Arc::new(HeightImage {
-                width: 2,
-                height: 2,
-                data: vec![0, 0, 255, 255],
-            }));
-            texture.material.height_strength = 0.2;
-        }
 
         let rules = vec![
             TextureRule {
-                texture_id: rock_id,
+                texture_id: 1,
                 height_min: 0.0,
                 height_max: 200.0,
                 slope_min: 0.0,
-                slope_max: std::f32::consts::PI,
+                slope_max: 0.4,
                 priority: 0,
-                preferred_gradient: 0.75,
-                gradient_tolerance: 0.25,
+                preferred_gradient: 0.0,
+                gradient_tolerance: 0.0,
             },
             TextureRule {
-                texture_id: dirt_id,
+                texture_id: 2,
                 height_min: 0.0,
                 height_max: 200.0,
-                slope_min: 0.0,
-                slope_max: std::f32::consts::PI,
+                slope_min: 0.6,
+                slope_max: 1.4,
                 priority: 0,
-                preferred_gradient: 0.05,
-                gradient_tolerance: 0.25,
+                preferred_gradient: 0.0,
+                gradient_tolerance: 0.0,
             },
         ];
 
-        let weights = manager.generate_texture_weights(50.0, 0.2, [0.5, 0.5], &rules);
-        let weight_map: HashMap<TextureId, f32> = weights.iter_pairs().collect();
+        let low_slope = manager.generate_texture_weights(100.0, 0.2, [0.5, 0.5], &rules);
+        assert_eq!(low_slope.indices[0], 1);
+        assert!((low_slope.weights[0] - 1.0).abs() < 0.001);
 
-        let rock_weight = weight_map.get(&rock_id).copied().unwrap_or(0.0);
-        let dirt_weight = weight_map.get(&dirt_id).copied().unwrap_or(0.0);
-
-        assert!(rock_weight > dirt_weight);
+        let steep_only = manager.generate_texture_weights(100.0, 0.8, [0.5, 0.5], &rules);
+        assert_eq!(steep_only.indices[0], 2);
+        assert!((steep_only.weights[0] - 1.0).abs() < 0.001);
     }
 }
 
@@ -2112,91 +1385,4 @@ fn create_solid_texture(device: &Device, queue: &Queue, color: [u8; 4]) -> (Text
     let solid_pixels = [color; 1];
     let bytes: &[u8] = cast_slice(&solid_pixels);
     create_gpu_texture_from_rgba(device, queue, bytes, 1, 1, Some("Terrain Solid Texture"))
-}
-
-fn sample_height_value_from_image(image: &HeightImage, uv: [f32; 2]) -> f32 {
-    if image.width == 0 || image.height == 0 {
-        return 0.0;
-    }
-
-    let u = wrap_repeat(uv[0]);
-    let v = wrap_repeat(uv[1]);
-    let x = u * (image.width.saturating_sub(1) as f32);
-    let y = v * (image.height.saturating_sub(1) as f32);
-
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(image.width as usize - 1);
-    let y1 = (y0 + 1).min(image.height as usize - 1);
-
-    let tx = x - x0 as f32;
-    let ty = y - y0 as f32;
-
-    let idx = |ix: usize, iy: usize| -> f32 {
-        let offset = iy * image.width as usize + ix;
-        image
-            .data
-            .get(offset)
-            .map(|v| *v as f32 / 255.0)
-            .unwrap_or(0.0)
-    };
-
-    let h00 = idx(x0, y0);
-    let h10 = idx(x1, y0);
-    let h01 = idx(x0, y1);
-    let h11 = idx(x1, y1);
-
-    let hx0 = h00 * (1.0 - tx) + h10 * tx;
-    let hx1 = h01 * (1.0 - tx) + h11 * tx;
-
-    hx0 * (1.0 - ty) + hx1 * ty
-}
-
-fn sample_height_gradient(image: &HeightImage, uv: [f32; 2]) -> f32 {
-    if image.width <= 1 || image.height <= 1 {
-        return 0.0;
-    }
-
-    let delta_u = 1.0f32 / image.width as f32;
-    let delta_v = 1.0f32 / image.height as f32;
-
-    let sample_left = sample_height_value_from_image(image, [uv[0] - delta_u, uv[1]]);
-    let sample_right = sample_height_value_from_image(image, [uv[0] + delta_u, uv[1]]);
-    let sample_down = sample_height_value_from_image(image, [uv[0], uv[1] - delta_v]);
-    let sample_up = sample_height_value_from_image(image, [uv[0], uv[1] + delta_v]);
-
-    let gradient_x = 0.5 * (sample_right - sample_left);
-    let gradient_y = 0.5 * (sample_up - sample_down);
-
-    (gradient_x * gradient_x + gradient_y * gradient_y).sqrt()
-}
-
-fn wrap_repeat(value: f32) -> f32 {
-    let mut v = value % 1.0;
-    if v < 0.0 {
-        v += 1.0;
-    }
-    v
-}
-
-fn find_companion_map(base: &Path, suffixes: &[&str]) -> Option<PathBuf> {
-    let parent = base.parent()?;
-    let stem = base
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default()
-        .to_string();
-
-    for suffix in suffixes {
-        let candidate = parent.join(format!("{}{}", stem, suffix));
-        if candidate.exists() {
-            return Some(candidate);
-        }
-        let candidate_upper = parent.join(format!("{}{}", stem, suffix.to_uppercase()));
-        if candidate_upper.exists() {
-            return Some(candidate_upper);
-        }
-    }
-
-    None
 }
