@@ -38,8 +38,8 @@ pub const CHUNK_SIZE: f32 = 128.0;
 
 /// Maximum LOD level (0 = highest detail)
 pub const MAX_LOD_LEVEL: u8 = 4;
-/// Keep expensive geometry regeneration incremental to avoid long main-thread stalls.
-const MAX_GEOMETRY_UPDATES_PER_FRAME: usize = 2;
+/// Keep startup terrain convergence close to C++ behavior (no prolonged tile trickle).
+const MAX_GEOMETRY_UPDATES_PER_FRAME: usize = 24;
 
 /// Terrain chunk containing geometry and rendering data
 #[derive(Debug, Clone)]

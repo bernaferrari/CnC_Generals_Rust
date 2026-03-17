@@ -63,7 +63,10 @@ pub(crate) fn gameplay_to_render_transform(matrix: Mat4) -> Mat4 {
 }
 
 fn transform_has_finite_components(transform: Mat4) -> bool {
-    transform.to_cols_array().into_iter().all(|value| value.is_finite())
+    transform
+        .to_cols_array()
+        .into_iter()
+        .all(|value| value.is_finite())
 }
 
 fn transform_is_reasonable_for_mesh(transform: Mat4) -> bool {
@@ -89,6 +92,15 @@ pub struct CachedLighting {
     pub ambient_color: Option<[f32; 3]>,
     pub fog_color: Option<[f32; 3]>,
     pub fog_range: Option<(f32, f32)>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TexturePrewarmStats {
+    pub requested: usize,
+    pub cache_hits: usize,
+    pub resolved: usize,
+    pub missing: usize,
+    pub queued_remaining: usize,
 }
 
 fn material_stage_texture(material: &W3DMaterial, stage: usize) -> Option<&str> {
@@ -283,6 +295,17 @@ impl RenderPipeline {
             })
             .collect::<Vec<_>>()
             .join(" | ")
+    }
+
+    pub fn prewarm_textures_blocking<I, S>(
+        &mut self,
+        texture_names: I,
+    ) -> Result<TexturePrewarmStats>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.forward_pass.prewarm_textures_blocking(texture_names)
     }
 
     pub fn debug_forward_renderer_stats(&self) -> (u32, u32, u32) {
@@ -648,7 +671,8 @@ impl RenderPipeline {
                 let terrain_update_elapsed = terrain_update_started.elapsed();
 
                 let chunk_count = terrain_visual.chunk_draw_count();
-                if terrain_render_elapsed + terrain_update_elapsed >= std::time::Duration::from_millis(200)
+                if terrain_render_elapsed + terrain_update_elapsed
+                    >= std::time::Duration::from_millis(200)
                 {
                     warn!(
                         "TerrainVisual breakdown: render={:?} update={:?} visible_chunks={} total_chunks={} pending_visible_chunks={}",
@@ -834,11 +858,15 @@ impl RenderPipeline {
                         if material.texture_name.is_none() {
                             if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
                                 if let Ok(asset_manager) = asset_manager_arc.lock() {
-                                    if let Some(obj_def) = asset_manager
-                                        .resolve_object_definition(&object.template_name, model_hint)
-                                    {
-                                        if let Some(texture_from_ini) = obj_def.get_primary_texture() {
-                                            material.texture_name = Some(texture_from_ini.to_string());
+                                    if let Some(obj_def) = asset_manager.resolve_object_definition(
+                                        &object.template_name,
+                                        model_hint,
+                                    ) {
+                                        if let Some(texture_from_ini) =
+                                            obj_def.get_primary_texture()
+                                        {
+                                            material.texture_name =
+                                                Some(texture_from_ini.to_string());
                                             trace!(
                                                 "WW3D material fallback: object {} ('{}') -> texture {}",
                                                 object_id,
@@ -880,8 +908,9 @@ impl RenderPipeline {
                             let axis = gameplay_to_render_axis_matrix();
                             axis * mesh.transform * axis.inverse()
                         };
-                        let mesh_local_transform = if transform_is_reasonable_for_mesh(mesh_local_transform)
-                        {
+                        let mesh_local_transform = if transform_is_reasonable_for_mesh(
+                            mesh_local_transform,
+                        ) {
                             mesh_local_transform
                         } else {
                             let key =
@@ -1416,7 +1445,9 @@ impl RenderPipeline {
                         .map_err(|e| anyhow::anyhow!("Terrain GPU init failed: {}", e))?;
                     visual
                         .load_heightmap_from_data(heightmap, source_hint_ref, Some(world_size))
-                        .map_err(|e| anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e))?;
+                        .map_err(|e| {
+                            anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e)
+                        })?;
                     self.heightmap_world_size = Some(visual.world_size());
                     self.pending_heightmap_hint_load = false;
 
@@ -1763,6 +1794,50 @@ impl ForwardPass {
         ww3d_engine::device().is_ok() && ww3d_engine::queue().is_ok()
     }
 
+    fn prewarm_textures_blocking<I, S>(&mut self, texture_names: I) -> Result<TexturePrewarmStats>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut stats = TexturePrewarmStats::default();
+        for texture_name in texture_names {
+            let texture_name = texture_name.as_ref().trim();
+            if !Self::is_valid_texture_name(texture_name) {
+                continue;
+            }
+
+            stats.requested += 1;
+            let cache_key = texture_name.to_ascii_lowercase();
+            if self.texture_cache.contains_key(&cache_key) {
+                stats.cache_hits += 1;
+                continue;
+            }
+
+            let _ = self.ensure_texture(texture_name)?;
+            if self.is_known_missing_texture(texture_name) {
+                stats.missing += 1;
+            } else if self.texture_cache.contains_key(&cache_key) {
+                stats.resolved += 1;
+            }
+        }
+
+        // Drain queued texture stream before first visible menu frame.
+        for _ in 0..8 {
+            if self.pending_texture_stream.is_empty() {
+                break;
+            }
+
+            let pending_before = self.pending_texture_stream.len();
+            let budget = pending_before.clamp(32, 512);
+            self.stream_pending_textures(budget);
+            if self.pending_texture_stream.len() >= pending_before {
+                break;
+            }
+        }
+        stats.queued_remaining = self.pending_texture_stream.len();
+        Ok(stats)
+    }
+
     fn render(
         &mut self,
         graphics_system: &GraphicsSystem,
@@ -1779,9 +1854,8 @@ impl ForwardPass {
             return Ok(());
         }
 
-        // C++ parity: never stream unlimited textures inside a single frame.
-        // Legacy TextureLoader throttles texture application work per frame.
-        self.stream_pending_textures(1);
+        // C++ parity: first-use textures should resolve quickly; avoid one-texture-per-frame trickle.
+        self.stream_pending_textures(self.texture_stream_budget());
 
         // Begin frame - initialize render state
         self.renderer
@@ -1819,7 +1893,12 @@ impl ForwardPass {
             self.camera.set_position(camera_position);
             renderer.set_camera(self.camera.clone());
             renderer.set_light_environment(Self::build_light_environment(lighting));
-            Self::log_visibility_probe(render_items, view_matrix, projection_matrix, camera_position);
+            Self::log_visibility_probe(
+                render_items,
+                view_matrix,
+                projection_matrix,
+                camera_position,
+            );
             Self::log_material_probe(render_items);
 
             if render_items.is_empty() {
@@ -1900,12 +1979,10 @@ impl ForwardPass {
         let mut env = LightEnvironmentClass::new();
         let mut using_fallback = false;
 
-        let ambient = lighting
-            .and_then(|v| v.ambient_color)
-            .unwrap_or_else(|| {
-                using_fallback = true;
-                [0.30, 0.30, 0.30]
-            });
+        let ambient = lighting.and_then(|v| v.ambient_color).unwrap_or_else(|| {
+            using_fallback = true;
+            [0.30, 0.30, 0.30]
+        });
         env.set_ambient(Vec3::from_array(ambient));
 
         let (direction, color) = match lighting {
@@ -2704,6 +2781,12 @@ impl ForwardPass {
             return Ok(Some(fallback));
         }
 
+        if let Ok(texture) = self.create_texture_from_cached_assets(texture_name) {
+            self.texture_cache
+                .insert(texture_name.to_lowercase(), texture.clone());
+            return Ok(Some(texture));
+        }
+
         self.queue_texture_stream(texture_name);
         Ok(Some(self.ensure_fallback_texture()?))
     }
@@ -2738,8 +2821,25 @@ impl ForwardPass {
             return;
         }
 
-        self.pending_texture_stream.push_back(texture_name.to_string());
+        self.pending_texture_stream
+            .push_back(texture_name.to_string());
         self.queued_texture_stream.insert(key);
+        let _ = crate::assets::manager::queue_prime_texture_raw(texture_name);
+    }
+
+    fn texture_stream_budget(&self) -> usize {
+        let pending = self.pending_texture_stream.len();
+        if pending == 0 {
+            0
+        } else if pending > 256 {
+            64
+        } else if pending > 96 {
+            32
+        } else if pending > 24 {
+            16
+        } else {
+            8
+        }
     }
 
     fn stream_pending_textures(&mut self, per_frame_budget: usize) {
@@ -2770,30 +2870,7 @@ impl ForwardPass {
                 continue;
             }
 
-            let Some(asset_manager_arc) = get_asset_manager() else {
-                self.queue_texture_stream(&texture_name);
-                continue;
-            };
-            let Ok(mut asset_manager) = asset_manager_arc.try_lock() else {
-                self.queue_texture_stream(&texture_name);
-                continue;
-            };
-            let _ = asset_manager.prime_texture_raw_blocking(&texture_name);
-            drop(asset_manager);
-
-            if self.is_known_missing_texture(&texture_name) {
-                if let Ok(fallback) = self.ensure_fallback_texture() {
-                    self.texture_cache.insert(cache_key, fallback);
-                }
-                continue;
-            }
-
-            if let Ok(texture) = self.create_texture_from_cached_assets(&texture_name) {
-                self.texture_cache
-                    .insert(texture_name.to_lowercase(), texture);
-            } else {
-                self.queue_texture_stream(&texture_name);
-            }
+            self.queue_texture_stream(&texture_name);
         }
     }
 

@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, task};
 use wgpu::{
     AddressMode, CompareFunction, Device, Extent3d, FilterMode, Origin3d, Queue, Sampler,
     SamplerDescriptor, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture as WgpuTexture,
@@ -894,28 +894,31 @@ impl W3DTextureManager {
 
     /// Load image from file with format detection
     async fn load_image_from_file(&self, file_path: &str) -> Result<DynamicImage> {
-        let path = Path::new(file_path);
+        let path = Path::new(file_path).to_owned();
+        let path_for_err = file_path.to_string();
 
-        // Check if file exists
-        if !path.exists() {
-            return Err(W3DError::ResourceLoadingFailed(format!(
-                "Texture file not found: {}",
-                file_path
-            )));
-        }
-
-        // Load and decode image
-        let image = image::open(path).map_err(|e| {
-            W3DError::ResourceLoadingFailed(format!("Failed to load image '{}': {}", file_path, e))
+        // Offload blocking filesystem + decode work to a blocking task
+        let image = task::spawn_blocking(move || {
+            image::open(&path).map(|image| match image {
+                DynamicImage::ImageRgba8(_) => image,
+                _ => DynamicImage::ImageRgba8(image.to_rgba8()),
+            })
+        })
+        .await
+        .map_err(|e| {
+            W3DError::ResourceLoadingFailed(format!(
+                "Failed to load image '{}': {}",
+                path_for_err, e
+            ))
+        })?
+        .map_err(|e| {
+            W3DError::ResourceLoadingFailed(format!(
+                "Failed to load image '{}': {}",
+                path_for_err, e
+            ))
         })?;
 
-        // Convert to RGBA if needed
-        let rgba_image = match image {
-            DynamicImage::ImageRgba8(_) => image,
-            _ => DynamicImage::ImageRgba8(image.to_rgba8()),
-        };
-
-        Ok(rgba_image)
+        Ok(image)
     }
 
     /// Create GPU texture from image
