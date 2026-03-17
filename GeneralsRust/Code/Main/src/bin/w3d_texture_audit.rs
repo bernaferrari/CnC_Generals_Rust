@@ -13,7 +13,7 @@
 */
 
 use anyhow::{anyhow, Result};
-use generals_main::assets::{archive::ArchiveFileSystem, models::W3DLoader};
+use generals_main::assets::{archive::ArchiveFileSystem, models::W3DLoader, texture_candidate_paths};
 use std::collections::{BTreeMap, HashMap};
 
 fn build_virtual_path_index(archive: &ArchiveFileSystem) -> HashMap<String, String> {
@@ -22,47 +22,6 @@ fn build_virtual_path_index(archive: &ArchiveFileSystem) -> HashMap<String, Stri
         .into_iter()
         .map(|path| (path.to_lowercase(), path))
         .collect()
-}
-
-fn texture_candidate_paths(name: &str) -> Vec<String> {
-    let name = name.trim().trim_matches('\\').trim_matches('/');
-    if name.is_empty() {
-        return Vec::new();
-    }
-
-    let mut candidates = Vec::new();
-    candidates.push(name.to_string());
-
-    // Extension fallbacks (many assets ship both `.tga` and `.dds` variants).
-    if let Some((base, ext)) = name.rsplit_once('.') {
-        let ext_lower = ext.to_lowercase();
-        if ext_lower == "tga" {
-            candidates.push(format!("{}.dds", base));
-        } else if ext_lower == "dds" {
-            candidates.push(format!("{}.tga", base));
-        }
-    }
-
-    if !name.contains('/') && !name.contains('\\') {
-        candidates.push(format!("art/textures/{}", name));
-        candidates.push(format!("Art/Textures/{}", name));
-        candidates.push(format!("art/w3d/{}", name));
-        candidates.push(format!("Art/W3D/{}", name));
-        candidates.push(format!("data/{}", name));
-
-        if let Some((base, ext)) = name.rsplit_once('.') {
-            let ext_lower = ext.to_lowercase();
-            if ext_lower == "tga" {
-                candidates.push(format!("art/textures/{}.dds", base));
-                candidates.push(format!("Art/Textures/{}.dds", base));
-            } else if ext_lower == "dds" {
-                candidates.push(format!("art/textures/{}.tga", base));
-                candidates.push(format!("Art/Textures/{}.tga", base));
-            }
-        }
-    }
-
-    candidates
 }
 
 fn suggest_virtual_paths(index: &HashMap<String, String>, name: &str) -> Vec<String> {

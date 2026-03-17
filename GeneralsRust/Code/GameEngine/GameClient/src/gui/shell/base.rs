@@ -54,7 +54,7 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -517,7 +517,8 @@ impl ShellMenuSchemeManager {
     }
 
     fn load_default_scheme_files(&mut self) {
-        for path in discover_shell_menu_scheme_ini_files() {
+        let files = discover_shell_menu_scheme_ini_files();
+        for path in files {
             if let Ok(contents) = fs::read_to_string(&path) {
                 self.parse_shell_menu_schemes(&contents);
             }
@@ -675,9 +676,12 @@ fn discover_shell_menu_scheme_ini_files() -> Vec<PathBuf> {
         }
     }
 
+    let mut ordered_roots: Vec<PathBuf> = roots.into_iter().collect();
+    ordered_roots.sort();
+
     let mut files = Vec::new();
     let mut seen = HashSet::new();
-    for root in roots {
+    for root in ordered_roots {
         push_shell_menu_scheme_ini_file(
             &mut files,
             &mut seen,
@@ -2682,9 +2686,6 @@ impl Shell {
             let mut stream = message_stream.write().unwrap();
             let msg = stream.append_message(GameMessageType::NewGame);
             msg.append_integer_argument(GAME_SHELL);
-            if let Some(mut background) = self.background.take() {
-                background.destroy_windows();
-            }
             self.shell_map_on = true;
         } else {
             if TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() == GAME_SHELL {
