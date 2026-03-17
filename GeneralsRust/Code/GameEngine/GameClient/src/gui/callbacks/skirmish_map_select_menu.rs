@@ -14,7 +14,7 @@ use crate::gui::{
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image,
-    get_supply_and_tech_image_locations, populate_map_listbox,
+    get_supply_and_tech_image_locations, populate_map_listbox, populate_map_listbox_no_reset,
 };
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -129,7 +129,13 @@ fn populate_map_list(state: &mut SkirmishMapSelectState) {
         return;
     };
     let map_to_select = state.selected_map.as_deref();
-    populate_map_listbox(widget, state.use_system_maps, true, map_to_select);
+    if state.use_system_maps {
+        populate_map_listbox(widget, true, true, map_to_select);
+    } else {
+        // C++ parity: user-map mode first appends single-player user maps, then multiplayer user maps.
+        populate_map_listbox(widget, false, false, map_to_select);
+        populate_map_listbox_no_reset(widget, false, true, map_to_select);
+    }
     state.selected_map = widget
         .selected_item()
         .and_then(|item| match item.data.as_ref() {

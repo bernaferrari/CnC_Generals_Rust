@@ -37,8 +37,10 @@ use winit::{
 use generals_main::command_line::{self, CommandLineArgs};
 use generals_main::subsystem_manager;
 use log::{debug, error, info, warn, LevelFilter};
+use game_engine::common::system::game_memory::init_game_memory;
 use std::io::Write;
 use std::sync::Arc;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 /// Game state machine - matches C++ GameEngine states
@@ -191,6 +193,10 @@ fn parse_level(level: &str) -> LevelFilter {
 /// 10. Clean shutdown
 #[tokio::main]
 async fn main() {
+    if let Err(err) = set_working_directory_to_executable() {
+        warn!("Failed to set working directory to executable path: {}", err);
+    }
+
     // =========================================================================
     // PHASE 1: COMMAND LINE PARSING (matches WinMain.cpp:893-906)
     // =========================================================================
@@ -248,7 +254,17 @@ async fn main() {
     info!("Starting game initialization sequence...");
 
     // =========================================================================
-    // PHASE 5: VERSION SYSTEM INITIALIZATION (matches WinMain.cpp:982-986)
+    // PHASE 5: MEMORY MANAGER INITIALIZATION (matches WinMain.cpp:982-985)
+    // =========================================================================
+    if let Err(e) = init_game_memory() {
+        error!("Failed to initialize game memory: {e}");
+        cleanup_and_exit();
+        std::process::exit(1);
+    }
+    debug!("Game memory initialized");
+
+    // =========================================================================
+    // PHASE 6: VERSION SYSTEM INITIALIZATION (matches WinMain.cpp:982-986)
     // =========================================================================
     unsafe {
         generals_main::version::initialize_version_system_with_copy_protection();
@@ -274,7 +290,8 @@ async fn main() {
 
             if !generals_main::copy_protection::is_launcher_running() {
                 error!("Launcher is not running - exiting");
-                warn!("Copy protection launcher check failed; continuing in fallback mode");
+                cleanup_and_exit();
+                std::process::exit(1);
             }
 
             debug!("Copy protection initialized successfully");
@@ -323,7 +340,8 @@ async fn main() {
         }
     };
 
-    let (width, height) = cmd_args.get_resolution();
+    let (is_windowed, is_fullscreen) = resolve_window_mode(&cmd_args);
+    let (width, height) = resolve_startup_resolution(&cmd_args);
     let mut window_attributes = Window::default_attributes()
         .with_title("Command & Conquer Generals - Rust Edition")
         .with_inner_size(LogicalSize::new(width as f64, height as f64))
@@ -333,87 +351,19 @@ async fn main() {
         .with_visible(true);
 
     // Handle fullscreen/windowed mode (matches ApplicationIsWindowed flag)
-    if cmd_args.fullscreen && !cmd_args.windowed {
+    if is_fullscreen {
         window_attributes = window_attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
     } else {
         window_attributes = window_attributes.with_position(PhysicalPosition::new(100, 100));
     }
 
-    if cmd_args.windowed {
+    if is_windowed {
         window_attributes = window_attributes.with_fullscreen(None);
     }
 
     // =========================================================================
-    // PHASE 10: SUBSYSTEM INITIALIZATION
-    // =========================================================================
-    info!("Initializing game subsystems...");
-
-    // Initialize subsystem manager (matches C++ GameEngine subsystem init)
-    if let Err(e) = subsystem_manager::initialize_subsystem_manager() {
-        error!("Failed to initialize subsystem manager: {}", e);
-        cleanup_and_exit();
-        std::process::exit(1);
-    }
-
-    // Initialize subsystems in correct order (matches C++ initialization sequence)
-    // Order is critical and matches GameEngine.cpp initialization
-    let subsystems_to_init = vec![
-        "FileSystem", // First: must load BIG archives
-        "GlobalData", // Second: loads INI configuration
-        "Audio",      // Third: audio system
-        "Network",    // Fourth: network layer
-        "Renderer",   // Fifth: graphics system
-        "GameLogic",  // Sixth: game rules
-        "Input",      // Seventh: input handling
-        "UI",         // Eighth: user interface
-    ];
-
-    for subsystem_name in subsystems_to_init {
-        info!("Initializing {} subsystem...", subsystem_name);
-
-        // Note: In production, each subsystem would be registered and initialized
-        // through the subsystem manager. For now, we log the initialization order.
-        match subsystem_name {
-            "FileSystem" => {
-                // File system is initialized in subsystem_manager
-                debug!("FileSystem subsystem ready");
-            }
-            "GlobalData" => {
-                // Global data loads INI files
-                debug!("GlobalData subsystem ready");
-            }
-            "Audio" => {
-                // Audio system uses rodio (initialized in game engine)
-                debug!("Audio subsystem ready");
-            }
-            "Network" => {
-                // Network system ready for multiplayer
-                debug!("Network subsystem ready");
-            }
-            "Renderer" => {
-                // wgpu renderer initialized in game engine
-                debug!("Renderer subsystem ready");
-            }
-            "GameLogic" => {
-                // Game logic system
-                debug!("GameLogic subsystem ready");
-            }
-            "Input" => {
-                // Input system for keyboard/mouse
-                debug!("Input subsystem ready");
-            }
-            "UI" => {
-                // UI system integration (legacy shell + GPUI parity track)
-                debug!("UI subsystem ready");
-            }
-            _ => {}
-        }
-    }
-
-    info!("All subsystems initialized successfully");
-
-    // =========================================================================
     // PHASE 11: GAME MAIN LOOP (matches GameMain call, WinMain.cpp:1043)
+    // Subsystem initialization is owned by CnCGameEngine::new(), matching C++ ordering.
     // =========================================================================
     info!("Starting game main loop...");
     std::io::stdout().flush().unwrap();
@@ -529,4 +479,77 @@ fn cleanup_and_exit() {
 
     // Flush any remaining log messages
     log::logger().flush();
+}
+
+fn set_working_directory_to_executable() -> anyhow::Result<()> {
+    let exe_path = std::env::current_exe()?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Executable path has no parent"))?;
+    let current = std::env::current_dir()?;
+    if current != exe_dir {
+        std::env::set_current_dir(exe_dir)?;
+    }
+
+    if Path::new(".").canonicalize()? != exe_dir.canonicalize()? {
+        return Err(anyhow::anyhow!(
+            "Failed to normalize working directory to {}",
+            exe_dir.display()
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_window_mode(cmd_args: &CommandLineArgs) -> (bool, bool) {
+    let has_windowed_flag = cmd_args.windowed
+        || cmd_args.has_option("win")
+        || cmd_args.has_option("windowed")
+        || cmd_args.has_option("w");
+    let has_fullscreen_flag = cmd_args.fullscreen
+        || cmd_args.has_option("fullscreen")
+        || cmd_args.has_option("f");
+
+    if has_fullscreen_flag {
+        (false, true)
+    } else if has_windowed_flag {
+        (true, false)
+    } else {
+        (false, true)
+    }
+}
+
+fn parse_u32_option(cmd_args: &CommandLineArgs, option: &str) -> Option<u32> {
+    let Some(value) = cmd_args.get_option_value(option) else {
+        return None;
+    };
+
+    match value.parse::<u32>() {
+        Ok(0) => None,
+        Ok(value) => Some(value),
+        Err(err) => {
+            warn!("Ignoring invalid {} value '{}': {err}", option, value);
+            None
+        }
+    }
+}
+
+fn resolve_startup_resolution(cmd_args: &CommandLineArgs) -> (u32, u32) {
+    const DEFAULT_XRESOLUTION: u32 = 800;
+    const DEFAULT_YRESOLUTION: u32 = 600;
+
+    let explicit_width = cmd_args
+        .width
+        .or_else(|| parse_u32_option(cmd_args, "xres"));
+    let explicit_height = cmd_args
+        .height
+        .or_else(|| parse_u32_option(cmd_args, "yres"));
+
+    if explicit_width.is_none() && explicit_height.is_none() {
+        return (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION);
+    }
+
+    let width = explicit_width.unwrap_or(DEFAULT_XRESOLUTION);
+    let height = explicit_height.unwrap_or(DEFAULT_YRESOLUTION);
+
+    (width, height)
 }

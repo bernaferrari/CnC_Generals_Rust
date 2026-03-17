@@ -23,7 +23,8 @@ use crate::save_load::{
     init_game_state_system, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
 };
 use crate::subsystem_manager::{
-    get_subsystem_manager, with_subsystem_mut, GlobalDataSubsystem, NetworkSubsystem,
+    get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, GlobalDataSubsystem,
+    NetworkSubsystem,
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
@@ -895,19 +896,36 @@ impl CnCGameEngine {
     }
 
     fn configured_startup_shell_map() -> Option<String> {
+        let resolve_shell_map = |map_name: &str| -> Option<String> {
+            if map_name.trim().is_empty() {
+                return None;
+            }
+
+            if crate::game_logic::script_loader::find_map_file(map_name).is_some() {
+                Some(map_name.to_string())
+            } else {
+                None
+            }
+        };
+
         if let Some(shell_map) =
             crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
                 subsystem.get_global_data().and_then(|global| {
-                    if global.shell_map_on && !global.shell_map_name.trim().is_empty() {
-                        Some(global.shell_map_name.clone())
-                    } else {
-                        None
+                    if !global.shell_map_on {
+                        return None;
                     }
+                    resolve_shell_map(&global.shell_map_name).or_else(|| {
+                        warn!(
+                            "Configured shell map '{}' was not found; disabling shell-map startup",
+                            global.shell_map_name
+                        );
+                        None
+                    })
                 })
             })
-            .flatten()
         {
-            return Some(shell_map);
+            // If GlobalData is already live, its ShellMapOn/ShellMapName are authoritative.
+            return shell_map;
         }
 
         let mut global = GlobalData::new();
@@ -918,11 +936,17 @@ impl CnCGameEngine {
             let _ = global.load_ini("Data/INI/GameDataDebug.ini");
         }
 
-        if global.shell_map_on && !global.shell_map_name.trim().is_empty() {
-            Some(global.shell_map_name)
-        } else {
-            None
+        if !global.shell_map_on {
+            return None;
         }
+
+        resolve_shell_map(&global.shell_map_name).or_else(|| {
+            warn!(
+                "Configured shell map '{}' was not found; disabling shell-map startup",
+                global.shell_map_name
+            );
+            None
+        })
     }
 
     fn current_startup_logic_frame(&self) -> u64 {
@@ -1227,7 +1251,7 @@ impl CnCGameEngine {
 
     fn spawn_startup_map_load(
         start_in_menu: bool,
-        map_to_load: String,
+        map_to_load: Option<String>,
         map_requested_from_cli: bool,
         player_name: Option<String>,
         graphics_device: Arc<wgpu::Device>,
@@ -1254,11 +1278,13 @@ impl CnCGameEngine {
                     Self::emit_startup_load_progress(&sender, 0.14, "Asset manager ready");
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
-                    game_logic.start_new_game(if start_in_menu {
-                        GameMode::Shell
+                    if start_in_menu {
+                        if map_to_load.is_some() {
+                            game_logic.start_new_game(GameMode::Shell);
+                        }
                     } else {
-                        GameMode::Skirmish
-                    });
+                        game_logic.start_new_game(GameMode::Skirmish);
+                    }
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
                     let thing_factory_needs_init = game_engine::common::thing::get_thing_factory()
                         .ok()
@@ -1273,34 +1299,54 @@ impl CnCGameEngine {
                         }
                     }
 
-                    Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
                     let mut loaded_map_name = None;
-                    let map_loaded =
-                        game_logic.load_map_with_progress(&map_to_load, |progress, phase| {
-                            Self::emit_startup_load_progress(&sender, progress, phase);
-                        });
-                    if !map_loaded {
-                        warn!(
-                            "Failed to load map '{}', falling back to default map '{}'",
-                            map_to_load, DEFAULT_SKIRMISH_MAP
-                        );
-                        Self::emit_startup_load_progress(
-                            &sender,
-                            0.45,
-                            "Retrying with default map",
-                        );
-                        if map_to_load != DEFAULT_SKIRMISH_MAP
-                            && game_logic.load_map_with_progress(
-                                DEFAULT_SKIRMISH_MAP,
-                                |progress, phase| {
-                                    Self::emit_startup_load_progress(&sender, progress, phase);
-                                },
-                            )
-                        {
-                            loaded_map_name = Some(DEFAULT_SKIRMISH_MAP.to_string());
+                    if let Some(map_to_load) = map_to_load {
+                        Self::emit_startup_load_progress(&sender, 0.24, "Loading map data");
+                        let map_loaded =
+                            game_logic.load_map_with_progress(&map_to_load, |progress, phase| {
+                                Self::emit_startup_load_progress(&sender, progress, phase);
+                            });
+                        if !map_loaded {
+                            if start_in_menu {
+                                warn!(
+                                    "Failed to load shell map '{}'; continuing startup without a shell background map",
+                                    map_to_load
+                                );
+                                game_logic.clearGameData();
+                            } else {
+                                let fallback_map = DEFAULT_SKIRMISH_MAP;
+                                warn!(
+                                    "Failed to load map '{}', falling back to default map '{}'",
+                                    map_to_load, fallback_map
+                                );
+                                Self::emit_startup_load_progress(
+                                    &sender,
+                                    0.45,
+                                    "Retrying with default map",
+                                );
+                                if map_to_load != fallback_map
+                                    && game_logic.load_map_with_progress(
+                                        fallback_map,
+                                        |progress, phase| {
+                                            Self::emit_startup_load_progress(
+                                                &sender, progress, phase,
+                                            );
+                                        },
+                                    )
+                                {
+                                    loaded_map_name = Some(fallback_map.to_string());
+                                }
+                            }
+                        } else {
+                            loaded_map_name = Some(map_to_load.clone());
                         }
                     } else {
-                        loaded_map_name = Some(map_to_load.clone());
+                        Self::emit_startup_load_progress(&sender, 0.24, "Skipping shell map load");
+                        if start_in_menu {
+                            info!(
+                                "Shell map startup is disabled; entering menu without a shell background map"
+                            );
+                        }
                     }
 
                     if let Some(player_name) = player_name.as_deref() {
@@ -1383,18 +1429,25 @@ impl CnCGameEngine {
         }
 
         if result.start_in_menu {
-            self.update_shell_loading_progress(0.98, Some("Prewarming shell scene"));
-            self.pending_shell_model_prewarm = Self::collect_shell_scene_models_for_prewarm(
-                &self.game_logic,
-                self.camera_target,
-                120,
-            );
-            self.last_shell_prewarm_log = None;
-            self.shell_prewarm_completion_logged = false;
-            info!(
-                "Shell startup prewarm queued: pending_models={}",
-                self.pending_shell_model_prewarm.len()
-            );
+            if self.game_logic.isInShellGame() && self.game_logic.isInGame() {
+                self.update_shell_loading_progress(0.98, Some("Prewarming shell scene"));
+                self.pending_shell_model_prewarm = Self::collect_shell_scene_models_for_prewarm(
+                    &self.game_logic,
+                    self.camera_target,
+                    120,
+                );
+                self.last_shell_prewarm_log = None;
+                self.shell_prewarm_completion_logged = false;
+                info!(
+                    "Shell startup prewarm queued: pending_models={}",
+                    self.pending_shell_model_prewarm.len()
+                );
+            } else {
+                self.pending_shell_model_prewarm.clear();
+                self.last_shell_prewarm_log = None;
+                self.shell_prewarm_completion_logged = false;
+                info!("Entering menu without a running shell-map scene");
+            }
 
             self.ui_manager.transition_to_screen(Screen::MainMenu);
             self.set_runtime_ui_state_projection(UISystemState::MainMenu);
@@ -1527,25 +1580,23 @@ impl CnCGameEngine {
             info!("⚡ QuickStart enabled: skipping intro sequences (handled by SAGE runtime).");
         }
 
+        init_subsystem_manager()
+            .map_err(|err| anyhow::anyhow!("Subsystem manager initialization failed: {err}"))?;
         Self::apply_command_line_overrides(&command_line);
 
         init_game_state_system()
             .map_err(|err| anyhow::anyhow!("Game state manager init failed: {err}"))?;
 
         // Initialize subsystems first (matches C++ GameEngine initialization order)
-        // Subsystem manager is initialized globally, just verify it's available
-        match get_subsystem_manager() {
-            Some(handle) => {
-                let manager = handle.lock();
-                if manager.is_initialized() {
-                    info!("✅ Core subsystems initialized");
-                } else {
-                    info!("ℹ️ Subsystem manager available but not initialized");
-                }
+        if let Some(handle) = get_subsystem_manager() {
+            let manager = handle.lock();
+            if manager.is_initialized() {
+                info!("✅ Core subsystems initialized");
+            } else {
+                warn!("Subsystem manager available but not initialized");
             }
-            None => {
-                info!("ℹ️ Subsystem manager not initialized, continuing without subsystems");
-            }
+        } else {
+            warn!("Subsystem manager missing after initialization attempt");
         }
 
         let runtime_host_headless = RuntimeHostBridge::is_headless_mode(command_line.as_ref());
@@ -1677,19 +1728,22 @@ impl CnCGameEngine {
         let (fallback_cube_vertex_buffer, fallback_cube_index_buffer, fallback_cube_index_count) =
             Self::create_fallback_cube(graphics_system.device());
 
-        let start_in_menu = !command_line.quick_start && command_line.map_name.is_none();
+        let startup_cli_map = Self::command_line_option_value_case_insensitive(&command_line, "file")
+            .map(|value| value.trim().to_string())
+            .filter(|value| value.to_ascii_lowercase().ends_with(".map"));
+        let start_in_menu = startup_cli_map.is_none();
         let startup_shell_map = start_in_menu
             .then(Self::configured_startup_shell_map)
             .flatten();
-        let cli_map = command_line.map_name.as_deref();
-        let map_to_load = cli_map
-            .map(str::to_string)
-            .or(startup_shell_map)
-            .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
+        let map_to_load = if start_in_menu {
+            startup_shell_map
+        } else {
+            startup_cli_map.or_else(|| Some(DEFAULT_SKIRMISH_MAP.to_string()))
+        };
         let startup_load_state = Self::spawn_startup_map_load(
             start_in_menu,
             map_to_load,
-            cli_map.is_some(),
+            !start_in_menu,
             command_line.player_name.clone(),
             graphics_system.device_arc(),
             graphics_system.queue_arc(),
@@ -1879,13 +1933,32 @@ impl CnCGameEngine {
 
     fn apply_command_line_overrides(command_line: &CommandLineArgs) {
         let mut applied = false;
+        let quick_start = command_line.quick_start
+            || Self::has_command_line_option_case_insensitive(command_line, "quickstart");
+        let no_shell_map =
+            Self::has_command_line_option_case_insensitive(command_line, "noshellmap");
+        let shell_map_override = Self::command_line_option_value_case_insensitive(
+            command_line,
+            "shellmap",
+        )
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
         if let Some(handle) = get_subsystem_manager() {
             let mut manager = handle.lock();
             if let Some(subsystem) = manager.get_mut::<GlobalDataSubsystem>() {
                 if let Some(global) = subsystem.get_global_data_mut() {
-                    if command_line.quick_start {
-                        global.apply_quick_start();
+                    if quick_start {
+                        // C++ parseQuickStart: disable intro and shell map startup.
+                        global.play_intro = false;
+                        global.after_intro = true;
+                        global.shell_map_on = false;
+                    }
+                    if no_shell_map {
+                        global.shell_map_on = false;
+                    }
+                    if let Some(shell_map_name) = shell_map_override {
+                        global.shell_map_name = shell_map_name;
                     }
                     if let Some(lang) = command_line.language.as_deref() {
                         global.set_language(lang);
@@ -1904,6 +1977,26 @@ impl CnCGameEngine {
 
         let language = command_line.language.as_deref().unwrap_or("English");
         localization::set_language(language);
+    }
+
+    fn has_command_line_option_case_insensitive(command_line: &CommandLineArgs, option: &str) -> bool {
+        command_line
+            .options
+            .keys()
+            .any(|name| name.eq_ignore_ascii_case(option))
+    }
+
+    fn command_line_option_value_case_insensitive(
+        command_line: &CommandLineArgs,
+        option: &str,
+    ) -> Option<String> {
+        command_line.options.iter().find_map(|(name, value)| {
+            if name.eq_ignore_ascii_case(option) {
+                value.clone()
+            } else {
+                None
+            }
+        })
     }
 
     /// Pre-load all unit models into the graphics system
@@ -2709,6 +2802,12 @@ impl CnCGameEngine {
                     }
                 }
 
+                // C++ shell/menu parity: menu-frame script camera requests must still drive
+                // the shell-map viewport even when not in Playing state.
+                self.game_logic.process_commands();
+                self.apply_pending_script_camera_requests();
+                self.update_camera(visual_dt);
+
                 if !self.pending_shell_model_prewarm.is_empty()
                     && self
                         .last_shell_prewarm_log
@@ -2840,85 +2939,7 @@ impl CnCGameEngine {
         // Process queued commands in game logic
         self.game_logic.process_commands();
 
-        if let Some(focus) = self.game_logic.take_camera_focus_request() {
-            self.center_camera_on(focus);
-        }
-
-        if let Some(focus) = self.game_logic.camera_follow_target_position() {
-            self.center_camera_on(focus);
-        }
-
-        if self.game_logic.take_camera_zoom_reset() {
-            self.camera_zoom = self.compute_default_camera_zoom_for_target(
-                self.camera_target,
-                self.game_logic.script_default_camera_max_height(),
-            );
-            self.camera_zoom_target = None;
-            self.camera_zoom_start = self.camera_zoom;
-            self.camera_zoom_duration = 0.0;
-            self.camera_zoom_elapsed = 0.0;
-            self.camera_zoom_ease_in = 0.0;
-            self.camera_zoom_ease_out = 0.0;
-            self.apply_script_camera_pitch_request(CameraPitchRequest {
-                pitch: self.game_logic.script_default_camera_pitch(),
-                duration_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
-            });
-        }
-
-        if let Some(request) = self.game_logic.take_camera_zoom_request() {
-            if request.duration_seconds <= 0.0 {
-                self.camera_zoom = request.zoom;
-                self.camera_zoom_target = None;
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_duration = 0.0;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = 0.0;
-                self.camera_zoom_ease_out = 0.0;
-            } else {
-                self.camera_zoom_start = self.camera_zoom;
-                self.camera_zoom_target = Some(request.zoom);
-                self.camera_zoom_duration = request.duration_seconds;
-                self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = request.ease_in_seconds.max(0.0);
-                self.camera_zoom_ease_out = request.ease_out_seconds.max(0.0);
-            }
-        }
-
-        if let Some(request) = self.game_logic.take_camera_pitch_request() {
-            self.apply_script_camera_pitch_request(request);
-        }
-
-        if let Some(request) = self.game_logic.take_camera_rotate_request() {
-            self.apply_script_camera_rotate_request(request);
-        }
-
-        if let Some(request) = self.game_logic.take_camera_look_toward_request() {
-            self.apply_camera_look_toward_request(request);
-        }
-
-        if let Some(request) = self.game_logic.take_camera_slave_mode_enable_request() {
-            self.camera_slave_mode = Some(request);
-        }
-
-        if self.game_logic.take_camera_slave_mode_disable_request() {
-            self.camera_slave_mode = None;
-        }
-
-        for request in self.game_logic.take_screen_shake_requests() {
-            self.enqueue_script_screen_shake(request.intensity);
-        }
-
-        for request in self.game_logic.take_camera_add_shaker_requests() {
-            self.enqueue_script_camera_shaker(request);
-        }
-
-        // Main applies these script requests inside GameLogic evaluation (with GameClient bridges
-        // when enabled). Drain pending mirrors so they don't accumulate frame-to-frame.
-        let _ = self.game_logic.take_view_guardband_request();
-        let _ = self.game_logic.take_camera_bw_mode_request();
-        let _ = self.game_logic.take_camera_motion_blur_requests();
+        self.apply_pending_script_camera_requests();
 
         for popup in self.game_logic.take_popup_message_requests() {
             if popup.pause {
@@ -3239,6 +3260,88 @@ impl CnCGameEngine {
                 _ => {}
             }
         }
+    }
+
+    fn apply_pending_script_camera_requests(&mut self) {
+        if let Some(focus) = self.game_logic.take_camera_focus_request() {
+            self.center_camera_on(focus);
+        }
+
+        if let Some(focus) = self.game_logic.camera_follow_target_position() {
+            self.center_camera_on(focus);
+        }
+
+        if self.game_logic.take_camera_zoom_reset() {
+            self.camera_zoom = self.compute_default_camera_zoom_for_target(
+                self.camera_target,
+                self.game_logic.script_default_camera_max_height(),
+            );
+            self.camera_zoom_target = None;
+            self.camera_zoom_start = self.camera_zoom;
+            self.camera_zoom_duration = 0.0;
+            self.camera_zoom_elapsed = 0.0;
+            self.camera_zoom_ease_in = 0.0;
+            self.camera_zoom_ease_out = 0.0;
+            self.apply_script_camera_pitch_request(CameraPitchRequest {
+                pitch: self.game_logic.script_default_camera_pitch(),
+                duration_seconds: 0.0,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+            });
+        }
+
+        if let Some(request) = self.game_logic.take_camera_zoom_request() {
+            if request.duration_seconds <= 0.0 {
+                self.camera_zoom = request.zoom;
+                self.camera_zoom_target = None;
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_duration = 0.0;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = 0.0;
+                self.camera_zoom_ease_out = 0.0;
+            } else {
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_target = Some(request.zoom);
+                self.camera_zoom_duration = request.duration_seconds;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = request.ease_in_seconds.max(0.0);
+                self.camera_zoom_ease_out = request.ease_out_seconds.max(0.0);
+            }
+        }
+
+        if let Some(request) = self.game_logic.take_camera_pitch_request() {
+            self.apply_script_camera_pitch_request(request);
+        }
+
+        if let Some(request) = self.game_logic.take_camera_rotate_request() {
+            self.apply_script_camera_rotate_request(request);
+        }
+
+        if let Some(request) = self.game_logic.take_camera_look_toward_request() {
+            self.apply_camera_look_toward_request(request);
+        }
+
+        if let Some(request) = self.game_logic.take_camera_slave_mode_enable_request() {
+            self.camera_slave_mode = Some(request);
+        }
+
+        if self.game_logic.take_camera_slave_mode_disable_request() {
+            self.camera_slave_mode = None;
+        }
+
+        for request in self.game_logic.take_screen_shake_requests() {
+            self.enqueue_script_screen_shake(request.intensity);
+        }
+
+        for request in self.game_logic.take_camera_add_shaker_requests() {
+            self.enqueue_script_camera_shaker(request);
+        }
+
+        // Main applies these script requests inside GameLogic evaluation (with GameClient bridges
+        // when enabled). Drain pending mirrors so they don't accumulate frame-to-frame.
+        let _ = self.game_logic.take_view_guardband_request();
+        let _ = self.game_logic.take_camera_bw_mode_request();
+        let _ = self.game_logic.take_camera_motion_blur_requests();
     }
 
     fn restart_mission_from_ui(&mut self) {

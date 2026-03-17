@@ -56,6 +56,7 @@ use game_network::gamespy::peer_defs::tear_down_gamespy;
 use game_network::gamespy::peer_thread::get_peer_message_queue;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -98,6 +99,7 @@ fn cancel_patch_check_callback() {}
 const SHOW_FRAMES_LIMIT: i32 = 20;
 const INITIAL_GADGET_DELAY_DEFAULT: i32 = 210;
 const CORNER: i32 = 10;
+static FIRST_TIME_RUNNING_GAME: AtomicBool = AtomicBool::new(true);
 
 // ================================================================================================
 // MESSAGE CONSTANTS (C++ COMPAT)
@@ -566,10 +568,7 @@ impl MainMenu {
         state.logo_is_shown = false;
         state.launch_challenge_menu = false;
         state.dont_allow_transitions = false;
-        // The Rust runtime currently boots directly into the shell map/menu path without
-        // the legacy intro hand-off. Keep the menu visible immediately to match expected UX.
-        state.not_shown = false;
-        state.first_time_running_the_game = false;
+        state.first_time_running_the_game = FIRST_TIME_RUNNING_GAME.swap(false, Ordering::SeqCst);
         state.drop_down = DropdownType::None;
         state.pending_drop_down = DropdownType::None;
         state.show_frames = 0;
@@ -615,9 +614,7 @@ impl MainMenu {
                 }
             }
         }
-        // Ensure the main button column is visible after boot.
-        state.drop_down = DropdownType::Main;
-        self.show_only_dropdown(&state, DropdownType::Main);
+        state.drop_down = DropdownType::None;
         // Initial hide of faction windows - matches C++ initialHide() lines 360-425
         self.initial_hide(&state);
 
@@ -655,16 +652,15 @@ impl MainMenu {
         // Handle first time running - matches C++ lines 632-646
         if state.first_time_running_the_game {
             log::debug!("First time running the game - hiding mouse and fading");
+            state.not_shown = true;
             set_main_menu_cursor_visibility(false);
             self.transition_reverse("FadeWholeScreen");
-            state.first_time_running_the_game = false;
         } else {
             state.show_fade = true;
-            // Rust startup already performs its own loading/menu hand-off. Running the
-            // deferred "just_entered" transition path here can hide the menu immediately after
-            // first paint, so keep the menu fully active.
-            state.just_entered = false;
-            state.initial_gadget_delay = INITIAL_GADGET_DELAY_DEFAULT;
+            // Match C++ MainMenuUpdate startup cadence: set justEntered and tick down to 1
+            // before applying the default logo fade transition group.
+            state.just_entered = true;
+            state.initial_gadget_delay = 2;
             self.hide_window_by_name(&state, "MainMenu.wnd:MainMenuRuler", false);
         }
 

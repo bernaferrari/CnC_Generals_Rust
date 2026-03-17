@@ -27,6 +27,7 @@ use raw_window_handle::HasWindowHandle;
 use std::env;
 use std::ffi::c_void;
 use std::ffi::CString;
+use std::path::Path;
 use std::os::raw::{c_char, c_int};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
@@ -72,6 +73,10 @@ pub unsafe fn win_main(
 ) -> c_int {
     APPLICATION_INSTANCE = h_instance;
 
+    if let Err(err) = set_working_directory_to_executable() {
+        warn!("Failed to set working directory to executable path: {err}");
+    }
+
     // Convert WinMain arguments to simple main argc and argv - exactly like C++
     let args: Vec<String> = env::args().collect();
     let _argc = args.len() as c_int;
@@ -104,7 +109,11 @@ pub unsafe fn win_main(
 
     // Initialize debug system
     debug_init();
-    init_memory_manager();
+    if let Err(e) = init_memory_manager() {
+        error!("Failed to initialize game memory: {}", e);
+        cleanup_and_exit();
+        return 0;
+    }
 
     // Initialize copy protection system (must be before version and mutex)
     if let Err(e) = init_copy_protection() {
@@ -117,7 +126,10 @@ pub unsafe fn win_main(
     init_version();
 
     // Check if launcher is running (matching C++ CopyProtect::isLauncherRunning)
-    check_launcher_status();
+    if !check_launcher_status() {
+        cleanup_and_exit();
+        return 0;
+    }
 
     // Create mutex to prevent multiple instances - exactly like C++
     if !create_generals_mutex() {
@@ -127,8 +139,9 @@ pub unsafe fn win_main(
 
     // Notify launcher of game start (matching C++ CopyProtect::notifyLauncher)
     if let Err(e) = notify_launcher_game_start() {
-        warn!("Failed to notify launcher of game start: {}", e);
-        // Continue anyway - launcher notification failure shouldn't block game
+        error!("Could not talk to launcher: {e}");
+        cleanup_and_exit();
+        return 0;
     }
 
     // Run the actual game loop using the winit/wgpu pipeline for multi-platform parity.
@@ -174,9 +187,11 @@ unsafe fn debug_init() {
 }
 
 /// Initialize memory manager - equivalent to C++ initMemoryManager
-unsafe fn init_memory_manager() {
+unsafe fn init_memory_manager() -> Result<(), anyhow::Error> {
     // The C++ code initializes a custom memory manager here.
-    // Rust uses the global allocator and does not require explicit initialization.
+    game_engine::common::system::game_memory::init_game_memory()
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
+    Ok(())
 }
 
 /// Initialize version info - equivalent to C++ version setup
@@ -197,6 +212,25 @@ unsafe fn game_main_sync(_argc: c_int, _argv: *mut *mut c_char) {
     })
     .unwrap_or_default();
     AttachmentDispatcher::dispatch(attachments);
+}
+
+fn set_working_directory_to_executable() -> anyhow::Result<()> {
+    let exe_path = env::current_exe()?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Executable path has no parent"))?;
+    let current = env::current_dir()?;
+    if current != exe_dir {
+        env::set_current_dir(exe_dir)?;
+    }
+
+    if Path::new(".").canonicalize()? != exe_dir.canonicalize()? {
+        return Err(anyhow::anyhow!(
+            "Failed to normalize working directory to {}",
+            exe_dir.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Cleanup and exit - equivalent to C++ cleanup in WinMain
@@ -242,13 +276,15 @@ unsafe fn init_copy_protection() -> Result<()> {
 }
 
 /// Check launcher status (matching C++ CopyProtect::isLauncherRunning)
-unsafe fn check_launcher_status() {
+unsafe fn check_launcher_status() -> bool {
     let launcher_running = crate::copy_protection::is_launcher_running();
     if launcher_running {
         info!("Launcher detected and running");
     } else {
-        debug!("Launcher not detected or running in development mode");
+        error!("Launcher is not running - about to bail");
     }
+
+    launcher_running
 }
 
 /// Notify launcher of game start (matching C++ CopyProtect::notifyLauncher)
@@ -321,7 +357,8 @@ fn build_window_attributes(
     cmd_args: &command_line::CommandLineArgs,
 ) -> Result<(EventLoop<()>, WindowAttributes)> {
     let event_loop = EventLoop::new().context("Failed to create event loop")?;
-    let (width, height) = cmd_args.get_resolution();
+    let (width, height) = resolve_startup_resolution(cmd_args);
+    let (is_windowed, is_fullscreen) = resolve_window_mode(cmd_args);
 
     let mut attributes = Window::default_attributes()
         .with_title("C&C Generals - Rust")
@@ -331,17 +368,64 @@ fn build_window_attributes(
         .with_decorations(true)
         .with_visible(true);
 
-    if cmd_args.fullscreen {
+    if is_fullscreen {
         attributes = attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
     } else {
         attributes = attributes.with_position(PhysicalPosition::new(100, 100));
     }
 
-    if cmd_args.windowed {
+    if is_windowed {
         attributes = attributes.with_fullscreen(None);
     }
 
     Ok((event_loop, attributes))
+}
+
+fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool) {
+    let has_windowed_flag = cmd_args.windowed || cmd_args.has_option("win");
+    let has_fullscreen_flag = cmd_args.fullscreen
+        || cmd_args.has_option("fullscreen")
+        || cmd_args.has_option("f");
+
+    if has_fullscreen_flag {
+        (false, true)
+    } else if has_windowed_flag {
+        (true, false)
+    } else {
+        (false, true)
+    }
+}
+
+fn parse_u32_option(cmd_args: &command_line::CommandLineArgs, option: &str) -> Option<u32> {
+    let Some(value) = cmd_args.get_option_value(option) else {
+        return None;
+    };
+
+    match value.parse::<u32>() {
+        Ok(0) => None,
+        Ok(value) => Some(value),
+        Err(err) => {
+            warn!("Ignoring invalid {} value '{}': {err}", option, value);
+            None
+        }
+    }
+}
+
+fn resolve_startup_resolution(cmd_args: &command_line::CommandLineArgs) -> (u32, u32) {
+    const DEFAULT_XRESOLUTION: u32 = 800;
+    const DEFAULT_YRESOLUTION: u32 = 600;
+
+    let explicit_width = cmd_args.width.or_else(|| parse_u32_option(cmd_args, "xres"));
+    let explicit_height = cmd_args.height.or_else(|| parse_u32_option(cmd_args, "yres"));
+
+    if explicit_width.is_none() && explicit_height.is_none() {
+        return (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION);
+    }
+
+    let width = explicit_width.unwrap_or(DEFAULT_XRESOLUTION);
+    let height = explicit_height.unwrap_or(DEFAULT_YRESOLUTION);
+
+    (width, height)
 }
 
 fn initialize_logger(cmd_args: &command_line::CommandLineArgs) {
