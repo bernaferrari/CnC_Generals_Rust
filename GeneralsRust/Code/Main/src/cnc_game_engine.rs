@@ -4589,22 +4589,50 @@ impl CnCGameEngine {
     }
 
     fn update_camera(&mut self, dt: f32) {
-        let camera_speed = 300.0 * dt;
-
         let mut movement = Vec3::ZERO;
         if self.camera_slave_mode.is_none() {
-            if self.keys_pressed.contains(&Key::Character("w".into())) {
-                movement.z -= camera_speed;
+            let logic_frames_per_second =
+                game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+            let (
+                horizontal_scroll_speed_factor,
+                vertical_scroll_speed_factor,
+                keyboard_scroll_factor,
+            ) = {
+                let global_data = game_engine::common::global_data::read();
+                (
+                    global_data.horizontal_scroll_speed_factor,
+                    global_data.vertical_scroll_speed_factor,
+                    global_data.keyboard_scroll_factor,
+                )
+            };
+
+            // C++ parity (LookAtXlat.cpp): key scrolling uses SCROLL_AMT=100 in screen-space and
+            // applies horizontal/vertical/keyboard factors once per logic frame.
+            const SCROLL_AMT: f32 = 100.0;
+            let scroll_step =
+                SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0) * logic_frames_per_second;
+            let mut screen_scroll = Vec2::ZERO;
+            if self.is_character_key_pressed("w")
+                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp))
+            {
+                screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
             }
-            if self.keys_pressed.contains(&Key::Character("s".into())) {
-                movement.z += camera_speed;
+            if self.is_character_key_pressed("s")
+                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowDown))
+            {
+                screen_scroll.y += vertical_scroll_speed_factor * scroll_step;
             }
-            if self.keys_pressed.contains(&Key::Character("a".into())) {
-                movement.x -= camera_speed;
+            if self.is_character_key_pressed("a")
+                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowLeft))
+            {
+                screen_scroll.x -= horizontal_scroll_speed_factor * scroll_step;
             }
-            if self.keys_pressed.contains(&Key::Character("d".into())) {
-                movement.x += camera_speed;
+            if self.is_character_key_pressed("d")
+                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowRight))
+            {
+                screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
             }
+            movement = self.camera_scroll_world_delta(screen_scroll);
         }
 
         let mut camera_changed = false;
@@ -4714,6 +4742,32 @@ impl CnCGameEngine {
         if camera_changed {
             self.apply_camera_orbit_transform();
         }
+    }
+
+    fn is_character_key_pressed(&self, expected: &str) -> bool {
+        self.keys_pressed.iter().any(|key| match key {
+            Key::Character(ch) => ch.eq_ignore_ascii_case(expected),
+            _ => false,
+        })
+    }
+
+    fn camera_scroll_world_delta(&self, screen_scroll: Vec2) -> Vec3 {
+        if screen_scroll.length_squared() <= f32::EPSILON {
+            return Vec3::ZERO;
+        }
+
+        // Match C++ key-scroll semantics: "up/down/left/right" are screen-space intents.
+        // Convert that intent to world-plane motion relative to current camera facing.
+        let mut forward = self.camera_target - self.camera_position;
+        forward.y = 0.0;
+        if forward.length_squared() <= f32::EPSILON {
+            return Vec3::ZERO;
+        }
+        let forward = forward.normalize();
+        let right = Vec3::new(forward.z, 0.0, -forward.x);
+
+        // C++ uses y- for UP and y+ for DOWN, so negate Y when mapping to forward motion.
+        (right * screen_scroll.x) + (forward * -screen_scroll.y)
     }
 
     fn update_mouse_world_position(&mut self) {
