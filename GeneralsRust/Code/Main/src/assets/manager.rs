@@ -145,11 +145,6 @@ impl AssetManager {
         self.texture_manager
             .init(device, queue)
             .map_err(|e| anyhow!("Failed to initialize texture manager: {}", e))?;
-        self.warmup_texture_lookup_metadata();
-
-        // Keep startup/menu responsive: defer non-critical animated water caustic uploads.
-        // These frames are optional polish and are not required for shell/menu initialization.
-        info!("Deferring caustic water texture warmup until post-startup gameplay path");
 
         // Initialize WW3D Asset Manager - Load object definitions from INIZH.big
         // This matches C++ WW3DAssetManager initialization
@@ -178,16 +173,6 @@ impl AssetManager {
         info!("  Models cached: {}", stats.models_cached);
 
         Ok(())
-    }
-
-    fn warmup_texture_lookup_metadata(&mut self) {
-        let indexed_paths = self
-            .texture_manager
-            .warmup_texture_path_index(&self.archive_system);
-        debug!(
-            "Texture lookup metadata warmup indexed {} canonical texture paths",
-            indexed_paths
-        );
     }
 
     fn runtime_overrides() -> (String, Option<PathBuf>) {
@@ -303,31 +288,6 @@ impl AssetManager {
                 .load_big_file(&big)
                 .await
                 .map_err(|e| anyhow!("Failed to load {}: {}", big.display(), e))?;
-        }
-
-        // Auto-mount core archives if present (parity with C++ loader).
-        let candidates = [
-            "INIZH.big",
-            "W3DZH.big",
-            "TexturesZH.big",
-            "TerrainZH.big",
-            "WindowZH.big",
-            "AudioZH.big",
-            "EnglishZH.big",
-            "INI.big",
-            "W3D.big",
-            "Textures.big",
-            "Terrain.big",
-            "Window.big",
-        ];
-
-        for name in candidates {
-            if let Some(path) = self.archive_system.find_archive(name) {
-                debug!("🔍 Mounting core archive: {}", path.display());
-                if let Err(e) = self.archive_system.load_big_file(&path).await {
-                    warn!("Failed to mount {}: {}", path.display(), e);
-                }
-            }
         }
         Ok(())
     }
@@ -1002,49 +962,9 @@ pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
 
 /// Warm up optional caustic animation textures outside startup critical path.
 pub fn warmup_caustic_textures_async(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> bool {
-    if CAUSTIC_WARMUP_STARTED.swap(true, Ordering::AcqRel) {
-        return false;
-    }
-
-    let Some(manager_arc) = get_asset_manager() else {
-        CAUSTIC_WARMUP_STARTED.store(false, Ordering::Release);
-        return false;
-    };
-
-    let handle = tokio::runtime::Handle::current();
-
-    tokio::task::spawn_blocking(move || {
-        let result = {
-            let mut manager = manager_arc.lock().expect("asset manager mutex poisoned");
-            let (texture_manager, archive_system) = {
-                let manager_ref: &mut AssetManager = &mut manager;
-                (
-                    &mut manager_ref.texture_manager,
-                    &mut manager_ref.archive_system,
-                )
-            };
-            handle.block_on(async {
-                texture_manager
-                    .load_caustic_textures(archive_system, device.as_ref(), queue.as_ref())
-                    .await
-            })
-        };
-
-        match result {
-            Ok(caustic_names) => {
-                info!(
-                    "Deferred caustic texture warmup complete: {} frames",
-                    caustic_names.len()
-                );
-            }
-            Err(err) => {
-                warn!("Deferred caustic texture warmup failed: {}", err);
-                CAUSTIC_WARMUP_STARTED.store(false, Ordering::Release);
-            }
-        }
-    });
-
-    true
+    let _ = device;
+    let _ = queue;
+    false
 }
 
 /// Queue a background task to prime raw texture data without blocking the caller.

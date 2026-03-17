@@ -838,16 +838,14 @@ fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
     };
 
     match file_type {
-        Some("w3d") => push_unique(&mut candidates, format!("Data/{language}/Art/W3D/{bare}")),
-        Some("tga") | Some("dds") => {
-            push_unique(&mut candidates, format!("Data/{language}/Art/Textures/{bare}"))
+        Some("w3d") => {
+            push_unique(&mut candidates, format!("Data/{language}/Art/W3D/{bare}"));
+            push_unique(&mut candidates, format!("Art/W3D/{bare}"));
         }
-        _ => {}
-    }
-
-    match file_type {
-        Some("w3d") => push_unique(&mut candidates, format!("Art/W3D/{bare}")),
-        Some("tga") | Some("dds") => push_unique(&mut candidates, format!("Art/Textures/{bare}")),
+        Some("tga") | Some("dds") => {
+            push_unique(&mut candidates, format!("Data/{language}/Art/Textures/{bare}"));
+            push_unique(&mut candidates, format!("Art/Textures/{bare}"));
+        }
         _ => push_unique(&mut candidates, bare.clone()),
     }
 

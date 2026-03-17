@@ -39,7 +39,51 @@ impl ArchiveFileSystem {
     }
 
     fn add_default_search_paths(&mut self) {
-        let mut unique: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        fn push_install_layout_paths(push_unique: &mut impl FnMut(PathBuf), root: &Path) {
+            push_unique(root.join("assets"));
+
+            // Zero Hour directories.
+            push_unique(root.join("windows_game/Command & Conquer Generals Zero Hour"));
+            push_unique(root.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+            push_unique(root.join("windows_game/Command and Conquer Generals Zero Hour"));
+            push_unique(root.join("windows_game/Command and Conquer Generals Zero Hour/Data"));
+            push_unique(root.join("Command & Conquer Generals Zero Hour"));
+            push_unique(root.join("Command & Conquer Generals Zero Hour/Data"));
+            push_unique(root.join("Command and Conquer Generals Zero Hour"));
+            push_unique(root.join("Command and Conquer Generals Zero Hour/Data"));
+
+            // Combined installer layout observed in legacy installs.
+            push_unique(root.join(
+                "Command and Conquer Generals + Zero Hour/Command & Conquer Generals Zero Hour",
+            ));
+            push_unique(root.join(
+                "Command and Conquer Generals + Zero Hour/Command & Conquer Generals Zero Hour/Data",
+            ));
+            push_unique(root.join(
+                "Command and Conquer Generals + Zero Hour/Command and Conquer Generals Zero Hour",
+            ));
+            push_unique(root.join(
+                "Command and Conquer Generals + Zero Hour/Command and Conquer Generals Zero Hour/Data",
+            ));
+
+            // Base Generals directories (needed by ZH in C++).
+            push_unique(root.join("windows_game/Command & Conquer Generals"));
+            push_unique(root.join("windows_game/Command & Conquer Generals/Data"));
+            push_unique(root.join("windows_game/Command and Conquer Generals"));
+            push_unique(root.join("windows_game/Command and Conquer Generals/Data"));
+            push_unique(root.join("Command & Conquer Generals"));
+            push_unique(root.join("Command & Conquer Generals/Data"));
+            push_unique(root.join("Command and Conquer Generals"));
+            push_unique(root.join("Command and Conquer Generals/Data"));
+            push_unique(root.join("Command and Conquer Generals + Zero Hour/Command & Conquer Generals"));
+            push_unique(root.join(
+                "Command and Conquer Generals + Zero Hour/Command & Conquer Generals/Data",
+            ));
+            push_unique(root.join("Command and Conquer Generals + Zero Hour/Command and Conquer Generals"));
+            push_unique(root.join(
+                "Command and Conquer Generals + Zero Hour/Command and Conquer Generals/Data",
+            ));
+        }
 
         let mut root_candidates: Vec<PathBuf> = Vec::new();
         if let Ok(cwd) = std::env::current_dir() {
@@ -53,36 +97,33 @@ impl ArchiveFileSystem {
         root_candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
 
         if let Ok(from_env) = std::env::var("GENERALS_ASSETS_DIR") {
-            let from_env = PathBuf::from(from_env);
-            root_candidates.push(from_env.clone());
-            if from_env.exists() {
-                unique.insert(from_env);
-            }
+            root_candidates.push(PathBuf::from(from_env));
         }
+        if let Ok(from_env) = std::env::var("GENERALS_INSTALL_PATH") {
+            root_candidates.push(PathBuf::from(from_env));
+        }
+        if let Ok(from_env) = std::env::var("GENERALS_BASE_INSTALL_PATH") {
+            root_candidates.push(PathBuf::from(from_env));
+        }
+
+        let mut ordered = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut push_unique = |path: PathBuf| {
+            if !path.exists() {
+                return;
+            }
+            let key = path.to_string_lossy().to_ascii_lowercase();
+            if seen.insert(key) {
+                ordered.push(path);
+            }
+        };
 
         for root in root_candidates {
-            for ancestor in root.ancestors().take(8) {
-                let root = ancestor.to_path_buf();
-                unique.insert(root.join("assets"));
-                unique.insert(root.join("windows_game/Command & Conquer Generals Zero Hour"));
-                unique.insert(root.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
-                // Zero Hour installs depend on base Generals archives (e.g. Textures.big/W3D.big)
-                // in many setups. Include base-game roots in the default probe set.
-                unique.insert(root.join("windows_game/Command & Conquer Generals"));
-                unique.insert(root.join("windows_game/Command & Conquer Generals/Data"));
-                unique.insert(root.join("Command & Conquer Generals Zero Hour"));
-                unique.insert(root.join("Command & Conquer Generals Zero Hour/Data"));
-                unique.insert(root.join("Command & Conquer Generals"));
-                unique.insert(root.join("Command & Conquer Generals/Data"));
-            }
+            push_install_layout_paths(&mut push_unique, &root);
         }
 
-        let mut candidates: Vec<PathBuf> = unique.into_iter().collect();
-        candidates.sort();
-        for path in candidates {
-            if path.exists() {
-                self.core.add_search_path(path);
-            }
+        for path in ordered {
+            self.core.add_search_path(path);
         }
     }
 
@@ -159,17 +200,12 @@ impl ArchiveFileSystem {
             .open_file(filename, 0)
             .map_err(anyhow::Error::from)?;
 
-        // Move blocking I/O to a dedicated thread pool to avoid blocking the async runtime
-        // This fixes the hang during asset initialization
-        let data = tokio::task::spawn_blocking(move || {
-            let mut data = Vec::new();
-            reader.read_to_end(&mut data)?;
-            Ok::<Vec<u8>, std::io::Error>(data)
-        })
-        .await
-        .map_err(|e| anyhow!("Task join error: {}", e))?
-        .map_err(|e| anyhow!("Failed to read archive file: {}", e))?;
-
+        // C++ parity: perform direct synchronous stream reads from BIG-backed handles.
+        // Per-request task dispatch here adds measurable overhead during texture bursts.
+        let mut data = Vec::new();
+        reader
+            .read_to_end(&mut data)
+            .map_err(|e| anyhow!("Failed to read archive file: {}", e))?;
         Ok(data)
     }
 

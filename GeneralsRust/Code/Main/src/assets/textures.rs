@@ -41,6 +41,13 @@ impl TextureFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DdsCompression {
+    Dxt1,
+    Dxt3,
+    Dxt5,
+}
+
 /// Raw texture data
 #[derive(Debug, Clone)]
 pub struct RawTexture {
@@ -50,6 +57,7 @@ pub struct RawTexture {
     pub data: Vec<u8>,
     pub format: TextureFormat,
     pub has_alpha: bool,
+    dds_compression: Option<DdsCompression>,
 }
 
 impl RawTexture {
@@ -61,6 +69,7 @@ impl RawTexture {
             data: Vec::new(),
             format: TextureFormat::Unknown,
             has_alpha: false,
+            dds_compression: None,
         }
     }
 
@@ -80,6 +89,7 @@ impl RawTexture {
             data,
             format: TextureFormat::Unknown,
             has_alpha: color[3] < 255,
+            dds_compression: None,
         }
     }
 
@@ -114,6 +124,7 @@ impl RawTexture {
             data,
             format: TextureFormat::Unknown,
             has_alpha: color1[3] < 255 || color2[3] < 255,
+            dds_compression: None,
         }
     }
 }
@@ -133,16 +144,6 @@ pub struct TextureManager {
     raw_cache: HashMap<String, RawTexture>,
     /// Cache of GPU textures
     gpu_cache: HashMap<String, GPUTexture>,
-    /// Canonical texture path lookup keyed by lowercase virtual path.
-    texture_exact_index: HashMap<String, String>,
-    /// Canonical texture lookup keyed by lowercase basename (for C++-style bare filename requests).
-    texture_basename_index: HashMap<String, String>,
-    /// Canonical texture lookup keyed by lowercase stem when callers omit an extension.
-    texture_stem_index: HashMap<String, String>,
-    /// Memoized requested texture -> resolved canonical virtual path (or known missing).
-    resolved_texture_paths: HashMap<String, Option<String>>,
-    /// Archive signature used to rebuild the texture lookup index when mounts change.
-    indexed_archive_unique_files: usize,
     /// Default white texture for fallback
     default_texture_name: String,
     /// Compact diagnostics for unresolved texture lookups.
@@ -165,7 +166,6 @@ pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
 
     let normalized = requested_name
         .trim()
-        .replace(' ', "")
         .replace('\\', "/")
         .trim_start_matches("./")
         .to_string();
@@ -183,11 +183,28 @@ pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
         _ => None,
     };
 
+    fn swap_texture_extension(path: &str) -> Option<String> {
+        let (stem, ext) = path.rsplit_once('.')?;
+        if stem.is_empty() {
+            return None;
+        }
+        if ext.eq_ignore_ascii_case("tga") {
+            return Some(format!("{stem}.dds"));
+        }
+        if ext.eq_ignore_ascii_case("dds") {
+            return Some(format!("{stem}.tga"));
+        }
+        None
+    }
+
     let mut candidates = Vec::new();
     let mut seen_candidates = HashSet::new();
 
-    // C++ texture lookup uses exact virtual path first.
+    // C++ parity: always probe the authored name first.
     push_unique_case_insensitive(&mut candidates, &mut seen_candidates, normalized.clone());
+    if let Some(swapped) = swap_texture_extension(&normalized) {
+        push_unique_case_insensitive(&mut candidates, &mut seen_candidates, swapped);
+    }
 
     let is_known_texture_ext = matches!(
         ext_hint.as_deref(),
@@ -197,6 +214,9 @@ pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
         for prefix in ["Data/English/Art/Textures/", "Art/Textures/"] {
             let candidate = format!("{prefix}{normalized}");
             push_unique_case_insensitive(&mut candidates, &mut seen_candidates, candidate);
+            if let Some(swapped) = swap_texture_extension(&format!("{prefix}{normalized}")) {
+                push_unique_case_insensitive(&mut candidates, &mut seen_candidates, swapped);
+            }
         }
     }
 
@@ -214,26 +234,8 @@ impl TextureManager {
         texture_name.trim().to_ascii_lowercase()
     }
 
-    fn canonical_texture_cache_key(path: &str) -> String {
-        path.replace('\\', "/")
-            .trim_start_matches("./")
-            .to_ascii_lowercase()
-    }
-
     fn resolved_cache_key_for_lookup(&self, texture_name: &str) -> String {
-        let request_key = Self::normalize_texture_lookup_key(texture_name);
-        let Some(Some(canonical_path)) = self.resolved_texture_paths.get(&request_key) else {
-            return request_key;
-        };
-        let canonical_key = Self::canonical_texture_cache_key(canonical_path);
-        if self.raw_cache.contains_key(&canonical_key)
-            || self.gpu_cache.contains_key(&canonical_key)
-            || self.known_missing_textures.contains(&canonical_key)
-        {
-            canonical_key
-        } else {
-            request_key
-        }
+        Self::normalize_texture_lookup_key(texture_name)
     }
 
     /// Create new texture manager
@@ -241,11 +243,6 @@ impl TextureManager {
         Self {
             raw_cache: HashMap::new(),
             gpu_cache: HashMap::new(),
-            texture_exact_index: HashMap::new(),
-            texture_basename_index: HashMap::new(),
-            texture_stem_index: HashMap::new(),
-            resolved_texture_paths: HashMap::new(),
-            indexed_archive_unique_files: 0,
             default_texture_name: "default_white".to_string(),
             missing_texture_total: 0,
             missing_texture_counts: HashMap::new(),
@@ -377,87 +374,55 @@ impl TextureManager {
         }
 
         debug!("Loading raw texture from archive: {}", requested_name);
+        let mut last_error = None;
+        for candidate in Self::build_texture_candidates(requested_name) {
+            let texture_data = match archive_system.open_file(&candidate).await {
+                Ok(data) => data,
+                Err(err) => {
+                    last_error = Some((candidate, err));
+                    continue;
+                }
+            };
 
-        let canonical_path = match self.resolved_texture_paths.get(&texture_key).cloned() {
-            Some(Some(path)) => path,
-            Some(None) => {
-                self.cache_missing_fallback(&texture_key, requested_name);
-                return Ok(texture_key);
-            }
-            None => {
-                self.ensure_texture_path_index(archive_system);
-                let Some(path) =
-                    self.resolve_texture_path_from_index(requested_name, texture_key.as_str())
-                else {
-                    self.resolved_texture_paths
-                        .insert(texture_key.clone(), None);
+            let format = TextureFormat::from_filename(&candidate);
+            let parse_result = match format {
+                TextureFormat::TGA => self.parse_tga(&texture_data, requested_name.to_string()),
+                TextureFormat::DDS => self.parse_dds(&texture_data, requested_name.to_string()),
+                TextureFormat::BMP => self.parse_bmp(&texture_data, requested_name.to_string()),
+                _ => {
+                    warn!(
+                        "Unsupported texture format for '{}', using fallback",
+                        requested_name
+                    );
                     self.cache_missing_fallback(&texture_key, requested_name);
                     return Ok(texture_key);
-                };
-                path
-            }
-        };
-
-        let cache_key = Self::canonical_texture_cache_key(&canonical_path);
-        if self.raw_cache.contains_key(&cache_key)
-            || self.known_missing_textures.contains(&cache_key)
-        {
-            self.remember_resolved_texture_path(&texture_key, &canonical_path);
-            return Ok(cache_key);
-        }
-
-        let texture_data = match archive_system.open_file(&canonical_path).await {
-            Ok(data) => data,
-            Err(err) => {
-                warn!(
-                    "Texture '{}' resolved to '{}' but failed to open: {}",
-                    requested_name, canonical_path, err
-                );
-                self.resolved_texture_paths
-                    .insert(texture_key.clone(), None);
-                self.cache_missing_fallback(&texture_key, requested_name);
-                return Ok(texture_key);
-            }
-        };
-        self.remember_resolved_texture_path(&texture_key, &canonical_path);
-
-        let format = TextureFormat::from_filename(&canonical_path);
-        let parse_result = match format {
-            TextureFormat::TGA => self.parse_tga(&texture_data, requested_name.to_string()),
-            TextureFormat::DDS => self.parse_dds(&texture_data, requested_name.to_string()),
-            TextureFormat::BMP => self.parse_bmp(&texture_data, requested_name.to_string()),
-            _ => {
-                warn!(
-                    "Unsupported texture format for '{}', using fallback",
-                    requested_name
-                );
-                self.cache_missing_fallback(&texture_key, requested_name);
-                if cache_key != texture_key {
-                    self.cache_missing_fallback(&cache_key, requested_name);
                 }
-                return Ok(cache_key);
-            }
-        };
+            };
 
-        match parse_result {
-            Ok(raw_texture) => {
-                self.raw_cache.insert(cache_key.clone(), raw_texture);
-                self.known_missing_textures.remove(&texture_key);
-                self.known_missing_textures.remove(&cache_key);
-            }
-            Err(err) => {
-                warn!(
-                    "Texture parse failed for '{}': {}; using fallback",
-                    requested_name, err
-                );
-                self.cache_missing_fallback(&texture_key, requested_name);
-                if cache_key != texture_key {
-                    self.cache_missing_fallback(&cache_key, requested_name);
+            match parse_result {
+                Ok(raw_texture) => {
+                    self.raw_cache.insert(texture_key.clone(), raw_texture);
+                    self.known_missing_textures.remove(&texture_key);
+                    return Ok(texture_key);
+                }
+                Err(err) => {
+                    warn!(
+                        "Texture parse failed for '{}' from '{}': {}",
+                        requested_name, candidate, err
+                    );
+                    last_error = Some((candidate, anyhow!("{}", err)));
                 }
             }
         }
 
-        Ok(cache_key)
+        if let Some((candidate, err)) = last_error {
+            warn!(
+                "Texture '{}' could not be loaded from '{}': {}",
+                requested_name, candidate, err
+            );
+        }
+        self.cache_missing_fallback(&texture_key, requested_name);
+        Ok(texture_key)
     }
 
     fn cache_missing_fallback(&mut self, texture_key: &str, requested_name: &str) {
@@ -507,194 +472,11 @@ impl TextureManager {
         texture_candidate_paths(requested_name)
     }
 
-    fn is_supported_texture_file(filename: &str) -> bool {
-        let filename = filename.to_ascii_lowercase();
-        filename.ends_with(".tga")
-            || filename.ends_with(".dds")
-            || filename.ends_with(".bmp")
-            || filename.ends_with(".jpg")
-            || filename.ends_with(".jpeg")
-            || filename.ends_with(".png")
-    }
-
-    fn texture_path_rank(path: &str) -> (u8, u8, usize, String) {
-        let path_lower = path.to_ascii_lowercase();
-        let root_rank = if path_lower.starts_with("data/english/art/textures/") {
-            0
-        } else if path_lower.starts_with("art/textures/") {
-            1
-        } else if path_lower.starts_with("data/english/art/terrain/") {
-            2
-        } else if path_lower.starts_with("art/terrain/") {
-            3
-        } else if path_lower.starts_with("data/english/art/w3d/") {
-            4
-        } else if path_lower.starts_with("art/w3d/") {
-            5
-        } else {
-            6
-        };
-
-        let ext_rank = if path_lower.ends_with(".dds") {
-            0
-        } else if path_lower.ends_with(".tga") {
-            1
-        } else if path_lower.ends_with(".bmp") {
-            2
-        } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
-            3
-        } else if path_lower.ends_with(".png") {
-            4
-        } else {
-            5
-        };
-
-        (root_rank, ext_rank, path_lower.len(), path_lower)
-    }
-
-    fn should_replace_index_entry(current: &str, candidate: &str) -> bool {
-        Self::texture_path_rank(candidate) < Self::texture_path_rank(current)
-    }
-
-    fn index_texture_path(&mut self, path: &str) {
-        if !Self::is_supported_texture_file(path) {
-            return;
-        }
-
-        let canonical = path.replace('\\', "/").trim_start_matches("./").to_string();
-        let canonical_lower = canonical.to_ascii_lowercase();
-        let basename = canonical_lower
-            .rsplit('/')
-            .next()
-            .unwrap_or(canonical_lower.as_str())
-            .to_string();
-        let stem = basename
-            .rsplit_once('.')
-            .map(|(stem, _)| stem.to_string())
-            .unwrap_or_else(|| basename.clone());
-
-        self.texture_exact_index
-            .entry(canonical_lower)
-            .or_insert_with(|| canonical.clone());
-
-        match self.texture_basename_index.get(&basename) {
-            Some(existing) if !Self::should_replace_index_entry(existing, &canonical) => {}
-            _ => {
-                self.texture_basename_index
-                    .insert(basename, canonical.clone());
-            }
-        }
-
-        match self.texture_stem_index.get(&stem) {
-            Some(existing) if !Self::should_replace_index_entry(existing, &canonical) => {}
-            _ => {
-                self.texture_stem_index.insert(stem, canonical);
-            }
-        }
-    }
-
-    fn ensure_texture_path_index(&mut self, archive_system: &ArchiveFileSystem) {
-        let archive_signature = archive_system.get_statistics().unique_files;
-        if archive_signature == self.indexed_archive_unique_files
-            && !self.texture_exact_index.is_empty()
-        {
-            return;
-        }
-
-        self.texture_exact_index.clear();
-        self.texture_basename_index.clear();
-        self.texture_stem_index.clear();
-        self.resolved_texture_paths.clear();
-        self.indexed_archive_unique_files = archive_signature;
-
-        if archive_signature == 0 {
-            return;
-        }
-
-        for path in archive_system.list_all_files() {
-            self.index_texture_path(&path);
-        }
-    }
-
-    /// Build or refresh canonical texture lookup indexes from the currently mounted archives.
-    /// Returns the number of canonical texture paths indexed.
+    /// C++ parity: texture lookup is resolved per request using exact candidate paths.
+    /// This method remains as a compatibility hook and does not prebuild an archive index.
     pub fn warmup_texture_path_index(&mut self, archive_system: &ArchiveFileSystem) -> usize {
-        self.ensure_texture_path_index(archive_system);
-        self.texture_exact_index.len()
-    }
-
-    fn resolve_texture_path_from_index(
-        &self,
-        requested_name: &str,
-        texture_key: &str,
-    ) -> Option<String> {
-        Self::resolve_texture_path_from_maps(
-            &self.texture_exact_index,
-            &self.texture_basename_index,
-            &self.texture_stem_index,
-            requested_name,
-            texture_key,
-        )
-    }
-
-    fn resolve_texture_path_from_maps(
-        texture_exact_index: &HashMap<String, String>,
-        texture_basename_index: &HashMap<String, String>,
-        texture_stem_index: &HashMap<String, String>,
-        requested_name: &str,
-        texture_key: &str,
-    ) -> Option<String> {
-        if let Some(path) = texture_exact_index.get(texture_key) {
-            return Some(path.clone());
-        }
-
-        let normalized = requested_name
-            .trim()
-            .replace('\\', "/")
-            .trim_start_matches("./")
-            .to_ascii_lowercase();
-
-        if let Some(path) = texture_exact_index.get(&normalized) {
-            return Some(path.clone());
-        }
-
-        let basename = normalized
-            .rsplit('/')
-            .next()
-            .filter(|name| !name.is_empty())
-            .unwrap_or(normalized.as_str());
-        if let Some(path) = texture_basename_index.get(basename) {
-            return Some(path.clone());
-        }
-
-        let stem = basename
-            .rsplit_once('.')
-            .map(|(stem, _)| stem)
-            .unwrap_or(basename);
-        if let Some(path) = texture_stem_index.get(stem) {
-            return Some(path.clone());
-        }
-
-        for candidate in Self::build_texture_candidates(requested_name) {
-            if let Some(path) = texture_exact_index.get(&candidate.to_ascii_lowercase()) {
-                return Some(path.clone());
-            }
-        }
-
-        None
-    }
-
-    fn remember_resolved_texture_path(&mut self, texture_key: &str, actual_filename: &str) {
-        self.index_texture_path(actual_filename);
-        self.resolved_texture_paths.insert(
-            texture_key.to_string(),
-            Some(
-                actual_filename
-                    .replace('\\', "/")
-                    .trim_start_matches("./")
-                    .to_string(),
-            ),
-        );
+        let _ = archive_system;
+        0
     }
 
     /// Get texture by name (loads if not cached), returns default on error
@@ -797,14 +579,146 @@ impl TextureManager {
         queue: &wgpu::Queue,
         raw: &RawTexture,
     ) -> Result<GPUTexture> {
+        if let Some(compression) = raw.dds_compression {
+            if device
+                .features()
+                .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+            {
+                let block_size = Self::dds_block_size_bytes(compression);
+                let blocks_x = raw.width.div_ceil(4);
+                let blocks_y = raw.height.div_ceil(4);
+                let expected_size = Self::dds_expected_payload_size(raw.width, raw.height, compression);
+
+                if raw.data.len() >= expected_size {
+                    let texture_size = wgpu::Extent3d {
+                        width: raw.width,
+                        height: raw.height,
+                        depth_or_array_layers: 1,
+                    };
+
+                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some(&raw.name),
+                        size: texture_size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: Self::dds_compression_to_wgpu_format(compression),
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    });
+
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            aspect: wgpu::TextureAspect::All,
+                            texture: &texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                        },
+                        &raw.data[..expected_size],
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(block_size * blocks_x),
+                            rows_per_image: Some(blocks_y),
+                        },
+                        texture_size,
+                    );
+
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::Repeat,
+                        address_mode_v: wgpu::AddressMode::Repeat,
+                        address_mode_w: wgpu::AddressMode::Repeat,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Nearest,
+                        mipmap_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    });
+
+                    return Ok(GPUTexture {
+                        texture,
+                        view,
+                        sampler,
+                        width: raw.width,
+                        height: raw.height,
+                    });
+                }
+
+                warn!(
+                    "DDS '{}' compressed payload size mismatch (expected {}, got {}), falling back to CPU decode",
+                    raw.name,
+                    expected_size,
+                    raw.data.len()
+                );
+            } else {
+                debug!(
+                    "DDS '{}' BC formats unsupported by adapter, falling back to CPU decode",
+                    raw.name
+                );
+            }
+
+            let mut rgba_data = Vec::new();
+            let decode_result = match compression {
+                DdsCompression::Dxt1 => self.decode_dxt1(&raw.data, &mut rgba_data, raw.width, raw.height),
+                DdsCompression::Dxt3 => self.decode_dxt3(&raw.data, &mut rgba_data, raw.width, raw.height),
+                DdsCompression::Dxt5 => self.decode_dxt5(&raw.data, &mut rgba_data, raw.width, raw.height),
+            };
+
+            if decode_result.is_ok() {
+                return self.create_gpu_texture_from_rgba(device, queue, &raw.name, raw.width, raw.height, &rgba_data);
+            }
+
+            warn!(
+                "DDS '{}' CPU decode fallback failed; using solid fallback texture",
+                raw.name
+            );
+            let fallback = RawTexture::solid_color(
+                raw.name.clone(),
+                raw.width.max(1),
+                raw.height.max(1),
+                [150, 100, 50, 255],
+            );
+            return self.create_gpu_texture_from_rgba(
+                device,
+                queue,
+                &fallback.name,
+                fallback.width,
+                fallback.height,
+                &fallback.data,
+            );
+        }
+
+        self.create_gpu_texture_from_rgba(device, queue, &raw.name, raw.width, raw.height, &raw.data)
+    }
+
+    fn create_gpu_texture_from_rgba(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        name: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<GPUTexture> {
+        let expected_size = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        if rgba.len() < expected_size {
+            return Err(anyhow!(
+                "Texture '{}' RGBA payload too small: expected {}, got {}",
+                name,
+                expected_size,
+                rgba.len()
+            ));
+        }
+
         let texture_size = wgpu::Extent3d {
-            width: raw.width,
-            height: raw.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&raw.name),
+            label: Some(name),
             size: texture_size,
             mip_level_count: 1,
             sample_count: 1,
@@ -821,11 +735,11 @@ impl TextureManager {
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
-            &raw.data,
+            &rgba[..expected_size],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * raw.width),
-                rows_per_image: Some(raw.height),
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             texture_size,
         );
@@ -845,9 +759,39 @@ impl TextureManager {
             texture,
             view,
             sampler,
-            width: raw.width,
-            height: raw.height,
+            width,
+            height,
         })
+    }
+
+    fn dds_fourcc_to_compression(four_cc: [u8; 4]) -> Option<DdsCompression> {
+        match &four_cc {
+            b"DXT1" => Some(DdsCompression::Dxt1),
+            b"DXT3" => Some(DdsCompression::Dxt3),
+            b"DXT5" => Some(DdsCompression::Dxt5),
+            _ => None,
+        }
+    }
+
+    fn dds_compression_to_wgpu_format(compression: DdsCompression) -> wgpu::TextureFormat {
+        match compression {
+            DdsCompression::Dxt1 => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
+            DdsCompression::Dxt3 => wgpu::TextureFormat::Bc2RgbaUnormSrgb,
+            DdsCompression::Dxt5 => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
+        }
+    }
+
+    fn dds_block_size_bytes(compression: DdsCompression) -> u32 {
+        match compression {
+            DdsCompression::Dxt1 => 8,
+            DdsCompression::Dxt3 | DdsCompression::Dxt5 => 16,
+        }
+    }
+
+    fn dds_expected_payload_size(width: u32, height: u32, compression: DdsCompression) -> usize {
+        let blocks_x = width.div_ceil(4);
+        let blocks_y = height.div_ceil(4);
+        (blocks_x * blocks_y * Self::dds_block_size_bytes(compression)) as usize
     }
 
     /// Parse TGA texture format
@@ -960,6 +904,7 @@ impl TextureManager {
             data: rgba_data,
             format: TextureFormat::TGA,
             has_alpha: bits_per_pixel == 32,
+            dds_compression: None,
         })
     }
 
@@ -1107,7 +1052,7 @@ impl TextureManager {
         // Pixel format (at offset 76)
         let _pixel_format_size = u32::from_le_bytes([data[76], data[77], data[78], data[79]]);
         let pixel_format_flags = u32::from_le_bytes([data[80], data[81], data[82], data[83]]);
-        let four_cc = &data[84..88];
+        let four_cc = [data[84], data[85], data[86], data[87]];
         let rgb_bit_count = u32::from_le_bytes([data[88], data[89], data[90], data[91]]);
         let _r_bit_mask = u32::from_le_bytes([data[92], data[93], data[94], data[95]]);
         let _g_bit_mask = u32::from_le_bytes([data[96], data[97], data[98], data[99]]);
@@ -1134,28 +1079,39 @@ impl TextureManager {
         // Check for compressed formats (FourCC)
         if pixel_format_flags & 0x4 != 0 {
             // DDPF_FOURCC
-            match four_cc {
-                b"DXT1" => {
-                    self.decode_dxt1(image_data, &mut rgba_data, width, height)?;
-                }
-                b"DXT3" => {
-                    self.decode_dxt3(image_data, &mut rgba_data, width, height)?;
-                }
-                b"DXT5" => {
-                    self.decode_dxt5(image_data, &mut rgba_data, width, height)?;
-                }
-                _ => {
-                    warn!(
-                        "Unsupported DDS FourCC: {:?}",
-                        std::str::from_utf8(four_cc).unwrap_or("invalid")
-                    );
-                    return Ok(RawTexture::solid_color(
-                        name,
-                        width,
-                        height,
-                        [150, 100, 50, 255],
+            if let Some(compression) = Self::dds_fourcc_to_compression(four_cc) {
+                let expected_size = Self::dds_expected_payload_size(width, height, compression);
+                if image_data.len() < expected_size {
+                    return Err(anyhow!(
+                        "DDS compressed payload truncated: expected at least {}, got {}",
+                        expected_size,
+                        image_data.len()
                     ));
                 }
+
+                let has_alpha = pixel_format_flags & 0x1 != 0
+                    || matches!(compression, DdsCompression::Dxt3 | DdsCompression::Dxt5);
+
+                return Ok(RawTexture {
+                    name,
+                    width,
+                    height,
+                    data: image_data[..expected_size].to_vec(),
+                    format: TextureFormat::DDS,
+                    has_alpha,
+                    dds_compression: Some(compression),
+                });
+            } else {
+                warn!(
+                    "Unsupported DDS FourCC: {:?}",
+                    std::str::from_utf8(&four_cc).unwrap_or("invalid")
+                );
+                return Ok(RawTexture::solid_color(
+                    name,
+                    width,
+                    height,
+                    [150, 100, 50, 255],
+                ));
             }
         } else if pixel_format_flags & 0x40 != 0 {
             // DDPF_RGB
@@ -1222,7 +1178,7 @@ impl TextureManager {
         }
 
         let has_alpha = pixel_format_flags & 0x1 != 0 || // DDPF_ALPHAPIXELS
-                        four_cc == b"DXT3" || four_cc == b"DXT5" ||
+                        four_cc == *b"DXT3" || four_cc == *b"DXT5" ||
                         (rgb_bit_count == 32 && a_bit_mask != 0);
 
         Ok(RawTexture {
@@ -1232,6 +1188,7 @@ impl TextureManager {
             data: rgba_data,
             format: TextureFormat::DDS,
             has_alpha,
+            dds_compression: None,
         })
     }
 
@@ -1688,6 +1645,7 @@ impl TextureManager {
             data: rgba_data,
             format: TextureFormat::BMP,
             has_alpha: bits_per_pixel == 32,
+            dds_compression: None,
         })
     }
 
@@ -1752,11 +1710,6 @@ impl TextureManager {
         self.known_missing_textures.clear();
         self.missing_texture_total = 0;
         self.missing_texture_counts.clear();
-        self.texture_exact_index.clear();
-        self.texture_basename_index.clear();
-        self.texture_stem_index.clear();
-        self.resolved_texture_paths.clear();
-        self.indexed_archive_unique_files = 0;
     }
 
     /// Get cache statistics
@@ -1768,6 +1721,22 @@ impl TextureManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn build_dds(width: u32, height: u32, four_cc: [u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut dds = vec![0u8; 128];
+        dds[0..4].copy_from_slice(b"DDS ");
+        dds[4..8].copy_from_slice(&124u32.to_le_bytes()); // header size
+        dds[8..12].copy_from_slice(&0x0002_1007u32.to_le_bytes()); // caps|height|width|pixelformat|linearsize
+        dds[12..16].copy_from_slice(&height.to_le_bytes());
+        dds[16..20].copy_from_slice(&width.to_le_bytes());
+        dds[20..24].copy_from_slice(&(payload.len() as u32).to_le_bytes()); // linear size
+        dds[76..80].copy_from_slice(&32u32.to_le_bytes()); // pixel format size
+        dds[80..84].copy_from_slice(&0x0000_0004u32.to_le_bytes()); // DDPF_FOURCC
+        dds[84..88].copy_from_slice(&four_cc);
+        dds[108..112].copy_from_slice(&0x1000u32.to_le_bytes()); // DDSCAPS_TEXTURE
+        dds.extend_from_slice(payload);
+        dds
+    }
 
     fn rgba_at(data: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
         let i = ((y * width + x) * 4) as usize;
@@ -1828,8 +1797,11 @@ mod tests {
         let candidates = texture_candidate_paths("  PTPalm02a.tga ");
 
         assert_eq!(candidates[0], "PTPalm02a.tga");
-        assert_eq!(candidates[1], "Data/English/Art/Textures/PTPalm02a.tga");
-        assert_eq!(candidates[2], "Art/Textures/PTPalm02a.tga");
+        assert_eq!(candidates[1], "PTPalm02a.dds");
+        assert_eq!(candidates[2], "Data/English/Art/Textures/PTPalm02a.tga");
+        assert_eq!(candidates[3], "Data/English/Art/Textures/PTPalm02a.dds");
+        assert_eq!(candidates[4], "Art/Textures/PTPalm02a.tga");
+        assert_eq!(candidates[5], "Art/Textures/PTPalm02a.dds");
     }
 
     #[test]
@@ -1845,41 +1817,30 @@ mod tests {
         let candidates = TextureManager::build_texture_candidates("Art\\W3D\\PTXBIRCH05.tga");
 
         assert_eq!(candidates[0], "Art/W3D/PTXBIRCH05.tga");
+        assert_eq!(candidates[1], "Art/W3D/PTXBIRCH05.dds");
         assert_eq!(
-            candidates[1],
+            candidates[2],
             "Data/English/Art/Textures/Art/W3D/PTXBIRCH05.tga"
         );
-        assert_eq!(candidates[2], "Art/Textures/Art/W3D/PTXBIRCH05.tga");
+        assert_eq!(
+            candidates[3],
+            "Data/English/Art/Textures/Art/W3D/PTXBIRCH05.dds"
+        );
+        assert_eq!(candidates[4], "Art/Textures/Art/W3D/PTXBIRCH05.tga");
+        assert_eq!(candidates[5], "Art/Textures/Art/W3D/PTXBIRCH05.dds");
     }
 
     #[test]
-    fn resolve_texture_path_prefers_language_texture_root_candidate() {
-        let mut exact = HashMap::new();
-        exact.insert(
-            "art/terrain/ptpalm02a.tga".to_string(),
-            "Art/Terrain/PTPalm02a.tga".to_string(),
-        );
-        exact.insert(
-            "data/english/art/textures/ptpalm02a.tga".to_string(),
-            "Data/English/Art/Textures/PTPalm02a.tga".to_string(),
-        );
-        exact.insert(
-            "art/textures/ptpalm02a.tga".to_string(),
-            "Art/Textures/PTPalm02a.tga".to_string(),
-        );
-
-        let basename = HashMap::new();
-        let stem = HashMap::new();
+    fn resolved_cache_key_preserves_request_spelling() {
+        let manager = TextureManager::new();
 
         assert_eq!(
-            TextureManager::resolve_texture_path_from_maps(
-                &exact,
-                &basename,
-                &stem,
-                "PTPalm02a.tga",
-                "ptpalm02a.tga"
-            ),
-            Some("Data/English/Art/Textures/PTPalm02a.tga".to_string())
+            manager.resolved_cache_key_for_lookup("  Art/Textures/PTPalm02a.tga  "),
+            "art/textures/ptpalm02a.tga"
+        );
+        assert_eq!(
+            manager.resolved_cache_key_for_lookup("PTPalm02a.tga"),
+            "ptpalm02a.tga"
         );
     }
 
@@ -1916,5 +1877,52 @@ mod tests {
         assert_eq!(rgba_at(&decoded, 4, 1, 1)[3], 204);
         assert_eq!(rgba_at(&decoded, 4, 2, 1)[3], 0);
         assert_eq!(rgba_at(&decoded, 4, 3, 1)[3], 255);
+    }
+
+    #[test]
+    fn dds_fourcc_maps_to_bc_formats() {
+        assert_eq!(
+            TextureManager::dds_fourcc_to_compression(*b"DXT1"),
+            Some(DdsCompression::Dxt1)
+        );
+        assert_eq!(
+            TextureManager::dds_fourcc_to_compression(*b"DXT3"),
+            Some(DdsCompression::Dxt3)
+        );
+        assert_eq!(
+            TextureManager::dds_fourcc_to_compression(*b"DXT5"),
+            Some(DdsCompression::Dxt5)
+        );
+        assert_eq!(TextureManager::dds_fourcc_to_compression(*b"ATI2"), None);
+
+        assert_eq!(
+            TextureManager::dds_compression_to_wgpu_format(DdsCompression::Dxt1),
+            wgpu::TextureFormat::Bc1RgbaUnormSrgb
+        );
+        assert_eq!(
+            TextureManager::dds_compression_to_wgpu_format(DdsCompression::Dxt3),
+            wgpu::TextureFormat::Bc2RgbaUnormSrgb
+        );
+        assert_eq!(
+            TextureManager::dds_compression_to_wgpu_format(DdsCompression::Dxt5),
+            wgpu::TextureFormat::Bc3RgbaUnormSrgb
+        );
+    }
+
+    #[test]
+    fn parse_dds_dxt1_keeps_compressed_payload_for_gpu_upload() {
+        let manager = TextureManager::new();
+        let payload = vec![0x00, 0xF8, 0x00, 0x00, 0, 0, 0, 0];
+        let dds = build_dds(4, 4, *b"DXT1", &payload);
+
+        let raw = manager
+            .parse_dds(&dds, "test_dxt1.dds".to_string())
+            .expect("DDS parse should succeed");
+
+        assert_eq!(raw.width, 4);
+        assert_eq!(raw.height, 4);
+        assert!(matches!(raw.format, TextureFormat::DDS));
+        assert_eq!(raw.dds_compression, Some(DdsCompression::Dxt1));
+        assert_eq!(raw.data, payload);
     }
 }

@@ -208,8 +208,6 @@ pub struct TerrainVisualImpl {
 
     /// Shared visible-terrain texture set used to keep adjacent chunks on the same slot map.
     active_chunk_texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
-    /// Per-frame budget for expensive CPU/GPU chunk mesh uploads.
-    max_chunk_mesh_uploads_per_frame: usize,
 
     /// Current oversize amount (in tiles).
     oversize_amount: i32,
@@ -258,11 +256,6 @@ const MAX_OVERSIZE_TILES: i32 = 4;
 // The current live terrain path uses four diffuse terrain layers with four
 // blend weights active per vertex.
 const MAX_TEXTURES_PER_CHUNK: usize = 4;
-// `ChunkManager` internally regenerates up to 24 visible chunks per update pass.
-// Drain startup backlog in a bounded number of same-frame passes so terrain does
-// not visibly fill tile-by-tile after map load.
-const STARTUP_GEOMETRY_PASS_CHUNK_BUDGET: usize = 24;
-const MAX_STARTUP_GEOMETRY_CATCHUP_PASSES: usize = 16;
 
 fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
     matrix.to_cols_array_2d()
@@ -309,7 +302,6 @@ impl TerrainVisualImpl {
             terrain_sampler: None,
             chunk_texture_bindings: HashMap::new(),
             active_chunk_texture_ids: None,
-            max_chunk_mesh_uploads_per_frame: 16,
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
             sun_color: [1.0, 0.9, 0.8],
             ambient_color: [0.2, 0.2, 0.2],
@@ -452,36 +444,6 @@ impl TerrainVisualImpl {
         };
         chunk_ids.sort_unstable();
         chunk_ids
-    }
-
-    fn catch_up_startup_visible_chunk_geometry(&mut self) -> TerrainResult<usize> {
-        // Keep this startup-only to avoid changing steady-state frame pacing.
-        if !self.chunk_meshes.is_empty() {
-            return Ok(0);
-        }
-
-        let mut pending = self.chunk_manager.pending_visible_chunk_count();
-        if pending == 0 {
-            return Ok(0);
-        }
-
-        let mut extra_updates = 0usize;
-        let catchup_passes = ((pending + STARTUP_GEOMETRY_PASS_CHUNK_BUDGET - 1)
-            / STARTUP_GEOMETRY_PASS_CHUNK_BUDGET)
-            .min(MAX_STARTUP_GEOMETRY_CATCHUP_PASSES);
-
-        for _ in 0..catchup_passes {
-            self.chunk_manager.update()?;
-            extra_updates += 1;
-
-            let next_pending = self.chunk_manager.pending_visible_chunk_count();
-            if next_pending == 0 || next_pending >= pending {
-                break;
-            }
-            pending = next_pending;
-        }
-
-        Ok(extra_updates)
     }
 
     /// Current world size in world units.
@@ -1352,16 +1314,6 @@ impl TerrainVisualImpl {
             shared_slot_map.entry(*texture_id).or_insert(slot);
         }
 
-        let missing_visible_meshes = visible_chunk_ids
-            .iter()
-            .filter(|chunk_id| !self.chunk_meshes.contains_key(chunk_id))
-            .count();
-        // C++ terrain path does not intentionally stream visible chunks over many frames.
-        // Upload at least all currently-missing visible chunk meshes in one pass.
-        let mut upload_budget = self
-            .max_chunk_mesh_uploads_per_frame
-            .max(1)
-            .max(missing_visible_meshes);
         let mut binding_updates = 0usize;
         let mut mesh_uploads = 0usize;
         let mut vertices_uploaded = 0usize;
@@ -1402,13 +1354,9 @@ impl TerrainVisualImpl {
             };
 
             if needs_mesh_upload {
-                if upload_budget == 0 {
-                    continue;
-                }
                 if !has_chunk_geometry {
                     continue;
                 }
-                upload_budget -= 1;
                 let upload_started = std::time::Instant::now();
 
                 let (chunk_vertices, chunk_indices) = match self.chunk_manager.get_chunk(chunk_id) {
@@ -2652,7 +2600,6 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         let chunk_manager_started = std::time::Instant::now();
         self.chunk_manager.update()?;
-        let startup_chunk_catchup_updates = self.catch_up_startup_visible_chunk_geometry()?;
         let chunk_manager_elapsed = chunk_manager_started.elapsed();
 
         let chunk_meshes_started = std::time::Instant::now();
@@ -2666,7 +2613,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         let update_elapsed = update_started.elapsed();
         if update_elapsed >= std::time::Duration::from_millis(200) {
             warn!(
-                "TerrainVisual::update breakdown: total={:?} texture={:?} water={:?} roads={:?} chunk_manager={:?} chunk_meshes={:?} visible={} pending_visible={} total_chunks={} startup_catchup_updates={}",
+                "TerrainVisual::update breakdown: total={:?} texture={:?} water={:?} roads={:?} chunk_manager={:?} chunk_meshes={:?} visible={} pending_visible={} total_chunks={}",
                 update_elapsed,
                 texture_elapsed,
                 water_elapsed,
@@ -2675,8 +2622,7 @@ impl SubsystemInterface for TerrainVisualImpl {
                 chunk_meshes_elapsed,
                 self.chunk_manager.get_visible_chunks().len(),
                 self.chunk_manager.pending_visible_chunk_count(),
-                self.chunk_manager.total_chunk_count(),
-                startup_chunk_catchup_updates
+                self.chunk_manager.total_chunk_count()
             );
         }
 
