@@ -2977,7 +2977,11 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Phase 17: Vision/Shroud Update
         // -----------------------------------------------------------------------
-        // Handled by the gamelogic crate's update_pipeline.
+        // The gamelogic crate's ShroudManager only sees objects registered in the
+        // gamelogic OBJECT_REGISTRY.  Main-crate objects live in a separate
+        // HashMap, so we feed their vision ranges directly into the shroud grid
+        // here so fog-of-war actually works for the playable game.
+        self.update_main_crate_vision();
 
         // -----------------------------------------------------------------------
         // Phase 18: Team Events Flush
@@ -3206,6 +3210,66 @@ impl GameLogic {
             timestamp: std::time::Instant::now(),
             priority: ScriptPriority::Normal,
         })
+    }
+
+    /// Move an object to a target position using pathfinding.
+    /// Falls back to direct movement if no path is found.
+    /// If `ai_state_override` is provided, sets that AI state after moving.
+    fn move_object_with_pathfinding(
+        &mut self,
+        object_id: ObjectId,
+        target_position: Vec3,
+        ai_state_override: Option<AIState>,
+    ) {
+        let start_pos = self
+            .objects
+            .get(&object_id)
+            .map(|obj| obj.get_position());
+
+        let start_pos = match start_pos {
+            Some(pos) => pos,
+            None => return,
+        };
+
+        // Short distance — skip pathfinding overhead and go direct.
+        if start_pos.distance(target_position) < 20.0 {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.move_to(target_position);
+                if let Some(state) = ai_state_override {
+                    obj.ai_state = state;
+                }
+            }
+            return;
+        }
+
+        // Attempt A* pathfinding.
+        let path = self
+            .pathfinding_system
+            .find_path(start_pos, target_position, &self.objects);
+
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            if let Some(waypoints) = path {
+                if waypoints.len() >= 2 {
+                    obj.movement.path = waypoints;
+                    obj.movement.current_path_index = 1; // skip start node
+                    // target_position will be set to path[1] by update_movement
+                    obj.movement.target_position = Some(obj.movement.path[1]);
+                    obj.ai_state = ai_state_override.unwrap_or(AIState::Moving);
+                    obj.status.moving = true;
+                } else {
+                    obj.move_to(target_position);
+                    if let Some(state) = ai_state_override {
+                        obj.ai_state = state;
+                    }
+                }
+            } else {
+                // No path found — fall back to direct movement.
+                obj.move_to(target_position);
+                if let Some(state) = ai_state_override {
+                    obj.ai_state = state;
+                }
+            }
+        }
     }
 
     /// Update movement for all objects
@@ -3914,9 +3978,7 @@ impl GameLogic {
                 object_id,
                 position,
             } => {
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    obj.move_to(position);
-                }
+                self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5057,16 +5119,18 @@ impl GameLogic {
         }
     }
 
-    /// Issue move command to selected objects
+    /// Issue move command to selected objects (with pathfinding)
     pub fn command_move(&mut self, player_id: u32, target_position: Vec3) {
         if let Some(player) = self.players.get(&player_id) {
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    if obj.is_mobile() {
-                        obj.stop_attack();
-                        obj.move_to(target_position);
-                    }
+                let is_mobile = self
+                    .objects
+                    .get(&object_id)
+                    .map(|obj| obj.is_mobile())
+                    .unwrap_or(false);
+                if is_mobile {
+                    self.move_object_with_pathfinding(object_id, target_position, None);
                 }
             }
             log::trace!(
@@ -5816,6 +5880,54 @@ impl GameLogic {
             .values()
             .find(|player| player.team == team)
             .map(|player| player.id)
+    }
+
+    /// Feed Main-crate object positions and sight ranges into the
+    /// gamelogic ShroudManager so that fog-of-war reveals around
+    /// player-owned units and structures.
+    ///
+    /// The gamelogic ShroudManager's own `update()` only iterates
+    /// objects in the gamelogic OBJECT_REGISTRY; Main-crate objects
+    /// are not registered there, so we must push vision directly.
+    fn update_main_crate_vision(&self) {
+        use gamelogic::common::Coord3D;
+
+        let shroud = get_shroud_manager();
+        let mut shroud_mgr = match shroud.lock() {
+            Ok(mgr) => mgr,
+            Err(_) => return,
+        };
+
+        // Build a player_id → bit-mask mapping for do_shroud_reveal.
+        let player_ids: Vec<u32> = self.players.keys().copied().collect();
+
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+
+            let vision_range = obj.get_template().sight_range;
+            if vision_range <= 0.0 {
+                continue;
+            }
+
+            // Find the player_id for this object's team.
+            let player_id = match self.player_id_for_team(obj.team) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let center = Coord3D::new(
+                obj.get_position().x,
+                obj.get_position().y,
+                obj.get_position().z,
+            );
+
+            // Build a player mask that includes this player and any allies.
+            // For now, just reveal for the owning player.
+            let player_mask = 1u32 << player_id.min(31);
+            shroud_mgr.do_shroud_reveal(&center, vision_range, player_mask);
+        }
     }
 
     fn shroud_visibility_snapshot_for_team(
@@ -6698,17 +6810,22 @@ impl GameLogic {
         }
     }
 
-    /// Command selected units to attack-move to a position
+    /// Command selected units to attack-move to a position (with pathfinding)
     pub fn command_attack_move(&mut self, player_id: u32, target_position: Vec3) {
         if let Some(player) = self.players.get(&player_id) {
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    if obj.is_mobile() {
-                        obj.stop_attack();
-                        obj.move_to(target_position);
-                        obj.ai_state = AIState::AttackMoving; // Will engage enemies while moving
-                    }
+                let is_mobile = self
+                    .objects
+                    .get(&object_id)
+                    .map(|obj| obj.is_mobile())
+                    .unwrap_or(false);
+                if is_mobile {
+                    self.move_object_with_pathfinding(
+                        object_id,
+                        target_position,
+                        Some(AIState::AttackMoving),
+                    );
                 }
             }
             log::trace!(
@@ -11409,7 +11526,7 @@ mod tests {
             .find_object(baseline_unit)
             .expect("baseline unit should exist")
             .get_position();
-        baseline.update_with_dt(1.0 / 60.0);
+        baseline.update_with_dt(1.0 / 30.0);
         let baseline_after = baseline
             .find_object(baseline_unit)
             .expect("baseline unit should exist")
