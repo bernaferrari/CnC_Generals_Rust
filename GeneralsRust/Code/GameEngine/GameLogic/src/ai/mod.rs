@@ -1460,9 +1460,31 @@ impl AI {
                 }
             };
             let template_name = target.get_template().get_name().as_str();
-            let current_priority = priority_info.get_priority(template_name);
+            let mut current_priority = priority_info.get_priority(template_name);
             if current_priority == 0 {
                 continue;
+            }
+
+            // C++ AI.cpp lines 669-679: Check for garrisoned buildings/vehicles
+            // and see if a higher priority unit is inside. This matches the C++
+            // behavior where contained objects (garrisoned infantry) can raise the
+            // effective attack priority of the container building/vehicle.
+            if let Some(contain) = target.get_contain() {
+                if let Ok(contain_guard) = contain.lock() {
+                    for contained_id in contain_guard.get_contained_objects() {
+                        if let Some(contained_arc) = OBJECT_REGISTRY.get_object(*contained_id) {
+                            if let Ok(contained_obj) = contained_arc.read() {
+                                let contained_template_name =
+                                    contained_obj.get_template().get_name().as_str();
+                                let contained_priority =
+                                    priority_info.get_priority(contained_template_name);
+                                if contained_priority > current_priority {
+                                    current_priority = contained_priority;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             let dist_sqr = ThePartitionManager::get_distance_squared(
