@@ -798,7 +798,7 @@ impl WeaponTemplate {
 
         // Calculate scatter radius (C++ lines 952-996)
         let mut projectile_destination = actual_victim_pos;
-        let mut scatter_radius = self.scatter_radius;
+        let mut scatter_radius;
         let mut target_layer = PathfindLayerEnum::Ground;
 
         if let Some(victim_id) = actual_victim_obj {

@@ -5,7 +5,6 @@
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 /// Vertex data for batching
 #[repr(C)]

@@ -4032,7 +4032,7 @@ pub enum TurretType {
 /// Alias to ModelConditionFlags for convenience
 pub type ModelConditionState = ModelConditionFlags;
 
-/// Command Options - bitflags for command execution options
+// Command Options - bitflags for command execution options
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct CommandOptions: u32 {

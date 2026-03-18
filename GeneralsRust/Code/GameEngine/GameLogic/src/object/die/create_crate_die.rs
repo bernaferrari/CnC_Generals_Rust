@@ -338,37 +338,34 @@ impl DieModuleInterface for CreateCrateDie {
         };
 
         for crate_name in self.base.module_data.crate_name_list.clone() {
-            let Some(template_arc) = crate_system_guard.find_crate_template(&crate_name) else {
-                continue;
-            };
-            let Ok(template_guard) = template_arc.read() else {
+            let Some(template) = crate_system_guard.find_crate_template(&crate_name) else {
                 continue;
             };
 
-            if !self.test_creation_chance(&template_guard) {
+            if !self.test_creation_chance(template) {
                 continue;
             }
 
-            if template_guard.veterancy_level.is_some()
-                && !self.test_veterancy_level(&template_guard, object)
+            if template.veterancy_level.is_some()
+                && !self.test_veterancy_level(template, object)
             {
                 continue;
             }
 
             let killer_ref = killer.as_ref().and_then(|k| k.read().ok());
-            if !self.test_killer_type(&template_guard, killer_ref.as_deref()) {
+            if !self.test_killer_type(template, killer_ref.as_deref()) {
                 continue;
             }
             drop(killer_ref);
 
             let killer_ref = killer.as_ref().and_then(|k| k.read().ok());
-            if !self.test_killer_science(&template_guard, killer_ref.as_deref()) {
+            if !self.test_killer_science(template, killer_ref.as_deref()) {
                 continue;
             }
             drop(killer_ref);
 
-            if let Some(crate_id) = self.create_crate(&template_guard, object) {
-                if template_guard.is_owned_by_maker {
+            if let Some(crate_id) = self.create_crate(template, object) {
+                if template.is_owned_by_maker {
                     self.set_crate_team(crate_id, object);
                 }
 

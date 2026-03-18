@@ -5,11 +5,8 @@
 
 use crate::{Result, EacError};
 use rayon::prelude::*;
-use std::collections::{HashMap, BinaryHeap};
+use std::collections::BinaryHeap;
 use std::cmp::Reverse;
-
-#[cfg(feature = "simd")]
-use wide::*;
 
 /// Maximum symbol value (8-bit)
 const MAX_SYMBOL: usize = 256;

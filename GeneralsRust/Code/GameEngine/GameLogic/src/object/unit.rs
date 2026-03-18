@@ -643,7 +643,7 @@ impl Unit {
                 // Track whether we need to handle a waypoint after the borrow ends
                 let mut handle_waypoint: Option<Coord3D> = None;
 
-                let (mut desired_speed, condition, blocked, max_blocked_speed) = {
+                let (desired_speed, condition, _blocked, max_blocked_speed) = {
                     let mut speed = FAST_AS_POSSIBLE;
                     let mut body_condition = BodyDamageType::Pristine;
                     let mut blocked = false;
@@ -2027,7 +2027,7 @@ impl Unit {
             }
         };
 
-        if !matches!(target_relationship, Relationship::Enemies) {
+        if !matches!(target_relationship, Relationship::Enemy) {
             self.attack_target = None;
             return Ok(());
         }
@@ -2104,7 +2104,7 @@ impl Unit {
                             .read()
                             .ok()
                             .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemies)
+                        Some(Relationship::Enemy)
                     ) {
                         let target_pos = *target_guard.get_position();
                         let self_pos = self.get_position();
@@ -2150,7 +2150,7 @@ impl Unit {
                             .read()
                             .ok()
                             .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemies)
+                        Some(Relationship::Enemy)
                     ) {
                         let target_pos = *target_guard.get_position();
                         let dx_center = target_pos.x - center.x;
@@ -2192,7 +2192,7 @@ impl Unit {
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemies)
+                Some(Relationship::Enemy)
             ) {
                 continue;
             }
@@ -2281,7 +2281,7 @@ impl Unit {
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemies)
+                Some(Relationship::Enemy)
             ) {
                 continue;
             }
@@ -2450,7 +2450,7 @@ fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Optio
             continue;
         };
         let killer_guard = killer.read().ok()?;
-        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemies {
+        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemy {
             return Some(id);
         }
     }
@@ -3291,7 +3291,7 @@ impl UnitAIUpdate {
         self.pathfind_goal_layer = layer;
 
         let mut do_ground = layer == ClassicPathLayer::Ground;
-        let mut do_layer = layer != ClassicPathLayer::Ground;
+        let do_layer = layer != ClassicPathLayer::Ground;
         if do_layer && interacts_with_bridge_end {
             do_ground = true;
         }
@@ -3598,7 +3598,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn is_attacking(&self) -> bool {
         if let Some(machine) = self.ai_state_machine.as_ref() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(guard) = machine.lock() {
                 if guard.is_attack_state() {
                     return true;
                 }
@@ -3937,7 +3937,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
         if let Some(machine) = self.ai_state_machine.as_ref() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(guard) = machine.lock() {
                 if !guard.is_idle() {
                     return false;
                 }
@@ -3982,7 +3982,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn is_idle_unrestricted(&self) -> bool {
         if let Some(machine) = self.ai_state_machine.as_ref() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(guard) = machine.lock() {
                 if !guard.is_idle() {
                     return false;
                 }
@@ -4918,7 +4918,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
                 if let Some(container_id) = command.obj {
                     if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(mut container_guard) = container.write() {
+                        if let Ok(container_guard) = container.write() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(mut contain_guard) = contain.lock() {
                                     if let Some(unit) = self.unit.upgrade() {
@@ -4961,7 +4961,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 });
                 if let Some(container_id) = container_id {
                     if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(mut container_guard) = container.write() {
+                        if let Ok(container_guard) = container.write() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(mut contain_guard) = contain.lock() {
                                     if let Some(unit) = self.unit.upgrade() {
@@ -5003,7 +5003,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 });
                 if let Some(container_id) = container_id {
                     if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(mut container_guard) = container.write() {
+                        if let Ok(container_guard) = container.write() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(mut contain_guard) = contain.lock() {
                                     if let Some(unit) = self.unit.upgrade() {
@@ -5074,7 +5074,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     }
 
                     let owner_object = guard.base_object();
-                    let mut dock_machine =
+                    let dock_machine =
                         AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
                     if let Ok(mut machine) = dock_machine.state_machine.lock() {
                         machine.set_goal_object(Some(Arc::downgrade(&target_arc)));
@@ -5098,7 +5098,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
             crate::ai::AiCommandType::Evacuate | crate::ai::AiCommandType::EvacuateInstantly => {
                 let instantly = command.cmd == crate::ai::AiCommandType::EvacuateInstantly;
-                if let Ok(mut obj_guard) = guard.base_object.write() {
+                if let Ok(obj_guard) = guard.base_object.write() {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(mut contain_guard) = contain.lock() {
                             let _ = contain_guard
@@ -5160,7 +5160,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                     }
                     if let Some(container_id) = enter_params.obj {
                         if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                            if let Ok(mut container_guard) = container.write() {
+                            if let Ok(container_guard) = container.write() {
                                 if let Some(contain) = container_guard.get_contain() {
                                     if let Ok(mut contain_guard) = contain.lock() {
                                         if let Some(unit) = self.unit.upgrade() {
@@ -5259,7 +5259,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                         }
 
                         let owner_object = guard.base_object();
-                        let mut dock_machine = AIDockMachine::new(owner_object.clone())
+                        let dock_machine = AIDockMachine::new(owner_object.clone())
                             .map_err(|err| err.to_string())?;
                         if let Ok(mut machine) = dock_machine.state_machine.lock() {
                             machine.set_goal_object(Some(Arc::downgrade(&target_arc)));
@@ -6518,7 +6518,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let Some(machine) = self.ai_state_machine.as_ref() else {
             return None;
         };
-        let Ok(mut guard) = machine.lock() else {
+        let Ok(guard) = machine.lock() else {
             return None;
         };
         guard.get_goal_object()
@@ -7145,7 +7145,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             .ok()
                             .map(|base| base.relationship_to(&existing_guard))
                             .unwrap_or(Relationship::Neutral);
-                        if relationship == Relationship::Enemies {
+                        if relationship == Relationship::Enemy {
                             let target_pos = *existing_guard.get_position();
                             let self_pos = guard.get_position();
                             let dx = target_pos.x - self_pos.x;

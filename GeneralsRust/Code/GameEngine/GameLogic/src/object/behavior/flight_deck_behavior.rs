@@ -566,7 +566,7 @@ impl FlightDeckBehavior {
         // the game engine to provide bone position lookups during runtime.
         let num_rows = config.num_rows.max(0) as usize;
         let num_cols = config.num_cols.max(0) as usize;
-        for row in 0..num_rows {
+        for _row in 0..num_rows {
             for col in 0..num_cols {
                 parking_spaces.push(ParkingSpace {
                     object_id: INVALID_OBJECT_ID,
@@ -1003,7 +1003,7 @@ impl FlightDeckBehavior {
         let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
-        let Ok(mut owner_guard) = owner_arc.write() else {
+        let Ok(owner_guard) = owner_arc.write() else {
             return;
         };
 

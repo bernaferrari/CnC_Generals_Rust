@@ -128,7 +128,7 @@ impl TensileFormationUpdate {
         let mut crack_sound = specific_data.crack_sound.clone();
         crack_sound.set_object_id(owner_id);
 
-        let mut instance = Self {
+        let instance = Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             enabled: specific_data.enabled,
@@ -256,7 +256,7 @@ impl TensileFormationUpdate {
             let Some(other_arc) = TheGameLogic::find_object_by_id(id) else {
                 continue;
             };
-            let Ok(mut other) = other_arc.write() else {
+            let Ok(other) = other_arc.write() else {
                 continue;
             };
             if other.find_update_module("TensileFormationUpdate").is_none() {
@@ -276,7 +276,7 @@ impl TensileFormationUpdate {
             let Some(other_arc) = TheGameLogic::find_object_by_id(link.id) else {
                 continue;
             };
-            let Ok(mut other) = other_arc.write() else {
+            let Ok(other) = other_arc.write() else {
                 continue;
             };
             if let Some(body) = other.get_body_module() {
@@ -353,7 +353,7 @@ impl UpdateModuleInterface for TensileFormationUpdate {
                     );
                 }
             }
-            if let Ok(mut obj_guard) = object_arc.write() {
+            if let Ok(obj_guard) = object_arc.write() {
                 if let Some(body) = obj_guard.get_body_module() {
                     if let Ok(mut body_guard) = body.lock() {
                         let _ = body_guard.set_damage_state(BodyDamageType::Rubble);
@@ -368,7 +368,7 @@ impl UpdateModuleInterface for TensileFormationUpdate {
             self.propagate_dislodgement();
         }
 
-        let (pos, major_radius, object_id) = {
+        let (pos, major_radius, _object_id) = {
             let Ok(obj_guard) = object_arc.read() else {
                 return UPDATE_SLEEP_NONE;
             };

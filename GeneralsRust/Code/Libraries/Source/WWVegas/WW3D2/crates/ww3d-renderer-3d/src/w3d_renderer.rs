@@ -1,7 +1,7 @@
 use crate::core::error::RendererResult;
 use crate::render_object_system::RenderInfoClass;
 use crate::rendering::batching::batch_renderer::{
-    BatchRenderer, BatchVertex, InstanceData, MaterialKey,
+    BatchRenderer, BatchVertex, MaterialKey,
 };
 ///! W3DRenderer - High-level rendering API for drawing W3D meshes and models
 ///!

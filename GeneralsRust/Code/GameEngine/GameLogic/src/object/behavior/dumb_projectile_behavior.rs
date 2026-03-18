@@ -1025,7 +1025,7 @@ impl DumbProjectileBehavior {
                 self.flight_path_start = *obj_guard.get_position();
             }
             if self.module_data.tumble_randomly {
-                if let Ok(mut obj_guard) = projectile.write() {
+                if let Ok(obj_guard) = projectile.write() {
                     if let Some(physics) = obj_guard.get_physics() {
                         if let Ok(mut phys_guard) = physics.lock() {
                             let min = -1.0 / std::f32::consts::PI;

@@ -208,7 +208,7 @@ impl StealthDetectorController {
     fn get_target_stealth_difficulty(&self, target: &Object) -> StealthDifficulty {
         // Query target's stealth module for difficulty
         if let Some(stealth) = target.get_stealth() {
-            if let Ok(mut guard) = stealth.lock() {
+            if let Ok(guard) = stealth.lock() {
                 // If the target has a high stealth level or specific upgrades, return Hard
                 // For now, we use a simple heuristic: if stealth level > 0, consider it Hard
                 // This matches the intent of checking stealth capability magnitude

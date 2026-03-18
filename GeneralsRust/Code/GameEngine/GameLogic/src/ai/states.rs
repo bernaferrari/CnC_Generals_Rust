@@ -322,7 +322,7 @@ impl FollowWaypointPathCore {
                 guard.set_goal_position(self.goal_position);
             }
         }
-        dest = self.goal_position;
+        let _dest = self.goal_position;
         Ok(())
     }
 
@@ -4410,7 +4410,7 @@ impl ClassicState for AIMoveToState {
         } else {
             template.get_sound_move_start()
         };
-        let mut loop_sound = if use_damaged {
+        let loop_sound = if use_damaged {
             template.get_sound_move_loop_damaged()
         } else {
             template.get_sound_move_loop()
@@ -4558,7 +4558,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -4635,7 +4635,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -4810,9 +4810,9 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            if let Ok(owner_guard) = owner.lock() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
+                    if let Ok(ai_guard) = ai.lock() {
                         if let Some(loco) = ai_guard.get_cur_locomotor() {
                             if let Ok(mut guard) = loco.lock() {
                                 guard.set_precise_z_pos(false);
@@ -4901,7 +4901,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -4945,7 +4945,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -4965,7 +4965,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            if let Ok(owner_guard) = owner.lock() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         if let Some(last) = self.last_waypoint.as_ref() {
@@ -5294,7 +5294,6 @@ impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
                 {
                     machine.set_goal_object(Some(Arc::downgrade(&target)));
                     let _ = machine.set_state(AIStateType::AttackObject);
-                    should_repath_this_frame = false;
                     return Ok(StateReturnType::Continue);
                 }
             }
@@ -5438,7 +5437,6 @@ impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
                 {
                     machine.set_goal_object(Some(Arc::downgrade(&target)));
                     let _ = machine.set_state(AIStateType::AttackObject);
-                    should_repath_this_frame = false;
                     return Ok(StateReturnType::Continue);
                 }
             }
@@ -5541,7 +5539,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -5580,7 +5578,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -5674,9 +5672,9 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            if let Ok(owner_guard) = owner.lock() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
+                    if let Ok(ai_guard) = ai.lock() {
                         if let Some(loco) = ai_guard.get_cur_locomotor() {
                             if let Ok(mut guard) = loco.lock() {
                                 guard.set_precise_z_pos(false);
@@ -5765,7 +5763,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -5791,7 +5789,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let mut owner_guard = owner
+        let owner_guard = owner
             .lock()
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai = owner_guard
@@ -5811,7 +5809,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            if let Ok(owner_guard) = owner.lock() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         if let Some(last) = self.last_waypoint.as_ref() {
@@ -7304,7 +7302,7 @@ impl ClassicState for AIDockState {
             }
         }
 
-        let mut dock_machine = AIDockMachine::new(owner.clone())?;
+        let dock_machine = AIDockMachine::new(owner.clone())?;
         let init_result = if let Ok(mut machine) = dock_machine.state_machine.lock() {
             machine.set_goal_object(Some(Arc::downgrade(&goal)));
             Some(machine.init_default_state())
@@ -7637,7 +7635,7 @@ impl ClassicState for AIEnterState {
                 cmd_source,
                 CanEnterType::CheckCapacity,
             ) {
-                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemies {
+                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemy {
                     let can_attack = owner_guard.get_able_to_attack_specific_object(
                         AbleToAttackType::CanAttackSpecific,
                         &goal_guard,
@@ -7665,7 +7663,7 @@ impl ClassicState for AIEnterState {
             }
         }
 
-        let mut code = self.base.classic_on_update()?;
+        let code = self.base.classic_on_update()?;
 
         if code == StateReturnType::Success {
             let owner_guard = owner

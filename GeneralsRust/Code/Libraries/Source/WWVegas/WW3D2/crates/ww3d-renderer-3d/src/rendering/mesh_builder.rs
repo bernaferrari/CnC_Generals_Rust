@@ -804,7 +804,7 @@ impl MeshBuilderClass {
 
         while polysinserted < self.face_count {
             let mut startpoly: i32 = -1;
-            let mut bestc: i32 = (1 << 29);
+            let mut bestc: i32 = 1 << 29;
             let startpass = 0;
 
             for findpass in startpass..2 {

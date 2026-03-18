@@ -727,7 +727,7 @@ impl XferSnapshot for SequentialScript {
         if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
             if team_id == TEAM_ID_INVALID {
                 self.team_to_exec_on = None;
-            } else if let Ok(mut factory) = TheTeamFactory().lock() {
+            } else if let Ok(factory) = TheTeamFactory().lock() {
                 if let Some(team) = factory.find_team_by_id(team_id) {
                     if let Ok(team_guard) = team.read() {
                         self.team_to_exec_on = Some(team_guard.get_name().to_string());
@@ -2559,7 +2559,7 @@ impl ScriptEngine {
 
                             if self.sequential_scripts[i].dont_advance_instruction {
                                 i += 1;
-                                it_advanced = true;
+                                let _it_advanced = true;
                                 continue;
                             }
 
@@ -3802,7 +3802,7 @@ impl XferSnapshot for ScriptEngine {
         xfer.xfer_int(&mut self.close_window_timer)?;
 
         let named_object_tracker = get_named_object_tracker();
-        let mut named_objects: Vec<(String, ObjectID)> =
+        let named_objects: Vec<(String, ObjectID)> =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                 let mut entries = named_object_tracker
                     .get_all_named_objects()

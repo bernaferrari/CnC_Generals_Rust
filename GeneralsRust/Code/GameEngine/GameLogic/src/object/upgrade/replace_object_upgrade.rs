@@ -226,7 +226,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             }
         };
 
-        if let Ok(mut manager) = get_object_manager().write() {
+        if let Ok(manager) = get_object_manager().write() {
             if let Some(instance) = manager.get_object(replacement_id) {
                 if let Ok(mut instance_guard) = instance.write() {
                     instance_guard.set_position(position);

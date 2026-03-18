@@ -292,7 +292,7 @@ fn decompress_refpack_stream(data: &[u8], expected_size: usize) -> Result<Vec<u8
     let type_word: u16 = ((data[pos] as u16) << 8) | data[pos + 1] as u16;
     pos += 2;
 
-    let mut ulen: usize = 0;
+    let ulen: usize;
     if (type_word & 0x8000) != 0 {
         // 4 byte size field
         if (type_word & 0x0100) != 0 {
@@ -496,7 +496,7 @@ fn decompress_refpack_stream(data: &[u8], expected_size: usize) -> Result<Vec<u8
             return Err("RefPack EOF tail truncated".to_string());
         }
         out.extend_from_slice(&data[pos..pos + tail]);
-        pos += tail;
+        let _pos = pos + tail;
         break;
     }
 

@@ -266,7 +266,7 @@ impl StealthUpgrade {
         // Modify stealth difficulty in stealth module to make the unit harder to detect
         // Matches C++ StealthUpgrade.cpp concept - enhances existing stealth capability
 
-        if let Some(stealth_module) = object.get_stealth() {
+        if let Some(_stealth_module) = object.get_stealth() {
             // The detection_difficulty_modifier makes detection harder (positive = harder to detect)
             // This is applied by increasing the stealth level or detection difficulty
             if self.data.detection_difficulty_modifier() != 0 {

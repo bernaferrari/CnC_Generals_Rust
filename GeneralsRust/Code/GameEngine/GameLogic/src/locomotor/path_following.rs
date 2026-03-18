@@ -186,7 +186,7 @@ impl PathFollowingController {
         // Check if path needs recomputation
         // Matches C++ lines 1792-1880
         let mut force_recompute = false;
-        let mut blocked = false;
+        let mut _blocked = false;
 
         // Check if locomotor path is missing
         if locomotor.active_path.is_none() {
@@ -197,7 +197,7 @@ impl PathFollowingController {
         // Matches C++ lines 1797-1803
         if state.frames_blocked > BLOCKED_RECOMPUTE_THRESHOLD {
             force_recompute = true;
-            blocked = true;
+            _blocked = true;
             state.blocked_repath_timestamp = current_frame;
         }
 
@@ -229,7 +229,7 @@ impl PathFollowingController {
 
         // Check if unit has reached destination
         // Matches C++ lines 1882-1920
-        if let Some(ref active_path) = locomotor.active_path {
+        if let Some(ref _active_path) = locomotor.active_path {
             let dist_to_goal = self.get_distance_to_goal(locomotor, current_pos);
             let close_enough_dist = locomotor.template.close_enough_dist;
 

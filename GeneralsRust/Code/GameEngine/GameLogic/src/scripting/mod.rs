@@ -4,6 +4,7 @@
 //! including script actions, conditions, victory conditions, and dynamic scripting.
 #![allow(ambiguous_glob_reexports)]
 
+#[allow(hidden_glob_reexports)]
 use crate::common::Coord3D;
 use crate::{GameLogicError, GameLogicResult};
 

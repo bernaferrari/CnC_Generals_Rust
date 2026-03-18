@@ -836,7 +836,7 @@ impl SpecialAbilityUpdate {
         if self.target_id != INVALID_ID {
             if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(target_guard) = target.read() {
+                    if let Ok(_target_guard) = target.read() {
                         let _ = ai
                             .lock()
                             .map(|mut ai_guard| ai_guard.ignore_obstacle(Some(&target)));
@@ -1274,7 +1274,7 @@ impl SpecialAbilityUpdate {
                     Some(owner) => owner,
                     None => return,
                 };
-                let (mut target_guard, mut owner_guard) =
+                let (target_guard, owner_guard) =
                     match (target.write(), owner.write()) {
                         (Ok(t), Ok(o)) => (t, o),
                         _ => return,
@@ -1750,7 +1750,7 @@ impl SpecialAbilityUpdate {
                         }
                         ai.ai_move_to_position(&pos, false, CMD_FROM_AI);
                         if let Some(target) = TheGameLogic::find_object_by_id(self.target_id) {
-                            if let Ok(target_guard) = target.read() {
+                            if let Ok(_target_guard) = target.read() {
                                 let _ = ai.lock().map(|mut guard| {
                                     let _ = guard.ignore_obstacle(Some(&target));
                                 });
@@ -2054,7 +2054,7 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
         self.within_start_ability_range = false;
 
         // Clear model conditions
-        if let Some(obj) = self.get_object() {
+        if let Some(_obj) = self.get_object() {
             // obj.write().clear_model_condition_flags(...)
             // Clear AI
             // obj.write().get_ai_update_interface().ai_idle(CMD_FROM_AI);

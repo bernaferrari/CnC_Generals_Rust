@@ -755,7 +755,7 @@ impl OpenContain {
     }
 
     /// Handle death event
-    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+    pub fn on_die(&mut self, _damage_info: Option<&DamageInfo>) -> GameResult<()> {
         // Handle contained units on death
         self.remove_all_contained(true)?;
         Ok(())
@@ -790,7 +790,7 @@ impl OpenContain {
             let damage_to_units = info.input.amount * self.module_data.damage_percentage_to_units;
 
             for obj in &self.contained_objects {
-                if let Ok(contained) = obj.read() {
+                if let Ok(_contained) = obj.read() {
                     // Apply damage to contained unit
                     let mut unit_damage = info.clone();
                     unit_damage.input.amount = damage_to_units;
@@ -836,7 +836,7 @@ impl OpenContain {
     }
 
     /// Check if passenger is allowed to fire
-    pub fn is_passenger_allowed_to_fire(&self, id: Option<ObjectId>) -> bool {
+    pub fn is_passenger_allowed_to_fire(&self, _id: Option<ObjectId>) -> bool {
         self.module_data.passengers_allowed_to_fire
     }
 
@@ -851,7 +851,7 @@ impl OpenContain {
     }
 
     /// Check if this is an enclosing container
-    pub fn is_enclosing_container_for(&self, obj: &Object) -> bool {
+    pub fn is_enclosing_container_for(&self, _obj: &Object) -> bool {
         true // Most containers enclose their contents
     }
 
@@ -1011,7 +1011,7 @@ impl OpenContain {
 
     /// Deserialize state for save/load
     pub fn load_state(&mut self, state: &HashMap<String, Vec<u8>>) -> GameResult<()> {
-        if let Some(data) = state.get("contained_objects") {
+        if let Some(_data) = state.get("contained_objects") {
             // Implementation would reconstruct contained objects from IDs
             // This requires access to object lookup system
         }

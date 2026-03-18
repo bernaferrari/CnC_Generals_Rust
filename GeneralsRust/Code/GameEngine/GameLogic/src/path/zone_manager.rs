@@ -273,8 +273,8 @@ impl PathfindZoneManager {
             layer.set_zone(0);
         }
 
-        let blocks_x = ((bounds.hi.x - bounds.lo.x + 1 + ZONE_BLOCK_SIZE - 1) / ZONE_BLOCK_SIZE);
-        let blocks_y = ((bounds.hi.y - bounds.lo.y + 1 + ZONE_BLOCK_SIZE - 1) / ZONE_BLOCK_SIZE);
+        let blocks_x = (bounds.hi.x - bounds.lo.x + 1 + ZONE_BLOCK_SIZE - 1) / ZONE_BLOCK_SIZE;
+        let blocks_y = (bounds.hi.y - bounds.lo.y + 1 + ZONE_BLOCK_SIZE - 1) / ZONE_BLOCK_SIZE;
 
         for block_x in 0..blocks_x {
             for block_y in 0..blocks_y {
@@ -1134,7 +1134,7 @@ fn apply_zone(
     if src_zone == 0 || src_zone > max_zone {
         return;
     }
-    let mut src_zone = zone_equivalency
+    let src_zone = zone_equivalency
         .get(src_zone as usize)
         .copied()
         .unwrap_or(src_zone);

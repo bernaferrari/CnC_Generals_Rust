@@ -2021,7 +2021,7 @@ impl Team {
     /// Update generic scripts
     ///
     /// Corresponds to C++ Team::updateGenericScripts()
-    pub fn update_generic_scripts<F>(&mut self, get_script: impl Fn(usize) -> Option<String>, mut evaluate_and_execute: F)
+    pub fn update_generic_scripts<F>(&mut self, get_script: impl Fn(usize) -> Option<String>, evaluate_and_execute: F)
     where
         F: FnMut(&str, &mut Team) -> bool,
     {
@@ -2230,7 +2230,7 @@ impl Snapshotable for Team {
 // TeamPrototype
 // =============================================================================
 
-/// TeamPrototype flags (corresponds to C++ TeamPrototype::TeamPrototypeFlags)
+// TeamPrototype flags (corresponds to C++ TeamPrototype::TeamPrototypeFlags)
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct TeamPrototypeFlags: u32 {

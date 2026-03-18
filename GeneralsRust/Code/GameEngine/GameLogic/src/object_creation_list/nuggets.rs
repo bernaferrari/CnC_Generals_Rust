@@ -493,12 +493,12 @@ impl GenericObjectCreationNugget {
         &self,
         ctx: &CreationContext<'_>,
         obj: &Arc<RwLock<Object>>,
-        model_name: &str,
+        _model_name: &str,
         pos: &Coord3D,
         mtx: Option<&Matrix3D>,
         mut orientation: Real,
         source_obj: Option<&Object>,
-        lifetime_frames: UnsignedInt,
+        _lifetime_frames: UnsignedInt,
     ) {
         // Lock the object for reading (most operations are reads)
         let Ok(obj_read) = obj.read() else {

@@ -80,14 +80,8 @@ impl ParsedCrateTemplate {
 
 // For backward compatibility -- re-export old names that may be used elsewhere.
 // These are DEPRECATED; use ParsedCrateTemplate / ParsedCrateSystem instead.
-#[deprecated(note = "Use ParsedCrateTemplate instead")]
-pub type CrateTemplate = ParsedCrateTemplate;
-
-#[deprecated(note = "Use ParsedCrateSystem instead")]
-pub type CrateContentType = (); // placeholder -- does not exist in C++
-
-#[deprecated(note = "Use ParsedCrateSystem instead")]
-pub type CrateRarity = (); // placeholder -- does not exist in C++
+// Removed deprecated type aliases: CrateTemplate, CrateContentType, CrateRarity.
+// Use ParsedCrateTemplate / ParsedCrateSystem instead.
 
 // ---------------------------------------------------------------------------
 // ParsedCrateSystem -- stores all parsed crate templates
@@ -178,9 +172,6 @@ pub fn get_crate_system() -> Option<Arc<RwLock<ParsedCrateSystem>>> {
     CRATE_SYSTEM.get().cloned()
 }
 
-// Legacy alias for backward compatibility
-pub type CrateSystem = ParsedCrateSystem;
-
 // ---------------------------------------------------------------------------
 // INI Parsing
 // ---------------------------------------------------------------------------
@@ -223,13 +214,14 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
     // 3. Parse fields
     let template = system_guard.get_mut(&name).unwrap();
 
-    while let Some(token) = ini.get_next_token_no_lparen() {
+    while let Some(token) = ini.get_next_token() {
         match token.as_str() {
             "End" => break,
 
             // Matches C++: { "CreationChance", INI::parseReal, ... }
             "CreationChance" => {
-                let val = ini.parse_real()?;
+                let token_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let val = INI::parse_real(&token_str)?;
                 template.creation_chance = val;
             }
 
@@ -277,7 +269,8 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
 
             // Matches C++: { "OwnedByMaker", INI::parseBool, ... }
             "OwnedByMaker" => {
-                let val = ini.parse_bool()?;
+                let token_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let val = INI::parse_bool(&token_str)?;
                 template.is_owned_by_maker = val;
             }
 

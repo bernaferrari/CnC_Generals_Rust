@@ -283,7 +283,7 @@ impl DockUpdate {
     fn update_approaching(&mut self, queue_idx: usize) {
         if let Some(entry) = self.queue.get_mut(queue_idx) {
             if let Some(dock_idx) = entry.dock_index {
-                if let Some(dock) = self.docks.get(dock_idx) {
+                if let Some(_dock) = self.docks.get(dock_idx) {
                     // Check if unit has reached dock position
                     // Would check distance here
 
@@ -327,7 +327,7 @@ impl DockUpdate {
     fn update_exiting(&mut self, queue_idx: usize) {
         if let Some(entry) = self.queue.get_mut(queue_idx) {
             if let Some(dock_idx) = entry.dock_index {
-                if let Some(dock) = self.docks.get(dock_idx) {
+                if let Some(_dock) = self.docks.get(dock_idx) {
                     // Send unit to exit point
                     // Would check if unit has reached exit
 

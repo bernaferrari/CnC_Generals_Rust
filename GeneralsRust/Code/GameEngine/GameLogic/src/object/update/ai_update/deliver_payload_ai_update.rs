@@ -873,7 +873,7 @@ impl DeliverPayloadAIUpdate {
                             .and_then(|guard| guard.get_physics())
                             .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()));
                         if let Some(owner_velocity) = owner_velocity {
-                            if let Ok(mut item_guard) = item.write() {
+                            if let Ok(item_guard) = item.write() {
                                 if let Some(physics) = item_guard.get_physics() {
                                     if let Ok(mut phys_guard) = physics.lock() {
                                         phys_guard.apply_force(&owner_velocity);
@@ -1118,7 +1118,7 @@ impl DeliverPayloadAIUpdate {
             TheGameLogic::get_frame() + time_to_travel.ceil().max(0.0) as UnsignedInt;
 
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
+            if let Ok(owner_guard) = owner.write() {
                 if let Some(physics) = owner_guard.get_physics() {
                     if let Ok(mut phys_guard) = physics.lock() {
                         phys_guard.set_velocity(&Vec3D::ZERO);

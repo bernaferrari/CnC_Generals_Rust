@@ -31,8 +31,8 @@ impl TerrainData {
         world_max: Vec3,
         border_size: u32,
     ) -> Self {
-        let width = heightmap.width.max(2) as f32;
-        let height = heightmap.height.max(2) as f32;
+        let _width = heightmap.width.max(2) as f32;
+        let _height = heightmap.height.max(2) as f32;
         let playable_w = (heightmap
             .width
             .saturating_sub(border_size.saturating_mul(2)))

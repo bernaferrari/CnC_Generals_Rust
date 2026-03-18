@@ -144,7 +144,7 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
             return false;
         };
 
-        let mut object_guard = match object.write() {
+        let object_guard = match object.write() {
             Ok(guard) => guard,
             Err(_) => {
                 log::error!(

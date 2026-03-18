@@ -664,7 +664,7 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                     if let Some(container) =
                         crate::object::registry::OBJECT_REGISTRY.get_object(contained_by_id)
                     {
-                        if let Ok(container_obj) = container.read() {
+                        if let Ok(_container_obj) = container.read() {
                             // Check if container has contain module
                             // C++ lines 143-161 check if garrisonable or regular transport
                             // For now, we assume we can check the container type

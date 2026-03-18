@@ -306,7 +306,7 @@ impl CollisionSystem {
                 crusher_level,
                 velocity,
                 formation_id,
-                move_priority,
+                _move_priority,
                 group_id,
             ) = {
                 let guard = obj.read().ok()?;
@@ -772,7 +772,7 @@ pub struct CollisionSystemStatistics {
     pub avg_objects_per_cell: f32,
 }
 
-/// Global collision system instance
+// Global collision system instance
 lazy_static::lazy_static! {
     pub static ref COLLISION_SYSTEM: Arc<RwLock<CollisionSystem>> =
         Arc::new(RwLock::new(CollisionSystem::new()));

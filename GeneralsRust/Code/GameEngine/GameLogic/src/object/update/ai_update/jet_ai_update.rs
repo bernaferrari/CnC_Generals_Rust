@@ -925,7 +925,7 @@ impl JetStateMachine {
                         if info.runway_takeoff_dist > 0.0 {
                             if let Some(obj) = jet_ai.get_object() {
                                 if let Ok(guard) = obj.read() {
-                                    let mut vector = info.runway_end - *guard.get_position();
+                                    let vector = info.runway_end - *guard.get_position();
                                     let dist = vector.length();
                                     let mut ratio = 1.0 - (dist / info.runway_takeoff_dist);
                                     ratio *= ratio;
@@ -1062,7 +1062,7 @@ impl JetStateMachine {
                 StateReturnType::Continue
             }
             JetAIStateType::ReturnToDeadAirfield => {
-                if let Ok(guard) = obj.read() {
+                if let Ok(_guard) = obj.read() {
                     let goal = jet_ai.producer_location;
                     let _ = ai.ai_move_to_position(&goal);
                 }

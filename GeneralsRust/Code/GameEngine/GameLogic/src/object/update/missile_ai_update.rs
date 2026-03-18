@@ -291,7 +291,7 @@ impl MissileAIUpdate {
         let dx = victim_pos.x - launch_pos.x;
         let dy = victim_pos.y - launch_pos.y;
         let xy_dist = (dx * dx + dy * dy).sqrt().max(1.0);
-        let z_factor = if delta_z > 0.0 {
+        let _z_factor = if delta_z > 0.0 {
             delta_z / xy_dist
         } else {
             0.0
@@ -538,7 +538,7 @@ impl MissileAIUpdate {
 
     /// Attack state: fly toward target with optional turning
     /// Matches C++ MissileAIUpdate::doAttackState from MissileAIUpdate.cpp lines 477-554
-    fn do_attack_state(&mut self, turn_ok: bool, current_frame: UnsignedInt) {
+    fn do_attack_state(&mut self, _turn_ok: bool, current_frame: UnsignedInt) {
         // Check fuel expiration
         if current_frame >= self.fuel_expiration_date {
             if self.data.detonate_on_no_fuel {
@@ -782,7 +782,7 @@ impl MissileAIUpdateBehavior {
                     }
                 }
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
+                    if let Ok(ai_guard) = ai.try_lock() {
                         if let Some(loco) = ai_guard.get_cur_locomotor() {
                             if let Ok(mut loco_guard) = loco.lock() {
                                 loco_guard.set_max_speed(initial_vel);

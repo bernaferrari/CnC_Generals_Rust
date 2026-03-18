@@ -299,7 +299,6 @@ impl CrushDie {
                 } else {
                     best_crush_type = CrushEnum::BackEndCrush;
                 }
-                best_distance = dist;
             }
         }
 

@@ -112,7 +112,7 @@ impl UpgradeModuleInterface for WeaponBonusUpgrade {
         !self.applied
     }
 
-    fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
+    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }

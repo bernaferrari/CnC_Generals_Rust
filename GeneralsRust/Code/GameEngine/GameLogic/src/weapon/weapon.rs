@@ -435,7 +435,6 @@ impl Weapon {
                                             Some(LogicDamageType::LandMine),
                                             Some(LogicDeathType::Exploded),
                                         );
-                                        handled = true;
                                     }
                                 }
                             }

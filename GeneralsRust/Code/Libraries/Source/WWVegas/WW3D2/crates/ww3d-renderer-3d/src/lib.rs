@@ -2,6 +2,7 @@
 //!
 //! This crate provides the complete rendering system for WW3D, implementing
 //! all the features that were in the original C++ DirectX8 renderer.
+#![allow(hidden_glob_reexports)]
 
 #![allow(ambiguous_glob_reexports)]
 #![allow(dead_code)]

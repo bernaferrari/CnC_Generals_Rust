@@ -1205,7 +1205,7 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj: &Arc<RwLock<Object>>,
         _drone: Option<&Arc<RwLock<Object>>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let mut docker_guard = obj.write().unwrap();
+        let docker_guard = obj.write().unwrap();
         let Some(ai) = docker_guard.get_ai_update_interface() else {
             return Ok(false);
         };

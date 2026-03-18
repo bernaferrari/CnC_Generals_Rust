@@ -14,7 +14,7 @@ use crate::object::Object as GameObject;
 use bitflags::bitflags;
 use game_engine::common::system::Snapshotable;
 
-/// Command option bitflags (matches C++ CommandOption)
+// Command option bitflags (matches C++ CommandOption)
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct SpecialPowerCommandOption: u32 {

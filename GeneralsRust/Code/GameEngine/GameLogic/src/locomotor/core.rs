@@ -928,7 +928,7 @@ impl Locomotor {
         }
 
         let mut actual_speed = current_speed;
-        let mut do3point_turn = false;
+        let mut _do3point_turn = false;
 
         // 3-point turn logic - C++ Locomotor.cpp:1292-1313
         if actual_speed == 0.0 {
@@ -951,8 +951,8 @@ impl Locomotor {
                     FLAG_DOING_THREE_POINT_TURN,
                     on_path_dist_to_goal > 5.0 * major_radius,
                 );
-                do3point_turn = self.get_flag(FLAG_DOING_THREE_POINT_TURN);
-                if !do3point_turn {
+                _do3point_turn = self.get_flag(FLAG_DOING_THREE_POINT_TURN);
+                if !_do3point_turn {
                     desired_angle = Self::normalize_angle(desired_angle + std::f32::consts::PI);
                     rel_angle = Self::std_angle_diff(desired_angle, current_angle);
                 }
@@ -1201,7 +1201,7 @@ impl Locomotor {
         // C++ Locomotor.cpp:2344-2366: ULTRA_ACCURATE slide-into-place logic
         // When close enough, don't turn -- just slide in the right direction.
         // C++ uses dirToApplyForce directly toward goal instead of unit direction vector.
-        let mut goal_speed = desired_speed;
+        let mut _goal_speed = desired_speed;
         let mut desired_angle = if matches!(
             self.template.appearance,
             LocomotorAppearance::Wings | LocomotorAppearance::Thrust
@@ -1257,20 +1257,20 @@ impl Locomotor {
             angle_coeff = 1.0;
         }
 
-        goal_speed = (1.0 - angle_coeff) * desired_speed;
-        goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
+        _goal_speed = (1.0 - angle_coeff) * desired_speed;
+        _goal_speed = self.apply_naval_turn_limit(_goal_speed, current_angle, desired_angle);
 
         // C++ Locomotor.cpp:2368-2374: uses minSpeed, not 0.0
         if !self.no_slow_down_approaching_dest() {
             let slow_down_dist = Self::calc_slow_down_dist(current_speed, self.template.min_speed, self.get_braking());
             if on_path_dist_to_goal < slow_down_dist {
-                goal_speed = self.template.min_speed;
+                _goal_speed = self.template.min_speed;
             }
         }
 
         // C++ Locomotor.cpp:2380-2401: maintain goal speed
         // C++ clamps accelForce to mass * speedDelta to avoid overshooting.
-        let speed_delta = goal_speed - current_speed;
+        let speed_delta = _goal_speed - current_speed;
         let acceleration = if speed_delta == 0.0 {
             0.0
         } else if speed_delta > 0.0 {
@@ -1694,14 +1694,14 @@ impl Locomotor {
     }
 
     fn compute_z_target(&self, current: Coord3D, target: Coord3D) -> Option<Real> {
-        let (ground_z, highest_z, surface_z) = TheTerrainLogic::get()
+        let (_ground_z, highest_z, surface_z) = TheTerrainLogic::get()
             .map(|terrain| {
                 let mut ground = terrain.get_ground_height(target.x, target.y, None);
                 let mut layer = terrain.get_highest_layer_for_destination(&target);
                 let mut highest = terrain.get_layer_height(target.x, target.y, layer);
                 let mut water_z = 0.0;
                 let mut terrain_z = 0.0;
-                let underwater = terrain.is_underwater(
+                let _underwater = terrain.is_underwater(
                     target.x,
                     target.y,
                     Some(&mut water_z),
@@ -2574,8 +2574,8 @@ impl Locomotor {
     /// Matches C++ getSurfaceHtAtPt() lines 2007-2019
     pub fn get_surface_height_at_point(
         &self,
-        x: Real,
-        y: Real,
+        _x: Real,
+        _y: Real,
         terrain_height: Real,
         water_height: Option<Real>,
     ) -> Real {

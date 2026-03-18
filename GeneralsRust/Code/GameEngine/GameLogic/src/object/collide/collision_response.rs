@@ -153,8 +153,8 @@ impl CollisionResponseHandler {
         config: &CollisionResponseConfig,
     ) -> Result<(), CollisionError> {
         // Calculate separation vector
-        let pos_a = obj_a.get_position();
-        let pos_b = obj_b.get_position();
+        let _pos_a = obj_a.get_position();
+        let _pos_b = obj_b.get_position();
 
         // Push A away from B along collision normal
         let push_distance = config.push_force;
@@ -189,7 +189,7 @@ impl CollisionResponseHandler {
         // velocity_new = velocity - (velocity · normal) * normal
         // This projects velocity onto the surface plane
 
-        let pos = obj_a.get_position();
+        let _pos = obj_a.get_position();
 
         // In a full implementation, would:
         // 1. Get object's current velocity
@@ -223,8 +223,8 @@ impl CollisionResponseHandler {
     /// Apply block response - stop movement completely
     fn apply_block_response(
         &self,
-        obj_a: &mut dyn GameObject,
-        cinfo: &CollideLocAndNormal,
+        _obj_a: &mut dyn GameObject,
+        _cinfo: &CollideLocAndNormal,
         _config: &CollisionResponseConfig,
     ) -> Result<(), CollisionError> {
         // In a full implementation, would:
@@ -240,7 +240,7 @@ impl CollisionResponseHandler {
         &self,
         obj_a: &mut dyn GameObject,
         obj_b: &dyn GameObject,
-        cinfo: &CollideLocAndNormal,
+        _cinfo: &CollideLocAndNormal,
         config: &CollisionResponseConfig,
     ) -> Result<(), CollisionError> {
         if config.apply_damage {
@@ -264,7 +264,7 @@ impl CollisionResponseHandler {
         &self,
         obj_a: &mut dyn GameObject,
         obj_b: &dyn GameObject,
-        cinfo: &CollideLocAndNormal,
+        _cinfo: &CollideLocAndNormal,
         config: &CollisionResponseConfig,
     ) -> Result<(), CollisionError> {
         if config.apply_damage {

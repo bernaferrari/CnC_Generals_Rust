@@ -493,10 +493,16 @@ impl AudioEngine {
     pub fn set_volume(&mut self, volume: f32, affect: AudioAffect) {
         let v = volume.clamp(0.0, 1.0);
         match affect {
-            AudioAffect::Music | AudioAffect::All => self.system_music_volume = v,
-            AudioAffect::Sound | AudioAffect::All => self.system_sfx_volume = v,
-            AudioAffect::Sound3D | AudioAffect::All => self.system_sound_3d_volume = v,
-            AudioAffect::Speech | AudioAffect::All => self.system_speech_volume = v,
+            AudioAffect::All => {
+                self.system_music_volume = v;
+                self.system_sfx_volume = v;
+                self.system_sound_3d_volume = v;
+                self.system_speech_volume = v;
+            }
+            AudioAffect::Music => self.system_music_volume = v,
+            AudioAffect::Sound => self.system_sfx_volume = v,
+            AudioAffect::Sound3D => self.system_sound_3d_volume = v,
+            AudioAffect::Speech => self.system_speech_volume = v,
             _ => {}
         }
     }
@@ -555,10 +561,16 @@ impl AudioEngine {
 
     pub fn set_on(&mut self, on: bool, affect: AudioAffect) {
         match affect {
-            AudioAffect::Music | AudioAffect::All => self.music_on = on,
-            AudioAffect::Sound | AudioAffect::All => self.sound_on = on,
-            AudioAffect::Sound3D | AudioAffect::All => self.sound_3d_on = on,
-            AudioAffect::Speech | AudioAffect::All => self.speech_on = on,
+            AudioAffect::All => {
+                self.music_on = on;
+                self.sound_on = on;
+                self.sound_3d_on = on;
+                self.speech_on = on;
+            }
+            AudioAffect::Music => self.music_on = on,
+            AudioAffect::Sound => self.sound_on = on,
+            AudioAffect::Sound3D => self.sound_3d_on = on,
+            AudioAffect::Speech => self.speech_on = on,
             _ => {}
         }
     }

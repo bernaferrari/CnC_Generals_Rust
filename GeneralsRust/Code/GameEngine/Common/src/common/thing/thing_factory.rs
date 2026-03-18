@@ -263,6 +263,7 @@ impl ThingFactory {
             variation_holder = None;
             template
         };
+        let _ = &variation_holder; // suppress unused_assignments
 
         // Verify template is not drawable-only
         if final_template.is_kind_of(0x2000) {

@@ -139,7 +139,6 @@ impl PlayerList {
                 if i != 0 {
                     // Not neutral player
                     self.set_local_player(i);
-                    set_local = true;
                     break;
                 }
             }

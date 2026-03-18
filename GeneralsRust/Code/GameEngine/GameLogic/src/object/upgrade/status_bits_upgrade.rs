@@ -322,7 +322,7 @@ struct AggregatedStatusMasks {
 
 fn aggregate_registered_masks(object: &Object) -> AggregatedStatusMasks {
     let object_id = object.get_object_id();
-    let active_mask = object.completed_upgrades();
+    let _active_mask = object.completed_upgrades();
     let mut registry = STATUS_UPGRADE_REGISTRY
         .write()
         .expect("status bits upgrade registry poisoned");

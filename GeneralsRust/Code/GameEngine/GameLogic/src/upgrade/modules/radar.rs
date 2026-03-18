@@ -171,10 +171,10 @@ impl RadarUpgrade {
             return;
         }
 
-        let is_disable_proof = self.data.is_disable_proof;
+        let _is_disable_proof = self.data.is_disable_proof;
 
         // Remove radar from old player
-        if let Some(old_player) = old_owner {
+        if let Some(_old_player) = old_owner {
             // Note: We need mutable access to modify player state
             // In a real implementation, this would be done via a mutable reference
             // For now, we log the intent - full implementation requires refactoring
@@ -184,7 +184,7 @@ impl RadarUpgrade {
         }
 
         // Add radar to new player
-        if let Some(new_player) = new_owner {
+        if let Some(_new_player) = new_owner {
             // Note: Same issue - needs mutable access
             log::warn!(
                 "RadarUpgrade::on_capture needs mutable Player access to add radar to new owner"

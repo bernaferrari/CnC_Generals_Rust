@@ -406,7 +406,7 @@ impl SubsystemInterface for MessageStream {
     }
 }
 
-/// Global message stream instance
+// Global message stream instance
 lazy_static::lazy_static! {
     pub static ref THE_MESSAGE_STREAM: Arc<RwLock<MessageStream>> =
         Arc::new(RwLock::new(MessageStream::new()));

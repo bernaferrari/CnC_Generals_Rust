@@ -148,7 +148,7 @@ fn calculate_wedge_offset(
 /// Matches C++ AIGroup.cpp friend_moveInfantryToPos logic (lines 653-975)
 fn calculate_column_offset(
     unit_index: usize,
-    total_units: usize,
+    _total_units: usize,
     leader_facing: Real,
     config: &FormationConfig,
 ) -> Coord2D {

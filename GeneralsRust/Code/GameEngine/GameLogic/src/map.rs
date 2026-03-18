@@ -52,7 +52,7 @@ impl MapObjectFlags {
         MapObjectFlags::BRIDGE_POINT1.union(MapObjectFlags::BRIDGE_POINT2);
 }
 
-/// Runtime flags for map objects (used by World Builder)
+// Runtime flags for map objects (used by World Builder)
 bitflags! {
     /// Map object runtime flags
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

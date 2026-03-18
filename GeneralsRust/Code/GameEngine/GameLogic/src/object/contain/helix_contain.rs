@@ -272,7 +272,7 @@ impl HelixContain {
     /// Matches C++ HelixContain::update (HelixContain.cpp:98-109)
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
-        if let Some(portable_id) = self.portable_structure_id {
+        if let Some(_portable_id) = self.portable_structure_id {
             if let Some(portable_obj) = self.get_portable_structure() {
                 if let Some(owner_obj) = self.get_object() {
                     if let Ok(owner) = owner_obj.read() {
@@ -565,7 +565,7 @@ impl HelixContain {
     }
 
     /// Parse initial payload from INI data
-    fn parse_initial_payload(&mut self, template_names: &[String]) -> GameResult<()> {
+    fn parse_initial_payload(&mut self, _template_names: &[String]) -> GameResult<()> {
         // Implementation would parse and create payload objects
         Ok(())
     }

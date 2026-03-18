@@ -33,7 +33,7 @@ impl FireWeaponUpdate {
     pub fn new(
         thing: ThingId,
         module_data: FireWeaponUpdateModuleData,
-        ctx: &mut GameLogicContext,
+        ctx: &mut GameLogicContext<'_>,
     ) -> Self {
         let weapon = if let Some(tmpl) = module_data.weapon_template {
             if let Some(weapon_store) = ctx.weapon_store.as_mut() {

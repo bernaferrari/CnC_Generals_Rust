@@ -436,7 +436,7 @@ impl StealthDetectorController {
                         let is_mine = template_name.contains("mine");
                         if !is_mine {
                             if let Some(drawable) = target_guard.get_drawable() {
-                                if let Ok(mut drawable_guard) = drawable.write() {
+                                if let Ok(drawable_guard) = drawable.write() {
                                     // Second material pass opacity for thermal imaging
                                     // Handled by drawable rendering system
                                     drop(drawable_guard);
