@@ -785,7 +785,7 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
                 let Some(missile_arc) = TheGameLogic::find_object_by_id(missile_id) else {
                     return Ok(());
                 };
-                let Ok(mut missile_guard) = missile_arc.write() else {
+                let Ok(missile_guard) = missile_arc.write() else {
                     return Ok(());
                 };
 

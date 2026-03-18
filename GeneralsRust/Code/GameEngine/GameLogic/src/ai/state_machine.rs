@@ -1751,7 +1751,7 @@ impl AiStateMachine {
         } else {
             template.get_sound_move_start()
         };
-        let mut loop_sound = if use_damaged {
+        let loop_sound = if use_damaged {
             template.get_sound_move_loop_damaged()
         } else {
             template.get_sound_move_loop()
@@ -1937,7 +1937,7 @@ impl AiStateMachine {
 
     fn release_from_container(&self, owner: &crate::object::Object) {
         if let Some(container_arc) = owner.get_container() {
-            if let Ok(mut container) = container_arc.write() {
+            if let Ok(container) = container_arc.write() {
                 if let Some(contain) = container.get_contain() {
                     if let Ok(mut contain_guard) = contain.lock() {
                         let _ = contain_guard.release_object(owner.get_id());
@@ -2425,7 +2425,6 @@ impl AiCommandInterface for AiStateMachine {
             AiCommandType::MoveToPositionAndEvacuate => AiStateType::MoveAndEvacuate,
             AiCommandType::MoveToPositionAndEvacuateAndExit => AiStateType::MoveAndEvacuateAndExit,
             AiCommandType::TightenToPosition => AiStateType::MoveAndTighten,
-            AiCommandType::MoveToPositionEvenIfSleeping => AiStateType::MoveTo,
             AiCommandType::EvacuateInstantly => AiStateType::ExitInstantly,
             AiCommandType::Evacuate => AiStateType::Exit,
             AiCommandType::Repair => AiStateType::GetRepaired,

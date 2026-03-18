@@ -734,7 +734,7 @@ impl Module for StealthUpdateModule {
     fn on_object_created(&mut self) {
         self.register_with_object();
         if self.data.innate_stealth() {
-            if let Ok(mut guard) = self.controller.lock() {
+            if let Ok(guard) = self.controller.lock() {
                 let _ = guard.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true);
             }
         }

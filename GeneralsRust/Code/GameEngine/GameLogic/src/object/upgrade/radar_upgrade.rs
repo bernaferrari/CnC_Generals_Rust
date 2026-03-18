@@ -87,7 +87,7 @@ impl RadarUpgrade {
             ));
         };
 
-        let mut object_guard = object
+        let object_guard = object
             .write()
             .map_err(|_| "RadarUpgrade failed to lock object for writing".to_string())?;
 

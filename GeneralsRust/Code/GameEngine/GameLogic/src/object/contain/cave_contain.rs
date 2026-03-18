@@ -207,7 +207,7 @@ impl CaveContain {
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> GameResult<bool> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(false);
@@ -222,7 +222,7 @@ impl CaveContain {
     /// Add object to contain list
     pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(());
@@ -242,7 +242,7 @@ impl CaveContain {
         expose_stealth_units: bool,
     ) -> GameResult<()> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(());
@@ -259,7 +259,7 @@ impl CaveContain {
         // Trigger events
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
-                if let Some(contain) = owner.get_contain() {
+                if let Some(_contain) = owner.get_contain() {
                     // Note: This would need the actual contain interface
                     // contain.on_removing(obj.clone())?;
                 }
@@ -280,7 +280,7 @@ impl CaveContain {
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         // Extract the full list first before calling remove_from_contain
         let full_list = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             let tracker = system.get_tunnel_tracker_for_cave_index(self.cave_index)?;
             let tunnel = tracker.read().map_err(|_| GameError::LockError)?;
             tunnel.get_contained_items_list().to_vec()
@@ -297,12 +297,12 @@ impl CaveContain {
     }
 
     /// Iterate contained objects with callback
-    pub fn iterate_contained<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
+    pub fn iterate_contained<F>(&self, func: F, reverse: bool) -> GameResult<()>
     where
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(());
@@ -317,7 +317,7 @@ impl CaveContain {
     /// Get count of contained objects
     pub fn get_contain_count(&self) -> GameResult<u32> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(0);
@@ -332,7 +332,7 @@ impl CaveContain {
     /// Get maximum containment capacity
     pub fn get_contain_max(&self) -> GameResult<i32> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(0);
@@ -347,7 +347,7 @@ impl CaveContain {
     /// Get list of contained items
     pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(Vec::new());
@@ -365,7 +365,7 @@ impl CaveContain {
     }
 
     /// Handle death event
-    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+    pub fn on_die(&mut self, _damage_info: Option<&DamageInfo>) -> GameResult<()> {
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
                 if owner.is_under_construction() {
@@ -543,7 +543,7 @@ impl CaveContain {
         set_original_teams: bool,
     ) -> GameResult<()> {
         let tracker = if let Some(cave_system) = &self.cave_system {
-            let mut system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
         } else {
             return Ok(());

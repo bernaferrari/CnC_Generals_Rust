@@ -1524,6 +1524,7 @@ impl Engine {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn capture_texture_to_file(
         &self,
         texture: &wgpu::Texture,

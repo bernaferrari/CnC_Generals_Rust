@@ -197,7 +197,7 @@ impl File for StreamingArchiveFile {
     ///
     /// Note: This matches the C++ behavior where `open(filename, access)` calls
     /// `TheFileSystem->openFile()` internally.
-    fn open(&mut self, filename: &str, access: FileAccess) -> Result<(), io::Error> {
+    fn open(&mut self, _filename: &str, _access: FileAccess) -> Result<(), io::Error> {
         // In the C++ code, this opens via TheFileSystem and then calls open(file)
         // For now, this is a stub that returns an error since we need a FileSystem
         // implementation to properly support this.

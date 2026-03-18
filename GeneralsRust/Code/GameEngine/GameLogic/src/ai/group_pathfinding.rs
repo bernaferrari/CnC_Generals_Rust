@@ -250,7 +250,7 @@ impl GroupPathfinder {
         _pathfinder: &PathfindingSystem,
         start: GridCoord,
         _surfaces: u32,
-        max_radius: i32,
+        _max_radius: i32,
     ) -> GridCoord {
         // For now, just return the start coordinate
         // Full implementation would search outward in expanding square
@@ -307,7 +307,7 @@ impl FlowField {
     }
 
     /// Generate flow field from pathfinding grid
-    pub fn generate(&mut self, pathfinder: &PathfindingSystem, surfaces: u32) {
+    pub fn generate(&mut self, _pathfinder: &PathfindingSystem, _surfaces: u32) {
         // Dijkstra's algorithm working backwards from goal
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;

@@ -1749,7 +1749,7 @@ impl DamageModuleInterface for BridgeBehavior {
 
     fn on_body_damage_state_change(
         &mut self,
-        damage_info: &DamageInfo,
+        _damage_info: &DamageInfo,
         old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -2088,6 +2088,7 @@ fn is_condition_worse(old_state: BodyDamageType, new_state: BodyDamageType) -> b
 
 /// Convert BodyDamageType to array index
 /// Matches C++ BODYDAMAGETYPE_COUNT ordering
+#[allow(unreachable_patterns)]
 fn damage_type_to_index(damage_type: BodyDamageType) -> usize {
     match damage_type {
         BodyDamageType::Pristine => BODY_PRISTINE,

@@ -105,7 +105,7 @@ impl ProductionExitStrategy for DefaultProductionExit {
         // Send move/guard/attack-move orders based on rally_point
         // Matches C++ DefaultProductionExitUpdate.cpp:85-96 aiFollowExitProductionPath
         if let Some(unit_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(created) {
-            if let Ok(mut unit) = unit_obj.write() {
+            if let Ok(mut _unit) = unit_obj.write() {
                 match rally_point.rally_type() {
                     super::rally_point::RallyPointType::Position => {
                         if let Some(rally_pos) = rally_point.position() {
@@ -215,7 +215,7 @@ impl ProductionExitStrategy for QueueProductionExit {
         template_name: &str,
         producer_id: ObjectID,
         door_index: usize,
-        rally_point: RallyPoint,
+        _rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
         // Spawn at queue position first
         // Matches C++ QueueProductionExitUpdate behavior for staging units
@@ -251,7 +251,7 @@ impl ProductionExitStrategy for QueueProductionExit {
         // After delay, unit would move to actual exit position
         // Then move to rally point (implemented via AI pathfinding system)
         if let Some(unit_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(created) {
-            if let Ok(mut unit) = unit_obj.write() {
+            if let Ok(mut _unit) = unit_obj.write() {
                 // Get the actual exit position
                 if let Ok(exit_pos) = self.base.get_exit_position(door_index) {
                     log::debug!(
@@ -353,7 +353,7 @@ impl ProductionExitStrategy for SupplyCenterProductionExit {
 
         // Send to rally point or begin supply gathering
         if let Some(unit_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(created) {
-            if let Ok(mut unit) = unit_obj.write() {
+            if let Ok(mut _unit) = unit_obj.write() {
                 match rally_point.rally_type() {
                     super::rally_point::RallyPointType::Position => {
                         if let Some(rally_pos) = rally_point.position() {
@@ -476,7 +476,7 @@ impl ProductionExitStrategy for SpawnPointProductionExit {
         // Matches C++ ParachuteContain behavior for airdrops
         if self.use_parachute {
             if let Some(unit_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(created) {
-                if let Ok(mut unit) = unit_obj.write() {
+                if let Ok(mut _unit) = unit_obj.write() {
                     log::debug!(
                         "Unit {} spawned with parachute at altitude {}",
                         created,
@@ -490,7 +490,7 @@ impl ProductionExitStrategy for SpawnPointProductionExit {
 
         // Send to rally point after landing (or immediately for aircraft)
         if let Some(unit_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(created) {
-            if let Ok(mut unit) = unit_obj.write() {
+            if let Ok(mut _unit) = unit_obj.write() {
                 match rally_point.rally_type() {
                     super::rally_point::RallyPointType::Position => {
                         if let Some(rally_pos) = rally_point.position() {

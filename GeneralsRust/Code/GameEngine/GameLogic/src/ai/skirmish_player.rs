@@ -109,17 +109,16 @@ impl AISkirmishPlayer {
         self.enemy_vehicle_count = 0;
         self.enemy_air_count = 0;
 
-        let mut player_side = None;
-        {
+        let _player_side = {
             let Some(player_arc) = self.base.get_player() else {
                 return;
             };
             let Ok(guard) = player_arc.read() else {
                 return;
             };
-            player_side = Some(guard.get_side().clone());
-        }
-        let Some(player_side) = player_side else {
+            Some(guard.get_side().clone())
+        };
+        let Some(player_side) = _player_side else {
             return;
         };
 
@@ -785,10 +784,12 @@ impl AISkirmishPlayer {
                     if !power.is_equivalent_to(selected.as_ref()) {
                         selected_plan = Some(power);
                         selected_name = power_name;
+                        let _ = &selected_plan;
                     }
                 } else {
                     selected_plan = Some(power);
                     selected_name = power_name;
+                    let _ = &selected_plan;
                 }
             }
         }
@@ -883,7 +884,7 @@ impl AISkirmishPlayer {
 
     /// Select team to build with skirmish considerations
     fn select_team_to_build(&mut self) -> bool {
-        let Ok(mut factory) = get_team_factory().lock() else {
+        let Ok(factory) = get_team_factory().lock() else {
             return false;
         };
 
@@ -959,7 +960,7 @@ impl AISkirmishPlayer {
 
         let max_instances = proto.get_max_instances();
         if max_instances > 0 {
-            if let Ok(mut factory_guard) = crate::team::get_team_factory().lock() {
+            if let Ok(factory_guard) = crate::team::get_team_factory().lock() {
                 let name = proto.get_name().as_str();
                 let existing = factory_guard.find_team_instances(name).len() as i32;
                 if existing >= max_instances {

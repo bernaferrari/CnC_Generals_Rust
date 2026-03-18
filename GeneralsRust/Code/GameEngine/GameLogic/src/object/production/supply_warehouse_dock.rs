@@ -198,7 +198,7 @@ impl SupplyWarehouseDockUpdate {
         self.boxes_stored -= 1;
 
         let mut gained = false;
-        if let Ok(mut docker_write) = docker.write() {
+        if let Ok(docker_write) = docker.write() {
             if let Some(ai) = docker_write.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
                     if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
@@ -240,7 +240,7 @@ impl BehaviorModuleInterface for SupplyWarehouseDockUpdate {
             if let Some(owner) =
                 crate::object::registry::OBJECT_REGISTRY.get_object(self.base.owner_id())
             {
-                if let Ok(mut owner_guard) = owner.write() {
+                if let Ok(mut _owner_guard) = owner.write() {
                     // owner_guard.set_status(crate::common::ObjectStatusMaskType::YouAreDead, true);
                     // Or call a die module?
                     // For now, identifying the action is sufficient.

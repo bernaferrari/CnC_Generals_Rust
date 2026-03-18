@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports)]
+
 pub mod assisted_targeting_update;
 pub mod auto_deposit_update;
 pub mod auto_find_healing_update;

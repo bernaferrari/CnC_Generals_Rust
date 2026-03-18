@@ -274,7 +274,7 @@ impl HordeUpdate {
             .downcast_ref::<HordeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        let mut instance = Self {
+        let instance = Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             last_horde_refresh_frame: TheGameLogic::get_frame(),
@@ -298,7 +298,7 @@ impl HordeUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<HordeUpdateModuleData>,
     ) -> Self {
-        let mut instance = Self {
+        let instance = Self {
             object: Arc::downgrade(&object),
             module_data,
             last_horde_refresh_frame: TheGameLogic::get_frame(),

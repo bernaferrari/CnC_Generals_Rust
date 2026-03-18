@@ -342,7 +342,7 @@ impl OverlordContain {
     /// Matches C++ OverlordContain::killAllContained
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
         if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
+            if let Ok(guard) = redirected.lock() {
                 for obj_id in guard.get_contained_objects() {
                     if let Some(obj) = TheGameLogic::find_object_by_id(*obj_id) {
                         if let Ok(mut obj_guard) = obj.write() {
@@ -362,7 +362,7 @@ impl OverlordContain {
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
         if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
+            if let Ok(guard) = redirected.lock() {
                 let mut objs: Vec<Arc<RwLock<Object>>> = guard
                     .get_contained_objects()
                     .iter()
@@ -408,7 +408,7 @@ impl OverlordContain {
     /// Matches C++ OverlordContain::getContainedItemsList
     pub fn get_contained_items_list(&self) -> GameResult<Vec<Arc<RwLock<Object>>>> {
         if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
+            if let Ok(guard) = redirected.lock() {
                 let mut items = Vec::new();
                 for obj_id in guard.get_contained_objects() {
                     if let Some(obj) = TheGameLogic::find_object_by_id(*obj_id) {
@@ -471,7 +471,7 @@ impl OverlordContain {
     /// Remove all contained objects.
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         if let Some(redirected) = self.get_redirected_contain() {
-            let ids = if let Ok(mut guard) = redirected.lock() {
+            let ids = if let Ok(guard) = redirected.lock() {
                 guard.get_contained_objects().to_vec()
             } else {
                 Vec::new()
@@ -546,7 +546,7 @@ impl OverlordContain {
     /// Matches C++ OverlordContain::getContainerPipsToShow
     pub fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
         if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
+            if let Ok(guard) = redirected.lock() {
                 let max = guard.get_contain_max();
                 let total = if max < 0 { 0 } else { max };
                 let full = guard.get_contain_count() as i32;

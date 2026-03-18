@@ -6,6 +6,7 @@ pub mod script_engine;
 pub mod scripts;
 pub mod victory_conditions;
 
+#[allow(ambiguous_glob_reexports)]
 pub use script_actions::*;
 pub use script_conditions::*;
 pub use script_engine::*;

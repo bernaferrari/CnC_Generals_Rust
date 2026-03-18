@@ -782,7 +782,7 @@ impl Projectile {
     }
 
     /// Play sound at a specific position
-    fn play_sound_at_position(&self, sound: &str, position: &Coord3D) {
+    fn play_sound_at_position(&self, _sound: &str, _position: &Coord3D) {
         // Would integrate with audio system
         // TheGameAudio->playSound(sound, position);
     }
@@ -1048,7 +1048,7 @@ impl Projectile {
             // Calculate offset position
             let offset = Coord3D::new(spread_angle * angle.cos(), spread_angle * angle.sin(), 0.0);
 
-            let submunition_pos = position + offset;
+            let _submunition_pos = position + offset;
 
             // Would create new projectile object
             // TheThingFactory->createProjectile(self.submunition_type, position, submunition_pos);

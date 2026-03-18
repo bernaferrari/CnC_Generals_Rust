@@ -413,7 +413,7 @@ impl Locomotor {
         let max_speed = self.get_max_speed_for_condition(condition);
         let desired_speed = desired_speed.min(max_speed);
         let max_acceleration = self.get_max_acceleration(condition);
-        let max_turn_rate = self.get_max_turn_rate(condition);
+        let _max_turn_rate = self.get_max_turn_rate(condition);
 
         let mut turn_speed = self.template.min_turn_speed;
         if turn_speed < max_speed / 4.0 {
@@ -685,7 +685,7 @@ impl Locomotor {
     /// Matches C++ moveTowardsPositionThrust() lines 1891-2004
     pub fn move_towards_position_thrust(
         &self,
-        state: &mut LocomotorMovementState,
+        _state: &mut LocomotorMovementState,
         position: Coord3D,
         physics: &mut PhysicsState,
         goal_pos: Coord3D,
@@ -824,8 +824,8 @@ impl Locomotor {
 
         let mut move_backwards = false;
 
-        let dx = position.x - goal_pos.x;
-        let dy = position.y - goal_pos.y;
+        let _dx = position.x - goal_pos.x;
+        let _dy = position.y - goal_pos.y;
         let dz = position.z - goal_pos.z;
 
         // Check if we're climbing
@@ -934,7 +934,7 @@ impl Locomotor {
     /// Matches C++ moveTowardsPositionOther() lines 2326-2404
     pub fn move_towards_position_other(
         &self,
-        state: &mut LocomotorMovementState,
+        _state: &mut LocomotorMovementState,
         position: Coord3D,
         physics: &mut PhysicsState,
         goal_pos: Coord3D,
@@ -1136,7 +1136,7 @@ impl Locomotor {
         &self,
         physics: &PhysicsState,
         cur_z: Real,
-        surface_at_pt: Real,
+        _surface_at_pt: Real,
         preferred_height: Real,
         condition: BodyDamageType,
         is_ultra_accurate: bool,

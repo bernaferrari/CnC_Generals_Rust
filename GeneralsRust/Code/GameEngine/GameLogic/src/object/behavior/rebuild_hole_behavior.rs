@@ -184,7 +184,7 @@ impl RebuildHoleBehavior {
         };
         let mut current = game_logic.get_first_object();
         while let Some(obj_arc) = current {
-            if let Ok(mut guard) = obj_arc.write() {
+            if let Ok(guard) = obj_arc.write() {
                 if let Some(ai) = guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.try_lock() {
                         ai_guard.transfer_attack(from_id, to_id);
@@ -203,7 +203,7 @@ impl RebuildHoleBehavior {
         };
         let mut current = game_logic.get_first_object();
         while let Some(obj_arc) = current {
-            if let Ok(mut guard) = obj_arc.write() {
+            if let Ok(guard) = obj_arc.write() {
                 if guard.is_kind_of(crate::common::KindOf::Mine) {
                     if let Some(module) = guard.find_update_module("StickyBombUpdate") {
                         let _ = module.with_module_downcast::<
@@ -272,7 +272,7 @@ impl RebuildHoleBehavior {
         let mut reconstructing_arc = reconstructing;
 
         if let Some(existing) = reconstructing_arc.as_ref() {
-            if let Ok(mut worker_guard) = worker_arc.write() {
+            if let Ok(worker_guard) = worker_arc.write() {
                 if let Some(ai) = worker_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.try_lock() {
                         let mut params = AiCommandParams::new(
@@ -333,7 +333,7 @@ impl RebuildHoleBehavior {
                 }
             }
 
-            if let Ok(mut worker_guard) = worker_arc.write() {
+            if let Ok(worker_guard) = worker_arc.write() {
                 if let Some(ai) = worker_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.try_lock() {
                         let total_build_frames = {

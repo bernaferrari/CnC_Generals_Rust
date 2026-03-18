@@ -1019,7 +1019,7 @@ impl AutoHealBehavior {
         let single_burst = data.single_burst;
         let healing_delay = data.healing_delay;
 
-        let mut healed_any = false;
+        let mut _healed_any = false;
         for object_id in partition.get_objects_in_range(&position, radius) {
             if object_id == self.object_id && skip_self_for_healing {
                 continue;
@@ -1067,7 +1067,7 @@ impl AutoHealBehavior {
 
             if is_friend && passes_kind && needs_heal {
                 self.pulse_heal_object(candidate)?;
-                healed_any = true;
+                _healed_any = true;
             }
         }
 

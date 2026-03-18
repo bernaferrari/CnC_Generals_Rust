@@ -18,8 +18,7 @@ use rayon::prelude::*;
 
 #[cfg(feature = "streaming")]
 use {
-    tokio::{fs::File as AsyncFile, io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt}},
-    futures::stream::{Stream, StreamExt},
+    tokio::fs::File as AsyncFile,
 };
 
 /// Progress callback for streaming operations
@@ -139,16 +138,15 @@ impl StreamingCompressor {
                 .map_err(|e| EacError::Io(e))?
         };
         
-        let mut total_compressed = 0;
         let chunks_count = (input_size + self.config.chunk_size - 1) / self.config.chunk_size;
         
-        if self.config.parallel && chunks_count > 1 {
+        let total_compressed = if self.config.parallel && chunks_count > 1 {
             // Parallel compression using memory-mapped chunks
-            total_compressed = self.compress_mmap_parallel(&mmap, &mut output_file, chunks_count)?;
+            self.compress_mmap_parallel(&mmap, &mut output_file, chunks_count)?
         } else {
             // Sequential compression
-            total_compressed = self.compress_mmap_sequential(&mmap, &mut output_file)?;
-        }
+            self.compress_mmap_sequential(&mmap, &mut output_file)?
+        };
         
         output_file.flush()?;
         
@@ -406,7 +404,6 @@ pub struct DecompressionStats {
 pub mod async_streaming {
     use super::*;
     use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
-    use futures::stream::{Stream, StreamExt};
     
     /// Async streaming compressor
     pub struct AsyncStreamingCompressor {

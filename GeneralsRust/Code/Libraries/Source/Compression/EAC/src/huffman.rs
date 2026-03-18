@@ -5,11 +5,7 @@
 
 use crate::{Result, EacError};
 use rayon::prelude::*;
-use std::collections::{HashMap, BinaryHeap};
-use std::cmp::Reverse;
-
-#[cfg(feature = "simd")]
-use wide::*;
+use std::collections::HashMap;
 
 /// Maximum symbol value (8-bit)
 const MAX_SYMBOL: usize = 256;
@@ -26,6 +22,7 @@ struct HuffmanNode {
     parent: Option<usize>,
     left: Option<usize>,
     right: Option<usize>,
+    #[allow(dead_code)]
     node_index: usize,
 }
 

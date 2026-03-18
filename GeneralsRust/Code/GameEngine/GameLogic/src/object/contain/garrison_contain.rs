@@ -2279,7 +2279,7 @@ impl GarrisonContain {
                 let team_id = u32::from_le_bytes(data[0..4].try_into().map_err(|_| "Invalid data")?)
                     as crate::team::TeamID;
                 if team_id != crate::team::TEAM_ID_INVALID {
-                    if let Ok(mut factory) = crate::team::TheTeamFactory().lock() {
+                    if let Ok(factory) = crate::team::TheTeamFactory().lock() {
                         if let Some(team) = factory.find_team_by_id(team_id) {
                             self.original_team = Some(Arc::downgrade(&team));
                         }

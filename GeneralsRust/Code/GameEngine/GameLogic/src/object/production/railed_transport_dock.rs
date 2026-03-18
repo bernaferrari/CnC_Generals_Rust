@@ -159,7 +159,7 @@ impl RailedTransportDockUpdate {
             *us_guard.get_position()
         };
 
-        let mut reached = false;
+        let reached;
         {
             let mut docker_guard = docker.write().map_err(|_| "Failed to lock docker")?;
             let docker_pos = *docker_guard.get_position();
@@ -230,7 +230,7 @@ impl RailedTransportDockUpdate {
             dest_pos.z = terrain.get_ground_height(dest_pos.x, dest_pos.y, None);
         }
 
-        let mut reached = false;
+        let reached;
         {
             let mut unloader_guard = unloader.write().map_err(|_| "Failed to lock unloader")?;
             let unloader_pos = *unloader_guard.get_position();

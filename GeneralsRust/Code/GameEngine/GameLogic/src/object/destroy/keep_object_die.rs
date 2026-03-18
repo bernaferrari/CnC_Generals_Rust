@@ -136,7 +136,7 @@ impl DestroyModuleInterface for KeepObjectDie {
     /// (matches C++ DestroyModuleInterface::onDestroy)
     fn on_destroy(&mut self, object_id: crate::common::ObjectID) {
         if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut obj) = obj_arc.write() {
+            if let Ok(mut _obj) = obj_arc.write() {
                 // Keep object in world - don't remove it
                 log::debug!(
                     "KeepObjectDie: DestroyModuleInterface::on_destroy called for object {}",

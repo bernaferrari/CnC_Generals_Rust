@@ -120,7 +120,7 @@ pub struct AIUpdate {
     task_queue: VecDeque<AiUpdateTask>,
 
     /// AI players being managed
-    ai_players: HashMap<u32, Arc<RwLock<Box<(dyn AiPlayerTrait + Send + Sync)>>>>,
+    ai_players: HashMap<u32, Arc<RwLock<Box<dyn AiPlayerTrait + Send + Sync>>>>,
 
     /// Reference to pathfinding system
     pathfinding_system: Option<super::pathfinding_system::SharedPathfindingSystem>,

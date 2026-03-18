@@ -860,8 +860,8 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                     .sqrt();
 
                     // Calculate the point position assuming the target position is on the x axis relative to the building.
-                    let mut current_target_local = (cx_distance + target_distance, cx_height, 0.0);
-                    let target_distance_local =
+                    let current_target_local = (cx_distance + target_distance, cx_height, 0.0);
+                    let _target_distance_local =
                         (current_target_local.0.powi(2) + current_target_local.1.powi(2)).sqrt();
 
                     // Rotate that offset so it's aligned along the building -> target vector.
@@ -877,7 +877,7 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         building_to_initial_target_vector.1 * inv_len,
                     );
 
-                    let cartesian_target_normalized = (1.0, 0.0); // Simplified relative to X-axis assumption
+                    let _cartesian_target_normalized = (1.0, 0.0); // Simplified relative to X-axis assumption
 
                     // Rotation matrix from X-axis to Building->Target vector
                     // Simple 2D rotation:

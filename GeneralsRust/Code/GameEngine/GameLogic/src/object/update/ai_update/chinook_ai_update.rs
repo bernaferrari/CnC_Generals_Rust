@@ -767,7 +767,7 @@ impl ChinookAIUpdate {
         let Ok(owner_guard) = owner.read() else {
             return true;
         };
-        let Some(contain) = owner_guard.get_contain() else {
+        let Some(_contain) = owner_guard.get_contain() else {
             return true;
         };
 

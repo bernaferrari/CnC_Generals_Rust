@@ -38,7 +38,6 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use std::io::{Read, Write};
 use thiserror::Error;
 use rayon::prelude::*;
 

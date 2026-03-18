@@ -259,6 +259,7 @@ impl PropagandaTowerBehavior {
         self.inside_list.clear();
     }
 
+    #[allow(unreachable_patterns)]
     fn is_upgrade_present(&self, tower: &Object) -> Bool {
         let Some(upgrade) = &self.upgrade_required else {
             return false;

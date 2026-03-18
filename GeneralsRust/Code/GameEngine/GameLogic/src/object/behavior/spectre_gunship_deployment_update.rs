@@ -368,7 +368,7 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
                 .map(|o| o.get_id())
                 .unwrap_or(crate::common::INVALID_ID);
 
-            if let Ok(mut gunship) = gunship_arc.write() {
+            if let Ok(gunship) = gunship_arc.write() {
                 let _ = gunship.with_special_power_module_mut_by_name(
                     special_power_template.get_name(),
                     |sp| {

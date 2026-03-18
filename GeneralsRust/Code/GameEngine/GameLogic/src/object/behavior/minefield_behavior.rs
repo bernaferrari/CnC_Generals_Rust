@@ -804,7 +804,7 @@ impl MinefieldBehavior {
                 let mut detonate_pos = None;
                 loop {
                     let virtual_mines_expected_f =
-                        (self.module_data.num_virtual_mines as Real * health / max_health);
+                        self.module_data.num_virtual_mines as Real * health / max_health;
                     let virtual_mines_expected =
                         if damage_info.damage_type == DamageType::Healing {
                             virtual_mines_expected_f.floor() as UnsignedInt

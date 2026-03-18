@@ -2102,7 +2102,7 @@ impl Player {
                 let Some(obj_arc) = manager.get_object(obj_id) else {
                     continue;
                 };
-                let Ok(mut obj_instance) = obj_arc.write() else {
+                let Ok(obj_instance) = obj_arc.write() else {
                     continue;
                 };
                 let Ok(mut base_obj) = obj_instance.base.write() else {
@@ -2822,7 +2822,7 @@ impl Player {
         killer: &dyn game_engine::common::rts::player::SkillPointObject,
         victim: &dyn game_engine::common::rts::player::SkillPointObject,
     ) -> Bool {
-        let victim_level = victim.get_veterancy_level();
+        let _victim_level = victim.get_veterancy_level();
         let skill_value = victim.get_skill_point_value(killer);
         self.add_skill_points_for_kill(None, false, skill_value)
     }

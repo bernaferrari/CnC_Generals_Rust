@@ -123,8 +123,8 @@ impl WorkOrder {
     }
 
     /// Validate that factory ID still refers to an active object
-    pub fn validate_factory(&mut self, player_id: u32) -> Result<(), AiError> {
-        if let Some(factory_id) = self.factory_id {
+    pub fn validate_factory(&mut self, _player_id: u32) -> Result<(), AiError> {
+        if let Some(_factory_id) = self.factory_id {
             // Check if factory still exists and is owned by player
             // This would use your object management system
             // For now, we'll assume it's valid
@@ -1301,7 +1301,7 @@ impl AIPlayer {
         if !self.base_center_set {
             let _ = self.compute_center_and_radius_of_base();
         }
-        let base_center = self
+        let _base_center = self
             .get_base_center()
             .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
@@ -1477,7 +1477,7 @@ impl AIPlayer {
             _ => return Ok(None),
         };
 
-        let mut radius = weapon_radius.max(1.0);
+        let radius = weapon_radius.max(1.0);
         let (mut min_bounds, mut max_bounds) = self.get_player_structure_bounds(enemy_index)?;
 
         if min_bounds.x == 0.0 && min_bounds.y == 0.0 && max_bounds.x == 0.0 && max_bounds.y == 0.0
@@ -1599,7 +1599,7 @@ impl AIPlayer {
     pub fn on_unit_produced(
         &mut self,
         factory_id: ObjectID,
-        unit_id: ObjectID,
+        _unit_id: ObjectID,
     ) -> Result<(), AiError> {
         // Find the work order that produced this unit
         for team in &mut self.team_build_queue {
@@ -1630,7 +1630,7 @@ impl AIPlayer {
     /// Called when a structure we're building comes into existence
     pub fn on_structure_produced(
         &mut self,
-        factory_id: ObjectID,
+        _factory_id: ObjectID,
         structure_id: ObjectID,
     ) -> Result<(), AiError> {
         self.frame_last_building_built = TheGameLogic::get_frame();
@@ -1656,7 +1656,7 @@ impl AIPlayer {
         };
 
         let player_side = player_guard.get_side().to_string();
-        if let Some(mut info) = player_guard.get_build_list_mut() {
+        if let Some(info) = player_guard.get_build_list_mut() {
             let mut current = Some(&mut *info);
             while let Some(node) = current {
                 if node.get_object_id() == structure_id {
@@ -2432,7 +2432,7 @@ impl AIPlayer {
         team_name: &str,
     ) -> Result<(), AiError> {
         let factory = get_team_factory();
-        let Ok(mut factory_guard) = factory.lock() else {
+        let Ok(factory_guard) = factory.lock() else {
             return Ok(());
         };
         if let Some(proto) = factory_guard.find_team_prototype(team_name) {
@@ -2647,7 +2647,7 @@ impl AIPlayer {
             .strategic_decision_maker
             .resources
             .get_build_speed_modifier();
-        let difficulty_modifier = self.difficulty_handler.modifiers.structure_speed_modifier;
+        let _difficulty_modifier = self.difficulty_handler.modifiers.structure_speed_modifier;
 
         // Select structure to build based on priorities
         if let Some(priority) = self.construction_priorities.first().cloned() {
@@ -2746,7 +2746,7 @@ impl AIPlayer {
             .strategic_decision_maker
             .resources
             .get_build_speed_modifier();
-        let difficulty_modifier = self.difficulty_handler.modifiers.team_speed_modifier;
+        let _difficulty_modifier = self.difficulty_handler.modifiers.team_speed_modifier;
 
         // C++ checks if we can afford teams based on current resources
         let current_money = self
@@ -2877,7 +2877,7 @@ impl AIPlayer {
         &mut self,
         order: &mut WorkOrder,
         busy_ok: bool,
-        team_name: &str,
+        _team_name: &str,
     ) -> Result<bool, AiError> {
         // From C++ AIPlayer.cpp lines 1360-1381:
         // 1. Find factory that can build this unit
@@ -3038,7 +3038,7 @@ impl AIPlayer {
         // 5. For each unit in team, create WorkOrder and queue for production
 
         let factory = get_team_factory();
-        let Ok(mut factory_guard) = factory.lock() else {
+        let Ok(factory_guard) = factory.lock() else {
             return Ok(false);
         };
 
@@ -3076,7 +3076,7 @@ impl AIPlayer {
     /// Select team to reinforce
     fn select_team_to_reinforce(&mut self, min_priority: i32) -> Result<bool, AiError> {
         let factory = get_team_factory();
-        let Ok(mut factory_guard) = factory.lock() else {
+        let Ok(factory_guard) = factory.lock() else {
             return Ok(false);
         };
 
@@ -3200,7 +3200,7 @@ impl AIPlayer {
         // 5. Return (has_factories, !has_enough_money)
 
         let factory = get_team_factory();
-        let Ok(mut factory_guard) = factory.lock() else {
+        let Ok(factory_guard) = factory.lock() else {
             return Ok((false, false));
         };
         let Some(proto) = factory_guard.find_team_prototype(team_name) else {
@@ -3267,7 +3267,7 @@ impl AIPlayer {
         // 6. Return true only if all checks pass
 
         let factory = get_team_factory();
-        let Ok(mut factory_guard) = factory.lock() else {
+        let Ok(factory_guard) = factory.lock() else {
             return Ok(false);
         };
         let Some(proto) = factory_guard.find_team_prototype(team_name) else {
@@ -3560,7 +3560,7 @@ impl AIPlayer {
         radius: Real,
         include_military_units: bool,
     ) -> Result<f32, AiError> {
-        let mut radius = radius.max(4.0 * PATHFIND_CELL_SIZE_F);
+        let radius = radius.max(4.0 * PATHFIND_CELL_SIZE_F);
         let Some(player_arc) = player_list()
             .read()
             .ok()

@@ -1162,7 +1162,7 @@ impl BodyModuleInterface for ActiveBody {
             DamageType::KillGarrisoned => {
                 // C++ parity: only garrisonable, non-immune containers are affected.
                 if let Some(owner) = self.get_owner() {
-                    if let Ok(mut obj) = owner.write() {
+                    if let Ok(obj) = owner.write() {
                         if let Some(contain) = obj.get_contain() {
                             if let Ok(mut cont) = contain.lock() {
                                 if cont.get_contained_count() > 0

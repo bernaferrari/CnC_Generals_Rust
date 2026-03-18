@@ -380,7 +380,7 @@ impl ContainerManager {
         let mut stats = ContainerStatistics::default();
 
         for container in self.containers.values() {
-            let (current, max) = container.get_usage();
+            let (current, _max) = container.get_usage();
             stats.total_containers += 1;
             stats.total_contained_objects += current;
 

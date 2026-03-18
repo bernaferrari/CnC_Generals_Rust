@@ -245,7 +245,7 @@ const MODEL_CONDITION_UPGRADE_FIELDS: &[FieldParse<ModelConditionUpgradeModuleDa
 ];
 
 pub(crate) fn parse_model_condition_flag(value: &str) -> Option<ModelConditionFlags> {
-    let mut key = value.trim();
+    let key = value.trim();
     if key.is_empty() {
         return None;
     }

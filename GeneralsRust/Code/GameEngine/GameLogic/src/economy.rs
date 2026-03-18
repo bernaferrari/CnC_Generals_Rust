@@ -410,7 +410,7 @@ impl EconomyManager {
             GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
         })?;
 
-        let mut actual_delta = 0;
+        let mut _actual_delta = 0;
         if amount > 0 {
             let cap = storage
                 .storage_capacity
@@ -422,7 +422,7 @@ impl EconomyManager {
             let updated = entry.saturating_add(amount).min(cap);
             *entry = updated;
             let actual_added = updated.saturating_sub(original);
-            actual_delta = actual_added;
+            _actual_delta = actual_added;
             if actual_added > 0 {
                 self.log_economic_event(EconomicEvent::IncomeReceived {
                     resource_type: ResourceType::Money,
@@ -435,7 +435,7 @@ impl EconomyManager {
             let spend = amount.abs();
             let actual_spent = (*entry).min(spend);
             *entry = (*entry).saturating_sub(actual_spent);
-            actual_delta = -(actual_spent as i32);
+            _actual_delta = -(actual_spent as i32);
             if actual_spent > 0 {
                 self.log_economic_event(EconomicEvent::ResourceSpent {
                     resource_type: ResourceType::Money,
@@ -446,18 +446,18 @@ impl EconomyManager {
         }
         let current_money = *storage.resources.get(&ResourceType::Money).unwrap_or(&0);
 
-        if actual_delta != 0 {
+        if _actual_delta != 0 {
             if let Ok(list) = crate::player::ThePlayerList().read() {
                 if let Some(player) = list.get_player(player_key as i32) {
                     if let Ok(mut player_guard) = player.write() {
-                        if actual_delta > 0 {
-                            let actual_added = actual_delta as u32;
+                        if _actual_delta > 0 {
+                            let actual_added = _actual_delta as u32;
                             let _ = player_guard.get_money_mut().deposit(actual_added);
                             player_guard
                                 .get_score_keeper_mut()
                                 .add_money_earned(actual_added);
                         } else {
-                            let spend = (-actual_delta) as u32;
+                            let spend = (-_actual_delta) as u32;
                             if spend > 0 {
                                 let _ = player_guard.get_money_mut().withdraw(spend);
                                 player_guard.get_score_keeper_mut().add_money_spent(spend);

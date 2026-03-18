@@ -1338,7 +1338,7 @@ impl ObjectLockExt for Arc<RwLock<Object>> {
 #[cfg(test)]
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 
-struct ModuleEntry {
+pub struct ModuleEntry {
     name: AsciiString,
     tag: AsciiString,
     interface_mask: ModuleInterfaceType,
@@ -3542,7 +3542,7 @@ impl Object {
 
             // Spawn promotion effect
             if let Some(tracker) = &self.experience_tracker {
-                if let Ok(mut tracker_guard) = tracker.lock() {
+                if let Ok(mut _tracker_guard) = tracker.lock() {
                     let _ = crate::experience::PromotionEffectSpawner::spawn_effect(
                         &crate::experience::PromotionEffect::for_level(new_level),
                         pos_with_offset,
@@ -4225,7 +4225,7 @@ impl Object {
         module_name: &str,
     ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
         self.behaviors.iter().find_map(|module| {
-            let Ok(mut guard) = module.lock() else {
+            let Ok(guard) = module.lock() else {
                 return None;
             };
             if guard.get_module_name() == module_name {
@@ -4340,7 +4340,7 @@ impl Object {
 
     pub fn get_health_percentage(&self) -> f32 {
         if let Some(body) = &self.body {
-            if let Ok(mut guard) = body.lock() {
+            if let Ok(guard) = body.lock() {
                 let max_health = guard.get_max_health().max(f32::EPSILON);
                 return (guard.get_health() / max_health).clamp(0.0, 1.0);
             }
@@ -5321,7 +5321,7 @@ impl Object {
                     }
                 }
                 for behavior in &self.behaviors {
-                    if let Ok(mut guard) = behavior.lock() {
+                    if let Ok(guard) = behavior.lock() {
                         if let Some(overcharge) = guard
                             .as_any()
                             .downcast_ref::<crate::object::behavior::overcharge_behavior::OverchargeBehavior>()
@@ -8632,7 +8632,7 @@ impl Object {
         if self.producer_id != INVALID_ID {
             if let Some(spawner) = crate::helpers::TheGameLogic::find_object_by_id(self.producer_id)
             {
-                if let Ok(mut spawner_guard) = spawner.write() {
+                if let Ok(spawner_guard) = spawner.write() {
                     let mut spawn_damage = damage_info.clone();
                     let _ = spawner_guard.with_spawn_behavior_full_interface(|spawn_behavior| {
                         let _ = spawn_behavior.on_spawn_death(self.id, &mut spawn_damage);
@@ -9731,6 +9731,7 @@ impl Object {
         };
 
         let ai = self.get_ai_update_interface();
+        #[allow(unreachable_patterns)]
         match command_button.get_command_type() {
             CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
                 if let Some(ai) = ai {
@@ -9930,13 +9931,13 @@ impl Object {
                     if let Some(ai) = ai_ref {
                         if let Ok(ai_guard) = crate::ai::THE_AI.read() {
                             if let Some(pathfinder) = ai_guard.pathfinder() {
-                                if let Ok(mut guard) = ai.try_lock() {
+                                if let Ok(guard) = ai.try_lock() {
                                     if let Some(locomotor) = guard.get_cur_locomotor() {
                                         let mut locomotor_set =
                                             crate::locomotor::LocomotorSet::new();
                                         locomotor_set
                                             .add_locomotor("Active".to_string(), locomotor);
-                                        if let Ok(mut pf) = pathfinder.write() {
+                                        if let Ok(pf) = pathfinder.write() {
                                             if pf
                                                 .find_path_for_locomotor(
                                                     self.get_id(),
@@ -10370,7 +10371,7 @@ impl Object {
         // Check contain module for transport capacity
         // Matches C++ Object::getTransportSlotCount() behavior
         if let Some(contain) = &self.contain {
-            if let Ok(mut guard) = contain.lock() {
+            if let Ok(guard) = contain.lock() {
                 return guard.get_max_capacity();
             }
         }
@@ -10812,7 +10813,7 @@ impl Object {
     ) -> Option<Arc<Mutex<dyn crate::modules::SpecialAbilityUpdate>>> {
         for behavior in &self.behaviors {
             let matches = {
-                let Ok(mut guard) = behavior.lock() else {
+                let Ok(guard) = behavior.lock() else {
                     continue;
                 };
                 guard
@@ -11272,7 +11273,7 @@ impl Snapshot for Object {
         xfer_u128_bits(xfer, &mut upgrades);
 
         if let Some(body) = &self.body {
-            if let Ok(mut guard) = body.lock() {
+            if let Ok(guard) = body.lock() {
                 let mut health = guard.get_health();
                 let mut damage_scalar = guard.get_damage_scalar();
                 let _ = xfer.xfer_real(&mut health);
@@ -11351,7 +11352,7 @@ impl Snapshot for Object {
         let _ = xfer.xfer_unsigned_byte(&mut self.private_status);
 
         if is_loading {
-            if let Ok(mut factory) = crate::team::get_team_factory().lock() {
+            if let Ok(factory) = crate::team::get_team_factory().lock() {
                 let restored_team = factory.find_team_by_id(team_id);
                 if let Err(err) = self.set_or_restore_team(restored_team, true) {
                     warn!(

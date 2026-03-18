@@ -1503,7 +1503,7 @@ impl CnCGameEngine {
             .map_err(|e| anyhow::anyhow!("WW3D color format unavailable: {e:?}"))?;
         let depth_format = ww3d_engine::depth_format()
             .map_err(|e| anyhow::anyhow!("WW3D depth format unavailable: {e:?}"))?;
-        let mut graphics_system = GraphicsSystem::new(device, queue, color_format, depth_format)?;
+        let graphics_system = GraphicsSystem::new(device, queue, color_format, depth_format)?;
         graphics_timer.finish();
 
         // Initialize render pipeline
@@ -1563,7 +1563,7 @@ impl CnCGameEngine {
         }
 
         // Initialize game systems
-        let mut game_logic = GameLogic::initialize();
+        let game_logic = GameLogic::initialize();
         let combat_system = CombatSystem::new();
         let (world_min, world_max) = game_logic.world_bounds();
         let world_width = (world_max.x - world_min.x).abs().max(1.0);
@@ -1584,9 +1584,9 @@ impl CnCGameEngine {
             world_bounds,
         )?;
 
-        let mut camera_target = Vec3::ZERO;
-        let mut camera_position = Vec3::new(0.0, 310.0, -403.99988);
-        let mut camera_zoom = 1.0;
+        let camera_target = Vec3::ZERO;
+        let camera_position = Vec3::new(0.0, 310.0, -403.99988);
+        let camera_zoom = 1.0;
         let projection_matrix = Mat4::perspective_rh(
             DEFAULT_VIEW_FOV_RADIANS,
             size.width as f32 / size.height as f32,
@@ -4451,7 +4451,7 @@ impl CnCGameEngine {
         }
 
         let template = clicked_obj.template_name.clone();
-        let mut similar_units: Vec<ObjectId> = self
+        let similar_units: Vec<ObjectId> = self
             .game_logic
             .get_objects()
             .iter()

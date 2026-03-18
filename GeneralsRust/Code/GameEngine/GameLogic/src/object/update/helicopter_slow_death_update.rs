@@ -45,7 +45,7 @@ impl HelicopterSlowDeathUpdate {
     pub fn new(
         thing: ThingId,
         module_data: HelicopterSlowDeathUpdateModuleData,
-        ctx: &GameLogicContext,
+        ctx: &GameLogicContext<'_>,
     ) -> Self {
         // Calculate random flight time
         let flight_time =

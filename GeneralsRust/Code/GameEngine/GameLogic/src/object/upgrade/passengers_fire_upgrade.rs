@@ -153,7 +153,7 @@ fn apply_passengers_fire(object_id: ObjectID) -> bool {
         return true;
     };
 
-    let mut object_guard = match object.write() {
+    let object_guard = match object.write() {
         Ok(guard) => guard,
         Err(_) => {
             log::error!("PassengersFireUpgrade: Failed to lock object {}", object_id);

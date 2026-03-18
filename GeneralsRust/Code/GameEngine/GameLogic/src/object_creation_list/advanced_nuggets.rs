@@ -553,7 +553,7 @@ impl Default for AttackNugget {
 impl ObjectCreationNugget for AttackNugget {
     fn create_with_angle(
         &self,
-        ctx: &CreationContext<'_>,
+        _ctx: &CreationContext<'_>,
         primary_obj: Option<&Object>,
         _primary: &Coord3D,
         secondary: &Coord3D,
@@ -628,7 +628,7 @@ impl Default for ApplyRandomForceNugget {
 impl ObjectCreationNugget for ApplyRandomForceNugget {
     fn create_with_angle(
         &self,
-        ctx: &CreationContext<'_>,
+        _ctx: &CreationContext<'_>,
         _primary_obj: Option<&Object>,
         _primary: &Coord3D,
         _secondary: &Coord3D,

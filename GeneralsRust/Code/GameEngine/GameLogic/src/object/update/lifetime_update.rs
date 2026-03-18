@@ -30,7 +30,7 @@ impl LifetimeUpdate {
     pub fn new(
         thing: ThingId,
         module_data: LifetimeUpdateModuleData,
-        ctx: &GameLogicContext,
+        ctx: &GameLogicContext<'_>,
     ) -> Self {
         let delay = Self::calc_sleep_delay(&module_data, ctx);
         Self {
@@ -40,7 +40,7 @@ impl LifetimeUpdate {
         }
     }
 
-    fn calc_sleep_delay(data: &LifetimeUpdateModuleData, ctx: &GameLogicContext) -> u32 {
+    fn calc_sleep_delay(data: &LifetimeUpdateModuleData, ctx: &GameLogicContext<'_>) -> u32 {
         let mut delay = game_logic_random_value(data.min_frames, data.max_frames);
         if delay < 1 {
             delay = 1;

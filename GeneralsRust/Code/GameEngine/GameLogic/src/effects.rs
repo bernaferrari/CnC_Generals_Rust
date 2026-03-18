@@ -125,7 +125,7 @@ impl ObjectCreationList {
         let owner_guard = owner
             .read()
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "Owner lock poisoned"))?;
-        let primary_pos = owner_guard.get_position();
+        let _primary_pos = owner_guard.get_position();
 
         let ctx = crate::object_creation_list::live_creation_context();
 

@@ -1225,7 +1225,7 @@ pub struct PartitionStatistics {
     pub contact_pairs: usize,
 }
 
-/// Global partition manager instance
+// Global partition manager instance
 lazy_static::lazy_static! {
     pub static ref PARTITION_MANAGER: Arc<RwLock<PartitionManager>> =
         Arc::new(RwLock::new(PartitionManager::new()));

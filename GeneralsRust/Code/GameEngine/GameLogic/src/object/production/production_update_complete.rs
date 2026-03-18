@@ -537,7 +537,7 @@ impl ProductionUpdateComplete {
         }
 
         // Create queue entry
-        let mut entry = BuildQueueEntry::new(
+        let entry = BuildQueueEntry::new(
             template_name.clone(),
             production_type,
             cost,

@@ -841,7 +841,7 @@ impl StealthUpdateController {
                 // Drawable material pass is managed by the rendering system
                 // The hint_detectable_states are checked by the renderer
                 if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(mut drawable_guard) = drawable.write() {
+                    if let Ok(drawable_guard) = drawable.write() {
                         // Renderer will apply hint opacity based on status bits
                         drop(drawable_guard);
                     }

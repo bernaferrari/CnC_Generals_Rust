@@ -266,9 +266,7 @@ async fn main() {
     // =========================================================================
     // PHASE 6: VERSION SYSTEM INITIALIZATION (matches WinMain.cpp:982-986)
     // =========================================================================
-    unsafe {
-        generals_main::version::initialize_version_system_with_copy_protection();
-    }
+    generals_main::version::initialize_version_system_with_copy_protection();
     debug!("Version system initialized");
 
     // =========================================================================
@@ -301,12 +299,10 @@ async fn main() {
     // =========================================================================
     // PHASE 7: SINGLE INSTANCE CHECK (matches WinMain.cpp:1001-1026)
     // =========================================================================
-    unsafe {
-        if !generals_main::single_instance::create_generals_mutex() {
-            warn!("Another instance of Generals is already running");
-            cleanup_and_exit();
-            std::process::exit(0);
-        }
+    if !generals_main::single_instance::create_generals_mutex() {
+        warn!("Another instance of Generals is already running");
+        cleanup_and_exit();
+        std::process::exit(0);
     }
     debug!("Single instance mutex created");
 

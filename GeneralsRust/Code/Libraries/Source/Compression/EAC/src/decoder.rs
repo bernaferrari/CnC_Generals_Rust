@@ -6,9 +6,6 @@
 use crate::{Result, EacError, CompressionType, EacHeader};
 use rayon::prelude::*;
 
-#[cfg(feature = "simd")]
-use wide::*;
-
 /// Configuration for decoder behavior
 #[derive(Debug, Clone)]
 pub struct DecoderConfig {
@@ -37,7 +34,9 @@ impl Default for DecoderConfig {
 pub struct Decoder {
     config: DecoderConfig,
     // Reusable buffers for performance
+    #[allow(dead_code)]
     work_buffer: Vec<u8>,
+    #[allow(dead_code)]
     verify_buffer: Vec<u8>,
 }
 

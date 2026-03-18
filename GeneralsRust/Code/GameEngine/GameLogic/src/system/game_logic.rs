@@ -1590,7 +1590,7 @@ impl GameLogic {
 
             // Update the module and get next wake time
             // C++ lines 3717-3732: Check disabled flags and call update()
-            let mut next_wake = None;
+            let next_wake;
             if should_process {
                 match entry.module.write() {
                     Ok(mut module) => match module.update() {

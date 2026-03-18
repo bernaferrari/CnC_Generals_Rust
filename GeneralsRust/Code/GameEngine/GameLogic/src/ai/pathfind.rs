@@ -1494,7 +1494,7 @@ pub fn adjust_destination_for_object(
         .map_err(|_| "Could not lock object for destination adjustment")?;
 
     // Get AI update interface if available
-    if let Some(ai) = obj_guard.get_ai_update_interface() {
+    if let Some(_ai) = obj_guard.get_ai_update_interface() {
         // Use the AI's adjust_destination if it has one
         drop(obj_guard);
 

@@ -597,7 +597,7 @@ impl DrawModule for W3DLaserDraw {
         let use_arc = self.data.arc_height > 0.0 && segments > 1;
 
         for segment in 0..segments {
-            let (mut seg_start, mut seg_end) = if use_arc {
+            let (seg_start, seg_end) = if use_arc {
                 let line_start = self.start_pos;
                 let line_end = self.end_pos;
                 let line_vector = line_end - line_start;
