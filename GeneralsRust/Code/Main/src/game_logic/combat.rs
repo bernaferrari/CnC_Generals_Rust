@@ -143,6 +143,69 @@ pub struct CombatSystem {
     next_projectile_id: ObjectId,
 }
 
+/// Global projectile spawn queue. Objects call this when firing, and the
+/// game loop drains it each frame into the CombatSystem.
+static PENDING_PROJECTILES: std::sync::Mutex<Vec<PendingProjectile>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Data needed to spawn a projectile (enqueued by Object::fire_at).
+#[derive(Debug, Clone)]
+pub struct PendingProjectile {
+    pub shooter_id: ObjectId,
+    pub shooter_pos: Vec3,
+    pub target_id: Option<ObjectId>,
+    pub target_pos: Vec3,
+    pub damage: f32,
+    pub speed: f32,
+}
+
+/// Queue a projectile for spawning. Called from Object::fire_at().
+pub fn queue_projectile(pending: PendingProjectile) {
+    if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
+        queue.push(pending);
+    }
+}
+
+/// Drain all pending projectiles and spawn them into the combat system.
+/// Resolves target object positions from the objects map.
+pub fn drain_pending_projectiles(
+    combat: &mut CombatSystem,
+    objects: &HashMap<ObjectId, Object>,
+) {
+    let pending = if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
+        std::mem::take(&mut *queue)
+    } else {
+        Vec::new()
+    };
+
+    for p in pending {
+        // Resolve actual target position from the objects map
+        let actual_target_pos = p
+            .target_id
+            .and_then(|tid| objects.get(&tid))
+            .map(|obj| obj.get_position())
+            .unwrap_or(p.target_pos);
+
+        // Create a temporary weapon for the fire_projectile call
+        let weapon = Weapon {
+            damage: p.damage,
+            range: 100.0,
+            reload_time: 1.0,
+            last_fire_time: 0.0,
+            ammo: None,
+            can_target_air: true,
+            can_target_ground: true,
+        };
+        combat.fire_projectile(
+            p.shooter_pos,
+            actual_target_pos,
+            &weapon,
+            p.shooter_id,
+            p.target_id,
+        );
+    }
+}
+
 impl Default for CombatSystem {
     fn default() -> Self {
         Self::new()
@@ -246,13 +309,43 @@ impl CombatSystem {
         // Process damage events
         for hit in &damage_events {
             match hit {
-                DamageEvent::Direct { .. } => {
-                    // Apply damage to target would go here
-                    // self.apply_damage_to_object(*target_id, *damage, *damage_type, objects);
+                DamageEvent::Direct {
+                    target_id,
+                    damage,
+                    damage_type,
+                    ..
+                } => {
+                    if let Some(target) = objects.get_mut(target_id) {
+                        let destroyed = target.take_damage(*damage);
+                        if destroyed {
+                            log::debug!(
+                                "Projectile destroyed object {} (damage: {:.1}, type: {:?})",
+                                target_id,
+                                damage,
+                                damage_type,
+                            );
+                        }
+                    }
                 }
-                DamageEvent::Area { .. } => {
-                    // Apply area damage would go here
-                    // self.apply_area_damage(*position, *damage, *damage_type, *radius, objects);
+                DamageEvent::Area {
+                    position,
+                    damage,
+                    damage_type,
+                    radius,
+                    ..
+                } => {
+                    // Apply area damage to all objects within radius
+                    for (_id, obj) in objects.iter_mut() {
+                        let dist = obj.get_position().distance(*position);
+                        if dist <= *radius {
+                            // Quadratic falloff: full damage at center, zero at edge
+                            let falloff = 1.0 - (dist / radius).powi(2);
+                            let area_damage = damage * falloff;
+                            if area_damage > 0.0 {
+                                obj.take_damage(area_damage);
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-use crate::assets::W3DModel;
+use crate::assets::{W3DMaterial, W3DMesh, W3DModel, W3DVertex};
 use anyhow::Result;
 use glam::{Mat4, Vec3};
 use log::info;
@@ -224,11 +224,21 @@ impl GraphicsSystem {
 
         info!("GraphicsSystem initialized successfully (with depth buffer)");
 
+        let mut loaded_models = HashMap::new();
+
+        // Cache a fallback cube model for objects whose W3D assets fail to load.
+        // This ensures every game object produces at least one visible render item.
+        {
+            let fallback = Self::create_fallback_cube_model();
+            loaded_models.insert("__fallback_cube__".to_string(), Arc::new(fallback));
+            info!("GraphicsSystem: fallback cube model cached for missing W3D assets");
+        }
+
         Ok(Self {
             device,
             queue,
             color_format,
-            loaded_models: HashMap::new(),
+            loaded_models,
             global_uniforms,
             uniform_buffer,
             uniform_bind_group,
@@ -485,6 +495,113 @@ impl GraphicsSystem {
         self.frame_count += 1;
         self.triangles_rendered = 0;
         self.draw_calls = 0;
+    }
+
+    /// Try to get a cached model by name; if not found, return the fallback cube model.
+    /// This is the preferred accessor for render-item collection so that every game
+    /// object produces at least one visible mesh on screen.
+    pub fn get_model_or_fallback(&self, model_name: &str) -> Option<Arc<W3DModel>> {
+        if let Some(model) = self.loaded_models.get(model_name) {
+            return Some(Arc::clone(model));
+        }
+        self.loaded_models.get("__fallback_cube__").map(Arc::clone)
+    }
+
+    /// Check whether a model is the built-in fallback cube.
+    pub fn is_fallback_model(model_name: &str) -> bool {
+        model_name == "__fallback_cube__"
+    }
+
+    /// Create a simple unit cube W3D model for use as a fallback placeholder.
+    /// The cube is centered at the origin, extends +/-0.5 on each axis, and uses
+    /// a bright magenta diffuse color so missing assets are immediately visible.
+    fn create_fallback_cube_model() -> W3DModel {
+        // 8 corners of a unit cube centered at origin
+        let s = 5.0; // half-extent in world units (visible from gameplay camera)
+        let vertices = vec![
+            // Front face (z = +s)
+            W3DVertex { position: [-s, -s,  s], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s, -s,  s], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s,  s,  s], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [-s,  s,  s], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            // Back face (z = -s)
+            W3DVertex { position: [ s, -s, -s], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [-s, -s, -s], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [-s,  s, -s], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [ s,  s, -s], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            // Top face (y = +s)
+            W3DVertex { position: [-s,  s,  s], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s,  s,  s], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s,  s, -s], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [-s,  s, -s], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            // Bottom face (y = -s)
+            W3DVertex { position: [-s, -s, -s], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [ s, -s, -s], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [ s, -s,  s], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [-s, -s,  s], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            // Right face (x = +s)
+            W3DVertex { position: [ s, -s,  s], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s, -s, -s], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s,  s, -s], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex { position: [ s,  s,  s], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            // Left face (x = -s)
+            W3DVertex { position: [-s, -s, -s], normal: [-1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [-s, -s,  s], normal: [-1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [-s,  s,  s], normal: [-1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex { position: [-s,  s, -s], normal: [-1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+        ];
+
+        // Two triangles per face, 6 faces = 36 indices
+        let indices: Vec<u32> = vec![
+            0,  1,  2,  0,  2,  3,   // front
+            4,  5,  6,  4,  6,  7,   // back
+            8,  9,  10, 8,  10, 11,  // top
+            12, 13, 14, 12, 14, 15,  // bottom
+            16, 17, 18, 16, 18, 19,  // right
+            20, 21, 22, 20, 22, 23,  // left
+        ];
+
+        let mut material = W3DMaterial::default();
+        material.name = "__fallback_material__".to_string();
+        material.diffuse_color = Vec3::new(1.0, 0.0, 1.0); // bright magenta
+        material.emissive_color = Vec3::new(0.3, 0.0, 0.3); // slight self-illum for visibility
+
+        let mesh = W3DMesh {
+            name: "__fallback_cube_mesh__".to_string(),
+            vertices,
+            indices,
+            material,
+            transform: Mat4::IDENTITY,
+            header: None,
+            stage_texcoords: Vec::new(),
+            passes: Vec::new(),
+            per_pass_stage_texture_ids: Vec::new(),
+            per_pass_stage_texture_names: Vec::new(),
+            per_pass_vertex_material_ids: Vec::new(),
+            per_pass_shader_ids: Vec::new(),
+            per_pass_dcg_colors: Vec::new(),
+            per_pass_dig_colors: Vec::new(),
+            vertex_materials: Vec::new(),
+            shaders: Vec::new(),
+            vertex_influences: None,
+            vertex_shade_indices: None,
+            per_stage_face_texcoord_ids: Vec::new(),
+            stage_uv_channels: Vec::new(),
+            texture_library: Vec::new(),
+            vertex_mappers: Vec::new(),
+            vertices_in_render_space: true,
+            has_explicit_vertex_colors: true,
+        };
+
+        W3DModel {
+            name: "__fallback_cube__".to_string(),
+            meshes: vec![mesh],
+            materials: HashMap::new(),
+            texture_names: Vec::new(),
+            ww3d_mesh_models: HashMap::new(),
+            bounding_box_min: Vec3::new(-5.0, -5.0, -5.0),
+            bounding_box_max: Vec3::new(5.0, 5.0, 5.0),
+        }
     }
 
     /// End frame - equivalent to C++ GraphicsSystem::EndFrame()

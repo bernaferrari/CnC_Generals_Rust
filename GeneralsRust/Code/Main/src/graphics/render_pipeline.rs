@@ -844,107 +844,140 @@ impl RenderPipeline {
                 RenderModelLoadResult::Ready(w3d_model) => {
                     if w3d_model.meshes.is_empty() {
                         self.debug_last_zero_mesh_models += 1;
-                        continue;
-                    }
+                        // Fall through to fallback cube below (same as Failed path)
+                    } else {
+                        // Normal mesh processing
+                        let visibility = visibilities
+                            .get(&object_id)
+                            .copied()
+                            .unwrap_or_else(ObjectVisibility::default);
 
-                    let visibility = visibilities
-                        .get(&object_id)
-                        .copied()
-                        .unwrap_or_else(ObjectVisibility::default);
+                        for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
+                            let mut material = mesh.material.clone();
 
-                    for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
-                        let mut material = mesh.material.clone();
-
-                        if material.texture_name.is_none() {
-                            if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
-                                if let Ok(asset_manager) = asset_manager_arc.lock() {
-                                    if let Some(obj_def) = asset_manager.resolve_object_definition(
-                                        &object.template_name,
-                                        model_hint,
-                                    ) {
-                                        if let Some(texture_from_ini) =
-                                            obj_def.get_primary_texture()
-                                        {
-                                            material.texture_name =
-                                                Some(texture_from_ini.to_string());
-                                            trace!(
-                                                "WW3D material fallback: object {} ('{}') -> texture {}",
-                                                object_id,
-                                                object.template_name,
-                                                texture_from_ini
-                                            );
+                            if material.texture_name.is_none() {
+                                if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+                                    if let Ok(asset_manager) = asset_manager_arc.lock() {
+                                        if let Some(obj_def) = asset_manager.resolve_object_definition(
+                                            &object.template_name,
+                                            model_hint,
+                                        ) {
+                                            if let Some(texture_from_ini) =
+                                                obj_def.get_primary_texture()
+                                            {
+                                                material.texture_name =
+                                                    Some(texture_from_ini.to_string());
+                                                trace!(
+                                                    "WW3D material fallback: object {} ('{}') -> texture {}",
+                                                    object_id,
+                                                    object.template_name,
+                                                    texture_from_ini
+                                                );
+                                            } else if self
+                                                .missing_ini_objects
+                                                .insert(format!("{}::texture", object.template_name))
+                                            {
+                                                debug!(
+                                                    "WW3D assets: INI definition for '{}' defines no textures",
+                                                    object.template_name
+                                                );
+                                            }
                                         } else if self
                                             .missing_ini_objects
-                                            .insert(format!("{}::texture", object.template_name))
+                                            .insert(object.template_name.clone())
                                         {
                                             debug!(
-                                                "WW3D assets: INI definition for '{}' defines no textures",
-                                                object.template_name
+                                                "WW3D assets: no INI definition for '{}' (model hint: {:?})",
+                                                object.template_name,
+                                                model_hint
                                             );
                                         }
-                                    } else if self
-                                        .missing_ini_objects
-                                        .insert(object.template_name.clone())
-                                    {
-                                        debug!(
-                                            "WW3D assets: no INI definition for '{}' (model hint: {:?})",
-                                            object.template_name,
-                                            model_hint
-                                        );
                                     }
                                 }
                             }
+
+                            let world_matrix =
+                                gameplay_to_render_transform(object.get_transform_matrix());
+                            let world_position = world_matrix.w_axis.truncate();
+                            // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
+                            // source gameplay basis. If we axis-convert vertex payload at mesh build
+                            // time, local transforms must be converted into the same render basis.
+                            let mesh_local_transform = if mesh.vertices_in_render_space {
+                                mesh.transform
+                            } else {
+                                let axis = gameplay_to_render_axis_matrix();
+                                axis * mesh.transform * axis.inverse()
+                            };
+                            let mesh_local_transform = if transform_is_reasonable_for_mesh(
+                                mesh_local_transform,
+                            ) {
+                                mesh_local_transform
+                            } else {
+                                let key =
+                                    format!("{}::{}::{}", object.template_name, model_name, mesh.name);
+                                if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
+                                    warn!(
+                                        "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
+                                        key, object.template_name, model_name, mesh.name
+                                    );
+                                }
+                                Mat4::IDENTITY
+                            };
+                            let mut render_item = RenderItem::new(
+                                object_id,
+                                model_name.to_string(),
+                                mesh_idx,
+                                world_position,
+                                world_matrix,
+                                &material,
+                                Self::render_pass_for_material(&material),
+                            );
+                            render_item.set_mesh_local_transform(mesh_local_transform);
+                            render_item.distance = world_position.distance(camera_position);
+                            render_item.set_fow_visibility(visibility);
+
+                            self.render_items.push(render_item);
                         }
 
-                        let world_matrix =
-                            gameplay_to_render_transform(object.get_transform_matrix());
-                        let world_position = world_matrix.w_axis.truncate();
-                        // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
-                        // source gameplay basis. If we axis-convert vertex payload at mesh build
-                        // time, local transforms must be converted into the same render basis.
-                        let mesh_local_transform = if mesh.vertices_in_render_space {
-                            mesh.transform
-                        } else {
-                            let axis = gameplay_to_render_axis_matrix();
-                            axis * mesh.transform * axis.inverse()
-                        };
-                        let mesh_local_transform = if transform_is_reasonable_for_mesh(
-                            mesh_local_transform,
-                        ) {
-                            mesh_local_transform
-                        } else {
-                            let key =
-                                format!("{}::{}::{}", object.template_name, model_name, mesh.name);
-                            if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
-                                warn!(
-                                    "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
-                                    key, object.template_name, model_name, mesh.name
-                                );
-                            }
-                            Mat4::IDENTITY
-                        };
-                        let mut render_item = RenderItem::new(
+                        trace!(
+                            "Object {} will render with FOW alpha={}, explored={}",
                             object_id,
-                            model_name.to_string(),
-                            mesh_idx,
-                            world_position,
-                            world_matrix,
-                            &material,
-                            Self::render_pass_for_material(&material),
+                            visibility.visibility_alpha,
+                            visibility.is_explored
                         );
-                        render_item.set_mesh_local_transform(mesh_local_transform);
-                        render_item.distance = world_position.distance(camera_position);
-                        render_item.set_fow_visibility(visibility);
-
-                        self.render_items.push(render_item);
+                        continue; // Skip the fallback path
                     }
 
-                    trace!(
-                        "Object {} will render with FOW alpha={}, explored={}",
-                        object_id,
-                        visibility.visibility_alpha,
-                        visibility.is_explored
-                    );
+                    // --- Fallback cube for models with zero meshes ---
+                    if let Some(fallback_model) =
+                        graphics_system.get_model_or_fallback("__fallback_cube__")
+                    {
+                        if !fallback_model.meshes.is_empty() {
+                            let visibility = visibilities
+                                .get(&object_id)
+                                .copied()
+                                .unwrap_or_else(ObjectVisibility::default);
+
+                            let world_matrix =
+                                gameplay_to_render_transform(object.get_transform_matrix());
+                            let world_position = world_matrix.w_axis.truncate();
+
+                            let fallback_mesh = &fallback_model.meshes[0];
+                            let mut render_item = RenderItem::new(
+                                object_id,
+                                "__fallback_cube__".to_string(),
+                                0,
+                                world_position,
+                                world_matrix,
+                                &fallback_mesh.material,
+                                RenderPass::ForwardOpaque,
+                            );
+                            render_item.distance = world_position.distance(camera_position);
+                            render_item.set_fow_visibility(visibility);
+
+                            self.render_items.push(render_item);
+                        }
+                    }
                 }
                 RenderModelLoadResult::SkippedByBudget => {
                     self.debug_last_model_budget_skips += 1;
@@ -969,6 +1002,38 @@ impl RenderPipeline {
                         ));
                     }
                     model_missing += 1;
+
+                    // Emit a fallback cube render item so the object is still visible
+                    // on screen even though its W3D model could not be loaded.
+                    if let Some(fallback_model) =
+                        graphics_system.get_model_or_fallback("__fallback_cube__")
+                    {
+                        if !fallback_model.meshes.is_empty() {
+                            let visibility = visibilities
+                                .get(&object_id)
+                                .copied()
+                                .unwrap_or_else(ObjectVisibility::default);
+
+                            let world_matrix =
+                                gameplay_to_render_transform(object.get_transform_matrix());
+                            let world_position = world_matrix.w_axis.truncate();
+
+                            let fallback_mesh = &fallback_model.meshes[0];
+                            let mut render_item = RenderItem::new(
+                                object_id,
+                                "__fallback_cube__".to_string(),
+                                0,
+                                world_position,
+                                world_matrix,
+                                &fallback_mesh.material,
+                                RenderPass::ForwardOpaque,
+                            );
+                            render_item.distance = world_position.distance(camera_position);
+                            render_item.set_fow_visibility(visibility);
+
+                            self.render_items.push(render_item);
+                        }
+                    }
                 }
             }
         }

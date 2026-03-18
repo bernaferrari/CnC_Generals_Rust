@@ -437,6 +437,23 @@ impl Object {
             if let Some(weapon) = &mut self.weapon {
                 weapon.last_fire_time = current_time;
                 self.target = Some(target_id);
+
+                // Extract data before calling self.get_position() to satisfy
+                // the borrow checker (self.weapon is mutably borrowed here).
+                let weapon_damage = weapon.damage;
+                let shooter_id = self.id;
+                let shooter_pos = self.get_position();
+
+                // Queue a projectile for the combat system to spawn this frame.
+                super::combat::queue_projectile(super::combat::PendingProjectile {
+                    shooter_id,
+                    shooter_pos,
+                    target_id: Some(target_id),
+                    target_pos: shooter_pos, // placeholder
+                    damage: weapon_damage,
+                    speed: 200.0,
+                });
+
                 true
             } else {
                 false
