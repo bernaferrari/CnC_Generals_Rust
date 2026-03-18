@@ -16,8 +16,8 @@
 //! - Resource gathering management
 
 use crate::common::rts::{
-    AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle, Relationship, ScienceType,
-    ScoreKeeper, Team, TeamID, TeamPrototype, SCIENCE_INVALID,
+    AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle, ProductionPrerequisite,
+    Relationship, ScienceType, ScoreKeeper, Team, TeamID, TeamPrototype, SCIENCE_INVALID,
 };
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::collections::{HashMap, HashSet};
@@ -1587,18 +1587,79 @@ impl Player {
     }
 
     /// Check if can build a thing (includes prereqs)
-    /// C++ Reference: Player::canBuild() (Player.cpp lines 1990-2061)
+    /// C++ Reference: Player::canBuild() (Player.cpp lines 2880-2924)
+    ///
+    /// This is the simplified interface that doesn't check template-level properties.
+    /// For full C++-faithful checking, use `can_build_template`.
     pub fn can_build(&self, _template_name: &str, is_structure: bool) -> bool {
         // Basic check
         if !self.allowed_to_build(is_structure) {
             return false;
         }
 
-        // In full implementation, would check:
-        // - Buildable status
-        // - Prerequisites
-        // - Max simultaneous of type
-        
+        true
+    }
+
+    /// Full prerequisite check matching C++ Player::canBuild() behavior.
+    ///
+    /// C++ Reference: Player::canBuild() (Player.cpp lines 2880-2924)
+    ///
+    /// Checks:
+    /// 1. allowedToBuild()
+    /// 2. BuildableStatus != BSTATUS_NO
+    /// 3. BuildableStatus != BSTATUS_ONLY_BY_AI (unless player is COMPUTER)
+    /// 4. All ProductionPrerequisite entries satisfied (AND logic)
+    /// 5. (Debug) ignoresPrereqs override
+    /// 6. canBuildMoreOfType
+    pub fn can_build_template(
+        &self,
+        is_structure: bool,
+        buildable: i32, // 0=Yes, 1=IgnorePrerequisites, 2=No, 3=OnlyByAI
+        prereqs: &[ProductionPrerequisite],
+    ) -> bool {
+        // C++ line 2885: if (!allowedToBuild(tmplate)) return false;
+        if !self.allowed_to_build(is_structure) {
+            return false;
+        }
+
+        // C++ lines 2888-2895: BuildableStatus checks
+        // BuildableStatus: Yes=0, Ignore_Prerequisites=1, No=2, Only_By_AI=3
+        if buildable == 2 {
+            // BSTATUS_NO
+            return false;
+        }
+        if buildable == 1 {
+            // BSTATUS_IGNORE_PREREQUISITES
+            return true;
+        }
+        if buildable == 3 && self.player_type != PlayerType::Computer {
+            // BSTATUS_ONLY_BY_AI
+            return false;
+        }
+
+        // C++ lines 2898-2917: Check all prerequisites (AND logic)
+        // All ProductionPrerequisite entries must be satisfied
+        let mut prereqs_ok = true;
+        for prereq in prereqs {
+            if !prereq.is_satisfied(self) {
+                prereqs_ok = false;
+                break;
+            }
+        }
+
+        // C++ lines 2909-2912: Debug override
+        #[cfg(debug_assertions)]
+        if self.ignores_prereqs() {
+            prereqs_ok = true;
+        }
+
+        if !prereqs_ok {
+            return false;
+        }
+
+        // C++ lines 2919-2920: canBuildMoreOfType
+        // Note: max_simultaneous check requires template info, handled by caller
+
         true
     }
 

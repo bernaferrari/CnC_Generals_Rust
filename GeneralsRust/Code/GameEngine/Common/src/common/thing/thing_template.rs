@@ -26,7 +26,7 @@ use crate::common::{
     global_data,
     rts::{
         AsciiString, Color, NameKeyType, ProductionPrerequisite, Real, UnicodeString, UnsignedByte,
-        UnsignedShort,
+        UnsignedShort, SCIENCE_INVALID, get_science_store,
     },
     system::{
         geometry::{GeometryInfo, GeometryType},
@@ -1514,6 +1514,132 @@ impl ThingTemplate {
     pub fn set_reskinned_from(&mut self, template: Arc<ThingTemplate>) {
         debug_assert!(self.reskinned_from.is_none(), "should be None");
         self.reskinned_from = Some(template);
+    }
+
+    /// Set buildable status.
+    /// C++ Reference: ThingTemplate.h m_buildable
+    pub fn set_buildable(&mut self, status: BuildableStatus) {
+        self.buildable = status;
+    }
+
+    /// Set whether this thing is considered a prerequisite for other things.
+    /// C++ Reference: ThingTemplate.h m_isPrerequisite
+    pub fn set_is_prerequisite(&mut self, value: bool) {
+        self.is_prerequisite = value;
+    }
+
+    /// Set whether this thing is forbidden.
+    /// C++ Reference: ThingTemplate.h m_isForbidden
+    pub fn set_is_forbidden(&mut self, value: bool) {
+        self.is_forbidden = value;
+    }
+
+    /// Set build cost.
+    /// C++ Reference: ThingTemplate.h m_buildCost
+    pub fn set_build_cost(&mut self, cost: UnsignedShort) {
+        self.build_cost = cost;
+    }
+
+    /// Set build time.
+    /// C++ Reference: ThingTemplate.h m_buildTime
+    pub fn set_build_time(&mut self, time: Real) {
+        self.build_time = time;
+    }
+
+    /// Set refund value.
+    /// C++ Reference: ThingTemplate.h m_refundValue
+    pub fn set_refund_value(&mut self, value: UnsignedShort) {
+        self.refund_value = value;
+    }
+
+    /// Set default owning side.
+    /// C++ Reference: ThingTemplate.h m_defaultOwningSide
+    pub fn set_default_owning_side(&mut self, side: AsciiString) {
+        self.default_owning_side = side;
+    }
+
+    /// Set command set string.
+    /// C++ Reference: ThingTemplate.h m_commandSetString
+    pub fn set_command_set_string(&mut self, cmd_set: AsciiString) {
+        self.command_set_string = cmd_set;
+    }
+
+    /// Set build completion type.
+    /// C++ Reference: ThingTemplate.h m_buildCompletion
+    pub fn set_build_completion(&mut self, completion: BuildCompletionType) {
+        self.build_completion = completion;
+    }
+
+    /// Clear and set all prerequisites.
+    /// C++ Reference: ThingTemplate.h m_prereqInfo
+    pub fn set_prereq_info(&mut self, prereqs: Vec<ProductionPrerequisite>) {
+        self.prereq_info = prereqs;
+    }
+
+    /// Add a prerequisite entry.
+    /// C++ Reference: ThingTemplate::parsePrerequisites pushes into m_prereqInfo
+    pub fn add_prereq(&mut self, prereq: ProductionPrerequisite) {
+        self.prereq_info.push(prereq);
+    }
+
+    /// Parse the `Prerequisites` INI block and populate m_prereqInfo.
+    ///
+    /// C++ Reference: ThingTemplate::parsePrerequisites (ThingTemplate.cpp lines 635-651)
+    ///
+    /// INI format:
+    /// ```ini
+    /// Prerequisites
+    ///   Object = Barracks WarFactory    ; each line creates one ProductionPrerequisite
+    ///   Science = SCIENCE_BattleDrone   ; science prereq
+    /// End
+    /// ```
+    ///
+    /// Each line produces a separate `ProductionPrerequisite` entry in `m_prereqInfo`.
+    /// Tokens on an `Object` line are OR'd together (the first has no flag,
+    /// subsequent tokens get UNIT_OR_WITH_PREV).
+    /// Player::canBuild requires ALL entries to be satisfied (AND logic).
+    pub fn parse_prerequisites_block(&mut self, lines: &[String]) {
+        self.prereq_info.clear();
+
+        for line in lines {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Split on '=' to get key and value
+            if let Some(eq_pos) = trimmed.find('=') {
+                let key = trimmed[..eq_pos].trim();
+                let value = trimmed[eq_pos + 1..].trim();
+
+                if key.eq_ignore_ascii_case("Object") {
+                    // C++ parsePrerequisiteUnit: each token is OR'd with previous
+                    let mut prereq = ProductionPrerequisite::new();
+                    let tokens: Vec<&str> = value.split_whitespace().collect();
+                    for (i, token) in tokens.iter().enumerate() {
+                        prereq.add_unit_prereq(token.to_string(), i > 0);
+                    }
+                    self.prereq_info.push(prereq);
+                } else if key.eq_ignore_ascii_case("Science") {
+                    // C++ parsePrerequisiteScience: lookup science by name
+                    let mut prereq = ProductionPrerequisite::new();
+                    if let Some(science_store) = get_science_store() {
+                        let science_type = science_store.get_science_from_internal_name(value);
+                        if science_type != SCIENCE_INVALID {
+                            prereq.add_science_prereq(science_type);
+                        } else {
+                            #[cfg(any(debug_assertions, feature = "internal"))]
+                            eprintln!(
+                                "WARNING: could not find science prerequisite '{}'",
+                                value
+                            );
+                        }
+                    }
+                    self.prereq_info.push(prereq);
+                }
+                // C++ only supports Object and Science in Prerequisites block
+            }
+        }
     }
 
     pub fn validate(&self) {

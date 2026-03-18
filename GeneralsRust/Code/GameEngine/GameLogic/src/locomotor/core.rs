@@ -10,6 +10,7 @@ use crate::ai::pathfinding_system::{MovementCapabilities, PathfindLayerEnum};
 use crate::common::*;
 use crate::helpers::TheTerrainLogic;
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::physics::{PhysicsState, PhysicsType};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -19,6 +20,18 @@ use std::sync::{Arc, Mutex, RwLock};
 // ============================================================================
 // ENUMS AND CONSTANTS
 // ============================================================================
+
+/// Logic frames per second matching C++ TheGlobalData::m_framesPerSecond
+const LOGICFRAMES_PER_SECOND: u32 = 30;
+
+/// Donut timer delay in seconds. Matches C++ Locomotor.cpp:31 DONUT_TIME_DELAY_SECONDS
+const DONUT_TIME_DELAY_SECONDS: Real = 2.5;
+
+/// Donut distance threshold. Matches C++ Locomotor.cpp:32 DONUT_DISTANCE
+const DONUT_DISTANCE: Real = 4.0 * PATHFIND_CELL_SIZE_F;
+
+/// Maximum braking factor clamp. Matches C++ Locomotor.cpp:35 MAX_BRAKING_FACTOR
+const MAX_BRAKING_FACTOR: Real = 5.0;
 
 /// Locomotor surface type mask - bitmask for allowed terrain types
 pub type LocomotorSurfaceTypeMask = u32;
@@ -30,32 +43,30 @@ pub const SURFACE_CLIFF: u32 = 0x04;
 pub const SURFACE_AIR: u32 = 0x08;
 pub const SURFACE_RUBBLE: u32 = 0x10;
 
-/// Locomotor appearance/type - matches C++ LocomotorAppearance
+/// Locomotor appearance/type - matches C++ LocomotorAppearance (Locomotor.h)
+///
+/// C++ enum has exactly 9 values: LOCO_LEGS_TWO, LOCO_WHEELS_FOUR, LOCO_TREADS,
+/// LOCO_HOVER, LOCO_THRUST, LOCO_WINGS, LOCO_CLIMBER, LOCO_OTHER, LOCO_MOTORCYCLE.
+/// Naval/tunnel behavior is determined by surface masks and physics type, not appearance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LocomotorAppearance {
-    /// Two-legged infantry
+    /// Two-legged infantry (C++ LOCO_LEGS_TWO / "TWO_LEGS")
     TwoLegs,
-    /// Four-wheeled vehicles
+    /// Four-wheeled vehicles (C++ LOCO_WHEELS_FOUR / "FOUR_WHEELS")
     FourWheels,
-    /// Tracked vehicles
+    /// Tracked vehicles (C++ LOCO_TREADS / "TREADS")
     Treads,
-    /// Hovering units
+    /// Hovering units (C++ LOCO_HOVER / "HOVER")
     Hover,
-    /// Thrust-based (helicopters)
+    /// Thrust-based / helicopters (C++ LOCO_THRUST / "THRUST")
     Thrust,
-    /// Fixed-wing aircraft
+    /// Fixed-wing aircraft (C++ LOCO_WINGS / "WINGS")
     Wings,
-    /// Cliff climbers
+    /// Cliff climbers (C++ LOCO_CLIMBER / "CLIMBER")
     Climber,
-    /// Naval units
-    Naval,
-    /// Tunnel diggers
-    Tunnel,
-    /// Jumping units
-    Jump,
-    /// Motorcycle
+    /// Motorcycle (C++ LOCO_MOTORCYCLE / "MOTORCYCLE")
     Motorcycle,
-    /// Other
+    /// Other / default (C++ LOCO_OTHER / "OTHER")
     Other,
 }
 
@@ -149,6 +160,12 @@ pub struct LocomotorTemplate {
 
     /// Circling radius for aircraft (0 = smallest possible)
     pub circling_radius: Real,
+
+    /// Altitude change threshold for circling behavior.
+    /// When > 0 and the Z delta to goal exceeds this, the aircraft circles
+    /// to gain/lose altitude before resuming course.
+    /// Matches C++ Locomotor::m_circleThresh (CIRCLE_FOR_LANDING, disabled by default).
+    pub circle_thresh: Real,
 
     /// Maximum Z-axis speed
     pub speed_limit_z: Real,
@@ -245,6 +262,7 @@ impl LocomotorTemplate {
             preferred_height: 0.0,
             preferred_height_damping: 0.5,
             circling_radius: 0.0,
+            circle_thresh: 0.0,
             speed_limit_z: 5.0,
             extra_2d_friction: 0.0,
             max_thrust_angle: 0.0,
@@ -402,21 +420,6 @@ impl LocomotorTemplate {
         template
     }
 
-    /// Create naval template
-    pub fn new_naval(name: String) -> Self {
-        let mut template = Self::new(name);
-        template.appearance = LocomotorAppearance::Naval;
-        template.surfaces = SURFACE_WATER;
-        template.max_speed = 10.0;
-        template.max_speed_damaged = 6.0;
-        template.acceleration = 2.0;
-        template.max_turn_rate = 0.06;
-        template.braking = 3.0;
-        template.behavior_z = LocomotorBehaviorZ::SeaLevel;
-        template.close_enough_dist = 8.0;
-        template
-    }
-
     /// Create climber template
     pub fn new_climber(name: String) -> Self {
         let mut template = Self::new(name);
@@ -433,18 +436,6 @@ impl LocomotorTemplate {
         template
     }
 
-    /// Create tunnel digger template
-    pub fn new_tunnel(name: String) -> Self {
-        let mut template = Self::new(name);
-        template.appearance = LocomotorAppearance::Tunnel;
-        template.surfaces = SURFACE_GROUND;
-        template.max_speed = 12.0;
-        template.acceleration = 3.0;
-        template.max_turn_rate = 0.1;
-        template.braking = 4.0;
-        template.close_enough_dist = 5.0;
-        template
-    }
 }
 
 // ============================================================================
@@ -646,6 +637,10 @@ pub struct Locomotor {
     /// Last obstacle detection time
     last_obstacle_check: u32,
 
+    /// Donut timer frame for wheels braking near destination
+    /// Matches C++ Locomotor::m_donutTimer
+    donut_timer: u32,
+
     /// Flags
     flags: u32,
 }
@@ -663,6 +658,7 @@ const FLAG_DOING_THREE_POINT_TURN: u32 = 0x100;
 const FLAG_CLIMBING: u32 = 0x200;
 const FLAG_OVER_WATER: u32 = 0x400;
 const FLAG_OFFSET_INCREASING: u32 = 0x800;
+const FLAG_SLIDING_INTO_PLACE: u32 = 0x1000;
 
 impl Locomotor {
     /// Create new locomotor from template
@@ -687,6 +683,7 @@ impl Locomotor {
             offset_increment,
             active_path: None,
             last_obstacle_check: 0,
+            donut_timer: 0,
             flags: if template.is_close_enough_dist_3d {
                 FLAG_CLOSE_ENOUGH_3D
                     | (if rand::random::<bool>() {
@@ -808,11 +805,13 @@ impl Locomotor {
         let max_acceleration = self.get_max_acceleration(condition);
 
         // Calculate relative angle to goal (with turn pivot offset)
+        // C++ uses rotateTowardsPosition which also sets physics->setTurning
         let desired_angle =
             self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, self.is_braking());
         let rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
         // Modulate speed according to turning
+        // C++ Locomotor.cpp:1170-1173
         const QUARTER_PI: Real = std::f32::consts::PI / 4.0;
         let mut angle_coeff = rel_angle.abs() / QUARTER_PI;
         if angle_coeff > 1.0 {
@@ -822,17 +821,22 @@ impl Locomotor {
         let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
         goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
 
-        // Check if close to target and turning
+        // Check if close to target and turning - slow down for precision
+        // C++ Locomotor.cpp:1190-1192
         let dx = current_pos.x - goal_pos.x;
         let dy = current_pos.y - goal_pos.y;
-        if (dx * dx + dy * dy) < (2.0 * 40.0 * 40.0) && angle_coeff > 0.05 {
+        if (dx * dx + dy * dy) < (2.0 * PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F) && angle_coeff > 0.05 {
             goal_speed = current_speed * 0.6;
         }
 
-        // Braking logic
-        let slow_down_time = current_speed / self.get_braking();
+        // Braking logic - matches C++ Locomotor.cpp:1187-1221
+        // C++ uses actualSpeed / getBraking() for time and actualSpeed/1.50f * time for dist
+        let braking = self.get_braking();
+        let slow_down_time = if braking > 0.0 { current_speed / braking } else { 0.0 };
         let slow_down_dist = (current_speed / 1.5) * slow_down_time;
 
+        // Start braking if close enough and not already braking
+        // C++ Locomotor.cpp:1194-1198
         if on_path_dist_to_goal < slow_down_dist
             && !self.is_braking()
             && !self.no_slow_down_approaching_dest()
@@ -841,25 +845,30 @@ impl Locomotor {
             self.braking_factor = 1.1;
         }
 
-        if on_path_dist_to_goal > 40.0 && on_path_dist_to_goal > 2.0 * slow_down_dist {
+        // Stop braking if far enough from goal
+        // C++ Locomotor.cpp:1200-1203
+        if on_path_dist_to_goal > PATHFIND_CELL_SIZE_F && on_path_dist_to_goal > 2.0 * slow_down_dist {
             self.set_flag(FLAG_IS_BRAKING, false);
         }
 
+        // Apply braking factor and reduce speed
+        // C++ Locomotor.cpp:1205-1221
         if self.is_braking() {
-            self.braking_factor = slow_down_dist / on_path_dist_to_goal;
+            if on_path_dist_to_goal > 0.0 {
+                self.braking_factor = slow_down_dist / on_path_dist_to_goal;
+            }
             self.braking_factor *= self.braking_factor;
-            const MAX_BRAKING_FACTOR: Real = 5.0;
             if self.braking_factor > MAX_BRAKING_FACTOR {
                 self.braking_factor = MAX_BRAKING_FACTOR;
             }
 
             if slow_down_dist > on_path_dist_to_goal {
-                goal_speed = current_speed - self.get_braking();
+                goal_speed = current_speed - braking;
                 if goal_speed < 0.0 {
                     goal_speed = 0.0;
                 }
             } else if slow_down_dist > on_path_dist_to_goal * 0.75 {
-                goal_speed = current_speed - self.get_braking() / 2.0;
+                goal_speed = current_speed - braking / 2.0;
                 if goal_speed < 0.0 {
                     goal_speed = 0.0;
                 }
@@ -868,12 +877,14 @@ impl Locomotor {
             }
         }
 
-        // Calculate acceleration force
+        // Calculate acceleration force - matches C++ Locomotor.cpp:1230-1254
+        // C++ uses mass * acceleration and clamps accelForce <= mass * speedDelta
+        // We return the acceleration directly; the caller applies mass.
         let speed_delta = goal_speed - current_speed;
         let acceleration = if speed_delta > 0.0 {
             max_acceleration
         } else {
-            -self.braking_factor * self.get_braking()
+            -self.braking_factor * braking
         };
 
         (current_pos, desired_angle, acceleration)
@@ -890,8 +901,12 @@ impl Locomotor {
         desired_speed: Real,
         current_speed: Real,
         condition: BodyDamageType,
+        major_radius: Real,
+        current_frame: u32,
     ) -> (Coord3D, Real, Real, bool) {
         let max_speed = self.get_max_speed_for_condition(condition);
+        let max_turn_rate = self.get_max_turn_rate(condition);
+        let max_acceleration = self.get_max_acceleration(condition);
         let mut desired_speed = desired_speed.min(max_speed);
         if self.is_naval_blocked_at(current_pos) {
             desired_speed = 0.0;
@@ -900,42 +915,153 @@ impl Locomotor {
         desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
 
         let mut turn_speed = self.template.min_turn_speed;
-        let desired_angle =
+        let mut desired_angle =
             self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, false);
         let mut rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
         let mut move_backwards = false;
 
-        // Wheeled vehicles can only turn while moving
+        // Wheeled vehicles can only turn while moving, so make sure the turn speed is reasonable.
+        // C++ Locomotor.cpp:1283-1286
         if turn_speed < max_speed / 4.0 {
             turn_speed = max_speed / 4.0;
         }
 
-        // 3-point turn logic
-        if current_speed == 0.0 {
+        let mut actual_speed = current_speed;
+        let mut do3point_turn = false;
+
+        // 3-point turn logic - C++ Locomotor.cpp:1292-1313
+        if actual_speed == 0.0 {
             self.set_flag(FLAG_MOVING_BACKWARDS, false);
             if self.template.can_move_backward && rel_angle.abs() > std::f32::consts::PI / 2.0 {
                 self.set_flag(FLAG_MOVING_BACKWARDS, true);
+                self.set_flag(
+                    FLAG_DOING_THREE_POINT_TURN,
+                    on_path_dist_to_goal > 5.0 * major_radius,
+                );
             }
         }
-
         if self.is_moving_backwards() {
             if rel_angle.abs() < std::f32::consts::PI / 2.0 {
                 move_backwards = false;
                 self.set_flag(FLAG_MOVING_BACKWARDS, false);
             } else {
                 move_backwards = true;
+                self.set_flag(
+                    FLAG_DOING_THREE_POINT_TURN,
+                    on_path_dist_to_goal > 5.0 * major_radius,
+                );
+                do3point_turn = self.get_flag(FLAG_DOING_THREE_POINT_TURN);
+                if !do3point_turn {
+                    desired_angle = Self::normalize_angle(desired_angle + std::f32::consts::PI);
+                    rel_angle = Self::std_angle_diff(desired_angle, current_angle);
+                }
             }
         }
 
-        let mut goal_speed = desired_speed;
+        // Reduce speed when turning sharply - C++ Locomotor.cpp:1316-1323
         const SMALL_TURN: Real = std::f32::consts::PI / 20.0;
         if rel_angle.abs() > SMALL_TURN && desired_speed > turn_speed {
-            goal_speed = turn_speed;
+            desired_speed = turn_speed;
+        }
+
+        let mut goal_speed = desired_speed;
+        if move_backwards {
+            actual_speed = -actual_speed;
         }
         goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
 
-        (current_pos, desired_angle, goal_speed, move_backwards)
+        // Braking distance calculation - C++ Locomotor.cpp:1332-1337
+        let braking = self.get_braking();
+        let slow_down_time = if braking > 0.0 { actual_speed / braking + 1.0 } else { 0.0 };
+        let slow_down_dist = (actual_speed / 1.5) * slow_down_time + actual_speed;
+        let mut effective_slow_down_dist = slow_down_dist;
+        if effective_slow_down_dist < 1.0 * PATHFIND_CELL_SIZE_F {
+            effective_slow_down_dist = 1.0 * PATHFIND_CELL_SIZE_F;
+        }
+
+        // Start braking if close enough - C++ Locomotor.cpp:1393-1403
+        if on_path_dist_to_goal < effective_slow_down_dist
+            && !self.is_braking()
+            && !self.no_slow_down_approaching_dest()
+        {
+            self.set_flag(FLAG_IS_BRAKING, true);
+            self.braking_factor = 1.1;
+        }
+
+        if on_path_dist_to_goal > PATHFIND_CELL_SIZE_F && on_path_dist_to_goal > 2.0 * slow_down_dist {
+            self.set_flag(FLAG_IS_BRAKING, false);
+        }
+
+        // Donut timer - stop near destination for precise positioning
+        // C++ Locomotor.cpp:1405-1411
+        if on_path_dist_to_goal > DONUT_DISTANCE {
+            self.donut_timer = current_frame
+                + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
+        } else if current_frame >= self.donut_timer {
+            self.set_flag(FLAG_IS_BRAKING, true);
+        }
+
+        // Apply braking factor - C++ Locomotor.cpp:1413-1430
+        if self.is_braking() {
+            if on_path_dist_to_goal > 0.0 {
+                self.braking_factor = slow_down_dist / on_path_dist_to_goal;
+            }
+            self.braking_factor *= self.braking_factor;
+            if self.braking_factor > MAX_BRAKING_FACTOR {
+                self.braking_factor = MAX_BRAKING_FACTOR;
+            }
+            // C++ sets m_brakingFactor = 1.0f after the clamp above (line 1420)
+            // This means the braking factor calculation is effectively unused for wheels
+            // and the code below uses the raw braking values.
+            self.braking_factor = 1.0;
+
+            if slow_down_dist > on_path_dist_to_goal {
+                goal_speed = actual_speed - braking;
+                if goal_speed < 0.0 {
+                    goal_speed = 0.0;
+                }
+            } else if slow_down_dist > on_path_dist_to_goal * 0.75 {
+                goal_speed = actual_speed - braking / 2.0;
+                if goal_speed < 0.0 {
+                    goal_speed = 0.0;
+                }
+            } else {
+                goal_speed = actual_speed;
+            }
+        }
+
+        // Turn rate based on speed - C++ Locomotor.cpp:1438-1444
+        // (Turn factor is used for rotateObjAroundLocoPivot; we incorporate it into desired_angle)
+        let turn_factor = if turn_speed > 0.0 {
+            (actual_speed / turn_speed).abs().min(1.0)
+        } else {
+            0.0
+        };
+        let _turn_amount = turn_factor * max_turn_rate;
+
+        // Acceleration force - C++ Locomotor.cpp:1458-1496
+        let mut speed_delta = goal_speed - actual_speed;
+        if move_backwards {
+            speed_delta = -goal_speed + actual_speed;
+        }
+        let acceleration = if speed_delta == 0.0 {
+            0.0
+        } else if move_backwards {
+            if speed_delta < 0.0 {
+                -max_acceleration
+            } else {
+                self.braking_factor * braking
+            }
+        } else {
+            if speed_delta > 0.0 {
+                max_acceleration
+            } else {
+                -self.braking_factor * braking
+            }
+        };
+
+        (current_pos, desired_angle, acceleration, move_backwards)
     }
 
     /// Move towards position - Legs locomotor (infantry) with full physics
@@ -950,12 +1076,16 @@ impl Locomotor {
         current_speed: Real,
         condition: BodyDamageType,
     ) -> (Coord3D, Real, Real) {
+        // C++ Locomotor.cpp:1596-1598 - downhill only check for legs
+        if self.template.downhill_only && current_pos.z < goal_pos.z {
+            return (current_pos, current_angle, 0.0);
+        }
+
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
         if self.is_naval_blocked_at(current_pos) {
             desired_speed = 0.0;
         }
-        desired_speed = self.apply_downhill_only(desired_speed, current_pos, goal_pos);
         desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
         desired_speed = self.apply_jump_slowdown(desired_speed, current_pos, goal_pos);
         let max_acceleration = self.get_max_acceleration(condition);
@@ -963,7 +1093,7 @@ impl Locomotor {
         let mut desired_angle =
             self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, false);
 
-        // Wander logic for infantry
+        // Wander logic for infantry - C++ Locomotor.cpp:1618-1633
         if self.template.wander_width_factor != 0.0 {
             let angle_limit = std::f32::consts::PI / 8.0 * self.template.wander_width_factor;
             if self.is_offset_increasing() {
@@ -982,7 +1112,7 @@ impl Locomotor {
 
         let rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
-        // Modulate speed according to turning
+        // Modulate speed according to turning - C++ Locomotor.cpp:1641-1646
         const QUARTER_PI: Real = std::f32::consts::PI / 4.0;
         let mut angle_coeff = rel_angle.abs() / QUARTER_PI;
         if angle_coeff > 1.0 {
@@ -992,19 +1122,22 @@ impl Locomotor {
         let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
         goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
 
-        // Slow down as approaching destination
+        // Slow down as approaching destination - C++ Locomotor.cpp:1649-1653
+        let braking = self.get_braking();
         let slow_down_dist =
-            Self::calc_slow_down_dist(current_speed, self.template.min_speed, self.get_braking());
+            Self::calc_slow_down_dist(current_speed, self.template.min_speed, braking);
         if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
             goal_speed = self.template.min_speed;
         }
 
-        // Calculate acceleration
+        // Calculate acceleration - C++ Locomotor.cpp:1660-1686
+        // C++ applies mass * acceleration as force, clamped to mass * speedDelta
+        // We return the acceleration directly.
         let speed_delta = goal_speed - current_speed;
         let acceleration = if speed_delta > 0.0 {
             max_acceleration
         } else {
-            -self.get_braking()
+            -braking
         };
 
         (current_pos, desired_angle, acceleration)
@@ -1035,7 +1168,11 @@ impl Locomotor {
     }
 
     /// Move towards position - Other/generic locomotor with full physics
-    /// Matches C++ Locomotor.cpp:2326+ moveTowardsPositionOther
+    /// Matches C++ Locomotor.cpp:2326-2404 moveTowardsPositionOther
+    ///
+    /// Returns (current_pos, desired_angle, acceleration).
+    /// When ULTRA_ACCURATE is set and close enough, desired_angle is overridden
+    /// to point directly at the goal (C++ slides without rotating the model).
     pub fn move_towards_position_other_physics(
         &mut self,
         current_pos: Coord3D,
@@ -1061,7 +1198,11 @@ impl Locomotor {
         }
         let max_acceleration = self.get_max_acceleration(condition);
 
-        let desired_angle = if matches!(
+        // C++ Locomotor.cpp:2344-2366: ULTRA_ACCURATE slide-into-place logic
+        // When close enough, don't turn -- just slide in the right direction.
+        // C++ uses dirToApplyForce directly toward goal instead of unit direction vector.
+        let mut goal_speed = desired_speed;
+        let mut desired_angle = if matches!(
             self.template.appearance,
             LocomotorAppearance::Wings | LocomotorAppearance::Thrust
         ) {
@@ -1076,7 +1217,39 @@ impl Locomotor {
         } else {
             self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, self.is_braking())
         };
-        let rel_angle = Self::std_angle_diff(desired_angle, current_angle);
+
+        let mut sliding_into_place = false;
+        self.set_flag(FLAG_SLIDING_INTO_PLACE, false);
+        if self.is_ultra_accurate() {
+            let slide_threshold = desired_speed * self.template.ultra_accurate_slide_factor;
+            if (goal_pos.x - current_pos.x).abs() <= slide_threshold
+                && (goal_pos.y - current_pos.y).abs() <= slide_threshold
+            {
+                // C++ Locomotor.cpp:2356-2360: override force direction toward goal,
+                // don't turn (TURN_NONE). We return desired_angle pointing at goal
+                // so the caller advances toward it, and set sliding flag so
+                // step_angle skips rotation.
+                let dx = goal_pos.x - current_pos.x;
+                let dy = goal_pos.y - current_pos.y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > 0.001 {
+                    desired_angle = dy.atan2(dx);
+                }
+                sliding_into_place = true;
+                self.set_flag(FLAG_SLIDING_INTO_PLACE, true);
+            }
+        }
+
+        // C++ Locomotor.cpp:2363-2366: rotateTowardsPosition only if not sliding
+        // (handled by step_angle in the caller via sliding_into_place concept;
+        // we encode it by returning the angle diff = 0 for ultra_accurate slides)
+
+        let rel_angle = if sliding_into_place {
+            // When sliding into place, angle_coeff stays 0 so we don't slow down.
+            0.0
+        } else {
+            Self::std_angle_diff(desired_angle, current_angle)
+        };
 
         const QUARTER_PI: Real = std::f32::consts::PI / 4.0;
         let mut angle_coeff = rel_angle.abs() / QUARTER_PI;
@@ -1084,25 +1257,23 @@ impl Locomotor {
             angle_coeff = 1.0;
         }
 
-        if self.is_ultra_accurate() {
-            let slide_threshold = desired_speed * self.template.ultra_accurate_slide_factor;
-            if (goal_pos.x - current_pos.x).abs() <= slide_threshold
-                && (goal_pos.y - current_pos.y).abs() <= slide_threshold
-            {
-                angle_coeff = 0.0;
+        goal_speed = (1.0 - angle_coeff) * desired_speed;
+        goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
+
+        // C++ Locomotor.cpp:2368-2374: uses minSpeed, not 0.0
+        if !self.no_slow_down_approaching_dest() {
+            let slow_down_dist = Self::calc_slow_down_dist(current_speed, self.template.min_speed, self.get_braking());
+            if on_path_dist_to_goal < slow_down_dist {
+                goal_speed = self.template.min_speed;
             }
         }
 
-        let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
-        goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
-
-        let slow_down_dist = Self::calc_slow_down_dist(current_speed, 0.0, self.get_braking());
-        if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
-            goal_speed = 0.0;
-        }
-
+        // C++ Locomotor.cpp:2380-2401: maintain goal speed
+        // C++ clamps accelForce to mass * speedDelta to avoid overshooting.
         let speed_delta = goal_speed - current_speed;
-        let acceleration = if speed_delta > 0.0 {
+        let acceleration = if speed_delta == 0.0 {
+            0.0
+        } else if speed_delta > 0.0 {
             max_acceleration
         } else {
             -self.get_braking()
@@ -1212,7 +1383,7 @@ impl Locomotor {
                 Some((new_pos, new_angle, new_speed))
             }
             LocomotorAppearance::FourWheels | LocomotorAppearance::Motorcycle => {
-                let (_pos, desired_angle, goal_speed, move_backwards) = self
+                let (_pos, desired_angle, acceleration, move_backwards) = self
                     .move_towards_position_wheels_physics(
                         current_pos,
                         current_angle,
@@ -1221,8 +1392,11 @@ impl Locomotor {
                         desired_speed,
                         current_speed,
                         condition,
+                        self.close_enough_dist, // major_radius proxy
+                        current_frame,
                     );
-                let new_speed = goal_speed.max(0.0);
+                let max_speed = self.get_max_speed_for_condition(condition);
+                let new_speed = (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
                 let new_angle =
                     self.step_angle(current_angle, desired_angle, condition, delta_time);
                 let new_pos = self.advance_position(
@@ -1235,7 +1409,7 @@ impl Locomotor {
                 );
                 Some((new_pos, new_angle, new_speed))
             }
-            LocomotorAppearance::TwoLegs | LocomotorAppearance::Jump => {
+            LocomotorAppearance::TwoLegs => {
                 let (_pos, desired_angle, accel) = self.move_towards_position_legs_physics(
                     current_pos,
                     current_angle,
@@ -1308,7 +1482,7 @@ impl Locomotor {
                 Some((new_pos, new_angle, new_speed))
             }
             LocomotorAppearance::Wings => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_other_physics(
+                let (_pos, desired_angle, accel) = self.move_towards_position_wings_physics(
                     current_pos,
                     current_angle,
                     target,
@@ -1356,9 +1530,7 @@ impl Locomotor {
                 );
                 Some((new_pos, new_angle, new_speed))
             }
-            LocomotorAppearance::Naval
-            | LocomotorAppearance::Tunnel
-            | LocomotorAppearance::Other => {
+            LocomotorAppearance::Other => {
                 let (_pos, desired_angle, accel) = self.move_towards_position_other_physics(
                     current_pos,
                     current_angle,
@@ -1380,7 +1552,7 @@ impl Locomotor {
                     delta_time,
                     false,
                 );
-                if self.template.appearance == LocomotorAppearance::Tunnel {
+                if (self.template.surfaces & SURFACE_CLIFF) != 0 {
                     new_pos.z = current_pos.z.min(new_pos.z);
                 }
                 Some((new_pos, new_angle, new_speed))
@@ -1496,17 +1668,6 @@ impl Locomotor {
         // Get terrain height from terrain logic.
         match self.template.appearance {
             LocomotorAppearance::Thrust | LocomotorAppearance::Wings => self.preferred_height,
-            LocomotorAppearance::Naval => {
-                if let Some(terrain) = TheTerrainLogic::get() {
-                    let mut water_z = 0.0;
-                    let mut terrain_z = 0.0;
-                    if terrain.is_underwater(pos.x, pos.y, Some(&mut water_z), Some(&mut terrain_z))
-                    {
-                        return water_z;
-                    }
-                }
-                pos.z
-            }
             _ => TheTerrainLogic::get()
                 .map(|terrain| terrain.get_layer_height(pos.x, pos.y, terrain_layer))
                 .unwrap_or(pos.z),
@@ -1559,17 +1720,9 @@ impl Locomotor {
                 }
 
                 let surface = match self.template.appearance {
-                    LocomotorAppearance::Naval => {
-                        if underwater {
-                            water_z.max(ground)
-                        } else {
-                            ground
-                        }
-                    }
                     LocomotorAppearance::Thrust
                     | LocomotorAppearance::Wings
                     | LocomotorAppearance::Hover => highest.max(ground),
-                    LocomotorAppearance::Tunnel => ground,
                     _ => ground,
                 };
                 (ground, highest.max(ground), surface)
@@ -1620,7 +1773,7 @@ impl Locomotor {
     }
 
     fn is_naval_blocked_at(&self, pos: Coord3D) -> bool {
-        if self.template.appearance != LocomotorAppearance::Naval {
+        if (self.template.surfaces & SURFACE_WATER) == 0 {
             return false;
         }
         if let Some(terrain) = TheTerrainLogic::get() {
@@ -1640,7 +1793,7 @@ impl Locomotor {
     }
 
     fn is_tunnel_too_shallow(&self, current: Coord3D, target: Coord3D) -> bool {
-        if self.template.appearance != LocomotorAppearance::Tunnel {
+        if (self.template.surfaces & SURFACE_CLIFF) == 0 {
             return false;
         }
         if let Some(terrain) = TheTerrainLogic::get() {
@@ -1664,7 +1817,11 @@ impl Locomotor {
     }
 
     fn apply_jump_slowdown(&self, desired_speed: Real, current: Coord3D, target: Coord3D) -> Real {
-        if self.template.appearance != LocomotorAppearance::Jump {
+        // Jump slowdown applies to infantry-like appearances
+        if !matches!(
+            self.template.appearance,
+            LocomotorAppearance::TwoLegs | LocomotorAppearance::Climber
+        ) {
             return desired_speed;
         }
         let dist = (target - current).length();
@@ -1681,7 +1838,7 @@ impl Locomotor {
         current_angle: Real,
         desired_angle: Real,
     ) -> Real {
-        if self.template.appearance != LocomotorAppearance::Naval {
+        if (self.template.surfaces & SURFACE_WATER) == 0 {
             return desired_speed;
         }
         let rel = Self::std_angle_diff(desired_angle, current_angle).abs();
@@ -1767,6 +1924,12 @@ impl Locomotor {
         condition: BodyDamageType,
         delta_time: Real,
     ) -> Real {
+        // C++ Locomotor.cpp:2356: when ULTRA_ACCURATE and sliding into place,
+        // TURN_NONE is set so the model does not rotate.
+        if self.get_flag(FLAG_SLIDING_INTO_PLACE) {
+            return current_angle;
+        }
+
         let mut max_turn = self.get_max_turn_rate(condition) * delta_time.max(0.0);
         if matches!(
             self.template.appearance,
@@ -1827,7 +1990,7 @@ impl Locomotor {
     }
 
     /// Move towards position - Thrust locomotor (helicopters) using core steering.
-    /// Adapted from C++ moveTowardsPositionThrust.
+    /// Matches C++ Locomotor.cpp:1891-2003 moveTowardsPositionThrust
     pub fn move_towards_position_thrust_physics(
         &mut self,
         current_pos: Coord3D,
@@ -1840,53 +2003,186 @@ impl Locomotor {
     ) -> (Coord3D, Real, Real) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.clamp(self.template.min_speed, max_speed);
+        let braking = self.get_braking();
 
-        if self.get_braking() > 0.0 {
+        // Slow down approaching destination - C++ Locomotor.cpp:1899-1904
+        if braking > 0.0 {
             let slow_down_dist = Self::calc_slow_down_dist(
                 current_speed,
                 self.template.min_speed,
-                self.get_braking(),
+                braking,
             );
             if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
                 desired_speed = self.template.min_speed;
             }
         }
 
+        // Preferred height adjustment - C++ Locomotor.cpp:1914-1934
+        let mut local_goal_pos = goal_pos;
+        if self.preferred_height != 0.0 && !self.uses_precise_z_pos() {
+            // C++ getSurfaceHtAtPt: checks if underwater, returns waterZ or terrainZ
+            let surface_ht = TheTerrainLogic::get()
+                .map(|terrain| {
+                    let mut water_z = 0.0;
+                    let mut terrain_z = 0.0;
+                    if terrain.is_underwater(
+                        current_pos.x,
+                        current_pos.y,
+                        Some(&mut water_z),
+                        Some(&mut terrain_z),
+                    ) {
+                        water_z
+                    } else {
+                        terrain_z
+                    }
+                })
+                .unwrap_or(0.0);
+            local_goal_pos.z = self.preferred_height + surface_ht;
+            let delta = local_goal_pos.z - current_pos.z;
+            let damped_delta = delta * self.preferred_height_damping;
+            local_goal_pos.z = current_pos.z + damped_delta;
+        }
+
+        // Desired heading toward goal with thrust angle clamping
+        // C++ Locomotor.cpp:1936-1950
+        let raw_desired_angle = (local_goal_pos.y - current_pos.y).atan2(local_goal_pos.x - current_pos.x);
         let mut desired_angle = if matches!(
             self.template.appearance,
             LocomotorAppearance::Wings | LocomotorAppearance::Thrust
         ) {
             self.apply_air_corrections(
                 current_angle,
-                self.apply_wings_circling(
-                    current_pos,
-                    goal_pos,
-                    (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x),
-                ),
+                self.apply_wings_circling(current_pos, local_goal_pos, raw_desired_angle),
             )
         } else {
-            self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, self.is_braking())
+            self.desired_angle_with_pivot(current_pos, current_angle, local_goal_pos, self.is_braking())
         };
+
+        // C++ Locomotor.cpp:1948-1950: clamp thrust angle relative to forward direction
         if self.template.max_thrust_angle > 0.0 {
-            let rel = Self::std_angle_diff(desired_angle, current_angle);
-            let clamped = rel.clamp(
-                -self.template.max_thrust_angle,
-                self.template.max_thrust_angle,
-            );
-            desired_angle = Self::normalize_angle(current_angle + clamped);
+            let max_turn_rate = self.get_max_turn_rate(condition);
+            if max_turn_rate > 0.0 {
+                let rel = Self::std_angle_diff(desired_angle, current_angle);
+                let clamped = rel.clamp(
+                    -self.template.max_thrust_angle,
+                    self.template.max_thrust_angle,
+                );
+                desired_angle = Self::normalize_angle(current_angle + clamped);
+            }
         }
+
+        // Speed delta and acceleration - C++ Locomotor.cpp:1939-1940, 1982-2002
         let speed_delta = desired_speed - current_speed;
-        let acceleration = if speed_delta > 0.0 || self.get_braking() == 0.0 {
+        let max_accel = if speed_delta > 0.0 || braking == 0.0 {
             self.get_max_acceleration(condition)
         } else {
-            -self.get_braking()
+            -braking
         };
+
+        // C++ Locomotor.cpp:1988-1991: damping factor
+        let max_forward_speed = if max_speed <= 0.0 { 0.01 } else { max_speed };
+        let damping = (0.0f32).max(max_accel / max_forward_speed).min(1.0);
+
+        // Net acceleration = thrust_accel - velocity_damping
+        // C++ applies: accelVec = thrustDir * maxAccel - curVel * damping
+        // We simplify: the acceleration returned is the net effect per frame
+        let acceleration = max_accel - current_speed * damping;
 
         (current_pos, desired_angle, acceleration)
     }
 
+    /// Move towards position - Wings (fixed-wing aircraft) locomotor.
+    /// Matches C++ Locomotor.cpp:1821-1860 moveTowardsPositionWings
+    ///
+    /// Key behaviors:
+    /// - Circle-for-landing: when `circle_thresh > 0` and the Z delta to goal
+    ///   exceeds the threshold, the aircraft aims for a point on the opposite
+    ///   side of a circle around the goal to gain/lose altitude before resuming.
+    /// - Enforces minimum turn speed (wings cannot fly below min_turn_speed).
+    /// - Applies circling correction when within `circling_radius` of target.
+    /// - Applies air corrections (rudder correction degree limiting).
+    /// - Otherwise delegates to the same physics as Other locomotors.
+    pub fn move_towards_position_wings_physics(
+        &mut self,
+        current_pos: Coord3D,
+        current_angle: Real,
+        goal_pos: Coord3D,
+        on_path_dist_to_goal: Real,
+        desired_speed: Real,
+        current_speed: Real,
+        condition: BodyDamageType,
+    ) -> (Coord3D, Real, Real) {
+        // C++ Locomotor.cpp:1821-1860 moveTowardsPositionWings
+        //
+        // The C++ code has the circle-for-landing logic guarded by #ifdef CIRCLE_FOR_LANDING,
+        // which is disabled (#define NO_CIRCLE_FOR_LANDING) in the shipped game.
+        // We implement it here but gate it on circle_thresh > 0 (default 0.0) so it
+        // matches the disabled-by-default behavior while remaining available.
+        //
+        // When circle_thresh > 0 and the vertical distance (dz) to the goal exceeds
+        // the threshold, we compute a point on the opposite side of a circle centered
+        // on the goal and aim for that instead. This makes the aircraft circle to
+        // gain/lose altitude before resuming its course.
+
+        let mut effective_goal = goal_pos;
+
+        if self.template.circle_thresh > 0.0 {
+            let dz = (goal_pos.z - current_pos.z).abs();
+
+            if dz > self.template.circle_thresh {
+                // Compute direction toward the goal position (2D only)
+                let dx = goal_pos.x - current_pos.x;
+                let dy = goal_pos.y - current_pos.y;
+
+                // C++ Locomotor.cpp:1837-1840: use current orientation if dx,dy are ~zero
+                let angle_toward_pos = if dx.abs() < 0.001 && dy.abs() < 0.001 {
+                    current_angle
+                } else {
+                    dy.atan2(dx)
+                };
+
+                // C++ Locomotor.cpp:1842-1843: aim for the opposite side of the circle
+                // aimDir = PI - PI/8 = 7*PI/8
+                let aim_dir = std::f32::consts::PI - std::f32::consts::FRAC_PI_8;
+                let circle_angle = angle_toward_pos + aim_dir;
+
+                // C++ Locomotor.cpp:1846: turnRadius = calcMinTurnRadius * 4
+                let turn_radius = self.calc_min_turn_radius(condition) * 4.0;
+
+                // C++ Locomotor.cpp:1849-1851: project a spot "radius" dist away from goal
+                effective_goal = Coord3D {
+                    x: goal_pos.x + circle_angle.cos() * turn_radius,
+                    y: goal_pos.y + circle_angle.sin() * turn_radius,
+                    z: goal_pos.z,
+                };
+
+                // C++ Locomotor.cpp:1852: moveTowardsPositionOther with the adjusted goal
+                return self.move_towards_position_other_physics(
+                    current_pos,
+                    current_angle,
+                    effective_goal,
+                    0.0, // onPathDistToGoal = 0 (not on path when circling)
+                    desired_speed,
+                    current_speed,
+                    condition,
+                );
+            }
+        }
+
+        // C++ Locomotor.cpp:1859: handle the 2D component via moveTowardsPositionOther
+        self.move_towards_position_other_physics(
+            current_pos,
+            current_angle,
+            effective_goal,
+            on_path_dist_to_goal,
+            desired_speed,
+            current_speed,
+            condition,
+        )
+    }
+
     /// Move towards position - Climber locomotor (cliff climbing).
-    /// Adapted from C++ moveTowardsPositionClimb.
+    /// Matches C++ Locomotor.cpp:1690-1818 moveTowardsPositionClimb
     pub fn move_towards_position_climber_physics(
         &mut self,
         current_pos: Coord3D,
@@ -1902,12 +2198,14 @@ impl Locomotor {
         if self.is_naval_blocked_at(current_pos) {
             desired_speed = 0.0;
         }
-        desired_speed = self.apply_downhill_only(desired_speed, current_pos, goal_pos);
         desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
         let max_acceleration = self.get_max_acceleration(condition);
+        let braking = self.get_braking();
 
+        // Climbing detection - C++ Locomotor.cpp:1711-1716
+        // Uses PATHFIND_CELL_SIZE_F for the threshold (10.0)
         let dz = current_pos.z - goal_pos.z;
-        if dz * dz > 10.0 * 10.0 {
+        if dz * dz > PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
             self.set_flag(FLAG_CLIMBING, true);
         }
         if dz.abs() < 1.0 {
@@ -1915,39 +2213,86 @@ impl Locomotor {
         }
 
         let mut move_backwards = false;
+
+        // Climbing behavior - check ground slope ahead - C++ Locomotor.cpp:1721-1740
         if self.is_climbing() {
-            if goal_pos.z < current_pos.z - 0.1 {
+            // C++ normalizes the 2D direction from pos to goalPos, then adds pos back
+            // to get a point exactly 1 unit away in that direction:
+            //   delta = goalPos; delta -= pos; delta.z=0; delta.normalize();
+            //   delta += pos; delta.z = getGroundHeight(delta.x, delta.y);
+            let delta = goal_pos - current_pos;
+            let delta_len = (delta.x * delta.x + delta.y * delta.y).sqrt();
+            let mut forward_x = current_pos.x;
+            let mut forward_y = current_pos.y;
+            if delta_len > 0.001 {
+                forward_x = current_pos.x + delta.x / delta_len;
+                forward_y = current_pos.y + delta.y / delta_len;
+            }
+            let ground_z = TheTerrainLogic::get()
+                .map(|terrain| terrain.get_ground_height(forward_x, forward_y, None))
+                .unwrap_or(current_pos.z);
+
+            if ground_z < current_pos.z - 0.1 {
                 move_backwards = true;
             }
-            let ground_slope = (goal_pos.z - current_pos.z).abs().max(1.0);
+
+            // C++ Locomotor.cpp:1734-1739 - reduce speed based on slope
+            let ground_slope = (ground_z - current_pos.z).abs();
+            let ground_slope = if ground_slope < 1.0 { 1.0 } else { ground_slope };
             if ground_slope > 1.0 {
                 desired_speed /= ground_slope * 4.0;
             }
         }
+        self.set_flag(FLAG_MOVING_BACKWARDS, move_backwards);
 
+        // Orient toward goal - C++ Locomotor.cpp:1746-1757
         let mut desired_angle =
             self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, false);
         if move_backwards {
             desired_angle = Self::normalize_angle(desired_angle + std::f32::consts::PI);
         }
         let rel_angle = Self::std_angle_diff(desired_angle, current_angle);
-        let mut angle_coeff = rel_angle.abs() / (std::f32::consts::PI / 4.0);
+
+        // Modulate speed by turn angle - C++ Locomotor.cpp:1762-1767
+        const QUARTER_PI: Real = std::f32::consts::PI / 4.0;
+        let mut angle_coeff = rel_angle.abs() / QUARTER_PI;
         if angle_coeff > 1.0 {
             angle_coeff = 1.0;
         }
 
         let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
+
+        let mut actual_speed = current_speed;
+        if move_backwards {
+            actual_speed = -actual_speed;
+        }
+
+        // Slow down approaching destination - C++ Locomotor.cpp:1776-1780
         let slow_down_dist =
-            Self::calc_slow_down_dist(current_speed, self.template.min_speed, self.get_braking());
+            Self::calc_slow_down_dist(actual_speed.abs(), self.template.min_speed, braking);
         if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
             goal_speed = self.template.min_speed;
         }
 
-        let speed_delta = goal_speed - current_speed;
-        let acceleration = if speed_delta > 0.0 {
-            max_acceleration
+        // Acceleration with backward sign swap - C++ Locomotor.cpp:1785-1817
+        let mut speed_delta = goal_speed - actual_speed;
+        if move_backwards {
+            speed_delta = -goal_speed + actual_speed;
+        }
+        let acceleration = if speed_delta == 0.0 {
+            0.0
+        } else if move_backwards {
+            if speed_delta < 0.0 {
+                -max_acceleration
+            } else {
+                braking
+            }
         } else {
-            -self.get_braking()
+            if speed_delta > 0.0 {
+                max_acceleration
+            } else {
+                -braking
+            }
         };
 
         (current_pos, desired_angle, acceleration, move_backwards)
@@ -1994,7 +2339,7 @@ impl Locomotor {
                 (new_pos, new_angle, new_speed)
             }
             LocomotorAppearance::FourWheels | LocomotorAppearance::Motorcycle => {
-                let (_pos, desired_angle, goal_speed, move_backwards) = self
+                let (_pos, desired_angle, acceleration, move_backwards) = self
                     .move_towards_position_wheels_physics(
                         current,
                         current_angle,
@@ -2003,8 +2348,11 @@ impl Locomotor {
                         desired_speed,
                         current_speed,
                         condition,
+                        self.close_enough_dist, // major_radius proxy
+                        0, // no frame available in move_towards context
                     );
-                let new_speed = goal_speed.max(0.0);
+                let max_speed = self.get_max_speed_for_condition(condition);
+                let new_speed = (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
                 let new_angle =
                     self.step_angle(current_angle, desired_angle, condition, delta_time);
                 let new_pos = self.advance_position(
@@ -2017,7 +2365,7 @@ impl Locomotor {
                 );
                 (new_pos, new_angle, new_speed)
             }
-            LocomotorAppearance::TwoLegs | LocomotorAppearance::Jump => {
+            LocomotorAppearance::TwoLegs => {
                 let (_pos, desired_angle, accel) = self.move_towards_position_legs_physics(
                     current,
                     current_angle,
@@ -2072,7 +2420,7 @@ impl Locomotor {
                 (new_pos, new_angle, new_speed)
             }
             LocomotorAppearance::Wings => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_other_physics(
+                let (_pos, desired_angle, accel) = self.move_towards_position_wings_physics(
                     current,
                     current_angle,
                     target,
@@ -2114,9 +2462,7 @@ impl Locomotor {
                 );
                 (new_pos, new_angle, new_speed)
             }
-            LocomotorAppearance::Naval
-            | LocomotorAppearance::Tunnel
-            | LocomotorAppearance::Other => {
+            LocomotorAppearance::Other => {
                 let (_pos, desired_angle, accel) = self.move_towards_position_other_physics(
                     current,
                     current_angle,
@@ -2132,7 +2478,7 @@ impl Locomotor {
                     self.step_angle(current_angle, desired_angle, condition, delta_time);
                 let mut new_pos =
                     self.advance_position(current, target, new_angle, new_speed, delta_time, false);
-                if self.template.appearance == LocomotorAppearance::Tunnel {
+                if (self.template.surfaces & SURFACE_CLIFF) != 0 {
                     new_pos.z = current.z.min(new_pos.z);
                 }
                 (new_pos, new_angle, new_speed)
@@ -2245,8 +2591,6 @@ impl Locomotor {
     pub fn to_movement_capabilities(&self) -> MovementCapabilities {
         let layer = match self.template.appearance {
             LocomotorAppearance::Thrust | LocomotorAppearance::Wings => PathfindLayerEnum::Air,
-            LocomotorAppearance::Naval => PathfindLayerEnum::Water,
-            LocomotorAppearance::Tunnel => PathfindLayerEnum::Tunnel,
             _ => PathfindLayerEnum::Ground,
         };
 
@@ -2260,7 +2604,7 @@ impl Locomotor {
             LocomotorAppearance::Thrust | LocomotorAppearance::Wings
         );
 
-        let tunneling = matches!(self.template.appearance, LocomotorAppearance::Tunnel);
+        let tunneling = (self.template.surfaces & SURFACE_CLIFF) != 0;
 
         MovementCapabilities {
             layer,
@@ -2279,7 +2623,6 @@ impl Locomotor {
         physics.physics_type = match self.template.appearance {
             LocomotorAppearance::Thrust | LocomotorAppearance::Wings => PhysicsType::Aircraft,
             LocomotorAppearance::Hover => PhysicsType::Hover,
-            LocomotorAppearance::Naval => PhysicsType::Naval,
             _ => PhysicsType::Normal,
         };
 
@@ -2429,10 +2772,17 @@ impl Locomotor {
 // ============================================================================
 
 /// Locomotor set for managing multiple locomotors per unit
+/// Matches C++ LocomotorSet.h
 #[derive(Debug, Clone)]
 pub struct LocomotorSet {
     locomotors: HashMap<String, Arc<Mutex<Locomotor>>>,
     active_locomotor: Option<String>,
+    /// Bitmask of valid surfaces across all added locomotors
+    /// Matches C++ LocomotorSet::m_validLocomotorSurfaces
+    valid_surfaces: LocomotorSurfaceTypeMask,
+    /// Whether this set only allows downhill movement
+    /// Matches C++ LocomotorSet::m_downhillOnly
+    downhill_only: bool,
 }
 
 impl LocomotorSet {
@@ -2440,14 +2790,47 @@ impl LocomotorSet {
         Self {
             locomotors: HashMap::new(),
             active_locomotor: None,
+            valid_surfaces: 0,
+            downhill_only: false,
         }
     }
 
+    /// Clear all locomotors - matches C++ LocomotorSet::clear()
+    pub fn clear(&mut self) {
+        self.locomotors.clear();
+        self.active_locomotor = None;
+        self.valid_surfaces = 0;
+        self.downhill_only = false;
+    }
+
+    /// Add a locomotor from a template - matches C++ LocomotorSet::addLocomotor()
     pub fn add_locomotor(&mut self, name: String, locomotor: Arc<Mutex<Locomotor>>) {
+        // Accumulate valid surfaces - matches C++ addLocomotor
+        if let Ok(loco) = locomotor.lock() {
+            self.valid_surfaces |= loco.get_legal_surfaces();
+            if loco.template.downhill_only {
+                self.downhill_only = true;
+            }
+        }
         if self.active_locomotor.is_none() {
             self.active_locomotor = Some(name.clone());
         }
         self.locomotors.insert(name, locomotor);
+    }
+
+    /// Find a locomotor that supports the given surface type mask
+    /// Matches C++ LocomotorSet::findLocomotor(LocomotorSurfaceTypeMask t)
+    pub fn find_locomotor(&self, surface_mask: LocomotorSurfaceTypeMask) -> Option<Arc<Mutex<Locomotor>>> {
+        // C++ iterates m_locomotors and returns the first one whose template
+        // surfaces overlap with the requested mask
+        for (_name, loco) in &self.locomotors {
+            if let Ok(l) = loco.lock() {
+                if (l.get_legal_surfaces() & surface_mask) != 0 {
+                    return Some(loco.clone());
+                }
+            }
+        }
+        None
     }
 
     pub fn set_active(&mut self, name: &str) -> bool {
@@ -2469,12 +2852,39 @@ impl LocomotorSet {
         self.locomotors.get(name).cloned()
     }
 
+    /// Get the valid surface mask across all locomotors
+    /// Matches C++ LocomotorSet::getValidSurfaces()
+    pub fn get_valid_surfaces(&self) -> LocomotorSurfaceTypeMask {
+        self.valid_surfaces
+    }
+
+    /// Check if this set only allows downhill movement
+    /// Matches C++ LocomotorSet::isDownhillOnly()
+    pub fn is_downhill_only(&self) -> bool {
+        self.downhill_only
+    }
+
     /// Returns the currently active locomotor (or the first entry) matching the C++ default logic.
     pub fn get_default_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
         if let Some(active) = self.get_active() {
             return Some(active);
         }
         self.locomotors.values().next().cloned()
+    }
+
+    /// Get number of locomotors in set
+    pub fn len(&self) -> usize {
+        self.locomotors.len()
+    }
+
+    /// Check if set is empty
+    pub fn is_empty(&self) -> bool {
+        self.locomotors.is_empty()
+    }
+
+    /// Iterate over all locomotors
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Arc<Mutex<Locomotor>>)> {
+        self.locomotors.iter()
     }
 }
 
@@ -2540,14 +2950,6 @@ impl TerrainSpeedTable {
             self.set(Wings, terrain, 1.0);
         }
 
-        // Naval (water only)
-        self.set(Naval, 0, 0.0);
-        self.set(Naval, 1, 0.0);
-        self.set(Naval, 2, 0.0);
-        self.set(Naval, 3, 1.0); // Full speed on water
-        self.set(Naval, 4, 0.0);
-        self.set(Naval, 5, 0.0);
-
         // Climber
         self.set(Climber, 0, 1.0);
         self.set(Climber, 1, 0.8);
@@ -2556,13 +2958,10 @@ impl TerrainSpeedTable {
         self.set(Climber, 4, 0.8); // Can climb cliffs
         self.set(Climber, 5, 1.0);
 
-        // Tunnel
-        self.set(Tunnel, 0, 1.0);
-        self.set(Tunnel, 1, 1.0); // Underground, ignores terrain
-        self.set(Tunnel, 2, 1.0);
-        self.set(Tunnel, 3, 1.0);
-        self.set(Tunnel, 4, 1.0);
-        self.set(Tunnel, 5, 1.0);
+        // Other (generic)
+        for terrain in 0..6 {
+            self.set(Other, terrain, 1.0);
+        }
     }
 
     fn set(&mut self, appearance: LocomotorAppearance, terrain: u8, multiplier: Real) {
@@ -2628,9 +3027,7 @@ pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
     store.register_template(LocomotorTemplate::new_hover("Hover".to_string()));
     store.register_template(LocomotorTemplate::new_thrust("Thrust".to_string()));
     store.register_template(LocomotorTemplate::new_wings("Wings".to_string()));
-    store.register_template(LocomotorTemplate::new_naval("Naval".to_string()));
     store.register_template(LocomotorTemplate::new_climber("Climber".to_string()));
-    store.register_template(LocomotorTemplate::new_tunnel("Tunnel".to_string()));
 
     store
 });
@@ -2672,9 +3069,11 @@ mod tests {
         // Aircraft ignore terrain
         assert_eq!(table.get_multiplier(LocomotorAppearance::Wings, 2), 1.0);
 
-        // Naval only in water
-        assert_eq!(table.get_multiplier(LocomotorAppearance::Naval, 0), 0.0);
-        assert_eq!(table.get_multiplier(LocomotorAppearance::Naval, 3), 1.0);
+        // Treads get road bonus
+        assert_eq!(
+            table.get_multiplier(LocomotorAppearance::Treads, 5),
+            1.2
+        );
     }
 
     #[test]
