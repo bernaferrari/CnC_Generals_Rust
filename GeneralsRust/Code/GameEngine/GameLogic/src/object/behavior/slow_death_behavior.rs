@@ -32,6 +32,7 @@ use crate::modules::{
     UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
 };
 use crate::weapon::with_weapon_store;
+use game_engine::common::system::{Snapshotable, Xfer};
 use crate::MAKE_MODELCONDITION_MASK;
 pub type DieMuxData = crate::object::die::DieMuxData;
 use crate::helpers::TheWeaponStore;
@@ -1053,6 +1054,30 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
 // Thread safety
 unsafe impl Send for SlowDeathBehavior {}
 unsafe impl Sync for SlowDeathBehavior {}
+
+impl Snapshotable for SlowDeathBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_unsigned_int(&mut self.flags)
+            .map_err(|e| format!("SlowDeathBehavior xfer flags: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.sink_frame)
+            .map_err(|e| format!("SlowDeathBehavior xfer sink_frame: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.midpoint_frame)
+            .map_err(|e| format!("SlowDeathBehavior xfer midpoint_frame: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.destruction_frame)
+            .map_err(|e| format!("SlowDeathBehavior xfer destruction_frame: {:?}", e))?;
+        xfer.xfer_real(&mut self.accelerated_time_scale)
+            .map_err(|e| format!("SlowDeathBehavior xfer accelerated_time_scale: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {

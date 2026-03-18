@@ -261,43 +261,37 @@ fn module_production_behavior_kind(
     module: &mut dyn Module,
 ) -> Option<ProductionBehaviorModuleKindMut<'_>> {
     if module.as_any().is::<QueueProductionExitBehaviorModule>() {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<QueueProductionExitBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorModuleKindMut::QueueExit(module));
+            .map(|m| ProductionBehaviorModuleKindMut::QueueExit(m));
     }
     if module.as_any().is::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehaviorModule>() {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorModuleKindMut::DefaultExit(module));
+            .map(|m| ProductionBehaviorModuleKindMut::DefaultExit(m));
     }
     if module.as_any().is::<crate::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitBehaviorModule>() {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorModuleKindMut::SpawnPointExit(module));
+            .map(|m| ProductionBehaviorModuleKindMut::SpawnPointExit(m));
     }
     if module.as_any().is::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehaviorModule>() {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorModuleKindMut::SupplyCenterExit(module));
+            .map(|m| ProductionBehaviorModuleKindMut::SupplyCenterExit(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehaviorModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorModuleKindMut::ParkingPlace(module));
+            .map(|m| ProductionBehaviorModuleKindMut::ParkingPlace(m));
     }
     if module.as_any().is::<FlightDeckBehaviorModule>() {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<FlightDeckBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorModuleKindMut::FlightDeck(module));
+            .map(|m| ProductionBehaviorModuleKindMut::FlightDeck(m));
     }
 
     None
@@ -343,47 +337,42 @@ fn module_dock_update_kind(module: &mut dyn Module) -> Option<DockUpdateModuleKi
         .as_any()
         .is::<crate::object::production::dock_update::RepairDockUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::dock_update::RepairDockUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(DockUpdateModuleKindMut::RepairDock(module));
+            .map(|m| DockUpdateModuleKindMut::RepairDock(m));
     }
     if module
         .as_any()
         .is::<crate::object::production::dock_update::SupplyCenterDockUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::dock_update::SupplyCenterDockUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(DockUpdateModuleKindMut::SupplyCenterDock(module));
+            .map(|m| DockUpdateModuleKindMut::SupplyCenterDock(m));
     }
     if module
         .as_any()
         .is::<crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(DockUpdateModuleKindMut::SupplyWarehouseDock(module));
+            .map(|m| DockUpdateModuleKindMut::SupplyWarehouseDock(m));
     }
     #[cfg(feature = "allow_surrender")]
     if module
         .as_any()
         .is::<crate::object::production::prison_dock::PrisonDockUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::prison_dock::PrisonDockUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(DockUpdateModuleKindMut::PrisonDock(module));
+            .map(|m| DockUpdateModuleKindMut::PrisonDock(m));
     }
     if module
         .as_any()
         .is::<crate::object::production::railed_transport_dock::RailedTransportDockUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::railed_transport_dock::RailedTransportDockUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(DockUpdateModuleKindMut::RailedTransportDock(module));
+            .map(|m| DockUpdateModuleKindMut::RailedTransportDock(m));
     }
 
     None
@@ -477,10 +466,9 @@ fn module_production_queue_kind(
         .as_any()
         .is::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>()
-            .expect("type check and downcast must match");
-        return Some(ProductionQueueModuleKindMut::Complete(module));
+            .map(|m| ProductionQueueModuleKindMut::Complete(m));
     }
 
     None
@@ -593,29 +581,24 @@ fn behavior_production_queue_kind(
         .as_any()
         .is::<crate::object::behavior::production_update_behavior::ProductionUpdateBehavior>()
     {
-        let behavior = behavior_downcast_mut::<
+        return behavior_downcast_mut::<
             crate::object::behavior::production_update_behavior::ProductionUpdateBehavior,
         >(behavior)
-        .expect("type check and downcast must match");
-        return Some(ProductionBehaviorQueueKindMut::Legacy(behavior));
+        .map(|b| ProductionBehaviorQueueKindMut::Legacy(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::production::ProductionUpdateComplete>()
     {
-        let behavior =
-            behavior_downcast_mut::<crate::object::production::ProductionUpdateComplete>(behavior)
-                .expect("type check and downcast must match");
-        return Some(ProductionBehaviorQueueKindMut::Complete(behavior));
+        return behavior_downcast_mut::<crate::object::production::ProductionUpdateComplete>(behavior)
+            .map(|b| ProductionBehaviorQueueKindMut::Complete(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::production::ProductionUpdate>()
     {
-        let behavior =
-            behavior_downcast_mut::<crate::object::production::ProductionUpdate>(behavior)
-                .expect("type check and downcast must match");
-        return Some(ProductionBehaviorQueueKindMut::Core(behavior));
+        return behavior_downcast_mut::<crate::object::production::ProductionUpdate>(behavior)
+            .map(|b| ProductionBehaviorQueueKindMut::Core(b));
     }
 
     None
@@ -661,45 +644,40 @@ fn behavior_production_rally_kind(
         .as_any()
         .is::<crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior>()
     {
-        let behavior = behavior_downcast_mut::<crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior>(behavior)
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorRallyKindMut::QueueExit(behavior));
+        return behavior_downcast_mut::<crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior>(behavior)
+            .map(|b| ProductionBehaviorRallyKindMut::QueueExit(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehavior>()
     {
-        let behavior = behavior_downcast_mut::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehavior>(behavior)
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorRallyKindMut::DefaultExit(behavior));
+        return behavior_downcast_mut::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehavior>(behavior)
+            .map(|b| ProductionBehaviorRallyKindMut::DefaultExit(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehavior>()
     {
-        let behavior = behavior_downcast_mut::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehavior>(behavior)
-            .expect("type check and downcast must match");
-        return Some(ProductionBehaviorRallyKindMut::SupplyCenterExit(behavior));
+        return behavior_downcast_mut::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehavior>(behavior)
+            .map(|b| ProductionBehaviorRallyKindMut::SupplyCenterExit(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior>()
     {
-        let behavior = behavior_downcast_mut::<
-            crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior,
-        >(behavior)
-        .expect("type check and downcast must match");
-        return Some(ProductionBehaviorRallyKindMut::ParkingPlace(behavior));
+        return behavior_downcast_mut::<
+                crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior,
+            >(behavior)
+            .map(|b| ProductionBehaviorRallyKindMut::ParkingPlace(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::behavior::flight_deck_behavior::FlightDeckBehavior>()
     {
-        let behavior = behavior_downcast_mut::<
-            crate::object::behavior::flight_deck_behavior::FlightDeckBehavior,
-        >(behavior)
-        .expect("type check and downcast must match");
-        return Some(ProductionBehaviorRallyKindMut::FlightDeck(behavior));
+        return behavior_downcast_mut::<
+                crate::object::behavior::flight_deck_behavior::FlightDeckBehavior,
+            >(behavior)
+            .map(|b| ProductionBehaviorRallyKindMut::FlightDeck(b));
     }
 
     None
@@ -798,65 +776,57 @@ fn module_behavior_utility_kind(
         .as_any()
         .is::<crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::FiringTracker(module));
+            .map(|m| BehaviorUtilityModuleKindMut::FiringTracker(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::horde_update::HordeUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::horde_update::HordeUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::HordeUpdate(module));
+            .map(|m| BehaviorUtilityModuleKindMut::HordeUpdate(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::spawn_behavior::SpawnBehaviorModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::spawn_behavior::SpawnBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::SpawnBehavior(module));
+            .map(|m| BehaviorUtilityModuleKindMut::SpawnBehavior(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::power_plant_update::PowerPlantUpdateModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::power_plant_update::PowerPlantUpdateModule>()
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::PowerPlantUpdate(module));
+            .map(|m| BehaviorUtilityModuleKindMut::PowerPlantUpdate(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>()
     {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>(
-            )
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::Overcharge(module));
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>()
+            .map(|m| BehaviorUtilityModuleKindMut::Overcharge(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::tech_building_behavior::TechBuildingBehaviorModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::tech_building_behavior::TechBuildingBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::TechBuilding(module));
+            .map(|m| BehaviorUtilityModuleKindMut::TechBuilding(m));
     }
     if module
         .as_any()
         .is::<crate::object::behavior::propaganda_tower_behavior::PropagandaTowerBehaviorModule>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::propaganda_tower_behavior::PropagandaTowerBehaviorModule>()
-            .expect("type check and downcast must match");
-        return Some(BehaviorUtilityModuleKindMut::PropagandaTower(module));
+            .map(|m| BehaviorUtilityModuleKindMut::PropagandaTower(m));
     }
 
     None
@@ -921,184 +891,161 @@ fn module_upgrade_kind(module: &mut dyn Module) -> Option<UpgradeModuleKindMut<'
         .as_any()
         .is::<crate::object::upgrade::status_bits_upgrade::StatusBitsUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::status_bits_upgrade::StatusBitsUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::StatusBits(module));
+            .map(|m| UpgradeModuleKindMut::StatusBits(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgrade>()
     {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgrade>(
-            )
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::PassengersFire(module));
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgrade>()
+            .map(|m| UpgradeModuleKindMut::PassengersFire(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::subobjects_upgrade::SubObjectsUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::subobjects_upgrade::SubObjectsUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::SubObjects(module));
+            .map(|m| UpgradeModuleKindMut::SubObjects(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::grant_science_upgrade::GrantScienceUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::grant_science_upgrade::GrantScienceUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::GrantScience(module));
+            .map(|m| UpgradeModuleKindMut::GrantScience(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::command_set_upgrade::CommandSetUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::command_set_upgrade::CommandSetUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::CommandSet(module));
+            .map(|m| UpgradeModuleKindMut::CommandSet(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::weapon_set_upgrade::WeaponSetUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::weapon_set_upgrade::WeaponSetUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::WeaponSet(module));
+            .map(|m| UpgradeModuleKindMut::WeaponSet(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::radar_upgrade::RadarUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::radar_upgrade::RadarUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::Radar(module));
+            .map(|m| UpgradeModuleKindMut::Radar(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::power_plant_upgrade::PowerPlantUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::power_plant_upgrade::PowerPlantUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::PowerPlant(module));
+            .map(|m| UpgradeModuleKindMut::PowerPlant(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::WeaponBonus(module));
+            .map(|m| UpgradeModuleKindMut::WeaponBonus(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::stealth_upgrade::StealthUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::stealth_upgrade::StealthUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::Stealth(module));
+            .map(|m| UpgradeModuleKindMut::Stealth(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::model_condition_upgrade::ModelConditionUpgrade>()
     {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::upgrade::model_condition_upgrade::ModelConditionUpgrade>(
-            )
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::ModelCondition(module));
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::upgrade::model_condition_upgrade::ModelConditionUpgrade>()
+            .map(|m| UpgradeModuleKindMut::ModelCondition(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::armor_upgrade::ArmorUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::armor_upgrade::ArmorUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::Armor(module));
+            .map(|m| UpgradeModuleKindMut::Armor(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::cost_modifier_upgrade::CostModifierUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::cost_modifier_upgrade::CostModifierUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::CostModifier(module));
+            .map(|m| UpgradeModuleKindMut::CostModifier(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::locomotor_set_upgrade::LocomotorSetUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::locomotor_set_upgrade::LocomotorSetUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::LocomotorSet(module));
+            .map(|m| UpgradeModuleKindMut::LocomotorSet(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::experience_scalar_upgrade::ExperienceScalarUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::experience_scalar_upgrade::ExperienceScalarUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::ExperienceScalar(module));
+            .map(|m| UpgradeModuleKindMut::ExperienceScalar(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::max_health_upgrade::MaxHealthUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::max_health_upgrade::MaxHealthUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::MaxHealth(module));
+            .map(|m| UpgradeModuleKindMut::MaxHealth(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::active_shroud_upgrade::ActiveShroudUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::active_shroud_upgrade::ActiveShroudUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::ActiveShroud(module));
+            .map(|m| UpgradeModuleKindMut::ActiveShroud(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::replace_object_upgrade::ReplaceObjectUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::replace_object_upgrade::ReplaceObjectUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::ReplaceObject(module));
+            .map(|m| UpgradeModuleKindMut::ReplaceObject(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::unpause_special_power_upgrade::UnpauseSpecialPowerUpgrade>()
     {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<crate::object::upgrade::unpause_special_power_upgrade::UnpauseSpecialPowerUpgrade>()
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::UnpauseSpecialPower(module));
+            .map(|m| UpgradeModuleKindMut::UnpauseSpecialPower(m));
     }
     if module
         .as_any()
         .is::<crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade>()
     {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade>(
-            )
-            .expect("type check and downcast must match");
-        return Some(UpgradeModuleKindMut::ObjectCreation(module));
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade>()
+            .map(|m| UpgradeModuleKindMut::ObjectCreation(m));
     }
 
     None
@@ -1120,10 +1067,9 @@ impl<'a> DieModuleKindMut<'a> {
 
 fn module_die_kind(module: &mut dyn Module) -> Option<DieModuleKindMut<'_>> {
     if module.as_any().is::<DieModuleWrapper>() {
-        let module = (module as &mut dyn Any)
+        return (module as &mut dyn Any)
             .downcast_mut::<DieModuleWrapper>()
-            .expect("type check and downcast must match");
-        return Some(DieModuleKindMut::Wrapper(module));
+            .map(|m| DieModuleKindMut::Wrapper(m));
     }
     if let Some(module) = (module as &mut dyn Any).downcast_mut::<Box<dyn DieModuleInterface>>() {
         return Some(DieModuleKindMut::LegacyBox(module));
@@ -2242,6 +2188,10 @@ pub struct Object {
     single_use_command_used: bool,
     is_receiving_difficulty_bonus: bool,
 
+    /// Guard flag to prevent double destruction when `on_destroy()` is called
+    /// both explicitly and via `Drop`.
+    destroyed: bool,
+
     #[cfg(any(debug_assertions, feature = "internal"))]
     has_died_already: bool,
 }
@@ -2462,6 +2412,7 @@ impl Object {
             modules_ready: false,
             single_use_command_used: false,
             is_receiving_difficulty_bonus: false,
+            destroyed: false,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
             has_died_already: false,
@@ -2517,6 +2468,11 @@ impl Object {
 
     /// Called during object destruction
     pub fn on_destroy(&mut self) {
+        if self.destroyed {
+            return;
+        }
+        self.destroyed = true;
+
         let _ = crate::scripting::engine::get_named_object_tracker().unregister_object(self.id);
 
         for module in self.update_module_registrations.drain(..) {

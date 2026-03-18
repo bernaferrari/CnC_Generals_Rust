@@ -12,6 +12,7 @@ use crate::helpers::ThePartitionManager;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 // Matches C++ AutoFindHealingUpdate.cpp lines 31-37
@@ -195,6 +196,22 @@ impl BehaviorModuleInterface for AutoFindHealingUpdate {
 }
 
 /// Factory for creating AutoFindHealingUpdate behaviors
+impl Snapshotable for AutoFindHealingUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_int(&mut self.next_scan_frames)
+            .map_err(|e| format!("AutoFindHealingUpdate xfer next_scan_frames: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 pub struct AutoFindHealingUpdateFactory;
 
 impl AutoFindHealingUpdateFactory {

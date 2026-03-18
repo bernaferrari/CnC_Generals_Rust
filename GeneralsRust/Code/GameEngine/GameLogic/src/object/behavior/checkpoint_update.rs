@@ -14,6 +14,7 @@ use crate::modules::{
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::Object as GameObject;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 /// Frames per second constant (C++: LOGICFRAMES_PER_SECOND)
@@ -229,6 +230,28 @@ impl BehaviorModuleInterface for CheckpointUpdate {
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for CheckpointUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_bool(&mut self.enemy_near)
+            .map_err(|e| format!("CheckpointUpdate xfer enemy_near: {:?}", e))?;
+        xfer.xfer_bool(&mut self.ally_near)
+            .map_err(|e| format!("CheckpointUpdate xfer ally_near: {:?}", e))?;
+        xfer.xfer_real(&mut self.max_bounding_radius)
+            .map_err(|e| format!("CheckpointUpdate xfer max_bounding_radius: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.enemy_scan_delay)
+            .map_err(|e| format!("CheckpointUpdate xfer enemy_scan_delay: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

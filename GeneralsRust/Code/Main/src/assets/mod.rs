@@ -11,6 +11,7 @@ pub mod archive;
 pub mod audio;
 pub mod big_file;
 pub mod ini_parser;
+pub mod ini_template_loader;
 pub mod local_file_system;
 pub mod manager;
 pub mod models;

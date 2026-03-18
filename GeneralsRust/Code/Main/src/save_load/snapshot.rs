@@ -1509,6 +1509,7 @@ impl SnapshotBuilder {
                 is_local: snap.is_human,
                 is_alive: snap.is_active,
                 statistics,
+                power_sabotaged_till_frame: 0,
             });
         }
 

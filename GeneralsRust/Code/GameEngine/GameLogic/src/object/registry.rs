@@ -99,6 +99,26 @@ impl ObjectRegistry {
             guard.clear();
         }
     }
+
+    /// Remove dead weak references from the registry.
+    ///
+    /// The registry already drops stale entries opportunistically when `get()`
+    /// or `get_all_objects()` is called.  This method allows the game loop to
+    /// periodically sweep the table so that objects which are looked up
+    /// infrequently (or never) do not accumulate as dead entries.
+    ///
+    /// Returns the number of entries that were removed.
+    pub fn cleanup_dead_references(&self) -> usize {
+        if let Ok(mut guard) = self.store.write() {
+            let before = guard.objects.len();
+            guard
+                .objects
+                .retain(|_, handle| handle.strong_count() > 0);
+            before.saturating_sub(guard.objects.len())
+        } else {
+            0
+        }
+    }
 }
 
 /// Global instance mirroring the legacy singleton.

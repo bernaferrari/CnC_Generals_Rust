@@ -7,6 +7,7 @@ use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleep
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -138,6 +139,22 @@ impl BehaviorModuleInterface for PilotFindVehicleUpdate {
     }
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for PilotFindVehicleUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_object_id(&mut self.target_vehicle)
+            .map_err(|e| format!("PilotFindVehicleUpdate xfer target_vehicle: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

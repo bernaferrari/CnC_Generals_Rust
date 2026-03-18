@@ -16,6 +16,7 @@ use crate::object::behavior::topple_update::{
 };
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 const MAX_NEUTRON_BLASTS: usize = 9;
@@ -321,6 +322,34 @@ impl BehaviorModuleInterface for NeutronMissileSlowDeathUpdate {
 
     fn get_slow_death_behavior_interface(&mut self) -> Option<&mut dyn SlowDeathBehaviorInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for NeutronMissileSlowDeathUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_bool(&mut self.activated)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer activated: {:?}", e))?;
+        xfer.xfer_bool(&mut self.scorch_placed)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer scorch_placed: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.activation_frame)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer activation_frame: {:?}", e))?;
+        for completed in &mut self.completed_blasts {
+            xfer.xfer_bool(completed)
+                .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer completed_blast: {:?}", e))?;
+        }
+        for completed in &mut self.completed_scorch_blasts {
+            xfer.xfer_bool(completed)
+                .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer completed_scorch: {:?}", e))?;
+        }
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
