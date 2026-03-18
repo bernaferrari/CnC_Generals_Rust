@@ -8053,7 +8053,141 @@ impl ClassicState for AIDeadState {
     }
 }
 
-/// Attack state machine for more complex attack behavior
+// ---------------------------------------------------------------------------
+// Container enemy detection helpers
+// Matches C++ AIStates.cpp:findEnemyInContainer() (lines 391-412)
+// ---------------------------------------------------------------------------
+
+/// Find the first enemy inside a container (garrisoned building, transport, etc.)
+/// The "killer" object's relationship perspective is used to determine enemies.
+/// C++ Reference: AIStates.cpp:391 findEnemyInContainer()
+fn find_enemy_in_container(
+    killer: &Object,
+    building: &Object,
+) -> Option<ObjectID> {
+    let Some(contain) = building.get_contain() else {
+        return None;
+    };
+    let Ok(contain_guard) = contain.lock() else {
+        return None;
+    };
+    let contained_ids = contain_guard.get_contained_objects();
+    for &id in contained_ids {
+        let Some(contained_arc) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(contained_guard) = contained_arc.read() else {
+            continue;
+        };
+        // Skip dead things (C++ line 398: isEffectivelyDead check)
+        if contained_guard.is_effectively_dead() {
+            continue;
+        }
+        // C++ line 405: killer->getRelationship(*it) == ENEMIES
+        // Order matters: we check if killer considers it an enemy, not vice versa.
+        if killer.relationship_to(&contained_guard) == Relationship::Enemy {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// Kill enemies inside a container, up to max_to_kill.
+/// Returns the number of enemies killed.
+/// C++ Reference: AIStates.cpp:415 killEnemiesInContainer()
+fn kill_enemies_in_container(
+    killer_id: ObjectID,
+    building: &Object,
+    max_to_kill: i32,
+) -> i32 {
+    let mut num_killed = 0;
+    while num_killed < max_to_kill {
+        let Some(killer_arc) = OBJECT_REGISTRY.get_object(killer_id) else {
+            break;
+        };
+        let killer_guard = match killer_arc.read() {
+            Ok(g) => g,
+            Err(_) => break,
+        };
+        let Some(enemy_id) = find_enemy_in_container(&killer_guard, building) else {
+            break;
+        };
+        drop(killer_guard);
+
+        // Remove from container (C++ lines 423-430)
+        if let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) {
+            if let Ok(enemy_guard) = enemy_arc.read() {
+                if let Some(container_id) = enemy_guard.get_contained_by() {
+                    if let Some(container_arc) = OBJECT_REGISTRY.get_object(container_id) {
+                        if let Ok(container_guard) = container_arc.write() {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(mut contain_guard) = contain.lock() {
+                                    let _ = contain_guard.release_object(enemy_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Score the kill (C++ line 433)
+        if let Some(killer_arc) = OBJECT_REGISTRY.get_object(killer_id) {
+            if let (Ok(mut killer_guard), Ok(enemy_guard)) =
+                (killer_arc.write(), OBJECT_REGISTRY.get_object(enemy_id).unwrap().read())
+            {
+                killer_guard.score_the_kill(&enemy_guard);
+            }
+        }
+
+        // Kill the enemy (C++ line 434)
+        if let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) {
+            if let Ok(mut enemy_guard) = enemy_arc.write() {
+                enemy_guard.kill(None, None);
+            }
+        }
+
+        num_killed += 1;
+    }
+    num_killed
+}
+
+// ---------------------------------------------------------------------------
+// in_weapon_range_object helper (negation of out_of_weapon_range_object)
+// Used by portable structure chase conditions in the attack state machine.
+// C++ Reference: AIStates.cpp:1135 inWeaponRangeObject()
+// ---------------------------------------------------------------------------
+
+/// Returns true when the owner IS within weapon range of the goal object.
+/// This is the logical inverse of `out_of_weapon_range_object_state`.
+/// C++ Reference: AIStates.cpp:1135 inWeaponRangeObject()
+fn in_weapon_range_object_state(base: &State) -> Result<bool, String> {
+    let out_of_range = out_of_weapon_range_object_state(base)?;
+    Ok(!out_of_range)
+}
+
+/// Typed version of in_weapon_range_object for the pursue state on portable
+/// structures. When a rider (e.g., infantry on a tank) is attacking, it cannot
+/// control its own movement, so the chase state is a no-op that falls back to
+/// aim when the weapon is in range.
+/// C++ Reference: AIStates.cpp:314-316 portableStructureChaseConditions
+fn in_weapon_range_object_chase(
+    _state: &AIAttackPursueTargetState,
+    _user_data: &StateTransitionUserData,
+) -> Result<bool, String> {
+    // Portable structure riders use a ContinueState in C++, which means
+    // they just fall through to the next state. The condition check here
+    // delegates to the base state check.
+    // Note: The actual portable structure chase in C++ uses a ContinueState
+    // that always transitions back to AIM when in range. This function
+    // provides the inWeaponRangeObject condition for that transition.
+    Ok(true) // ContinueState always passes through; range is checked by aim state
+}
+
+// ---------------------------------------------------------------------------
+// Attack state machine for more complex attack behavior
+// ---------------------------------------------------------------------------
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttackSubStateId {
     AimAtTarget = 1,

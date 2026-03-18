@@ -12,7 +12,7 @@ use crate::ai::modules::{
     BuildOrderOptimizer, DifficultyHandler, StrategicDecision, StrategicDecisionMaker,
     ThreatAssessmentSystem,
 };
-use crate::ai::{AiError, AiGroup, AttitudeType, AI, THE_AI};
+use crate::ai::{AiError, AiGroup, AttitudeType, ScienceType, AI, THE_AI};
 use crate::common::{
     AsciiString, ControlBarInterface, Coord2D, Coord3D, KindOf, ObjectID, ObjectStatusMaskType,
     ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate, UnsignedInt,
@@ -2791,9 +2791,122 @@ impl AIPlayer {
         Ok(())
     }
 
-    /// Process upgrades and skills
+    /// Process upgrades and skill purchases.
+    /// Matches C++ AIPlayer::doUpgradesAndSkills() from AIPlayer.cpp:2906-2980.
+    ///
+    /// On first call, selects a skillset randomly from the available ones for the
+    /// player's side. Then, if the player has science purchase points, iterates
+    /// through the selected skillset and purchases each science that is affordable.
     fn do_upgrades_and_skills(&mut self) -> Result<(), AiError> {
-        // AI upgrade decision logic would go here
+        // Find the AiSideInfo for our player's side
+        // C++ AIPlayer.cpp:2917-2926
+        let player_side = {
+            let Some(player_arc) = self.get_player() else {
+                return Ok(());
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(());
+            };
+            player_guard.get_side().clone()
+        };
+
+        // Get side info from AI data
+        let side_info = THE_AI.read().ok().and_then(|ai_guard| {
+            let ai_data = ai_guard.get_ai_data();
+            let data = ai_data.read().ok()?;
+            data.side_info.iter().find(|info| info.side == player_side).cloned()
+        });
+
+        let Some(side_info) = side_info else {
+            return Ok(());
+        };
+
+        // Skillset selection: pick randomly among defined skillsets
+        // C++ AIPlayer.cpp:2928-2948
+        if self.skillset_selector == INVALID_SKILLSET_SELECTION {
+            let mut limit: u32 = 0;
+            // Pick randomly among the skillsets that have skills.
+            // Designers sometimes only define skillset 1 & 2, or some such.
+            if side_info.skill_set_2.num_skills > 0 {
+                limit = 1;
+                if side_info.skill_set_3.num_skills > 0 {
+                    limit = 2;
+                    if side_info.skill_set_4.num_skills > 0 {
+                        limit = 3;
+                        if side_info.skill_set_5.num_skills > 0 {
+                            limit = 4;
+                        }
+                    }
+                }
+            }
+            let is_skirmish = self
+                .get_player()
+                .and_then(|p| {
+                    p.read().ok().map(|g| g.is_skirmish_ai())
+                })
+                .unwrap_or(false);
+            if is_skirmish {
+                self.skillset_selector = game_logic_random_value(0, limit) as i32;
+            } else {
+                // Non-skirmish default to 0
+                self.skillset_selector = 0;
+            }
+        }
+
+        // SKILLS: purchase sciences from the selected skillset
+        // C++ AIPlayer.cpp:2951-2977
+        let Some(player_arc) = self.get_player() else {
+            return Ok(());
+        };
+        let purchase_points = {
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(());
+            };
+            player_guard.get_science_purchase_points()
+        };
+        if purchase_points <= 0 {
+            return Ok(());
+        }
+
+        let skillset: &super::SkillSet = match self.skillset_selector {
+            0 => &side_info.skill_set_1,
+            1 => &side_info.skill_set_2,
+            2 => &side_info.skill_set_3,
+            3 => &side_info.skill_set_4,
+            _ => &side_info.skill_set_5,
+        };
+
+        // Attempt to purchase each science in the skillset
+        for i in 0..skillset.num_skills as usize {
+            if i >= skillset.skills.len() {
+                break;
+            }
+            let science = skillset.skills[i];
+            if science == crate::common::science::SCIENCE_INVALID {
+                continue;
+            }
+            let (capable, purchased) = {
+                let Ok(mut player_guard) = player_arc.write() else {
+                    break;
+                };
+                let capable = player_guard.is_capable_of_purchasing_science(science);
+                if !capable {
+                    (false, false)
+                } else {
+                    let purchased = player_guard.attempt_to_purchase_science(science);
+                    (true, purchased)
+                }
+            };
+            if capable && purchased {
+                // Successfully purchased a science from the skillset
+                log::debug!(
+                    "AI Player purchases from SkillSet{} science {}",
+                    self.skillset_selector + 1,
+                    science,
+                );
+            }
+        }
+
         Ok(())
     }
 
