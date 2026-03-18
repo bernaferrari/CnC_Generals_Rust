@@ -233,7 +233,7 @@ impl CrateSystem {
 
         template.name = name.clone();
         self.templates.insert(name.clone(), template);
-        self.template_order.push(name);
+        self.template_order.push(name.clone());
         self.templates.get_mut(&name).unwrap()
     }
 
@@ -356,7 +356,7 @@ pub fn parse_crate_template_definition(ini: &mut game_engine::common::ini::INI) 
 
     let system = get_crate_system();
     let mut system_guard = system.write()
-        .map_err(|_| game_engine::common::ini::INIError::Other("crate system lock poisoned".into()))?;
+        .map_err(|_| game_engine::common::ini::INIError::UnknownError)?;
 
     // Check for existing template (C++ parseCrateTemplateDefinition logic)
     let template_ref = if system_guard.find_crate_template(&name).is_some() {
@@ -367,14 +367,16 @@ pub fn parse_crate_template_definition(ini: &mut game_engine::common::ini::INI) 
         Some(system_guard.new_crate_template(name.clone()))
     };
 
-    let template = template_ref.ok_or(game_engine::common::ini::INIError::Other("failed to create crate template".into()))?;
+    let template = template_ref.ok_or(game_engine::common::ini::INIError::UnknownError)?;
 
     // Parse fields until End
-    while let Some(token) = ini.get_next_token_no_lparen() {
+    while let Some(token) = ini.get_next_token() {
         match token.as_str() {
             "End" => break,
             "CreationChance" => {
-                let val = ini.parse_real()?;
+                let token_str = ini.get_next_token()
+                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let val = game_engine::common::ini::INI::parse_real(&token_str)?;
                 template.creation_chance = val;
             }
             "VeterancyLevel" => {
@@ -407,7 +409,9 @@ pub fn parse_crate_template_definition(ini: &mut game_engine::common::ini::INI) 
                 template.add_possible_crate(crate_name, chance);
             }
             "OwnedByMaker" => {
-                let val = ini.parse_bool()?;
+                let token_str = ini.get_next_token()
+                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let val = game_engine::common::ini::INI::parse_bool(&token_str)?;
                 template.is_owned_by_maker = val;
             }
             _ => {

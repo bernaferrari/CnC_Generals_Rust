@@ -765,7 +765,7 @@ impl Projectile {
 
         // Track closest object for proximity fuse
         let mut closest_distance = f32::MAX;
-        let mut closest_object: Option<ObjectId> = None;
+        let mut _closest_object: Option<ObjectId> = None;
 
         for object_id in nearby_objects {
             // Skip source object and already hit objects
@@ -788,7 +788,7 @@ impl Projectile {
             // Track closest for proximity fuse
             if distance < closest_distance {
                 closest_distance = distance;
-                closest_object = Some(object_id);
+                _closest_object = Some(object_id);
             }
         }
 

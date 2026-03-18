@@ -969,13 +969,13 @@ impl DefaultCommandHandler {
         assistant_template.geometry_info.height =
             template_geometry.get_max_height_above_position().max(1.0);
 
-        let Some(mut assistant) = build_assistant::get_build_assistant() else {
+        let Some(assistant) = build_assistant::get_build_assistant() else {
             return CommandExecutionResult::Failed(AsciiString::from(
                 "Build assistant unavailable",
             ));
         };
 
-        let mut build_success = false;
+        let mut _build_success = false;
         match end_pos {
             Some(end) => {
                 assistant.build_object_line_now(
@@ -994,7 +994,7 @@ impl DefaultCommandHandler {
                     angle as f32,
                     &owning_player,
                 );
-                build_success = true;
+                _build_success = true;
             }
             None => {
                 let built = assistant.build_object_now(
@@ -1008,11 +1008,11 @@ impl DefaultCommandHandler {
                     angle as f32,
                     &owning_player,
                 );
-                build_success = built.is_some();
+                _build_success = built.is_some();
             }
         }
 
-        if build_success {
+        if _build_success {
             let mut place_event = AudioEventRts::new("PlaceBuilding");
             place_event.set_object_id(builder);
             if let Some(audio) = TheAudio::get() {
@@ -1979,10 +1979,10 @@ impl DefaultCommandHandler {
 
     fn execute_remove_beacon(
         &mut self,
-        command: &QueuedCommand,
+        _command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
-        let (player_arc, local_player_arc, is_local_player) = match player_list().read() {
+        let (player_arc, _local_player_arc, is_local_player) = match player_list().read() {
             Ok(list) => {
                 let player = match list.get_player(context.player_id) {
                     Some(player) => Arc::clone(player),
@@ -2013,14 +2013,14 @@ impl DefaultCommandHandler {
         };
 
         let selected_ids = {
-            let Ok(mut guard) = player_arc.write() else {
+            let Ok(guard) = player_arc.write() else {
                 return CommandExecutionResult::Failed(AsciiString::from("Player lock poisoned"));
             };
             guard.get_current_selection_ids()
         };
 
         let mut removed_entries: Vec<(Int, Coord3D)> = Vec::new();
-        let mut removed_any = false;
+        let mut _removed_any = false;
 
         for object_id in selected_ids {
             let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
@@ -2049,7 +2049,7 @@ impl DefaultCommandHandler {
 
             if owner_id == context.player_id {
                 let _ = TheGameLogic::destroy_object_by_id(object_id);
-                removed_any = true;
+                _removed_any = true;
                 removed_entries.push((owner_id, entry_position));
                 control_bar::mark_ui_dirty();
             } else if is_local_player {
@@ -2547,7 +2547,7 @@ impl DefaultCommandHandler {
             Err(res) => return res,
         };
 
-        let position = if let Some(object_manager) = &context.object_manager {
+        let _position = if let Some(object_manager) = &context.object_manager {
             if let Ok(om) = object_manager.read() {
                 if let Some(obj) = om.get_object(target_id) {
                     obj.get_position()
@@ -2968,7 +2968,7 @@ impl DefaultCommandHandler {
             let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
                 continue;
             };
-            let Ok(mut obj_guard) = obj_arc.write() else {
+            let Ok(obj_guard) = obj_arc.write() else {
                 continue;
             };
             let mut toggled = false;

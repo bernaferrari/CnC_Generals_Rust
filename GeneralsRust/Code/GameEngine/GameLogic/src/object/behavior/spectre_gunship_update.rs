@@ -590,7 +590,7 @@ impl SpectreGunshipUpdate {
 
         let mut disguised_player_index = None;
         for behavior in target.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
+            let Ok(guard) = behavior.lock() else {
                 continue;
             };
             if let Some(idx) = guard.get_disguised_player_index() {
@@ -875,7 +875,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                 perigee_dir /= distance_to_target;
             }
 
-            let mut apogee = Coord3D::new(-perigee_dir.y, perigee_dir.x, 0.0);
+            let apogee = Coord3D::new(-perigee_dir.y, perigee_dir.x, 0.0);
             let slope = self
                 .module_data
                 .orbit_insertion_slope
@@ -942,7 +942,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             } else if self.module_data.howitzer_firing_rate > 0
                 && current_frame % self.module_data.howitzer_firing_rate < 1
             {
-                let mut target_pos = self.override_target_destination;
+                let mut _target_pos = self.override_target_destination;
                 let mut target_id: Option<ObjectID> = None;
                 self.position_to_shoot_at = self.override_target_destination;
 
@@ -952,7 +952,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     self.module_data.targeting_reticle_radius,
                 ) {
                     target_id = Some(id);
-                    target_pos = pos;
+                    _target_pos = pos;
                 } else if {
                     if let Some(player_arc) = gunship.get_controlling_player() {
                         player_arc
@@ -970,8 +970,8 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                         self.module_data.attack_area_radius,
                     ) {
                         target_id = Some(id);
-                        target_pos = pos;
-                        self.position_to_shoot_at = target_pos;
+                        _target_pos = pos;
+                        self.position_to_shoot_at = _target_pos;
                     }
                 }
 

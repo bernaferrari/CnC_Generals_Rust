@@ -485,7 +485,7 @@ impl SlavedUpdate {
             return;
         };
 
-        let (me_pos, master_pos, target_pos) = {
+        let (_me_pos, master_pos, target_pos) = {
             let Ok(me) = me_arc.read() else { return };
             let Ok(master) = master_arc.read() else {
                 return;

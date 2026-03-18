@@ -123,7 +123,7 @@ impl ExperienceGainManager {
 
         // Award experience
         let mut tracker_guard = tracker.lock().ok()?;
-        let old_level = tracker_guard.get_veterancy_level();
+        let _old_level = tracker_guard.get_veterancy_level();
 
         let promotion = tracker_guard.add_experience_points(
             experience_gain,
@@ -161,7 +161,7 @@ impl ExperienceGainManager {
         killer_id: ObjectID,
         victim_id: ObjectID,
         victim_cost: i32,
-        victim_level: VeterancyLevel,
+        _victim_level: VeterancyLevel,
         killer_is_ally: bool,
         can_scale: bool,
     ) -> Option<ExperienceGainResult> {
@@ -185,7 +185,7 @@ impl ExperienceGainManager {
 
         // Award experience to killer
         let mut killer_tracker_guard = killer_tracker.lock().ok()?;
-        let old_level = killer_tracker_guard.get_veterancy_level();
+        let _old_level = killer_tracker_guard.get_veterancy_level();
 
         let promotion = killer_tracker_guard.add_experience_points(
             experience_gain,
@@ -247,7 +247,7 @@ impl ExperienceGainManager {
                 self.requirements.get(&member_id),
             ) {
                 if let Ok(mut tracker_guard) = tracker.lock() {
-                    let old_level = tracker_guard.get_veterancy_level();
+                    let _old_level = tracker_guard.get_veterancy_level();
 
                     let promotion = tracker_guard.add_experience_points(
                         shared_amount,
@@ -310,7 +310,7 @@ impl ExperienceGainManager {
 
         // Award to sink
         let mut sink_guard = sink_tracker.lock().ok()?;
-        let old_level = sink_guard.get_veterancy_level();
+        let _old_level = sink_guard.get_veterancy_level();
 
         let promotion =
             sink_guard.add_experience_points(scaled_amount, false, sink_requirements.as_array());

@@ -1643,7 +1643,7 @@ fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<RwLock<AiGr
 
     if let Ok(mut group_guard) = group.write() {
         for member_id in members {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) {
+            if let Some(_obj_arc) = TheGameLogic::find_object_by_id(member_id) {
                 group_guard.add(member_id);
             }
         }
@@ -3252,7 +3252,7 @@ impl ScriptAction for NamedFollowWaypointsAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(mut obj_guard) = object_arc.write() {
+        if let Ok(obj_guard) = object_arc.write() {
             if let Some(ai) = obj_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.try_lock() {
                     let mut params = AiCommandParams::new(
@@ -3977,7 +3977,7 @@ impl ScriptAction for PlayerBuildBaseDefenseAction {
         };
 
         let player_id = player_guard.get_player_index() as u32;
-        let difficulty = player_guard.get_player_difficulty();
+        let _difficulty = player_guard.get_player_difficulty();
 
         let defense_lower = defense_type.to_ascii_lowercase();
         let _ = with_ai_integration_mut(|manager| {
@@ -5634,7 +5634,7 @@ impl ScriptAction for CreateBuildingAction {
         if angle != 0.0 {
             if let Ok(manager) = get_object_manager().read() {
                 if let Some(object) = manager.get_object(object_id) {
-                    if let Ok(mut guard) = object.write() {
+                    if let Ok(guard) = object.write() {
                         let _ = guard
                             .base
                             .write()

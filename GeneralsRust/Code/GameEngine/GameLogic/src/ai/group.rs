@@ -1214,7 +1214,7 @@ impl AIGroup {
     }
 
     /// Update formation positions (should be called regularly)
-    pub fn update_formation(&mut self, frame: u32) {
+    pub fn update_formation(&mut self, _frame: u32) {
         if let Some(formation_id) = self.formation_id {
             if let Some(ref manager_arc) = self.formation_manager {
                 if let Ok(mut manager) = manager_arc.try_lock() {

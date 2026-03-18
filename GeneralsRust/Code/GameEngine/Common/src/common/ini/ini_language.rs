@@ -81,6 +81,7 @@ impl FontDesc {
                 name_parts.push(part);
                 idx += 1;
             }
+            let _ = idx; // suppress unused_assignments
             font_desc.name = name_parts.join(" ");
         } else {
             font_desc.name = name_token.to_string();

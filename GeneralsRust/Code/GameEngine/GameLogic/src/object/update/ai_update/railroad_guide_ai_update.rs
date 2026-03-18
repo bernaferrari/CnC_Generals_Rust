@@ -159,7 +159,7 @@ impl RailroadPhysicsHandle {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
+        let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
         xfer.xfer_coord3d(&mut self.velocity);
         xfer_io(xfer.xfer_real(&mut self.mass))?;
         xfer_io(xfer.xfer_bool(&mut self.allow_bouncing))?;
@@ -298,7 +298,7 @@ impl Default for PullInfo {
 
 impl PullInfo {
     fn xfer_pull_info(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
+        let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
         let mut version: u32 = 1;
         xfer_io(xfer.xfer_u32(&mut version))?;
         xfer_io(xfer.xfer_real(&mut self.direction))?;
@@ -691,7 +691,7 @@ impl RailroadBehavior {
         let Some(obj_arc) = self.get_object() else {
             return;
         };
-        let Ok(mut obj_guard) = obj_arc.write() else {
+        let Ok(obj_guard) = obj_arc.write() else {
             return;
         };
         let my_pos = *obj_guard.get_position();
@@ -735,7 +735,7 @@ impl RailroadBehavior {
         let mut track_length = 0.0;
 
         let mut scanner = Some(anchor_waypoint);
-        let mut dist_from_to = 0.0;
+        let mut dist_from_to;
 
         if let Some(scanner_wp) = scanner {
             let mut track_point = TrackPoint::new();
@@ -834,7 +834,7 @@ impl RailroadBehavior {
 
     fn disembark(&mut self) {
         if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut obj_guard) = obj_arc.write() {
+            if let Ok(obj_guard) = obj_arc.write() {
                 if let Some(contain) = obj_guard.get_contain() {
                     let _ = contain.order_all_passengers_to_exit(
                         crate::common::CommandSourceType::FromAi,
@@ -869,7 +869,7 @@ impl RailroadBehavior {
         let Some(obj_arc) = self.get_object() else {
             return;
         };
-        let Ok(mut obj_guard) = obj_arc.write() else {
+        let Ok(obj_guard) = obj_arc.write() else {
             return;
         };
 
@@ -1050,7 +1050,7 @@ impl RailroadBehavior {
         let Some(locomotive) = TheGameLogic::find_object_by_id(loco_id) else {
             return;
         };
-        let Ok(locomotive_guard) = locomotive.read() else {
+        let Ok(_locomotive_guard) = locomotive.read() else {
             return;
         };
 
@@ -1065,7 +1065,7 @@ impl RailroadBehavior {
         let Some(obj_arc) = self.get_object() else {
             return;
         };
-        let Ok(mut obj_guard) = obj_arc.write() else {
+        let Ok(obj_guard) = obj_arc.write() else {
             return;
         };
 
@@ -1165,7 +1165,7 @@ impl RailroadBehavior {
             self.trailer_id = INVALID_ID;
             if self.end_of_line {
                 if let Some(obj_arc) = self.get_object() {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                    if let Ok(obj_guard) = obj_arc.write() {
                         let _ = TheGameLogic::destroy_object(&obj_guard);
                     }
                 }
@@ -1256,7 +1256,7 @@ impl RailroadBehavior {
 
     fn destroy_whole_train_now(&mut self) {
         if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut obj_guard) = obj_arc.write() {
+            if let Ok(obj_guard) = obj_arc.write() {
                 let _ = TheGameLogic::destroy_object(&obj_guard);
             }
         }
@@ -1306,10 +1306,8 @@ impl RailroadBehavior {
                 }
             } else {
                 if dist < 0.0 {
-                    actual_distance = 0.0;
                     self.waiting_in_wings = true;
                 } else if dist >= length {
-                    actual_distance = length;
                     self.end_of_line = true;
                 }
                 actual_distance = dist.clamp(0.0, length);
@@ -1376,7 +1374,7 @@ impl RailroadBehavior {
                                         let _ = audio.add_audio_event(&self.clickety_clack_sound);
                                     }
                                     if let Some(obj_arc) = self.get_object() {
-                                        if let Ok(mut obj_guard) = obj_arc.write() {
+                                        if let Ok(obj_guard) = obj_arc.write() {
                                             let pos = obj_guard.get_position();
                                             self.clickety_clack_sound
                                                 .set_position(&(pos.x, pos.y, pos.z));
@@ -1408,7 +1406,7 @@ impl RailroadBehavior {
         }
     }
 
-    fn on_collide(&mut self, other: &mut GameObject, loc: &Coord3D, normal: &Coord3D) {
+    fn on_collide(&mut self, other: &mut GameObject, loc: &Coord3D, _normal: &Coord3D) {
         if self.waiting_in_wings || self.end_of_line {
             return;
         }
@@ -1460,7 +1458,7 @@ impl RailroadBehavior {
                 return;
             }
 
-            if let Some(module) = other.find_update_module("DemoTrapUpdate") {
+            if let Some(_module) = other.find_update_module("DemoTrapUpdate") {
                 if !other.test_status(crate::common::ObjectStatusTypes::UnderConstruction) {
                     if let Some(obj_arc) = self.get_object() {
                         if let Ok(mut guard) = obj_arc.write() {
@@ -1531,7 +1529,7 @@ impl RailroadBehavior {
         let dot = delta.x * my_dir.x + delta.y * my_dir.y + delta.z * my_dir.z;
 
         if other.is_effectively_dead() {
-            let mut vel = delta * (self.pull_info.speed * 0.66).min(0.3);
+            let vel = delta * (self.pull_info.speed * 0.66).min(0.3);
             if let Ok(mut phys_guard) = physics.lock() {
                 phys_guard.add_velocity_to(&vel);
             }
@@ -1725,7 +1723,7 @@ impl UpdateModuleInterface for RailroadBehavior {
                 self.trailer_id = INVALID_ID;
                 if self.end_of_line {
                     if let Some(obj_arc) = self.get_object() {
-                        if let Ok(mut obj_guard) = obj_arc.write() {
+                        if let Ok(obj_guard) = obj_arc.write() {
                             let _ = TheGameLogic::destroy_object(&obj_guard);
                         }
                     }
@@ -1736,7 +1734,7 @@ impl UpdateModuleInterface for RailroadBehavior {
         }
 
         if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut obj_guard) = obj_arc.write() {
+            if let Ok(obj_guard) = obj_arc.write() {
                 if let Some(drawable) = obj_guard.get_drawable() {
                     if let Ok(mut draw_guard) = drawable.write() {
                         if let Some(track) = &self.track {
@@ -1829,7 +1827,7 @@ impl Snapshotable for RailroadBehavior {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
+        let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
         let mut version: u32 = 3;
         xfer_io(xfer.xfer_u32(&mut version))?;
         if version >= 2 {
@@ -1899,7 +1897,7 @@ impl Snapshotable for RailroadBehavior {
             phys_guard.set_mass(self.module_data.base.mass);
         }
         if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut obj_guard) = obj_arc.write() {
+            if let Ok(obj_guard) = obj_arc.write() {
                 let obj_id = obj_guard.get_id();
                 self.running_sound.set_object_id(obj_id);
                 self.clickety_clack_sound.set_object_id(obj_id);

@@ -99,7 +99,7 @@ pub use ini_control_bar_scheme::{
 };
 pub use ini_crate::{
     parse_crate_template_definition, ensure_crate_system, get_crate_system,
-    initialize_crate_system, CrateSystem, CrateTemplate,
+    initialize_crate_system,
     ParsedCrateCreationEntry, ParsedCrateSystem, ParsedCrateTemplate,
 };
 

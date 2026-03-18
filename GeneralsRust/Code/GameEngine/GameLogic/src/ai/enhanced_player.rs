@@ -150,7 +150,7 @@ impl Default for AiTimers {
 
 /// AI Player performance statistics
 #[derive(Debug, Default)]
-struct AiPlayerStats {
+pub struct AiPlayerStats {
     structures_built: u32,
     teams_built: u32,
     attacks_launched: u32,
@@ -408,7 +408,7 @@ impl EnhancedAiPlayer {
         let mut orders = Vec::new();
 
         // Priority-based building
-        let mut priority_queue: BTreeMap<u32, Vec<BuildOrderItem>> = BTreeMap::new();
+        let mut _priority_queue: BTreeMap<u32, Vec<BuildOrderItem>> = BTreeMap::new();
 
         for (strategy, weight) in &self.strategy_priorities {
             let base_priority = (*weight * 1000.0) as u32;
@@ -956,7 +956,7 @@ impl EnhancedAiPlayer {
 
     fn start_building_structure(
         &self,
-        build_order: &BuildOrderItem,
+        _build_order: &BuildOrderItem,
     ) -> Result<Option<ObjectID>, AiError> {
         // Initiate structure construction
         // In full implementation, would:
@@ -993,7 +993,7 @@ impl EnhancedAiPlayer {
         Ok(true)
     }
 
-    fn start_building_team(&self, build_order: &TeamBuildOrder) -> Result<bool, AiError> {
+    fn start_building_team(&self, _build_order: &TeamBuildOrder) -> Result<bool, AiError> {
         // Queue team units for production
         // In full implementation, would:
         // 1. Find available factories for each unit type

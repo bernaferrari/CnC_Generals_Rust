@@ -2181,7 +2181,7 @@ impl FiringTracker {
                 if self.audio_handle == 0 {
                     needs_restart = true;
                 } else {
-                    let manager =
+                    let _manager =
                         get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
                     if self.audio_handle == 0 {
                         needs_restart = true;
@@ -2289,8 +2289,8 @@ impl FiringTracker {
     }
 
     fn speed_up(&mut self, owner: &mut Object) {
-        let mut clear = crate::common::ModelConditionFlags::empty();
-        let mut set = crate::common::ModelConditionFlags::empty();
+        let clear = crate::common::ModelConditionFlags::empty();
+        let set = crate::common::ModelConditionFlags::empty();
 
         if owner
             .get_weapon_bonus_condition()
@@ -2327,8 +2327,8 @@ impl FiringTracker {
     }
 
     fn cool_down(&mut self, owner: &mut Object) {
-        let mut clear = crate::common::ModelConditionFlags::empty();
-        let mut set = crate::common::ModelConditionFlags::empty();
+        let clear = crate::common::ModelConditionFlags::empty();
+        let set = crate::common::ModelConditionFlags::empty();
 
         let bonus_flags = owner.get_weapon_bonus_condition();
         if bonus_flags
@@ -2608,7 +2608,7 @@ impl TheGlobalData {
         *guard = value;
 
         for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(mut obj_guard) = obj_arc.write() else {
+            let Ok(obj_guard) = obj_arc.write() else {
                 continue;
             };
             if let Some(drawable) = obj_guard.get_drawable() {

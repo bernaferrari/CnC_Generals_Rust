@@ -320,7 +320,7 @@ impl DeployStyleAIUpdate {
         let mut is_in_range = false;
         if is_trying_to_attack {
             if let Some(weapon) = weapon {
-                let source_pos = owner_guard.get_position();
+                let _source_pos = owner_guard.get_position();
                 let mut target_pos = None;
 
                 if let Some(victim_id) = ai.get_current_victim() {

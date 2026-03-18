@@ -1627,7 +1627,7 @@ impl TerrainLogic {
 
         // Get the bridge info before removing
         let bridge_object_id = bridge.get_bridge_info().bridge_object_id;
-        let layer = bridge.get_layer();
+        let _layer = bridge.get_layer();
 
         // Remove from pathfinder (would notify AI system)
         // TheAI->pathfinder()->changeBridgeState(layer, false);
@@ -1875,7 +1875,7 @@ impl TerrainLogic {
 
         // Sample heights at 4 neighboring points
         // C++ TerrainLogic.cpp lines 195-198
-        let h_center = self.get_ground_height(x, y, None);
+        let _h_center = self.get_ground_height(x, y, None);
         let h_north = self.get_ground_height(x, y + SAMPLE_OFFSET, None);
         let h_south = self.get_ground_height(x, y - SAMPLE_OFFSET, None);
         let h_east = self.get_ground_height(x + SAMPLE_OFFSET, y, None);

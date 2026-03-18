@@ -903,7 +903,7 @@ impl ClassicState for AIGuardInnerState {
 
         if is_enter_guard {
             let machine_arc = self.base.state().get_machine()?;
-            let mut enter_state = {
+            let enter_state = {
                 let machine_guard = machine_arc
                     .lock()
                     .map_err(|_| "guard inner machine lock poisoned".to_string())?;

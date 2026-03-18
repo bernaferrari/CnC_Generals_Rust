@@ -212,6 +212,7 @@ impl CommandButtonHuntUpdate {
             return UpdateSleepTime::Forever;
         };
 
+        #[allow(unreachable_patterns)]
         match button.get_command_type() {
             CommandType::SpecialPower => self.hunt_special_power(ai),
             CommandType::SwitchWeapon | CommandType::FireWeapon => self.hunt_weapon(ai),
@@ -379,6 +380,7 @@ impl CommandButtonHuntUpdate {
 
         let mut allow_neutral_only = false;
         let mut is_enter = false;
+        #[allow(unreachable_patterns)]
         match command_type {
             CommandType::ConvertToCarBomb => {
                 allow_neutral_only = true;
@@ -506,6 +508,7 @@ impl CommandButtonHuntUpdate {
             }
 
             if is_enter {
+                #[allow(unreachable_patterns)]
                 let valid = match command_type {
                     CommandType::HijackVehicle => other.is_kind_of(KindOf::Vehicle),
                     CommandType::SabotageBuilding => other.is_kind_of(KindOf::Structure),

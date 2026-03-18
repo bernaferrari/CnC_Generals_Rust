@@ -696,7 +696,7 @@ pub trait ContainModuleInterfaceExt {
 
 impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_valid_container_for(obj, check_capacity)
         } else {
             false
@@ -710,7 +710,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn get_contained_objects(&self) -> Vec<ObjectID> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_contained_objects().to_vec()
         } else {
             Vec::new()
@@ -718,7 +718,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn get_contained_count(&self) -> usize {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_contained_count()
         } else {
             0
@@ -751,7 +751,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn is_enclosing_container_for(&self, obj: &Object) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_enclosing_container_for(obj)
         } else {
             true
@@ -759,7 +759,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_passenger_allowed_to_fire(id)
         } else {
             false
@@ -773,7 +773,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn has_objects_wanting_to_enter_or_exit(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.has_objects_wanting_to_enter_or_exit()
         } else {
             false
@@ -781,7 +781,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn is_special_overlord_style_container(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_special_overlord_style_container()
         } else {
             false
@@ -789,7 +789,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn get_rider_id(&self) -> Option<ObjectID> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_rider_id()
         } else {
             None
@@ -797,7 +797,7 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn friend_get_rider(&self) -> Option<ObjectID> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.friend_get_rider()
         } else {
             None
@@ -1871,7 +1871,7 @@ pub trait AIUpdateInterfaceExt {
 
 impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     fn get_speed(&self) -> f32 {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_speed()
         } else {
             0.0
@@ -1971,7 +1971,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     fn ai_busy(&self, cmd_source: CommandSourceType) {
         // C++ Reference: AIUpdateInterface::aiBusy()
         if let Ok(mut guard) = self.try_lock() {
-            let mut params =
+            let params =
                 crate::ai::AiCommandParams::new(crate::ai::AiCommandType::Busy, cmd_source);
             let _ = guard.execute_command(&params);
         }
@@ -2340,7 +2340,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn is_idle(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_idle()
         } else {
             false
@@ -2348,7 +2348,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn is_busy(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_busy()
         } else {
             false
@@ -2362,7 +2362,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_attitude(&self) -> AIAttitudeType {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_attitude()
         } else {
             AIAttitudeType::Normal
@@ -2370,7 +2370,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn is_ai_in_dead_state(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_ai_in_dead_state()
         } else {
             false
@@ -2384,7 +2384,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_goal_object()
         } else {
             None
@@ -2409,7 +2409,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         }
     }
     fn get_last_command_source(&self) -> CommandSourceType {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_last_command_source()
         } else {
             CommandSourceType::FromAi
@@ -2417,7 +2417,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_which_turret_for_cur_weapon(&self) -> TurretType {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_which_turret_for_cur_weapon()
         } else {
             TurretType::Invalid
@@ -2437,7 +2437,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn is_turret_in_natural_position(&self, turret: TurretType) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_turret_in_natural_position(turret)
         } else {
             true
@@ -2445,7 +2445,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_path(&self) -> Option<()> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             if guard.get_path_destination().is_some() {
                 return Some(());
             }
@@ -2454,7 +2454,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_path_destination(&self) -> Option<Coord3D> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_path_destination()
         } else {
             None
@@ -2462,7 +2462,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_locomotor_distance_to_goal(&self) -> Real {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_locomotor_distance_to_goal()
         } else {
             0.0
@@ -2470,7 +2470,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_current_victim(&self) -> Option<ObjectID> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_current_victim()
         } else {
             None
@@ -2478,7 +2478,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_cur_locomotor()
         } else {
             None
@@ -2821,7 +2821,7 @@ pub trait PhysicsBehaviorExt {
 
 impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     fn get_velocity(&self) -> Vec3D {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_velocity()
         } else {
             Vec3D::ZERO
@@ -2913,7 +2913,7 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     }
 
     fn get_mass(&self) -> Real {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_mass()
         } else {
             1.0
@@ -2933,7 +2933,7 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     }
 
     fn get_turning(&self) -> Real {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_turning()
         } else {
             0.0
@@ -2941,7 +2941,7 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     }
 
     fn get_last_collidee(&self) -> ObjectID {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_last_collidee()
         } else {
             INVALID_ID
@@ -2961,7 +2961,7 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     }
 
     fn get_bounce_sound(&self) -> Option<AudioEventRts> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_bounce_sound()
         } else {
             None
@@ -3683,7 +3683,7 @@ impl SpecialPowerModuleInterfaceExt for Arc<Mutex<dyn SpecialPowerModuleInterfac
     }
 
     fn is_ready(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_ready()
         } else {
             false
@@ -3691,7 +3691,7 @@ impl SpecialPowerModuleInterfaceExt for Arc<Mutex<dyn SpecialPowerModuleInterfac
     }
 
     fn get_percent_ready(&self) -> f32 {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_percent_ready()
         } else {
             0.0
@@ -3699,7 +3699,7 @@ impl SpecialPowerModuleInterfaceExt for Arc<Mutex<dyn SpecialPowerModuleInterfac
     }
 
     fn get_power_name(&self) -> String {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_power_name()
         } else {
             String::from("Unknown")
@@ -3730,7 +3730,7 @@ impl SpawnBehaviorInterfaceExt for Arc<Mutex<dyn SpawnBehaviorInterface>> {
     }
 
     fn get_spawn_count(&self) -> u32 {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_spawn_count()
         } else {
             0
@@ -3738,7 +3738,7 @@ impl SpawnBehaviorInterfaceExt for Arc<Mutex<dyn SpawnBehaviorInterface>> {
     }
 
     fn get_spawn_object(&self, index: u32) -> Option<ObjectID> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_spawn_object(index)
         } else {
             None
@@ -3899,7 +3899,7 @@ impl BodyModuleInterfaceExt for Arc<Mutex<dyn BodyModuleInterface>> {
     }
 
     fn get_max_health(&self) -> f32 {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_max_health()
         } else {
             0.0
@@ -3907,7 +3907,7 @@ impl BodyModuleInterfaceExt for Arc<Mutex<dyn BodyModuleInterface>> {
     }
 
     fn get_last_damage_info(&self) -> Option<DamageInfo> {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_last_damage_info()
         } else {
             None
@@ -3925,7 +3925,7 @@ impl BodyModuleInterfaceExt for Arc<Mutex<dyn BodyModuleInterface>> {
     }
 
     fn get_health(&self) -> f32 {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.get_health()
         } else {
             0.0
@@ -4020,7 +4020,7 @@ pub trait SpecialAbilityUpdateExt {
 
 impl SpecialAbilityUpdateExt for Arc<Mutex<dyn SpecialAbilityUpdate>> {
     fn is_active(&self) -> bool {
-        if let Ok(mut guard) = self.try_lock() {
+        if let Ok(guard) = self.try_lock() {
             guard.is_ability_active()
         } else {
             false

@@ -1,4 +1,5 @@
 #![cfg_attr(test, cfg(feature = "internal"))]
+#![allow(unexpected_cfgs)]
 //! # LZH Compression Library
 //!
 //! Modern Rust implementation of the LZH (Lempel-Ziv-Huffman) compression algorithm

@@ -113,7 +113,7 @@ pub fn resolve_attack_priority_info_for_object(owner_id: ObjectID) -> Option<Att
         });
 
         if let Some(team_name) = team_name {
-            if let Ok(mut factory) = get_team_factory().lock() {
+            if let Ok(factory) = get_team_factory().lock() {
                 if let Some(prototype) = factory.find_team_prototype(&team_name) {
                     let name = prototype.get_attack_priority_name().as_str();
                     if !name.is_empty() {
@@ -1233,7 +1233,7 @@ impl AI {
 
     /// Update the AI system
     /// Matches C++ AI::update() at AI.cpp:332
-    pub fn update(&mut self, current_frame: u32) -> Result<(), AiError> {
+    pub fn update(&mut self, _current_frame: u32) -> Result<(), AiError> {
         // Process legacy pathfinding (matches C++ pathfinder->processPathfindQueue())
         if let Some(pathfinder) = &self.pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
@@ -1460,7 +1460,7 @@ impl AI {
                 }
             };
             let template_name = target.get_template().get_name().as_str();
-            let mut current_priority = priority_info.get_priority(template_name);
+            let current_priority = priority_info.get_priority(template_name);
             if current_priority == 0 {
                 continue;
             }
@@ -2338,10 +2338,8 @@ pub use self::group::AIGroup;
 pub use self::group::GuardMode;
 
 // Pathfinding modules
-#[deprecated(note = "Use pathfinding_system instead")]
-pub mod pathfind; // Legacy pathfinding (deprecated)
-#[deprecated(note = "Use pathfinding_system instead")]
-pub mod pathfinding_system; // Production pathfinding system (USE THIS)
+pub mod pathfind; // Legacy pathfinding
+pub mod pathfinding_system; // Production pathfinding system
 
 // NEW: Complete pathfinding system - faithful C++ port
 // Reference: /GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp

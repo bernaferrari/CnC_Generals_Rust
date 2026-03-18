@@ -914,7 +914,7 @@ impl TurretAI {
             Err(_) => return TheGameLogic::get_frame(),
         };
         if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
+            if let Ok(ai_guard) = ai.lock() {
                 return ai_guard.get_next_mood_check_time();
             }
         }
@@ -1149,7 +1149,7 @@ impl TurretStateMachine {
     /// Update state machine
     pub fn update(&self) -> StateReturnType {
         if let Some(ai) = self.turret_ai.as_ref() {
-            if let Ok(mut guard) = ai.lock() {
+            if let Ok(guard) = ai.lock() {
                 if !guard.is_turret_enabled() {
                     if let Ok(base) = self.base.lock() {
                         if base.get_current_state_id() != Some(TurretStateType::Recenter.into()) {

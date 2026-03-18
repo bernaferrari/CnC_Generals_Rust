@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::subsystem_manager::{
-    get_subsystem_manager, with_subsystem_mut, GameMessage, GameMessageType, MessageStreamSubsystem,
+    get_subsystem_manager, with_subsystem_mut, GameMessageType, MessageStreamSubsystem,
 };
 use anyhow::Result;
 use log::{debug, info, warn};
@@ -70,7 +70,7 @@ impl GameMessageHandler {
         use game_engine::common::message_stream::game_message::GameMessage as EngineGameMessage;
         use game_engine::common::message_stream::get_message_stream;
 
-        if let Some(stream) = get_message_stream().write().ok().as_mut() {
+        if let Some(_stream) = get_message_stream().write().ok().as_mut() {
             // Convert our GameMessageType to the engine's GameMessageType
             // For now, just log the message since the full type mapping requires more work
             debug!("Queued message {:?}", message_type);

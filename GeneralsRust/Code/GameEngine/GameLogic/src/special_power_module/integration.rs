@@ -183,8 +183,8 @@ pub enum ObjectFilter {
     Friendly,
 }
 
-/// Find position flags
-/// Matches C++ FindPositionOptions flags
+// Find position flags
+// Matches C++ FindPositionOptions flags
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy)]
     pub struct FindPositionFlags: u32 {

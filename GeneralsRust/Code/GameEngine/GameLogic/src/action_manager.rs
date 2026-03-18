@@ -1803,7 +1803,7 @@ impl GameLogicActionExecutor {
 impl ActionExecutor for GameLogicActionExecutor {
     fn execute(&self, player_index: u32, action: ActionType, _options: u32) -> bool {
         let player_id = player_index as Int;
-        let mut selected = Self::get_selection(player_id);
+        let selected = Self::get_selection(player_id);
 
         match action {
             ActionType::Move { target_pos } => {

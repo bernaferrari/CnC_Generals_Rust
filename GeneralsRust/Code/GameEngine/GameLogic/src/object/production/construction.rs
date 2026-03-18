@@ -164,7 +164,7 @@ impl FoundationValidator {
                         }
                     };
 
-                    let mut sample =
+                    let sample =
                         |sample_x: f32, sample_y: f32, hi_z: &mut f32, lo_z: &mut f32| {
                             if terrain.get_highest_layer_for_destination(&Coord3D::new(
                                 sample_x, sample_y, 0.0,
@@ -285,7 +285,7 @@ impl FoundationValidator {
                     let builder_player = crate::system::game_logic::get_game_logic()
                         .lock()
                         .ok()
-                        .and_then(|mut logic| logic.get_player(player_id as u32));
+                        .and_then(|logic| logic.get_player(player_id as u32));
 
                     for object_id in nearby {
                         let Some(handle) = crate::object::OBJECT_REGISTRY.get_object(object_id)

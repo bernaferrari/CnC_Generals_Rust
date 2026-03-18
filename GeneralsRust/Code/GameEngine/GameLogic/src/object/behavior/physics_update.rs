@@ -556,7 +556,7 @@ impl PhysicsBehaviorUpdate {
                 desired_accel_z = vz.abs() * stiffness;
             }
 
-            let mut bounce_force = Coord3D::new(0.0, 0.0, state.mass * desired_accel_z);
+            let bounce_force = Coord3D::new(0.0, 0.0, state.mass * desired_accel_z);
             Self::apply_ypr_damping(state, 0.7);
 
             if bounce_force.z > 0.0 {

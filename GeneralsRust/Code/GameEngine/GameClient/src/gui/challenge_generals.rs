@@ -477,6 +477,7 @@ pub fn create_challenge_generals() -> ChallengeGenerals {
 static mut THE_CHALLENGE_GENERALS: Option<ChallengeGenerals> = None;
 
 /// Initialize the global challenge generals instance
+#[allow(static_mut_refs)]
 /// Matches C++ TheChallengeGenerals initialization
 pub fn init_challenge_generals() {
     unsafe {
@@ -487,12 +488,14 @@ pub fn init_challenge_generals() {
     }
 }
 
+#[allow(static_mut_refs)]
 /// Get immutable reference to global challenge generals
 /// Matches C++ TheChallengeGenerals access
 pub fn get_challenge_generals() -> Option<&'static ChallengeGenerals> {
     unsafe { THE_CHALLENGE_GENERALS.as_ref() }
 }
 
+#[allow(static_mut_refs)]
 /// Get mutable reference to global challenge generals
 /// Matches C++ TheChallengeGenerals access
 pub fn get_challenge_generals_mut() -> Option<&'static mut ChallengeGenerals> {

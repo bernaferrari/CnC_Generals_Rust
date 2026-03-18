@@ -22,7 +22,7 @@ use crate::modules::ExitInterface;
 use crate::object::ObjectLockExt;
 
 #[derive(Debug)]
-struct DockSharedState {
+pub struct DockSharedState {
     approach_position: Mutex<i32>,
 }
 
@@ -367,7 +367,7 @@ impl ClassicState for AIDockApproachState {
             }
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -416,7 +416,7 @@ impl ClassicState for AIDockApproachState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner, goal)) = self.goal_owner() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -508,7 +508,7 @@ impl AIDockWaitForClearanceState {
         _user_data: &StateTransitionUserData,
     ) -> Result<bool, String> {
         let (owner, goal) = state.owner_and_goal()?;
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -542,7 +542,7 @@ impl ClassicState for AIDockWaitForClearanceState {
             Err(_) => return Ok(StateReturnType::Failure),
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -570,7 +570,7 @@ impl ClassicState for AIDockWaitForClearanceState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner, goal)) = self.owner_and_goal() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -637,7 +637,7 @@ impl ClassicState for AIDockAdvancePositionState {
             Err(_) => return Ok(StateReturnType::Failure),
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -685,7 +685,7 @@ impl ClassicState for AIDockAdvancePositionState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner, goal)) = self.goal_owner() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -753,7 +753,7 @@ impl ClassicState for AIDockMoveToEntryState {
             Err(_) => return Ok(StateReturnType::Failure),
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -798,7 +798,7 @@ impl ClassicState for AIDockMoveToEntryState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner, goal)) = self.goal_owner() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -884,7 +884,7 @@ impl ClassicState for AIDockMoveToDockState {
             Err(_) => return Ok(StateReturnType::Failure),
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -931,7 +931,7 @@ impl ClassicState for AIDockMoveToDockState {
         }
 
         if let Ok((_, goal)) = self.goal_owner() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -950,7 +950,7 @@ impl ClassicState for AIDockMoveToDockState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner, goal)) = self.goal_owner() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -1112,7 +1112,7 @@ impl ClassicState for AIDockProcessDockState {
             Err(_) => return Ok(StateReturnType::Failure),
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .write()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -1137,7 +1137,7 @@ impl ClassicState for AIDockProcessDockState {
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.unlock_machine()
     }
 
@@ -1187,7 +1187,7 @@ impl ClassicState for AIDockMoveToExitState {
             Err(_) => return Ok(StateReturnType::Failure),
         };
 
-        let mut goal_guard = goal
+        let goal_guard = goal
             .lock()
             .map_err(|_| "goal object poisoned".to_string())?;
 
@@ -1231,7 +1231,7 @@ impl ClassicState for AIDockMoveToExitState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner, goal)) = self.goal_owner() {
-            let mut goal_guard = goal
+            let goal_guard = goal
                 .lock()
                 .map_err(|_| "goal object poisoned".to_string())?;
 

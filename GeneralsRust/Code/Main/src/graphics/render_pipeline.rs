@@ -700,8 +700,8 @@ impl RenderPipeline {
             return Ok(());
         }
 
-        let view = *view_matrix;
-        let projection = *projection_matrix;
+        let _view = *view_matrix;
+        let _projection = *projection_matrix;
         let clear_color = self.terrain_clear_color();
         self.forward_pass.enqueue_pre_scene_callback(move |frame| {
             let depth_view = frame.depth_view_arc();
@@ -1794,6 +1794,7 @@ impl ForwardPass {
         ww3d_engine::device().is_ok() && ww3d_engine::queue().is_ok()
     }
 
+    #[allow(unused_assignments)]
     fn prewarm_textures_blocking<I, S>(&mut self, texture_names: I) -> Result<TexturePrewarmStats>
     where
         I: IntoIterator<Item = S>,
@@ -1873,6 +1874,7 @@ impl ForwardPass {
         Ok(stats)
     }
 
+    #[allow(unused_assignments)]
     fn render(
         &mut self,
         graphics_system: &GraphicsSystem,

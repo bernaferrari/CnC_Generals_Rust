@@ -675,7 +675,7 @@ impl ObjectFactory {
         }
 
         let lookup_name = AsciiString::from(template_name);
-        let mut template =
+        let template =
             crate::common::ThingFactory::find_template(&lookup_name).ok_or_else(|| {
                 GameLogicError::Configuration(format!("Template not found: {}", template_name))
             })?;

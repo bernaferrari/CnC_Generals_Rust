@@ -227,6 +227,7 @@ pub fn is_impassable(cell_type: PathfindCellType) -> bool {
 pub fn valid_locomotor_surfaces_for_cell_type(
     cell_type: PathfindCellType,
 ) -> LocomotorSurfaceTypeMask {
+    #[allow(unreachable_patterns)]
     match cell_type {
         PathfindCellType::Clear => SURFACE_GROUND | SURFACE_AIR,
         PathfindCellType::Water => SURFACE_WATER | SURFACE_AIR,

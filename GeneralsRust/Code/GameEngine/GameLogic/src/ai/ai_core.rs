@@ -173,7 +173,7 @@ pub trait AIPlayerTrait: Send + Sync {
     fn build_specific_building(&mut self, building_name: &str) -> Result<(), AiError>;
 
     /// Build a specific team
-    fn build_specific_team(&mut self, team_name: &str, priority: bool) -> Result<(), AiError> {
+    fn build_specific_team(&mut self, _team_name: &str, _priority: bool) -> Result<(), AiError> {
         Ok(())
     }
 
@@ -187,15 +187,15 @@ pub trait AIPlayerTrait: Send + Sync {
     fn set_difficulty(&mut self, difficulty: GameDifficulty);
 
     /// Called when a unit is produced
-    fn on_unit_produced(&mut self, factory_id: ObjectID, unit_id: ObjectID) -> Result<(), AiError> {
+    fn on_unit_produced(&mut self, _factory_id: ObjectID, _unit_id: ObjectID) -> Result<(), AiError> {
         Ok(())
     }
 
     /// Called when a structure is produced
     fn on_structure_produced(
         &mut self,
-        factory_id: ObjectID,
-        structure_id: ObjectID,
+        _factory_id: ObjectID,
+        _structure_id: ObjectID,
     ) -> Result<(), AiError> {
         Ok(())
     }

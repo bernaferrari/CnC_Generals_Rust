@@ -342,7 +342,7 @@ impl NeutronMissileUpdate {
     pub fn new(
         thing: ThingId,
         module_data: NeutronMissileUpdateModuleData,
-        ctx: &GameLogicContext,
+        ctx: &GameLogicContext<'_>,
     ) -> Self {
         Self {
             thing,

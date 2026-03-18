@@ -264,7 +264,7 @@ pub struct AiIntegrationManager {
 
 /// Performance statistics for AI integration
 #[derive(Debug, Default)]
-struct AiPerformanceStats {
+pub struct AiPerformanceStats {
     pathfinding_requests_per_frame: u32,
     state_machine_updates_per_frame: u32,
     group_updates_per_frame: u32,
@@ -944,7 +944,7 @@ impl AiIntegrationManager {
     }
 }
 
-/// Global AI integration manager instance
+// Global AI integration manager instance
 lazy_static::lazy_static! {
     static ref AI_INTEGRATION_MANAGER: Arc<RwLock<Option<AiIntegrationManager>>> =
         Arc::new(RwLock::new(None));

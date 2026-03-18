@@ -3,12 +3,8 @@
 //! This module provides unified encoding interface for all EAC compression algorithms
 //! with advanced features like parallel processing and adaptive compression.
 
-use crate::{Result, EacError, CompressionType, EacHeader};
+use crate::{Result, CompressionType, EacHeader};
 use rayon::prelude::*;
-use std::sync::Arc;
-
-#[cfg(feature = "simd")]
-use wide::*;
 
 /// Configuration options for encoding
 #[derive(Debug, Clone)]
@@ -44,7 +40,9 @@ impl Default for EncoderConfig {
 pub struct Encoder {
     config: EncoderConfig,
     // Reusable buffers for performance
+    #[allow(dead_code)]
     work_buffer: Vec<u8>,
+    #[allow(dead_code)]
     temp_buffer: Vec<u8>,
 }
 

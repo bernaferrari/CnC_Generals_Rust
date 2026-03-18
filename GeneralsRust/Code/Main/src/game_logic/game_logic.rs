@@ -476,7 +476,7 @@ struct ParabolicEase {
 impl ParabolicEase {
     fn new(ease_in_time: f32, ease_out_time: f32) -> Self {
         let mut in_t = ease_in_time.clamp(0.0, 1.0);
-        let mut out_t = 1.0 - ease_out_time.clamp(0.0, 1.0);
+        let out_t = 1.0 - ease_out_time.clamp(0.0, 1.0);
         if in_t > out_t {
             in_t = out_t;
         }

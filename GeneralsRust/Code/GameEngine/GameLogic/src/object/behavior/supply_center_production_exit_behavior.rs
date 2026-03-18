@@ -180,7 +180,7 @@ impl SupplyCenterProductionExitBehavior {
         }
 
         if self.data.grant_temporary_stealth_frames > 0 && owner_stealthed {
-            if let Ok(mut guard) = new_obj.write() {
+            if let Ok(guard) = new_obj.write() {
                 let can_stealth = guard.test_status(ObjectStatusTypes::CanStealth);
                 if let Some(stealth) = guard.get_stealth() {
                     if let Ok(mut stealth_guard) = stealth.lock() {

@@ -179,7 +179,7 @@ pub struct AiUnitGroup {
 
 /// Group performance and behavior statistics
 #[derive(Debug, Default)]
-struct GroupStats {
+pub struct GroupStats {
     formation_coherence: Real,  // How well units maintain formation (0.0-1.0)
     average_health: Real,       // Average health of all units
     combat_effectiveness: Real, // Estimated combat power
@@ -323,7 +323,7 @@ impl AiUnitGroup {
         self.engaged_enemies.insert(target_id);
 
         // Coordinate attack based on unit roles
-        for (unit_id, unit) in &mut self.units {
+        for (_unit_id, unit) in &mut self.units {
             if let Some(ref mut state_machine) = unit.state_machine {
                 if let Ok(mut sm) = state_machine.write() {
                     sm.set_goal_object(target_id);
@@ -668,7 +668,7 @@ impl AiUnitGroup {
             return Ok(());
         }
 
-        for (unit_id, unit) in &mut self.units {
+        for (_unit_id, unit) in &mut self.units {
             if let Some(ref formation_pos) = unit.formation_position {
                 if let Some(current_pos) = unit.last_position {
                     let ideal_world_pos = Coord3D::new(
@@ -755,7 +755,7 @@ impl AiUnitGroup {
 
     /// Issue coordinated move commands to all units in the group
     fn issue_coordinated_move_commands(&mut self, target: Coord3D) -> Result<(), AiError> {
-        for (unit_id, unit) in &mut self.units {
+        for (_unit_id, unit) in &mut self.units {
             if let Some(ref mut state_machine) = unit.state_machine {
                 if let Ok(mut sm) = state_machine.write() {
                     // Calculate individual target position based on formation

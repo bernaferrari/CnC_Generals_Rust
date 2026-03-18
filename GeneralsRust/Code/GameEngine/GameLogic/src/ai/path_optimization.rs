@@ -52,8 +52,7 @@ impl PathOptimizer {
                 count += 1;
                 if cur_layer == PathfindLayerEnum::Ground {
                     if layers[node_idx] != cur_layer {
-                        layer = layers[node_idx];
-                        cur_layer = layer;
+                        let _layer = layers[node_idx];
                         if count > self.allowed_bridge_steps {
                             break;
                         }
@@ -107,7 +106,7 @@ impl PathOptimizer {
         &self,
         waypoints: &[Coord3D],
         layers: &[PathfindLayerEnum],
-        is_crusher: bool,
+        _is_crusher: bool,
         path_diameter: i32,
         passability_checker: impl Fn(&Coord3D, &Coord3D, i32) -> bool,
     ) -> (Vec<Coord3D>, Vec<PathfindLayerEnum>) {

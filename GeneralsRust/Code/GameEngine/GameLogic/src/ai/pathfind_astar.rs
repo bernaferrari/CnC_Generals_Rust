@@ -74,7 +74,7 @@ impl GridCoord {
 
     /// Convert grid coordinates to world coordinates
     /// Matches C++ adjustCoordToCell()
-    pub fn to_world(&self, layer: PathfindLayerEnum) -> Coord3D {
+    pub fn to_world(&self, _layer: PathfindLayerEnum) -> Coord3D {
         Coord3D::new(
             (self.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F,
             (self.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F,

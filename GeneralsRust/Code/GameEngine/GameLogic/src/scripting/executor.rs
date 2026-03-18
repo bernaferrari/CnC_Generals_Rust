@@ -3708,7 +3708,7 @@ impl ScriptActionDispatcher {
             }
         } else if created_any && need_move_to_destination {
             if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
-                if let Ok(mut group) = group_arc.write() {
+                if let Ok(group) = group_arc.write() {
                     group.group_move_to_position(
                         &destination,
                         false,
@@ -12060,7 +12060,7 @@ impl ScriptActionDispatcher {
         };
 
         let player_id = player_guard.get_player_index() as u32;
-        let difficulty = player_guard.get_player_difficulty();
+        let _difficulty = player_guard.get_player_difficulty();
 
         let _ = with_ai_integration_mut(|manager| {
             manager.with_ai_player_mut(player_id, |ai_player| {
@@ -12085,7 +12085,7 @@ impl ScriptActionDispatcher {
         };
 
         let player_id = player_guard.get_player_index() as u32;
-        let difficulty = player_guard.get_player_difficulty();
+        let _difficulty = player_guard.get_player_difficulty();
 
         let _ = with_ai_integration_mut(|manager| {
             manager.with_ai_player_mut(player_id, |ai_player| {
@@ -17942,7 +17942,7 @@ impl ScriptConditionEvaluator {
         let neutral_id = neutral_guard.get_player_index() as u32;
 
         let mut count = 0;
-        if let Ok(mut factory) = get_team_factory().lock() {
+        if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.get_all_teams() {
                 let Ok(team_guard) = team_arc.read() else {
                     continue;
@@ -18044,7 +18044,7 @@ impl ScriptConditionEvaluator {
         let player_id = player_guard.get_player_index() as u32;
 
         let mut count = 0;
-        if let Ok(mut factory) = get_team_factory().lock() {
+        if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.get_all_teams() {
                 let Ok(team_guard) = team_arc.read() else {
                     continue;
@@ -18107,7 +18107,7 @@ impl ScriptConditionEvaluator {
         let player_id = player_guard.get_player_index() as u32;
 
         let mut count = 0;
-        if let Ok(mut factory) = get_team_factory().lock() {
+        if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.get_all_teams() {
                 let Ok(team_guard) = team_arc.read() else {
                     continue;
@@ -18197,7 +18197,7 @@ impl ScriptConditionEvaluator {
 
         let mut any_changes = condition.custom_data == 0;
         if !any_changes {
-            if let Ok(mut factory) = get_team_factory().lock() {
+            if let Ok(factory) = get_team_factory().lock() {
                 for team_arc in factory.get_all_teams() {
                     let Ok(team_guard) = team_arc.read() else {
                         continue;
@@ -18234,7 +18234,7 @@ impl ScriptConditionEvaluator {
         }
 
         let mut count = 0;
-        if let Ok(mut factory) = get_team_factory().lock() {
+        if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.get_all_teams() {
                 let Ok(team_guard) = team_arc.read() else {
                     continue;
@@ -18379,7 +18379,7 @@ impl ScriptConditionEvaluator {
         let player_index = player.get_player_index();
         let discovered_by_index = discovered_by.get_player_index();
 
-        if let Ok(mut factory) = get_team_factory().lock() {
+        if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.get_all_teams() {
                 let Ok(team_guard) = team_arc.read() else {
                     continue;
@@ -18457,7 +18457,7 @@ impl ScriptConditionEvaluator {
 
         let mut any_changes = condition.custom_data == 0;
         if !any_changes {
-            if let Ok(mut factory) = get_team_factory().lock() {
+            if let Ok(factory) = get_team_factory().lock() {
                 for team_arc in factory.get_all_teams() {
                     let Ok(team_guard) = team_arc.read() else {
                         continue;
@@ -18589,7 +18589,7 @@ impl ScriptConditionEvaluator {
 
         let mut any_changes = condition.custom_data == 0;
         if !any_changes {
-            if let Ok(mut factory) = get_team_factory().lock() {
+            if let Ok(factory) = get_team_factory().lock() {
                 for team_arc in factory.get_all_teams() {
                     let Ok(team_guard) = team_arc.read() else {
                         continue;
