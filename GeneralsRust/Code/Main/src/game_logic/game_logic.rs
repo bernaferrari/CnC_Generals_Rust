@@ -2775,20 +2775,106 @@ impl GameLogic {
         self.process_destroy_list();
     }
 
+    /// Execute one simulation step.
+    ///
+    /// Phase ordering follows C++ GameLogic::update() (GameLogic.cpp lines 3548-3803)
+    /// as documented in gamelogic::system::game_logic::GameLogic::update():
+    ///
+    /// ```text
+    /// Line 3595: setFrame / sync to GameClient       [frame setup]
+    /// Line 3600: TheScriptEngine->UPDATE()            [early scripting]
+    /// Line 3603: freezeTime check
+    /// Line 3622: TheTerrainLogic->UPDATE()            [terrain/bridges]
+    /// Line 3669: processCommandList                   [command processing]
+    /// Line 3672: ALLOW_NONSLEEPY_UPDATES loop         [normal modules]
+    /// Line 3697: sleepy updates loop                  [sleepy modules]
+    /// Line 3743: TheAI->UPDATE()                      [AI]
+    /// Line 3748: TheBuildAssistant->UPDATE()          [production]
+    /// Line 3753: ThePartitionManager->UPDATE()        [spatial]
+    /// Line 3762: processDestroyList()                 [death/cleanup]
+    /// Line 3765: TheCommandList->reset()
+    /// Line 3767: TheWeaponStore->UPDATE()             [weapons]
+    /// Line 3768: TheLocomotorStore->UPDATE()          [locomotors]
+    /// Line 3769: TheVictoryConditions->UPDATE()       [victory]
+    /// Line 3783: disabled status check                [re-enable]
+    /// Line 3799: m_frame++                            [increment]
+    /// ```
     fn update_simulation(&mut self, dt: f32) {
+        // -----------------------------------------------------------------------
+        // Phase 1: Early Scripting (C++ line 3600)
+        // -----------------------------------------------------------------------
+        // C++: TheScriptEngine->UPDATE();
+        // Scripts run BEFORE everything else so they can react to the previous
+        // frame's state and issue commands for this frame.
+        self.evaluate_and_execute_scripts(dt);
+
+        // -----------------------------------------------------------------------
+        // Phase 2: Time Freeze Check (C++ lines 3603-3617)
+        // -----------------------------------------------------------------------
+        // C++: if (freezeTime) { ... return; }
+        // When time is frozen, only scripts evaluated above are allowed to run.
         if self.is_time_frozen_for_simulation() {
-            self.evaluate_and_execute_scripts(dt);
             return;
         }
 
-        // Update AI players FIRST (before object mutations)
-        let current_time = self.sim_time_seconds;
+        // -----------------------------------------------------------------------
+        // Phase 3: Terrain Update (C++ line 3622)
+        // -----------------------------------------------------------------------
+        // C++: TheTerrainLogic->UPDATE();
+        // Terrain (bridges, dynamic water, trigger areas) updates BEFORE objects
+        // so bridge state changes from scripts are reflected during the object pass.
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.update();
+        }
 
-        // --- Gamelogic crate AI: drive THE_AI singleton and AiIntegrationManager ---
-        // This matches C++ GameLogic::update() Phase 7 (TheAI->UPDATE()) which runs
-        // after object updates in the original engine.  We call it here (before our
-        // own object passes) so that AI decisions based on the previous frame's state
-        // are ready for this frame's movement/combat resolution.
+        // -----------------------------------------------------------------------
+        // Phase 4: Pre-Update / Collect object IDs
+        // -----------------------------------------------------------------------
+        let object_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+
+        // -----------------------------------------------------------------------
+        // Phase 5: Command Processing (C++ line 3669)
+        // -----------------------------------------------------------------------
+        // C++: processCommandList( TheCommandList );
+        // Process queued player commands BEFORE object updates so movement/attack
+        // orders are in effect when objects run their updates.
+        self.process_commands();
+
+        // -----------------------------------------------------------------------
+        // Phase 6: Object Updates -- Normal + Sleepy Modules (C++ lines 3672-3738)
+        // -----------------------------------------------------------------------
+        // C++: ALLOW_NONSLEEPY_UPDATES loop, then sleepy updates loop.
+        // These include construction, movement, and the simplified per-object AI
+        // decision logic. Stealth modules also live in the sleepy update queue.
+        self.update_construction(&object_ids, dt);
+        self.update_movement(&object_ids, dt);
+
+        // Projectile and DoT updates -- these are part of the object update phase
+        // in C++ (processed within the normal/sleepy update module loops).
+        if let Err(e) = update_projectiles(dt) {
+            log::warn!("Projectile update failed: {}", e);
+        }
+        if let Err(e) = update_dot_effects(self.frame) {
+            log::warn!("DoT effects update failed: {}", e);
+        }
+
+        // Special power cooldown/timer updates
+        update_special_powers();
+
+        // -----------------------------------------------------------------------
+        // Phase 7: Combat Resolution (within object updates)
+        // -----------------------------------------------------------------------
+        // Weapon fire and damage application as part of the object update pass.
+        self.update_combat(&object_ids, dt);
+
+        // -----------------------------------------------------------------------
+        // Phase 8: AI Update (C++ line 3743)
+        // -----------------------------------------------------------------------
+        // C++: TheAI->UPDATE();
+        // AI runs AFTER object updates so AI decisions are based on the latest
+        // world state (objects have moved, combat resolved). This ordering is
+        // critical: objects update first, then AI observes new positions and
+        // issues commands for the next frame.
         {
             // 1. Update the legacy THE_AI singleton (pathfinder queue, groups).
             if let Ok(mut ai) = THE_AI.write() {
@@ -2806,32 +2892,54 @@ impl GameLogic {
             }
         }
 
-        // --- Main crate AI manager: drive the simplified per-player AI ---
-        // The Main crate's AIManager handles high-level build orders, economy,
-        // and strategic decisions for each AI player.
-        // NOTE: self.ai_manager.update() takes &mut self (GameLogic), which
-        // conflicts with borrowing self.ai_manager. Since the gamelogic crate
-        // already drives THE_AI and AiIntegrationManager above (C++ parity),
-        // we defer the simplified AI manager update to a separate pass below.
-        // The AI manager is updated via update_ai() later in this function.
-
-        // Collect object IDs for processing
-        let object_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-
-        // Update systems sequentially (Main crate simplified implementations)
-        self.update_construction(&object_ids, dt);
-        self.update_movement(&object_ids, dt);
+        // Main crate simplified per-object AI decisions (scan for enemies, retreat, etc.)
         self.update_ai(&object_ids, dt);
-        self.update_combat(&object_ids, dt);
+
+        // -----------------------------------------------------------------------
+        // Phase 9: Production / Build Assistant (C++ line 3748)
+        // -----------------------------------------------------------------------
+        // C++: TheBuildAssistant->UPDATE();
+        // Production queues update after AI so build orders issued by AI this
+        // frame can be immediately reflected.
         self.update_production(dt);
+        if let Some(mut build_assistant) = get_build_assistant() {
+            build_assistant.update(self.frame);
+        }
+
+        // -----------------------------------------------------------------------
+        // Phase 10: Player Resources
+        // -----------------------------------------------------------------------
         self.update_player_resources(dt);
 
-        // --- gamelogic crate systems (C++-parity) ---
-        // These mirror the phases in gamelogic::system::game_logic::GameLogic::update()
-        // and correspond to C++ GameLogic.cpp lines 3743-3769.
+        // -----------------------------------------------------------------------
+        // Phase 11: Damage/Physics Resolution
+        // -----------------------------------------------------------------------
+        // Deferred damage and collision resolution after all objects have moved.
+        // (Covered above in update_combat; kept as a documentation marker.)
 
-        // Phase 7: Weapon store update -- process delayed weapon damage
-        // C++ line 3767: TheWeaponStore->UPDATE();
+        // -----------------------------------------------------------------------
+        // Phase 12: Partition Manager Update (C++ line 3753)
+        // -----------------------------------------------------------------------
+        // C++: ThePartitionManager->UPDATE();
+        // Spatial partition updated AFTER all objects moved and BEFORE death
+        // cleanup so spatial queries during cleanup use correct positions.
+        // Note: The gamelogic crate's full update_pipeline also runs its own
+        // partition manager update (tick_gamelogic_crate in cnc_game_engine.rs).
+
+        // -----------------------------------------------------------------------
+        // Phase 13: Death/Cleanup (C++ line 3762)
+        // -----------------------------------------------------------------------
+        // C++: processDestroyList();
+        // Destroyed objects removed from world. Note: the actual destroy list
+        // processing happens in step_simulation_with_budget() after this method
+        // returns, so objects marked for destruction this frame are cleaned up
+        // after the frame is complete.
+
+        // -----------------------------------------------------------------------
+        // Phase 14: Weapon Store Update (C++ line 3767)
+        // -----------------------------------------------------------------------
+        // C++: TheWeaponStore->UPDATE();
+        // Process delayed weapon damage that is now ready.
         if let Err(e) = with_weapon_store_mut(|store| store.update()) {
             // "not initialized" is expected before map load; skip silently
             let err_str = e.to_string();
@@ -2840,38 +2948,48 @@ impl GameLogic {
             }
         }
 
-        // Projectile and DoT updates (run alongside weapon store)
-        // These update in-flight projectiles and damage-over-time effects
-        if let Err(e) = update_projectiles(dt) {
-            log::warn!("Projectile update failed: {}", e);
-        }
-        if let Err(e) = update_dot_effects(self.frame) {
-            log::warn!("DoT effects update failed: {}", e);
-        }
-
-        // Phase 8: Build assistant update -- process production queues and sells
-        // C++ line 3748: TheBuildAssistant->UPDATE();
-        if let Some(mut build_assistant) = get_build_assistant() {
-            build_assistant.update(self.frame);
-        }
-
-        // Special power cooldown/timer updates
-        update_special_powers();
-
-        // Locomotor store tick -- the Rust locomotor store is a template registry
-        // without per-frame update logic yet, but we keep the call site for
-        // parity with C++ line 3768: TheLocomotorStore->UPDATE();
+        // -----------------------------------------------------------------------
+        // Phase 14b: Locomotor Store Update (C++ line 3768)
+        // -----------------------------------------------------------------------
+        // C++: TheLocomotorStore->UPDATE();
+        // The Rust locomotor store is a template registry without per-frame
+        // update logic yet, but we keep the call site for C++ parity.
         // (Will become a real call once the locomotor store gains an update method.)
 
-        // --- end gamelogic crate systems ---
+        // -----------------------------------------------------------------------
+        // Phase 15: Victory Conditions (C++ line 3769)
+        // -----------------------------------------------------------------------
+        // C++: TheVictoryConditions->UPDATE();
+        // Handled by the gamelogic crate's update_pipeline (tick_gamelogic_crate).
 
-        // Process queued audio events (after combat, before scripts)
-        // Mirrors C++ TheAudio->UPDATE() call
+        // -----------------------------------------------------------------------
+        // Phase 16: Disabled Status Check (C++ lines 3783-3792)
+        // -----------------------------------------------------------------------
+        // C++: for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
+        // C++:   if( obj->isDisabled() ) obj->checkDisabledStatus();
+        //
+        // Check timer-based disabled states and re-enable objects whose disable
+        // duration has expired. The Main crate's ObjectStatus does not yet have
+        // a disabled/disabled_timer field, so this is a no-op placeholder that
+        // will become active once the disabled-status tracking is implemented.
+        // The gamelogic crate's update_pipeline handles this for its objects.
+
+        // -----------------------------------------------------------------------
+        // Phase 17: Vision/Shroud Update
+        // -----------------------------------------------------------------------
+        // Handled by the gamelogic crate's update_pipeline.
+
+        // -----------------------------------------------------------------------
+        // Phase 18: Team Events Flush
+        // -----------------------------------------------------------------------
+        // Handled by the gamelogic crate's update_pipeline.
+
+        // -----------------------------------------------------------------------
+        // Post-phase: Audio events
+        // -----------------------------------------------------------------------
+        // Process queued audio events after all simulation phases.
+        // Mirrors C++ TheAudio->UPDATE() call.
         self.process_audio_events();
-
-        // Evaluate scripts (Phase 8 of game loop)
-        // Scripts can trigger actions based on conditions
-        self.evaluate_and_execute_scripts(dt);
     }
 
     /// Update construction progress

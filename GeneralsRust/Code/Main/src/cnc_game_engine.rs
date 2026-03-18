@@ -308,6 +308,9 @@ pub struct CnCGameEngine {
     selection_start: Option<Vec3>,
     last_click_time: Option<Instant>,
     last_click_position: Option<Vec3>,
+    is_windowed: bool,
+    rmb_scroll_anchor: Option<(f32, f32)>,
+    is_rmb_scrolling: bool,
 
     // Game state
     selected_objects: Vec<ObjectId>,
@@ -1594,10 +1597,6 @@ impl CnCGameEngine {
             DEFAULT_VIEW_FAR_CLIP,
         );
 
-        // TEMPORARY: Create fallback cube for debugging objects without W3D models
-        let (fallback_cube_vertex_buffer, fallback_cube_index_buffer, fallback_cube_index_count) =
-            Self::create_fallback_cube(graphics_system.device());
-
         // C++ GameEngine::init updates MapCache before shell-map startup checks.
         game_client::map_util::refresh_map_cache();
 
@@ -1758,6 +1757,9 @@ impl CnCGameEngine {
             selection_start: None,
             last_click_time: None,
             last_click_position: None,
+            is_windowed: window.fullscreen().is_none(),
+            rmb_scroll_anchor: None,
+            is_rmb_scrolling: false,
             selected_objects: Vec::new(),
             control_groups: HashMap::new(),
             current_player_id: 0,
@@ -2261,6 +2263,8 @@ impl CnCGameEngine {
             // self.window.set_fullscreen(None);
         }
 
+        self.is_windowed = !fullscreen;
+
         Ok(())
     }
 
@@ -2319,7 +2323,27 @@ impl CnCGameEngine {
                             self.handle_left_release();
                         }
                         (MouseButton::Right, ElementState::Pressed) => {
-                            self.handle_right_click();
+                            // Set anchor for drag-scroll; the actual right-click
+                            // command is deferred to release if the mouse didn't
+                            // move significantly (C++ LookAtXlat.cpp).
+                            self.rmb_scroll_anchor = Some(self.mouse_position);
+                            self.is_rmb_scrolling = true;
+                        }
+                        (MouseButton::Right, ElementState::Released) => {
+                            if self.is_rmb_scrolling {
+                                // If the mouse barely moved since the anchor,
+                                // treat it as a normal right-click command.
+                                const DRAG_THRESHOLD_SQ: f32 = 9.0; // 3px squared
+                                if let Some(anchor) = self.rmb_scroll_anchor {
+                                    let dx = self.mouse_position.0 - anchor.0;
+                                    let dy = self.mouse_position.1 - anchor.1;
+                                    if dx * dx + dy * dy < DRAG_THRESHOLD_SQ {
+                                        self.handle_right_click();
+                                    }
+                                }
+                            }
+                            self.rmb_scroll_anchor = None;
+                            self.is_rmb_scrolling = false;
                         }
                         _ => {}
                     }
@@ -2842,6 +2866,16 @@ impl CnCGameEngine {
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.
             if !self.game_logic.is_time_frozen_for_simulation() {
+                // Drain pending projectiles queued by Object::fire_at() this frame
+                // Drain pending projectiles queued by Object::fire_at() this frame
+                {
+                    let objects = self.game_logic.get_objects();
+                    crate::game_logic::combat::drain_pending_projectiles(
+                        &mut self.combat_system,
+                        &objects,
+                    );
+                }
+
                 // Update combat system
                 let hits = self
                     .combat_system
@@ -4144,6 +4178,8 @@ impl CnCGameEngine {
         self.mouse_position = (0.0, 0.0);
         self.mouse_world_position = Vec3::ZERO;
         self.selection_start = None;
+        self.rmb_scroll_anchor = None;
+        self.is_rmb_scrolling = false;
         self.current_player_id = 1;
 
         for sink in &self.sound_effects {
@@ -4641,6 +4677,61 @@ impl CnCGameEngine {
             {
                 screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
             }
+
+            // Edge scrolling (C++ LookAt.cpp: 3px from screen edge in fullscreen)
+            if !self.is_windowed
+                && matches!(self.current_state, GameState::Playing | GameState::Paused)
+            {
+                const EDGE_SCROLL_SIZE: f32 = 3.0;
+                let (mx, my) = self.mouse_position;
+                let size = self.window.inner_size();
+                let win_w = size.width as f32;
+                let win_h = size.height as f32;
+
+                let mut edge_dx = 0.0f32;
+                let mut edge_dy = 0.0f32;
+
+                if mx < EDGE_SCROLL_SIZE {
+                    edge_dx = -1.0;
+                } else if mx > win_w - EDGE_SCROLL_SIZE {
+                    edge_dx = 1.0;
+                }
+                if my < EDGE_SCROLL_SIZE {
+                    edge_dy = -1.0;
+                } else if my > win_h - EDGE_SCROLL_SIZE {
+                    edge_dy = 1.0;
+                }
+
+                if edge_dx != 0.0 || edge_dy != 0.0 {
+                    let edge_step = SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0)
+                        * logic_frames_per_second;
+                    screen_scroll.x += edge_dx * horizontal_scroll_speed_factor * edge_step;
+                    screen_scroll.y += edge_dy * vertical_scroll_speed_factor * edge_step;
+                }
+            }
+
+            // Right-mouse-button drag scrolling (C++ LookAtXlat.cpp:378-406)
+            if self.is_rmb_scrolling {
+                if let Some(anchor) = self.rmb_scroll_anchor {
+                    let dx = self.mouse_position.0 - anchor.0;
+                    let dy = self.mouse_position.1 - anchor.1;
+                    let dist_sq = dx * dx + dy * dy;
+                    if dist_sq > f32::EPSILON {
+                        let size = self.window.inner_size();
+                        let win_w = size.width as f32;
+                        let win_h = size.height as f32;
+                        let max_dist = (win_w * 0.5).min(win_h * 0.5);
+                        let dist = dist_sq.sqrt().min(max_dist);
+                        let norm_dx = dx / dist_sq.sqrt().max(1.0);
+                        let norm_dy = dy / dist_sq.sqrt().max(1.0);
+                        let speed = keyboard_scroll_factor * dist * 0.01 * dt.max(0.0)
+                            * logic_frames_per_second;
+                        screen_scroll.x += norm_dx * speed * horizontal_scroll_speed_factor;
+                        screen_scroll.y += norm_dy * speed * vertical_scroll_speed_factor;
+                    }
+                }
+            }
+
             movement = self.camera_scroll_world_delta(screen_scroll);
         }
 
@@ -4865,19 +4956,27 @@ impl CnCGameEngine {
         }
     }
 
-    fn render_game_objects<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    /// Legacy render stub -- NOT called from the active render path.
+    /// Actual rendering is handled by RenderPipeline::execute() -> ForwardPass::render()
+    /// which queues MeshClass instances into the WW3D Renderer and issues real draw calls.
+    #[allow(dead_code)]
+    fn render_game_objects<'a>(&'a self, _render_pass: &mut wgpu::RenderPass<'a>) {
         // Collect objects to render to avoid borrowing conflicts
         let objects: Vec<_> = self.game_logic.get_objects().values().cloned().collect();
         log::trace!("Rendering {} objects in scene", objects.len());
         for obj in &objects {
             if obj.is_alive() {
-                self.render_object(obj, render_pass);
+                self.render_object(obj, _render_pass);
             }
         }
     }
 
-    fn render_object<'a>(&'a self, obj: &Object, render_pass: &mut wgpu::RenderPass<'a>) {
-        // Get the correct model name from the template using the new helper method
+    /// Legacy per-object render stub -- logs model status but does NOT submit draw calls.
+    /// The active render path is RenderPipeline::collect_render_items() which builds
+    /// RenderItem list and ForwardPass::prepare_mesh_instance() which creates actual
+    /// MeshClass instances submitted to the WW3D Renderer.
+    #[allow(dead_code)]
+    fn render_object<'a>(&'a self, obj: &Object, _render_pass: &mut wgpu::RenderPass<'a>) {
         let model_name = obj.get_template().get_model_name();
 
         log::trace!(
@@ -4888,15 +4987,12 @@ impl CnCGameEngine {
             self.graphics_system.get_model(model_name).is_some()
         );
 
-        // Try both the model name and template name as keys for backwards compatibility
         let w3d_model = self
             .graphics_system
             .get_model(model_name)
             .or_else(|| self.graphics_system.get_model(&obj.template_name));
 
-        // Render proper W3D models from loaded assets
         if let Some(w3d_model) = w3d_model {
-            // Calculate total vertices/indices from all meshes
             let total_vertices: usize = w3d_model
                 .meshes
                 .iter()
@@ -4906,13 +5002,10 @@ impl CnCGameEngine {
 
             log::trace!("Rendering W3D model: {} (template: {}) with {} vertices, {} indices across {} meshes",
                 model_name, obj.template_name, total_vertices, total_indices, w3d_model.meshes.len());
-
-            // Rendering is now handled by the graphics pipeline system.
             log::trace!("Resolved W3D model '{}' for object {}", model_name, obj.id);
         } else {
-            // Keep this non-fatal: templates may reference optional/variant models.
             log::debug!(
-                "No W3D model resolved for object {} template '{}' (model '{}')",
+                "No W3D model resolved for object {} template '{}' (model '{}') -- fallback cube will be used by RenderPipeline",
                 obj.id,
                 obj.template_name,
                 model_name
@@ -5096,7 +5189,11 @@ impl CnCGameEngine {
         Ok(())
     }
 
-    // TEMPORARY: Create a simple colored cube for debugging objects without W3D models
+    /// Legacy fallback cube creation using raw wgpu buffers.
+    /// This is now superseded by GraphicsSystem::create_fallback_cube_model() which
+    /// creates a W3DModel-based fallback cube cached in the model cache and used by
+    /// RenderPipeline::collect_render_items() for objects with missing W3D assets.
+    #[allow(dead_code)]
     fn create_fallback_cube(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         // C++ SAGE compatible cube vertices using VertexFormatXYZNDUV2
         let vertices = vec![
