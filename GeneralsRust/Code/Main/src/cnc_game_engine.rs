@@ -2830,6 +2830,15 @@ impl CnCGameEngine {
                 self.apply_script_fps_limit_request(fps);
             }
 
+            // C++ parity: also tick the gamelogic crate's full update pipeline.
+            // This runs AI players, production/build assistant, weapon store (delayed
+            // damage), partition manager, death cleanup, locomotor store, victory
+            // conditions, and disabled-status checks — all phases from the C++
+            // GameLogic::update() that the simplified Main GameLogic does not cover.
+            if let Err(e) = crate::game_logic::tick_gamelogic_crate() {
+                log::trace!("gamelogic crate update failed (non-fatal): {}", e);
+            }
+
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.
             if !self.game_logic.is_time_frozen_for_simulation() {

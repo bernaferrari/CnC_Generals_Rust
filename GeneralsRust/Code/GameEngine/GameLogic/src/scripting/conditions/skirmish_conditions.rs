@@ -1,251 +1,52 @@
 //! Skirmish AI Script Conditions
 //!
-//! This module implements all 20+ skirmish-specific script conditions used by AI players
-//! in skirmish mode. These conditions enable the AI to make strategic decisions based on
-//! game state, resources, enemy positions, and build capabilities.
-//!
-//! These conditions achieve 100% parity with the C++ Generals implementation in:
-//! GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptConditions.cpp
-//!
-//! All conditions are designed for high-frequency evaluation (every frame/update) and
-//! include caching and optimization for performance.
+//! Implements skirmish-specific script conditions used by AI players in skirmish mode.
+//! These conditions enable the AI to make strategic decisions based on game state,
+//! resources, enemy positions, and build capabilities.
 
-use super::{ScriptCondition, ScriptContext, ScriptValue};
-use crate::ai::ai_player::AIPlayer;
-use crate::common::{Coord3D, KindOf, INVALID_OBJECT_ID, LOGICFRAMES_PER_SECOND};
-use crate::object::Object;
+use super::{get_player_arc, get_str_param, lookup_named_object_id, perform_comparison, ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
+use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND};
+use crate::helpers::TheGameLogic;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
-use crate::player::{player_list, Player, PlayerType};
-use crate::team::{get_team_factory, Team};
-use crate::GameLogicError;
+use crate::player::{player_list, GameDifficulty, PlayerType};
+use crate::scripting::engine::get_area_tracker;
+use crate::team::get_team_factory;
+use crate::{GameLogicError, GameLogicResult};
+
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-// Helper functions for parameter extraction
-fn get_string_param(parameters: &HashMap<String, ScriptValue>, key: &str) -> Result<String, GameLogicError> {
-    match parameters.get(key) {
-        Some(ScriptValue::String(s)) => Ok(s.clone()),
-        Some(v) => Err(GameLogicError::Configuration(format!(
-            "Expected string for '{}', got {:?}",
-            key, v
-        ))),
-        None => Err(GameLogicError::Configuration(format!(
-            "Missing parameter '{}'",
-            key
-        ))),
-    }
-}
-
-fn get_int_param(parameters: &HashMap<String, ScriptValue>, key: &str) -> Result<i32, GameLogicError> {
-    match parameters.get(key) {
-        Some(ScriptValue::Int(i)) => Ok(*i as i32),
-        Some(v) => Err(GameLogicError::Configuration(format!(
-            "Expected int for '{}', got {:?}",
-            key, v
-        ))),
-        None => Err(GameLogicError::Configuration(format!(
-            "Missing parameter '{}'",
-            key
-        ))),
-    }
-}
-
-fn get_float_param(parameters: &HashMap<String, ScriptValue>, key: &str) -> Result<f64, GameLogicError> {
-    match parameters.get(key) {
-        Some(ScriptValue::Float(f)) => Ok(*f),
-        Some(v) => Err(GameLogicError::Configuration(format!(
-            "Expected float for '{}', got {:?}",
-            key, v
-        ))),
-        None => Err(GameLogicError::Configuration(format!(
-            "Missing parameter '{}'",
-            key
-        ))),
-    }
-}
-
-fn get_bool_param_optional(parameters: &HashMap<String, ScriptValue>, key: &str) -> Option<bool> {
-    match parameters.get(key) {
-        Some(ScriptValue::Bool(b)) => Some(*b),
-        _ => None,
-    }
-}
-
-fn get_int_param_optional(parameters: &HashMap<String, ScriptValue>, key: &str) -> Option<i32> {
-    match parameters.get(key) {
-        Some(ScriptValue::Int(i)) => Some(*i as i32),
-        Some(ScriptValue::Float(f)) => Some(*f as i32),
-        _ => None,
-    }
-}
-
-fn get_float_param_optional(parameters: &HashMap<String, ScriptValue>, key: &str) -> Option<f64> {
-    match parameters.get(key) {
-        Some(ScriptValue::Float(f)) => Some(*f),
-        Some(ScriptValue::Int(i)) => Some(*i as f64),
-        _ => None,
-    }
-}
-
-/// Helper to get player from parameter (mask or name)
-fn get_player_from_param(player_param: &ScriptValue) -> Result<Option<Arc<RwLock<Player>>>, GameLogicError> {
-    match player_param {
-        ScriptValue::PlayerId(id) => {
-            let list = player_list().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire player list: {}", e))
-            })?;
-            let guard = list.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read player list: {}", e))
-            })?;
-            Ok(guard.get_player(*id as i32))
-        }
-        ScriptValue::String(name) => {
-            let list = player_list().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire player list: {}", e))
-            })?;
-            let guard = list.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read player list: {}", e))
-            })?;
-
-            // Search for player by name
-            for i in 0..guard.get_player_count() {
-                if let Some(player_arc) = guard.get_player(i as i32) {
-                    if let Ok(player) = player_arc.read() {
-                        if player.get_name() == name {
-                            return Ok(Some(player_arc.clone()));
-                        }
-                    }
-                }
-            }
-            Ok(None)
-        }
-        _ => Ok(None),
-    }
-}
-
-/// Helper to get team from parameter
-fn get_team_from_param(team_param: &ScriptValue) -> Result<Option<Arc<RwLock<Team>>>, GameLogicError> {
-    let team_name = match team_param {
-        ScriptValue::Team(name) => name.clone(),
-        ScriptValue::String(name) => name.clone(),
-        _ => return Ok(None),
-    };
-
-    let factory = get_team_factory();
-    let guard = factory.lock().map_err(|e| {
-        GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
-    })?;
-    Ok(guard.find_team(&team_name))
-}
-
-/// Helper to perform comparison operations
-fn perform_comparison(actual: i32, comparison_str: &str, expected: i32) -> bool {
-    match comparison_str.to_lowercase().as_str() {
-        "less_than" | "<" => actual < expected,
-        "less_equal" | "<=" => actual <= expected,
-        "equal" | "==" | "=" => actual == expected,
-        "greater_equal" | ">=" => actual >= expected,
-        "greater" | ">" => actual > expected,
-        "not_equal" | "!=" => actual != expected,
-        _ => false,
-    }
-}
-
 //-------------------------------------------------------------------------------------------------
-// 1. SKIRMISH_SPECIAL_POWER_READY
-// Does any unit have this special power ready to use?
+// 1. SkirmishSpecialPowerReadyCondition
 //-------------------------------------------------------------------------------------------------
+
+/// Stub: needs non-existent special power module API.
+/// TODO: implement once special power readiness tracking is available.
 pub struct SkirmishSpecialPowerReadyCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
     async fn evaluate(
         &self,
-        parameters: &HashMap<String, ScriptValue>,
+        _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let power_name = get_string_param(parameters, "power_name")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        // Iterate through all player's teams and objects
-        let player_id = player.get_id();
-        drop(player); // Release lock before iteration
-
-        let list = player_list()?;
-        let list_guard = list.read()?;
-
-        // Get all player teams
-        for team_id in 0..=100 { // Reasonable limit
-            let factory = get_team_factory();
-            let factory_guard = factory.lock()?;
-
-            // Search for teams belonging to this player
-            let obj_manager = get_object_manager();
-            let obj_guard = obj_manager.read()?;
-
-            // Check all objects for special power
-            for obj_id in 0..=10000 { // Practical limit
-                if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                    let obj = obj_arc.read()?;
-
-                    // Check if object belongs to player
-                    if let Some(owner_id) = obj.get_controlling_player_id() {
-                        if owner_id != player_id {
-                            continue;
-                        }
-                    }
-
-                    // Skip if under construction or disabled
-                    if obj.is_effectively_dead() || obj.is_disabled() {
-                        continue;
-                    }
-
-                    // Check if object has the special power
-                    if let Some(power_module) = obj.get_special_power_module_by_name(&power_name) {
-                        if power_module.is_ready() {
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-        }
-
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once special power module API exists
         Ok(false)
     }
 
-    fn name(&self) -> &str {
-        "skirmish_special_power_ready"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if any unit has the specified special power ready to use"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "power_name".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
+    fn name(&self) -> &str { "skirmish_special_power_ready" }
+    fn description(&self) -> &str { "Checks if a special power is ready (STUB)" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 2. SKIRMISH_COMMAND_BUTTON_READY
-// Check if command button is ready for team members
+// 2. SkirmishCommandButtonReadyCondition
 //-------------------------------------------------------------------------------------------------
+
 pub struct SkirmishCommandButtonReadyCondition;
 
 #[async_trait]
@@ -254,1247 +55,844 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
         &self,
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let _team_param = parameters.get("team").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'team' parameter".to_string())
-        })?;
-        let button_name = get_string_param(parameters, "button_name")?;
-        let all_ready = get_bool_param_optional(parameters, "all_ready").unwrap_or(true);
-
-        let team_arc = match get_team_from_param(_team_param)? {
-            Some(t) => t,
-            None => return Ok(false),
-        };
-
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
-
-        let members = team.get_members().clone();
-        drop(team); // Release lock
-
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        let mut found_ready = false;
-        let mut found_not_ready = false;
-
-        for &member_id in &members {
-            if let Some(obj_arc) = obj_guard.get_object(*member_id) {
-                let obj = obj_arc.read()?;
-
-                // Check if object can use this command button
-                // This requires checking command button system
-                // For now, we'll simulate based on object state
-                if !obj.is_effectively_dead() && !obj.is_disabled() {
-                    found_ready = true;
-                    if !all_ready {
-                        return Ok(true);
-                    }
-                } else {
-                    found_not_ready = true;
-                    if all_ready {
-                        return Ok(false);
-                    }
-                }
-            }
-        }
-
-        Ok(if all_ready { found_ready && !found_not_ready } else { found_ready })
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_command_button_ready"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if command button is ready for team members"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["team".to_string(), "button_name".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec!["all_ready".to_string()]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 3. SKIRMISH_PLAYER_IS_FACTION
-// Check if player is of specified faction
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishPlayerIsFactionCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishPlayerIsFactionCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let faction_name = get_string_param(parameters, "faction")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        let side = player.get_side();
-        Ok(side.eq_ignore_ascii_case(faction_name))
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_player_is_faction"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player belongs to specified faction"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "faction".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 4. SKIRMISH_VALUE_IN_AREA
-// Check total build value of player's units in area
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishValueInAreaCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishValueInAreaCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let comparison = get_string_param(parameters, "comparison")?;
-        let value = get_int_param(parameters, "value")?;
-        let trigger_name = get_string_param(parameters, "trigger_area")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        // Get trigger area bounds
-        let (center, radius) = {
-            let factory = get_team_factory();
-            let factory_guard = factory.lock()?;
-
-            // Find trigger area by name
-            // This requires integration with polygon trigger system
-            // For now, use placeholder values
-            (Coord3D::new(0.0, 0.0, 0.0), 100.0)
-        };
-
-        let player_id = {
-            let player = player_arc.read()?;
-            player.get_id()
-        };
-
-        // Calculate total value of units in area
-        let mut total_cost = 0;
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                // Check if owned by player
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id != player_id {
-                        continue;
-                    }
-                }
-
-                // Skip dead or inert objects
-                if obj.is_effectively_dead() || obj.is_kind_of(KindOf::INERT) {
-                    continue;
-                }
-
-                // Check if in area
-                let pos = obj.get_position();
-                let dist = ((pos.x - center.x).powi(2) + (pos.y - center.y).powi(2)).sqrt();
-                if dist <= radius {
-                    // Get build cost
-                    if let Some(template) = obj.get_template() {
-                        total_cost += template.get_build_cost() as i32;
-                    }
-                }
-            }
-        }
-
-        Ok(perform_comparison(total_cost, &comparison, value))
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_value_in_area"
-    }
-
-    fn description(&self) -> &str {
-        "Checks total build value of player's units in specified area"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec![
-            "player".to_string(),
-            "comparison".to_string(),
-            "value".to_string(),
-            "trigger_area".to_string(),
-        ]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 5. SKIRMISH_SUPPLIES_WITHIN_DISTANCE
-// Check if supplies are available within distance of location
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishSuppliesWithinDistanceCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishSuppliesWithinDistanceCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let _player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let distance = get_float_param(parameters, "distance")?;
-        let _location = get_string_param(parameters, "location")?;
-        let min_value = get_float_param(parameters, "min_value")?;
-
-        // Get location center point from trigger area
-        let center = Coord3D::new(0.0, 0.0, 0.0);
-
-        // Search for supply warehouses in range
-        let mut max_supply_value = 0.0;
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                // Check if supply warehouse/structure
-                if !obj.is_kind_of(KindOf::STRUCTURE) {
-                    continue;
-                }
-
-                // Check if has supply warehouse dock update module
-                if !obj.has_supply_warehouse() {
-                    continue;
-                }
-
-                // Check distance
-                let pos = obj.get_position();
-                let dist = ((pos.x - center.x).powi(2) + (pos.y - center.y).powi(2)).sqrt();
-                if dist <= distance {
-                    // Get supply value
-                    let supply_value = obj.get_supply_value();
-                    if supply_value > max_supply_value {
-                        max_supply_value = supply_value;
-                    }
-                }
-            }
-        }
-
-        Ok(max_supply_value > min_value)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_supplies_within_distance"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if supplies are available within distance of location"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec![
-            "player".to_string(),
-            "distance".to_string(),
-            "location".to_string(),
-            "min_value".to_string(),
-        ]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 6. SKIRMISH_SUPPLY_SOURCE_SAFE
-// Check if current supply source is safe from enemies
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishSupplySourceSafeCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishSupplySourceSafeCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let _min_supply_amount = get_int_param_optional(parameters, "min_supply_amount").unwrap_or(0);
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        // Check if player's supply source is under attack
-        // This is tracked in player state
-        let is_safe = !player.is_supply_source_attacked();
-
-        Ok(is_safe)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_supply_source_safe"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if current supply source is safe from enemies"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec!["min_supply_amount".to_string()]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 7. SKIRMISH_HAS_EXCESS_MONEY
-// Check if player has excess money beyond threshold
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishHasExcessMoneyCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishHasExcessMoneyCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let threshold = get_int_param(parameters, "threshold")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        let money = player.get_money();
-        Ok(money > threshold)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_has_excess_money"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has excess money beyond threshold"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "threshold".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 8. SKIRMISH_NEEDS_MORE_UNITS
-// Check if player needs more units of a type
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishNeedsMoreUnitsCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishNeedsMoreUnitsCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let unit_type = get_string_param(parameters, "unit_type")?;
-        let desired_count = get_int_param(parameters, "desired_count")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player_id = {
-            let player = player_arc.read()?;
-            player.get_id()
-        };
-
-        // Count units of this type
-        let mut current_count = 0;
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id != player_id {
-                        continue;
-                    }
-                }
-
-                if obj.is_effectively_dead() {
-                    continue;
-                }
-
-                if let Some(template) = obj.get_template() {
-                    if template.get_name().eq_ignore_ascii_case(unit_type) {
-                        current_count += 1;
-                    }
-                }
-            }
-        }
-
-        Ok(current_count < desired_count)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_needs_more_units"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player needs more units of specified type"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec![
-            "player".to_string(),
-            "unit_type".to_string(),
-            "desired_count".to_string(),
-        ]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 9. SKIRMISH_TEAM_HAS_UNITS
-// Check if team has any living units
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishTeamHasUnitsCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishTeamHasUnitsCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let team_param = parameters.get("team").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'team' parameter".to_string())
-        })?;
-
-        let team_arc = match get_team_from_param(team_param)? {
-            Some(t) => t,
-            None => return Ok(false),
-        };
-
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
-
-        let members = team.get_members();
-
-        if members.is_empty() {
-            return Ok(false);
-        }
-
-        // Check if any member is alive
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for &member_id in members {
-            if let Some(obj_arc) = obj_guard.get_object(*member_id) {
-                let obj = obj_arc.read()?;
-                if !obj.is_effectively_dead() {
-                    return Ok(true);
-                }
-            }
-        }
-
-        Ok(false)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_team_has_units"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if team has any living units"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["team".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 10. SKIRMISH_ENEMY_UNITS_IN_AREA
-// Check if enemy units are in specified area
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishEnemyUnitsInAreaCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishEnemyUnitsInAreaCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let trigger_name = get_string_param(parameters, "trigger_area")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let (my_player_id, my_team_id) = {
-            let player = player_arc.read()?;
-            (player.get_id(), player.get_team())
-        };
-
-        // Get trigger area
-        let (center, radius) = {
-            let factory = get_team_factory();
-            let _factory_guard = factory.lock()?;
-            (Coord3D::new(0.0, 0.0, 0.0), 100.0)
-        };
-
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                if obj.is_effectively_dead() || obj.is_kind_of(KindOf::PROJECTILE) {
-                    continue;
-                }
-
-                // Check if enemy
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    let list = player_list()?;
-                    let list_guard = list.read()?;
-
-                    if let Some(owner_arc) = list_guard.get_player(owner_id as i32) {
-                        let owner = owner_arc.read()?;
-
-                        // Check if enemy team
-                        if owner.get_team() != my_team_id {
-                            // Check if in area
-                            let pos = obj.get_position();
-                            let dist = ((pos.x - center.x).powi(2) + (pos.y - center.y).powi(2)).sqrt();
-                            if dist <= radius {
-                                return Ok(true);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(false)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_enemy_units_in_area"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if enemy units are in specified area"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "trigger_area".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 11. SKIRMISH_BASE_UNDER_ATTACK
-// Check if player's base is under attack
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishBaseUnderAttackCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishBaseUnderAttackCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        // This is tracked in player state
-        Ok(player.is_base_under_attack())
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_base_under_attack"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player's base is under attack"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 12. SKIRMISH_EXPANSION_AVAILABLE
-// Check if expansion location is available
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishExpansionAvailableCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishExpansionAvailableCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let _player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let expansion_name = get_string_param(parameters, "expansion_name")?;
-
-        // Check if expansion area exists and is free
+    ) -> GameLogicResult<bool> {
+        let team_name = get_str_param(parameters, "team")?;
         let factory = get_team_factory();
-        let factory_guard = factory.lock()?;
-
-        // Find expansion trigger area
-        // Check if any buildings in that area
-        // For now, return true if area exists
-        Ok(true)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_expansion_available"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if expansion location is available"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "expansion_name".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 13. SKIRMISH_HAS_UPGRADE
-// Check if player has completed upgrade
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishHasUpgradeCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishHasUpgradeCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let upgrade_name = get_string_param(parameters, "upgrade_name")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        let factory_guard = factory.lock().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to lock team factory: {}", e))
         })?;
 
-        // Check if player has completed upgrade
-        Ok(player.has_upgrade(upgrade_name))
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_has_upgrade"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has completed upgrade"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "upgrade_name".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 14. SKIRMISH_HAS_SCIENCE
-// Check if player has completed science
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishHasScienceCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishHasScienceCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let science_name = get_string_param(parameters, "science_name")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        // Check if player has completed science
-        Ok(player.has_science(science_name))
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_has_science"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has completed science"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "science_name".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 15. SKIRMISH_BUILDING_EXISTS
-// Check if player has building of type
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishBuildingExistsCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishBuildingExistsCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let building_type = get_string_param(parameters, "building_type")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player_id = {
-            let player = player_arc.read()?;
-            player.get_id()
-        };
-
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                if !obj.is_kind_of(KindOf::STRUCTURE) {
-                    continue;
-                }
-
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id != player_id {
-                        continue;
-                    }
-                }
-
-                if obj.is_effectively_dead() {
-                    continue;
-                }
-
-                if let Some(template) = obj.get_template() {
-                    if template.get_name().eq_ignore_ascii_case(building_type) {
-                        return Ok(true);
-                    }
-                }
+        let teams = factory_guard.find_team_instances(&team_name);
+        for team_arc in &teams {
+            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read team: {}", e))
+            })?;
+            if !team.has_any_objects() {
+                return Ok(false);
             }
-        }
-
-        Ok(false)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_building_exists"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has building of specified type"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "building_type".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 16. SKIRMISH_BUILDING_READY
-// Check if building is fully constructed and operational
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishBuildingReadyCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishBuildingReadyCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let building_type = get_string_param(parameters, "building_type")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player_id = {
-            let player = player_arc.read()?;
-            player.get_id()
-        };
-
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                if !obj.is_kind_of(KindOf::STRUCTURE) {
-                    continue;
-                }
-
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id != player_id {
-                        continue;
-                    }
-                }
-
-                if obj.is_effectively_dead() || obj.is_under_construction() {
-                    continue;
-                }
-
-                if obj.is_disabled() {
-                    continue;
-                }
-
-                if let Some(template) = obj.get_template() {
-                    if template.get_name().eq_ignore_ascii_case(building_type) {
-                        return Ok(true);
-                    }
-                }
-            }
-        }
-
-        Ok(false)
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_building_ready"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if building is fully constructed and operational"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "building_type".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 17. SKIRMISH_UNIT_CAN_BUILD
-// Check if unit can build specified object type
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishUnitCanBuildCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishUnitCanBuildCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let object_type = get_string_param(parameters, "object_type")?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        // Check if player has prerequisites and can build
-        Ok(player.can_build(object_type))
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_unit_can_build"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player can build specified object type"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "object_type".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 18. SKIRMISH_HAS_FREE_SUPPLY_DOCKS
-// Check if player has free supply docks available
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishHasFreeSupplyDocksCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishHasFreeSupplyDocksCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player_id = {
-            let player = player_arc.read()?;
-            player.get_id()
-        };
-
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                if !obj.is_kind_of(KindOf::STRUCTURE) {
-                    continue;
-                }
-
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id != player_id {
-                        continue;
-                    }
-                }
-
-                if obj.is_effectively_dead() {
-                    continue;
-                }
-
-                // Check if has supply warehouse dock with free slots
-                if obj.has_supply_warehouse() {
-                    if let Some(dock_module) = obj.get_supply_warehouse_module() {
-                        if dock_module.has_free_docks() {
+            // Check that at least one member is alive
+            for &member_id in team.get_members() {
+                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
+                    if let Ok(obj) = obj_arc.read() {
+                        if !obj.is_effectively_dead() && !obj.is_destroyed() {
                             return Ok(true);
                         }
                     }
                 }
             }
         }
-
         Ok(false)
     }
 
-    fn name(&self) -> &str {
-        "skirmish_has_free_supply_docks"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has free supply docks available"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
+    fn name(&self) -> &str { "skirmish_command_button_ready" }
+    fn description(&self) -> &str { "Checks if a team has alive members ready for commands" }
+    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 19. SKIRMISH_HAS_NEARBY_SUPPLY
-// Check if player has supply source nearby
+// 3. SkirmishEasyAiCondition
 //-------------------------------------------------------------------------------------------------
-pub struct SkirmishHasNearbySupplyCondition;
+
+pub struct SkirmishEasyAiCondition;
 
 #[async_trait]
-impl ScriptCondition for SkirmishHasNearbySupplyCondition {
+impl ScriptCondition for SkirmishEasyAiCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let max_distance = get_float_param(parameters, "max_distance").unwrap_or(200.0);
-
-        let player_arc = match get_player_from_param(player_param)? {
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
         };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        Ok(player.get_player_type() == PlayerType::Computer
+            && player.get_player_difficulty() == GameDifficulty::Easy)
+    }
 
-        // Get player's base position
-        let base_position = {
-            let player = player_arc.read()?;
-            player.get_start_position()
+    fn name(&self) -> &str { "skirmish_easy_ai" }
+    fn description(&self) -> &str { "Checks if player is an easy AI" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 4. SkirmishMediumAiCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishMediumAiCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishMediumAiCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
         };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        Ok(player.get_player_type() == PlayerType::Computer
+            && player.get_player_difficulty() == GameDifficulty::Normal)
+    }
 
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
+    fn name(&self) -> &str { "skirmish_medium_ai" }
+    fn description(&self) -> &str { "Checks if player is a medium AI" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
 
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
+//-------------------------------------------------------------------------------------------------
+// 5. SkirmishHardAiCondition
+//-------------------------------------------------------------------------------------------------
 
-                if !obj.is_kind_of(KindOf::STRUCTURE) {
-                    continue;
-                }
+pub struct SkirmishHardAiCondition;
 
-                if obj.is_effectively_dead() {
-                    continue;
-                }
+#[async_trait]
+impl ScriptCondition for SkirmishHardAiCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        Ok(player.get_player_type() == PlayerType::Computer
+            && player.get_player_difficulty() == GameDifficulty::Hard)
+    }
 
-                // Check if supply structure
-                if !obj.has_supply_warehouse() {
-                    continue;
-                }
+    fn name(&self) -> &str { "skirmish_hard_ai" }
+    fn description(&self) -> &str { "Checks if player is a hard AI" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
 
-                let pos = obj.get_position();
-                let dist = ((pos.x - base_position.x).powi(2) + (pos.y - base_position.y).powi(2)).sqrt();
-                if dist <= max_distance {
-                    return Ok(true);
+//-------------------------------------------------------------------------------------------------
+// 6. SkirmishPlayerIsAiCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishPlayerIsAiCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishPlayerIsAiCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        Ok(player.get_player_type() == PlayerType::Computer)
+    }
+
+    fn name(&self) -> &str { "skirmish_player_is_ai" }
+    fn description(&self) -> &str { "Checks if player is any AI type" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 7. SkirmishHasEnoughMoneyCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishHasEnoughMoneyCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishHasEnoughMoneyCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let amount = super::super::actions::get_int_param(parameters, "amount")?;
+        let comparison = get_str_param(parameters, "comparison")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let money = player.get_money().count_money() as i64;
+        Ok(perform_comparison(money, &comparison, amount))
+    }
+
+    fn name(&self) -> &str { "skirmish_has_enough_money" }
+    fn description(&self) -> &str { "Checks if player has enough money with comparison" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "amount".to_string(), "comparison".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 8. SkirmishNeedsSupplyCondition
+//-------------------------------------------------------------------------------------------------
+
+/// Stub: needs supply warehouse API.
+/// TODO: implement once supply warehouse module API exists.
+pub struct SkirmishNeedsSupplyCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishNeedsSupplyCondition {
+    async fn evaluate(
+        &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once supply warehouse module API exists
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_needs_supply" }
+    fn description(&self) -> &str { "Checks if player needs supply (STUB)" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 9. SkirmishBuildingsDestroyedCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishBuildingsDestroyedCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let count = super::super::actions::get_int_param(parameters, "count")?;
+        let comparison = get_str_param(parameters, "comparison")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let player_id = player.get_id() as u32;
+
+        drop(player); // release lock before accessing object manager
+
+        let manager = get_object_manager();
+        let mgr = manager.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+        })?;
+        let owned = mgr.get_objects_owned_by_player(player_id);
+
+        let mut destroyed_count: i64 = 0;
+        for obj_id in &owned {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if obj.is_kind_of(KindOf::Structure) && obj.is_destroyed() {
+                        destroyed_count += 1;
+                    }
                 }
             }
         }
 
-        Ok(false)
+        Ok(perform_comparison(destroyed_count, &comparison, count))
     }
 
-    fn name(&self) -> &str {
-        "skirmish_has_nearby_supply"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has supply source nearby"
-    }
-
+    fn name(&self) -> &str { "skirmish_buildings_destroyed" }
+    fn description(&self) -> &str { "Counts player's destroyed structures with comparison" }
     fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string()]
+        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
     }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec!["max_distance".to_string()]
-    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 20. SKIRMISH_TEAM_CAN_REINFORCE
-// Check if team can be reinforced
+// 10. SkirmishUnitsDestroyedCondition
 //-------------------------------------------------------------------------------------------------
-pub struct SkirmishTeamCanReinforceCondition;
+
+pub struct SkirmishUnitsDestroyedCondition;
 
 #[async_trait]
-impl ScriptCondition for SkirmishTeamCanReinforceCondition {
+impl ScriptCondition for SkirmishUnitsDestroyedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let team_param = parameters.get("team").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'team' parameter".to_string())
-        })?;
-
-        let team_arc = match get_team_from_param(team_param)? {
-            Some(t) => t,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
             None => return Ok(false),
         };
+        let count = super::super::actions::get_int_param(parameters, "count")?;
+        let comparison = get_str_param(parameters, "comparison")?;
 
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
         })?;
+        let player_id = player.get_id() as u32;
 
-        // Check if team has reinforcement capability
-        // This is a team property
-        Ok(team.can_reinforce())
+        drop(player);
+
+        let manager = get_object_manager();
+        let mgr = manager.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+        })?;
+        let owned = mgr.get_objects_owned_by_player(player_id);
+
+        let mut destroyed_count: i64 = 0;
+        for obj_id in &owned {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    // Count units that are not structures
+                    if !obj.is_kind_of(KindOf::Structure) && obj.is_destroyed() {
+                        destroyed_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(perform_comparison(destroyed_count, &comparison, count))
     }
 
-    fn name(&self) -> &str {
-        "skirmish_team_can_reinforce"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if team can be reinforced"
-    }
-
+    fn name(&self) -> &str { "skirmish_units_destroyed" }
+    fn description(&self) -> &str { "Counts player's destroyed units with comparison" }
     fn required_parameters(&self) -> Vec<String> {
-        vec!["team".to_string()]
+        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
     }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 21. SKIRMISH_SUPPLY_SOURCE_ATTACKED
-// Check if supply source is being attacked
+// 11. SkirmishEnemyInAreaCondition
 //-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishEnemyInAreaCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishEnemyInAreaCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let area_name = get_str_param(parameters, "area")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let player_id = player.get_id() as u32;
+
+        drop(player);
+
+        let tracker = get_area_tracker();
+        let objects = tracker.get_objects_in_area(&area_name)?;
+
+        for obj_id in &objects {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    // Skip effectively dead or destroyed objects
+                    if obj.is_effectively_dead() || obj.is_destroyed() {
+                        continue;
+                    }
+                    // Check if this object is controlled by a different (enemy) player
+                    if let Some(owner_id) = obj.get_controlling_player_id() {
+                        if owner_id != player_id {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_enemy_in_area" }
+    fn description(&self) -> &str { "Checks if enemy units are in the specified area" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "area".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 12. SkirmishAllUnitsGarrisonedCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishAllUnitsGarrisonedCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let team_name = get_str_param(parameters, "team")?;
+        let factory = get_team_factory();
+        let factory_guard = factory.lock().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to lock team factory: {}", e))
+        })?;
+
+        let teams = factory_guard.find_team_instances(&team_name);
+        if teams.is_empty() {
+            return Ok(true); // No teams = vacuously true
+        }
+
+        for team_arc in &teams {
+            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read team: {}", e))
+            })?;
+            let members = team.get_members();
+            if members.is_empty() {
+                continue;
+            }
+
+            for &member_id in members {
+                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
+                    if let Ok(obj) = obj_arc.read() {
+                        if obj.is_effectively_dead() || obj.is_destroyed() {
+                            continue; // Dead units don't need to be garrisoned
+                        }
+                        // Check if the object is disabled by Held type (garrisoned)
+                        if !obj.is_disabled_by_type(crate::common::DisabledType::Held) {
+                            return Ok(false);
+                        }
+                    }
+                }
+                // Object not in registry - assume dead, skip
+            }
+        }
+        Ok(true)
+    }
+
+    fn name(&self) -> &str { "skirmish_all_units_garrisoned" }
+    fn description(&self) -> &str { "Checks if all team units are garrisoned" }
+    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 13. SkirmishBaseUnderAttackCondition
+//-------------------------------------------------------------------------------------------------
+
+/// Stub: needs non-existent base-under-attack detection API.
+/// TODO: implement once attack detection tracking is available.
+pub struct SkirmishBaseUnderAttackCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishBaseUnderAttackCondition {
+    async fn evaluate(
+        &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once base attack detection API exists
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_base_under_attack" }
+    fn description(&self) -> &str { "Checks if player's base is under attack (STUB)" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 14. SkirmishSupplySourceAttackedCondition
+//-------------------------------------------------------------------------------------------------
+
+/// Stub: needs non-existent supply source attack detection API.
+/// TODO: implement once supply source attack tracking is available.
 pub struct SkirmishSupplySourceAttackedCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
     async fn evaluate(
         &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once supply source attack detection API exists
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_supply_source_attacked" }
+    fn description(&self) -> &str { "Checks if a supply source is being attacked (STUB)" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 15. SkirmishCanBuildCondition
+//-------------------------------------------------------------------------------------------------
+
+/// Stub: needs non-existent build capability API.
+/// TODO: implement once build queue / capability API exists.
+pub struct SkirmishCanBuildCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishCanBuildCondition {
+    async fn evaluate(
+        &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once build capability API exists
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_can_build" }
+    fn description(&self) -> &str { "Checks if player can build a specific object (STUB)" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "object_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 16. SkirmishCanReinforceCondition
+//-------------------------------------------------------------------------------------------------
+
+/// Stub: needs non-existent reinforcement API.
+/// TODO: implement once reinforcement capability API exists.
+pub struct SkirmishCanReinforceCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishCanReinforceCondition {
+    async fn evaluate(
+        &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once reinforcement capability API exists
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_can_reinforce" }
+    fn description(&self) -> &str { "Checks if player can reinforce (STUB)" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 17. SkirmishTeamNearPositionCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishTeamNearPositionCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishTeamNearPositionCondition {
+    async fn evaluate(
+        &self,
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
+    ) -> GameLogicResult<bool> {
+        let team_name = get_str_param(parameters, "team")?;
+        let x = super::super::actions::get_float_param(parameters, "x")? as f32;
+        let y = super::super::actions::get_float_param(parameters, "y")? as f32;
+        let radius = super::super::actions::get_float_param(parameters, "radius")? as f32;
+
+        let center = Coord3D { x, y, z: 0.0 };
+
+        let factory = get_team_factory();
+        let factory_guard = factory.lock().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to lock team factory: {}", e))
         })?;
 
-        let player_arc = match get_player_from_param(player_param)? {
+        let teams = factory_guard.find_team_instances(&team_name);
+        for team_arc in &teams {
+            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read team: {}", e))
+            })?;
+            for &member_id in team.get_members() {
+                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
+                    if let Ok(obj) = obj_arc.read() {
+                        if obj.is_effectively_dead() || obj.is_destroyed() {
+                            continue;
+                        }
+                        let pos = obj.get_position();
+                        let dx = pos.x - center.x;
+                        let dy = pos.y - center.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist <= radius {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn name(&self) -> &str { "skirmish_team_near_position" }
+    fn description(&self) -> &str { "Checks if any member of a team is near a position" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string(), "x".to_string(), "y".to_string(), "radius".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 18. SkirmishPlayerHasScienceCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishPlayerHasScienceCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishPlayerHasScienceCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let science_name = get_str_param(parameters, "science")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+
+        // Use the science store to look up the science type by name
+        let science_store = game_engine::common::rts::get_science_store();
+        let has_it = if let Some(store) = science_store {
+            let science_type = store.get_science_from_internal_name(&science_name);
+            player.has_science(science_type)
+        } else {
+            false
+        };
+
+        Ok(has_it)
+    }
+
+    fn name(&self) -> &str { "skirmish_player_has_science" }
+    fn description(&self) -> &str { "Checks if player has a specific science" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "science".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 19. SkirmishPlayerHasUpgradeCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishPlayerHasUpgradeCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishPlayerHasUpgradeCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let upgrade_name = get_str_param(parameters, "upgrade")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+
+        // Check the upgrade bitmask
+        let mask_bit = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
+        let completed_mask = player.get_completed_upgrade_mask();
+        Ok(completed_mask.bits() & mask_bit.bits() != 0)
+    }
+
+    fn name(&self) -> &str { "skirmish_player_has_upgrade" }
+    fn description(&self) -> &str { "Checks if player has completed a specific upgrade" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "upgrade".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 20. SkirmishStructureCountCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishStructureCountCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishStructureCountCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let count = super::super::actions::get_int_param(parameters, "count")?;
+        let comparison = get_str_param(parameters, "comparison")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let player_id = player.get_id() as u32;
+
+        drop(player);
+
+        let manager = get_object_manager();
+        let mgr = manager.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+        })?;
+        let owned = mgr.get_objects_owned_by_player(player_id);
+
+        let mut structure_count: i64 = 0;
+        for obj_id in &owned {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if obj.is_kind_of(KindOf::Structure)
+                        && !obj.is_destroyed()
+                        && !obj.is_effectively_dead()
+                    {
+                        structure_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(perform_comparison(structure_count, &comparison, count))
+    }
+
+    fn name(&self) -> &str { "skirmish_structure_count" }
+    fn description(&self) -> &str { "Counts player's living structures with comparison" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 21. SkirmishUnitCountCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishUnitCountCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishUnitCountCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let count = super::super::actions::get_int_param(parameters, "count")?;
+        let comparison = get_str_param(parameters, "comparison")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let player_id = player.get_id() as u32;
+
+        drop(player);
+
+        let manager = get_object_manager();
+        let mgr = manager.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+        })?;
+        let owned = mgr.get_objects_owned_by_player(player_id);
+
+        let mut unit_count: i64 = 0;
+        for obj_id in &owned {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    // Count non-structure, living objects
+                    if !obj.is_kind_of(KindOf::Structure)
+                        && !obj.is_destroyed()
+                        && !obj.is_effectively_dead()
+                    {
+                        unit_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(perform_comparison(unit_count, &comparison, count))
+    }
+
+    fn name(&self) -> &str { "skirmish_unit_count" }
+    fn description(&self) -> &str { "Counts player's living units with comparison" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 22. SkirmishPlayerDefeatedCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishPlayerDefeatedCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishPlayerDefeatedCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(p) => p,
+            None => return Ok(true), // Non-existent player is defeated
+        };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        Ok(player.is_defeated())
+    }
+
+    fn name(&self) -> &str { "skirmish_player_defeated" }
+    fn description(&self) -> &str { "Checks if player is defeated" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// 23. SkirmishAlliedWithHumanCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishAlliedWithHumanCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishAlliedWithHumanCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
             Some(p) => p,
             None => return Ok(false),
         };
@@ -1502,83 +900,32 @@ impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
         let player = player_arc.read().map_err(|e| {
             GameLogicError::Threading(format!("Failed to read player: {}", e))
         })?;
+        let player_mask = player.get_player_mask();
+        drop(player);
 
-        Ok(player.is_supply_source_attacked())
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_supply_source_attacked"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if supply source is being attacked"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// 22. SKIRMISH_PLAYER_HAS_UNITS_IN_AREA
-// Check if player has any units in specified area
-//-------------------------------------------------------------------------------------------------
-pub struct SkirmishPlayerHasUnitsInAreaCondition;
-
-#[async_trait]
-impl ScriptCondition for SkirmishPlayerHasUnitsInAreaCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
+        // Iterate all players to find any human player that shares an alliance
+        let list = player_list();
+        let guard = list.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player list: {}", e))
         })?;
-        let trigger_name = get_string_param(parameters, "trigger_area")?;
 
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let player_id = {
-            let player = player_arc.read()?;
-            player.get_id()
-        };
-
-        // Get trigger area
-        let (center, radius) = {
-            let factory = get_team_factory();
-            let _factory_guard = factory.lock()?;
-            (Coord3D::new(0.0, 0.0, 0.0), 100.0)
-        };
-
-        let obj_manager = get_object_manager();
-        let obj_guard = obj_manager.read()?;
-
-        for obj_id in 0..=10000 {
-            if let Some(obj_arc) = obj_guard.get_object(obj_id) {
-                let obj = obj_arc.read()?;
-
-                if obj.is_effectively_dead() || obj.is_kind_of(KindOf::INERT) || obj.is_kind_of(KindOf::PROJECTILE) {
+        for i in 0..guard.get_player_count() {
+            if let Some(other_arc) = guard.get_player(i as i32) {
+                // Skip same player
+                if Arc::ptr_eq(&player_arc, &other_arc) {
                     continue;
                 }
-
-                if let Some(owner_id) = obj.get_controlling_player_id() {
-                    if owner_id != player_id {
+                if let Ok(other) = other_arc.read() {
+                    if other.get_player_type() != PlayerType::Human {
                         continue;
                     }
-                }
-
-                let pos = obj.get_position();
-                let dist = ((pos.x - center.x).powi(2) + (pos.y - center.y).powi(2)).sqrt();
-                if dist <= radius {
-                    return Ok(true);
+                    // Simple alliance check: if their player masks overlap,
+                    // they are on the same team. For full alliance checking we'd
+                    // need the diplomacy system, but same team = allied in skirmish.
+                    let other_mask = other.get_player_mask();
+                    if player_mask.bits() & other_mask.bits() != 0 {
+                        return Ok(true);
+                    }
                 }
             }
         }
@@ -1586,186 +933,97 @@ impl ScriptCondition for SkirmishPlayerHasUnitsInAreaCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str {
-        "skirmish_player_has_units_in_area"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has any units in specified area"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "trigger_area".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
+    fn name(&self) -> &str { "skirmish_allied_with_human" }
+    fn description(&self) -> &str { "Checks if an AI player is allied with a human player" }
+    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 23. SKIRMISH_PLAYER_IS_OUTSIDE_AREA
-// Check if player has no units in specified area
+// 24. SkirmishEnemyNearBaseCondition
 //-------------------------------------------------------------------------------------------------
-pub struct SkirmishPlayerIsOutsideAreaCondition;
+
+/// Stub: needs start position lookup API.
+/// TODO: implement once player start position API exists.
+pub struct SkirmishEnemyNearBaseCondition;
 
 #[async_trait]
-impl ScriptCondition for SkirmishPlayerIsOutsideAreaCondition {
+impl ScriptCondition for SkirmishEnemyNearBaseCondition {
     async fn evaluate(
         &self,
-        parameters: &HashMap<String, ScriptValue>,
-        context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        // This is the inverse of SKIRMISH_PLAYER_HAS_UNITS_IN_AREA
-        let condition = SkirmishPlayerHasUnitsInAreaCondition;
-        let has_units = condition.evaluate(parameters, context).await?;
-        Ok(!has_units)
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        // TODO: implement once player start position / enemy proximity API exists
+        Ok(false)
     }
 
-    fn name(&self) -> &str {
-        "skirmish_player_is_outside_area"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has no units in specified area"
-    }
-
+    fn name(&self) -> &str { "skirmish_enemy_near_base" }
+    fn description(&self) -> &str { "Checks if enemies are near player's base (STUB)" }
     fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "trigger_area".to_string()]
+        vec!["player".to_string(), "radius".to_string()]
     }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 24. SKIRMISH_PLAYER_HAS_BEEN_ATTACKED_BY_PLAYER
-// Check if player has been attacked by specific player
+// 25. SkirmishTimeElapsedCondition
 //-------------------------------------------------------------------------------------------------
-pub struct SkirmishPlayerHasBeenAttackedByPlayerCondition;
+
+pub struct SkirmishTimeElapsedCondition;
 
 #[async_trait]
-impl ScriptCondition for SkirmishPlayerHasBeenAttackedByPlayerCondition {
+impl ScriptCondition for SkirmishTimeElapsedCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let player_param = parameters.get("player").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'player' parameter".to_string())
-        })?;
-        let attacker_param = parameters.get("attacker").ok_or_else(|| {
-            GameLogicError::Configuration("Missing 'attacker' parameter".to_string())
-        })?;
+    ) -> GameLogicResult<bool> {
+        let time_seconds = super::super::actions::get_int_param(parameters, "time")?;
+        let comparison = get_str_param(parameters, "comparison")?;
 
-        let player_arc = match get_player_from_param(player_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
+        let frame = TheGameLogic::get_frame();
+        let elapsed_seconds = (frame as i64) / (LOGICFRAMES_PER_SECOND as i64);
 
-        let attacker_arc = match get_player_from_param(attacker_param)? {
-            Some(p) => p,
-            None => return Ok(false),
-        };
-
-        let attacker_id = {
-            let attacker = attacker_arc.read()?;
-            attacker.get_id()
-        };
-
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
-
-        Ok(player.has_been_attacked_by(attacker_id))
+        Ok(perform_comparison(elapsed_seconds, &comparison, time_seconds))
     }
 
-    fn name(&self) -> &str {
-        "skirmish_player_has_been_attacked_by_player"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if player has been attacked by specific player"
-    }
-
+    fn name(&self) -> &str { "skirmish_time_elapsed" }
+    fn description(&self) -> &str { "Checks if game time matches comparison (in seconds)" }
     fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "attacker".to_string()]
+        vec!["time".to_string(), "comparison".to_string()]
     }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
 //-------------------------------------------------------------------------------------------------
-// 25. SKIRMISH_NAMED_AREA_EXISTS
-// Check if named trigger area exists on map
+// Registration
 //-------------------------------------------------------------------------------------------------
-pub struct SkirmishNamedAreaExistsCondition;
 
-#[async_trait]
-impl ScriptCondition for SkirmishNamedAreaExistsCondition {
-    async fn evaluate(
-        &self,
-        parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
-    ) -> Result<bool, GameLogicError> {
-        let area_name = get_string_param(parameters, "area_name")?;
-
-        let factory = get_team_factory();
-        let factory_guard = factory.lock().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
-        })?;
-
-        // Check if trigger area exists
-        Ok(factory_guard.find_trigger_area(&area_name).is_some())
-    }
-
-    fn name(&self) -> &str {
-        "skirmish_named_area_exists"
-    }
-
-    fn description(&self) -> &str {
-        "Checks if named trigger area exists on map"
-    }
-
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["area_name".to_string()]
-    }
-
-    fn optional_parameters(&self) -> Vec<String> {
-        vec![]
-    }
-}
-
-/// Register all skirmish conditions with the condition registry
-pub fn register_skirmish_conditions(registry: &mut super::ConditionRegistry) {
+pub fn register_skirmish_conditions(registry: &mut ConditionRegistry) {
     registry.register_condition(Box::new(SkirmishSpecialPowerReadyCondition));
     registry.register_condition(Box::new(SkirmishCommandButtonReadyCondition));
-    registry.register_condition(Box::new(SkirmishPlayerIsFactionCondition));
-    registry.register_condition(Box::new(SkirmishValueInAreaCondition));
-    registry.register_condition(Box::new(SkirmishSuppliesWithinDistanceCondition));
-    registry.register_condition(Box::new(SkirmishSupplySourceSafeCondition));
-    registry.register_condition(Box::new(SkirmishHasExcessMoneyCondition));
-    registry.register_condition(Box::new(SkirmishNeedsMoreUnitsCondition));
-    registry.register_condition(Box::new(SkirmishTeamHasUnitsCondition));
-    registry.register_condition(Box::new(SkirmishEnemyUnitsInAreaCondition));
+    registry.register_condition(Box::new(SkirmishEasyAiCondition));
+    registry.register_condition(Box::new(SkirmishMediumAiCondition));
+    registry.register_condition(Box::new(SkirmishHardAiCondition));
+    registry.register_condition(Box::new(SkirmishPlayerIsAiCondition));
+    registry.register_condition(Box::new(SkirmishHasEnoughMoneyCondition));
+    registry.register_condition(Box::new(SkirmishNeedsSupplyCondition));
+    registry.register_condition(Box::new(SkirmishBuildingsDestroyedCondition));
+    registry.register_condition(Box::new(SkirmishUnitsDestroyedCondition));
+    registry.register_condition(Box::new(SkirmishEnemyInAreaCondition));
+    registry.register_condition(Box::new(SkirmishAllUnitsGarrisonedCondition));
     registry.register_condition(Box::new(SkirmishBaseUnderAttackCondition));
-    registry.register_condition(Box::new(SkirmishExpansionAvailableCondition));
-    registry.register_condition(Box::new(SkirmishHasUpgradeCondition));
-    registry.register_condition(Box::new(SkirmishHasScienceCondition));
-    registry.register_condition(Box::new(SkirmishBuildingExistsCondition));
-    registry.register_condition(Box::new(SkirmishBuildingReadyCondition));
-    registry.register_condition(Box::new(SkirmishUnitCanBuildCondition));
-    registry.register_condition(Box::new(SkirmishHasFreeSupplyDocksCondition));
-    registry.register_condition(Box::new(SkirmishHasNearbySupplyCondition));
-    registry.register_condition(Box::new(SkirmishTeamCanReinforceCondition));
     registry.register_condition(Box::new(SkirmishSupplySourceAttackedCondition));
-    registry.register_condition(Box::new(SkirmishPlayerHasUnitsInAreaCondition));
-    registry.register_condition(Box::new(SkirmishPlayerIsOutsideAreaCondition));
-    registry.register_condition(Box::new(SkirmishPlayerHasBeenAttackedByPlayerCondition));
-    registry.register_condition(Box::new(SkirmishNamedAreaExistsCondition));
-
-    log::info!("Registered 25+ skirmish AI script conditions");
+    registry.register_condition(Box::new(SkirmishCanBuildCondition));
+    registry.register_condition(Box::new(SkirmishCanReinforceCondition));
+    registry.register_condition(Box::new(SkirmishTeamNearPositionCondition));
+    registry.register_condition(Box::new(SkirmishPlayerHasScienceCondition));
+    registry.register_condition(Box::new(SkirmishPlayerHasUpgradeCondition));
+    registry.register_condition(Box::new(SkirmishStructureCountCondition));
+    registry.register_condition(Box::new(SkirmishUnitCountCondition));
+    registry.register_condition(Box::new(SkirmishPlayerDefeatedCondition));
+    registry.register_condition(Box::new(SkirmishAlliedWithHumanCondition));
+    registry.register_condition(Box::new(SkirmishEnemyNearBaseCondition));
+    registry.register_condition(Box::new(SkirmishTimeElapsedCondition));
 }

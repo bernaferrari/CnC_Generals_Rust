@@ -1103,6 +1103,13 @@ impl GameLogic {
             warn!("Cleanup phase failed: {}", e);
         }
 
+        // Periodically sweep dead weak references from the object registry so
+        // that entries for objects that are never looked up again do not
+        // accumulate unbounded.
+        if frame % 1000 == 0 {
+            OBJECT_REGISTRY.cleanup_dead_references();
+        }
+
         // Reset the command queue (C++ line 3765: TheCommandList->reset())
         // Commands already processed; clear any remaining for next frame.
         self.command_queue.clear();

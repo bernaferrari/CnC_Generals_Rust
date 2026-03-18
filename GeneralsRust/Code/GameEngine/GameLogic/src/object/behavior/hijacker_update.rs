@@ -9,6 +9,7 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
@@ -137,6 +138,31 @@ impl BehaviorModuleInterface for HijackerUpdate {
     }
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for HijackerUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_object_id(&mut self.target_id)
+            .map_err(|e| format!("HijackerUpdate xfer target_id: {:?}", e))?;
+        xfer.xfer_real(&mut self.eject_pos.x);
+        xfer.xfer_real(&mut self.eject_pos.y);
+        xfer.xfer_real(&mut self.eject_pos.z);
+        xfer.xfer_bool(&mut self.update)
+            .map_err(|e| format!("HijackerUpdate xfer update: {:?}", e))?;
+        xfer.xfer_bool(&mut self.is_in_vehicle)
+            .map_err(|e| format!("HijackerUpdate xfer is_in_vehicle: {:?}", e))?;
+        xfer.xfer_bool(&mut self.was_target_airborne)
+            .map_err(|e| format!("HijackerUpdate xfer was_target_airborne: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

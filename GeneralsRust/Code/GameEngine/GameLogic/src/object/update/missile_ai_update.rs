@@ -23,6 +23,7 @@ use crate::player::CMD_FROM_AI;
 use crate::weapon::{WeaponSlotType, WeaponTemplate};
 use crate::GameLogicResult;
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
+use game_engine::common::system::{Snapshotable, Xfer};
 use glam::Vec4;
 use std::sync::{Arc, Weak};
 
@@ -912,6 +913,65 @@ impl MissileAIUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MissileAIUpdateBehavior::new(thing, module_data)?))
+    }
+}
+
+impl Snapshotable for MissileAIUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_object_id(&mut self.object_id)
+            .map_err(|e| format!("MissileAIUpdate xfer object_id: {:?}", e))?;
+        let mut state: i32 = self.state as i32;
+        xfer.xfer_int(&mut state)
+            .map_err(|e| format!("MissileAIUpdate xfer state: {:?}", e))?;
+        self.state = match state {
+            0 => MissileState::PreLaunch,
+            1 => MissileState::Launch,
+            2 => MissileState::Ignition,
+            3 => MissileState::AttackNoTurn,
+            4 => MissileState::Attack,
+            5 => MissileState::Kill,
+            6 => MissileState::KillSelf,
+            _ => MissileState::Dead,
+        };
+        xfer.xfer_unsigned_int(&mut self.state_timestamp)
+            .map_err(|e| format!("MissileAIUpdate xfer state_timestamp: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.next_target_track_time)
+            .map_err(|e| format!("MissileAIUpdate xfer next_target_track_time: {:?}", e))?;
+        xfer.xfer_object_id(&mut self.launcher_id)
+            .map_err(|e| format!("MissileAIUpdate xfer launcher_id: {:?}", e))?;
+        xfer.xfer_object_id(&mut self.victim_id)
+            .map_err(|e| format!("MissileAIUpdate xfer victim_id: {:?}", e))?;
+        xfer.xfer_bool(&mut self.is_armed)
+            .map_err(|e| format!("MissileAIUpdate xfer is_armed: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.fuel_expiration_date)
+            .map_err(|e| format!("MissileAIUpdate xfer fuel_expiration_date: {:?}", e))?;
+        xfer.xfer_real(&mut self.no_turn_dist_left);
+        xfer.xfer_real(&mut self.prev_pos.x);
+        xfer.xfer_real(&mut self.prev_pos.y);
+        xfer.xfer_real(&mut self.prev_pos.z);
+        xfer.xfer_real(&mut self.max_accel);
+        xfer.xfer_bool(&mut self.is_tracking_target)
+            .map_err(|e| format!("MissileAIUpdate xfer is_tracking_target: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.exhaust_id)
+            .map_err(|e| format!("MissileAIUpdate xfer exhaust_id: {:?}", e))?;
+        xfer.xfer_real(&mut self.original_target_pos.x);
+        xfer.xfer_real(&mut self.original_target_pos.y);
+        xfer.xfer_real(&mut self.original_target_pos.z);
+        xfer.xfer_unsigned_int(&mut self.frames_till_decoyed)
+            .map_err(|e| format!("MissileAIUpdate xfer frames_till_decoyed: {:?}", e))?;
+        xfer.xfer_bool(&mut self.no_damage)
+            .map_err(|e| format!("MissileAIUpdate xfer no_damage: {:?}", e))?;
+        xfer.xfer_bool(&mut self.is_jammed)
+            .map_err(|e| format!("MissileAIUpdate xfer is_jammed: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
