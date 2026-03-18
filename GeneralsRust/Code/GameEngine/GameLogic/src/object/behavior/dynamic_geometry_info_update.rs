@@ -11,6 +11,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 /// INI-configurable data for DynamicGeometryInfoUpdate
@@ -191,6 +192,38 @@ impl BehaviorModuleInterface for DynamicGeometryInfoUpdate {
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for DynamicGeometryInfoUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_unsigned_int(&mut self.logic.starting_delay_countdown)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer starting_delay_countdown: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.logic.time_active)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer time_active: {:?}", e))?;
+        xfer.xfer_bool(&mut self.logic.started)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer started: {:?}", e))?;
+        xfer.xfer_bool(&mut self.logic.finished)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer finished: {:?}", e))?;
+        xfer.xfer_bool(&mut self.logic.switched_directions)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer switched_directions: {:?}", e))?;
+        xfer.xfer_real(&mut self.logic.initial_height);
+        xfer.xfer_real(&mut self.logic.initial_major_radius);
+        xfer.xfer_real(&mut self.logic.initial_minor_radius);
+        xfer.xfer_real(&mut self.logic.final_height);
+        xfer.xfer_real(&mut self.logic.final_major_radius);
+        xfer.xfer_real(&mut self.logic.final_minor_radius);
+        xfer.xfer_unsigned_int(&mut self.logic.transition_time)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer transition_time: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

@@ -47,13 +47,19 @@ use gamelogic::scripting::engine::ScriptActionHandler;
 use gamelogic::scripting::{
     ScriptEvent as MissionScriptEvent, ScriptPriority, ScriptValue, ScriptingEngine,
 };
+use game_engine::common::system::build_assistant::get_build_assistant;
 use gamelogic::sides_list::get_sides_list;
+use gamelogic::special_power_module::update as update_special_powers;
 use gamelogic::system::beacon_manager::snapshot_beacons;
 use gamelogic::system::game_logic::RadarEventType;
 use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use gamelogic::team::get_team_factory;
+use gamelogic::weapon::{update_dot_effects, update_projectiles, with_weapon_store_mut};
+use gamelogic::ai::THE_AI;
+use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
+use gamelogic::update_game_logic;
 use glam::{Vec2, Vec3};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -65,6 +71,14 @@ use ww3d_engine::FrameTiming;
 const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
+
+/// Tick the gamelogic crate's full C++-parity update pipeline.
+/// This runs AI players, production/build assistant, weapon store (delayed damage),
+/// partition manager, death cleanup, locomotor store, victory conditions, and
+/// disabled-status checks — all phases from C++ GameLogic::update().
+pub fn tick_gamelogic_crate() -> Result<(), String> {
+    update_game_logic()
+}
 
 /// AI command structure for parallel processing
 #[derive(Debug)]
@@ -200,18 +214,25 @@ pub struct Player {
     pub is_local: bool,
     pub is_alive: bool,
     pub statistics: PlayerStatistics,
+    /// Frame at which power sabotage expires (0 = not sabotaged).
+    /// Matches C++ Player::m_powerSabotagedUntilFrame.
+    pub power_sabotaged_till_frame: u32,
 }
 
 impl Player {
+    /// C&C Generals default starting money is $10,000 (Normal difficulty).
+    /// Matches the `StartingMoney::Normal` variant from the LAN API game-info crate.
+    pub const DEFAULT_STARTING_MONEY: u32 = 10_000;
+
     pub fn new(id: u32, team: Team, name: &str, is_local: bool) -> Self {
         Self {
             id,
             team,
             name: name.to_string(),
             resources: Resources {
-                supplies: 1000,
+                supplies: Self::DEFAULT_STARTING_MONEY,
                 power: 0,
-            }, // Starting resources
+            },
             power_available: 0,
             income_accumulator: 0.0,
             selected_objects: Vec::new(),
@@ -220,6 +241,7 @@ impl Player {
             is_local,
             is_alive: true,
             statistics: PlayerStatistics::default(),
+            power_sabotaged_till_frame: 0,
         }
     }
 
@@ -2760,20 +2782,88 @@ impl GameLogic {
         }
 
         // Update AI players FIRST (before object mutations)
-        let _current_time = self.sim_time_seconds;
-        // Note: AI update is called via update_ai() method which processes AI decisions
-        // The AI manager update has been refactored into the update_ai() call above
+        let current_time = self.sim_time_seconds;
+
+        // --- Gamelogic crate AI: drive THE_AI singleton and AiIntegrationManager ---
+        // This matches C++ GameLogic::update() Phase 7 (TheAI->UPDATE()) which runs
+        // after object updates in the original engine.  We call it here (before our
+        // own object passes) so that AI decisions based on the previous frame's state
+        // are ready for this frame's movement/combat resolution.
+        {
+            // 1. Update the legacy THE_AI singleton (pathfinder queue, groups).
+            if let Ok(mut ai) = THE_AI.write() {
+                if let Err(e) = ai.update(self.frame) {
+                    log::warn!("THE_AI update failed at frame {}: {:?}", self.frame, e);
+                }
+            }
+
+            // 2. Update the AiIntegrationManager (per-player AIPlayer / SkirmishPlayer
+            //    updates including economy, construction, military decisions).
+            if let Some(result) = with_ai_integration_mut(|mgr| mgr.update_ai_players_only()) {
+                if let Err(e) = result {
+                    log::warn!("AiIntegrationManager update failed at frame {}: {:?}", self.frame, e);
+                }
+            }
+        }
+
+        // --- Main crate AI manager: drive the simplified per-player AI ---
+        // The Main crate's AIManager handles high-level build orders, economy,
+        // and strategic decisions for each AI player.
+        // NOTE: self.ai_manager.update() takes &mut self (GameLogic), which
+        // conflicts with borrowing self.ai_manager. Since the gamelogic crate
+        // already drives THE_AI and AiIntegrationManager above (C++ parity),
+        // we defer the simplified AI manager update to a separate pass below.
+        // The AI manager is updated via update_ai() later in this function.
 
         // Collect object IDs for processing
         let object_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
 
-        // Update systems sequentially
+        // Update systems sequentially (Main crate simplified implementations)
         self.update_construction(&object_ids, dt);
         self.update_movement(&object_ids, dt);
-        self.update_ai(&object_ids, dt); // ✅ AI is now integrated here
+        self.update_ai(&object_ids, dt);
         self.update_combat(&object_ids, dt);
         self.update_production(dt);
         self.update_player_resources(dt);
+
+        // --- gamelogic crate systems (C++-parity) ---
+        // These mirror the phases in gamelogic::system::game_logic::GameLogic::update()
+        // and correspond to C++ GameLogic.cpp lines 3743-3769.
+
+        // Phase 7: Weapon store update -- process delayed weapon damage
+        // C++ line 3767: TheWeaponStore->UPDATE();
+        if let Err(e) = with_weapon_store_mut(|store| store.update()) {
+            // "not initialized" is expected before map load; skip silently
+            let err_str = e.to_string();
+            if !err_str.contains("not initialized") {
+                log::warn!("Weapon store update failed: {}", e);
+            }
+        }
+
+        // Projectile and DoT updates (run alongside weapon store)
+        // These update in-flight projectiles and damage-over-time effects
+        if let Err(e) = update_projectiles(dt) {
+            log::warn!("Projectile update failed: {}", e);
+        }
+        if let Err(e) = update_dot_effects(self.frame) {
+            log::warn!("DoT effects update failed: {}", e);
+        }
+
+        // Phase 8: Build assistant update -- process production queues and sells
+        // C++ line 3748: TheBuildAssistant->UPDATE();
+        if let Some(mut build_assistant) = get_build_assistant() {
+            build_assistant.update(self.frame);
+        }
+
+        // Special power cooldown/timer updates
+        update_special_powers();
+
+        // Locomotor store tick -- the Rust locomotor store is a template registry
+        // without per-frame update logic yet, but we keep the call site for
+        // parity with C++ line 3768: TheLocomotorStore->UPDATE();
+        // (Will become a real call once the locomotor store gains an update method.)
+
+        // --- end gamelogic crate systems ---
 
         // Process queued audio events (after combat, before scripts)
         // Mirrors C++ TheAudio->UPDATE() call
@@ -4483,17 +4573,37 @@ impl GameLogic {
 
             let mut income_per_second = 0.0f32;
 
+            // Base passive income -- every player earns a small trickle so they are
+            // never completely stuck even before building a supply center.
+            // In the full C++ game this comes from supply-truck harvesting; here we
+            // provide a simplified equivalent so the economy always moves forward.
+            income_per_second += 5.0; // $5/sec base passive income
+
             // Calculate from buildings
             for (_, obj) in self.objects.iter() {
                 if obj.team == player.team && obj.is_constructed() && obj.is_alive() {
                     // Supply centers generate resources
                     if obj.is_kind_of(KindOf::SupplyCenter) {
-                        income_per_second += 2.0; // Resources per second per supply center
+                        // $25/sec per supply center approximates a single supply
+                        // truck's delivery rate (full Chinook ~= $600 / 25s).
+                        income_per_second += 25.0;
                     }
                 }
             }
 
             player.power_available = power_produced - power_consumed;
+
+            // C++ parity: check if power sabotage timer has expired and clear it
+            // Matches C++ Player::update() sabotage recovery logic
+            if player.power_sabotaged_till_frame > 0
+                && self.frame > player.power_sabotaged_till_frame
+            {
+                player.power_sabotaged_till_frame = 0;
+            }
+            // If power is sabotaged, zero out power production
+            if player.power_sabotaged_till_frame > 0 {
+                player.power_available = -power_consumed;
+            }
 
             if income_per_second > 0.0 {
                 player.income_accumulator += income_per_second * dt;
@@ -6698,6 +6808,17 @@ impl GameLogic {
     pub fn setup_skirmish_ai(&mut self, human_player_id: u32) {
         println!("🤖 Setting up AI opponents for skirmish match...");
 
+        // --- Initialize the gamelogic crate AI subsystem ---
+        // THE_AI singleton (pathfinder, groups) and the AiIntegrationManager
+        // must be initialized before any AI player updates run.
+        if let Ok(mut ai) = THE_AI.write() {
+            ai.init();
+            log::info!("THE_AI singleton initialized for skirmish");
+        }
+        if let Err(e) = initialize_ai_integration() {
+            log::warn!("AiIntegrationManager init failed (non-fatal): {:?}", e);
+        }
+
         // Add AI players for non-human players
         for player_id in 0..4 {
             if player_id == human_player_id {
@@ -8066,7 +8187,7 @@ impl GameLogic {
                         && obj.is_kind_of(KindOf::SupplyCenter)
                 })
                 .count();
-            let income = supply_centers as f32 * 2.0;
+            let income = 5.0 + supply_centers as f32 * 25.0;
             (
                 p.resources.supplies as i32,
                 produced,

@@ -161,6 +161,34 @@ impl AssetManager {
             self.ww3d_manager.object_count()
         );
 
+        // Initialize GameLogic weapon store so templates can be registered
+        // This must happen before INI template loading below.
+        if let Err(e) = gamelogic::initialize_weapon_store() {
+            warn!("Failed to initialize GameLogic weapon store: {}", e);
+        }
+
+        // Load weapon, upgrade, and science templates from BIG archives.
+        // Matches C++ INI loading order: weapons, upgrades, sciences.
+        info!("📋 Loading INI templates (weapons, upgrades, sciences) from BIG archives");
+        let template_load_start = SystemTime::now();
+        match crate::assets::ini_template_loader::load_all_ini_templates(&mut self.archive_system)
+            .await
+        {
+            Ok(stats) => {
+                let elapsed = template_load_start.elapsed().unwrap_or_default();
+                info!(
+                    "✅ INI templates loaded in {:.2}s: {} weapons, {} upgrades, {} sciences",
+                    elapsed.as_secs_f64(),
+                    stats.weapons_loaded,
+                    stats.upgrades_loaded,
+                    stats.sciences_loaded
+                );
+            }
+            Err(e) => {
+                warn!("INI template loading failed: {}", e);
+            }
+        }
+
         self.initialized = true;
 
         // Print statistics

@@ -9,6 +9,7 @@ use crate::damage::DamageType;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 /// Flammability status types - matches C++ FlammabilityStatusType
@@ -278,6 +279,38 @@ impl BehaviorModuleInterface for FlammableUpdate {
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for FlammableUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut status: i8 = self.status as i8;
+        xfer.xfer_byte(&mut status)
+            .map_err(|e| format!("FlammableUpdate xfer status: {:?}", e))?;
+        self.status = match status {
+            0 => FlammabilityStatus::Normal,
+            1 => FlammabilityStatus::Aflame,
+            _ => FlammabilityStatus::Burned,
+        };
+        xfer.xfer_unsigned_int(&mut self.aflame_end_frame)
+            .map_err(|e| format!("FlammableUpdate xfer aflame_end_frame: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.burned_end_frame)
+            .map_err(|e| format!("FlammableUpdate xfer burned_end_frame: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.damage_end_frame)
+            .map_err(|e| format!("FlammableUpdate xfer damage_end_frame: {:?}", e))?;
+        xfer.xfer_real(&mut self.flame_damage_limit)
+            .map_err(|e| format!("FlammableUpdate xfer flame_damage_limit: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.last_flame_damage_dealt)
+            .map_err(|e| format!("FlammableUpdate xfer last_flame_damage_dealt: {:?}", e))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
