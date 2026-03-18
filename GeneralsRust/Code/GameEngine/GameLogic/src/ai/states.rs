@@ -4457,7 +4457,6 @@ impl ClassicState for AIMoveToState {
                                         LocomotorAppearance::Hover
                                             | LocomotorAppearance::Thrust
                                             | LocomotorAppearance::Wings
-                                            | LocomotorAppearance::Naval
                                     )
                                 {
                                     let dx = self.goal_position.x - owner_guard.get_position().x;
@@ -7638,7 +7637,7 @@ impl ClassicState for AIEnterState {
                 cmd_source,
                 CanEnterType::CheckCapacity,
             ) {
-                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemy {
+                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemies {
                     let can_attack = owner_guard.get_able_to_attack_specific_object(
                         AbleToAttackType::CanAttackSpecific,
                         &goal_guard,

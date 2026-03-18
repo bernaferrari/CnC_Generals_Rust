@@ -98,7 +98,9 @@ pub use ini_control_bar_scheme::{
     ControlBarSchemeManager, SchemeDrawFunc, SchemeImage,
 };
 pub use ini_crate::{
-    parse_crate_template_definition, CrateContentType, CrateRarity, CrateSystem, CrateTemplate,
+    parse_crate_template_definition, ensure_crate_system, get_crate_system,
+    initialize_crate_system, CrateSystem, CrateTemplate,
+    ParsedCrateCreationEntry, ParsedCrateSystem, ParsedCrateTemplate,
 };
 
 // Re-export main types from batch 2 modules

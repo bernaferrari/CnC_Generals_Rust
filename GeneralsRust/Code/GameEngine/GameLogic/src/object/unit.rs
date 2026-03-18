@@ -2027,7 +2027,7 @@ impl Unit {
             }
         };
 
-        if !matches!(target_relationship, Relationship::Enemy) {
+        if !matches!(target_relationship, Relationship::Enemies) {
             self.attack_target = None;
             return Ok(());
         }
@@ -2104,7 +2104,7 @@ impl Unit {
                             .read()
                             .ok()
                             .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemy)
+                        Some(Relationship::Enemies)
                     ) {
                         let target_pos = *target_guard.get_position();
                         let self_pos = self.get_position();
@@ -2150,7 +2150,7 @@ impl Unit {
                             .read()
                             .ok()
                             .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemy)
+                        Some(Relationship::Enemies)
                     ) {
                         let target_pos = *target_guard.get_position();
                         let dx_center = target_pos.x - center.x;
@@ -2192,7 +2192,7 @@ impl Unit {
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemy)
+                Some(Relationship::Enemies)
             ) {
                 continue;
             }
@@ -2281,7 +2281,7 @@ impl Unit {
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemy)
+                Some(Relationship::Enemies)
             ) {
                 continue;
             }
@@ -2450,7 +2450,7 @@ fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Optio
             continue;
         };
         let killer_guard = killer.read().ok()?;
-        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemy {
+        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemies {
             return Some(id);
         }
     }
@@ -5762,8 +5762,6 @@ impl AIUpdateInterface for UnitAIUpdate {
             LocomotorAppearance::Hover
                 | LocomotorAppearance::Thrust
                 | LocomotorAppearance::Wings
-                | LocomotorAppearance::Naval
-                | LocomotorAppearance::Tunnel
         )
     }
 
@@ -5951,7 +5949,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             .ok()
             .map(|obj| {
                 obj.is_kind_of(KindOf::ProducedAtHelipad)
-                    && obj.is_disabled_by_type(crate::common::DisabledType::Unmanned)
+                    && obj.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
             })
             .unwrap_or(false);
         let is_ground_movement = self.is_doing_ground_movement();
@@ -7147,7 +7145,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             .ok()
                             .map(|base| base.relationship_to(&existing_guard))
                             .unwrap_or(Relationship::Neutral);
-                        if relationship == Relationship::Enemy {
+                        if relationship == Relationship::Enemies {
                             let target_pos = *existing_guard.get_position();
                             let self_pos = guard.get_position();
                             let dx = target_pos.x - self_pos.x;

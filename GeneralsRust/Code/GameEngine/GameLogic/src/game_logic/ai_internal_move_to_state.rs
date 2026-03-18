@@ -281,7 +281,6 @@ impl AIInternalMoveToState {
                                         LocomotorAppearance::Hover
                                             | LocomotorAppearance::Thrust
                                             | LocomotorAppearance::Wings
-                                            | LocomotorAppearance::Naval
                                     )
                                 {
                                     let dx = self.goal_position.x - owner_guard.get_position().x;
