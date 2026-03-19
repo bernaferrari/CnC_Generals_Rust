@@ -260,6 +260,9 @@ impl Default for Experience {
 pub struct Weapon {
     pub damage: f32,
     pub range: f32,
+    /// C++ parity (WeaponTemplate::m_minimumAttackRange): weapons cannot fire
+    /// at targets closer than this distance.  0.0 = no minimum range.
+    pub min_range: f32,
     pub reload_time: f32,
     pub last_fire_time: f32,
     pub ammo: Option<u32>,
@@ -272,6 +275,7 @@ impl Default for Weapon {
         Self {
             damage: 25.0,
             range: 100.0,
+            min_range: 0.0,
             reload_time: 1.0,
             last_fire_time: 0.0,
             ammo: None,

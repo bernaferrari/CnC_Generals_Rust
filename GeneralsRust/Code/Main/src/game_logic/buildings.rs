@@ -11,6 +11,10 @@ pub struct BuildingData {
     pub power_requirement: i32,
     pub garrisoned_units: Vec<ObjectId>,
     pub max_garrison: usize,
+    /// C++ parity (OpenContainModuleData::m_damagePercentageToUnits): percentage
+    /// of damage passed to contained units when this building is destroyed.
+    /// 0.0 = no damage (default), 1.0 = full max-health damage.
+    pub damage_percent_to_units: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +104,7 @@ impl BuildingData {
             power_requirement,
             garrisoned_units: Vec::new(),
             max_garrison,
+            damage_percent_to_units: 0.0,
         }
     }
 

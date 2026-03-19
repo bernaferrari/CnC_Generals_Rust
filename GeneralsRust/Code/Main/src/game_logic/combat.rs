@@ -190,6 +190,7 @@ pub fn drain_pending_projectiles(
         let weapon = Weapon {
             damage: p.damage,
             range: 100.0,
+            min_range: 0.0,
             reload_time: 1.0,
             last_fire_time: 0.0,
             ammo: None,
