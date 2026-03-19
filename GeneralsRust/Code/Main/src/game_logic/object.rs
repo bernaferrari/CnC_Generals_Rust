@@ -926,13 +926,18 @@ impl Object {
         !self.status.stealthed || team == self.team
     }
 
-    /// Get a description string for UI display
+    /// Get a description string for UI display.
+    /// C++ parity: prefers per-object name override, then template display
+    /// name (from INI DisplayName), then template internal name.
     pub fn get_display_name(&self) -> String {
-        if self.name.is_empty() {
-            self.template_name.clone()
-        } else {
-            self.name.clone()
+        if !self.name.is_empty() {
+            return self.name.clone();
         }
+        let tmpl_display = &self.thing.template.display_name;
+        if !tmpl_display.is_empty() && tmpl_display != &self.template_name {
+            return tmpl_display.clone();
+        }
+        self.template_name.clone()
     }
 }
 
