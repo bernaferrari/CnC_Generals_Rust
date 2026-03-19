@@ -101,6 +101,10 @@ pub struct Object {
     /// Tracked occupants for transports/garrisons
     pub occupants: Vec<ObjectId>,
 
+    /// C++ parity (Object::m_containedBy): when this unit is inside a
+    /// transport/garrison, stores the container's ID.  None when free.
+    pub contained_by: Option<ObjectId>,
+
     /// Optional short-lived cheer/animation timer
     pub cheer_timer: f32,
 
@@ -218,6 +222,7 @@ impl Object {
             selection_radius,
             team_color: team.get_color(),
             occupants: Vec::new(),
+            contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
             active_weapon_slot: 0,
@@ -272,6 +277,7 @@ impl Object {
             selection_radius,
             team_color: team.get_color(),
             occupants: Vec::new(),
+            contained_by: None,
             cheer_timer: 0.0,
             overcharge_enabled: false,
             active_weapon_slot: 0,
@@ -337,11 +343,16 @@ impl Object {
             || self.template_name.contains("Headquarters")
     }
 
+    /// C++ parity (Object::isDisabled): returns true if the object is in any
+    /// disabled state that prevents it from acting (attacking, producing, etc.)
+    pub fn is_disabled(&self) -> bool {
+        self.status.disabled_underpowered || self.status.under_construction
+    }
+
     pub fn can_attack(&self) -> bool {
         self.is_alive()
             && self.weapon.is_some()
-            && !self.status.disabled_underpowered
-            && !self.status.under_construction
+            && !self.is_disabled()
             && !matches!(
                 self.ai_state,
                 AIState::Docked | AIState::Garrisoned | AIState::Entering
