@@ -2874,6 +2874,14 @@ impl GameLogic {
         self.update_combat(&object_ids, dt);
 
         // -----------------------------------------------------------------------
+        // Phase 7b: Building Body Damage State Checks (C++ BodyModule update)
+        // -----------------------------------------------------------------------
+        // C++ parity (GarrisonContain::onBodyDamageStateChange): when a garrisoned
+        // building drops to ReallyDamaged health (<= 30%), all occupants are
+        // force-ejected. This runs after combat so the health state is current.
+        self.check_building_damage_states(&object_ids);
+
+        // -----------------------------------------------------------------------
         // Phase 8: AI Update (C++ line 3743)
         // -----------------------------------------------------------------------
         // C++: TheAI->UPDATE();
@@ -3430,8 +3438,15 @@ impl GameLogic {
                                     });
                                 }
                                 AttackDecision::Retreat => {
-                                    // Retreat to safe position
-                                    let retreat_pos = position - (position.normalize() * 100.0);
+                                    // Retreat away from the nearest threat.
+                                    let retreat_dir = self
+                                        .objects
+                                        .get(&enemy_id)
+                                        .map(|t| {
+                                            (position - t.get_position()).normalize_or_zero()
+                                        })
+                                        .unwrap_or_else(|| -position.normalize_or_zero());
+                                    let retreat_pos = position + retreat_dir * 100.0;
                                     ai_commands.push(AICommand::MoveTo {
                                         object_id,
                                         position: retreat_pos,
@@ -3487,9 +3502,16 @@ impl GameLogic {
                                     });
                                 }
                                 AttackDecision::Retreat => {
-                                    // Too dangerous, retreat
+                                    // Too dangerous, retreat away from target.
                                     ai_commands.push(AICommand::StopAttack { object_id });
-                                    let retreat_pos = position - (position.normalize() * 100.0);
+                                    let retreat_dir = self
+                                        .objects
+                                        .get(&target_id)
+                                        .map(|t| {
+                                            (position - t.get_position()).normalize_or_zero()
+                                        })
+                                        .unwrap_or_else(|| -position.normalize_or_zero());
+                                    let retreat_pos = position + retreat_dir * 100.0;
                                     ai_commands.push(AICommand::MoveTo {
                                         object_id,
                                         position: retreat_pos,
@@ -4785,6 +4807,8 @@ impl GameLogic {
                     }
 
                     // In range — gather resources.
+                    // C++ parity (SupplyWarehouseDockUpdate): gathering depletes
+                    // the supply source.  The source is destroyed when empty.
                     let gather_amount = (GATHER_RATE * dt) as u32;
                     let is_full = self
                         .objects
@@ -4800,6 +4824,17 @@ impl GameLogic {
                             .supplies
                             .saturating_add(gather_amount)
                             .min(MAX_CARRY);
+                    }
+
+                    // Deplete the supply source.
+                    if let Some(source) = self.objects.get_mut(&source_id) {
+                        let taken = gather_amount.min(source.stored_resources.supplies);
+                        source.stored_resources.supplies =
+                            source.stored_resources.supplies.saturating_sub(taken);
+                        if source.stored_resources.supplies == 0 {
+                            source.status.destroyed = true;
+                            self.mark_object_for_destruction(source_id, None);
+                        }
                     }
 
                     if is_full {
@@ -5111,6 +5146,79 @@ impl GameLogic {
             factors.insert(player.team, factor);
         }
         factors
+    }
+
+    /// C++ parity (GarrisonContain::onBodyDamageStateChange): when a garrisoned
+    /// building drops below the ReallyDamaged threshold (30% health), all
+    /// occupants are force-ejected.  Buildings with `KINDOF_GARRISONABLE_UNTIL_DESTROYED`
+    /// are exempt from this evacuation.
+    fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) {
+        const REALLY_DAMAGED_THRESHOLD: f32 = 0.3;
+
+        // Collect buildings that need evacuation to avoid borrow conflicts.
+        let mut evacuate_from: Vec<(ObjectId, Vec3)> = Vec::new();
+
+        for &obj_id in object_ids {
+            let Some(obj) = self.objects.get(&obj_id) else {
+                continue;
+            };
+            if !obj.is_alive()
+                || !obj.is_constructed()
+                || !obj.is_kind_of(KindOf::Structure)
+            {
+                continue;
+            }
+            // Skip buildings that are garrisonable until destroyed.
+            if obj.is_kind_of(KindOf::Harvestable) {
+                continue;
+            }
+            let Some(building_data) = &obj.building_data else {
+                continue;
+            };
+            if building_data.garrisoned_units.is_empty() {
+                continue;
+            }
+            let health_pct = obj.health.percentage();
+            if health_pct > REALLY_DAMAGED_THRESHOLD {
+                continue;
+            }
+
+            // Only evacuate once: mark as already-evacuated by clearing the
+            // garrison list.  We collect positions first to avoid mut borrows.
+            let pos = obj.get_position();
+            let occupants: Vec<ObjectId> = building_data.garrisoned_units.clone();
+            for &occ_id in &occupants {
+                evacuate_from.push((occ_id, pos));
+            }
+        }
+
+        // Eject occupants.
+        for (occ_id, building_pos) in evacuate_from {
+            // Remove from container first.
+            let container_id = self
+                .objects
+                .values()
+                .find(|o| o.contained_units().contains(&occ_id))
+                .map(|o| o.id);
+
+            if let Some(cid) = container_id {
+                if let Some(container) = self.objects.get_mut(&cid) {
+                    container.remove_occupant(occ_id);
+                }
+            }
+
+            // Move occupant out.
+            if let Some(unit) = self.objects.get_mut(&occ_id) {
+                let angle = (occ_id.0 as f32).sin().atan2(1.0);
+                let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
+                unit.stop_moving();
+                unit.set_position(building_pos + offset);
+                unit.set_target(None);
+                unit.ai_state = AIState::Idle;
+                unit.status.moving = false;
+                unit.status.attacking = false;
+            }
+        }
     }
 
     fn update_power_disabled_state(&mut self) {
@@ -5546,8 +5654,28 @@ impl GameLogic {
 
             if let Some(obj) = self.objects.remove(&event.id) {
                 let eject_origin = obj.get_position();
+
+                // C++ parity (OpenContain::onDie): if DamagePercentToUnits > 0,
+                // apply damage to contained units based on their max health.
+                let damage_pct = obj
+                    .building_data
+                    .as_ref()
+                    .map(|bd| bd.damage_percent_to_units)
+                    .unwrap_or(0.0);
+
                 for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
                     if let Some(unit) = self.objects.get_mut(&contained_id) {
+                        // Apply damage before ejection if configured.
+                        if damage_pct > 0.0 {
+                            let dmg = unit.max_health * damage_pct;
+                            let destroyed = unit.take_damage(dmg);
+                            if destroyed {
+                                unit.status.destroyed = true;
+                                self.mark_object_for_destruction(contained_id, event.killer);
+                                continue;
+                            }
+                        }
+
                         let angle = (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
                             + i as f32 * 0.73;
                         let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;

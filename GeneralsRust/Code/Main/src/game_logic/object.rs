@@ -412,8 +412,12 @@ impl Object {
                 return false;
             }
 
-            // Check range
+            // C++ parity (Weapon::isWithinAttackRange): check both minimum
+            // and maximum attack range.
             let distance = self.thing.get_distance_to(&target.thing);
+            if weapon.min_range > 0.0 && distance < weapon.min_range {
+                return false;
+            }
             distance <= weapon.range
         } else {
             false
@@ -496,8 +500,17 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.force_attack = false;
-        self.ai_state = AIState::Idle;
         self.status.attacking = false;
+        // C++ parity: guard units return to their guard state after a kill
+        // rather than going fully idle. The guard anchor/radius are preserved
+        // so the support-states update loop will re-engage nearby enemies.
+        if self.guard_target.is_some() {
+            self.ai_state = AIState::GuardingObject;
+        } else if self.guard_position.is_some() {
+            self.ai_state = AIState::GuardingArea;
+        } else {
+            self.ai_state = AIState::Idle;
+        }
     }
 
     pub fn clear_all_occupants(&mut self) {
