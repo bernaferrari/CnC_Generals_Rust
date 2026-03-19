@@ -4523,6 +4523,7 @@ impl GameLogic {
                         obj.target_location = None;
                         obj.force_attack = false;
                         obj.target = Some(container_id);
+                        obj.contained_by = Some(container_id);
                         obj.set_position(container_pos);
                         obj.ai_state = if container_is_structure {
                             AIState::Garrisoned
@@ -5214,6 +5215,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_position(building_pos + offset);
                 unit.set_target(None);
+                unit.contained_by = None;
                 unit.ai_state = AIState::Idle;
                 unit.status.moving = false;
                 unit.status.attacking = false;
@@ -5682,6 +5684,7 @@ impl GameLogic {
                         unit.stop_moving();
                         unit.set_position(eject_origin + offset);
                         unit.set_target(None);
+                        unit.contained_by = None;
                         unit.ai_state = AIState::Idle;
                         unit.status.moving = false;
                         unit.status.attacking = false;
