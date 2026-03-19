@@ -17,6 +17,10 @@ pub struct ThingTemplate {
     pub model_name: Option<String>,
     pub texture_name: Option<String>,
     pub special_power_cooldown: f32,
+    /// C++ parity: XP awarded to the killer when this object is destroyed.
+    /// In C++ this is per-veterancy-level; here we store the Rookie-level
+    /// value and scale by veterancy level at kill time.
+    pub experience_value: f32,
 }
 
 impl ThingTemplate {
@@ -33,6 +37,7 @@ impl ThingTemplate {
             model_name: None,
             texture_name: None,
             special_power_cooldown: 10.0,
+            experience_value: 0.0,
         }
     }
 
