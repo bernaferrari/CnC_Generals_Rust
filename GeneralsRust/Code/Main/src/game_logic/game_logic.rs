@@ -5699,6 +5699,21 @@ impl GameLogic {
                 for (_, player) in self.players.iter_mut() {
                     player.selected_objects.retain(|&x| x != event.id);
                 }
+
+                // C++ parity: clear stale target references from all other objects.
+                // When an object is destroyed, anything targeting it should stop.
+                let destroyed_id = event.id;
+                for (_, other_obj) in self.objects.iter_mut() {
+                    if other_obj.target == Some(destroyed_id) {
+                        other_obj.stop_attack();
+                    }
+                    if other_obj.guard_target == Some(destroyed_id) {
+                        other_obj.guard_target = None;
+                        if other_obj.ai_state == AIState::GuardingObject {
+                            other_obj.ai_state = AIState::Idle;
+                        }
+                    }
+                }
             }
         }
     }
@@ -5729,15 +5744,15 @@ impl GameLogic {
         }
     }
 
-    /// C++ parity: veterancy-level XP multiplier. In C++, each template
+    /// C++ parity: veterancy-level XP multiplier. In C++ each template
     /// defines per-level ExperienceValue; we approximate by scaling the
-    /// base value by the veterancy level.
+    /// base value.  C++ values are modest multipliers, not large ones.
     fn veterancy_xp_multiplier(level: VeterancyLevel) -> f32 {
         match level {
             VeterancyLevel::Rookie => 1.0,
-            VeterancyLevel::Veteran => 1.5,
-            VeterancyLevel::Elite => 2.0,
-            VeterancyLevel::Heroic => 3.0,
+            VeterancyLevel::Veteran => 1.25,
+            VeterancyLevel::Elite => 1.5,
+            VeterancyLevel::Heroic => 2.0,
         }
     }
 
@@ -7210,15 +7225,20 @@ impl GameLogic {
                 player.selected_objects.clear();
             }
 
-            // Find objects in the selection area
+            // Find objects in the selection area.
+            // C++ parity: uses bounding-circle intersection with the selection
+            // rectangle, not just center-point containment.  This allows selecting
+            // large objects whose center is outside the box but whose radius
+            // overlaps it.
             for (id, obj) in &mut self.objects {
                 if obj.team == player.team && obj.is_selectable() {
                     let pos = obj.get_position();
-                    if pos.x >= min_pos.x
-                        && pos.x <= max_pos.x
-                        && pos.z >= min_pos.z
-                        && pos.z <= max_pos.z
-                    {
+                    let r = obj.selection_radius;
+                    // Circle-vs-AABB intersection test.
+                    let closest_x = pos.x.clamp(min_pos.x, max_pos.x);
+                    let closest_z = pos.z.clamp(min_pos.z, max_pos.z);
+                    let dist_sq = (pos.x - closest_x).powi(2) + (pos.z - closest_z).powi(2);
+                    if dist_sq <= r * r {
                         obj.select();
                         selected_objects.push(*id);
                         if !player.selected_objects.contains(id) {

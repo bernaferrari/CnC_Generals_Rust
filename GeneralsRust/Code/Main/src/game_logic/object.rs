@@ -341,6 +341,7 @@ impl Object {
         self.is_alive()
             && self.weapon.is_some()
             && !self.status.disabled_underpowered
+            && !self.status.under_construction
             && !matches!(
                 self.ai_state,
                 AIState::Docked | AIState::Garrisoned | AIState::Entering
@@ -447,6 +448,7 @@ impl Object {
                 // Extract data before calling self.get_position() to satisfy
                 // the borrow checker (self.weapon is mutably borrowed here).
                 let weapon_damage = weapon.damage;
+                let weapon_speed = weapon.projectile_speed;
                 let shooter_id = self.id;
                 let shooter_pos = self.get_position();
 
@@ -457,7 +459,7 @@ impl Object {
                     target_id: Some(target_id),
                     target_pos: shooter_pos, // placeholder
                     damage: weapon_damage,
-                    speed: 200.0,
+                    speed: weapon_speed,
                 });
 
                 true
@@ -771,7 +773,22 @@ impl Object {
                 // Check if we've reached the target
                 let distance_to_target = current_pos.distance(target_pos);
                 if distance_to_target < 2.0 {
-                    self.stop_moving();
+                    // C++ parity: advance to the next waypoint in the path if one
+                    // exists, otherwise stop moving.
+                    let next_waypoint = if self.movement.current_path_index + 1
+                        < self.movement.path.len()
+                    {
+                        self.movement.current_path_index += 1;
+                        Some(self.movement.path[self.movement.current_path_index])
+                    } else {
+                        None
+                    };
+
+                    if let Some(waypoint) = next_waypoint {
+                        self.movement.target_position = Some(waypoint);
+                    } else {
+                        self.stop_moving();
+                    }
                 }
             } else {
                 self.stop_moving();
@@ -782,13 +799,20 @@ impl Object {
     pub fn gain_experience(&mut self, amount: f32) {
         self.experience.current += amount;
 
+        // C++ parity: veterancy thresholds are per-template (Object::ExperienceValues
+        // in INI).  Use template-defined thresholds, falling back to defaults.
+        let thresholds = self.thing.template.veterancy_xp_thresholds;
+
         // Check for level up
         let previous_level = self.experience.level;
-        let new_level = match self.experience.current {
-            x if x >= 300.0 => VeterancyLevel::Heroic,
-            x if x >= 150.0 => VeterancyLevel::Elite,
-            x if x >= 60.0 => VeterancyLevel::Veteran,
-            _ => VeterancyLevel::Rookie,
+        let new_level = if self.experience.current >= thresholds[2] {
+            VeterancyLevel::Heroic
+        } else if self.experience.current >= thresholds[1] {
+            VeterancyLevel::Elite
+        } else if self.experience.current >= thresholds[0] {
+            VeterancyLevel::Veteran
+        } else {
+            VeterancyLevel::Rookie
         };
 
         if new_level != previous_level {
@@ -798,12 +822,17 @@ impl Object {
         }
     }
 
-    fn veterancy_bonuses(level: VeterancyLevel) -> (f32, f32) {
+    /// C++ parity (GameData.ini veterancy bonuses):
+    ///   Veteran: +10% dmg, +20% RoF, +20% HP
+    ///   Elite:   +20% dmg, +40% RoF, +30% HP
+    ///   Heroic:  +30% dmg, +60% RoF, +50% HP
+    /// Returns (health_multiplier, damage_multiplier, rof_multiplier).
+    fn veterancy_bonuses(level: VeterancyLevel) -> (f32, f32, f32) {
         match level {
-            VeterancyLevel::Rookie => (1.0, 1.0),
-            VeterancyLevel::Veteran => (1.25, 1.25),
-            VeterancyLevel::Elite => (1.5, 1.5),
-            VeterancyLevel::Heroic => (2.0, 2.0),
+            VeterancyLevel::Rookie => (1.0, 1.0, 1.0),
+            VeterancyLevel::Veteran => (1.2, 1.1, 1.0 / 1.2),  // +20% RoF
+            VeterancyLevel::Elite => (1.3, 1.2, 1.0 / 1.4),   // +40% RoF
+            VeterancyLevel::Heroic => (1.5, 1.3, 1.0 / 1.6),  // +60% RoF
         }
     }
 
@@ -812,8 +841,9 @@ impl Object {
         previous_level: VeterancyLevel,
         new_level: VeterancyLevel,
     ) {
-        let (_old_health_bonus, old_damage_bonus) = Self::veterancy_bonuses(previous_level);
-        let (health_bonus, damage_bonus) = Self::veterancy_bonuses(new_level);
+        let (_old_health_bonus, old_damage_bonus, old_rof_bonus) =
+            Self::veterancy_bonuses(previous_level);
+        let (health_bonus, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
         // Apply health bonus
         let base_health = self.thing.template.max_health;
@@ -822,14 +852,18 @@ impl Object {
         self.health.maximum = base_health * health_bonus;
         self.health.current = (self.health.maximum * health_ratio).clamp(0.0, self.health.maximum);
 
-        // Apply weapon damage bonus
+        // Apply weapon damage and rate-of-fire bonuses
         if let Some(weapon) = &mut self.weapon {
-            let scale = if old_damage_bonus > 0.0 {
+            let dmg_scale = if old_damage_bonus > 0.0 {
                 damage_bonus / old_damage_bonus
             } else {
                 1.0
             };
-            weapon.damage *= scale;
+            weapon.damage *= dmg_scale;
+            // C++ parity: RoF bonus reduces reload time (faster firing).
+            // Scale relative to previous level so multi-level transitions work.
+            let rof_scale = rof_bonus / old_rof_bonus;
+            weapon.reload_time *= rof_scale;
         }
     }
 
@@ -925,13 +959,13 @@ mod tests {
     #[test]
     fn veterancy_increases_weapon_damage() {
         let mut object = make_test_object();
-        object.gain_experience(60.0); // Veteran
+        object.gain_experience(60.0); // Veteran → +10% dmg
         let veteran_damage = object.weapon.as_ref().map(|w| w.damage).unwrap_or_default();
-        assert!((veteran_damage - 125.0).abs() < 0.01);
+        assert!((veteran_damage - 110.0).abs() < 0.01);
 
-        object.gain_experience(90.0); // Elite
+        object.gain_experience(90.0); // Elite → +20% dmg (total)
         let elite_damage = object.weapon.as_ref().map(|w| w.damage).unwrap_or_default();
-        assert!((elite_damage - 150.0).abs() < 0.01);
+        assert!((elite_damage - 120.0).abs() < 0.01);
     }
 
     #[test]
@@ -940,9 +974,9 @@ mod tests {
         object.health.current = 50.0;
         object.health.maximum = 100.0;
 
-        object.gain_experience(60.0); // Veteran
-        assert!((object.health.maximum - 125.0).abs() < 0.01);
-        assert!((object.health.current - 62.5).abs() < 0.01);
+        object.gain_experience(60.0); // Veteran → +20% HP
+        assert!((object.health.maximum - 120.0).abs() < 0.01);
+        assert!((object.health.current - 60.0).abs() < 0.01);
     }
 
     #[test]
