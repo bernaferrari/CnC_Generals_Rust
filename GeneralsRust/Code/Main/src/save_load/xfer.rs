@@ -404,6 +404,7 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
             KindOf::Harvestable => 11u8,
             KindOf::Worker => 12u8,
             KindOf::Hero => 13u8,
+            KindOf::Powered => 14u8,
         };
         self.xfer_u8(&mut variant)
     }
@@ -736,6 +737,7 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
             11 => KindOf::Harvestable,
             12 => KindOf::Worker,
             13 => KindOf::Hero,
+            14 => KindOf::Powered,
             _ => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid KindOf variant: {}",

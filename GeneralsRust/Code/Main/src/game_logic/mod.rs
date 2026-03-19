@@ -117,6 +117,9 @@ pub enum KindOf {
     SupplyCenter,
     PowerPlant,
     Harvestable,
+    /// C++ KINDOF_POWERED: object gets DISABLED_UNDERPOWERED when player
+    /// power consumption exceeds supply (defenses, factories, etc).
+    Powered,
 }
 
 /// Object status flags
@@ -129,6 +132,8 @@ pub struct ObjectStatus {
     pub attacking: bool,
     pub airborne_target: bool,
     pub stealthed: bool,
+    /// C++ DISABLED_UNDERPOWERED: set when player's power supply < demand.
+    pub disabled_underpowered: bool,
 }
 
 /// Basic geometry information for objects

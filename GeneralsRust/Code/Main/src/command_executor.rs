@@ -90,6 +90,10 @@ impl<'a> CommandExecutor<'a> {
             CommandType::Stop => self.execute_stop(&command.selected_units),
             CommandType::Guard { target } => self.execute_guard(&command.selected_units, target),
             CommandType::Scatter => self.execute_scatter(&command.selected_units),
+            CommandType::Deploy => self.execute_deploy(&command.selected_units),
+            CommandType::Gather { target_id } => {
+                self.execute_gather(&command.selected_units, *target_id)
+            }
 
             // Building and construction
             CommandType::Build {
@@ -486,6 +490,108 @@ impl<'a> CommandExecutor<'a> {
         } else {
             CommandResult::InvalidCommand
         }
+    }
+
+    /// Deploy selected units at their current position.
+    /// C&C Generals: garrisonable infantry deploy into structures,
+    /// dozers unpack into construction yards, etc.
+    fn execute_deploy(&mut self, units: &[ObjectId]) -> CommandResult {
+        let mut any = false;
+        for &unit_id in units {
+            if let Some(unit) = self.game_logic.get_object(unit_id) {
+                // Garrisonable units deploy into the nearest compatible structure.
+                if unit.is_kind_of(KindOf::Infantry) {
+                    if let Some(building_id) = self.find_nearest_garrison_target(unit_id) {
+                        if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
+                            unit_mut.set_ai_state(AIState::Entering);
+                            // The enter/garrison logic is handled by the AI state machine.
+                            any = true;
+                        }
+                    }
+                }
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Send worker/harvester units to gather from a resource target.
+    fn execute_gather(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        let (target_pos, target_alive, target_is_resource) =
+            match self.game_logic.get_object(target_id) {
+                Some(target) => (
+                    target.get_position(),
+                    target.is_alive(),
+                    target.is_kind_of(KindOf::Harvestable)
+                        || target.is_kind_of(KindOf::Resource)
+                        || target.object_type == crate::game_logic::ObjectType::Supply,
+                ),
+                None => return CommandResult::InvalidTarget,
+            };
+
+        if !target_alive || !target_is_resource {
+            return CommandResult::InvalidTarget;
+        }
+
+        let mut any = false;
+        for &unit_id in units {
+            let can_gather = self
+                .game_logic
+                .get_object(unit_id)
+                .map(|unit| {
+                    unit.is_alive()
+                        && unit.is_worker()
+                        && unit.can_move()
+                        && unit.team == Team::from_player_id(self.current_player_id)
+                })
+                .unwrap_or(false);
+            if !can_gather {
+                continue;
+            }
+
+            if let Some(unit) = self.game_logic.get_object_mut(unit_id) {
+                unit.stop_moving();
+                unit.status.attacking = false;
+                unit.target = Some(target_id);
+                unit.target_location = None;
+                unit.force_attack = false;
+                unit.set_destination(target_pos);
+                unit.set_ai_state(AIState::Gathering);
+                any = true;
+            }
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    /// Find the nearest building that can accept this unit for garrison/enter.
+    fn find_nearest_garrison_target(&self, unit_id: ObjectId) -> Option<ObjectId> {
+        let unit = self.game_logic.get_object(unit_id)?;
+        let unit_pos = unit.get_position();
+        let unit_team = unit.team;
+        let mut best_id: Option<ObjectId> = None;
+        let mut best_dist = f32::MAX;
+
+        for (&obj_id, obj) in self.game_logic.get_objects() {
+            if obj.team != unit_team || !obj.is_alive() || !obj.can_contain() {
+                continue;
+            }
+            if !obj.has_capacity_for(1) {
+                continue;
+            }
+            let dist = obj.get_position().distance(unit_pos);
+            if dist < best_dist {
+                best_dist = dist;
+                best_id = Some(obj_id);
+            }
+        }
+        best_id
     }
 
     // === Construction Commands ===

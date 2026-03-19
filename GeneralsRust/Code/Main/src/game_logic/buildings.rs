@@ -131,9 +131,16 @@ impl BuildingData {
         }
     }
 
-    pub fn update_production(&mut self, dt: f32) -> Option<String> {
+    /// C++ parity (ThingTemplate::calcTimeToBuild): when energy ratio < 1.0
+    /// production speed is reduced.  The penalty is:
+    ///   energy_short = (1.0 - ratio) * penalty_modifier
+    ///   rate = max(1.0 - energy_short, MIN_SPEED)
+    ///   if ratio < 1.0: rate = min(rate, MAX_SPEED)
+    /// Defaults: MIN=0.5, MAX=0.8, modifier=1.0  (GameData.ini).
+    pub fn update_production(&mut self, dt: f32, power_factor: f32) -> Option<String> {
+        let effective_dt = dt * power_factor.max(0.01);
         if let Some(item) = self.production_queue.first_mut() {
-            item.progress += dt;
+            item.progress += effective_dt;
             if item.progress >= item.total_time {
                 // Production complete
                 let completed_item = self.production_queue.remove(0);
@@ -375,7 +382,7 @@ impl BuildingBehavior {
             if !building.is_constructed() || !building.is_alive() {
                 None
             } else if let Some(building_data) = building.building_data.as_mut() {
-                let completed = building_data.update_production(dt);
+                let completed = building_data.update_production(dt, 1.0); // fallback path; main loop handles power
                 let rally = building_data.rally_point;
                 if let Some(template_name) = completed {
                     let spawn_pos = building.get_position()
@@ -407,7 +414,7 @@ impl BuildingBehavior {
         // Fallback for detached object maps used by isolated tests/tools.
         if let Some(building) = objects.get_mut(&object_id) {
             if let Some(building_data) = building.building_data.as_mut() {
-                let _ = building_data.update_production(dt);
+                let _ = building_data.update_production(dt, 1.0); // fallback; no power context
             }
         }
     }
