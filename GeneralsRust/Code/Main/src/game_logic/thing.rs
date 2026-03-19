@@ -21,6 +21,9 @@ pub struct ThingTemplate {
     /// In C++ this is per-veterancy-level; here we store the Rookie-level
     /// value and scale by veterancy level at kill time.
     pub experience_value: f32,
+    /// C++ parity (Object::ExperienceValues): per-template veterancy XP
+    /// thresholds [Veteran, Elite, Heroic].  Defaults to [60, 150, 300].
+    pub veterancy_xp_thresholds: [f32; 3],
 }
 
 impl ThingTemplate {
@@ -38,6 +41,7 @@ impl ThingTemplate {
             texture_name: None,
             special_power_cooldown: 10.0,
             experience_value: 0.0,
+            veterancy_xp_thresholds: [60.0, 150.0, 300.0],
         }
     }
 

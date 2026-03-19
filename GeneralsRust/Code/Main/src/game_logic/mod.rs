@@ -268,6 +268,12 @@ pub struct Weapon {
     pub ammo: Option<u32>,
     pub can_target_air: bool,
     pub can_target_ground: bool,
+    /// C++ parity (WeaponTemplate::m_weaponSpeed): projectile travel speed.
+    /// 0.0 = instant-hit (laser/flame weapons).
+    pub projectile_speed: f32,
+    /// C++ parity (WeaponTemplate::m_preAttackDelay): delay before firing
+    /// after a target is acquired, in seconds.  0.0 = no delay.
+    pub pre_attack_delay: f32,
 }
 
 impl Default for Weapon {
@@ -281,6 +287,8 @@ impl Default for Weapon {
             ammo: None,
             can_target_air: true,
             can_target_ground: true,
+            projectile_speed: 200.0,
+            pre_attack_delay: 0.0,
         }
     }
 }
