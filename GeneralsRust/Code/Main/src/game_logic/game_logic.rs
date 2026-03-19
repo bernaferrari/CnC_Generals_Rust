@@ -6455,10 +6455,17 @@ impl GameLogic {
                 obj.get_position().z,
             );
 
-            // Build a player mask that includes this player and any allies.
-            // For now, just reveal for the owning player.
-            let player_mask = 1u32 << player_id.min(31);
-            shroud_mgr.do_shroud_reveal(&center, vision_range, player_mask);
+            // C++ parity: reveal shroud for all players on the same team
+            // (allies share vision).
+            let mut player_mask = 0u32;
+            for (&pid, player) in &self.players {
+                if player.team == obj.team {
+                    player_mask |= 1u32 << pid.min(31);
+                }
+            }
+            if player_mask != 0 {
+                shroud_mgr.do_shroud_reveal(&center, vision_range, player_mask);
+            }
         }
     }
 
