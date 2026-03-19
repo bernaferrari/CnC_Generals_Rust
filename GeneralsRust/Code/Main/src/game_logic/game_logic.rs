@@ -5958,6 +5958,29 @@ impl GameLogic {
             });
         template.experience_value = xp_val;
 
+        // C++ parity: parse Armor from INI (default 0).
+        if let Some(armor_val) = Self::object_definition_attr(definition, "armor")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+        {
+            template.armor = armor_val;
+        }
+
+        // C++ parity: parse VisionRange from INI.
+        if let Some(sight) = Self::object_definition_attr(definition, "visionrange")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|&v| v > 0.0)
+        {
+            template.sight_range = sight;
+        }
+
+        // C++ parity: parse BuildCost from INI.
+        if let Some(cost) = Self::object_definition_attr(definition, "buildcost")
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .filter(|&v| v > 0)
+        {
+            template.build_cost.supplies = cost;
+        }
+
         template
     }
 
