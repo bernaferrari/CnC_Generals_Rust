@@ -85,6 +85,7 @@ pub struct ObjectStatusSnapshot {
     pub on_fire: bool,
     pub poisoned: bool,
     pub radar_jammed: bool,
+    pub disabled_underpowered: bool,
 }
 
 /// Module state snapshot (generic module data)
@@ -754,6 +755,7 @@ impl SnapshotBuilder {
             on_fire: false,
             poisoned: false,
             radar_jammed: false,
+            disabled_underpowered: object.status.disabled_underpowered,
         }
     }
 
@@ -1325,6 +1327,7 @@ impl SnapshotBuilder {
         object.status.airborne_target = status.airborne_target;
         object.status.stealthed = status.stealthed;
         object.status.selected = status.selected;
+        object.status.disabled_underpowered = status.disabled_underpowered;
 
         object.ai_state = if status.destroyed {
             AIState::Idle

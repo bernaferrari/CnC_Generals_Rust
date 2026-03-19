@@ -202,6 +202,7 @@ pub fn drain_pending_projectiles(
             &weapon,
             p.shooter_id,
             p.target_id,
+            p.speed,
         );
     }
 }
@@ -228,6 +229,7 @@ impl CombatSystem {
         weapon: &Weapon,
         shooter_id: ObjectId,
         target_id: Option<ObjectId>,
+        speed: f32,
     ) -> ObjectId {
         let projectile_id = self.next_projectile_id;
         self.next_projectile_id = ObjectId(self.next_projectile_id.0 + 1);
@@ -242,8 +244,8 @@ impl CombatSystem {
             target_id,
         );
 
-        // Set projectile properties based on weapon
-        projectile.speed = 200.0; // Would be weapon-specific
+        // Use caller-specified speed (from weapon template), fallback to default.
+        projectile.speed = if speed > 0.0 { speed } else { 200.0 };
         projectile.is_homing = false; // Some weapons have homing projectiles
         projectile.explosion_radius = 0.0; // Explosive weapons would have this
 

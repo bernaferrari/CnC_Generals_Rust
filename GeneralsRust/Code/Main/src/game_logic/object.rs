@@ -129,6 +129,7 @@ pub enum AIState {
     AttackMoving,
     AttackingGround,
     Gathering,
+    ReturningResources,
     Constructing,
     Repairing,
     GuardingArea,
@@ -339,6 +340,7 @@ impl Object {
     pub fn can_attack(&self) -> bool {
         self.is_alive()
             && self.weapon.is_some()
+            && !self.status.disabled_underpowered
             && !matches!(
                 self.ai_state,
                 AIState::Docked | AIState::Garrisoned | AIState::Entering
