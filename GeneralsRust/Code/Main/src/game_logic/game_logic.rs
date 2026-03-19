@@ -207,6 +207,10 @@ pub struct Player {
     pub name: String,
     pub resources: Resources,
     pub power_available: i32,
+    /// Total power produced by this player's power plants (for energy ratio).
+    pub power_produced: i32,
+    /// Total power consumed by this player's buildings (for energy ratio).
+    pub power_consumed: i32,
     pub income_accumulator: f32,
     pub selected_objects: Vec<ObjectId>,
     pub unlocked_sciences: HashSet<String>,
@@ -234,6 +238,8 @@ impl Player {
                 power: 0,
             },
             power_available: 0,
+            power_produced: 0,
+            power_consumed: 0,
             income_accumulator: 0.0,
             selected_objects: Vec::new(),
             unlocked_sciences: HashSet::new(),
@@ -3003,6 +3009,10 @@ impl GameLogic {
     fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
         const BUILDER_RANGE: f32 = 30.0; // Max distance for a dozer to contribute.
 
+        // C++ parity: calcTimeToBuild applies the same power penalty to dozer
+        // construction as to production queue speed.
+        let team_power_factor = self.compute_team_power_factors();
+
         // Pre-scan all dozer positions/teams so we don't borrow-conflict.
         let dozer_info: Vec<(Vec3, Team)> = self
             .objects
@@ -3023,8 +3033,9 @@ impl GameLogic {
                         .count()
                         .max(1); // At least 1 so AI-built structures still progress.
 
+                    let power_factor = team_power_factor.get(&build_team).copied().unwrap_or(1.0);
                     let base_rate = 1.0 / obj.thing.template.build_time;
-                    let effective_rate = base_rate * dozer_count as f32;
+                    let effective_rate = base_rate * dozer_count as f32 * power_factor;
                     obj.construction_percent += effective_rate * dt;
 
                     if obj.construction_percent >= 1.0 {
@@ -3068,28 +3079,12 @@ impl GameLogic {
         //   energy_short = (1.0 - ratio) * penalty_modifier
         //   rate = max(1.0 - energy_short, 0.5)
         //   if ratio < 1.0: rate = min(rate, 0.8)
-        let mut team_power_factor: std::collections::HashMap<Team, f32> =
-            std::collections::HashMap::new();
-        for player in self.players.values() {
-            let factor = if player.power_available >= 0 {
-                1.0
-            } else {
-                // Approximate: fully underpowered when power < 0.
-                // A more precise ratio would need produced/consumed but
-                // power_available is consumed - produced, so we use 0.
-                0.5 // MinLowEnergyProductionSpeed
-            };
-            team_power_factor.insert(player.team, factor);
-        }
+        let team_power_factor = self.compute_team_power_factors();
 
         let mut completions: Vec<(Team, String, Vec3, Option<Vec3>)> = Vec::new();
 
         for (_id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
-                continue;
-            }
-            // C++ parity: DISABLED_UNDERPOWERED buildings cannot produce.
-            if obj.status.disabled_underpowered {
                 continue;
             }
             if let Some(building) = obj.building_data.as_mut() {
@@ -3682,9 +3677,12 @@ impl GameLogic {
                     if let Some(target) = self.objects.get_mut(&target_id) {
                         let destroyed = target.take_damage(weapon_damage);
                         if destroyed {
+                            // C++ parity: XP is based on victim's ExperienceValue.
+                            let kill_xp = target.thing.template.experience_value
+                                * Self::veterancy_xp_multiplier(target.experience.level);
                             self.mark_object_for_destruction(target_id, Some(attacker_team));
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                attacker.gain_experience(10.0);
+                                attacker.gain_experience(kill_xp);
                                 attacker.stop_attack();
                             }
                         }
@@ -3727,12 +3725,14 @@ impl GameLogic {
                         if let Some(target) = self.objects.get_mut(&ground_target_id) {
                             let destroyed = target.take_damage(weapon_damage);
                             if destroyed {
+                                let kill_xp = target.thing.template.experience_value
+                                    * Self::veterancy_xp_multiplier(target.experience.level);
                                 self.mark_object_for_destruction(
                                     ground_target_id,
                                     Some(attacker_team),
                                 );
                                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    attacker.gain_experience(10.0);
+                                    attacker.gain_experience(kill_xp);
                                 }
                             }
                         }
@@ -4696,15 +4696,20 @@ impl GameLogic {
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.set_team(team);
                             }
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stop_moving();
-                                obj.set_target(None);
-                                obj.status.destroyed = true;
+                            // Hijacker is consumed by the ability.
+                            if let Some(hijacker) = self.objects.get_mut(&object_id) {
+                                hijacker.status.destroyed = true;
                             }
+                            self.mark_object_for_destruction(object_id, Some(team));
                         }
                         PendingSpecialAbility::Sabotage { .. } => {
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                let _ = target.take_damage(target.max_health * 0.5);
+                            let destroyed = self
+                                .objects
+                                .get_mut(&special_target_id)
+                                .map(|target| target.take_damage(target.max_health * 0.5))
+                                .unwrap_or(false);
+                            if destroyed {
+                                self.mark_object_for_destruction(special_target_id, Some(team));
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.stop_moving();
@@ -4712,11 +4717,13 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::SnipeVehicle { .. } => {
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                let destroyed = target.take_damage(target.max_health * 0.25);
-                                if destroyed {
-                                    target.status.destroyed = true;
-                                }
+                            let destroyed = self
+                                .objects
+                                .get_mut(&special_target_id)
+                                .map(|target| target.take_damage(target.max_health * 0.25))
+                                .unwrap_or(false);
+                            if destroyed {
+                                self.mark_object_for_destruction(special_target_id, Some(team));
                             }
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.stop_moving();
@@ -4724,14 +4731,19 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::CarBomb { .. } => {
-                            if let Some(target) = self.objects.get_mut(&special_target_id) {
-                                let _ = target.take_damage(target.max_health);
+                            let destroyed = self
+                                .objects
+                                .get_mut(&special_target_id)
+                                .map(|target| target.take_damage(target.max_health))
+                                .unwrap_or(false);
+                            if destroyed {
+                                self.mark_object_for_destruction(special_target_id, Some(team));
                             }
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.stop_moving();
-                                obj.set_target(None);
-                                obj.status.destroyed = true;
+                            // CarBomb is a suicide ability — mark the bomber immediately.
+                            if let Some(bomber) = self.objects.get_mut(&object_id) {
+                                bomber.status.destroyed = true;
                             }
+                            self.mark_object_for_destruction(object_id, Some(team));
                         }
                     }
 
@@ -4993,11 +5005,14 @@ impl GameLogic {
             let destroyed = target.take_damage(weapon_damage);
             if destroyed {
                 log::debug!("Object {} destroyed object {}", attacker_id, target_id);
+                // C++ parity: XP based on victim's ExperienceValue.
+                let kill_xp = target.thing.template.experience_value
+                    * Self::veterancy_xp_multiplier(target.experience.level);
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
 
                 // Give experience to attacker
                 if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                    attacker.gain_experience(10.0);
+                    attacker.gain_experience(kill_xp);
                     attacker.stop_attack();
                 }
             }
@@ -5034,6 +5049,8 @@ impl GameLogic {
             }
 
             player.power_available = power_produced - power_consumed;
+            player.power_produced = power_produced;
+            player.power_consumed = power_consumed;
 
             // C++ parity: check if power sabotage timer has expired and clear it
             // Matches C++ Player::update() sabotage recovery logic
@@ -5063,6 +5080,39 @@ impl GameLogic {
     /// C++ parity (Player::update → doPowerDisable): set/clear
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
     /// whether their owning player has sufficient power.
+    /// C++ parity (ThingTemplate::calcTimeToBuild): compute per-team power
+    /// production speed factor based on the energy supply ratio.
+    ///
+    ///   energy_ratio = produced / max(consumed, 1) clamped to [0,1]
+    ///   energy_short = (1.0 - ratio) * LowEnergyPenaltyModifier (0.4)
+    ///   rate = max(1.0 - energy_short, MinLowEnergyProductionSpeed (0.5))
+    ///   if ratio < 1.0: rate = min(rate, MaxLowEnergyProductionSpeed (0.8))
+    fn compute_team_power_factors(&self) -> std::collections::HashMap<Team, f32> {
+        const LOW_ENERGY_PENALTY_MODIFIER: f32 = 0.4;
+        const MIN_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.5;
+        const MAX_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.8;
+
+        let mut factors = std::collections::HashMap::new();
+        for player in self.players.values() {
+            let factor = if player.power_consumed <= 0 {
+                1.0
+            } else {
+                let energy_ratio =
+                    (player.power_produced as f32 / player.power_consumed as f32).min(1.0);
+                if energy_ratio >= 1.0 {
+                    1.0
+                } else {
+                    let energy_short = (1.0 - energy_ratio) * LOW_ENERGY_PENALTY_MODIFIER;
+                    let mut rate = (1.0 - energy_short).max(MIN_LOW_ENERGY_PRODUCTION_SPEED);
+                    rate = rate.min(MAX_LOW_ENERGY_PRODUCTION_SPEED);
+                    rate
+                }
+            };
+            factors.insert(player.team, factor);
+        }
+        factors
+    }
+
     fn update_power_disabled_state(&mut self) {
         // Build a set of teams that are underpowered.
         let mut underpowered_teams: std::collections::HashSet<Team> =
@@ -5551,6 +5601,18 @@ impl GameLogic {
         }
     }
 
+    /// C++ parity: veterancy-level XP multiplier. In C++, each template
+    /// defines per-level ExperienceValue; we approximate by scaling the
+    /// base value by the veterancy level.
+    fn veterancy_xp_multiplier(level: VeterancyLevel) -> f32 {
+        match level {
+            VeterancyLevel::Rookie => 1.0,
+            VeterancyLevel::Veteran => 1.5,
+            VeterancyLevel::Elite => 2.0,
+            VeterancyLevel::Heroic => 3.0,
+        }
+    }
+
     fn should_track_player_stats(&self) -> bool {
         self.sim_time_seconds > 0.0 || self.frame > 0
     }
@@ -5740,6 +5802,15 @@ impl GameLogic {
         if template.max_health <= 1.0 {
             template.set_health(if is_structure { 1200.0 } else { 250.0 });
         }
+
+        // C++ parity: parse ExperienceValue from INI (first value = Rookie level).
+        // If not set, use a default based on the object type.
+        let xp_val = Self::object_definition_attr(definition, "experiencevalue")
+            .and_then(|s| s.split_whitespace().next()?.parse::<f32>().ok())
+            .unwrap_or_else(|| {
+                if is_structure { 100.0 } else { 50.0 }
+            });
+        template.experience_value = xp_val;
 
         template
     }
