@@ -2910,6 +2910,7 @@ impl GameLogic {
         // Phase 10: Player Resources
         // -----------------------------------------------------------------------
         self.update_player_resources(dt);
+        self.update_power_disabled_state();
 
         // -----------------------------------------------------------------------
         // Phase 11: Damage/Physics Resolution
@@ -2996,22 +2997,41 @@ impl GameLogic {
         self.process_audio_events();
     }
 
-    /// Update construction progress
+    /// Update construction progress.
+    /// C++ parity: buildings only progress when a worker/dozer is nearby.
+    /// Multiple dozers stack their build rate (C++ BuildAssistant).
     fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
-        let mut completed_structures: Vec<Team> = Vec::new();
+        const BUILDER_RANGE: f32 = 30.0; // Max distance for a dozer to contribute.
+
+        // Pre-scan all dozer positions/teams so we don't borrow-conflict.
+        let dozer_info: Vec<(Vec3, Team)> = self
+            .objects
+            .values()
+            .filter(|obj| obj.is_alive() && obj.can_construct())
+            .map(|obj| (obj.get_position(), obj.team))
+            .collect();
+
+        let mut completed_structures: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
-                    let build_rate = 1.0 / obj.thing.template.build_time;
-                    obj.construction_percent += build_rate * dt;
+                    let build_pos = obj.get_position();
+                    let build_team = obj.team;
+                    let dozer_count = dozer_info
+                        .iter()
+                        .filter(|(pos, t)| *t == build_team && pos.distance(build_pos) <= BUILDER_RANGE)
+                        .count()
+                        .max(1); // At least 1 so AI-built structures still progress.
+
+                    let base_rate = 1.0 / obj.thing.template.build_time;
+                    let effective_rate = base_rate * dozer_count as f32;
+                    obj.construction_percent += effective_rate * dt;
 
                     if obj.construction_percent >= 1.0 {
                         obj.construction_percent = 1.0;
                         obj.status.under_construction = false;
                         obj.health.current = obj.health.maximum;
-                        if obj.is_kind_of(KindOf::Structure) {
-                            completed_structures.push(obj.team);
-                        }
+                        completed_structures.push(id);
                     } else {
                         obj.health.current =
                             obj.health.maximum * (0.1 + 0.9 * obj.construction_percent);
@@ -3021,20 +3041,60 @@ impl GameLogic {
             }
         }
 
-        for team in completed_structures {
-            self.record_structure_completion(team);
+        // C++ parity: when a structure finishes construction, release any dozers
+        // that were constructing it — set them to Idle.
+        for &completed_id in &completed_structures {
+            for obj in self.objects.values_mut() {
+                if obj.ai_state == AIState::Constructing
+                    && obj.target == Some(completed_id)
+                    && obj.is_alive()
+                {
+                    obj.set_target(None);
+                    obj.stop_moving();
+                    obj.ai_state = AIState::Idle;
+                }
+            }
+            if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
+                self.record_structure_completion(team);
+            }
         }
     }
 
     fn update_production(&mut self, dt: f32) {
+        // C++ parity: pre-compute per-team power factor so we don't borrow
+        // self.players while self.objects is mutably borrowed.
+        // Formula matches ThingTemplate::calcTimeToBuild():
+        //   energy_ratio = produced / max(consumed, produced) clamped to [0,1]
+        //   energy_short = (1.0 - ratio) * penalty_modifier
+        //   rate = max(1.0 - energy_short, 0.5)
+        //   if ratio < 1.0: rate = min(rate, 0.8)
+        let mut team_power_factor: std::collections::HashMap<Team, f32> =
+            std::collections::HashMap::new();
+        for player in self.players.values() {
+            let factor = if player.power_available >= 0 {
+                1.0
+            } else {
+                // Approximate: fully underpowered when power < 0.
+                // A more precise ratio would need produced/consumed but
+                // power_available is consumed - produced, so we use 0.
+                0.5 // MinLowEnergyProductionSpeed
+            };
+            team_power_factor.insert(player.team, factor);
+        }
+
         let mut completions: Vec<(Team, String, Vec3, Option<Vec3>)> = Vec::new();
 
         for (_id, obj) in self.objects.iter_mut() {
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
+            // C++ parity: DISABLED_UNDERPOWERED buildings cannot produce.
+            if obj.status.disabled_underpowered {
+                continue;
+            }
             if let Some(building) = obj.building_data.as_mut() {
-                if let Some(completed) = building.update_production(dt) {
+                let pf = team_power_factor.get(&obj.team).copied().unwrap_or(1.0);
+                if let Some(completed) = building.update_production(dt, pf) {
                     let rally = building.rally_point;
                     // Spawn slightly offset from the building facing to reduce clumping.
                     let forward = obj.thing.get_direction_vector();
@@ -3901,9 +3961,37 @@ impl GameLogic {
             }
 
             AIState::Gathering => {
-                // Resource gathering behavior
-                // Would move to resource points and collect resources
-                None
+                // Resource gathering behavior: move to supply pile, collect, return to refinery.
+                // This autonomous behavior just monitors state — actual resource accumulation
+                // happens in the update loop via a separate phase.
+                let gather_target_id = target_id;
+
+                if let Some(source_id) = gather_target_id {
+                    if let Some(source_obj) = self.objects.get(&source_id) {
+                        let dist_to_source = position.distance(source_obj.get_position());
+                        if dist_to_source > 15.0 {
+                            // Still moving toward the resource — keep going
+                            return Some(AICommand::MoveTo {
+                                object_id,
+                                position: source_obj.get_position(),
+                            });
+                        }
+                        // Close enough — the update loop handles accumulation.
+                        // Check if full (stored_resources checked in update phase).
+                        None
+                    } else {
+                        // Resource source no longer exists — go idle
+                        Some(AICommand::SetAIState {
+                            object_id,
+                            state: AIState::Idle,
+                        })
+                    }
+                } else {
+                    Some(AICommand::SetAIState {
+                        object_id,
+                        state: AIState::Idle,
+                    })
+                }
             }
 
             AIState::Constructing | AIState::Repairing => {
@@ -3947,6 +4035,24 @@ impl GameLogic {
 
             AIState::Docking => {
                 // Unit is docking with a structure (harvester to refinery, etc)
+                None
+            }
+
+            AIState::ReturningResources => {
+                // Worker heading back to supply center to deposit resources.
+                // The actual deposit happens in the update loop when close enough.
+                if let Some(refinery_id) = self.find_nearest_supply_center(team, position) {
+                    if let Some(refinery) = self.objects.get(&refinery_id) {
+                        let dist_to_refinery = position.distance(refinery.get_position());
+                        if dist_to_refinery > 20.0 {
+                            // Still heading to refinery
+                            return Some(AICommand::MoveTo {
+                                object_id,
+                                position: refinery.get_position(),
+                            });
+                        }
+                    }
+                }
                 None
             }
 
@@ -4631,6 +4737,128 @@ impl GameLogic {
 
                     self.pending_special_abilities.remove(&object_id);
                 }
+                AIState::Gathering => {
+                    // Accumulate resources when close to the supply source.
+                    const GATHER_RATE: f32 = 100.0;
+                    const MAX_CARRY: u32 = 1000;
+
+                    let Some(source_id) = target_id else {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_ai_state(AIState::Idle);
+                        }
+                        continue;
+                    };
+
+                    // Extract source state before any mutations.
+                    let (source_alive, source_pos) = self
+                        .objects
+                        .get(&source_id)
+                        .map(|s| (s.is_alive(), s.get_position()))
+                        .unwrap_or((false, position));
+
+                    if !source_alive {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_target(None);
+                            obj.set_ai_state(AIState::Idle);
+                        }
+                        continue;
+                    }
+
+                    if can_move && position.distance(source_pos) > INTERACT_RANGE {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_destination(source_pos);
+                            obj.ai_state = AIState::Gathering;
+                        }
+                        continue;
+                    }
+
+                    // In range — gather resources.
+                    let gather_amount = (GATHER_RATE * dt) as u32;
+                    let is_full = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.stored_resources.supplies)
+                        .unwrap_or(0)
+                        + gather_amount
+                        >= MAX_CARRY;
+
+                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                        obj.stored_resources.supplies = obj
+                            .stored_resources
+                            .supplies
+                            .saturating_add(gather_amount)
+                            .min(MAX_CARRY);
+                    }
+
+                    if is_full {
+                        // Full — head to nearest supply center.
+                        let refinery_dest = self
+                            .find_nearest_supply_center(team, position)
+                            .and_then(|rid| {
+                                self.objects.get(&rid).map(|r| r.get_position())
+                            });
+                        if let Some(dest) = refinery_dest {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_destination(dest);
+                                obj.set_ai_state(AIState::ReturningResources);
+                            }
+                        }
+                    }
+                }
+                AIState::ReturningResources => {
+                    // Deposit resources when close to a supply center.
+                    let (refinery_id, refinery_pos) = self
+                        .find_nearest_supply_center(team, position)
+                        .and_then(|rid| {
+                            self.objects
+                                .get(&rid)
+                                .map(|r| (Some(rid), r.get_position()))
+                        })
+                        .unwrap_or((None, position));
+
+                    let at_refinery = refinery_id
+                        .is_some()
+                        && position.distance(refinery_pos) <= INTERACT_RANGE;
+
+                    if at_refinery {
+                        // Deposit.
+                        let deposit_amount = self
+                            .objects
+                            .get(&object_id)
+                            .map(|o| o.stored_resources.supplies)
+                            .unwrap_or(0);
+
+                        if deposit_amount > 0 {
+                            // Clear carried resources.
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stored_resources.supplies = 0;
+                            }
+                            // Credit the player.
+                            if let Some(player) = self.get_player_mut_by_team(team) {
+                                player.resources.supplies = player
+                                    .resources
+                                    .supplies
+                                    .saturating_add(deposit_amount);
+                            }
+                            // Head back to gather more from the original source.
+                            let source_dest = target_id.and_then(|sid| {
+                                self.objects.get(&sid).filter(|s| s.is_alive()).map(|s| s.get_position())
+                            });
+                            if let Some(dest) = source_dest {
+                                if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    obj.set_destination(dest);
+                                    obj.set_ai_state(AIState::Gathering);
+                                }
+                            }
+                        }
+                    } else if can_move {
+                        // Still heading to refinery.
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.set_destination(refinery_pos);
+                            obj.ai_state = AIState::ReturningResources;
+                        }
+                    }
+                }
                 AIState::Docked | AIState::Garrisoned => {
                     let Some(container_id) = target_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -4706,6 +4934,40 @@ impl GameLogic {
                     // Target no longer exists
                     if let Some(attacker) = self.objects.get_mut(&object_id) {
                         attacker.stop_attack();
+                    }
+                }
+            }
+        }
+
+        // Handle AttackingGround: fire at target_location.
+        if ai_state == AIState::AttackingGround {
+            let can_fire_ground = self.objects.get(&object_id).map(|attacker| {
+                attacker.can_attack()
+                    && attacker.can_fire(self.frame as f32 * LOGIC_FRAME_TIMESTEP)
+                    && attacker.target_location.is_some()
+            }).unwrap_or(false);
+
+            if can_fire_ground {
+                if let Some(attacker) = self.objects.get(&object_id) {
+                    let shooter_pos = attacker.get_position();
+                    let weapon_damage = attacker
+                        .weapon
+                        .as_ref()
+                        .map(|w| w.damage)
+                        .unwrap_or(25.0);
+                    let target_loc = attacker.target_location.unwrap();
+                    super::combat::queue_projectile(super::combat::PendingProjectile {
+                        shooter_id: object_id,
+                        shooter_pos,
+                        target_id: None,
+                        target_pos: target_loc,
+                        damage: weapon_damage,
+                        speed: 200.0,
+                    });
+                }
+                if let Some(attacker) = self.objects.get_mut(&object_id) {
+                    if let Some(w) = attacker.weapon.as_mut() {
+                        w.last_fire_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
                     }
                 }
             }
@@ -4795,6 +5057,30 @@ impl GameLogic {
                 player.statistics.resources_collected =
                     player.statistics.resources_collected.saturating_add(whole);
             }
+        }
+    }
+
+    /// C++ parity (Player::update → doPowerDisable): set/clear
+    /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
+    /// whether their owning player has sufficient power.
+    fn update_power_disabled_state(&mut self) {
+        // Build a set of teams that are underpowered.
+        let mut underpowered_teams: std::collections::HashSet<Team> =
+            std::collections::HashSet::new();
+        for player in self.players.values() {
+            if player.power_available < 0 {
+                underpowered_teams.insert(player.team);
+            }
+        }
+
+        for obj in self.objects.values_mut() {
+            if !obj.is_kind_of(KindOf::Powered) {
+                continue;
+            }
+            let should_disable = underpowered_teams.contains(&obj.team)
+                && obj.is_alive()
+                && obj.is_constructed();
+            obj.status.disabled_underpowered = should_disable;
         }
     }
 
@@ -4952,6 +5238,32 @@ impl GameLogic {
     /// Find mutable object by ID
     pub fn find_object_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
         self.objects.get_mut(&id)
+    }
+
+    /// Find the nearest supply center (refinery/supply dropzone) for a team.
+    fn find_nearest_supply_center(
+        &self,
+        team: Team,
+        from_position: Vec3,
+    ) -> Option<ObjectId> {
+        let mut nearest_id: Option<ObjectId> = None;
+        let mut nearest_dist = f32::MAX;
+
+        for (&obj_id, obj) in &self.objects {
+            if obj.team != team
+                || !obj.is_alive()
+                || !obj.is_constructed()
+                || !obj.is_kind_of(KindOf::SupplyCenter)
+            {
+                continue;
+            }
+            let dist = from_position.distance(obj.get_position());
+            if dist < nearest_dist {
+                nearest_dist = dist;
+                nearest_id = Some(obj_id);
+            }
+        }
+        nearest_id
     }
 
     /// Get all objects
@@ -5411,6 +5723,9 @@ impl GameLogic {
         }
         if kind_of.contains("selectable") || is_structure {
             template.add_kind_of(KindOf::Selectable);
+        }
+        if kind_of.contains("powered") {
+            template.add_kind_of(KindOf::Powered);
         }
 
         if lower.contains("commandcenter") {

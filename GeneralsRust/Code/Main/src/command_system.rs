@@ -75,6 +75,10 @@ pub enum CommandType {
         target: GuardTarget,
     },
     Scatter,
+    Deploy,
+    Gather {
+        target_id: ObjectId,
+    },
 
     // Building and construction
     Build {
@@ -735,6 +739,11 @@ impl CommandSystem {
     ) -> CommandType {
         if let Some(target_id) = context.target_object {
             if let Some(target_obj) = game_logic.get_object(target_id) {
+                // Check if target is a resource/harvestable and selected units can gather
+                if self.can_gather_from_target(selected_units, target_obj, game_logic) {
+                    return CommandType::Gather { target_id };
+                }
+
                 // Check if target is enemy - attack
                 if self.can_attack_target(selected_units, target_obj, game_logic) {
                     return CommandType::AttackObject { target_id };
@@ -1332,6 +1341,33 @@ impl CommandSystem {
         for &unit_id in units {
             if let Some(unit) = game_logic.get_object(unit_id) {
                 if unit.can_attack() && unit.team != target.team && !target.is_dead() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Validate if selected units can gather from a resource target
+    fn can_gather_from_target(
+        &self,
+        units: &[ObjectId],
+        target: &Object,
+        game_logic: &GameLogic,
+    ) -> bool {
+        if !target.is_alive() {
+            return false;
+        }
+        let target_is_resource = target.is_kind_of(KindOf::Harvestable)
+            || target.is_kind_of(KindOf::Resource)
+            || target.object_type == crate::game_logic::ObjectType::Supply;
+        if !target_is_resource {
+            return false;
+        }
+        // Check if any selected unit is a worker/harvester on the same team
+        for &unit_id in units {
+            if let Some(unit) = game_logic.get_object(unit_id) {
+                if unit.is_worker() && unit.team == target.team && unit.is_alive() && unit.can_move() {
                     return true;
                 }
             }
