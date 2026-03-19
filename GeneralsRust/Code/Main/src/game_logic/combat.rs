@@ -196,6 +196,8 @@ pub fn drain_pending_projectiles(
             ammo: None,
             can_target_air: true,
             can_target_ground: true,
+            projectile_speed: p.speed,
+            pre_attack_delay: 0.0,
         };
         combat.fire_projectile(
             p.shooter_pos,

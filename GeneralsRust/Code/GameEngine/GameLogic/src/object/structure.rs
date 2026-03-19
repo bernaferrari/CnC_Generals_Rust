@@ -523,9 +523,9 @@ impl Structure {
 
         let mut refund = HashMap::new();
 
-        // Calculate refund based on current health and sell percentage
-        let health_percentage = self.get_health_percentage();
-        let refund_multiplier = health_percentage * self.sell_refund_percentage;
+        // C++ parity: sell refund is a flat percentage of build cost,
+        // independent of current health. (Default SellPercentage = 0.5)
+        let refund_multiplier = self.sell_refund_percentage;
 
         for (resource_type, cost) in &self.build_cost {
             let refund_amount = (*cost as f32 * refund_multiplier) as u32;
