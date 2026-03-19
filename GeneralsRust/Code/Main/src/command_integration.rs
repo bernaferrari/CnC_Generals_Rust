@@ -484,6 +484,33 @@ impl InputCommandProcessor {
                     } else {
                         log::warn!("Failed to acquire command system lock for mode change");
                     }
+                } else {
+                    // Plain A = Attack Move (standard C&C Generals hotkey)
+                    if self.issue_immediate_command(
+                        CommandType::AttackMoveTo {
+                            destination: self.mouse_world_pos,
+                        },
+                        game_logic,
+                    ) {
+                        log::debug!("Queued AttackMove command (A key)");
+                    }
+                }
+            }
+            VirtualKeyCode::D => {
+                // D = Deploy (C&C Generals standard)
+                if self.issue_immediate_command(CommandType::Deploy, game_logic) {
+                    log::debug!("Queued Deploy command (D key)");
+                }
+            }
+            VirtualKeyCode::T => {
+                // T = Force Attack Ground (C&C Generals standard)
+                if self.issue_immediate_command(
+                    CommandType::ForceAttackGround {
+                        location: self.mouse_world_pos,
+                    },
+                    game_logic,
+                ) {
+                    log::debug!("Queued ForceAttackGround command (T key)");
                 }
             }
             VirtualKeyCode::G => {
