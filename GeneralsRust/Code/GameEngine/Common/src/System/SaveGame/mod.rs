@@ -65,7 +65,7 @@ pub fn get_game_state() -> std::sync::MutexGuard<'static, GameState> {
 pub fn init_game_state(save_directory: PathBuf) {
     let lock = THE_GAME_STATE.get_or_init(|| Mutex::new(GameState::new(save_directory.clone())));
     let mut state = lock.lock().expect("TheGameState mutex poisoned");
-    *state = GameState::new(save_directory);
+    state.reset_for_init(save_directory);
     state.init();
 }
 

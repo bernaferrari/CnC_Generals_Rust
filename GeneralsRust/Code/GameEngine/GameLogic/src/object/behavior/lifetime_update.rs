@@ -4,7 +4,7 @@
 //! Author: Colin Day, December 2001 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, ModuleData, UnsignedInt};
+use crate::common::{AsciiString, ModuleData, UnsignedInt, XferVersion};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
@@ -167,6 +167,29 @@ impl BehaviorModuleInterface for LifetimeUpdate {
     }
 }
 
+impl Snapshotable for LifetimeUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // version -- C++ LifetimeUpdate.cpp line 96: currentVersion = 1
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("LifetimeUpdate version xfer failed: {:?}", e))?;
+
+        // die frame -- C++ LifetimeUpdate.cpp line 104
+        xfer.xfer_unsigned_int(&mut self.die_frame)
+            .map_err(|e| format!("LifetimeUpdate die_frame xfer failed: {:?}", e))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Glue that exposes LifetimeUpdate through the common Module trait.
 pub struct LifetimeUpdateModule {
     behavior: LifetimeUpdate,
@@ -194,16 +217,16 @@ impl LifetimeUpdateModule {
 }
 
 impl Snapshotable for LifetimeUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.behavior.load_post_process()
     }
 }
 

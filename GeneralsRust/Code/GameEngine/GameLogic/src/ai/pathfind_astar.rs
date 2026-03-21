@@ -16,6 +16,11 @@ pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;
 
 /// Maximum frames ahead for synchronization matching C++ Connection.cpp
 pub const MAX_FRAMES_AHEAD: u32 = 300;
+const SURFACE_GROUND: u32 = 0x01;
+const SURFACE_WATER: u32 = 0x02;
+const SURFACE_CLIFF: u32 = 0x04;
+const SURFACE_AIR: u32 = 0x08;
+const SURFACE_RUBBLE: u32 = 0x10;
 
 /// Cell type matching C++ AIPathfind.h:233-242
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -326,11 +331,12 @@ impl AStarPathfinder {
 
         // Check surface compatibility
         match cell.get_type() {
-            PathfindCellType::Clear => true,
-            PathfindCellType::Water => (surfaces & 0x02) != 0, // SURFACE_WATER
-            PathfindCellType::Cliff => (surfaces & 0x04) != 0, // SURFACE_CLIFF
+            // C++ validLocomotorSurfacesForCellType: clear -> ground|air.
+            PathfindCellType::Clear => (surfaces & (SURFACE_GROUND | SURFACE_AIR)) != 0,
+            PathfindCellType::Water => (surfaces & SURFACE_WATER) != 0,
+            PathfindCellType::Cliff => (surfaces & SURFACE_CLIFF) != 0,
             PathfindCellType::Rubble => {
-                (surfaces & 0x08) != 0 || is_crusher // SURFACE_RUBBLE or crusher
+                (surfaces & SURFACE_RUBBLE) != 0 || is_crusher
             }
             _ => false,
         }

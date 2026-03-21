@@ -1779,6 +1779,350 @@ impl ThingTemplate {
     pub fn is_buildable_item(&self) -> bool {
         self.build_cost != 0
     }
+
+    // -----------------------------------------------------------------------
+    // INI field parsing -- mirrors C++ s_objectFieldParseTable
+    //
+    // Each field here corresponds to an entry in the C++ field parse table
+    // defined in ThingTemplate.cpp lines 90-229.
+    // -----------------------------------------------------------------------
+
+    /// Apply parsed INI key=value properties to this template.
+    ///
+    /// This is the Rust equivalent of `initFromINI(self, getFieldParse())` in C++.
+    /// It reads each known INI field name and writes the value into the
+    /// corresponding struct member.  Unknown fields are silently ignored so
+    /// that forward-compatibility is maintained when new INI keys are added.
+    ///
+    /// WeaponSet and ArmorSet sub-blocks are handled by their own dedicated
+    /// parsers (see `load_weapon_sets_from_definitions` and
+    /// `parse_armor_set_from_properties`) and are NOT processed here.
+    pub fn parse_object_fields_from_ini(&mut self, properties: &std::collections::HashMap<String, String>) {
+        for (key, value) in properties {
+            let trimmed = value.trim();
+            match key.as_str() {
+                // --- Display ---
+                "DisplayName" => {
+                    // C++ uses parseAndTranslateLabel -> UnicodeString
+                    self.display_name = UnicodeString::from(trimmed);
+                }
+                "DisplayColor" => {
+                    if let Ok(c) = parse_color_int(trimmed) {
+                        self.display_color = c;
+                    }
+                }
+                "EditorSorting" => {
+                    self.editor_sorting = parse_editor_sorting(trimmed);
+                }
+
+                // --- Physical ---
+                "Scale" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.asset_scale = v; }
+                }
+                "InstanceScaleFuzziness" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.instance_scale_fuzziness = v; }
+                }
+
+                // --- Radar & transport ---
+                "RadarPriority" => {
+                    self.radar_priority = parse_radar_priority(trimmed);
+                }
+                "TransportSlotCount" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.transport_slot_count = v; }
+                }
+
+                // --- Fence / bridge ---
+                "FenceWidth" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.fence_width = v; }
+                }
+                "FenceXOffset" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.fence_x_offset = v; }
+                }
+                "IsBridge" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_bridge = v; }
+                }
+
+                // --- Vision / shroud ---
+                "VisionRange" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.vision_range = v; }
+                }
+                "ShroudClearingRange" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_clearing_range = v; }
+                }
+                "ShroudRevealToAllRange" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_reveal_to_all_range = v; }
+                }
+
+                // --- Placement / factory ---
+                "PlacementViewAngle" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.placement_view_angle = v; }
+                }
+                "FactoryExitWidth" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.factory_exit_width = v; }
+                }
+                "FactoryExtraBibWidth" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.factory_extra_bib_width = v; }
+                }
+
+                // --- Experience / skill ---
+                "SkillPointValue" => {
+                    parse_int_list_into(trimmed, &mut self.skill_point_values);
+                }
+                "ExperienceValue" => {
+                    parse_int_list_into(trimmed, &mut self.experience_values);
+                }
+                "ExperienceRequired" => {
+                    parse_int_list_into(trimmed, &mut self.experience_required);
+                }
+                "IsTrainable" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_trainable = v; }
+                }
+                "EnterGuard" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.enter_guard = v; }
+                }
+                "HijackGuard" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.hijack_guard = v; }
+                }
+
+                // --- Side ---
+                "Side" => {
+                    self.default_owning_side = AsciiString::from(trimmed);
+                }
+
+                // --- Build ---
+                "Buildable" => {
+                    self.buildable = parse_buildable_status(trimmed);
+                }
+                "BuildCost" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedShort>() { self.build_cost = v; }
+                }
+                "BuildTime" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.build_time = v; }
+                }
+                "RefundValue" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedShort>() { self.refund_value = v; }
+                }
+                "BuildCompletion" => {
+                    self.build_completion = parse_build_completion(trimmed);
+                }
+                "EnergyProduction" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.energy_production = v; }
+                }
+                "EnergyBonus" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.energy_bonus = v; }
+                }
+                "IsForbidden" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_forbidden = v; }
+                }
+                "IsPrerequisite" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_prerequisite = v; }
+                }
+
+                // --- Command set / build variations ---
+                "CommandSet" => {
+                    self.command_set_string = AsciiString::from(trimmed);
+                }
+                "BuildVariations" => {
+                    self.build_variations = trimmed
+                        .split_whitespace()
+                        .map(|s| AsciiString::from(s))
+                        .collect();
+                }
+
+                // --- KindOf ---
+                "KindOf" => {
+                    // The actual KindOf mask resolution is done in the GameLogic
+                    // crate which knows the full KindOf enum.  Here we store the
+                    // raw string so GameLogic can resolve it post-parse if needed.
+                    // For now we leave kindof as 0; the GameLogic layer should
+                    // call resolve_kindof_mask() after this.
+                    // TODO: resolve via GameLogic KindOf enum
+                }
+
+                // --- UI ---
+                "SelectPortrait" => {
+                    self.selected_portrait_image_name = AsciiString::from(trimmed);
+                }
+                "ButtonImage" => {
+                    self.button_image_name = AsciiString::from(trimmed);
+                }
+                "UpgradeCameo1" => { self.upgrade_cameo_upgrade_names[0] = AsciiString::from(trimmed); }
+                "UpgradeCameo2" => { self.upgrade_cameo_upgrade_names[1] = AsciiString::from(trimmed); }
+                "UpgradeCameo3" => { self.upgrade_cameo_upgrade_names[2] = AsciiString::from(trimmed); }
+                "UpgradeCameo4" => { self.upgrade_cameo_upgrade_names[3] = AsciiString::from(trimmed); }
+                "UpgradeCameo5" => { self.upgrade_cameo_upgrade_names[4] = AsciiString::from(trimmed); }
+
+                // --- Shadow ---
+                "Shadow" => {
+                    self.shadow_type = parse_shadow_type(trimmed);
+                }
+                "ShadowSizeX" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_size_x = v; }
+                }
+                "ShadowSizeY" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_size_y = v; }
+                }
+                "ShadowOffsetX" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_offset_x = v; }
+                }
+                "ShadowOffsetY" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_offset_y = v; }
+                }
+                "ShadowTexture" => {
+                    self.shadow_texture_name = AsciiString::from(trimmed);
+                }
+
+                // --- Occlusion ---
+                "OcclusionDelay" => {
+                    // C++ uses parseDurationUnsignedInt -- frames at 30 FPS
+                    if let Ok(v) = trimmed.parse::<u32>() { self.occlusion_delay = v; }
+                }
+
+                // --- Combat ---
+                "ThreatValue" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedShort>() { self.threat_value = v; }
+                }
+                "MaxSimultaneousOfType" => {
+                    if trimmed.eq_ignore_ascii_case("DeterminedBySuperweaponRestriction") {
+                        self.max_simultaneous_determined_by_superweapon_restriction = true;
+                        self.max_simultaneous_of_type = 0;
+                    } else if let Ok(v) = trimmed.parse::<UnsignedShort>() {
+                        self.max_simultaneous_of_type = v;
+                    }
+                }
+                "CrusherLevel" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.crusher_level = v; }
+                }
+                "CrushableLevel" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.crushable_level = v; }
+                }
+
+                // --- Structure ---
+                "StructureRubbleHeight" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.structure_rubble_height = v; }
+                }
+
+                // --- Geometry (delegated to GeometryInfo) ---
+                "Geometry" => {
+                    self.geometry_info.geometry_type = parse_geometry_type(trimmed);
+                }
+                "GeometryMajorRadius" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.geometry_info.width = v; }
+                }
+                "GeometryMinorRadius" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.geometry_info.depth = v; }
+                }
+                "GeometryHeight" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.geometry_info.height = v; }
+                }
+                "GeometryIsSmall" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.geometry_info.is_small = v; }
+                }
+
+                // --- WeaponSet / ArmorSet are handled separately ---
+                "WeaponSet" | "ArmorSet" | "Prerequisites" => {
+                    // Sub-block fields parsed by dedicated methods
+                }
+
+                // Everything else: silently skip (module blocks, etc.)
+                _ => {}
+            }
+        }
+    }
+
+    /// Set the KindOf mask from a resolved bitmask.
+    ///
+    /// Called by the GameLogic layer after resolving KindOf flag names to bits.
+    pub fn set_kindof_mask(&mut self, mask: u64) {
+        self.kindof = mask;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// INI field parsing helpers
+// ---------------------------------------------------------------------------
+
+fn parse_bool_simple(s: &str) -> Result<bool, ()> {
+    match s {
+        "yes" | "Yes" | "YES" | "true" | "True" | "TRUE" | "1" => Ok(true),
+        "no" | "No" | "NO" | "false" | "False" | "FALSE" | "0" => Ok(false),
+        _ => Err(()),
+    }
+}
+
+fn parse_color_int(s: &str) -> Result<Color, ()> {
+    // C++ parseColorInt: expects RRGGBB hex, stored as ARGB u32
+    let v = u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|_| ())?;
+    Ok(Color(0xFF000000 | v))
+}
+
+fn parse_editor_sorting(s: &str) -> EditorSortingType {
+    match s.trim() {
+        "Unit" => EditorSortingType::Unit,
+        "Building" => EditorSortingType::Building,
+        "Infrastructure" => EditorSortingType::Infrastructure,
+        "Civilian" => EditorSortingType::Civilian,
+        _ => EditorSortingType::Invalid,
+    }
+}
+
+fn parse_radar_priority(s: &str) -> RadarPriorityType {
+    match s.trim() {
+        "Low" => RadarPriorityType::Low,
+        "Medium" => RadarPriorityType::Medium,
+        "High" => RadarPriorityType::High,
+        "Critical" => RadarPriorityType::Critical,
+        _ => RadarPriorityType::Invalid,
+    }
+}
+
+fn parse_buildable_status(s: &str) -> BuildableStatus {
+    match s.trim() {
+        "IgnorePrerequisites" => BuildableStatus::IgnorePrerequisites,
+        "No" => BuildableStatus::No,
+        "OnlyByAI" => BuildableStatus::OnlyByAi,
+        _ => BuildableStatus::Yes,
+    }
+}
+
+fn parse_build_completion(s: &str) -> BuildCompletionType {
+    match s.trim() {
+        "PlacedByPlayer" => BuildCompletionType::PlacedByPlayer,
+        _ => BuildCompletionType::AppearsAtRallyPoint,
+    }
+}
+
+fn parse_shadow_type(s: &str) -> ShadowType {
+    match s.trim() {
+        "VOLUME" | "Volume" => ShadowType::Volume,
+        "DECAL" | "Decal" => ShadowType::Decal,
+        _ => ShadowType::None,
+    }
+}
+
+fn parse_geometry_type(s: &str) -> GeometryType {
+    match s.trim() {
+        "SPHERE" | "Sphere" => GeometryType::Sphere,
+        "CYLINDER" | "Cylinder" => GeometryType::Cylinder,
+        "BOX" | "Box" => GeometryType::Box,
+        _ => GeometryType::Sphere,
+    }
+}
+
+/// Parse a space-separated list of integers into a fixed-size array.
+/// Mirrors C++ ThingTemplate::parseIntList.
+fn parse_int_list_into(s: &str, out: &mut [i32; LEVEL_COUNT]) {
+    let tokens: Vec<&str> = s.split_whitespace().collect();
+    for (i, token) in tokens.iter().enumerate() {
+        if i >= LEVEL_COUNT {
+            break;
+        }
+        if *token == "USE_EXP_VALUE" || *token == "-999" {
+            out[i] = USE_EXP_VALUE_FOR_SKILL_VALUE;
+        } else if let Ok(v) = token.parse::<i32>() {
+            out[i] = v;
+        }
+    }
 }
 
 #[cfg(test)]

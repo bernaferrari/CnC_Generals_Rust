@@ -6,8 +6,11 @@
 
 use super::{get_player_arc, get_str_param, lookup_named_object_id, perform_comparison, ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND};
-use crate::helpers::TheGameLogic;
+use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
+use crate::helpers::{TheGameLogic, ThePartitionManager, TheThingFactory};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
+use crate::object::Object;
 use crate::object_manager::get_object_manager;
 use crate::player::{player_list, GameDifficulty, PlayerType};
 use crate::scripting::engine::get_area_tracker;
@@ -18,28 +21,260 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+fn has_hostile_object_near_owned_objects<F>(player: &crate::player::Player, radius: f32, filter: F) -> bool
+where
+    F: Fn(&Object) -> bool,
+{
+    let Some(partition) = ThePartitionManager::get() else {
+        return false;
+    };
+    let Ok(players) = player_list().read() else {
+        return false;
+    };
+    let player_index = player.get_player_index();
+
+    for object_id in player.get_all_objects() {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            continue;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            continue;
+        };
+        if obj.is_destroyed() || obj.is_effectively_dead() || !filter(&obj) {
+            continue;
+        }
+
+        let status = obj.get_status_bits();
+        if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+            && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+            && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+        {
+            continue;
+        }
+
+        for candidate_id in partition.get_objects_in_range(obj.get_position(), radius) {
+            let Some(candidate_arc) = OBJECT_REGISTRY.get_object(candidate_id) else {
+                continue;
+            };
+            let Ok(candidate) = candidate_arc.read() else {
+                continue;
+            };
+            if candidate.is_destroyed() || candidate.is_effectively_dead() {
+                continue;
+            }
+            let Some(owner_id) = candidate.get_controlling_player_id() else {
+                continue;
+            };
+            if owner_id as i32 == player_index {
+                continue;
+            }
+            let hostile = players
+                .get_player(owner_id as i32)
+                .cloned()
+                .and_then(|owner_arc| owner_arc.read().ok().map(|owner| {
+                    owner.get_player_type() != PlayerType::Neutral
+                        && !owner.is_player_observer()
+                        && !player.is_allied_with_player(&owner)
+                }))
+                .unwrap_or(true);
+            if hostile {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn is_player_recently_under_attack(player: &crate::player::Player, window_frames: u32) -> bool {
+    let current_frame = TheGameLogic::get_frame();
+    let attacked_frame = player.get_attacked_frame();
+    if attacked_frame != 0 && current_frame.saturating_sub(attacked_frame) <= window_frames {
+        return true;
+    }
+
+    let Ok(players) = player_list().read() else {
+        return false;
+    };
+    for (index, player_arc) in players.iter().enumerate() {
+        if index as i32 == player.get_player_index() {
+            continue;
+        }
+        if !player.get_attacked_by(index as i32) {
+            continue;
+        }
+        if let Ok(other_player) = player_arc.read() {
+            if other_player.get_player_type() != PlayerType::Neutral
+                && !other_player.is_player_observer()
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn player_has_ready_special_power(
+    player: &crate::player::Player,
+    template: &SpecialPowerTemplate,
+) -> bool {
+    let required_science = template.get_required_science();
+    if required_science != crate::common::science::SCIENCE_INVALID
+        && !player.has_science(required_science)
+    {
+        return false;
+    }
+
+    let template_id = template.get_id();
+    let template_name = template.get_name();
+
+    for object_id in player.get_all_objects() {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            continue;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            continue;
+        };
+
+        if obj.is_destroyed()
+            || obj.is_effectively_dead()
+            || obj.is_disabled()
+            || obj
+                .get_status_bits()
+                .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+        {
+            continue;
+        }
+
+        if obj.get_special_power_module(template_id).is_none() {
+            continue;
+        }
+
+        let Some(ready) = obj.with_special_power_module_interface_by_name(template_name, |module| {
+            module.is_ready()
+        }) else {
+            continue;
+        };
+
+        if ready {
+            return true;
+        }
+    }
+
+    false
+}
+
 //-------------------------------------------------------------------------------------------------
 // 1. SkirmishSpecialPowerReadyCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs non-existent special power module API.
-/// TODO: implement once special power readiness tracking is available.
 pub struct SkirmishSpecialPowerReadyCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once special power module API exists
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let power_name = get_str_param(parameters, "power_name")?;
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+
+        let Some(store) = get_special_power_store() else {
+            return Ok(false);
+        };
+        let Some(template) = store.find_special_power_template(power_name.as_str()) else {
+            return Ok(false);
+        };
+
+        if player_has_ready_special_power(&player, template) {
+            return Ok(true);
+        }
+
         Ok(false)
     }
 
     fn name(&self) -> &str { "skirmish_special_power_ready" }
-    fn description(&self) -> &str { "Checks if a special power is ready (STUB)" }
+    fn description(&self) -> &str { "Checks if a special power is ready" }
     fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string()] }
+    fn optional_parameters(&self) -> Vec<String> { vec![] }
+}
+
+//-------------------------------------------------------------------------------------------------
+// SkirmishSpecialPowerReadyFromNamedCondition
+//-------------------------------------------------------------------------------------------------
+
+pub struct SkirmishSpecialPowerReadyFromNamedCondition;
+
+#[async_trait]
+impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
+    async fn evaluate(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<bool> {
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let power_name = get_str_param(parameters, "power_name")?;
+        let unit_name = get_str_param(parameters, "unit_name")?;
+        let Some(source_id) = lookup_named_object_id(&unit_name)? else {
+            return Ok(false);
+        };
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+
+        let Some(store) = get_special_power_store() else {
+            return Ok(false);
+        };
+        let Some(template) = store.find_special_power_template(power_name.as_str()) else {
+            return Ok(false);
+        };
+
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(source_id) else {
+            return Ok(false);
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return Ok(false);
+        };
+        if obj.is_destroyed()
+            || obj.is_effectively_dead()
+            || obj.is_disabled()
+            || obj
+                .get_status_bits()
+                .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+        {
+            return Ok(false);
+        }
+        if obj.get_special_power_module(template.get_id()).is_none() {
+            return Ok(false);
+        }
+
+        Ok(obj
+            .with_special_power_module_interface_by_name(template.get_name(), |module| {
+                let required_science = template.get_required_science();
+                (required_science == crate::common::science::SCIENCE_INVALID
+                    || player.has_science(required_science))
+                    && module.is_ready()
+            })
+            .unwrap_or(false))
+    }
+
+    fn name(&self) -> &str { "skirmish_special_power_ready_from_named" }
+    fn description(&self) -> &str { "Checks if a named unit has a ready special power" }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "power_name".to_string(), "unit_name".to_string()]
+    }
     fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
 
@@ -248,23 +483,46 @@ impl ScriptCondition for SkirmishHasEnoughMoneyCondition {
 // 8. SkirmishNeedsSupplyCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs supply warehouse API.
-/// TODO: implement once supply warehouse module API exists.
 pub struct SkirmishNeedsSupplyCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishNeedsSupplyCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once supply warehouse module API exists
-        Ok(false)
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let player_id = player.get_player_index() as u32;
+        let money = player.get_money().count_money();
+        let is_skirmish_ai = player.is_skirmish_ai();
+        drop(player);
+
+        if is_skirmish_ai {
+            if let Some(result) = with_ai_integration_mut(|manager| {
+                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                    IntegratedAiPlayer::Standard(ai) => !ai.is_supply_source_safe(2000),
+                    IntegratedAiPlayer::Skirmish(ai) => !ai.is_supply_source_safe(2000),
+                })
+            })
+            .flatten()
+            {
+                return Ok(result);
+            }
+        }
+
+        Ok(money < 2000)
     }
 
     fn name(&self) -> &str { "skirmish_needs_supply" }
-    fn description(&self) -> &str { "Checks if player needs supply (STUB)" }
+    fn description(&self) -> &str { "Checks if player needs supply" }
     fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
     fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
@@ -497,23 +755,38 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
 // 13. SkirmishBaseUnderAttackCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs non-existent base-under-attack detection API.
-/// TODO: implement once attack detection tracking is available.
 pub struct SkirmishBaseUnderAttackCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishBaseUnderAttackCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once base attack detection API exists
-        Ok(false)
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+
+        if is_player_recently_under_attack(&player, 90) {
+            return Ok(true);
+        }
+
+        if has_hostile_object_near_owned_objects(&player, 250.0, |obj| {
+            obj.is_kind_of(KindOf::Structure)
+        }) {
+            return Ok(true);
+        }
+
+        Ok(has_hostile_object_near_owned_objects(&player, 250.0, |_| true))
     }
 
     fn name(&self) -> &str { "skirmish_base_under_attack" }
-    fn description(&self) -> &str { "Checks if player's base is under attack (STUB)" }
+    fn description(&self) -> &str { "Checks if player's base is under attack" }
     fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
     fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
@@ -522,23 +795,49 @@ impl ScriptCondition for SkirmishBaseUnderAttackCondition {
 // 14. SkirmishSupplySourceAttackedCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs non-existent supply source attack detection API.
-/// TODO: implement once supply source attack tracking is available.
 pub struct SkirmishSupplySourceAttackedCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once supply source attack detection API exists
-        Ok(false)
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let player_id = player.get_player_index() as u32;
+        let is_skirmish_ai = player.is_skirmish_ai();
+
+        if is_skirmish_ai {
+            if let Some(result) = with_ai_integration_mut(|manager| {
+                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                    IntegratedAiPlayer::Standard(ai) => ai.is_supply_source_attacked(),
+                    IntegratedAiPlayer::Skirmish(ai) => ai.is_supply_source_attacked(),
+                })
+            })
+            .flatten()
+            {
+                return Ok(result);
+            }
+        }
+
+        Ok(has_hostile_object_near_owned_objects(&player, 120.0, |obj| {
+            obj.is_kind_of(KindOf::SupplySource)
+                || obj.is_kind_of(KindOf::ResourceNode)
+                || obj.is_kind_of(KindOf::FSSupplyCenter)
+                || obj.is_kind_of(KindOf::FSSupplyDropzone)
+                || obj.is_kind_of(KindOf::Refinery)
+        }))
     }
 
     fn name(&self) -> &str { "skirmish_supply_source_attacked" }
-    fn description(&self) -> &str { "Checks if a supply source is being attacked (STUB)" }
+    fn description(&self) -> &str { "Checks if a supply source is being attacked" }
     fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
     fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
@@ -547,23 +846,33 @@ impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
 // 15. SkirmishCanBuildCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs non-existent build capability API.
-/// TODO: implement once build queue / capability API exists.
 pub struct SkirmishCanBuildCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishCanBuildCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once build capability API exists
-        Ok(false)
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let object_name = get_str_param(parameters, "object_name")?;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        let Some(template) = TheThingFactory::find_template(object_name.as_str()) else {
+            return Ok(false);
+        };
+
+        Ok(player.can_build_template(template.as_ref()))
     }
 
     fn name(&self) -> &str { "skirmish_can_build" }
-    fn description(&self) -> &str { "Checks if player can build a specific object (STUB)" }
+    fn description(&self) -> &str { "Checks if player can build a specific object" }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "object_name".to_string()]
     }
@@ -574,23 +883,32 @@ impl ScriptCondition for SkirmishCanBuildCondition {
 // 16. SkirmishCanReinforceCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs non-existent reinforcement API.
-/// TODO: implement once reinforcement capability API exists.
 pub struct SkirmishCanReinforceCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishCanReinforceCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once reinforcement capability API exists
-        Ok(false)
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+
+        Ok(player.is_skirmish_ai()
+            && !player.is_defeated()
+            && player.get_current_enemy_player_index().is_some()
+            && (player.get_can_build_units() || player.get_can_build_base())
+            && player.get_money().count_money() > 0)
     }
 
     fn name(&self) -> &str { "skirmish_can_reinforce" }
-    fn description(&self) -> &str { "Checks if player can reinforce (STUB)" }
+    fn description(&self) -> &str { "Checks if player can reinforce" }
     fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
     fn optional_parameters(&self) -> Vec<String> { vec![] }
 }
@@ -943,23 +1261,35 @@ impl ScriptCondition for SkirmishAlliedWithHumanCondition {
 // 24. SkirmishEnemyNearBaseCondition
 //-------------------------------------------------------------------------------------------------
 
-/// Stub: needs start position lookup API.
-/// TODO: implement once player start position API exists.
 pub struct SkirmishEnemyNearBaseCondition;
 
 #[async_trait]
 impl ScriptCondition for SkirmishEnemyNearBaseCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: implement once player start position / enemy proximity API exists
-        Ok(false)
+        let player_arc = match get_player_arc(parameters, "player")? {
+            Some(player) => player,
+            None => return Ok(false),
+        };
+        let radius = super::super::actions::get_float_param(parameters, "radius")? as f32;
+
+        let player = player_arc.read().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to read player: {}", e))
+        })?;
+        if has_hostile_object_near_owned_objects(&player, radius, |obj| {
+            obj.is_kind_of(KindOf::Structure)
+        }) {
+            return Ok(true);
+        }
+
+        Ok(has_hostile_object_near_owned_objects(&player, radius, |_| true))
     }
 
     fn name(&self) -> &str { "skirmish_enemy_near_base" }
-    fn description(&self) -> &str { "Checks if enemies are near player's base (STUB)" }
+    fn description(&self) -> &str { "Checks if enemies are near player's base" }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "radius".to_string()]
     }
@@ -1002,6 +1332,7 @@ impl ScriptCondition for SkirmishTimeElapsedCondition {
 
 pub fn register_skirmish_conditions(registry: &mut ConditionRegistry) {
     registry.register_condition(Box::new(SkirmishSpecialPowerReadyCondition));
+    registry.register_condition(Box::new(SkirmishSpecialPowerReadyFromNamedCondition));
     registry.register_condition(Box::new(SkirmishCommandButtonReadyCondition));
     registry.register_condition(Box::new(SkirmishEasyAiCondition));
     registry.register_condition(Box::new(SkirmishMediumAiCondition));

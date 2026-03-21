@@ -112,6 +112,97 @@ pub fn set_drawable_creator(creator: Option<Arc<dyn DrawableCreator>>) {
         *guard = creator;
     }
 }
+/// Read key=value lines from the INI stream until `End` is encountered.
+///
+/// This mirrors the C++ `initFromINI` approach where the INI cursor is already
+/// positioned inside an `Object ... End` block.  Each line is split on `=` and
+/// collected into a HashMap.  Sub-blocks (e.g. `Behavior ... End`,
+/// `WeaponSet ... End`) are consumed but their contents are stored under a
+/// compound key like `"WeaponSet0.Conditions"` so that dedicated parsers can
+/// pick them up later.
+fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
+    let mut properties = HashMap::new();
+    let mut block_key_prefix: Option<String> = None;
+    let mut block_depth = 0u32;
+    let mut block_counter = 0u32;
+
+    loop {
+        ini.read_line().ok();
+        if ini.is_end_of_file() {
+            break;
+        }
+
+        let line = ini.get_buffer().to_string();
+        if line.is_empty() {
+            continue;
+        }
+
+        let first_token = line.split_whitespace().next().unwrap_or("");
+
+        // Handle block nesting
+        if first_token.eq_ignore_ascii_case("End") {
+            if block_depth > 0 {
+                block_depth -= 1;
+                if block_depth == 0 {
+                    block_key_prefix = None;
+                }
+                continue;
+            }
+            // Top-level End -- we're done
+            break;
+        }
+
+        // Detect sub-block starts (lines without '=' that aren't End)
+        if !line.contains('=') && block_depth == 0 {
+            // This is a sub-block keyword like "Behavior", "WeaponSet", etc.
+            // Generate a prefixed key for this block
+            let block_name = first_token;
+            if block_name.eq_ignore_ascii_case("WeaponSet") {
+                block_key_prefix = Some(format!("WeaponSet{}", block_counter));
+                block_counter += 1;
+                block_depth = 1;
+            } else if block_name.eq_ignore_ascii_case("ArmorSet") {
+                block_key_prefix = Some(format!("ArmorSet{}", block_counter));
+                block_counter += 1;
+                block_depth = 1;
+            } else {
+                // Generic sub-block (Behavior, Draw, etc.) -- skip entirely
+                block_depth = 1;
+                block_key_prefix = None;
+            }
+            continue;
+        }
+
+        // Inside a sub-block
+        if block_depth > 0 {
+            if !line.contains('=') {
+                // Nested sub-block start inside our block
+                block_depth += 1;
+                continue;
+            }
+
+            // Store with prefix if we have one (WeaponSet/ArmorSet)
+            if let Some(ref prefix) = block_key_prefix {
+                if let Some(eq_pos) = line.find('=') {
+                    let key = format!("{}.{}", prefix, line[..eq_pos].trim());
+                    let value = line[eq_pos + 1..].trim().to_string();
+                    properties.insert(key, value);
+                }
+            }
+            // Other sub-blocks are silently consumed
+            continue;
+        }
+
+        // Top-level key = value
+        if let Some(eq_pos) = line.find('=') {
+            let key = line[..eq_pos].trim().to_string();
+            let value = line[eq_pos + 1..].trim().to_string();
+            properties.insert(key, value);
+        }
+    }
+
+    properties
+}
 
 impl ThingFactory {
     pub fn new() -> Self {
@@ -319,7 +410,7 @@ impl ThingFactory {
         }
 
         // Find existing template or create new one
-        let _thing_template = if let Some(existing) = self.find_template(name, false) {
+        let mut thing_template = if let Some(existing) = self.find_template(name, false) {
             if ini.get_load_type() != IniLoadType::CreateOverrides {
                 return Err(format!("Duplicate thing template {} found!", name));
             }
@@ -348,8 +439,20 @@ impl ThingFactory {
                 ));
             }
         } else {
-            // Regular initialization
-            // ini.init_from_ini(&mut thing_template, thing_template.get_field_parse());
+            // Regular initialization -- parse INI fields into the template.
+            //
+            // C++ does: ini->initFromINI(self, self->getFieldParse());
+            // We read the remaining key=value lines from the INI block and
+            // apply them via parse_object_fields_from_ini.
+            let properties = consume_ini_properties(ini);
+            // Use Arc::make_mut to get mutable access for parsing
+            let tmpl = Arc::make_mut(&mut thing_template);
+            tmpl.parse_object_fields_from_ini(&properties);
+
+            // Re-insert the modified template back into the hash map since
+            // Arc::make_mut may have cloned it.
+            self.template_hash_map
+                .insert(AsciiString::from(name), thing_template.clone());
         }
 
         // Validate the template

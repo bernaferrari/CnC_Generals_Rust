@@ -1542,35 +1542,66 @@ impl SnapshotBuilder {
             return Ok(());
         }
 
-        if !terrain_snapshot.height_map.is_empty()
-            && !game_logic.restore_terrain_heights_from_grid(
+        let expected_len = match (terrain_snapshot.width as usize)
+            .checked_mul(terrain_snapshot.height as usize)
+        {
+            Some(len) if len > 0 => len,
+            _ => {
+                log::warn!(
+                    "Skipping terrain restore due to invalid grid dimensions ({}x{})",
+                    terrain_snapshot.width,
+                    terrain_snapshot.height
+                );
+                return Ok(());
+            }
+        };
+
+        if !terrain_snapshot.height_map.is_empty() {
+            if terrain_snapshot.height_map.len() != expected_len {
+                log::warn!(
+                    "Skipping terrain height restore due to invalid snapshot payload ({}x{}, {} samples, expected {})",
+                    terrain_snapshot.width,
+                    terrain_snapshot.height,
+                    terrain_snapshot.height_map.len(),
+                    expected_len
+                );
+            } else if !game_logic.restore_terrain_heights_from_grid(
                 terrain_snapshot.width,
                 terrain_snapshot.height,
                 &terrain_snapshot.height_map,
-            )
-        {
-            log::warn!(
-                "Skipping terrain height restore due to invalid snapshot payload ({}x{}, {} samples)",
+            ) {
+                log::warn!(
+                    "Skipping terrain height restore due to backend rejection ({}x{}, {} samples)",
+                    terrain_snapshot.width,
+                    terrain_snapshot.height,
+                    terrain_snapshot.height_map.len()
+                );
+            }
+        }
+
+        if !terrain_snapshot.passability_map.is_empty() {
+            if terrain_snapshot.passability_map.len() != expected_len {
+                log::warn!(
+                    "Skipping terrain passability restore due to invalid snapshot payload ({}x{}, {} cells, expected {})",
+                    terrain_snapshot.width,
+                    terrain_snapshot.height,
+                    terrain_snapshot.passability_map.len(),
+                    expected_len
+                );
+                return Ok(());
+            }
+
+            if !game_logic.restore_pathfinding_passability(
                 terrain_snapshot.width,
                 terrain_snapshot.height,
-                terrain_snapshot.height_map.len()
-            );
-        }
-
-        if terrain_snapshot.passability_map.is_empty() {
-            return Ok(());
-        }
-
-        if !game_logic.restore_pathfinding_passability(
-            terrain_snapshot.width,
-            terrain_snapshot.height,
-            &terrain_snapshot.passability_map,
-        ) {
-            log::warn!(
-                "Skipping terrain passability restore due to grid mismatch (snapshot {}x{}, map grid differs)",
-                terrain_snapshot.width,
-                terrain_snapshot.height
-            );
+                &terrain_snapshot.passability_map,
+            ) {
+                log::warn!(
+                    "Skipping terrain passability restore due to grid mismatch (snapshot {}x{}, map grid differs)",
+                    terrain_snapshot.width,
+                    terrain_snapshot.height
+                );
+            }
         }
 
         Ok(())

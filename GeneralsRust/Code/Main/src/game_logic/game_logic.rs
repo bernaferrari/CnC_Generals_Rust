@@ -71,6 +71,7 @@ use ww3d_engine::FrameTiming;
 const SCRIPT_BROADCAST_DURATION: f32 = 6.0;
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / LOGIC_FRAMES_PER_SECOND;
+const SHELL_MISSION_SCRIPT_BUDGET: usize = 8;
 
 /// Tick the gamelogic crate's full C++-parity update pipeline.
 /// This runs AI players, production/build assistant, weapon store (delayed damage),
@@ -3396,156 +3397,25 @@ impl GameLogic {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
 
-        // First pass: Scan for enemies and make attack decisions
+        // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
             if let Some(obj) = self.objects.get(&object_id) {
-                // Skip non-combat units and buildings
-                if !obj.can_attack() || obj.is_kind_of(KindOf::Structure) {
-                    continue;
-                }
-
                 let position = obj.get_position();
                 let team = obj.team;
                 let ai_state = obj.ai_state.clone();
                 let current_target = obj.target;
                 let can_attack = obj.can_attack();
-
-                match ai_state {
-                    AIState::Idle | AIState::Patrolling | AIState::AttackMoving => {
-                        // Scan for enemies
-                        let search_radius = 200.0; // Detection range
-
-                        if let Some((enemy_id, _distance)) = AIDecisionSystem::find_nearest_enemy(
-                            self,
-                            position,
-                            team,
-                            search_radius,
-                        ) {
-                            // Found an enemy - decide whether to attack
-                            let decision =
-                                AIDecisionSystem::should_attack(self, object_id, enemy_id);
-
-                            match decision {
-                                AttackDecision::Attack => {
-                                    // Engage enemy
-                                    ai_commands.push(AICommand::AttackTarget {
-                                        object_id,
-                                        target_id: enemy_id,
-                                    });
-                                    ai_commands.push(AICommand::SetAIState {
-                                        object_id,
-                                        state: AIState::Attacking,
-                                    });
-                                }
-                                AttackDecision::Retreat => {
-                                    // Retreat away from the nearest threat.
-                                    let retreat_dir = self
-                                        .objects
-                                        .get(&enemy_id)
-                                        .map(|t| {
-                                            (position - t.get_position()).normalize_or_zero()
-                                        })
-                                        .unwrap_or_else(|| -position.normalize_or_zero());
-                                    let retreat_pos = position + retreat_dir * 100.0;
-                                    ai_commands.push(AICommand::MoveTo {
-                                        object_id,
-                                        position: retreat_pos,
-                                    });
-                                }
-                                AttackDecision::FindNewTarget => {
-                                    // Look for a better target
-                                    if let Some(better_target) = AIDecisionSystem::find_best_target(
-                                        self,
-                                        object_id,
-                                        position,
-                                        team,
-                                        search_radius,
-                                        true,  // prefer_weak
-                                        true,  // prefer_close
-                                        false, // prefer_dangerous
-                                    ) {
-                                        ai_commands.push(AICommand::AttackTarget {
-                                            object_id,
-                                            target_id: better_target,
-                                        });
-                                    }
-                                }
-                                AttackDecision::Hold => {
-                                    // Stay in current position
-                                }
-                            }
-                        } else if ai_state == AIState::Idle {
-                            // No enemies nearby and idle - occasionally patrol
-                            if self.frame % 300 == 0 && fastrand::f32() < 0.2 {
-                                // 20% chance every 5 seconds
-                                ai_commands.push(AICommand::SetAIState {
-                                    object_id,
-                                    state: AIState::Patrolling,
-                                });
-                            }
-                        }
-                    }
-
-                    AIState::Attacking => {
-                        // Currently attacking - validate target
-                        if let Some(target_id) = current_target {
-                            let decision =
-                                AIDecisionSystem::should_attack(self, object_id, target_id);
-
-                            match decision {
-                                AttackDecision::FindNewTarget => {
-                                    // Current target invalid, find new one
-                                    ai_commands.push(AICommand::StopAttack { object_id });
-                                    ai_commands.push(AICommand::SetAIState {
-                                        object_id,
-                                        state: AIState::Idle,
-                                    });
-                                }
-                                AttackDecision::Retreat => {
-                                    // Too dangerous, retreat away from target.
-                                    ai_commands.push(AICommand::StopAttack { object_id });
-                                    let retreat_dir = self
-                                        .objects
-                                        .get(&target_id)
-                                        .map(|t| {
-                                            (position - t.get_position()).normalize_or_zero()
-                                        })
-                                        .unwrap_or_else(|| -position.normalize_or_zero());
-                                    let retreat_pos = position + retreat_dir * 100.0;
-                                    ai_commands.push(AICommand::MoveTo {
-                                        object_id,
-                                        position: retreat_pos,
-                                    });
-                                }
-                                AttackDecision::Attack | AttackDecision::Hold => {
-                                    // Continue attacking
-                                }
-                            }
-                        } else {
-                            // No target while in attacking state
-                            ai_commands.push(AICommand::StopAttack { object_id });
-                            ai_commands.push(AICommand::SetAIState {
-                                object_id,
-                                state: AIState::Idle,
-                            });
-                        }
-                    }
-
-                    _ => {
-                        // Other states handled by original process_ai_behavior
-                        if let Some(command) = self.process_ai_behavior(
-                            object_id,
-                            ai_state,
-                            current_target,
-                            position,
-                            team,
-                            can_attack,
-                            self.frame,
-                            dt,
-                        ) {
-                            ai_commands.push(command);
-                        }
-                    }
+                if let Some(command) = self.process_ai_behavior(
+                    object_id,
+                    ai_state,
+                    current_target,
+                    position,
+                    team,
+                    can_attack,
+                    self.frame,
+                    dt,
+                ) {
+                    ai_commands.push(command);
                 }
             }
         }
@@ -8026,7 +7896,14 @@ impl GameLogic {
         }
 
         let mission_runtime_started = Instant::now();
-        let mission_update_result = self.mission_scripts.update(self.frame as u64);
+        let mission_update_result = if self.isInShellGame() {
+            // Shell/menu mode already has chunked heavy-script evaluation; cap how many
+            // scripts we touch per frame so the UI thread cannot stall on long script lists.
+            self.mission_scripts
+                .update_shell_budgeted(self.frame as u64, Some(SHELL_MISSION_SCRIPT_BUDGET))
+        } else {
+            self.mission_scripts.update(self.frame as u64)
+        };
         if let Err(err) = mission_update_result {
             log::error!("Mission script runtime update failed: {}", err);
         }
