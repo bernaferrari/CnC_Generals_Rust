@@ -256,12 +256,23 @@ impl Snapshot for GameStateMap {
                     let real_save = state.portable_map_path_to_real_map_path(&save_game_map_name);
                     let real_pristine =
                         state.portable_map_path_to_real_map_path(&pristine_map_name);
-                    let save_info = state.get_save_game_info_mut();
-                    save_info.save_game_map_name = real_save;
-                    save_info.pristine_map_name = real_pristine;
+                    let save_game_map_name = real_save.clone();
+                    {
+                        let save_info = state.get_save_game_info_mut();
+                        save_info.save_game_map_name = save_game_map_name.clone();
+                        save_info.pristine_map_name = real_pristine;
+                    }
+
+                    if !state.is_in_save_directory(Path::new(&save_game_map_name)) {
+                        eprintln!(
+                            "GameStateMap::xfer - The map filename read from the file '{}' is not in the SAVE directory, but should be",
+                            save_game_map_name
+                        );
+                        return Err(XferStatus::InvalidData);
+                    }
 
                     if let Some(global) = get_global_data() {
-                        global.write().map_name = save_info.save_game_map_name.clone();
+                        global.write().map_name = save_game_map_name.clone();
                     }
                 }
 

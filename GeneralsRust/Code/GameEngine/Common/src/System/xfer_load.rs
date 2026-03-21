@@ -14,6 +14,7 @@ const MAX_XFER_LOAD_STRING_BUFFER: usize = 1024;
 pub struct XferLoad {
     base: XferBase,
     file: Option<File>,
+    post_process_snapshot_callback: Option<Box<dyn FnMut()>>,
 }
 
 impl XferLoad {
@@ -22,7 +23,16 @@ impl XferLoad {
         Self {
             base: XferBase::new(XferMode::Load),
             file: None,
+            post_process_snapshot_callback: None,
         }
+    }
+
+    /// Register a callback that records loaded snapshots for post-processing.
+    pub fn set_post_process_snapshot_callback(
+        &mut self,
+        callback: Option<Box<dyn FnMut()>>,
+    ) {
+        self.post_process_snapshot_callback = callback;
     }
 }
 
@@ -100,6 +110,7 @@ impl Xfer for XferLoad {
 
         // Clear the filename
         self.base.identifier.clear();
+        self.post_process_snapshot_callback = None;
 
         Ok(())
     }
@@ -154,12 +165,11 @@ impl Xfer for XferLoad {
         // Run the xfer function of the snapshot
         snapshot.xfer(self)?;
 
-        // Add this snapshot to the game state for later post processing if not restricted
-        // Note: This would require access to TheGameState global, which should be handled
-        // by the caller or through a callback mechanism
+        // Record the snapshot for deferred load fixups using the caller-provided hook.
         if !bit_test(self.get_options(), xfer_options::NO_POST_PROCESSING) {
-            // TheGameState->addPostProcessSnapshot(snapshot);
-            // This needs to be implemented via a callback or global state manager
+            if let Some(callback) = self.post_process_snapshot_callback.as_mut() {
+                callback();
+            }
         }
 
         Ok(())

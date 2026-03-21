@@ -392,7 +392,7 @@ fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool)
     } else if has_windowed_flag {
         (true, false)
     } else {
-        (false, true)
+        (true, false)
     }
 }
 

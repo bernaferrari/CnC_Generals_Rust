@@ -411,8 +411,22 @@ impl Interactive for PauseMenu {
                         "{}",
                         Self::text("pause.log.quick_save", "Quick save triggered")
                     );
+                    self.pending_events.push(UIEvent::PlaySoundEffectPath(
+                        sound_files::BUTTON_CLICK.to_string(),
+                    ));
+                    self.pending_events.push(UIEvent::SaveGame {
+                        slot: "quicksave".to_string(),
+                        display_name: Self::text("pause.quick_save_name", "Quick Save"),
+                    });
                     return true;
                 }
+                info!(
+                    "{}",
+                    Self::text(
+                        "pause.log.quick_save_unavailable",
+                        "Quick save is only available in single-player or skirmish"
+                    )
+                );
                 false
             }
             KeyCode::F9 => {
@@ -422,8 +436,20 @@ impl Interactive for PauseMenu {
                         "{}",
                         Self::text("pause.log.quick_load", "Quick load triggered")
                     );
+                    self.pending_events.push(UIEvent::PlaySoundEffectPath(
+                        sound_files::BUTTON_CLICK.to_string(),
+                    ));
+                    self.pending_events
+                        .push(UIEvent::LoadGame("quicksave".to_string()));
                     return true;
                 }
+                info!(
+                    "{}",
+                    Self::text(
+                        "pause.log.quick_load_unavailable",
+                        "Quick load is only available in single-player or skirmish"
+                    )
+                );
                 false
             }
             _ => false,

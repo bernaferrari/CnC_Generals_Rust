@@ -2017,6 +2017,135 @@ impl BehaviorModuleInterface for SpecialAbilityUpdate {
     // get_module_data, crc, save, load removed as they are not part of BehaviorModuleInterface in this codebase
 }
 
+impl Snapshotable for SpecialAbilityUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        use crate::common::xfer::XferMode;
+
+        // version -- C++ SpecialAbilityUpdate.cpp line 1991: currentVersion = 1
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SpecialAbilityUpdate version xfer failed: {:?}", e))?;
+
+        // extend base class -- C++ SpecialAbilityUpdate.cpp line 1996: UpdateModule::xfer( xfer )
+        self.base.xfer(xfer)?;
+
+        // active -- C++ SpecialAbilityUpdate.cpp line 1999
+        xfer.xfer_bool(&mut self.active)
+            .map_err(|e| format!("SpecialAbilityUpdate active xfer failed: {:?}", e))?;
+
+        // prep frames -- C++ SpecialAbilityUpdate.cpp line 2002
+        xfer.xfer_unsigned_int(&mut self.prep_frames)
+            .map_err(|e| format!("SpecialAbilityUpdate prep_frames xfer failed: {:?}", e))?;
+
+        // anim frames -- C++ SpecialAbilityUpdate.cpp line 2005
+        xfer.xfer_unsigned_int(&mut self.anim_frames)
+            .map_err(|e| format!("SpecialAbilityUpdate anim_frames xfer failed: {:?}", e))?;
+
+        // target ID -- C++ SpecialAbilityUpdate.cpp line 2008
+        xfer.xfer_object_id(&mut self.target_id)
+            .map_err(|e| format!("SpecialAbilityUpdate target_id xfer failed: {:?}", e))?;
+
+        // target position -- C++ SpecialAbilityUpdate.cpp line 2011
+        xfer.xfer_real(&mut self.target_pos.x)
+            .map_err(|e| format!("SpecialAbilityUpdate target_pos.x xfer failed: {:?}", e))?;
+        xfer.xfer_real(&mut self.target_pos.y)
+            .map_err(|e| format!("SpecialAbilityUpdate target_pos.y xfer failed: {:?}", e))?;
+        xfer.xfer_real(&mut self.target_pos.z)
+            .map_err(|e| format!("SpecialAbilityUpdate target_pos.z xfer failed: {:?}", e))?;
+
+        // location count -- C++ SpecialAbilityUpdate.cpp line 2014
+        xfer.xfer_int(&mut self.location_count)
+            .map_err(|e| format!("SpecialAbilityUpdate location_count xfer failed: {:?}", e))?;
+
+        // special object id list -- C++ SpecialAbilityUpdate.cpp line 2017: xferSTLObjectIDList
+        {
+            let mut count: u32 = self.special_object_id_list.len() as u32;
+            xfer.xfer_unsigned_int(&mut count)
+                .map_err(|e| format!("SpecialAbilityUpdate special_object_id_list count xfer failed: {:?}", e))?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.special_object_id_list.clear();
+                for _ in 0..count {
+                    let mut id: ObjectID = INVALID_ID;
+                    xfer.xfer_object_id(&mut id)
+                        .map_err(|e| format!("SpecialAbilityUpdate special_object_id_list item xfer failed: {:?}", e))?;
+                    self.special_object_id_list.push(id);
+                }
+            } else {
+                for id in self.special_object_id_list.iter_mut() {
+                    xfer.xfer_object_id(id)
+                        .map_err(|e| format!("SpecialAbilityUpdate special_object_id_list item xfer failed: {:?}", e))?;
+                }
+            }
+        }
+
+        // special object entries -- C++ SpecialAbilityUpdate.cpp line 2020
+        // This field tracks active special object count. The Rust port doesn't store it
+        // separately, so we use a local variable for save format compatibility.
+        {
+            let mut entries: u32 = self.special_object_id_list.len() as u32;
+            xfer.xfer_unsigned_int(&mut entries)
+                .map_err(|e| format!("SpecialAbilityUpdate special_object_entries xfer failed: {:?}", e))?;
+            // On load, entries is discarded; it will be recalculated from the list
+        }
+
+        // no target command -- C++ SpecialAbilityUpdate.cpp line 2023
+        xfer.xfer_bool(&mut self.no_target_command)
+            .map_err(|e| format!("SpecialAbilityUpdate no_target_command xfer failed: {:?}", e))?;
+
+        // packing state -- C++ SpecialAbilityUpdate.cpp line 2026: xferUser( &m_packingState, sizeof(PackingState) )
+        {
+            let mut state_val: u8 = self.packing_state as u8;
+            // SAFETY: state_val is a valid u8 on the stack
+            unsafe {
+                xfer.xfer_user(&mut state_val as *mut u8, std::mem::size_of::<u8>())
+            }
+            .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
+            if state_val <= 4 {
+                self.packing_state = match state_val {
+                    0 => PackingState::None,
+                    1 => PackingState::Packing,
+                    2 => PackingState::Unpacking,
+                    3 => PackingState::Packed,
+                    4 => PackingState::Unpacked,
+                    _ => PackingState::None,
+                };
+            }
+        }
+
+        // facing initiated -- C++ SpecialAbilityUpdate.cpp line 2029
+        xfer.xfer_bool(&mut self.facing_initiated)
+            .map_err(|e| format!("SpecialAbilityUpdate facing_initiated xfer failed: {:?}", e))?;
+
+        // facing complete -- C++ SpecialAbilityUpdate.cpp line 2032
+        xfer.xfer_bool(&mut self.facing_complete)
+            .map_err(|e| format!("SpecialAbilityUpdate facing_complete xfer failed: {:?}", e))?;
+
+        // within start ability range -- C++ SpecialAbilityUpdate.cpp line 2035
+        xfer.xfer_bool(&mut self.within_start_ability_range)
+            .map_err(|e| format!("SpecialAbilityUpdate within_start_ability_range xfer failed: {:?}", e))?;
+
+        // do disable fx particles -- C++ SpecialAbilityUpdate.cpp line 2038
+        xfer.xfer_bool(&mut self.do_disable_fx_particles)
+            .map_err(|e| format!("SpecialAbilityUpdate do_disable_fx_particles xfer failed: {:?}", e))?;
+
+        // capture flash phase -- C++ SpecialAbilityUpdate.cpp line 2041
+        xfer.xfer_real(&mut self.capture_flash_phase)
+            .map_err(|e| format!("SpecialAbilityUpdate capture_flash_phase xfer failed: {:?}", e))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ SpecialAbilityUpdate.cpp line 2048-2053: UpdateModule::loadPostProcess()
+        self.base.load_post_process();
+        Ok(())
+    }
+}
+
 impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
     fn does_special_power_update_pass_science_test(&self) -> bool {
         self.base.does_special_power_update_pass_science_test()
@@ -2187,16 +2316,16 @@ impl SpecialAbilityUpdateModule {
 }
 
 impl Snapshotable for SpecialAbilityUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.behavior.load_post_process()
     }
 }
 

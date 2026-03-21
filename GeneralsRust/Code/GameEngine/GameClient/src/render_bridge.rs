@@ -19,17 +19,17 @@
 //!   - `Drawable::friend_DrawModule()`
 //!   - `DrawableManager::render()`
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use ww3d_core::{
-    AABox, BoundingSphere, Camera, Layer, RenderInfo, RenderObject, Scene, SceneBuilder,
-};
 use ww3d_core::animation::{AnimationController, AnimationMode, Hierarchy, Pivot};
 use ww3d_core::lighting::{Light, LightEnvironment, LightType};
 use ww3d_core::material::{BlendMode, MaterialInfo, Shader, ShaderType, VertexMaterial};
 use ww3d_core::mesh::{Mesh, MeshBuilder, Vertex};
-use ww3d_core::texture::{TextureManager, TextureData};
+use ww3d_core::texture::{TextureData, TextureManager};
+use ww3d_core::{
+    AABox, BoundingSphere, Camera, Layer, RenderInfo, RenderObject, Scene, SceneBuilder,
+};
 
 // ---------------------------------------------------------------------------
 // Re-exports from GameLogic that the bridge needs to inspect
@@ -195,7 +195,9 @@ impl RenderStateOverrides {
         }
 
         // --- Toppled / Flooded ---
-        if flags.contains(RenderConditionFlags::TOPPLED) || flags.contains(RenderConditionFlags::FLOODED) {
+        if flags.contains(RenderConditionFlags::TOPPLED)
+            || flags.contains(RenderConditionFlags::FLOODED)
+        {
             s.opacity = 0.6;
         }
 
@@ -521,8 +523,8 @@ impl RenderBridge {
             .collect();
 
         // Phase 2: Frustum cull.
-        let camera = match &mut self.camera {
-            Some(c) => c,
+        let mut camera = match &self.camera {
+            Some(c) => c.clone(),
             None => return, // no camera — skip all rendering
         };
 
@@ -544,6 +546,9 @@ impl RenderBridge {
             })
             .collect();
 
+        let loaded_model_names: Vec<String> =
+            after_cull.iter().map(|s| s.model_name.to_lowercase()).collect();
+
         // Phase 3: Partition into opaque / transparent.
         let mut opaque: Vec<&DrawSubmission> = Vec::new();
         let mut transparent: Vec<&DrawSubmission> = Vec::new();
@@ -555,18 +560,27 @@ impl RenderBridge {
                 opaque.push(s);
             }
         }
+        drop(after_cull);
+
+        for name in loaded_model_names {
+            self.model_cache.insert(name, true);
+        }
 
         // Phase 4: Sort opaque front-to-back, transparent back-to-front.
         opaque.sort_by(|a, b| {
             let dist_a = distance_sq_to_camera(a, &camera);
             let dist_b = distance_sq_to_camera(b, &camera);
-            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+            dist_a
+                .partial_cmp(&dist_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         transparent.sort_by(|a, b| {
             let dist_a = distance_sq_to_camera(a, &camera);
             let dist_b = distance_sq_to_camera(b, &camera);
-            dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+            dist_b
+                .partial_cmp(&dist_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         stats.opaque_draws = opaque.len();
@@ -642,6 +656,25 @@ impl RenderBridge {
         self.model_cache.insert(model_name.to_lowercase(), true);
     }
 
+    /// Mark a batch of model names as loaded.
+    pub fn mark_models_loaded<I, S>(&mut self, model_names: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut seen = HashSet::new();
+        for model_name in model_names {
+            let model_name = model_name.as_ref().trim();
+            if model_name.is_empty() {
+                continue;
+            }
+            let key = model_name.to_lowercase();
+            if seen.insert(key.clone()) {
+                self.model_cache.insert(key, true);
+            }
+        }
+    }
+
     /// Check whether a model has been loaded.
     pub fn is_model_loaded(&self, model_name: &str) -> bool {
         self.model_cache
@@ -676,7 +709,9 @@ impl Default for RenderBridge {
 /// Used for depth sorting.  We use the translation component of the world
 /// transform as the object centre.
 fn distance_sq_to_camera(submission: &DrawSubmission, camera: &Camera) -> f32 {
-    let obj_pos = submission.world_transform.transform_point3(glam::Vec3::ZERO);
+    let obj_pos = submission
+        .world_transform
+        .transform_point3(glam::Vec3::ZERO);
     let cam_pos = ww_to_game_vec3(camera.position());
     (obj_pos - cam_pos).length_squared()
 }

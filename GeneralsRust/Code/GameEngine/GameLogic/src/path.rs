@@ -78,7 +78,7 @@ pub type LocomotorSurfaceTypeMask = u32;
 pub const SURFACE_GROUND: LocomotorSurfaceTypeMask = 0x01;
 pub const SURFACE_WATER: LocomotorSurfaceTypeMask = 0x02;
 pub const SURFACE_CLIFF: LocomotorSurfaceTypeMask = 0x04;
-pub const SURFACE_RUBBLE: LocomotorSurfaceTypeMask = 0x08;
+pub const SURFACE_RUBBLE: LocomotorSurfaceTypeMask = 0x10;
 
 /// Pathfinding services interface trait matching C++ PathfindServicesInterface
 pub trait PathfindServicesInterface {

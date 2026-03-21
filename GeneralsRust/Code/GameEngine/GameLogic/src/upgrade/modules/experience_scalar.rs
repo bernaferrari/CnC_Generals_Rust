@@ -12,7 +12,7 @@ use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::sync::Arc;
 
@@ -267,6 +267,9 @@ impl Snapshotable for ExperienceScalarUpgrade {
         self.mux.crc(xfer)
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
         self.mux.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {

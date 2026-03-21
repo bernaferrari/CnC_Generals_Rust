@@ -146,6 +146,21 @@ impl FunctionLexicon {
         self.tables.insert(table_index, table);
     }
 
+    /// Recompute name keys for all loaded tables.
+    ///
+    /// C++ `FunctionLexicon::init()` always re-runs `loadTable(...)` over static
+    /// entries, which regenerates keys. Preserve that behavior for already-loaded
+    /// Rust tables during init/reset.
+    fn rekey_loaded_tables(&mut self) {
+        for table in self.tables.values_mut() {
+            for entry in table {
+                if !entry.name.is_empty() {
+                    entry.key = NameKeyGenerator::name_to_key(&entry.name);
+                }
+            }
+        }
+    }
+
     /// Find a function by key in a specific table
     pub fn key_to_func(&self, key: NameKeyType, table_index: TableIndex) -> Option<FunctionPtr> {
         if key == INVALID_NAME_KEY {
@@ -246,17 +261,15 @@ impl SubsystemInterface for FunctionLexicon {
     fn init(&mut self) -> SubsystemResult<()> {
         self.state = SubsystemState::Initializing;
 
-        // Initialize tables would normally be done here
-        // For now, tables are loaded explicitly via load_table calls
+        // C++ init reloads all static tables and recomputes NameKey values.
+        // Rust keeps callback tables externally loaded, so rekey whatever is present.
+        self.rekey_loaded_tables();
 
         // Validate the loaded tables
         if !self.validate() {
-            eprintln!("Function lexicon validation failed - duplicate function addresses detected");
-            self.state = SubsystemState::Error;
-            return Err(
-                crate::common::system::subsystem_interface::SubsystemError::InitializationFailed(
-                    "Function lexicon validation failed".to_string(),
-                ),
+            // C++ only logs duplicate-address warnings and continues startup.
+            eprintln!(
+                "Function lexicon validation detected duplicate function addresses; continuing for C++ parity"
             );
         }
 
@@ -281,8 +294,7 @@ impl SubsystemInterface for FunctionLexicon {
     }
 
     fn reset(&mut self) -> SubsystemResult<()> {
-        // Re-initialize by clearing and reloading tables
-        self.tables.clear();
+        // C++ reset() calls init() and keeps static callback tables alive.
         self.state = SubsystemState::Uninitialized;
         self.init()
     }
@@ -477,5 +489,42 @@ mod tests {
         lexicon.load_table(table2, TableIndex::GameWinInput);
         // This should detect the duplicate
         assert!(!lexicon.validate());
+    }
+
+    #[test]
+    fn test_reset_preserves_loaded_tables() {
+        NameKeyGenerator::reset();
+        let mut lexicon = FunctionLexicon::new();
+        lexicon.load_table(
+            vec![function_table_entry!("TestFunction1", test_function_1)],
+            TableIndex::GameWinSystem,
+        );
+        assert_eq!(lexicon.function_count(), 1);
+
+        let reset_result = <FunctionLexicon as SubsystemInterface>::reset(&mut lexicon);
+        assert!(reset_result.is_ok());
+        assert_eq!(lexicon.function_count(), 1);
+        assert!(
+            lexicon
+                .find_function_by_name("TestFunction1", TableIndex::GameWinSystem)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn test_init_does_not_fail_on_duplicate_addresses() {
+        NameKeyGenerator::reset();
+        let mut lexicon = FunctionLexicon::new();
+        lexicon.load_table(
+            vec![function_table_entry!("A", test_function_1)],
+            TableIndex::GameWinSystem,
+        );
+        lexicon.load_table(
+            vec![function_table_entry!("B", test_function_1)],
+            TableIndex::GameWinInput,
+        );
+        let result = <FunctionLexicon as SubsystemInterface>::init(&mut lexicon);
+        assert!(result.is_ok());
+        assert_eq!(lexicon.state(), SubsystemState::Running);
     }
 }

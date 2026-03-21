@@ -8,7 +8,7 @@
 use crate::common::NameKeyType;
 use crate::common::{
     Bool, Coord3D, DisabledMaskType, Int, KindOf, ModuleData, ObjectStatusMaskType,
-    ObjectStatusTypes, Real, UnsignedInt,
+    ObjectStatusTypes, Real, UnsignedInt, XferVersion,
 };
 use crate::modules::{
     BehaviorModuleInterface, UpdateModule, UpdateModuleInterface, UpdateSleepTime,
@@ -753,6 +753,85 @@ impl UpdateModuleInterface for StealthUpdate {
         }
 
         UPDATE_SLEEP_FOREVER
+    }
+}
+
+impl Snapshotable for StealthUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // version -- C++ StealthUpdate.cpp line 1119: currentVersion = 2
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("StealthUpdate version xfer failed: {:?}", e))?;
+
+        // stealth allowed frame -- C++ StealthUpdate.cpp line 1127
+        xfer.xfer_unsigned_int(&mut self.stealth_allowed_frame)
+            .map_err(|e| format!("StealthUpdate stealth_allowed_frame xfer failed: {:?}", e))?;
+
+        // detection expires frame -- C++ StealthUpdate.cpp line 1130
+        xfer.xfer_unsigned_int(&mut self.detection_expires_frame)
+            .map_err(|e| format!("StealthUpdate detection_expires_frame xfer failed: {:?}", e))?;
+
+        // enabled -- C++ StealthUpdate.cpp line 1133
+        xfer.xfer_bool(&mut self.enabled)
+            .map_err(|e| format!("StealthUpdate enabled xfer failed: {:?}", e))?;
+
+        // pulse phase rate -- C++ StealthUpdate.cpp line 1136
+        xfer.xfer_real(&mut self.pulse_phase_rate)
+            .map_err(|e| format!("StealthUpdate pulse_phase_rate xfer failed: {:?}", e))?;
+
+        // pulse phase -- C++ StealthUpdate.cpp line 1139
+        xfer.xfer_real(&mut self.pulse_phase)
+            .map_err(|e| format!("StealthUpdate pulse_phase xfer failed: {:?}", e))?;
+
+        // disguise as player index -- C++ StealthUpdate.cpp line 1142
+        xfer.xfer_int(&mut self.disguise_as_player_index)
+            .map_err(|e| format!("StealthUpdate disguise_as_player_index xfer failed: {:?}", e))?;
+
+        // disguise as template -- C++ StealthUpdate.cpp line 1145-1165
+        // The Rust port does not store a disguise template pointer, so we xfer
+        // an empty string for compatibility with the C++ save format.
+        let mut disguise_template_name = String::new();
+        xfer.xfer_ascii_string(&mut disguise_template_name)
+            .map_err(|e| format!("StealthUpdate disguise_template_name xfer failed: {:?}", e))?;
+
+        // disguise transition frames -- C++ StealthUpdate.cpp line 1168
+        xfer.xfer_unsigned_int(&mut self.disguise_transition_frames)
+            .map_err(|e| format!("StealthUpdate disguise_transition_frames xfer failed: {:?}", e))?;
+
+        // disguise halfpoint reached -- C++ StealthUpdate.cpp line 1171
+        xfer.xfer_bool(&mut self.disguise_halfpoint_reached)
+            .map_err(|e| format!("StealthUpdate disguise_halfpoint_reached xfer failed: {:?}", e))?;
+
+        // transitioning to disguise -- C++ StealthUpdate.cpp line 1174
+        xfer.xfer_bool(&mut self.transitioning_to_disguise)
+            .map_err(|e| format!("StealthUpdate transitioning_to_disguise xfer failed: {:?}", e))?;
+
+        // disguised -- C++ StealthUpdate.cpp line 1177
+        xfer.xfer_bool(&mut self.disguised)
+            .map_err(|e| format!("StealthUpdate disguised xfer failed: {:?}", e))?;
+
+        // version 2 fields -- C++ StealthUpdate.cpp line 1179-1182
+        if version >= 2 {
+            xfer.xfer_unsigned_int(&mut self.frames_granted)
+                .map_err(|e| format!("StealthUpdate frames_granted xfer failed: {:?}", e))?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ StealthUpdate.cpp line 1189-1204
+        // Restore disguise flag after load so visual disguise can be applied
+        // when the game is ready to run (cannot do it here because drawable
+        // destruction during load is unsafe).
+        if self.disguised {
+            self.xfer_restore_disguise = true;
+        }
+        Ok(())
     }
 }
 
