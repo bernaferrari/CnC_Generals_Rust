@@ -20,6 +20,35 @@ const MAX_SAVE_FILE_NUMBER: i32 = 99999999;
 const GAME_STATE_BLOCK_STRING: &str = "CHUNK_GameState";
 const CAMPAIGN_BLOCK_STRING: &str = "CHUNK_Campaign";
 
+const SAVELOAD_BLOCK_NAMES: &[&str] = &[
+    GAME_STATE_BLOCK_STRING,
+    CAMPAIGN_BLOCK_STRING,
+    "CHUNK_GameStateMap",
+    "CHUNK_TerrainLogic",
+    "CHUNK_TeamFactory",
+    "CHUNK_Players",
+    "CHUNK_GameLogic",
+    "CHUNK_Radar",
+    "CHUNK_ScriptEngine",
+    "CHUNK_SidesList",
+    "CHUNK_TacticalView",
+    "CHUNK_GameClient",
+    "CHUNK_InGameUI",
+    "CHUNK_Partition",
+    "CHUNK_ParticleSystem",
+    "CHUNK_TerrainVisual",
+    "CHUNK_GhostObject",
+];
+
+const DEEP_CRC_LOGIC_ONLY_BLOCK_NAMES: &[&str] = &[
+    "CHUNK_TeamFactory",
+    "CHUNK_Players",
+    "CHUNK_GameLogic",
+    "CHUNK_ScriptEngine",
+    "CHUNK_SidesList",
+    "CHUNK_Partition",
+];
+
 // ------------------------------------------------------------------------------------------------
 // Save/Load Layout Type
 // ------------------------------------------------------------------------------------------------
@@ -162,6 +191,13 @@ pub enum SnapshotType {
     DeepCrc,
 }
 
+fn known_block_names(which: SnapshotType) -> &'static [&'static str] {
+    match which {
+        SnapshotType::SaveLoad => SAVELOAD_BLOCK_NAMES,
+        SnapshotType::DeepCrcLogicOnly | SnapshotType::DeepCrc => DEEP_CRC_LOGIC_ONLY_BLOCK_NAMES,
+    }
+}
+
 const SNAPSHOT_MAX: usize = 3;
 
 // ------------------------------------------------------------------------------------------------
@@ -179,6 +215,7 @@ pub struct GameState {
     snapshot_block_lists: [Vec<SnapshotBlock>; SNAPSHOT_MAX],
     game_info: SaveGameInfo,
     snapshot_post_process_list: Vec<(SnapshotType, usize)>,
+    pending_post_process_snapshot: Option<(SnapshotType, usize)>,
     available_games: Vec<AvailableGameInfo>,
     is_in_load_game: bool,
     save_directory: PathBuf,
@@ -191,6 +228,7 @@ impl GameState {
             snapshot_block_lists: [Vec::new(), Vec::new(), Vec::new()],
             game_info: SaveGameInfo::default(),
             snapshot_post_process_list: Vec::new(),
+            pending_post_process_snapshot: None,
             available_games: Vec::new(),
             is_in_load_game: false,
             save_directory,
@@ -203,9 +241,20 @@ impl GameState {
         self.is_in_load_game = false;
     }
 
+    /// Reset runtime state for a fresh initialization while preserving registered snapshot blocks.
+    pub fn reset_for_init(&mut self, save_directory: PathBuf) {
+        self.game_info = SaveGameInfo::default();
+        self.snapshot_post_process_list.clear();
+        self.pending_post_process_snapshot = None;
+        self.available_games.clear();
+        self.is_in_load_game = false;
+        self.save_directory = save_directory;
+    }
+
     /// Reset the game state
     pub fn reset(&mut self) {
         self.snapshot_post_process_list.clear();
+        self.pending_post_process_snapshot = None;
         self.available_games.clear();
         self.is_in_load_game = false;
     }
@@ -428,12 +477,17 @@ impl GameState {
         // Write save file
         match self.xfer_save_data(&mut xfer_save, which) {
             Ok(_) => {
-                xfer_save.close()?;
+                if let Err(close_err) = xfer_save.close() {
+                    eprintln!("Error closing save file: {:?}", close_err);
+                    return Ok(SaveCode::Error);
+                }
                 println!("Game saved successfully");
                 Ok(SaveCode::Ok)
             }
             Err(e) => {
-                xfer_save.close()?;
+                if let Err(close_err) = xfer_save.close() {
+                    eprintln!("Error closing save file: {:?}", close_err);
+                }
                 eprintln!("Error saving game: {:?}", e);
                 Ok(SaveCode::Error)
             }
@@ -451,29 +505,61 @@ impl GameState {
         // Open load file
         let mut xfer_load = XferLoad::new();
         xfer_load.open(filepath.to_str().unwrap_or("").to_string())?;
+        let post_process_list: *mut Vec<(SnapshotType, usize)> =
+            &mut self.snapshot_post_process_list;
+        let pending_snapshot: *mut Option<(SnapshotType, usize)> =
+            &mut self.pending_post_process_snapshot;
+        xfer_load.set_post_process_snapshot_callback(Some(Box::new(move || {
+            // SAFETY: the callback runs synchronously during `GameState::load_game`.
+            unsafe {
+                if let Some(entry) = (&mut *pending_snapshot).take() {
+                    (&mut *post_process_list).push(entry);
+                }
+            }
+        })));
+
+        // Clear any stale post-process registrations from a previous load attempt.
+        self.snapshot_post_process_list.clear();
+        self.pending_post_process_snapshot = None;
 
         // Set load flag
         self.is_in_load_game = true;
 
         // Load save data
-        let result = match self.xfer_save_data(&mut xfer_load, SnapshotType::SaveLoad) {
+        let load_result = self.xfer_save_data(&mut xfer_load, SnapshotType::SaveLoad);
+        let close_result = xfer_load.close();
+        let post_process_result = self.game_state_post_process_load();
+
+        self.is_in_load_game = false;
+
+        match load_result {
             Ok(_) => {
-                xfer_load.close()?;
-
-                // Post process
-                self.game_state_post_process_load()?;
-
+                if let Err(close_err) = close_result {
+                    self.snapshot_post_process_list.clear();
+                    eprintln!("Error closing load file: {:?}", close_err);
+                    return Ok(SaveCode::InvalidData);
+                }
+                if let Err(post_process_err) = post_process_result {
+                    self.snapshot_post_process_list.clear();
+                    eprintln!("Error post-processing loaded game: {:?}", post_process_err);
+                    return Ok(SaveCode::InvalidData);
+                }
+                self.pending_post_process_snapshot = None;
                 Ok(SaveCode::Ok)
             }
             Err(e) => {
-                xfer_load.close()?;
+                if let Err(close_err) = close_result {
+                    eprintln!("Error closing load file: {:?}", close_err);
+                }
+                if let Err(post_process_err) = post_process_result {
+                    eprintln!("Error post-processing loaded game: {:?}", post_process_err);
+                }
                 eprintln!("Error loading game: {:?}", e);
+                self.snapshot_post_process_list.clear();
+                self.pending_post_process_snapshot = None;
                 Ok(SaveCode::InvalidData)
             }
-        };
-
-        self.is_in_load_game = false;
-        result
+        }
     }
 
     /// Create a mission save (best-effort without campaign integration).
@@ -509,8 +595,8 @@ impl GameState {
                     let mut block_name = block_info.block_name.clone();
 
                     if self.game_info.save_file_type == SaveFileType::Mission {
-                        if !block_name.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING)
-                            && !block_name.eq_ignore_ascii_case(CAMPAIGN_BLOCK_STRING)
+                        if block_name != GAME_STATE_BLOCK_STRING
+                            && block_name != CAMPAIGN_BLOCK_STRING
                         {
                             continue;
                         }
@@ -549,13 +635,14 @@ impl GameState {
                     let index = which as usize;
                     let block_pos = self.snapshot_block_lists[index]
                         .iter()
-                        .position(|block| block.block_name.eq_ignore_ascii_case(&token));
+                        .position(|block| block.block_name == token);
                     if let Some(pos) = block_pos {
                         let _block_size = xfer.begin_block()?;
+                        self.pending_post_process_snapshot = Some((which, pos));
                         let snapshot = self.snapshot_block_lists[index][pos].snapshot.as_mut();
-                        xfer.xfer_snapshot(snapshot)?;
-                        if !bit_test(xfer.get_options(), xfer_options::NO_POST_PROCESSING) {
-                            self.snapshot_post_process_list.push((which, pos));
+                        if let Err(err) = xfer.xfer_snapshot(snapshot) {
+                            self.pending_post_process_snapshot = None;
+                            return Err(err);
                         }
                         xfer.end_block()?;
                     } else {
@@ -576,16 +663,14 @@ impl GameState {
 
     /// Post process after loading
     fn game_state_post_process_load(&mut self) -> Result<(), XferStatus> {
-        // Post process each snapshot
-        for (which, index) in &self.snapshot_post_process_list {
-            let list_index = *which as usize;
-            if let Some(block) = self.snapshot_block_lists[list_index].get_mut(*index) {
+        // Drain the list first so we do not leave stale pointers behind if a fixup fails.
+        let snapshots = std::mem::take(&mut self.snapshot_post_process_list);
+        for (which, index) in snapshots {
+            let list_index = which as usize;
+            if let Some(block) = self.snapshot_block_lists[list_index].get_mut(index) {
                 block.snapshot.load_post_process()?;
             }
         }
-
-        // Clear post process list
-        self.snapshot_post_process_list.clear();
 
         Ok(())
     }
@@ -638,8 +723,16 @@ impl GameState {
                 break;
             }
 
+            if !known_block_names(SnapshotType::SaveLoad)
+                .iter()
+                .any(|block_name| *block_name == token)
+            {
+                xfer_load.close()?;
+                return Err(XferStatus::UnknownBlock);
+            }
+
             let block_size = xfer_load.begin_block()?;
-            if token.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
+            if token == GAME_STATE_BLOCK_STRING {
                 let mut temp_state = GameState::new(self.save_directory.clone());
                 xfer_load.xfer_snapshot(&mut temp_state)?;
                 xfer_load.end_block()?;
@@ -791,5 +884,108 @@ impl GameState {
         self.game_info.mission_map_name.clear();
         self.game_info.pristine_map_name.clear();
         self.xfer_save_data(xfer, which)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_save_dir(label: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_nanos();
+        path.push(format!(
+            "game_state_save_test_{}_{}_{}",
+            label,
+            std::process::id(),
+            stamp
+        ));
+        fs::create_dir_all(&path).expect("create temp save dir");
+        path
+    }
+
+    fn sample_game_state(save_directory: PathBuf) -> GameState {
+        let mut state = GameState::new(save_directory);
+        {
+            let info = state.get_save_game_info_mut();
+            info.description = "Test Description".to_string();
+            info.save_file_type = SaveFileType::Mission;
+            info.mission_map_name = "Maps\\MissionTest.map".to_string();
+            info.map_label = "Mission Test".to_string();
+            info.campaign_side = "GDI".to_string();
+            info.mission_number = 7;
+            info.pristine_map_name = "Maps\\PristineTest.map".to_string();
+        }
+        state
+    }
+
+    fn write_game_state_block(path: &Path, token: &str, state: &mut GameState) {
+        let mut xfer_save = XferSave::new();
+        xfer_save
+            .open(path.to_string_lossy().into_owned())
+            .expect("open save file");
+
+        let mut block_name = token.to_string();
+        xfer_save
+            .xfer_ascii_string(&mut block_name)
+            .expect("write block token");
+        xfer_save.begin_block().expect("begin block");
+        xfer_save
+            .xfer_snapshot(state)
+            .expect("write game state block");
+        xfer_save.end_block().expect("end block");
+
+        let mut eof_token = SAVE_FILE_EOF.to_string();
+        xfer_save
+            .xfer_ascii_string(&mut eof_token)
+            .expect("write eof token");
+        xfer_save.close().expect("close save file");
+    }
+
+    #[test]
+    fn get_save_game_info_from_file_reads_exact_game_state_token() {
+        let save_dir = unique_temp_save_dir("exact");
+        let path = save_dir.join("00000001.sav");
+        let mut state = sample_game_state(save_dir.clone());
+
+        write_game_state_block(&path, GAME_STATE_BLOCK_STRING, &mut state);
+
+        let mut reader = GameState::new(save_dir.clone());
+        let info = reader
+            .get_save_game_info_from_file("00000001.sav")
+            .expect("extract save info");
+
+        assert_eq!(info.description, "Test Description");
+        assert_eq!(info.save_file_type, SaveFileType::Mission);
+        assert_eq!(info.mission_map_name, "Maps\\MissionTest.map");
+        assert_eq!(info.map_label, "Mission Test");
+        assert_eq!(info.campaign_side, "GDI");
+        assert_eq!(info.mission_number, 7);
+
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    #[test]
+    fn get_save_game_info_from_file_rejects_mixed_case_block_tokens() {
+        let save_dir = unique_temp_save_dir("mixed_case");
+        let path = save_dir.join("00000001.sav");
+        let mut state = sample_game_state(save_dir.clone());
+
+        write_game_state_block(&path, "chunk_gamestate", &mut state);
+
+        let mut reader = GameState::new(save_dir.clone());
+        let err = reader
+            .get_save_game_info_from_file("00000001.sav")
+            .expect_err("mixed-case block token should be rejected");
+
+        assert_eq!(err, XferStatus::UnknownBlock);
+
+        let _ = fs::remove_dir_all(save_dir);
     }
 }

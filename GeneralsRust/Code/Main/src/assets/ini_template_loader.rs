@@ -9,7 +9,8 @@
 //! Loads weapon, upgrade, and science templates from BIG archives at startup,
 //! matching the C++ original's INI loading order:
 //!
-//! 1. Weapon INIs from `Data/INI/Weapon/` and `Data/INI/Default/Weapon.ini`
+//! 1. Weapon INIs from `Data/INI/Weapon.ini`, `Data/INI/Default/Weapon.ini`,
+//!    and `Data/INI/Weapon/`
 //! 2. Upgrade INIs from `Data/INI/Default/Upgrade.ini`
 //! 3. Science INIs from `Data/INI/Science.ini`
 //!
@@ -216,39 +217,89 @@ fn strip_inline_comment(value: &str) -> String {
     value.to_string()
 }
 
+/// Normalize an archive path for discovery and lookup.
+///
+/// This keeps the original casing intact, but converts separators to `/`,
+/// removes repeated separators, and trims leading `./` or `/` prefixes so
+/// archive variants compare deterministically.
+fn normalize_archive_path(path: &str) -> String {
+    let mut normalized = String::with_capacity(path.len());
+    let mut previous_was_slash = false;
+
+    for ch in path.trim().chars() {
+        let ch = if ch == '\\' { '/' } else { ch };
+        if ch == '/' {
+            if previous_was_slash {
+                continue;
+            }
+            previous_was_slash = true;
+        } else {
+            previous_was_slash = false;
+        }
+        normalized.push(ch);
+    }
+
+    while let Some(stripped) = normalized.strip_prefix("./") {
+        normalized = stripped.to_string();
+    }
+    while let Some(stripped) = normalized.strip_prefix('/') {
+        normalized = stripped.to_string();
+    }
+
+    normalized
+}
+
+/// Normalize an archive path and convert it into a case-insensitive key.
+fn archive_path_key(path: &str) -> String {
+    normalize_archive_path(path).to_ascii_lowercase()
+}
+
+/// Deduplicate archive paths case-insensitively while keeping deterministic order.
+fn sort_and_dedup_archive_paths(paths: &mut Vec<String>) {
+    paths.sort_by(|a, b| {
+        let a_key = archive_path_key(a);
+        let b_key = archive_path_key(b);
+        a_key.cmp(&b_key).then_with(|| a.cmp(b))
+    });
+    paths.dedup_by(|a, b| archive_path_key(a) == archive_path_key(b));
+}
+
+/// Returns `true` if `path_key` exactly matches `target` or ends with `/{target}`.
+fn archive_key_matches_suffix(path_key: &str, target: &str) -> bool {
+    path_key == target || path_key.ends_with(&format!("/{}", target))
+}
+
+/// Returns `true` when a path should be treated as a weapon INI.
+fn is_weapon_ini_path(path: &str) -> bool {
+    let key = archive_path_key(path);
+    archive_key_matches_suffix(&key, "data/ini/weapon.ini")
+        || archive_key_matches_suffix(&key, "data/ini/default/weapon.ini")
+        || ((key.starts_with("data/ini/weapon/") || key.contains("/data/ini/weapon/"))
+            && key.ends_with(".ini"))
+}
+
 /// Discover weapon INI files from the archive system.
 ///
 /// In the C++ original, weapon INIs are loaded from:
+/// - `Data/INI/Weapon.ini` (main weapon definitions)
 /// - `Data/INI/Default/Weapon.ini` (base weapon definitions)
 /// - `Data/INI/Weapon/*.ini` (faction-specific weapon files)
-fn discover_weapon_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String> {
-    let all_files = archive_system.list_all_files();
-
+fn discover_weapon_ini_files_from_paths<I>(all_files: I) -> Vec<String>
+where
+    I: IntoIterator<Item = String>,
+{
     let mut discovered: Vec<String> = all_files
         .into_iter()
-        .map(|path| path.replace('\\', "/"))
-        .filter(|path| {
-            let normalized = path.to_ascii_lowercase();
-            (normalized.starts_with("data/ini/weapon/") && normalized.ends_with(".ini"))
-                || normalized == "data/ini/default/weapon.ini"
-        })
+        .map(|path| normalize_archive_path(&path))
+        .filter(|path| is_weapon_ini_path(path))
         .collect();
 
-    // Sort: Default/Weapon.ini first, then alphabetical
-    discovered.sort_by(|a, b| {
-        let a_is_default = a.to_ascii_lowercase() == "data/ini/default/weapon.ini";
-        let b_is_default = b.to_ascii_lowercase() == "data/ini/default/weapon.ini";
-        if a_is_default && !b_is_default {
-            return std::cmp::Ordering::Less;
-        }
-        if !a_is_default && b_is_default {
-            return std::cmp::Ordering::Greater;
-        }
-        a.cmp(b)
-    });
-
-    discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    sort_and_dedup_archive_paths(&mut discovered);
     discovered
+}
+
+fn discover_weapon_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String> {
+    discover_weapon_ini_files_from_paths(archive_system.list_all_files())
 }
 
 /// Discover upgrade INI files from the archive system.
@@ -260,11 +311,11 @@ fn discover_upgrade_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String>
 
     let mut discovered: Vec<String> = all_files
         .into_iter()
-        .map(|path| path.replace('\\', "/"))
+        .map(|path| normalize_archive_path(&path))
         .filter(|path| {
             let normalized = path.to_ascii_lowercase();
-            normalized == "data/ini/default/upgrade.ini"
-                || normalized == "data/ini/upgrade.ini"
+            archive_key_matches_suffix(&normalized, "data/ini/default/upgrade.ini")
+                || archive_key_matches_suffix(&normalized, "data/ini/upgrade.ini")
         })
         .collect();
 
@@ -282,10 +333,10 @@ fn discover_science_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String>
 
     let mut discovered: Vec<String> = all_files
         .into_iter()
-        .map(|path| path.replace('\\', "/"))
+        .map(|path| normalize_archive_path(&path))
         .filter(|path| {
             let normalized = path.to_ascii_lowercase();
-            normalized == "data/ini/science.ini"
+            archive_key_matches_suffix(&normalized, "data/ini/science.ini")
         })
         .collect();
 
@@ -310,6 +361,7 @@ pub async fn load_weapon_templates(
         "Loading weapon templates from {} INI files",
         weapon_files.len()
     );
+    debug!("Weapon INI discovery matched {} file(s)", weapon_files.len());
 
     let mut total_weapons = 0usize;
 
@@ -1028,6 +1080,46 @@ End
         assert_eq!(strip_inline_comment("Explosion ; comment"), "Explosion");
         assert_eq!(strip_inline_comment("100.0 // another comment"), "100.0");
         assert_eq!(strip_inline_comment("NoComment"), "NoComment");
+    }
+
+    #[test]
+    fn test_normalize_archive_path() {
+        assert_eq!(
+            normalize_archive_path(r".\Data\\INI\Weapon.ini"),
+            "Data/INI/Weapon.ini"
+        );
+        assert_eq!(
+            normalize_archive_path(r"//Data/INI//Default\\Weapon.ini"),
+            "Data/INI/Default/Weapon.ini"
+        );
+    }
+
+    #[test]
+    fn test_discover_weapon_ini_files_includes_canonical_variants() {
+        let files = vec![
+            r".\Data\INI\Default\Weapon.ini".to_string(),
+            r"Data\INI\Weapon.ini".to_string(),
+            r"INIZH\Data\INI\Weapon.ini".to_string(),
+            r"Data/INI/Weapon/America.ini".to_string(),
+            r"INIZH/Data/INI/Weapon/China.ini".to_string(),
+            r"Data\INI\Weapon\alpha.ini".to_string(),
+            r"Data/INI/Weapon\alpha.ini".to_string(),
+            r"Data/INI/NotWeapon.ini".to_string(),
+        ];
+
+        let discovered = discover_weapon_ini_files_from_paths(files);
+
+        assert_eq!(
+            discovered,
+            vec![
+                "Data/INI/Default/Weapon.ini".to_string(),
+                "Data/INI/Weapon.ini".to_string(),
+                "Data/INI/Weapon/alpha.ini".to_string(),
+                "Data/INI/Weapon/America.ini".to_string(),
+                "INIZH/Data/INI/Weapon.ini".to_string(),
+                "INIZH/Data/INI/Weapon/China.ini".to_string(),
+            ]
+        );
     }
 
     #[test]

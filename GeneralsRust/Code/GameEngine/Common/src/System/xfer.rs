@@ -7,7 +7,9 @@
 use std::fmt;
 
 /// Xfer version type
-pub type XferVersion = u32;
+///
+/// Matches the C++ `typedef UnsignedByte XferVersion;` semantics.
+pub type XferVersion = u8;
 
 /// Transfer block size type
 pub type XferBlockSize = i32;
@@ -555,4 +557,14 @@ pub fn bit_clear(flags: &mut u32, bits: u32) {
 
 pub fn bit_test(flags: u32, bits: u32) -> bool {
     (flags & bits) != 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xfer_version_is_byte_sized() {
+        assert_eq!(std::mem::size_of::<XferVersion>(), 1);
+    }
 }

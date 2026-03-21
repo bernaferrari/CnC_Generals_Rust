@@ -425,6 +425,8 @@ pub struct GameHUD {
     beacon_events: Vec<GameMessage>,
     /// Current game time
     game_time: Duration,
+    /// Last known low-power state, used to avoid repeating the same warning every frame.
+    power_low_active: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -488,6 +490,7 @@ impl GameHUD {
             beacon_markers: Vec::new(),
             beacon_events: Vec::new(),
             game_time: Duration::from_secs(0),
+            power_low_active: false,
         }
     }
 
@@ -503,6 +506,12 @@ impl GameHUD {
 
     /// Update HUD
     pub fn update(&mut self, delta_time: f32) -> Result<(), Box<dyn std::error::Error>> {
+        let delta_time = if delta_time.is_finite() && delta_time > 0.0 {
+            delta_time
+        } else {
+            0.0
+        };
+
         self.resource_display.update(delta_time);
 
         // Update construction queue
@@ -643,13 +652,15 @@ impl GameHUD {
             }
         }
 
-        if self.resource_display.is_power_low() {
+        let power_low = self.resource_display.is_power_low();
+        if power_low && !self.power_low_active {
             let message = localization::localize(
                 "hud.message.power_low",
                 "Power running low - Build more generators!",
             );
             self.add_message(&message, MessageType::Warning);
         }
+        self.power_low_active = power_low;
     }
 
     /// Update minimap

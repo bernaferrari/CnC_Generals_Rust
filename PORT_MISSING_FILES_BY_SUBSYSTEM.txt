@@ -922,6 +922,7 @@ Include/GameLogic/ObjectScriptStatusBits.h
 Include/GameLogic/ObjectTypes.h
 Include/GameLogic/PartitionManager.h
 Include/GameLogic/PolygonTrigger.h
+Include/GameLogic/Powers.h
 Include/GameLogic/RankInfo.h
 Include/GameLogic/ScriptActions.h
 Include/GameLogic/ScriptConditions.h

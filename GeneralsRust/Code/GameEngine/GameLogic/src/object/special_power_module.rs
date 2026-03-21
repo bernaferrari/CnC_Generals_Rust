@@ -173,7 +173,15 @@ impl SpecialPowerModule {
         }
     }
 
-    fn resolve_special_power(&self) {}
+    fn resolve_special_power(&mut self) {
+        let Some(template) = self.module_data.special_power_template.as_ref() else {
+            return;
+        };
+        let template_name = AsciiString::from(template.get_name());
+
+        self.module_data.special_power_template =
+            Some(find_or_create_special_power_template(&template_name));
+    }
 
     /// Initialize the module (called after construction)
     pub fn initialize(
@@ -1345,6 +1353,8 @@ impl game_engine::common::system::snapshot::Snapshotable for SpecialPowerModule 
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        self.resolve_special_power();
+
         if let Some(template) = &self.module_data.special_power_template {
             if self.paused_count == 0 && template.is_shared_n_sync() && template.has_public_timer()
             {
@@ -1409,5 +1419,27 @@ mod tests {
 
         let module = SpecialPowerModule::new(1, data);
         assert!(module.is_script_only());
+    }
+
+    #[test]
+    fn test_resolve_special_power_binds_to_store_entry() {
+        let name = AsciiString::from("TestResolveSpecialPowerBind");
+        let canonical = find_or_create_special_power_template(&name);
+        let mut data = SpecialPowerModuleData::default();
+        data.special_power_template = Some(Arc::new(SpecialPowerTemplate::new(
+            name.to_string(),
+            canonical.get_id() + 1000,
+        )));
+
+        let mut module = SpecialPowerModule::new(1, data);
+        module.resolve_special_power();
+
+        let resolved = module
+            .module_data
+            .special_power_template
+            .as_ref()
+            .expect("template should be resolved");
+        assert_eq!(resolved.get_name(), canonical.get_name());
+        assert_eq!(resolved.get_id(), canonical.get_id());
     }
 }

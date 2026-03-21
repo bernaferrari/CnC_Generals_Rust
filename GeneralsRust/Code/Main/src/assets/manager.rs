@@ -51,6 +51,15 @@ pub struct AssetManager {
     manual_big_files: Vec<PathBuf>,
 }
 
+/// Summary of a model warmup pass.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ModelPrewarmStats {
+    pub requested: usize,
+    pub cache_hits: usize,
+    pub resolved: usize,
+    pub missing: usize,
+}
+
 impl AssetManager {
     fn should_resolve_object_texture_name(name: &str) -> bool {
         let trimmed = name.trim();
@@ -632,6 +641,85 @@ impl AssetManager {
     /// Get common C&C unit names
     pub fn get_common_cnc_units(&self) -> Vec<&'static str> {
         get_common_cnc_units()
+    }
+
+    /// Prewarm a set of object/template names into the internal model cache.
+    ///
+    /// Each name is resolved through the object-definition map when possible,
+    /// then loaded through the normal W3D path and aliased back to the original
+    /// request name so later lookups stay cheap.
+    pub fn prewarm_object_models_blocking<I, S>(&mut self, object_names: I) -> ModelPrewarmStats
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut stats = ModelPrewarmStats::default();
+        let mut seen = HashSet::new();
+        let mut requests: Vec<(String, String)> = Vec::new();
+
+        for object_name in object_names {
+            let object_name = object_name.as_ref().trim();
+            if object_name.is_empty() {
+                continue;
+            }
+
+            let object_key = object_name.to_ascii_lowercase();
+            if !seen.insert(object_key.clone()) {
+                continue;
+            }
+
+            let resolved_name = self
+                .get_model_for_object(object_name)
+                .unwrap_or_else(|| object_name.to_string());
+            let resolved_key = resolved_name.to_ascii_lowercase();
+
+            stats.requested += 1;
+            if self.model_cache.contains_key(&object_key)
+                || self.model_cache.contains_key(&resolved_key)
+            {
+                stats.cache_hits += 1;
+                if object_key != resolved_key {
+                    if let Some(model) = self.model_cache.get(&resolved_key).cloned() {
+                        self.model_cache.insert(object_key, model);
+                    }
+                }
+                continue;
+            }
+
+            requests.push((object_name.to_string(), resolved_name));
+        }
+
+        for (object_name, resolved_name) in requests {
+            match self.load_w3d_model(&resolved_name) {
+                Ok(model) => {
+                    let object_key = object_name.to_ascii_lowercase();
+                    let resolved_key = resolved_name.to_ascii_lowercase();
+                    if object_key != resolved_key {
+                        self.model_cache.insert(object_key, model.clone());
+                    }
+                    stats.resolved += 1;
+                }
+                Err(err) => {
+                    self.missing_model_keys
+                        .insert(object_name.to_ascii_lowercase());
+                    self.missing_model_keys
+                        .insert(resolved_name.to_ascii_lowercase());
+                    warn!(
+                        "Failed to prewarm W3D model '{}' (resolved '{}'): {}",
+                        object_name, resolved_name, err
+                    );
+                    stats.missing += 1;
+                }
+            }
+        }
+
+        stats
+    }
+
+    /// Prewarm the common C&C unit set used by shell/menu/world startup paths.
+    pub fn prewarm_common_cnc_models_blocking(&mut self) -> ModelPrewarmStats {
+        let units = self.get_common_cnc_units();
+        self.prewarm_object_models_blocking(units)
     }
 
     /// Load a specific C&C unit model by name

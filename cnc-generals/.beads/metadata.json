@@ -1,0 +1,6 @@
+{
+  "backend": "dolt",
+  "database": "dolt",
+  "dolt_database": "cnc-generals",
+  "dolt_mode": "server"
+}

@@ -3,11 +3,38 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use super::xfer::Xfer;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io;
+
+fn add_crc_word(crc: u32, word: u32) -> u32 {
+    let word = word.to_be();
+    let hibit = u32::from((crc & 0x8000_0000) != 0);
+    crc.wrapping_shl(1)
+        .wrapping_add(word)
+        .wrapping_add(hibit)
+}
+
+fn fold_crc_bytes(mut crc: u32, data: &[u8]) -> u32 {
+    let full_words = data.len() / 4;
+    for chunk in data[..full_words * 4].chunks_exact(4) {
+        crc = add_crc_word(crc, u32::from_ne_bytes(chunk.try_into().unwrap()));
+    }
+
+    let leftover = &data[full_words * 4..];
+    if !leftover.is_empty() {
+        let mut word = 0u32;
+        for (index, byte) in leftover.iter().enumerate() {
+            word = word.wrapping_add((*byte as u32) << (index * 8));
+        }
+        crc = add_crc_word(crc, word.to_be());
+    }
+
+    crc
+}
 
 /// CRC accumulator that tracks cumulative hash
 pub struct XferCRC<X: Xfer> {
+    #[allow(dead_code)]
     inner: X,
     crc: u32,
 }
@@ -18,7 +45,7 @@ impl<X: Xfer> XferCRC<X> {
     }
 
     pub fn get_crc(&self) -> u32 {
-        self.crc
+        self.crc.to_be()
     }
 
     pub fn reset_crc(&mut self) {
@@ -26,19 +53,17 @@ impl<X: Xfer> XferCRC<X> {
     }
 
     fn update_crc(&mut self, data: &[u8]) {
-        // Accumulative CRC using proper chaining
-        let mut hasher = crc32fast::Hasher::new_with_initial(self.crc);
-        hasher.update(data);
-        self.crc = hasher.finalize();
+        self.crc = fold_crc_bytes(self.crc, data);
     }
 }
 
 /// Deep CRC verifier for object trees
 /// Tracks CRC values per object and validates entire object hierarchies
 pub struct XferDeepCRC<X: Xfer> {
+    #[allow(dead_code)]
     inner: X,
     global_crc: u32,
-    object_crcs: HashMap<String, u32>,
+    object_crcs: BTreeMap<String, u32>,
     current_object_path: Vec<String>,
     corruption_log: Vec<CorruptionEntry>,
 }
@@ -57,7 +82,7 @@ impl<X: Xfer> XferDeepCRC<X> {
         Self {
             inner,
             global_crc: 0,
-            object_crcs: HashMap::new(),
+            object_crcs: BTreeMap::new(),
             current_object_path: Vec::new(),
             corruption_log: Vec::new(),
         }
@@ -65,12 +90,12 @@ impl<X: Xfer> XferDeepCRC<X> {
 
     /// Get the global CRC covering all data
     pub fn get_global_crc(&self) -> u32 {
-        self.global_crc
+        self.global_crc.to_be()
     }
 
     /// Get CRC for specific object by path
     pub fn get_object_crc(&self, path: &str) -> Option<u32> {
-        self.object_crcs.get(path).copied()
+        self.object_crcs.get(path).copied().map(u32::to_be)
     }
 
     /// Begin tracking a new object in the hierarchy
@@ -91,13 +116,11 @@ impl<X: Xfer> XferDeepCRC<X> {
             if !self.current_object_path.is_empty() {
                 let parent_path = self.get_current_path();
                 if let Some(parent_crc) = self.object_crcs.get_mut(&parent_path) {
-                    let mut hasher = crc32fast::Hasher::new_with_initial(*parent_crc);
-                    hasher.update(&crc.to_le_bytes());
-                    *parent_crc = hasher.finalize();
+                    *parent_crc = add_crc_word(*parent_crc, crc);
                 }
             }
 
-            Ok(crc)
+            Ok(crc.to_be())
         } else {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -109,7 +132,7 @@ impl<X: Xfer> XferDeepCRC<X> {
     /// Verify object CRC matches expected value
     pub fn verify_object_crc(&mut self, expected_crc: u32) -> Result<(), CorruptionEntry> {
         let path = self.get_current_path();
-        let actual_crc = self.object_crcs.get(&path).copied().unwrap_or(0);
+        let actual_crc = self.object_crcs.get(&path).copied().unwrap_or(0).to_be();
 
         if actual_crc != expected_crc {
             let entry = CorruptionEntry {
@@ -156,18 +179,14 @@ impl<X: Xfer> XferDeepCRC<X> {
     }
 
     fn update_crc(&mut self, data: &[u8]) {
-        // Update global CRC
-        let mut hasher = crc32fast::Hasher::new_with_initial(self.global_crc);
-        hasher.update(data);
-        self.global_crc = hasher.finalize();
+        // Update global CRC using the same accumulation rule as the C++ XferCRC.
+        self.global_crc = fold_crc_bytes(self.global_crc, data);
 
         // Update current object CRC if we're in one
         if !self.current_object_path.is_empty() {
             let path = self.get_current_path();
             if let Some(crc) = self.object_crcs.get_mut(&path) {
-                let mut hasher = crc32fast::Hasher::new_with_initial(*crc);
-                hasher.update(data);
-                *crc = hasher.finalize();
+                *crc = fold_crc_bytes(*crc, data);
             }
         }
     }
@@ -181,10 +200,9 @@ impl<X: Xfer> XferDeepCRC<X> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_basic_crc() {
-        let mut xfer_crc = XferCRC { crc: 0 };
+        let mut xfer_crc = XferCRC::new(super::super::xfer_load::XferLoad::new());
 
         let value = 42u32;
         xfer_crc.update_crc(&value.to_le_bytes());
@@ -195,16 +213,7 @@ mod tests {
 
     #[test]
     fn test_deep_crc_hierarchy() {
-        let mut buffer = Vec::new();
-        let mut xfer_deep: XferDeepCRC<
-            super::super::xfer_load::XferLoad<std::io::Cursor<Vec<u8>>>,
-        > = XferDeepCRC {
-            inner: super::super::xfer_load::XferLoad::new(std::io::Cursor::new(Vec::new()), 1),
-            global_crc: 0,
-            object_crcs: std::collections::HashMap::new(),
-            current_object_path: Vec::new(),
-            corruption_log: Vec::new(),
-        };
+        let mut xfer_deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new());
 
         // Create object hierarchy
         xfer_deep.begin_object("root").unwrap();
@@ -223,15 +232,7 @@ mod tests {
 
     #[test]
     fn test_corruption_detection() {
-        let mut xfer_deep: XferDeepCRC<
-            super::super::xfer_load::XferLoad<std::io::Cursor<Vec<u8>>>,
-        > = XferDeepCRC {
-            inner: super::super::xfer_load::XferLoad::new(std::io::Cursor::new(Vec::new()), 1),
-            global_crc: 0,
-            object_crcs: std::collections::HashMap::new(),
-            current_object_path: Vec::new(),
-            corruption_log: Vec::new(),
-        };
+        let mut xfer_deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new());
 
         xfer_deep.begin_object("test").unwrap();
         let value = 999u32;
