@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use super::ini::{INIError, INIResult, INI};
+use super::ini::{INIError, INILoadType, INIResult, INI};
+use log::warn;
 
 /// Integer coordinate 2D
 #[derive(Debug, Clone, Copy, Default)]
@@ -81,7 +82,7 @@ pub struct ShellMenuScheme {
 impl ShellMenuScheme {
     pub fn new(name: String) -> Self {
         Self {
-            name,
+            name: name.trim().to_lowercase(),
             image_list: Vec::new(),
             line_list: Vec::new(),
         }
@@ -116,25 +117,26 @@ impl ShellMenuSchemeManager {
     /// Create or get a new shell menu scheme by name
     /// If the scheme already exists, it's replaced
     pub fn new_shell_menu_scheme(&mut self, name: String) -> &mut ShellMenuScheme {
+        let normalized_name = name.trim().to_lowercase();
         // Remove existing if present
-        self.schemes.remove(&name.to_lowercase());
+        self.schemes.remove(&normalized_name);
 
-        let scheme = ShellMenuScheme::new(name.clone());
-        self.schemes.insert(name.to_lowercase(), scheme);
+        let scheme = ShellMenuScheme::new(normalized_name.clone());
+        self.schemes.insert(normalized_name.clone(), scheme);
 
-        self.schemes.get_mut(&name.to_lowercase()).unwrap()
+        self.schemes.get_mut(&normalized_name).unwrap()
     }
 
     /// Set the current scheme by name
     pub fn set_shell_menu_scheme(&mut self, name: &str) {
-        if name.is_empty() {
+        let normalized_name = name.trim().to_lowercase();
+        if normalized_name.is_empty() {
             self.current_scheme = None;
             return;
         }
 
-        let lower = name.to_lowercase();
-        if self.schemes.contains_key(&lower) {
-            self.current_scheme = Some(lower);
+        if self.schemes.contains_key(&normalized_name) {
+            self.current_scheme = Some(normalized_name);
         }
     }
 
@@ -147,7 +149,13 @@ impl ShellMenuSchemeManager {
 
     /// Get a scheme by name
     pub fn get_scheme(&self, name: &str) -> Option<&ShellMenuScheme> {
-        self.schemes.get(&name.to_lowercase())
+        self.schemes.get(&name.trim().to_lowercase())
+    }
+
+    /// Clear all schemes.
+    pub fn clear(&mut self) {
+        self.schemes.clear();
+        self.current_scheme = None;
     }
 }
 
@@ -162,6 +170,26 @@ pub fn get_shell_menu_scheme_manager() -> &'static RwLock<ShellMenuSchemeManager
 /// Initialize the shell menu scheme manager
 pub fn init_shell_menu_scheme_manager() {
     let _ = SHELL_MENU_SCHEME_MANAGER.get_or_init(|| RwLock::new(ShellMenuSchemeManager::new()));
+    {
+        let manager = get_shell_menu_scheme_manager();
+        manager
+            .write()
+            .expect("shell menu scheme manager poisoned")
+            .clear();
+    }
+    load_shell_menu_scheme_files();
+}
+
+fn load_shell_menu_scheme_files() {
+    let mut ini = INI::new();
+    for path in [
+        "Data/INI/Default/ShellMenuScheme.ini",
+        "Data/INI/ShellMenuScheme.ini",
+    ] {
+        if let Err(err) = ini.load(path, INILoadType::Overwrite) {
+            warn!("Failed to load shell menu scheme INI '{}': {}", path, err);
+        }
+    }
 }
 
 /// Parse a [ShellMenuScheme] block from an INI file
@@ -428,7 +456,7 @@ mod tests {
     fn test_shell_menu_scheme_creation() {
         let mut manager = ShellMenuSchemeManager::new();
         let scheme = manager.new_shell_menu_scheme("TestScheme".to_string());
-        assert_eq!(scheme.name, "TestScheme");
+        assert_eq!(scheme.name, "testscheme");
         assert!(scheme.image_list.is_empty());
         assert!(scheme.line_list.is_empty());
     }
