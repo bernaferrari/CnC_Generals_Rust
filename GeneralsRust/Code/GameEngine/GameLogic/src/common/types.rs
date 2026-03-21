@@ -4,7 +4,6 @@
 //! to ensure compatibility and correct behavior.
 #![allow(missing_docs)]
 
-use crate::damage::DamageType as GameDamageType;
 use crate::physics::PhysicsType;
 use bitflags::bitflags;
 pub use game_engine::common::ascii_string::AsciiString;
@@ -1787,52 +1786,8 @@ pub enum Relationship {
     Allies,
 }
 
-/// Damage type (matching C++ DamageType)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DamageType {
-    Unresistable,
-    Explosion,
-    Crush,
-    SmallArms,
-    Flame,
-    Laser,
-    Toxin,
-    Anthrax,
-    Radiation,
-    ParticleBeam,
-    Healing,
-    // Add more as needed
-}
-
-impl From<GameDamageType> for DamageType {
-    fn from(value: GameDamageType) -> Self {
-        match value {
-            GameDamageType::Explosion => DamageType::Explosion,
-            GameDamageType::Crush => DamageType::Crush,
-            GameDamageType::SmallArms => DamageType::SmallArms,
-            GameDamageType::Flame => DamageType::Flame,
-            GameDamageType::Laser => DamageType::Laser,
-            GameDamageType::Poison => DamageType::Toxin,
-            GameDamageType::Radiation => DamageType::Radiation,
-            GameDamageType::Unresistable => DamageType::Unresistable,
-            _ => DamageType::Unresistable,
-        }
-    }
-}
-
-/// Death type (matching C++ DeathType)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeathType {
-    None,
-    Normal,
-    Exploded,
-    Burned,
-    Toxin,
-    Toppled,
-    Crushed,
-    Sunk,
-    // Add more as needed
-}
+// Re-export canonical DamageType/DeathType from damage_system (38/21 C++-correct variants)
+pub use crate::weapon::damage_system::{DamageType, DeathType};
 
 /// Kind of classifications for objects
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1924,7 +1879,53 @@ pub enum KindOf {
     NoGarrison,
     Boat,
     GarrisonableUntilDestroyed,
-    // Add more as needed
+    Obstacle,              // KINDOF_OBSTACLE (bit 0)
+    CanAttack,             // KINDOF_CAN_ATTACK
+    StickToTerrainSlope,   // KINDOF_STICK_TO_TERRAIN_SLOPE
+    CanCastReflections,    // KINDOF_CAN_CAST_REFLECTIONS
+    HugeVehicle,           // KINDOF_HUGE_VEHICLE
+    LineBuild,             // KINDOF_LINEBUILD
+    Preload,               // KINDOF_PRELOAD
+    NoCollide,             // KINDOF_NO_COLLIDE
+    StealthGarrison,       // KINDOF_STEALTH_GARRISON
+    DrawableOnly,          // KINDOF_DRAWABLE_ONLY
+    Score,                 // KINDOF_SCORE
+    ScoreCreate,           // KINDOF_SCORE_CREATE
+    ScoreDestroy,          // KINDOF_SCORE_DESTROY
+    NoHealIcon,            // KINDOF_NO_HEAL_ICON
+    Parachutable,          // KINDOF_PARACHUTABLE
+    SmallMissile,          // KINDOF_SMALL_MISSILE
+    AlwaysVisible,         // KINDOF_ALWAYS_VISIBLE
+    Unattackable,          // KINDOF_UNATTACKABLE
+    AttackNeedsLineOfSight, // KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT
+    WalkOnTopOfWall,       // KINDOF_WALK_ON_TOP_OF_WALL
+    DefensiveWall,         // KINDOF_DEFENSIVE_WALL
+    AircraftPathAround,    // KINDOF_AIRCRAFT_PATH_AROUND
+    LowOverlappable,       // KINDOF_LOW_OVERLAPPABLE
+    ForceAttackable,       // KINDOF_FORCEATTACKABLE
+    AutoRallypoint,        // KINDOF_AUTO_RALLYPOINT
+    MoneyHacker,           // KINDOF_MONEY_HACKER
+    BallisticMissile,      // KINDOF_BALLISTIC_MISSILE
+    ClickThrough,          // KINDOF_CLICK_THROUGH
+    ShowPortraitWhenControlled, // KINDOF_SHOW_PORTRAIT_WHEN_CONTROLLED
+    CannotBuildNearSupplies, // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES
+    RevealToAll,           // KINDOF_REVEAL_TO_ALL
+    IgnoresSelectAll,      // KINDOF_IGNORES_SELECT_ALL
+    DontAutoCrushInfantry, // KINDOF_DONT_AUTO_CRUSH_INFANTRY
+    FsBlackMarket,         // KINDOF_FS_BLACK_MARKET
+    FsAdvancedTech,        // KINDOF_FS_ADVANCED_TECH
+    RevealsEnemyPaths,     // KINDOF_REVEALS_ENEMY_PATHS
+    NoSelect,              // KINDOF_NO_SELECT
+    CannotRetaliate,       // KINDOF_CANNOT_RETALIATE
+    TechBaseDefense,       // KINDOF_TECH_BASE_DEFENSE
+    Demotrap,              // KINDOF_DEMOTRAP
+    ConservativeBuilding,  // KINDOF_CONSERVATIVE_BUILDING
+    BlastCrater,           // KINDOF_BLAST_CRATER
+    Prop,                  // KINDOF_PROP
+    OptimizedTree,         // KINDOF_OPTIMIZED_TREE
+    LandmarkBridge,        // KINDOF_LANDMARK_BRIDGE
+    WaveEffect,            // KINDOF_WAVE_EFFECT
+    ClearedByBuild,        // KINDOF_CLEARED_BY_BUILD
 }
 
 impl KindOf {
@@ -1932,6 +1933,154 @@ impl KindOf {
     pub const Inert: KindOf = KindOf::Immobile;
     /// Legacy script alias used by original C++ script actions.
     pub const CanRepair: KindOf = KindOf::RepairPad;
+}
+
+/// Resolve a KindOf flag name (as written in INI files) to its enum variant.
+///
+/// C++ Reference: KindOfMaskType::parseFromINI reads pipe-separated names like
+/// `"SELECTABLE STRUCTURE CAN_ATTACK"` and OR's the corresponding bits.
+///
+/// The names here match the C++ INI token names exactly (uppercase, underscores).
+/// We also accept mixed-case for robustness.
+pub fn kindof_from_name(name: &str) -> Option<KindOf> {
+    // Normalise: strip leading/trailing whitespace, uppercase for comparison
+    let upper = name.trim().to_ascii_uppercase();
+    match upper.as_str() {
+        "SELECTABLE" => Some(KindOf::Selectable),
+        "INFANTRY" => Some(KindOf::Infantry),
+        "VEHICLE" => Some(KindOf::Vehicle),
+        "STRUCTURE" => Some(KindOf::Structure),
+        "AIRCRAFT" => Some(KindOf::Aircraft),
+        "UNIT" => Some(KindOf::Unit),
+        "DRONE" => Some(KindOf::Drone),
+        "CLIFF_JUMPER" => Some(KindOf::CliffJumper),
+        "WEAPON" => Some(KindOf::Weapon),
+        "PROJECTILE" => Some(KindOf::Projectile),
+        "CAN_SEE_THROUGH" => Some(KindOf::CanSeeThrough),
+        "ALWAYS_SELECTABLE" => Some(KindOf::AlwaysSelectable),
+        "CRATE" => Some(KindOf::Crate),
+        "RESOURCE_NODE" => Some(KindOf::ResourceNode),
+        "SUPPLY_SOURCE_ON_PREVIEW" => Some(KindOf::SupplySourceOnPreview),
+        "SUPPLY_SOURCE" => Some(KindOf::SupplySource),
+        "TECH_BUILDING" => Some(KindOf::TechBuilding),
+        "POWERED" => Some(KindOf::Powered),
+        "PRODUCED_AT_HELIPAD" => Some(KindOf::ProducedAtHelipad),
+        "BRIDGE" => Some(KindOf::Bridge),
+        "BARRIER" => Some(KindOf::Barrier),
+        "CIVILIAN" => Some(KindOf::Civilian),
+        "DESTRUCTIBLE" => Some(KindOf::Destructible),
+        "CAN_CROSS_BRIDGES" => Some(KindOf::CanCrossBridges),
+        "AMPHIBIOUS" => Some(KindOf::Amphibious),
+        "AMPHIBIOUS_TRANSPORT" => Some(KindOf::AmphibiousTransport),
+        "TRANSPORT" => Some(KindOf::Transport),
+        "CAN_CAPTURE" => Some(KindOf::CanCapture),
+        "SABOTEUR" => Some(KindOf::Saboteur),
+        "HACKER" => Some(KindOf::Hacker),
+        "HERO" => Some(KindOf::Hero),
+        "KEY_STRUCTURE" => Some(KindOf::KeyStructure),
+        "COMMAND_CENTER" => Some(KindOf::CommandCenter),
+        "PRISON" => Some(KindOf::Prison),
+        "COLLECTS_PRISON_BOUNTY" => Some(KindOf::CollectsPrisonBounty),
+        "POW_TRUCK" => Some(KindOf::PowTruck),
+        "POWER_PLANT" => Some(KindOf::PowerPlant),
+        "REFINERY" => Some(KindOf::Refinery),
+        "FACTORY" => Some(KindOf::Factory),
+        "DEFENSE" => Some(KindOf::Defense),
+        "SHRUBBERY" => Some(KindOf::Shrubbery),
+        "DOZER" => Some(KindOf::Dozer),
+        "HARVESTER" => Some(KindOf::Harvester),
+        "HULK" => Some(KindOf::Hulk),
+        "SALVAGER" => Some(KindOf::Salvager),
+        "WEAPON_SALVAGER" => Some(KindOf::WeaponSalvager),
+        "ARMOR_SALVAGER" => Some(KindOf::ArmorSalvager),
+        "AIRCRAFT_CARRIER" => Some(KindOf::AircraftCarrier),
+        "FS_BARRACKS" => Some(KindOf::FSBarracks),
+        "FS_WARFACTORY" => Some(KindOf::FSWarfactory),
+        "FS_AIRFIELD" => Some(KindOf::FSAirfield),
+        "FS_INTERNET_CENTER" => Some(KindOf::FSInternetCenter),
+        "FS_POWER" => Some(KindOf::FSPower),
+        "FS_SUPPLY_DROPZONE" => Some(KindOf::FSSupplyDropzone),
+        "FS_SUPPLY_CENTER" => Some(KindOf::FSSupplyCenter),
+        "FS_SUPERWEAPON" => Some(KindOf::FSSuperweapon),
+        "FS_STRATEGY_CENTER" => Some(KindOf::FSStrategyCenter),
+        "FS_FAKE" => Some(KindOf::FSFake),
+        "FS_BLACK_MARKET" => Some(KindOf::FsBlackMarket),
+        "FS_ADVANCED_TECH" => Some(KindOf::FsAdvancedTech),
+        "FS_TECHNOLOGY" => Some(KindOf::FSTechnology),
+        "COUNTS_FOR_VICTORY" => Some(KindOf::CountsForVictory),
+        "MINE" => Some(KindOf::Mine),
+        "CLEANUP_HAZARD" => Some(KindOf::CleanupHazard),
+        "HEAL_PAD" => Some(KindOf::HealPad),
+        "WAVE_GUIDE" => Some(KindOf::WaveGuide),
+        "BRIDGE_TOWER" => Some(KindOf::BridgeTower),
+        "IMMOBILE" | "INERT" => Some(KindOf::Immobile),
+        "BOOBY_TRAP" => Some(KindOf::BoobyTrap),
+        "DISGUISER" => Some(KindOf::Disguiser),
+        "PORTABLE_STRUCTURE" => Some(KindOf::PortableStructure),
+        "CAN_RAPPEL" => Some(KindOf::CanRappel),
+        "CAN_BE_REPULSED" => Some(KindOf::CanBeRepulsed),
+        "EMP_HARDENED" => Some(KindOf::EmpHardened),
+        "SPAWNS_ARE_THE_WEAPONS" => Some(KindOf::SpawnsAreTheWeapons),
+        "IGNORE_DOCKING_BONES" => Some(KindOf::IgnoreDockingBones),
+        "CAN_SURRENDER" => Some(KindOf::CanSurrender),
+        "REPAIR_PAD" | "CAN_REPAIR" => Some(KindOf::RepairPad),
+        "REJECT_UNMANNED" => Some(KindOf::RejectUnmanned),
+        "IGNORED_IN_GUI" => Some(KindOf::IgnoredInGui),
+        "MOB_NEXUS" => Some(KindOf::MobNexus),
+        "CAPTURABLE" => Some(KindOf::Capturable),
+        "IMMUNE_TO_CAPTURE" => Some(KindOf::ImmuneToCapture),
+        "CASH_GENERATOR" => Some(KindOf::CashGenerator),
+        "REBUILD_HOLE" => Some(KindOf::RebuildHole),
+        "NO_GARRISON" => Some(KindOf::NoGarrison),
+        "BOAT" => Some(KindOf::Boat),
+        "GARRISONABLE_UNTIL_DESTROYED" => Some(KindOf::GarrisonableUntilDestroyed),
+        "OBSTACLE" => Some(KindOf::Obstacle),
+        "CAN_ATTACK" => Some(KindOf::CanAttack),
+        "STICK_TO_TERRAIN_SLOPE" => Some(KindOf::StickToTerrainSlope),
+        "CAN_CAST_REFLECTIONS" => Some(KindOf::CanCastReflections),
+        "HUGE_VEHICLE" => Some(KindOf::HugeVehicle),
+        "LINEBUILD" | "LINE_BUILD" => Some(KindOf::LineBuild),
+        "PRELOAD" => Some(KindOf::Preload),
+        "NO_COLLIDE" => Some(KindOf::NoCollide),
+        "STEALTH_GARRISON" => Some(KindOf::StealthGarrison),
+        "DRAWABLE_ONLY" => Some(KindOf::DrawableOnly),
+        "SCORE" => Some(KindOf::Score),
+        "SCORE_CREATE" => Some(KindOf::ScoreCreate),
+        "SCORE_DESTROY" => Some(KindOf::ScoreDestroy),
+        "NO_HEAL_ICON" => Some(KindOf::NoHealIcon),
+        "PARACHUTABLE" => Some(KindOf::Parachutable),
+        "SMALL_MISSILE" => Some(KindOf::SmallMissile),
+        "ALWAYS_VISIBLE" => Some(KindOf::AlwaysVisible),
+        "UNATTACKABLE" => Some(KindOf::Unattackable),
+        "ATTACK_NEEDS_LINE_OF_SIGHT" => Some(KindOf::AttackNeedsLineOfSight),
+        "WALK_ON_TOP_OF_WALL" => Some(KindOf::WalkOnTopOfWall),
+        "DEFENSIVE_WALL" => Some(KindOf::DefensiveWall),
+        "AIRCRAFT_PATH_AROUND" => Some(KindOf::AircraftPathAround),
+        "LOW_OVERLAPPABLE" => Some(KindOf::LowOverlappable),
+        "FORCEATTACKABLE" | "FORCE_ATTACKABLE" => Some(KindOf::ForceAttackable),
+        "AUTO_RALLYPOINT" | "AUTO_RALLY_POINT" => Some(KindOf::AutoRallypoint),
+        "MONEY_HACKER" => Some(KindOf::MoneyHacker),
+        "BALLISTIC_MISSILE" => Some(KindOf::BallisticMissile),
+        "CLICK_THROUGH" => Some(KindOf::ClickThrough),
+        "SHOW_PORTRAIT_WHEN_CONTROLLED" => Some(KindOf::ShowPortraitWhenControlled),
+        "CANNOT_BUILD_NEAR_SUPPLIES" => Some(KindOf::CannotBuildNearSupplies),
+        "REVEAL_TO_ALL" => Some(KindOf::RevealToAll),
+        "IGNORES_SELECT_ALL" => Some(KindOf::IgnoresSelectAll),
+        "DONT_AUTO_CRUSH_INFANTRY" => Some(KindOf::DontAutoCrushInfantry),
+        "REVEALS_ENEMY_PATHS" => Some(KindOf::RevealsEnemyPaths),
+        "NO_SELECT" => Some(KindOf::NoSelect),
+        "CANNOT_RETALIATE" => Some(KindOf::CannotRetaliate),
+        "TECH_BASE_DEFENSE" => Some(KindOf::TechBaseDefense),
+        "DEMOTRAP" | "DEMO_TRAP" => Some(KindOf::Demotrap),
+        "CONSERVATIVE_BUILDING" => Some(KindOf::ConservativeBuilding),
+        "BLAST_CRATER" => Some(KindOf::BlastCrater),
+        "PROP" => Some(KindOf::Prop),
+        "OPTIMIZED_TREE" => Some(KindOf::OptimizedTree),
+        "LANDMARK_BRIDGE" => Some(KindOf::LandmarkBridge),
+        "WAVE_EFFECT" => Some(KindOf::WaveEffect),
+        "CLEARED_BY_BUILD" => Some(KindOf::ClearedByBuild),
+        _ => None,
+    }
 }
 
 /// All `KindOf` variants in declaration order.
@@ -2026,6 +2175,53 @@ pub const ALL_KIND_OF: &[KindOf] = &[
     KindOf::NoGarrison,
     KindOf::Boat,
     KindOf::GarrisonableUntilDestroyed,
+    KindOf::Obstacle,
+    KindOf::CanAttack,
+    KindOf::StickToTerrainSlope,
+    KindOf::CanCastReflections,
+    KindOf::HugeVehicle,
+    KindOf::LineBuild,
+    KindOf::Preload,
+    KindOf::NoCollide,
+    KindOf::StealthGarrison,
+    KindOf::DrawableOnly,
+    KindOf::Score,
+    KindOf::ScoreCreate,
+    KindOf::ScoreDestroy,
+    KindOf::NoHealIcon,
+    KindOf::Parachutable,
+    KindOf::SmallMissile,
+    KindOf::AlwaysVisible,
+    KindOf::Unattackable,
+    KindOf::AttackNeedsLineOfSight,
+    KindOf::WalkOnTopOfWall,
+    KindOf::DefensiveWall,
+    KindOf::AircraftPathAround,
+    KindOf::LowOverlappable,
+    KindOf::ForceAttackable,
+    KindOf::AutoRallypoint,
+    KindOf::MoneyHacker,
+    KindOf::BallisticMissile,
+    KindOf::ClickThrough,
+    KindOf::ShowPortraitWhenControlled,
+    KindOf::CannotBuildNearSupplies,
+    KindOf::RevealToAll,
+    KindOf::IgnoresSelectAll,
+    KindOf::DontAutoCrushInfantry,
+    KindOf::FsBlackMarket,
+    KindOf::FsAdvancedTech,
+    KindOf::RevealsEnemyPaths,
+    KindOf::NoSelect,
+    KindOf::CannotRetaliate,
+    KindOf::TechBaseDefense,
+    KindOf::Demotrap,
+    KindOf::ConservativeBuilding,
+    KindOf::BlastCrater,
+    KindOf::Prop,
+    KindOf::OptimizedTree,
+    KindOf::LandmarkBridge,
+    KindOf::WaveEffect,
+    KindOf::ClearedByBuild,
 ];
 
 /// Team member list type (matching C++ MAKE_DLINK)
@@ -2363,39 +2559,164 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
         None
     }
 
-    /// Voice attack sound (matches ThingTemplate::getVoiceAttack).
+    /// Voice select sound (matches ThingTemplate::getVoiceSelect / TTAUDIO_voiceSelect).
+    fn get_voice_select(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice group select sound (matches ThingTemplate::getVoiceGroupSelect / TTAUDIO_voiceGroupSelect).
+    fn get_voice_group_select(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice move sound (matches ThingTemplate::getVoiceMove / TTAUDIO_voiceMove).
+    fn get_voice_move(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice attack sound (matches ThingTemplate::getVoiceAttack / TTAUDIO_voiceAttack).
     fn get_voice_attack(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
     }
 
-    /// Voice attack special sound (matches ThingTemplate::getVoiceAttackSpecial).
+    /// Voice enter sound (matches ThingTemplate::getVoiceEnter / TTAUDIO_voiceEnter).
+    fn get_voice_enter(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice fear sound (matches ThingTemplate::getVoiceFear / TTAUDIO_voiceFear).
+    fn get_voice_fear(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice select elite sound (matches ThingTemplate::getVoiceSelectElite / TTAUDIO_voiceSelectElite).
+    fn get_voice_select_elite(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice created sound (matches ThingTemplate::getVoiceCreated / TTAUDIO_voiceCreated).
+    fn get_voice_created(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice task unable sound (matches ThingTemplate::getVoiceTaskUnable / TTAUDIO_voiceTaskUnable).
+    fn get_voice_task_unable(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice task complete sound (matches ThingTemplate::getVoiceTaskComplete / TTAUDIO_voiceTaskComplete).
+    fn get_voice_task_complete(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice meet enemy sound (matches ThingTemplate::getVoiceMeetEnemy / TTAUDIO_voiceMeetEnemy).
+    fn get_voice_meet_enemy(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice garrison sound (matches ThingTemplate::getVoiceGarrison / TTAUDIO_voiceGarrison).
+    fn get_voice_garrison(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice defect sound (matches ThingTemplate::getVoiceDefect / TTAUDIO_voiceDefect).
+    fn get_voice_defect(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Voice attack special sound (matches ThingTemplate::getVoiceAttackSpecial / TTAUDIO_voiceAttackSpecial).
     fn get_voice_attack_special(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
     }
 
-    /// Voice attack air sound (matches ThingTemplate::getVoiceAttackAir).
+    /// Voice attack air sound (matches ThingTemplate::getVoiceAttackAir / TTAUDIO_voiceAttackAir).
     fn get_voice_attack_air(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
     }
 
-    /// Move start sound (matches ThingTemplate::getSoundMoveStart).
+    /// Voice guard sound (matches ThingTemplate::getVoiceGuard / TTAUDIO_voiceGuard).
+    fn get_voice_guard(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Move start sound (matches ThingTemplate::getSoundMoveStart / TTAUDIO_soundMoveStart).
     fn get_sound_move_start(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
     }
 
-    /// Move start damaged sound (matches ThingTemplate::getSoundMoveStartDamaged).
+    /// Move start damaged sound (matches ThingTemplate::getSoundMoveStartDamaged / TTAUDIO_soundMoveStartDamaged).
     fn get_sound_move_start_damaged(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
     }
 
-    /// Move loop sound (matches ThingTemplate::getSoundMoveLoop).
+    /// Move loop sound (matches ThingTemplate::getSoundMoveLoop / TTAUDIO_soundMoveLoop).
     fn get_sound_move_loop(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
     }
 
-    /// Move loop damaged sound (matches ThingTemplate::getSoundMoveLoopDamaged).
+    /// Move loop damaged sound (matches ThingTemplate::getSoundMoveLoopDamaged / TTAUDIO_soundMoveLoopDamaged).
     fn get_sound_move_loop_damaged(&self) -> crate::common::audio::AudioEventRts {
         crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Stealth on sound (matches ThingTemplate::getSoundStealthOn / TTAUDIO_soundStealthOn).
+    fn get_sound_stealth_on(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Stealth off sound (matches ThingTemplate::getSoundStealthOff / TTAUDIO_soundStealthOff).
+    fn get_sound_stealth_off(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound created (matches ThingTemplate::getSoundCreated / TTAUDIO_soundCreated).
+    fn get_sound_created(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound on damaged (matches ThingTemplate::getSoundOnDamaged / TTAUDIO_soundOnDamaged).
+    fn get_sound_on_damaged(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound on really damaged (matches ThingTemplate::getSoundOnReallyDamaged / TTAUDIO_soundOnReallyDamaged).
+    fn get_sound_on_really_damaged(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound enter (matches ThingTemplate::getSoundEnter / TTAUDIO_soundEnter).
+    fn get_sound_enter(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound exit (matches ThingTemplate::getSoundExit / TTAUDIO_soundExit).
+    fn get_sound_exit(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound promoted veteran (matches ThingTemplate::getSoundPromotedVeteran / TTAUDIO_soundPromotedVeteran).
+    fn get_sound_promoted_veteran(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound promoted elite (matches ThingTemplate::getSoundPromotedElite / TTAUDIO_soundPromotedElite).
+    fn get_sound_promoted_elite(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound promoted hero (matches ThingTemplate::getSoundPromotedHero / TTAUDIO_soundPromotedHero).
+    fn get_sound_promoted_hero(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Sound falling from plane (matches ThingTemplate::getSoundFalling / TTAUDIO_soundFalling).
+    fn get_sound_falling(&self) -> crate::common::audio::AudioEventRts {
+        crate::common::audio::AudioEventRts::default()
+    }
+
+    /// Per-unit FX lookup (matches ThingTemplate::getPerUnitFX).
+    fn get_per_unit_fx(&self, _name: &str) -> Option<crate::common::audio::AudioEventRts> {
+        None
     }
 }
 
@@ -2427,14 +2748,54 @@ pub struct DefaultThingTemplate {
     energy_bonus: Int,
     command_set_string: AsciiString,
     armor_template_sets: Vec<ArmorTemplateSet>,
+
+    // --- Audio: per-unit sounds / FX (key = condition name) ---
     per_unit_sounds: HashMap<String, crate::common::audio::AudioEventRts>,
+    per_unit_fx: HashMap<String, crate::common::audio::AudioEventRts>,
+
+    // --- Audio: voice events (TTAUDIO_voice*) ---
+    voice_select: crate::common::audio::AudioEventRts,
+    voice_group_select: crate::common::audio::AudioEventRts,
+    voice_move: crate::common::audio::AudioEventRts,
     voice_attack: crate::common::audio::AudioEventRts,
+    voice_enter: crate::common::audio::AudioEventRts,
+    voice_fear: crate::common::audio::AudioEventRts,
+    voice_select_elite: crate::common::audio::AudioEventRts,
+    voice_created: crate::common::audio::AudioEventRts,
+    voice_task_unable: crate::common::audio::AudioEventRts,
+    voice_task_complete: crate::common::audio::AudioEventRts,
+    voice_meet_enemy: crate::common::audio::AudioEventRts,
+    voice_garrison: crate::common::audio::AudioEventRts,
+    voice_defect: crate::common::audio::AudioEventRts,
     voice_attack_special: crate::common::audio::AudioEventRts,
     voice_attack_air: crate::common::audio::AudioEventRts,
+    voice_guard: crate::common::audio::AudioEventRts,
+
+    // --- Audio: sound events (TTAUDIO_sound*) ---
+    sound_move_start: crate::common::audio::AudioEventRts,
+    sound_move_start_damaged: crate::common::audio::AudioEventRts,
+    sound_move_loop: crate::common::audio::AudioEventRts,
+    sound_move_loop_damaged: crate::common::audio::AudioEventRts,
+    sound_ambient: crate::common::audio::AudioEventRts,
+    sound_ambient_damaged: crate::common::audio::AudioEventRts,
+    sound_ambient_really_damaged: crate::common::audio::AudioEventRts,
+    sound_ambient_rubble: crate::common::audio::AudioEventRts,
+    sound_stealth_on: crate::common::audio::AudioEventRts,
+    sound_stealth_off: crate::common::audio::AudioEventRts,
+    sound_created: crate::common::audio::AudioEventRts,
+    sound_on_damaged: crate::common::audio::AudioEventRts,
+    sound_on_really_damaged: crate::common::audio::AudioEventRts,
+    sound_enter: crate::common::audio::AudioEventRts,
+    sound_exit: crate::common::audio::AudioEventRts,
+    sound_promoted_veteran: crate::common::audio::AudioEventRts,
+    sound_promoted_elite: crate::common::audio::AudioEventRts,
+    sound_promoted_hero: crate::common::audio::AudioEventRts,
+    sound_falling: crate::common::audio::AudioEventRts,
 }
 
 impl DefaultThingTemplate {
     pub fn new(name: String) -> Self {
+        let audio_default = crate::common::audio::AudioEventRts::default;
         Self {
             name: AsciiString::from(&name),
             geometry_info: GeometryInfo::default(),
@@ -2452,9 +2813,44 @@ impl DefaultThingTemplate {
             command_set_string: AsciiString::new(),
             armor_template_sets: Vec::new(),
             per_unit_sounds: HashMap::new(),
-            voice_attack: crate::common::audio::AudioEventRts::default(),
-            voice_attack_special: crate::common::audio::AudioEventRts::default(),
-            voice_attack_air: crate::common::audio::AudioEventRts::default(),
+            per_unit_fx: HashMap::new(),
+            // Voice events
+            voice_select: audio_default(),
+            voice_group_select: audio_default(),
+            voice_move: audio_default(),
+            voice_attack: audio_default(),
+            voice_enter: audio_default(),
+            voice_fear: audio_default(),
+            voice_select_elite: audio_default(),
+            voice_created: audio_default(),
+            voice_task_unable: audio_default(),
+            voice_task_complete: audio_default(),
+            voice_meet_enemy: audio_default(),
+            voice_garrison: audio_default(),
+            voice_defect: audio_default(),
+            voice_attack_special: audio_default(),
+            voice_attack_air: audio_default(),
+            voice_guard: audio_default(),
+            // Sound events
+            sound_move_start: audio_default(),
+            sound_move_start_damaged: audio_default(),
+            sound_move_loop: audio_default(),
+            sound_move_loop_damaged: audio_default(),
+            sound_ambient: audio_default(),
+            sound_ambient_damaged: audio_default(),
+            sound_ambient_really_damaged: audio_default(),
+            sound_ambient_rubble: audio_default(),
+            sound_stealth_on: audio_default(),
+            sound_stealth_off: audio_default(),
+            sound_created: audio_default(),
+            sound_on_damaged: audio_default(),
+            sound_on_really_damaged: audio_default(),
+            sound_enter: audio_default(),
+            sound_exit: audio_default(),
+            sound_promoted_veteran: audio_default(),
+            sound_promoted_elite: audio_default(),
+            sound_promoted_hero: audio_default(),
+            sound_falling: audio_default(),
         }
     }
 
@@ -2498,6 +2894,14 @@ impl DefaultThingTemplate {
         self.per_unit_sounds.insert(name.into(), sound);
     }
 
+    pub fn set_per_unit_fx(
+        &mut self,
+        name: impl Into<String>,
+        fx: crate::common::audio::AudioEventRts,
+    ) {
+        self.per_unit_fx.insert(name.into(), fx);
+    }
+
     pub fn set_voice_attack(&mut self, sound: crate::common::audio::AudioEventRts) {
         self.voice_attack = sound;
     }
@@ -2508,6 +2912,57 @@ impl DefaultThingTemplate {
 
     pub fn set_voice_attack_air(&mut self, sound: crate::common::audio::AudioEventRts) {
         self.voice_attack_air = sound;
+    }
+
+    /// Helper: set a voice field from an INI string value.
+    fn set_voice_from_ini(&mut self, field: &str, value: &str) {
+        let audio = crate::common::audio::AudioEventRts::new(value);
+        match field {
+            "VoiceSelect" => self.voice_select = audio,
+            "VoiceGroupSelect" => self.voice_group_select = audio,
+            "VoiceMove" => self.voice_move = audio,
+            "VoiceAttack" => self.voice_attack = audio,
+            "VoiceEnter" => self.voice_enter = audio,
+            "VoiceFear" => self.voice_fear = audio,
+            "VoiceSelectElite" => self.voice_select_elite = audio,
+            "VoiceCreated" => self.voice_created = audio,
+            "VoiceTaskUnable" => self.voice_task_unable = audio,
+            "VoiceTaskComplete" => self.voice_task_complete = audio,
+            "VoiceMeetEnemy" => self.voice_meet_enemy = audio,
+            "VoiceGarrison" => self.voice_garrison = audio,
+            "VoiceDefect" => self.voice_defect = audio,
+            "VoiceAttackSpecial" => self.voice_attack_special = audio,
+            "VoiceAttackAir" => self.voice_attack_air = audio,
+            "VoiceGuard" => self.voice_guard = audio,
+            _ => {}
+        }
+    }
+
+    /// Helper: set a sound field from an INI string value.
+    fn set_sound_from_ini(&mut self, field: &str, value: &str) {
+        let audio = crate::common::audio::AudioEventRts::new(value);
+        match field {
+            "SoundMoveStart" => self.sound_move_start = audio,
+            "SoundMoveStartDamaged" => self.sound_move_start_damaged = audio,
+            "SoundMoveLoop" => self.sound_move_loop = audio,
+            "SoundMoveLoopDamaged" => self.sound_move_loop_damaged = audio,
+            "SoundAmbient" => self.sound_ambient = audio,
+            "SoundAmbientDamaged" => self.sound_ambient_damaged = audio,
+            "SoundAmbientReallyDamaged" => self.sound_ambient_really_damaged = audio,
+            "SoundAmbientRubble" => self.sound_ambient_rubble = audio,
+            "SoundStealthOn" => self.sound_stealth_on = audio,
+            "SoundStealthOff" => self.sound_stealth_off = audio,
+            "SoundCreated" => self.sound_created = audio,
+            "SoundOnDamaged" => self.sound_on_damaged = audio,
+            "SoundOnReallyDamaged" => self.sound_on_really_damaged = audio,
+            "SoundEnter" => self.sound_enter = audio,
+            "SoundExit" => self.sound_exit = audio,
+            "SoundPromotedVeteran" => self.sound_promoted_veteran = audio,
+            "SoundPromotedElite" => self.sound_promoted_elite = audio,
+            "SoundPromotedHero" => self.sound_promoted_hero = audio,
+            "SoundFallingFromPlane" => self.sound_falling = audio,
+            _ => {}
+        }
     }
 
     pub fn set_command_set_string(&mut self, command_set: AsciiString) {
@@ -2529,6 +2984,128 @@ impl DefaultThingTemplate {
             .iter()
             .find(|set| set.types() == flags)
             .or_else(|| self.armor_template_sets.first())
+    }
+
+    /// Apply parsed INI key=value properties to this template.
+    ///
+    /// This is the GameLogic-side equivalent of `parse_object_fields_from_ini`
+    /// in the Common crate ThingTemplate.  It handles fields that are specific
+    /// to the GameLogic layer (KindOf, MaxHealth, Armor, etc.) and delegates
+    /// the rest to the Common-layer parsing.
+    ///
+    /// C++ Reference: ThingTemplate::s_objectFieldParseTable (ThingTemplate.cpp:90-229)
+    pub fn parse_object_fields_from_ini(&mut self, properties: &std::collections::HashMap<String, String>) {
+        for (key, value) in properties {
+            let trimmed = value.trim();
+            match key.as_str() {
+                // --- Vision / shroud ---
+                "VisionRange" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.vision_range = v; }
+                }
+                "ShroudClearingRange" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_clearing_range = v; }
+                }
+                "ShroudRevealToAllRange" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_reveal_to_all_range = v; }
+                }
+
+                // --- Build ---
+                "BuildCost" => {
+                    if let Ok(v) = trimmed.parse::<Int>() { self.build_cost = v; }
+                }
+                "BuildTime" => {
+                    if let Ok(v) = trimmed.parse::<Real>() { self.build_time = v; }
+                }
+
+                // --- Combat ---
+                "ThreatValue" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedInt>() { self.threat_value = v; }
+                }
+
+                // --- Occlusion ---
+                "OcclusionDelay" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.occlusion_delay = v; }
+                }
+
+                // --- Energy ---
+                "EnergyProduction" => {
+                    if let Ok(v) = trimmed.parse::<Int>() { self.energy_production = v; }
+                }
+                "EnergyBonus" => {
+                    if let Ok(v) = trimmed.parse::<Int>() { self.energy_bonus = v; }
+                }
+
+                // --- Command set ---
+                "CommandSet" => {
+                    self.command_set_string = AsciiString::from(trimmed);
+                }
+
+                // --- KindOf ---
+                "KindOf" => {
+                    // Parse pipe-separated KindOf flags
+                    // C++ uses KindOfMaskType::parseFromINI
+                    self.kind_of_flags.clear();
+                    for token in trimmed.split('|') {
+                        let t = token.trim();
+                        if t.is_empty() { continue; }
+                        if let Some(kind) = kindof_from_name(t) {
+                            self.kind_of_flags.push(kind);
+                        }
+                    }
+                }
+
+                // --- Voice events (C++ TTAUDIO_voice*) ---
+                // Parsed via INI::parseDynamicAudioEventRTS in C++
+                key @ "VoiceSelect"
+                | key @ "VoiceGroupSelect"
+                | key @ "VoiceMove"
+                | key @ "VoiceAttack"
+                | key @ "VoiceEnter"
+                | key @ "VoiceFear"
+                | key @ "VoiceSelectElite"
+                | key @ "VoiceCreated"
+                | key @ "VoiceTaskUnable"
+                | key @ "VoiceTaskComplete"
+                | key @ "VoiceMeetEnemy"
+                | key @ "VoiceGarrison"
+                | key @ "VoiceDefect"
+                | key @ "VoiceAttackSpecial"
+                | key @ "VoiceAttackAir"
+                | key @ "VoiceGuard" => {
+                    self.set_voice_from_ini(key, trimmed);
+                }
+
+                // --- Sound events (C++ TTAUDIO_sound*) ---
+                // Parsed via INI::parseDynamicAudioEventRTS in C++
+                key @ "SoundMoveStart"
+                | key @ "SoundMoveStartDamaged"
+                | key @ "SoundMoveLoop"
+                | key @ "SoundMoveLoopDamaged"
+                | key @ "SoundAmbient"
+                | key @ "SoundAmbientDamaged"
+                | key @ "SoundAmbientReallyDamaged"
+                | key @ "SoundAmbientRubble"
+                | key @ "SoundStealthOn"
+                | key @ "SoundStealthOff"
+                | key @ "SoundCreated"
+                | key @ "SoundOnDamaged"
+                | key @ "SoundOnReallyDamaged"
+                | key @ "SoundEnter"
+                | key @ "SoundExit"
+                | key @ "SoundPromotedVeteran"
+                | key @ "SoundPromotedElite"
+                | key @ "SoundPromotedHero"
+                | key @ "SoundFallingFromPlane" => {
+                    self.set_sound_from_ini(key, trimmed);
+                }
+
+                // --- ArmorSet sub-blocks are handled separately ---
+                // --- UnitSpecificSounds / UnitSpecificFX sub-blocks are handled separately ---
+
+                // Everything else is silently ignored
+                _ => {}
+            }
+        }
     }
 }
 
@@ -2664,6 +3241,124 @@ impl ThingTemplate for DefaultThingTemplate {
     fn get_energy_bonus(&self) -> Int {
         self.energy_bonus
     }
+
+    fn get_per_unit_fx(&self, name: &str) -> Option<crate::common::audio::AudioEventRts> {
+        self.per_unit_fx.get(name).cloned()
+    }
+
+    // --- Voice events ---
+    fn get_voice_select(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_select.clone()
+    }
+
+    fn get_voice_group_select(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_group_select.clone()
+    }
+
+    fn get_voice_move(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_move.clone()
+    }
+
+    fn get_voice_enter(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_enter.clone()
+    }
+
+    fn get_voice_fear(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_fear.clone()
+    }
+
+    fn get_voice_select_elite(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_select_elite.clone()
+    }
+
+    fn get_voice_created(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_created.clone()
+    }
+
+    fn get_voice_task_unable(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_task_unable.clone()
+    }
+
+    fn get_voice_task_complete(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_task_complete.clone()
+    }
+
+    fn get_voice_meet_enemy(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_meet_enemy.clone()
+    }
+
+    fn get_voice_garrison(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_garrison.clone()
+    }
+
+    fn get_voice_defect(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_defect.clone()
+    }
+
+    fn get_voice_guard(&self) -> crate::common::audio::AudioEventRts {
+        self.voice_guard.clone()
+    }
+
+    // --- Sound events ---
+    fn get_sound_move_start(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_move_start.clone()
+    }
+
+    fn get_sound_move_start_damaged(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_move_start_damaged.clone()
+    }
+
+    fn get_sound_move_loop(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_move_loop.clone()
+    }
+
+    fn get_sound_move_loop_damaged(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_move_loop_damaged.clone()
+    }
+
+    fn get_sound_stealth_on(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_stealth_on.clone()
+    }
+
+    fn get_sound_stealth_off(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_stealth_off.clone()
+    }
+
+    fn get_sound_created(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_created.clone()
+    }
+
+    fn get_sound_on_damaged(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_on_damaged.clone()
+    }
+
+    fn get_sound_on_really_damaged(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_on_really_damaged.clone()
+    }
+
+    fn get_sound_enter(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_enter.clone()
+    }
+
+    fn get_sound_exit(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_exit.clone()
+    }
+
+    fn get_sound_promoted_veteran(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_promoted_veteran.clone()
+    }
+
+    fn get_sound_promoted_elite(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_promoted_elite.clone()
+    }
+
+    fn get_sound_promoted_hero(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_promoted_hero.clone()
+    }
+
+    fn get_sound_falling(&self) -> crate::common::audio::AudioEventRts {
+        self.sound_falling.clone()
+    }
 }
 
 // // Implement ThingTemplate for Arc<DefaultThingTemplate> to support Arc-wrapped types
@@ -2752,6 +3447,10 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
         (**self).get_per_unit_sound(name)
     }
 
+    fn get_per_unit_fx(&self, name: &str) -> Option<crate::common::audio::AudioEventRts> {
+        (**self).get_per_unit_fx(name)
+    }
+
     fn get_voice_attack(&self) -> crate::common::audio::AudioEventRts {
         (**self).get_voice_attack()
     }
@@ -2762,6 +3461,118 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
 
     fn get_voice_attack_air(&self) -> crate::common::audio::AudioEventRts {
         (**self).get_voice_attack_air()
+    }
+
+    fn get_voice_select(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_select()
+    }
+
+    fn get_voice_group_select(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_group_select()
+    }
+
+    fn get_voice_move(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_move()
+    }
+
+    fn get_voice_enter(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_enter()
+    }
+
+    fn get_voice_fear(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_fear()
+    }
+
+    fn get_voice_select_elite(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_select_elite()
+    }
+
+    fn get_voice_created(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_created()
+    }
+
+    fn get_voice_task_unable(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_task_unable()
+    }
+
+    fn get_voice_task_complete(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_task_complete()
+    }
+
+    fn get_voice_meet_enemy(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_meet_enemy()
+    }
+
+    fn get_voice_garrison(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_garrison()
+    }
+
+    fn get_voice_defect(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_defect()
+    }
+
+    fn get_voice_guard(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_guard()
+    }
+
+    fn get_sound_move_start(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_start()
+    }
+
+    fn get_sound_move_start_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_start_damaged()
+    }
+
+    fn get_sound_move_loop(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_loop()
+    }
+
+    fn get_sound_move_loop_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_loop_damaged()
+    }
+
+    fn get_sound_stealth_on(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_stealth_on()
+    }
+
+    fn get_sound_stealth_off(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_stealth_off()
+    }
+
+    fn get_sound_created(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_created()
+    }
+
+    fn get_sound_on_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_on_damaged()
+    }
+
+    fn get_sound_on_really_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_on_really_damaged()
+    }
+
+    fn get_sound_enter(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_enter()
+    }
+
+    fn get_sound_exit(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_exit()
+    }
+
+    fn get_sound_promoted_veteran(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_promoted_veteran()
+    }
+
+    fn get_sound_promoted_elite(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_promoted_elite()
+    }
+
+    fn get_sound_promoted_hero(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_promoted_hero()
+    }
+
+    fn get_sound_falling(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_falling()
     }
 }
 
@@ -2843,6 +3654,10 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
         (**self).get_per_unit_sound(name)
     }
 
+    fn get_per_unit_fx(&self, name: &str) -> Option<crate::common::audio::AudioEventRts> {
+        (**self).get_per_unit_fx(name)
+    }
+
     fn get_voice_attack(&self) -> crate::common::audio::AudioEventRts {
         (**self).get_voice_attack()
     }
@@ -2853,6 +3668,118 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_voice_attack_air(&self) -> crate::common::audio::AudioEventRts {
         (**self).get_voice_attack_air()
+    }
+
+    fn get_voice_select(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_select()
+    }
+
+    fn get_voice_group_select(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_group_select()
+    }
+
+    fn get_voice_move(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_move()
+    }
+
+    fn get_voice_enter(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_enter()
+    }
+
+    fn get_voice_fear(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_fear()
+    }
+
+    fn get_voice_select_elite(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_select_elite()
+    }
+
+    fn get_voice_created(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_created()
+    }
+
+    fn get_voice_task_unable(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_task_unable()
+    }
+
+    fn get_voice_task_complete(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_task_complete()
+    }
+
+    fn get_voice_meet_enemy(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_meet_enemy()
+    }
+
+    fn get_voice_garrison(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_garrison()
+    }
+
+    fn get_voice_defect(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_defect()
+    }
+
+    fn get_voice_guard(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_voice_guard()
+    }
+
+    fn get_sound_move_start(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_start()
+    }
+
+    fn get_sound_move_start_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_start_damaged()
+    }
+
+    fn get_sound_move_loop(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_loop()
+    }
+
+    fn get_sound_move_loop_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_move_loop_damaged()
+    }
+
+    fn get_sound_stealth_on(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_stealth_on()
+    }
+
+    fn get_sound_stealth_off(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_stealth_off()
+    }
+
+    fn get_sound_created(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_created()
+    }
+
+    fn get_sound_on_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_on_damaged()
+    }
+
+    fn get_sound_on_really_damaged(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_on_really_damaged()
+    }
+
+    fn get_sound_enter(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_enter()
+    }
+
+    fn get_sound_exit(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_exit()
+    }
+
+    fn get_sound_promoted_veteran(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_promoted_veteran()
+    }
+
+    fn get_sound_promoted_elite(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_promoted_elite()
+    }
+
+    fn get_sound_promoted_hero(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_promoted_hero()
+    }
+
+    fn get_sound_falling(&self) -> crate::common::audio::AudioEventRts {
+        (**self).get_sound_falling()
     }
 }
 
@@ -2949,6 +3876,51 @@ fn engine_kind_indices(kind: KindOf) -> &'static [u32] {
         | KindOf::CanBeRepulsed
         | KindOf::EmpHardened
         | KindOf::SpawnsAreTheWeapons => &[],
+        KindOf::Obstacle => &[0],
+        KindOf::CanAttack => &[3],
+        KindOf::StickToTerrainSlope
+        | KindOf::CanCastReflections
+        | KindOf::Preload
+        | KindOf::NoCollide
+        | KindOf::StealthGarrison
+        | KindOf::DrawableOnly
+        | KindOf::Score
+        | KindOf::ScoreCreate
+        | KindOf::ScoreDestroy
+        | KindOf::NoHealIcon
+        | KindOf::Parachutable
+        | KindOf::AlwaysVisible
+        | KindOf::Unattackable
+        | KindOf::AircraftPathAround
+        | KindOf::LowOverlappable
+        | KindOf::ForceAttackable
+        | KindOf::AutoRallypoint
+        | KindOf::ClickThrough
+        | KindOf::ShowPortraitWhenControlled
+        | KindOf::CannotBuildNearSupplies
+        | KindOf::RevealToAll
+        | KindOf::IgnoresSelectAll
+        | KindOf::DontAutoCrushInfantry
+        | KindOf::FsBlackMarket
+        | KindOf::FsAdvancedTech
+        | KindOf::RevealsEnemyPaths
+        | KindOf::NoSelect
+        | KindOf::CannotRetaliate
+        | KindOf::Demotrap
+        | KindOf::ConservativeBuilding
+        | KindOf::BlastCrater
+        | KindOf::Prop
+        | KindOf::OptimizedTree
+        | KindOf::WaveEffect
+        | KindOf::ClearedByBuild => &[],
+        KindOf::HugeVehicle => &[11],
+        KindOf::LineBuild => &[60],
+        KindOf::SmallMissile | KindOf::BallisticMissile => &[25],
+        KindOf::AttackNeedsLineOfSight => &[3],
+        KindOf::WalkOnTopOfWall | KindOf::DefensiveWall => &[60],
+        KindOf::MoneyHacker => &[87],
+        KindOf::TechBaseDefense => &[69],
+        KindOf::LandmarkBridge => &[22, 23, 24],
         _ => &[],
     }
 }

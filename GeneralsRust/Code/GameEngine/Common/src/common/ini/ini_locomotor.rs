@@ -462,49 +462,58 @@ pub fn parse_locomotor_template_definition(
     for (key, value) in properties {
         match key.as_str() {
             "Speed" => {
-                template.max_speed = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("Speed: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("Speed: {}", e)))?;
+                template.max_speed = parsed / 30.0;
             }
             "SpeedDamaged" => {
-                template.max_speed_damaged = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("SpeedDamaged: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("SpeedDamaged: {}", e)))?;
+                template.max_speed_damaged = parsed / 30.0;
             }
             "TurnRate" => {
-                template.max_turn_rate = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("TurnRate: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("TurnRate: {}", e)))?;
+                template.max_turn_rate = parsed * std::f32::consts::PI / (180.0 * 30.0);
             }
             "TurnRateDamaged" => {
-                template.max_turn_rate_damaged = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("TurnRateDamaged: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("TurnRateDamaged: {}", e)))?;
+                template.max_turn_rate_damaged = parsed * std::f32::consts::PI / (180.0 * 30.0);
             }
             "Acceleration" => {
-                template.acceleration = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("Acceleration: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("Acceleration: {}", e)))?;
+                template.acceleration = parsed / 900.0;
             }
             "AccelerationDamaged" => {
-                template.acceleration_damaged = value.parse().map_err(|e| {
+                let parsed: f32 = value.parse().map_err(|e| {
                     LocomotorError::ParseError(format!("AccelerationDamaged: {}", e))
-                })?
+                })?;
+                template.acceleration_damaged = parsed / 900.0;
             }
             "Lift" => {
-                template.lift = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("Lift: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("Lift: {}", e)))?;
+                template.lift = parsed / 900.0;
             }
             "LiftDamaged" => {
-                template.lift_damaged = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("LiftDamaged: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("LiftDamaged: {}", e)))?;
+                template.lift_damaged = parsed / 900.0;
             }
             "Braking" => {
-                template.braking = value
+                let parsed: f32 = value
                     .parse()
-                    .map_err(|e| LocomotorError::ParseError(format!("Braking: {}", e)))?
+                    .map_err(|e| LocomotorError::ParseError(format!("Braking: {}", e)))?;
+                template.braking = parsed / 900.0;
             }
             "MinSpeed" => {
                 template.min_speed = value
@@ -722,6 +731,37 @@ pub fn parse_locomotor_template_definition(
                     LocomotorError::ParseError(format!("ElevatorCorrectionRate: {}", e))
                 })?
             }
+            "Surfaces" => {
+                for part in value.split('|') {
+                    match part.trim().to_uppercase().as_str() {
+                        "GROUND" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::GROUND),
+                        "WATER" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::WATER),
+                        "CLIFF" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::CLIFF),
+                        "AIR" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::AIR),
+                        "RUBBLE" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::RUBBLE),
+                        _ => {}
+                    }
+                }
+            }
+            "Extra2DFriction" => {
+                template.extra_2d_friction = value
+                    .parse()
+                    .map_err(|e| LocomotorError::ParseError(format!("Extra2DFriction: {}", e)))?
+            }
+            "GroupMovementPriority" => {
+                match value.trim().to_uppercase().as_str() {
+                    "MOVES_BACK" | "BACK" => template.move_priority = LocomotorPriority::MovesBack,
+                    "MOVES_MIDDLE" | "MIDDLE" => template.move_priority = LocomotorPriority::MovesMiddle,
+                    "MOVES_FRONT" | "FRONT" => template.move_priority = LocomotorPriority::MovesFront,
+                    _ => {
+                        let idx: i32 = value
+                            .parse()
+                            .map_err(|e| LocomotorError::ParseError(format!("GroupMovementPriority: {}", e)))?;
+                        template.move_priority = LocomotorPriority::from_index(idx)
+                            .ok_or(LocomotorError::InvalidPriority)?;
+                    }
+                }
+            }
             _ => {
                 // Unknown field - log warning but don't fail
                 eprintln!("Warning: Unknown locomotor field: {}", key);
@@ -825,5 +865,29 @@ mod tests {
         let found = store.find_template("TestLoco");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name.to_str(), "TestLoco");
+    }
+
+    #[test]
+    fn test_locomotor_unit_conversions() {
+        let mut props = HashMap::new();
+        props.insert("Speed".to_string(), "300".to_string());
+        props.insert("TurnRate".to_string(), "180".to_string());
+        props.insert("Acceleration".to_string(), "900".to_string());
+        props.insert("Appearance".to_string(), "TREADS".to_string());
+
+        let template = parse_locomotor_template_definition("TestConv", &props).unwrap();
+
+        // Speed: 300 / 30 = 10.0
+        assert!((template.max_speed - 10.0).abs() < 1e-6,
+            "Speed should be 10.0, got {}", template.max_speed);
+
+        // TurnRate: 180 * PI / (180 * 30) = PI / 30
+        let expected_turn = std::f32::consts::PI / 30.0;
+        assert!((template.max_turn_rate - expected_turn).abs() < 1e-5,
+            "TurnRate should be PI/30 ({:.6}), got {:.6}", expected_turn, template.max_turn_rate);
+
+        // Acceleration: 900 / 900 = 1.0
+        assert!((template.acceleration - 1.0).abs() < 1e-6,
+            "Acceleration should be 1.0, got {}", template.acceleration);
     }
 }
