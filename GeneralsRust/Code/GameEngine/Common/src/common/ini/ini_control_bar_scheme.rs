@@ -31,6 +31,41 @@ pub struct SchemeImage {
     pub layer: i32,
 }
 
+impl Default for SchemeImage {
+    fn default() -> Self {
+        Self {
+            image_name: String::new(),
+            position: ICoord2D { x: 0, y: 0 },
+            size: ICoord2D { x: 0, y: 0 },
+            layer: 0,
+        }
+    }
+}
+
+/// Parsed `ImagePart` content from a control bar scheme.
+#[derive(Debug, Clone, Default)]
+pub struct ControlBarSchemeImagePart {
+    pub image: SchemeImage,
+}
+
+/// Parsed `AnimatingPart` content from a control bar scheme.
+#[derive(Debug, Clone, Default)]
+pub struct ControlBarSchemeAnimationPart {
+    pub name: String,
+    pub animation_name: String,
+    pub duration_ms: u32,
+    pub final_pos: ICoord2D,
+    pub image: SchemeImage,
+}
+
+/// Parsed `VideoPart` content from a control bar scheme.
+#[derive(Debug, Clone, Default)]
+pub struct ControlBarSchemeVideoPart {
+    pub name: String,
+    pub image: SchemeImage,
+    pub properties: HashMap<String, String>,
+}
+
 /// Draw function callback type: (image_name, start_x, start_y, end_x, end_y) -> ()
 pub type SchemeDrawFunc = fn(&str, i32, i32, i32, i32);
 
@@ -105,6 +140,12 @@ pub struct ControlBarScheme {
     pub highlight_color_a: f32,
     /// Image layers (6 layers total, 0-2 foreground, 3-5 background)
     pub scheme_images: Vec<SchemeImage>,
+    /// Parsed `ImagePart` entries, preserved for parity and inspection.
+    pub image_parts: Vec<ControlBarSchemeImagePart>,
+    /// Parsed `AnimatingPart` entries, preserved for parity and inspection.
+    pub animation_parts: Vec<ControlBarSchemeAnimationPart>,
+    /// Parsed `VideoPart` entries, preserved for parity and inspection.
+    pub video_parts: Vec<ControlBarSchemeVideoPart>,
     /// Screen creation resolution (matches C++ m_ScreenCreationRes)
     pub screen_creation_res: ICoord2D,
 }
@@ -170,6 +211,9 @@ impl Default for ControlBarScheme {
             highlight_color_b: 0.0,
             highlight_color_a: 1.0,
             scheme_images: Vec::new(),
+            image_parts: Vec::new(),
+            animation_parts: Vec::new(),
+            video_parts: Vec::new(),
             screen_creation_res: ICoord2D { x: 800, y: 600 },
         }
     }
@@ -198,11 +242,6 @@ impl ControlBarScheme {
 
     /// Parse control bar scheme fields
     fn parse_scheme_fields(&mut self, ini: &mut INI) -> INIResult<()> {
-        // ControlBarScheme supports nested ImagePart/AnimatingPart blocks.
-        // The outer scheme ends at the matching top-level "End"; nested
-        // sub-blocks must not terminate the whole scheme parse.
-        let mut nested_block_depth = 0usize;
-
         loop {
             ini.read_line()?;
             if ini.is_end_of_file() {
@@ -216,24 +255,30 @@ impl ControlBarScheme {
             };
 
             if key.eq_ignore_ascii_case("End") {
-                if nested_block_depth == 0 {
-                    break;
-                }
-                nested_block_depth = nested_block_depth.saturating_sub(1);
-                continue;
+                break;
             }
 
             if key.eq_ignore_ascii_case("ImagePart")
-                || key.eq_ignore_ascii_case("AnimatingPart")
-                || key.eq_ignore_ascii_case("VideoPart")
             {
-                nested_block_depth += 1;
+                let image_part = Self::parse_image_part_block(ini)?;
+                self.scheme_images.push(image_part.image.clone());
+                self.image_parts.push(image_part);
                 continue;
             }
 
-            if nested_block_depth > 0 {
-                // Ignore nested block internals for now. They are optional for
-                // scheme selection parity and can be ported field-by-field later.
+            if key.eq_ignore_ascii_case("AnimatingPart") {
+                let animation_part = Self::parse_animating_part_block(ini)?;
+                self.scheme_images.push(animation_part.image.clone());
+                self.animation_parts.push(animation_part);
+                continue;
+            }
+
+            if key.eq_ignore_ascii_case("VideoPart") {
+                let video_part = Self::parse_video_part_block(ini)?;
+                if !video_part.image.image_name.is_empty() {
+                    self.scheme_images.push(video_part.image.clone());
+                }
+                self.video_parts.push(video_part);
                 continue;
             }
 
@@ -249,6 +294,186 @@ impl ControlBarScheme {
         }
 
         Ok(())
+    }
+
+    fn parse_image_part_block(ini: &mut INI) -> INIResult<ControlBarSchemeImagePart> {
+        let mut image_part = ControlBarSchemeImagePart::default();
+
+        loop {
+            ini.read_line()?;
+            if ini.is_end_of_file() {
+                return Err(INIError::EndOfFile);
+            }
+
+            let line = ini.get_buffer().to_string();
+            let mut parts = line.split_whitespace();
+            let Some(key) = parts.next() else {
+                continue;
+            };
+
+            if key.eq_ignore_ascii_case("End") {
+                break;
+            }
+
+            let mut value_tokens: Vec<&str> = parts.collect();
+            value_tokens.retain(|token| *token != "=");
+            if value_tokens.is_empty() {
+                continue;
+            }
+
+            match key.to_ascii_lowercase().as_str() {
+                "position" => {
+                    let (x, y) = parse_icoord2d(&value_tokens)?;
+                    image_part.image.position = ICoord2D { x, y };
+                }
+                "size" => {
+                    let (x, y) = parse_icoord2d(&value_tokens)?;
+                    image_part.image.size = ICoord2D { x, y };
+                }
+                "imagename" => {
+                    image_part.image.image_name = value_tokens[0].to_string();
+                }
+                "layer" => {
+                    image_part.image.layer = INI::parse_int(value_tokens[0])?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(image_part)
+    }
+
+    fn parse_animating_part_block(ini: &mut INI) -> INIResult<ControlBarSchemeAnimationPart> {
+        let mut animation_part = ControlBarSchemeAnimationPart::default();
+
+        loop {
+            ini.read_line()?;
+            if ini.is_end_of_file() {
+                return Err(INIError::EndOfFile);
+            }
+
+            let line = ini.get_buffer().to_string();
+            let mut parts = line.split_whitespace();
+            let Some(key) = parts.next() else {
+                continue;
+            };
+
+            if key.eq_ignore_ascii_case("End") {
+                break;
+            }
+
+            if key.eq_ignore_ascii_case("ImagePart") {
+                animation_part.image = Self::parse_scheme_image_block(ini)?;
+                continue;
+            }
+
+            let mut value_tokens: Vec<&str> = parts.collect();
+            value_tokens.retain(|token| *token != "=");
+            if value_tokens.is_empty() {
+                continue;
+            }
+
+            match key.to_ascii_lowercase().as_str() {
+                "name" => animation_part.name = value_tokens[0].to_string(),
+                "animation" => animation_part.animation_name = value_tokens[0].to_string(),
+                "duration" => animation_part.duration_ms = INI::parse_unsigned_int(value_tokens[0])?,
+                "finalpos" => {
+                    let (x, y) = parse_icoord2d(&value_tokens)?;
+                    animation_part.final_pos = ICoord2D { x, y };
+                }
+                _ => {}
+            }
+        }
+
+        Ok(animation_part)
+    }
+
+    fn parse_video_part_block(ini: &mut INI) -> INIResult<ControlBarSchemeVideoPart> {
+        let mut video_part = ControlBarSchemeVideoPart::default();
+
+        loop {
+            ini.read_line()?;
+            if ini.is_end_of_file() {
+                return Err(INIError::EndOfFile);
+            }
+
+            let line = ini.get_buffer().to_string();
+            let mut parts = line.split_whitespace();
+            let Some(key) = parts.next() else {
+                continue;
+            };
+
+            if key.eq_ignore_ascii_case("End") {
+                break;
+            }
+
+            if key.eq_ignore_ascii_case("ImagePart") {
+                let image = Self::parse_scheme_image_block(ini)?;
+                video_part.image = image;
+                continue;
+            }
+
+            let mut value_tokens: Vec<&str> = parts.collect();
+            value_tokens.retain(|token| *token != "=");
+            if value_tokens.is_empty() {
+                continue;
+            }
+
+            let value = value_tokens.join(" ");
+            if key.eq_ignore_ascii_case("Name") {
+                video_part.name = value.clone();
+            }
+            video_part.properties.insert(key.to_string(), value);
+        }
+
+        Ok(video_part)
+    }
+
+    fn parse_scheme_image_block(ini: &mut INI) -> INIResult<SchemeImage> {
+        let mut image = SchemeImage::default();
+
+        loop {
+            ini.read_line()?;
+            if ini.is_end_of_file() {
+                return Err(INIError::EndOfFile);
+            }
+
+            let line = ini.get_buffer().to_string();
+            let mut parts = line.split_whitespace();
+            let Some(key) = parts.next() else {
+                continue;
+            };
+
+            if key.eq_ignore_ascii_case("End") {
+                break;
+            }
+
+            let mut value_tokens: Vec<&str> = parts.collect();
+            value_tokens.retain(|token| *token != "=");
+            if value_tokens.is_empty() {
+                continue;
+            }
+
+            match key.to_ascii_lowercase().as_str() {
+                "position" => {
+                    let (x, y) = parse_icoord2d(&value_tokens)?;
+                    image.position = ICoord2D { x, y };
+                }
+                "size" => {
+                    let (x, y) = parse_icoord2d(&value_tokens)?;
+                    image.size = ICoord2D { x, y };
+                }
+                "imagename" => {
+                    image.image_name = value_tokens[0].to_string();
+                }
+                "layer" => {
+                    image.layer = INI::parse_int(value_tokens[0])?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(image)
     }
 
     /// Get the field parsing table for control bar schemes
@@ -634,6 +859,36 @@ fn parse_i32_token(args: &[&str]) -> INIResult<i32> {
 fn parse_string_token(args: &[&str]) -> INIResult<String> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     INI::parse_ascii_string(token)
+}
+
+fn parse_icoord2d(args: &[&str]) -> INIResult<(i32, i32)> {
+    let mut x = 0i32;
+    let mut y = 0i32;
+
+    let mut i = 0usize;
+    while i < args.len() {
+        let token = args[i];
+        if let Some(rest) = token.strip_prefix("X:") {
+            let value_str = if rest.is_empty() && i + 1 < args.len() {
+                i += 1;
+                args[i]
+            } else {
+                rest
+            };
+            x = INI::parse_int(value_str)?;
+        } else if let Some(rest) = token.strip_prefix("Y:") {
+            let value_str = if rest.is_empty() && i + 1 < args.len() {
+                i += 1;
+                args[i]
+            } else {
+                rest
+            };
+            y = INI::parse_int(value_str)?;
+        }
+        i += 1;
+    }
+
+    Ok((x, y))
 }
 
 fn parse_rgba_tokens(args: &[&str]) -> INIResult<(f32, f32, f32, f32)> {

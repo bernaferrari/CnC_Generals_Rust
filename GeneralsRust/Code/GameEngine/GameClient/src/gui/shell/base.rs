@@ -2847,6 +2847,12 @@ impl SubsystemInterface for Shell {
 
             self.animate_window_manager.update();
             self.scheme_manager.update()?;
+            if self.is_shell_active {
+                // C++ shell schemes are rendered as part of the active shell frame.
+                // Draw here as a safety net so loaded menu schemes still affect the UI
+                // even when a dedicated scheme-draw window is absent.
+                self.scheme_manager.draw();
+            }
 
             self.last_update = now;
         }
