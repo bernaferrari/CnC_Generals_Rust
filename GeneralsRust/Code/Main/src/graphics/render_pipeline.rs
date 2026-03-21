@@ -18,7 +18,7 @@ use super::minimap_renderer::{
 };
 use super::render_item::RenderItem;
 use crate::assets::textures::RawTexture;
-use crate::assets::{W3DMaterial, W3DModel};
+use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};
 use ww3d_renderer_3d::material_system::{MaterialPassClass, VertexMaterialClass};
 use ww3d_renderer_3d::rendering::{
     camera_system::CameraClass,
@@ -146,6 +146,7 @@ pub struct RenderPipeline {
     skybox_enabled: bool,
     heightmap_world_size: Option<(f32, f32)>,
     cached_lighting: Option<CachedLighting>,
+    last_startup_model_prewarm_signature: Option<String>,
 
     // Render items for current frame
     render_items: Vec<RenderItem>,
@@ -434,6 +435,7 @@ impl RenderPipeline {
             skybox_enabled: true,
             heightmap_world_size: None,
             cached_lighting: None,
+            last_startup_model_prewarm_signature: None,
             render_items: Vec::new(),
             frame_number: 0,
             current_pass: None,
@@ -495,6 +497,9 @@ impl RenderPipeline {
         let mut sort_elapsed = std::time::Duration::ZERO;
         let mut terrain_elapsed = std::time::Duration::ZERO;
         if render_world_scene {
+            self.sync_lighting_from_map_metadata(game_logic);
+            self.prewarm_startup_models(graphics_system, game_logic, allow_sync_model_loads);
+
             // Shell/menu startup needs to make visible progress without stalling first paint.
             let mut deferred_model_load_budget = if allow_sync_model_loads {
                 usize::MAX
@@ -615,6 +620,160 @@ impl RenderPipeline {
             );
         }
         Ok(())
+    }
+
+    fn sync_lighting_from_map_metadata(&mut self, game_logic: &GameLogic) {
+        let Some(meta) = game_logic.last_parsed_map_settings() else {
+            return;
+        };
+
+        let derived = CachedLighting {
+            sun_direction: meta.sun_direction,
+            sun_color: meta.sun_color.or(meta.sky_color),
+            ambient_color: meta.ambient_color.or(meta.fog_color).or(meta.sky_color),
+            fog_color: meta.fog_color.or(meta.sky_color).or(meta.sun_color),
+            fog_range: meta.fog_start.zip(meta.fog_end),
+        };
+
+        match &mut self.cached_lighting {
+            Some(existing) => {
+                if existing.sun_direction.is_none() {
+                    existing.sun_direction = derived.sun_direction;
+                }
+                if existing.sun_color.is_none() {
+                    existing.sun_color = derived.sun_color;
+                }
+                if existing.ambient_color.is_none() {
+                    existing.ambient_color = derived.ambient_color;
+                }
+                if existing.fog_color.is_none() {
+                    existing.fog_color = derived.fog_color;
+                }
+                if existing.fog_range.is_none() {
+                    existing.fog_range = derived.fog_range;
+                }
+            }
+            None => {
+                self.cached_lighting = Some(derived);
+            }
+        }
+    }
+
+    fn prewarm_startup_models(
+        &mut self,
+        graphics_system: &mut GraphicsSystem,
+        game_logic: &GameLogic,
+        allow_sync_model_loads: bool,
+    ) {
+        let map_name = game_logic.get_current_map_name().trim().to_string();
+        let metadata = game_logic.last_parsed_map_settings();
+        let signature = format!(
+            "{}|meta:{}|objects:{}|heightmap:{}|shell:{}",
+            map_name,
+            metadata.is_some(),
+            metadata.as_ref().map(|m| m.objects.len()).unwrap_or(0),
+            metadata
+                .as_ref()
+                .and_then(|m| m.heightmap_path.as_ref())
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            game_logic.isInShellGame()
+        );
+
+        if self
+            .last_startup_model_prewarm_signature
+            .as_deref()
+            .is_some_and(|prev| prev == signature)
+        {
+            return;
+        }
+
+        let mut candidates: Vec<String> = Vec::new();
+        let mut seen = HashSet::new();
+
+        if let Some(meta) = metadata.as_ref() {
+            for placed in &meta.objects {
+                let template = placed.template.trim();
+                if template.is_empty() {
+                    continue;
+                }
+                let key = template.to_ascii_lowercase();
+                if seen.insert(key) {
+                    candidates.push(template.to_string());
+                }
+            }
+        }
+
+        if candidates.is_empty() {
+            if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+                if let Ok(asset_manager) = asset_manager_arc.lock() {
+                    candidates.extend(
+                        asset_manager
+                            .get_common_cnc_units()
+                            .into_iter()
+                            .map(str::to_string),
+                    );
+                }
+            }
+        } else if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+            if let Ok(asset_manager) = asset_manager_arc.lock() {
+                for unit in asset_manager.get_common_cnc_units() {
+                    if candidates.len() >= if allow_sync_model_loads { 48 } else { 24 } {
+                        break;
+                    }
+                    let key = unit.to_ascii_lowercase();
+                    if seen.insert(key) {
+                        candidates.push(unit.to_string());
+                    }
+                }
+            }
+        }
+
+        let prewarm_limit = if allow_sync_model_loads { 48 } else { 24 };
+        candidates.truncate(prewarm_limit);
+        if candidates.is_empty() {
+            self.last_startup_model_prewarm_signature = Some(signature);
+            return;
+        }
+
+        let mut cached_to_graphics = 0usize;
+        let mut stats = ModelPrewarmStats::default();
+
+        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+            match asset_manager_arc.lock() {
+                Ok(mut asset_manager) => {
+                    stats = asset_manager.prewarm_object_models_blocking(candidates.iter());
+                    for name in &candidates {
+                        if let Some(model) = asset_manager.get_cached_model(name) {
+                            let resolved_name = asset_manager
+                                .get_model_for_object(name)
+                                .unwrap_or_else(|| name.clone());
+                            graphics_system.cache_model(resolved_name.clone(), model.clone());
+                            if resolved_name != *name {
+                                graphics_system.cache_model(name.clone(), model);
+                            }
+                            cached_to_graphics += 1;
+                        }
+                    }
+                }
+                Err(_) => {
+                    warn!("Startup model prewarm skipped: asset manager mutex poisoned");
+                }
+            }
+        }
+
+        info!(
+            "Startup model prewarm: map='{}' candidates={} requested={} cache_hits={} resolved={} missing={} graphics_cached={}",
+            if map_name.is_empty() { "<unknown>" } else { &map_name },
+            candidates.len(),
+            stats.requested,
+            stats.cache_hits,
+            stats.resolved,
+            stats.missing,
+            cached_to_graphics
+        );
+
+        self.last_startup_model_prewarm_signature = Some(signature);
     }
 
     fn maybe_load_heightmap_hint_after_first_present(
@@ -856,12 +1015,15 @@ impl RenderPipeline {
                             let mut material = mesh.material.clone();
 
                             if material.texture_name.is_none() {
-                                if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+                                if let Some(asset_manager_arc) = crate::assets::get_asset_manager()
+                                {
                                     if let Ok(asset_manager) = asset_manager_arc.lock() {
-                                        if let Some(obj_def) = asset_manager.resolve_object_definition(
-                                            &object.template_name,
-                                            model_hint,
-                                        ) {
+                                        if let Some(obj_def) = asset_manager
+                                            .resolve_object_definition(
+                                                &object.template_name,
+                                                model_hint,
+                                            )
+                                        {
                                             if let Some(texture_from_ini) =
                                                 obj_def.get_primary_texture()
                                             {
@@ -873,10 +1035,10 @@ impl RenderPipeline {
                                                     object.template_name,
                                                     texture_from_ini
                                                 );
-                                            } else if self
-                                                .missing_ini_objects
-                                                .insert(format!("{}::texture", object.template_name))
-                                            {
+                                            } else if self.missing_ini_objects.insert(format!(
+                                                "{}::texture",
+                                                object.template_name
+                                            )) {
                                                 debug!(
                                                     "WW3D assets: INI definition for '{}' defines no textures",
                                                     object.template_name
@@ -913,8 +1075,10 @@ impl RenderPipeline {
                             ) {
                                 mesh_local_transform
                             } else {
-                                let key =
-                                    format!("{}::{}::{}", object.template_name, model_name, mesh.name);
+                                let key = format!(
+                                    "{}::{}::{}",
+                                    object.template_name, model_name, mesh.name
+                                );
                                 if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
                                     warn!(
                                         "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
@@ -1065,14 +1229,22 @@ impl RenderPipeline {
                 })
                 .is_ok();
 
-        if let Some(model) = graphics_system
-            .get_model(model_name)
-            .cloned()
-            .or_else(|| graphics_system.get_model(template_name).cloned())
-        {
+        if let Some(model) = graphics_system.get_model(model_name).cloned() {
             if trace_this_attempt {
                 info!(
                     "Startup model load: cache hit template='{}' model='{}'",
+                    template_name, model_name
+                );
+            }
+            return RenderModelLoadResult::Ready(model);
+        }
+        if let Some(model) = graphics_system.get_model(template_name).cloned() {
+            if model_name != template_name {
+                graphics_system.cache_model(model_name.to_string(), model.as_ref().clone());
+            }
+            if trace_this_attempt {
+                info!(
+                    "Startup model load: cache hit template='{}' model='{}' (aliased from template cache)",
                     template_name, model_name
                 );
             }
@@ -1146,11 +1318,24 @@ impl RenderPipeline {
             }
         }
 
-        let resolved = graphics_system
-            .get_model(model_name)
-            .cloned()
-            .or_else(|| graphics_system.get_model(template_name).cloned())
-            .or_else(|| graphics_system.get_model(&requested_model_name).cloned());
+        let resolved = if let Some(model) = graphics_system.get_model(model_name).cloned() {
+            Some(model)
+        } else if let Some(model) = graphics_system.get_model(template_name).cloned() {
+            if model_name != template_name {
+                graphics_system.cache_model(model_name.to_string(), model.as_ref().clone());
+            }
+            Some(model)
+        } else if let Some(model) = graphics_system.get_model(&requested_model_name).cloned() {
+            if requested_model_name != model_name {
+                graphics_system.cache_model(model_name.to_string(), model.as_ref().clone());
+            }
+            if requested_model_name != template_name {
+                graphics_system.cache_model(template_name.to_string(), model.as_ref().clone());
+            }
+            Some(model)
+        } else {
+            None
+        };
         if trace_this_attempt && resolved.is_none() {
             warn!(
                 "Startup model load: unresolved template='{}' model='{}' requested='{}'",
@@ -1342,19 +1527,18 @@ impl RenderPipeline {
                 a: 1.0,
             };
         }
-        if self.skybox_enabled {
-            if let Some(color) = self
-                .cached_lighting
-                .as_ref()
-                .and_then(|lighting| lighting.fog_color.or(lighting.ambient_color))
-            {
-                return wgpu::Color {
-                    r: color[0] as f64,
-                    g: color[1] as f64,
-                    b: color[2] as f64,
-                    a: 1.0,
-                };
-            }
+        if let Some(color) = self.cached_lighting.as_ref().and_then(|lighting| {
+            lighting
+                .fog_color
+                .or(lighting.ambient_color)
+                .or(lighting.sun_color)
+        }) {
+            return wgpu::Color {
+                r: color[0] as f64,
+                g: color[1] as f64,
+                b: color[2] as f64,
+                a: 1.0,
+            };
         }
         wgpu::Color::BLACK
     }
@@ -2079,27 +2263,31 @@ impl ForwardPass {
 
     fn build_light_environment(lighting: Option<&CachedLighting>) -> Option<LightEnvironmentClass> {
         let mut env = LightEnvironmentClass::new();
-        let mut using_fallback = false;
+        let have_metadata = lighting
+            .map(|v| {
+                v.sun_direction.is_some()
+                    || v.sun_color.is_some()
+                    || v.ambient_color.is_some()
+                    || v.fog_color.is_some()
+                    || v.fog_range.is_some()
+            })
+            .unwrap_or(false);
 
-        let ambient = lighting.and_then(|v| v.ambient_color).unwrap_or_else(|| {
-            using_fallback = true;
-            [0.30, 0.30, 0.30]
-        });
+        let ambient = lighting
+            .and_then(|v| v.ambient_color)
+            .or_else(|| lighting.and_then(|v| v.fog_color))
+            .or_else(|| lighting.and_then(|v| v.sun_color))
+            .unwrap_or([0.30, 0.30, 0.30]);
         env.set_ambient(Vec3::from_array(ambient));
 
-        let (direction, color) = match lighting {
-            Some(v) => match (v.sun_direction, v.sun_color) {
-                (Some(direction), Some(color)) => (direction, color),
-                _ => {
-                    using_fallback = true;
-                    ([-0.5, -1.0, -0.5], [1.0, 0.9, 0.8])
-                }
-            },
-            None => {
-                using_fallback = true;
-                ([-0.5, -1.0, -0.5], [1.0, 0.9, 0.8])
-            }
-        };
+        let direction = lighting
+            .and_then(|v| v.sun_direction)
+            .unwrap_or([-0.5, -1.0, -0.5]);
+        let color = lighting
+            .and_then(|v| v.sun_color)
+            .or_else(|| lighting.and_then(|v| v.fog_color))
+            .or_else(|| lighting.and_then(|v| v.ambient_color))
+            .unwrap_or([1.0, 0.9, 0.8]);
 
         let direction = Vec3::from_array(direction).normalize_or_zero();
         let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
@@ -2107,7 +2295,7 @@ impl ForwardPass {
         env.add_light(Arc::new(Mutex::new(light)));
 
         static LOGGED_FALLBACK_LIGHTING: AtomicBool = AtomicBool::new(false);
-        if using_fallback && !LOGGED_FALLBACK_LIGHTING.swap(true, Ordering::Relaxed) {
+        if !have_metadata && !LOGGED_FALLBACK_LIGHTING.swap(true, Ordering::Relaxed) {
             warn!(
                 "ForwardPass lighting metadata unavailable/incomplete; using fallback ambient+sun lighting"
             );

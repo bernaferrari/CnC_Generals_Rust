@@ -991,10 +991,8 @@ impl INI {
         let virtual_name = filename.to_string_lossy().to_string();
         let file_system = get_file_system();
         let mut fs_guard = file_system.lock().ok()?;
-        let mut file = fs_guard.open_file(
-            &virtual_name,
-            FileAccess::READ.combine(FileAccess::BINARY),
-        )?;
+        let mut file =
+            fs_guard.open_file(&virtual_name, FileAccess::READ.combine(FileAccess::BINARY))?;
         let bytes = file.read_entire_and_close().ok()?;
 
         let nanos = SystemTime::now()
@@ -1109,9 +1107,11 @@ impl INI {
 
     /// Advance to the next token in the current line.
     pub fn get_next_value_token(&mut self) -> Option<String> {
-        let mut iter = self.buffer.split_whitespace();
-        iter.next()?; // consume the key token
-        iter.next().map(|s| s.to_string())
+        self.buffer
+            .split_whitespace()
+            .skip(1)
+            .find(|token| *token != "=")
+            .map(|token| token.to_string())
     }
 
     /// Parse basic data types
@@ -1444,6 +1444,16 @@ impl INI {
         self.buffer.split_whitespace().collect()
     }
 
+    /// Check whether the INI stream has reached end-of-file.
+    pub fn is_end_of_file(&self) -> bool {
+        self.end_of_file
+    }
+
+    /// Get a reference to the current line buffer (already trimmed, comments removed).
+    pub fn get_buffer(&self) -> &str {
+        &self.buffer
+    }
+
     /// Parse coordinate from tokens in the line
     pub fn parse_coord3d(&mut self) -> INIResult<(f32, f32, f32)> {
         let tokens: Vec<&str> = self.buffer.split_whitespace().collect();
@@ -1721,11 +1731,9 @@ impl INI {
     /// If "Tag" is not the next token, an error is returned.
     /// Matches C++ INI::getSubToken
     pub fn get_next_sub_token(&mut self, expected: &str) -> INIResult<String> {
-        let token = self.get_next_token()
-            .ok_or(INIError::InvalidData)?;
+        let token = self.get_next_token().ok_or(INIError::InvalidData)?;
 
-        let (tag, value) = token.split_once(':')
-            .ok_or(INIError::InvalidData)?;
+        let (tag, value) = token.split_once(':').ok_or(INIError::InvalidData)?;
 
         if !tag.eq_ignore_ascii_case(expected) {
             return Err(INIError::InvalidData);

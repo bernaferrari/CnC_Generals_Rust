@@ -1,6 +1,7 @@
 use super::{ConfigValue, IniParser, LoadMode};
 use anyhow::Result;
 use crc32fast::Hasher;
+use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
 use log::{debug, error, info, warn};
@@ -109,6 +110,7 @@ impl GlobalData {
 
         // Load specific settings from the INI
         self.load_settings_from_ini();
+        self.sync_runtime_view();
 
         info!(
             "INI loaded: {} sections, {} keys",
@@ -207,6 +209,37 @@ impl GlobalData {
             "  Shell map: {} ({})",
             self.shell_map_on, self.shell_map_name
         );
+    }
+
+    /// Push the parsed startup view into the runtime global-data singleton.
+    pub fn sync_runtime_view(&self) {
+        let Ok(mut runtime) = runtime_global_data::write_safe() else {
+            warn!("Runtime global data unavailable; startup config sync skipped");
+            return;
+        };
+
+        runtime.writable.frames_per_second_limit = self.frames_per_second_limit;
+        runtime.writable.use_fps_limit = self.use_fps_limit;
+        runtime.writable.audio_on = self.audio_on;
+        runtime.writable.music_on = self.music_on;
+        runtime.writable.sounds_on = self.sounds_on;
+        runtime.writable.speech_on = self.speech_on;
+        runtime.writable.build_map_cache = self.build_map_cache;
+        runtime.writable.shell_map_on = self.shell_map_on;
+        runtime.writable.shell_map_name = self.shell_map_name.clone();
+        runtime.writable.play_intro = self.play_intro;
+        runtime.writable.after_intro = self.after_intro;
+        runtime.writable.benchmark_timer = self.benchmark_timer;
+        runtime.writable.should_update_tga_to_dds = self.should_update_tga_to_dds;
+        runtime.writable.initial_file = self.initial_file.clone();
+        runtime.pending_file = self.pending_file.clone();
+        runtime.tivo_fast_mode = self.tivo_fast_mode;
+        runtime.camera_pitch = self.camera_pitch;
+        runtime.camera_yaw = self.camera_yaw;
+        runtime.camera_height = self.camera_height;
+        runtime.max_camera_height = self.max_camera_height;
+        runtime.ini_crc = self.ini_crc;
+        runtime.set_user_data_dir(self.user_data_path.to_string_lossy().into_owned());
     }
 
     /// Calculate CRC of all loaded INI data
@@ -392,6 +425,7 @@ impl GlobalData {
             i += 1;
         }
 
+        self.sync_runtime_view();
         Ok(())
     }
 
@@ -585,6 +619,7 @@ impl ConfigurationSystem {
 
         // Calculate final CRC
         self.global_data.ini_crc = self.global_data.calculate_crc();
+        self.global_data.sync_runtime_view();
 
         // Validate configuration
         let issues = self.global_data.validate();
