@@ -31,6 +31,8 @@ pub mod game_client_dispatch;
 pub mod graph_draw;
 pub mod gui;
 pub mod helpers;
+#[allow(non_snake_case)]
+pub mod HotKey;
 pub mod in_game_ui;
 pub mod input;
 pub mod language_filter;

@@ -39,6 +39,10 @@ def collect_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
     return sorted(rows)
 
 
+def normalize_name(value: str) -> str:
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
 def rust_subsystem(rel_path: Path) -> str:
     return rel_path.parts[0] if rel_path.parts else "Unknown"
 
@@ -66,6 +70,7 @@ def build_mapping_rows(
     cpp_root: Path,
     rust_root: Path,
     rust_by_stem: dict[str, list[Path]],
+    rust_by_normalized_stem: dict[str, list[Path]],
 ) -> list[MappingRow]:
     if kind == "Source":
         cpp_files = collect_files(cpp_root, (".cpp", ".cxx", ".cc"))
@@ -78,6 +83,9 @@ def build_mapping_rows(
         subsystem = cpp_subsystem(cpp_rel)
         stem = cpp_abs.stem.lower()
         candidates = rust_by_stem.get(stem, [])
+        if not candidates:
+            normalized_stem = normalize_name(cpp_abs.stem)
+            candidates = rust_by_normalized_stem.get(normalized_stem, [])
 
         if not candidates:
             rows.append(
@@ -234,11 +242,25 @@ def main() -> None:
 
     rust_files = collect_files(rust_root, (".rs",))
     rust_by_stem: dict[str, list[Path]] = defaultdict(list)
+    rust_by_normalized_stem: dict[str, list[Path]] = defaultdict(list)
     for rust_file in rust_files:
         rust_by_stem[rust_file.stem.lower()].append(rust_file)
+        rust_by_normalized_stem[normalize_name(rust_file.stem)].append(rust_file)
 
-    source_rows = build_mapping_rows("Source", cpp_source_root, rust_root, rust_by_stem)
-    include_rows = build_mapping_rows("Include", cpp_include_root, rust_root, rust_by_stem)
+    source_rows = build_mapping_rows(
+        "Source",
+        cpp_source_root,
+        rust_root,
+        rust_by_stem,
+        rust_by_normalized_stem,
+    )
+    include_rows = build_mapping_rows(
+        "Include",
+        cpp_include_root,
+        rust_root,
+        rust_by_stem,
+        rust_by_normalized_stem,
+    )
     all_rows = source_rows + include_rows
 
     matrix_path = output_root / "PORT_FILE_MATRIX.txt"

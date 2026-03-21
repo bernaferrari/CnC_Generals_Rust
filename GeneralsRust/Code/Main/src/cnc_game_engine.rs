@@ -798,7 +798,8 @@ impl CnCGameEngine {
         }
 
         let stalled_for = self.startup_last_progress_change_at.elapsed();
-        if stalled_for < Duration::from_secs(2) {
+        let stall_threshold = Self::startup_stall_warning_threshold(progress, phase);
+        if stalled_for < Duration::from_secs(2) || stalled_for < stall_threshold {
             return;
         }
 
@@ -830,6 +831,22 @@ impl CnCGameEngine {
             );
         }
         self.startup_last_stall_warning_at = Some(Instant::now());
+    }
+
+    fn startup_stall_warning_threshold(progress: f32, phase: &str) -> Duration {
+        let phase = phase.trim().to_ascii_lowercase();
+        if phase.contains("priming shell simulation") {
+            Duration::from_secs(25)
+        } else if phase.contains("initializing asset manager")
+            || phase.contains("loading map data")
+            || phase.contains("spawning world objects")
+            || phase.contains("finalizing startup")
+        {
+            Duration::from_secs(20)
+        } else {
+            let _ = progress;
+            Duration::from_secs(12)
+        }
     }
 
     fn hide_gameplay_layouts(&mut self) {}
@@ -1148,7 +1165,7 @@ impl CnCGameEngine {
         phase: &str,
     ) {
         let _ = sender.send(StartupLoadMessage::Progress {
-            progress: progress.clamp(0.0, 0.96),
+            progress: progress.clamp(0.0, 0.995),
             phase: phase.to_string(),
         });
     }
@@ -1393,7 +1410,7 @@ impl CnCGameEngine {
                 loop {
                     match receiver.try_recv() {
                         Ok(StartupLoadMessage::Progress { progress, phase }) => {
-                            let clamped = progress.clamp(0.0, 0.96);
+                            let clamped = progress.clamp(0.0, 0.995);
                             if clamped > *last_worker_progress {
                                 *last_worker_progress = clamped;
                             }

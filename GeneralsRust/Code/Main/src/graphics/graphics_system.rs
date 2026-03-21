@@ -316,6 +316,15 @@ impl GraphicsSystem {
         &self.material_properties_bind_group
     }
 
+    /// Read the current global lighting defaults used by the renderer.
+    pub fn current_lighting(&self) -> ([f32; 3], [f32; 3], [f32; 3]) {
+        (
+            self.global_uniforms.ambient_light,
+            self.global_uniforms.sun_color,
+            self.global_uniforms.sun_direction,
+        )
+    }
+
     /// Override global lighting values from map/environment metadata.
     pub fn set_lighting(
         &mut self,

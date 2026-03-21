@@ -197,6 +197,36 @@ enum RenderModelLoadResult {
 }
 
 impl RenderPipeline {
+    fn should_prewarm_startup_map_template(
+        asset_manager: &crate::assets::AssetManager,
+        template: &str,
+    ) -> bool {
+        let template = template.trim();
+        if template.is_empty() {
+            return false;
+        }
+
+        if let Some(definition) = asset_manager.get_object_definition(template) {
+            return definition.model_name.is_some();
+        }
+
+        if asset_manager.get_model_for_object(template).is_some() {
+            return true;
+        }
+
+        let lower = template.to_ascii_lowercase();
+        if lower.starts_with("amb_")
+            || lower.starts_with("ambient")
+            || lower.starts_with("cin_")
+            || lower.starts_with("gc_")
+            || lower.starts_with("scorch")
+        {
+            return false;
+        }
+
+        false
+    }
+
     pub fn debug_render_item_count(&self) -> usize {
         self.render_items.len()
     }
@@ -417,11 +447,12 @@ impl RenderPipeline {
     }
 
     /// Initialize render pipeline - equivalent to C++ RenderPipeline::Initialize()
-    pub fn initialize(_graphics_system: &GraphicsSystem) -> Result<Self> {
+    pub fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
         info!("Initializing RenderPipeline (C++ SAGE equivalent)");
 
         // Initialize forward pass
         let forward_pass = ForwardPass::initialize()?;
+        let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
 
         info!("RenderPipeline initialized successfully");
 
@@ -434,7 +465,13 @@ impl RenderPipeline {
             skybox_textures_hint: None,
             skybox_enabled: true,
             heightmap_world_size: None,
-            cached_lighting: None,
+            cached_lighting: Some(CachedLighting {
+                sun_direction: Some(sun_direction),
+                sun_color: Some(sun_color),
+                ambient_color: Some(ambient_light),
+                fog_color: None,
+                fog_range: None,
+            }),
             last_startup_model_prewarm_signature: None,
             render_items: Vec::new(),
             frame_number: 0,
@@ -692,14 +729,23 @@ impl RenderPipeline {
         let mut seen = HashSet::new();
 
         if let Some(meta) = metadata.as_ref() {
-            for placed in &meta.objects {
-                let template = placed.template.trim();
-                if template.is_empty() {
-                    continue;
-                }
-                let key = template.to_ascii_lowercase();
-                if seen.insert(key) {
-                    candidates.push(template.to_string());
+            if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
+                if let Ok(asset_manager) = asset_manager_arc.lock() {
+                    for placed in &meta.objects {
+                        let template = placed.template.trim();
+                        if template.is_empty() {
+                            continue;
+                        }
+                        if !Self::should_prewarm_startup_map_template(&asset_manager, template) {
+                            continue;
+                        }
+                        let key = template.to_ascii_lowercase();
+                        if seen.insert(key) {
+                            candidates.push(template.to_string());
+                        }
+                    }
+                } else {
+                    warn!("Startup model prewarm skipped: asset manager mutex poisoned");
                 }
             }
         }
