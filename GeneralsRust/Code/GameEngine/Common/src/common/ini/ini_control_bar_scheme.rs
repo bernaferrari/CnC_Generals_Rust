@@ -4,8 +4,10 @@
 //! Author: Chris Huybregts
 //! Purpose: Parse a control Bar Scheme
 
+use super::ini::INILoadType;
 use super::ini::{FieldParse, INIError, INIResult, INI};
 use super::ini_mapped_image::ICoord2D;
+use log::warn;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -177,7 +179,7 @@ impl ControlBarScheme {
     /// Create a new control bar scheme with the given name
     pub fn new(name: String) -> Self {
         Self {
-            name,
+            name: name.trim().to_lowercase(),
             ..Default::default()
         }
     }
@@ -196,9 +198,57 @@ impl ControlBarScheme {
 
     /// Parse control bar scheme fields
     fn parse_scheme_fields(&mut self, ini: &mut INI) -> INIResult<()> {
-        // ControlBarScheme INIs carry many optional fields; ignore unknown keys so
-        // existing data packs with extra legacy tokens still load.
-        ini.init_from_ini_with_fields_allow_unknown(self, Self::get_field_parse())
+        // ControlBarScheme supports nested ImagePart/AnimatingPart blocks.
+        // The outer scheme ends at the matching top-level "End"; nested
+        // sub-blocks must not terminate the whole scheme parse.
+        let mut nested_block_depth = 0usize;
+
+        loop {
+            ini.read_line()?;
+            if ini.is_end_of_file() {
+                return Err(INIError::EndOfFile);
+            }
+
+            let line = ini.get_buffer().to_string();
+            let mut parts = line.split_whitespace();
+            let Some(key) = parts.next() else {
+                continue;
+            };
+
+            if key.eq_ignore_ascii_case("End") {
+                if nested_block_depth == 0 {
+                    break;
+                }
+                nested_block_depth = nested_block_depth.saturating_sub(1);
+                continue;
+            }
+
+            if key.eq_ignore_ascii_case("ImagePart")
+                || key.eq_ignore_ascii_case("AnimatingPart")
+                || key.eq_ignore_ascii_case("VideoPart")
+            {
+                nested_block_depth += 1;
+                continue;
+            }
+
+            if nested_block_depth > 0 {
+                // Ignore nested block internals for now. They are optional for
+                // scheme selection parity and can be ported field-by-field later.
+                continue;
+            }
+
+            let mut value_tokens: Vec<&str> = parts.collect();
+            value_tokens.retain(|token| *token != "=");
+
+            for field in Self::get_field_parse() {
+                if field.token.eq_ignore_ascii_case(key) {
+                    (field.parse)(ini, self, &value_tokens)?;
+                    break;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the field parsing table for control bar schemes
@@ -470,39 +520,42 @@ impl ControlBarSchemeManager {
 
     /// Find a control bar scheme by name
     pub fn find_scheme(&self, name: &str) -> Option<&ControlBarScheme> {
-        self.schemes.get(name)
+        self.schemes.get(&name.trim().to_lowercase())
     }
 
     /// Find a mutable control bar scheme by name
     pub fn find_scheme_mut(&mut self, name: &str) -> Option<&mut ControlBarScheme> {
-        self.schemes.get_mut(name)
+        self.schemes.get_mut(&name.trim().to_lowercase())
     }
 
     /// Create a new control bar scheme (or return existing cleared one)
     pub fn new_control_bar_scheme(&mut self, name: String) -> &mut ControlBarScheme {
-        // Clear existing scheme if it exists, otherwise create new
-        let scheme = ControlBarScheme::new(name.clone());
-        self.schemes.insert(name.clone(), scheme);
-        self.schemes.get_mut(&name).unwrap()
+        let normalized_name = name.trim().to_lowercase();
+        let scheme = ControlBarScheme::new(normalized_name.clone());
+        self.schemes.insert(normalized_name.clone(), scheme);
+        self.schemes.get_mut(&normalized_name).unwrap()
     }
 
     /// Remove a control bar scheme
     pub fn remove_scheme(&mut self, name: &str) -> Option<ControlBarScheme> {
+        let normalized_name = name.trim().to_lowercase();
         // If removing the active scheme, clear the active reference
         if let Some(ref active_name) = self.active_scheme {
-            if active_name == name {
+            if active_name == &normalized_name {
                 self.active_scheme = None;
             }
         }
-        self.schemes.remove(name)
+        self.schemes.remove(&normalized_name)
     }
 
     /// Set the active control bar scheme
     pub fn set_active_scheme(&mut self, name: String) -> Result<(), &'static str> {
-        if self.schemes.contains_key(&name) {
-            self.active_scheme = Some(name);
+        let normalized_name = name.trim().to_lowercase();
+        if self.schemes.contains_key(&normalized_name) {
+            self.active_scheme = Some(normalized_name);
             Ok(())
         } else {
+            self.active_scheme = None;
             Err("Scheme not found")
         }
     }
@@ -915,6 +968,19 @@ pub fn ensure_control_bar_scheme_manager() -> Arc<RwLock<ControlBarSchemeManager
 pub fn initialize_control_bar_scheme_manager() {
     let manager = ensure_control_bar_scheme_manager();
     manager.write().clear();
+    load_control_bar_scheme_files();
+}
+
+fn load_control_bar_scheme_files() {
+    let mut ini = INI::new();
+    for path in [
+        "Data/INI/Default/ControlBarScheme.ini",
+        "Data/INI/ControlBarScheme.ini",
+    ] {
+        if let Err(err) = ini.load(path, INILoadType::Overwrite) {
+            warn!("Failed to load control bar scheme INI '{}': {}", path, err);
+        }
+    }
 }
 
 /// Get the control bar scheme manager if it has been initialized
@@ -930,6 +996,9 @@ pub fn parse_control_bar_scheme_definition(ini: &mut INI) -> INIResult<()> {
         Some(token) => token,
         None => return Err(INIError::InvalidData),
     };
+    if name.trim().is_empty() {
+        return Err(INIError::InvalidData);
+    }
 
     let manager_handle = ensure_control_bar_scheme_manager();
     let mut manager = manager_handle.write();
@@ -953,7 +1022,7 @@ mod tests {
     #[test]
     fn test_control_bar_scheme_creation() {
         let scheme = ControlBarScheme::new("TestScheme".to_string());
-        assert_eq!(scheme.get_name(), "TestScheme");
+        assert_eq!(scheme.get_name(), "testscheme");
         assert_eq!(scheme.screen_width, 1024);
         assert_eq!(scheme.screen_height, 768);
     }

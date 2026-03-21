@@ -344,6 +344,7 @@ pub struct CnCGameEngine {
     shell_ui_enqueued_frame: Option<u64>,
     last_shell_prewarm_log: Option<Instant>,
     shell_prewarm_completion_logged: bool,
+    last_slow_menu_tick_log: Option<Instant>,
     match_over: bool,
     victory_summary: Option<VictorySummary>,
 }
@@ -874,15 +875,8 @@ impl CnCGameEngine {
             return Some(shell_map_name);
         }
 
-        let _ =
-            crate::subsystem_manager::with_subsystem_mut::<GlobalDataSubsystem, _>(|subsystem| {
-                if let Some(global) = subsystem.get_global_data_mut() {
-                    global.shell_map_on = false;
-                }
-            });
-
         warn!(
-            "Configured shell map '{}' was not found in map cache; disabling shell-map startup",
+            "Configured shell map '{}' was not found in map cache; starting without a shell background map",
             shell_map_name
         );
         None
@@ -1172,6 +1166,7 @@ impl CnCGameEngine {
             Self::emit_startup_load_progress(&sender, 0.03, "Initializing asset manager");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupLoadResult, String> {
+                    let mut start_in_menu = start_in_menu;
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -1223,6 +1218,13 @@ impl CnCGameEngine {
                                     map_to_load
                                 );
                                 game_logic.clearGameData();
+                            } else if map_requested_from_cli {
+                                warn!(
+                                    "Failed to load startup map '{}'; falling back to menu startup",
+                                    map_to_load
+                                );
+                                game_logic.start_new_game(GameMode::Shell);
+                                start_in_menu = true;
                             } else {
                                 return Err(format!("Failed to load startup map '{}'", map_to_load));
                             }
@@ -1233,7 +1235,7 @@ impl CnCGameEngine {
                         Self::emit_startup_load_progress(&sender, 0.24, "Skipping shell map load");
                         if start_in_menu {
                             info!(
-                                "Shell map startup is disabled; entering menu without a shell background map"
+                                "No shell background map available; entering menu without a shell background map"
                             );
                         }
                     }
@@ -1245,7 +1247,25 @@ impl CnCGameEngine {
                             warn!("Failed to apply player name '{}'", player_name);
                         }
                     }
-                    Self::emit_startup_load_progress(&sender, 0.92, "Finalizing startup data");
+
+                    if start_in_menu && game_logic.isInShellGame() {
+                        // Move one-time shell simulation setup off the first visible menu frame.
+                        Self::emit_startup_load_progress(
+                            &sender,
+                            0.968,
+                            "Priming shell simulation",
+                        );
+                        let shell_warmup_started = Instant::now();
+                        for _ in 0..2 {
+                            game_logic.update_shell_with_budget(1.0 / 30.0, 1);
+                        }
+                        info!(
+                            "Startup shell simulation warmup completed in {:.2}s",
+                            shell_warmup_started.elapsed().as_secs_f32()
+                        );
+                    }
+
+                    Self::emit_startup_load_progress(&sender, 0.984, "Finalizing startup data");
 
                     Ok(StartupLoadResult {
                         game_logic,
@@ -1279,10 +1299,10 @@ impl CnCGameEngine {
     }
 
     fn finalize_startup_map_load(&mut self, result: StartupLoadResult) -> Result<()> {
-        self.update_shell_loading_progress(0.97, Some("Finalizing startup"));
+        self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
         self.game_logic = result.game_logic;
 
-        if let Some(active_map_name) = result.loaded_map_name {
+        if let Some(active_map_name) = result.loaded_map_name.as_ref() {
             if result.map_requested_from_cli {
                 info!("Loaded map from command line: {}", active_map_name);
             } else if result.start_in_menu {
@@ -1317,7 +1337,12 @@ impl CnCGameEngine {
             self.sync_orbit_from_camera_transform();
         }
 
-        if result.start_in_menu {
+        let fallback_to_menu = result.start_in_menu
+            || (result.map_requested_from_cli && result.loaded_map_name.is_none());
+        if fallback_to_menu {
+            if result.map_requested_from_cli && result.loaded_map_name.is_none() {
+                warn!("QuickStart map load failed; falling back to menu startup");
+            }
             self.pending_shell_model_prewarm.clear();
             self.last_shell_prewarm_log = None;
             self.shell_prewarm_completion_logged = true;
@@ -1326,7 +1351,14 @@ impl CnCGameEngine {
             self.set_runtime_ui_state_projection(UISystemState::MainMenu);
         }
 
-        if let Some(target_state) = self.startup_target_state.take() {
+        let target_state = if fallback_to_menu {
+            let _ = self.startup_target_state.take();
+            Some(GameState::Menu)
+        } else {
+            self.startup_target_state.take()
+        };
+
+        if let Some(target_state) = target_state {
             // Apply the post-load state transition immediately so we do not render additional
             // loading/world-only frames after shell/menu resources are already initialized.
             self.transition_to_state(target_state);
@@ -1617,6 +1649,20 @@ impl CnCGameEngine {
             .filter(|value| value.to_ascii_lowercase().ends_with(".map"))
             .cloned();
 
+        let startup_cli_map = if command_line.quick_start {
+            command_line
+                .map_name
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        } else {
+            None
+        };
+
+        if let Some(map_name) = startup_cli_map.as_ref() {
+            info!("QuickStart map override requested: {}", map_name);
+        }
+
         if let Some(initial_map) = startup_initial_map.as_ref() {
             let _ =
                 crate::subsystem_manager::with_subsystem_mut::<GlobalDataSubsystem, _>(|subsystem| {
@@ -1625,18 +1671,20 @@ impl CnCGameEngine {
                         global.play_intro = false;
                         global.after_intro = true;
                         global.pending_file = initial_map.clone();
+                        global.sync_runtime_view();
                     }
                 });
         }
 
-        let start_in_menu = startup_initial_map.is_none();
+        let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
+        let start_in_menu = startup_requested_map.is_none();
         let startup_shell_map = start_in_menu
             .then(Self::configured_startup_shell_map)
             .flatten();
         let map_to_load = if start_in_menu {
             startup_shell_map
         } else {
-            startup_initial_map
+            startup_requested_map
         };
         let startup_load_state = Self::spawn_startup_map_load(
             start_in_menu,
@@ -1785,6 +1833,7 @@ impl CnCGameEngine {
             shell_ui_enqueued_frame: None,
             last_shell_prewarm_log: None,
             shell_prewarm_completion_logged: false,
+            last_slow_menu_tick_log: None,
             match_over: false,
             victory_summary: None,
         };
@@ -1867,10 +1916,9 @@ impl CnCGameEngine {
                         }
                     }
                     if quick_start {
-                        // C++ parseQuickStart: disable intro and shell map startup.
+                        // C++ parseQuickStart: disable intro sequences.
                         global.play_intro = false;
                         global.after_intro = true;
-                        global.shell_map_on = false;
                     }
                     if no_shell_map {
                         global.shell_map_on = false;
@@ -1884,6 +1932,7 @@ impl CnCGameEngine {
                     if let Some(mod_name) = command_line.mod_name.as_deref() {
                         global.set_active_mod(mod_name);
                     }
+                    global.sync_runtime_view();
                     applied = true;
                 }
             }
@@ -2601,6 +2650,8 @@ impl CnCGameEngine {
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::MainMenu);
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+                self.prime_subsystems_before_menu_transition();
+                self.last_slow_menu_tick_log = None;
             }
             GameState::Loading => {
                 info!("Entering Loading state");
@@ -2610,6 +2661,7 @@ impl CnCGameEngine {
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::Loading);
                 self.set_runtime_ui_state_projection(UISystemState::Loading);
+                self.last_slow_menu_tick_log = None;
             }
             GameState::Playing => {
                 info!("Entering Playing state");
@@ -2742,34 +2794,53 @@ impl CnCGameEngine {
         match self.current_state {
             GameState::Menu => {
                 self.cleanup_sound_effects();
+                let menu_tick_started = Instant::now();
+                let shell_update_started = Instant::now();
                 if self.game_logic.isInShellGame() && !self.game_paused {
-                    let shell_update_started = Instant::now();
                     // Keep shell map/scripts alive in menu without allowing large fixed-step
                     // catch-up loops to block the UI thread.
                     self.game_logic.update_shell_with_budget(dt, 1);
                     if let Some(fps) = self.game_logic.take_script_fps_limit_request() {
                         self.apply_script_fps_limit_request(fps);
                     }
-                    let shell_elapsed = shell_update_started.elapsed();
-                    if shell_elapsed >= Duration::from_millis(40) {
-                        let fixed_diag = self.game_logic.fixed_step_diagnostics();
-                        warn!(
-                            "Slow shell menu tick: {:?} (state={:?}, frame={}, fixed_steps={}, budget_hit={}, acc_ms={:.2})",
-                            shell_elapsed,
-                            self.current_state,
-                            self.frame_counter,
-                            fixed_diag.steps_run,
-                            fixed_diag.budget_hit,
-                            fixed_diag.accumulated_time_seconds * 1000.0
-                        );
-                    }
                 }
+                let shell_elapsed = shell_update_started.elapsed();
 
                 // C++ shell/menu parity: menu-frame script camera requests must still drive
                 // the shell-map viewport even when not in Playing state.
+                let process_commands_started = Instant::now();
                 self.game_logic.process_commands();
+                let process_commands_elapsed = process_commands_started.elapsed();
+                let script_camera_started = Instant::now();
                 self.apply_pending_script_camera_requests();
+                let script_camera_elapsed = script_camera_started.elapsed();
+                let camera_started = Instant::now();
                 self.update_camera(visual_dt);
+                let camera_elapsed = camera_started.elapsed();
+
+                let menu_tick_elapsed = menu_tick_started.elapsed();
+                if menu_tick_elapsed >= Duration::from_millis(40)
+                    && self
+                        .last_slow_menu_tick_log
+                        .map(|last| last.elapsed() >= Duration::from_secs(2))
+                        .unwrap_or(true)
+                {
+                    let fixed_diag = self.game_logic.fixed_step_diagnostics();
+                    warn!(
+                        "Slow menu tick: total={:?}, shell={:?}, commands={:?}, script_camera={:?}, camera={:?}, state={:?}, frame={}, fixed_steps={}, budget_hit={}, acc_ms={:.2}",
+                        menu_tick_elapsed,
+                        shell_elapsed,
+                        process_commands_elapsed,
+                        script_camera_elapsed,
+                        camera_elapsed,
+                        self.current_state,
+                        self.frame_counter,
+                        fixed_diag.steps_run,
+                        fixed_diag.budget_hit,
+                        fixed_diag.accumulated_time_seconds * 1000.0
+                    );
+                    self.last_slow_menu_tick_log = Some(Instant::now());
+                }
 
                 if !self.pending_shell_model_prewarm.is_empty()
                     && self
@@ -2901,27 +2972,45 @@ impl CnCGameEngine {
             }
         }
 
-        // Update HUD with current player resources
-        if let Some(player) = self.game_logic.get_player(self.current_player_id) {
-            let money = player.resources.supplies as i32;
-            let power = player.resources.power as i32;
-            let max_power = player.resources.power.max(0).abs(); // Use power as max for now
-            self.game_hud.update_resources(money, power, max_power);
+        // Update HUD with current player resources while actively playing.
+        if self.current_state == GameState::Playing {
+            if let Some(player) = self.game_logic.get_player(self.current_player_id) {
+                let money = player.resources.supplies as i32;
+                let power = player.power_available;
+                let max_power = player.power_produced.max(0);
+                self.game_hud.update_resources(money, power, max_power);
+            }
+
+            if dt.is_finite() {
+                if let Err(err) = self.game_hud.update(dt) {
+                    warn!("Game HUD update failed: {}", err);
+                }
+            } else {
+                warn!("Skipping Game HUD update due to non-finite delta time: {}", dt);
+            }
         }
 
         // Update camera
-        self.update_camera(visual_dt);
-
-        // Update audio
-        self.cleanup_sound_effects();
-        if self.current_state == GameState::Playing {
-            self.set_runtime_ui_state_projection(UISystemState::InGame);
+        if self.current_state != GameState::Menu {
+            self.update_camera(visual_dt);
         }
 
-        // Process queued commands in game logic
-        self.game_logic.process_commands();
+        // Update audio
+        if self.current_state != GameState::Menu {
+            self.cleanup_sound_effects();
+        }
+        if self.current_state == GameState::Playing {
+            self.set_runtime_ui_state_projection(UISystemState::InGame);
+            if let Err(err) = self.ui_manager.update(dt) {
+                warn!("UI manager update failed in playing state: {}", err);
+            }
+        }
 
-        self.apply_pending_script_camera_requests();
+        // Process queued commands in game logic during active gameplay.
+        if self.current_state == GameState::Playing {
+            self.game_logic.process_commands();
+            self.apply_pending_script_camera_requests();
+        }
 
         for popup in self.game_logic.take_popup_message_requests() {
             if popup.pause {
@@ -3030,15 +3119,6 @@ impl CnCGameEngine {
                 }
             }
         }
-
-        // Update UI system (kept for current shell compatibility)
-        // Note: shell/window UI is being aligned with GPUI parity work.
-        // self.ui_manager.update(dt).unwrap_or_else(|e| {
-        //     error!("UI Manager update failed: {}", e);
-        // });
-        // self.game_hud.update(dt).unwrap_or_else(|e| {
-        //     error!("Game HUD update failed: {}", e);
-        // });
     }
 
     pub fn render(&mut self) -> Result<()> {
@@ -3186,10 +3266,18 @@ impl CnCGameEngine {
                     self.start_game_from_ui(mode, faction, map);
                 }
                 UIEvent::LoadGame(slot) => {
-                    self.load_game_from_ui(&slot);
+                    if slot == "quicksave" {
+                        self.quick_load_from_hotkey("UI quick-load");
+                    } else {
+                        self.load_game_from_ui(&slot);
+                    }
                 }
                 UIEvent::SaveGame { slot, display_name } => {
-                    self.save_game_from_ui(&slot, &display_name);
+                    if slot == "quicksave" {
+                        self.quick_save_from_hotkey("UI quick-save");
+                    } else {
+                        self.save_game_from_ui(&slot, &display_name);
+                    }
                 }
                 UIEvent::RestartMission => {
                     self.restart_mission_from_ui();
@@ -3345,26 +3433,26 @@ impl CnCGameEngine {
         }
     }
 
-    fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
-        let slot = slot.trim();
-        if slot.is_empty() {
-            return;
-        }
-
+    fn build_save_info(
+        &self,
+        slot: &str,
+        display_name: &str,
+        description: &str,
+        save_type: SaveFileType,
+    ) -> SaveGameInfo {
         let map_name = self.game_logic.get_current_map_name().to_string();
         let difficulty = Self::map_ai_difficulty_to_save(self.game_logic.get_difficulty());
         let play_time = std::time::Duration::from_secs_f32(self.game_logic.get_total_play_time());
-
         let team_name = self
             .game_logic
             .get_player(self.current_player_id)
             .map(|player| player.team.get_name().to_string())
             .unwrap_or_else(|| "Neutral".to_string());
 
-        let save_info = SaveGameInfo {
+        SaveGameInfo {
             filename: slot.to_string(),
             display_name: display_name.to_string(),
-            description: display_name.to_string(),
+            description: description.to_string(),
             map_name,
             campaign_side: Some(team_name),
             mission_number: None,
@@ -3372,8 +3460,79 @@ impl CnCGameEngine {
             game_version: env!("CARGO_PKG_VERSION").to_string(),
             play_time,
             difficulty,
-            save_type: SaveFileType::Normal,
+            save_type,
+        }
+    }
+
+    fn quick_save_from_hotkey(&mut self, source: &str) {
+        let mode = self.game_logic.game_mode();
+        if !matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish) {
+            info!(
+                "{} ignored: quick save is only available in single-player or skirmish (mode={:?})",
+                source, mode
+            );
+            return;
+        }
+
+        info!("{} requested quick save", source);
+        let save_info = self.build_save_info(
+            "quicksave",
+            "Quick Save",
+            "Quick Save",
+            SaveFileType::QuickSave,
+        );
+
+        if let Err(err) = self
+            .save_file_manager
+            .save_game("quicksave", &self.game_logic, &save_info)
+        {
+            warn!("Quick save failed for 'quicksave': {}", err);
+        } else {
+            info!("Quick save stored in slot 'quicksave'");
+        }
+    }
+
+    fn quick_load_from_hotkey(&mut self, source: &str) {
+        let restore_screen = match self.current_state {
+            GameState::Paused => Some(Screen::PauseMenu),
+            GameState::Playing => Some(Screen::GameHUD),
+            _ => None,
         };
+        let mode = self.game_logic.game_mode();
+        if !matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish) {
+            info!(
+                "{} ignored: quick load is only available in single-player or skirmish (mode={:?})",
+                source, mode
+            );
+            if self.ui_manager.current_screen() == Some(Screen::Loading) {
+                if let Some(screen) = restore_screen {
+                    self.ui_manager.transition_to_screen(screen);
+                }
+            }
+            return;
+        }
+
+        if !self.save_file_manager.save_exists("quicksave") {
+            warn!("{} requested quick load, but no 'quicksave' slot exists", source);
+            if self.ui_manager.current_screen() == Some(Screen::Loading) {
+                if let Some(screen) = restore_screen {
+                    self.ui_manager.transition_to_screen(screen);
+                }
+            }
+            return;
+        }
+
+        info!("{} requested quick load from slot 'quicksave'", source);
+        self.load_game_from_ui("quicksave");
+    }
+
+    fn save_game_from_ui(&mut self, slot: &str, display_name: &str) {
+        let slot = slot.trim();
+        if slot.is_empty() {
+            return;
+        }
+
+        let save_info = self.build_save_info(slot, display_name, display_name, SaveFileType::Normal);
 
         if let Err(err) = self
             .save_file_manager
@@ -4262,6 +4421,8 @@ impl CnCGameEngine {
             return;
         }
 
+        let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+
         match key {
             Key::Named(NamedKey::Space) => {
                 self.toggle_pause();
@@ -4396,7 +4557,9 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("v") => {
                 self.debug_show_victory(Some(self.current_player_id));
             }
-            Key::Character(c) if c.eq_ignore_ascii_case("l") => {
+            Key::Character(c)
+                if c.eq_ignore_ascii_case("l") && !ctrl_down =>
+            {
                 let winner = self.game_logic.first_opponent_id(self.current_player_id);
                 self.debug_show_victory(winner);
             }
@@ -4407,19 +4570,11 @@ impl CnCGameEngine {
                 // Toggle pause with 'P' key
                 self.toggle_pause();
             }
-            Key::Character(c)
-                if c.eq_ignore_ascii_case("s")
-                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
-            {
-                // Ctrl+S: Quick save (placeholder)
-                info!("Quick save requested (not yet implemented)");
+            Key::Character(c) if c.eq_ignore_ascii_case("s") && ctrl_down => {
+                self.quick_save_from_hotkey("Ctrl+S");
             }
-            Key::Character(c)
-                if c.eq_ignore_ascii_case("l")
-                    && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
-            {
-                // Ctrl+L: Quick load (placeholder)
-                info!("Quick load requested (not yet implemented)");
+            Key::Character(c) if c.eq_ignore_ascii_case("l") && ctrl_down => {
+                self.quick_load_from_hotkey("Ctrl+L");
             }
             Key::Named(NamedKey::Escape) => {
                 info!("Escape key pressed - should exit game");

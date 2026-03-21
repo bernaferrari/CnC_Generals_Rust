@@ -6,6 +6,13 @@ use game_engine::common::system::{
     local_file_system::LocalFileSystem,
     subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
 };
+use game_engine::common::ini::{
+    ini_control_bar_scheme::initialize_control_bar_scheme_manager,
+    ini_shell_menu_scheme::init_shell_menu_scheme_manager,
+};
+use game_engine::common::message_stream::{
+    get_message_stream, GameMessageType as MessageStreamGameMessageType,
+};
 use log::{debug, error, info, warn};
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
@@ -221,6 +228,13 @@ impl SubsystemInterface for GlobalDataSubsystem {
         }
 
         self.ini_crc = global_data.calculate_crc();
+        global_data.sync_runtime_view();
+
+        // C++ parity: shell/control-bar schemes are loaded during startup from
+        // default + override INIs before shell/menu use.
+        initialize_control_bar_scheme_manager();
+        init_shell_menu_scheme_manager();
+
         self.global_data = Some(global_data);
 
         info!(
@@ -441,6 +455,66 @@ impl GameClientSubsystem {
             frame: 0,
         }
     }
+
+    fn update_frame_tick(&self) -> Result<()> {
+        let stream = get_message_stream();
+        let mut stream_guard = stream
+            .write()
+            .map_err(|e| anyhow!("Failed to lock MessageStream: {}", e))?;
+        let frame_msg = stream_guard.append_message(MessageStreamGameMessageType::FrameTick(
+            self.frame,
+        ));
+        frame_msg.append_timestamp_argument(self.frame);
+        Ok(())
+    }
+
+    #[cfg(feature = "game_client")]
+    fn update_legacy_client_singletons(&self) {
+        use game_client::core::script_action_handler::apply_pending_script_display_state;
+        use game_client::eva::update_eva_system;
+        use game_client::gui::{
+            get_display_string_manager, get_shell, with_window_manager,
+            window_video_manager::with_window_video_manager,
+        };
+        use game_client::system::SubsystemInterface as GameClientSubsystemInterface;
+        use game_client::video_player::{get_video_player, VideoPlayerInterface as _};
+
+        update_eva_system();
+        with_window_video_manager(|manager| manager.update());
+        with_window_manager(|manager| manager.update());
+
+        if let Some(video_player) = get_video_player() {
+            if let Ok(mut guard) = video_player.lock() {
+                if let Some(player) = guard.as_mut() {
+                    player.update();
+                }
+            }
+        }
+
+        if let Err(err) = get_display_string_manager().update() {
+            warn!("Display string manager update failed: {}", err);
+        }
+
+        apply_pending_script_display_state();
+
+        let mut shell = get_shell();
+        if let Err(err) = GameClientSubsystemInterface::update(&mut *shell) {
+            warn!("Shell update failed: {}", err);
+        }
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    fn update_legacy_client_singletons(&self) {}
+
+    fn update_internal(&mut self, advance_frame: bool) -> Result<()> {
+        if advance_frame {
+            self.frame = self.frame.wrapping_add(1);
+        }
+
+        self.update_frame_tick()?;
+        self.update_legacy_client_singletons();
+        Ok(())
+    }
 }
 
 impl Default for GameClientSubsystem {
@@ -467,15 +541,12 @@ impl SubsystemInterface for GameClientSubsystem {
     }
 
     fn update(&mut self, _dt: f32) -> Result<()> {
-        self.frame = self.frame.wrapping_add(1);
-        // GameClient updates drawables, effects, terrain visuals
-        // The actual updates are done via helpers::TheGameClient
-        Ok(())
+        self.update_internal(true)
     }
 
     fn update_with_timing(&mut self, timing: &FrameTiming) -> Result<()> {
         self.frame = timing.frame_number as u32;
-        self.update(timing.delta_seconds())
+        self.update_internal(false)
     }
 
     fn shutdown(&mut self) -> Result<()> {
