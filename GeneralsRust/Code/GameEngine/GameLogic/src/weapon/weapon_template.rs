@@ -2172,12 +2172,418 @@ impl WeaponTemplate {
     pub fn set_minimum_attack_range(&mut self, range: f32) {
         self.minimum_attack_range = range;
     }
+
+    // -----------------------------------------------------------------------
+    // INI field parsing -- mirrors C++ TheWeaponTemplateFieldParseTable
+    //
+    // Each field here corresponds to an entry in the C++ field parse table
+    // defined in Weapon.cpp lines 143-224.
+    // -----------------------------------------------------------------------
+
+    /// Apply parsed INI key=value properties to this weapon template.
+    ///
+    /// C++ Reference: WeaponTemplate::TheWeaponTemplateFieldParseTable (Weapon.cpp:143-224)
+    pub fn parse_weapon_fields_from_ini(&mut self, properties: &HashMap<String, String>) {
+        for (key, value) in properties {
+            let trimmed = value.trim();
+            match key.as_str() {
+                // --- Damage ---
+                "PrimaryDamage" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.primary_damage = v; }
+                }
+                "PrimaryDamageRadius" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.primary_damage_radius = v; }
+                }
+                "SecondaryDamage" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.secondary_damage = v; }
+                }
+                "SecondaryDamageRadius" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.secondary_damage_radius = v; }
+                }
+                "ShockWaveAmount" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.shock_wave_amount = v; }
+                }
+                "ShockWaveRadius" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.shock_wave_radius = v; }
+                }
+                "ShockWaveTaperOff" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.shock_wave_taper_off = v; }
+                }
+
+                // --- Range & targeting ---
+                "AttackRange" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.attack_range = v; }
+                }
+                "MinimumAttackRange" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.minimum_attack_range = v; }
+                }
+                "RequestAssistRange" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.request_assist_range = v; }
+                }
+                "AcceptableAimDelta" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.aim_delta = v; }
+                }
+                "ScatterRadius" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.scatter_radius = v; }
+                }
+                "ScatterTargetScalar" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.scatter_target_scalar = v; }
+                }
+                "ScatterRadiusVsInfantry" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.infantry_inaccuracy_dist = v; }
+                }
+
+                // --- Damage & death types ---
+                "DamageType" => {
+                    // C++: DamageTypeFlags::parseSingleBitFromINI
+                    self.damage_type = parse_damage_type(trimmed);
+                }
+                "DamageStatusType" => {
+                    // C++: ObjectStatusMaskType::parseSingleBitFromINI
+                    self.damage_status_type = parse_damage_status_type(trimmed);
+                }
+                "DeathType" => {
+                    self.death_type = parse_death_type(trimmed);
+                }
+
+                // --- Speed ---
+                "WeaponSpeed" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.weapon_speed = v; }
+                }
+                "MinWeaponSpeed" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.min_weapon_speed = v; }
+                }
+                "ScaleWeaponSpeed" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_scale_weapon_speed = v; }
+                }
+
+                // --- Angles ---
+                "WeaponRecoil" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.weapon_recoil = v; }
+                }
+                "MinTargetPitch" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.min_target_pitch = v; }
+                }
+                "MaxTargetPitch" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.max_target_pitch = v; }
+                }
+                "RadiusDamageAngle" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.radius_damage_angle = v; }
+                }
+
+                // --- Projectile ---
+                "ProjectileObject" => {
+                    self.projectile_name = trimmed.to_string();
+                }
+                "ProjectileStreamName" => {
+                    self.projectile_stream_name = trimmed.to_string();
+                }
+                "LaserName" => {
+                    self.laser_name = trimmed.to_string();
+                }
+                "LaserBoneName" => {
+                    self.laser_bone_name = trimmed.to_string();
+                }
+
+                // --- Timing ---
+                "ClipSize" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.clip_size = v; }
+                }
+                "ClipReloadTime" => {
+                    // C++: parseDurationUnsignedInt -> frames at 30 FPS
+                    if let Ok(v) = trimmed.parse::<u32>() { self.clip_reload_time = v as i32; }
+                }
+                "AutoReloadWhenIdle" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.auto_reload_when_idle_frames = v; }
+                }
+                "ShotsPerBarrel" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.shots_per_barrel = v; }
+                }
+                "PreAttackDelay" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.pre_attack_delay = v as i32; }
+                }
+                "SuspendFXDelay" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.suspend_fx_delay = v; }
+                }
+
+                // --- Continuous fire ---
+                "ContinuousFireOne" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.continuous_fire_one_shots_needed = v; }
+                }
+                "ContinuousFireTwo" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.continuous_fire_two_shots_needed = v; }
+                }
+                "ContinuousFireCoast" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.continuous_fire_coast_frames = v; }
+                }
+
+                // --- Special targeting ---
+                "ContinueAttackRange" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.continue_attack_range = v; }
+                }
+
+                // --- Flags ---
+                "DamageDealtAtSelfPosition" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.damage_dealt_at_self_position = v; }
+                }
+                "LeechRangeWeapon" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.leech_range_weapon = v; }
+                }
+                "CapableOfFollowingWaypoints" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.capable_of_following_waypoint = v; }
+                }
+                "ShowsAmmoPips" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_shows_ammo_pips = v; }
+                }
+                "AllowAttackGarrisonedBldgs" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.allow_attack_garrisoned_bldgs = v; }
+                }
+                "PlayFXWhenStealthed" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.play_fx_when_stealthed = v; }
+                }
+                "MissileCallsOnDie" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) { self.die_on_detonate = v; }
+                }
+
+                // --- Anti-mask ---
+                "AntiGround" => {
+                    self.anti_mask.insert(WeaponAntiMask::GROUND);
+                }
+                "AntiAirborneVehicle" => {
+                    self.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+                }
+                "AntiProjectile" => {
+                    self.anti_mask.insert(WeaponAntiMask::PROJECTILE);
+                }
+                "AntiSmallMissile" => {
+                    self.anti_mask.insert(WeaponAntiMask::SMALL_MISSILE);
+                }
+                "AntiMine" => {
+                    self.anti_mask.insert(WeaponAntiMask::MINE);
+                }
+                "AntiParachute" => {
+                    self.anti_mask.insert(WeaponAntiMask::PARACHUTE);
+                }
+                "AntiAirborneInfantry" => {
+                    self.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+                }
+                "AntiBallisticMissile" => {
+                    self.anti_mask.insert(WeaponAntiMask::BALLISTIC_MISSILE);
+                }
+
+                // --- Reload type ---
+                "AutoReloadsClip" => {
+                    self.reload_type = parse_weapon_reload_type(trimmed);
+                }
+
+                // --- Pre-fire type ---
+                "PreAttackType" => {
+                    self.prefire_type = parse_weapon_prefire_type(trimmed);
+                }
+
+                // --- Historic bonus ---
+                "HistoricBonusTime" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.historic_bonus_time = v; }
+                }
+                "HistoricBonusRadius" => {
+                    if let Ok(v) = trimmed.parse::<f32>() { self.historic_bonus_radius = v; }
+                }
+                "HistoricBonusCount" => {
+                    if let Ok(v) = trimmed.parse::<i32>() { self.historic_bonus_count = v; }
+                }
+
+                // --- Fire sound ---
+                "FireSound" => {
+                    self.fire_sound = AudioEventRts::new(trimmed.to_string());
+                }
+                "FireSoundLoopTime" => {
+                    if let Ok(v) = trimmed.parse::<u32>() { self.fire_sound_loop_time = v; }
+                }
+
+                // --- DelayBetweenShots ---
+                "DelayBetweenShots" => {
+                    // C++: parseShotDelay reads 1 or 2 integers
+                    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+                    if let Ok(v) = tokens.first().unwrap_or(&"0").parse::<i32>() {
+                        self.min_delay_between_shots = v;
+                    }
+                    if let Some(second) = tokens.get(1) {
+                        if let Ok(v) = second.parse::<i32>() {
+                            self.max_delay_between_shots = v;
+                        } else {
+                            self.max_delay_between_shots = self.min_delay_between_shots;
+                        }
+                    } else {
+                        self.max_delay_between_shots = self.min_delay_between_shots;
+                    }
+                }
+
+                // --- Radius damage affects / collide ---
+                "RadiusDamageAffects" => {
+                    // C++: INI::parseBitString32 with TheWeaponAffectsMaskNames
+                    // Pipe-separated list of flag names
+                    for token in trimmed.split('|') {
+                        let t = token.trim().to_ascii_uppercase();
+                        match t.as_str() {
+                            "SELF" => self.affects_mask.insert(WeaponAffectsMask::SELF),
+                            "ALLIES" => self.affects_mask.insert(WeaponAffectsMask::ALLIES),
+                            "ENEMIES" => self.affects_mask.insert(WeaponAffectsMask::ENEMIES),
+                            "NEUTRALS" => self.affects_mask.insert(WeaponAffectsMask::NEUTRALS),
+                            "KILLS_SELF" => self.affects_mask.insert(WeaponAffectsMask::KILLS_SELF),
+                            "DOESNT_AFFECT_SIMILAR" => self.affects_mask.insert(WeaponAffectsMask::DOESNT_AFFECT_SIMILAR),
+                            "DOESNT_AFFECT_AIRBORNE" => self.affects_mask.insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
+                            "NOT_AIRBORNE" => self.affects_mask.insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
+                            _ => {}
+                        }
+                    }
+                }
+                "ProjectileCollidesWith" => {
+                    // C++: INI::parseBitString32 with TheWeaponCollideMaskNames
+                    for token in trimmed.split('|') {
+                        let t = token.trim().to_ascii_uppercase();
+                        match t.as_str() {
+                            "ALLIES" => self.collide_mask.insert(WeaponCollideMask::ALLIES),
+                            "ENEMIES" => self.collide_mask.insert(WeaponCollideMask::ENEMIES),
+                            "STRUCTURES" => self.collide_mask.insert(WeaponCollideMask::STRUCTURES),
+                            "SHRUBBERY" => self.collide_mask.insert(WeaponCollideMask::SHRUBBERY),
+                            "PROJECTILES" => self.collide_mask.insert(WeaponCollideMask::PROJECTILE),
+                            "WALLS" => self.collide_mask.insert(WeaponCollideMask::WALLS),
+                            "SMALL_MISSILES" => self.collide_mask.insert(WeaponCollideMask::SMALL_MISSILES),
+                            "BALLISTIC_MISSILES" => self.collide_mask.insert(WeaponCollideMask::BALLISTIC_MISSILES),
+                            _ => {}
+                        }
+                    }
+                }
+
+                // --- WeaponBonus sub-block handled separately ---
+                "WeaponBonus" | "ScatterTarget" => {}
+
+                // Everything else: silently skip
+                _ => {}
+            }
+        }
+    }
 }
 
 impl Default for WeaponTemplate {
     fn default() -> Self {
         Self::new(String::new())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Weapon INI field parsing helpers
+// ---------------------------------------------------------------------------
+
+fn parse_bool_simple(s: &str) -> Result<bool, ()> {
+    match s {
+        "yes" | "Yes" | "YES" | "true" | "True" | "TRUE" | "1" => Ok(true),
+        "no" | "No" | "NO" | "false" | "False" | "FALSE" | "0" => Ok(false),
+        _ => Err(()),
+    }
+}
+
+fn parse_damage_type(s: &str) -> DamageType {
+    match s.trim().to_ascii_uppercase().as_str() {
+        "UNRESISTABLE" => DamageType::Unresistable,
+        "EXPLOSION" => DamageType::Explosion,
+        "CRUSH" => DamageType::Crush,
+        "SMALL_ARMS" | "SMALLARMS" => DamageType::SmallArms,
+        "FLAME" => DamageType::Flame,
+        "LASER" => DamageType::Laser,
+        "TOXIN" | "POISON" => DamageType::Poison,
+        "RADIATION" => DamageType::Radiation,
+        "PARTICLE_BEAM" | "PARTICLEBEAM" => DamageType::ParticleBeam,
+        "HEALING" => DamageType::Healing,
+        "ARMOR_PIERCING" | "ARMORPIERCING" => DamageType::ArmorPiercing,
+        "GATTLING" => DamageType::Gattling,
+        "SNIPER" => DamageType::Sniper,
+        "WATER" => DamageType::Water,
+        "DEPLOY" => DamageType::Deploy,
+        "SURRENDER" => DamageType::Surrender,
+        "HACK" => DamageType::Hack,
+        "KILL_PILOT" | "KILLPILOT" => DamageType::KillPilot,
+        "PENALTY" => DamageType::Penalty,
+        "FALLING" => DamageType::Falling,
+        "MELEE" => DamageType::Melee,
+        "DISARM" => DamageType::Disarm,
+        "HAZARD_CLEANUP" | "HAZARDCLEANUP" => DamageType::HazardCleanup,
+        "TOPPLING" => DamageType::Toppling,
+        "INFANTRY_MISSILE" | "INFANTRYMISSILE" => DamageType::InfantryMissile,
+        "AURORA_BOMB" | "AURORABOMB" => DamageType::AuroraBomb,
+        "LAND_MINE" | "LANDMINE" => DamageType::LandMine,
+        "JET_MISSILES" | "JETMISSILES" => DamageType::JetMissiles,
+        "STEALTH_JET_MISSILES" | "STEALTHJETMISSILES" => DamageType::StealthJetMissiles,
+        "MOLOTOV_COCKTAIL" | "MOLOTOVCOCKTAIL" => DamageType::MolotovCocktail,
+        "COMANCHE_VULCAN" | "COMANCHEVULCAN" => DamageType::ComancheVulcan,
+        "SUBDUAL_MISSILE" | "SUBDUALMISSILE" => DamageType::SubdualMissile,
+        "SUBDUAL_VEHICLE" | "SUBDUALVEHICLE" => DamageType::SubdualVehicle,
+        "SUBDUAL_BUILDING" | "SUBDUALBUILDING" => DamageType::SubdualBuilding,
+        "SUBDUAL_UNRESISTABLE" | "SUBDUALUNRESISTABLE" => DamageType::SubdualUnresistable,
+        "MICROWAVE" => DamageType::Microwave,
+        "KILL_GARRISONED" | "KILLGARRISONED" => DamageType::KillGarrisoned,
+        "STATUS" => DamageType::Status,
+        _ => DamageType::Explosion, // Default
+    }
+}
+
+fn parse_damage_status_type(s: &str) -> ObjectStatusTypes {
+    // C++: ObjectStatusMaskType::parseSingleBitFromINI
+    match s.trim().to_ascii_uppercase().as_str() {
+        "BURNED" => ObjectStatusTypes::Burned,
+        "AFLAME" => ObjectStatusTypes::Aflame,
+        "WET" => ObjectStatusTypes::Wet,
+        "DESTROYED" => ObjectStatusTypes::Destroyed,
+        "CAN_ATTACK" | "CANATTACK" => ObjectStatusTypes::CanAttack,
+        "UNDER_CONSTRUCTION" | "UNDERCONSTRUCTION" => ObjectStatusTypes::UnderConstruction,
+        "AIRBORNE_TARGET" | "AIRBORNETARGET" => ObjectStatusTypes::AirborneTarget,
+        "HIJACKED" => ObjectStatusTypes::Hijacked,
+        "IS_FIRING_WEAPON" | "ISFIRINGWEAPON" => ObjectStatusTypes::IsFiringWeapon,
+        "BRAKING" => ObjectStatusTypes::Braking,
+        "STEALTHED" => ObjectStatusTypes::Stealthed,
+        "DETECTED" => ObjectStatusTypes::Detected,
+        "SOLD" => ObjectStatusTypes::Sold,
+        "UNDERGOING_REPAIR" | "UNDERGOINGREPAIR" => ObjectStatusTypes::UndergoingRepair,
+        "IMMOBILE" => ObjectStatusTypes::Immobile,
+        "DEPLOYED" => ObjectStatusTypes::Deployed,
+        "SUBDUED" => ObjectStatusTypes::Subdued,
+        _ => ObjectStatusTypes::None,
+    }
+}
+
+fn parse_death_type(s: &str) -> DeathType {
+    match s.trim().to_ascii_uppercase().as_str() {
+        "NONE" => DeathType::None,
+        "NORMAL" => DeathType::Normal,
+        "EXPLODED" => DeathType::Exploded,
+        "BURNED" => DeathType::Burned,
+        "CRUSHED" => DeathType::Crushed,
+        "POISONED" | "TOXIN" => DeathType::Poisoned,
+        "TOPPLED" => DeathType::Toppled,
+        "FLOODED" | "SUNK" => DeathType::Flooded,
+        "SUICIDED" => DeathType::Suicided,
+        "LASERED" => DeathType::Lasered,
+        "DETONATED" => DeathType::Detonated,
+        "SPLATTED" => DeathType::Splatted,
+        "POISONED_BETA" | "POISONEDBETA" | "ANTHRAX_BETA" | "ANTHRAXBETA" | "ANTHRAX" => DeathType::PoisonedBeta,
+        "EXTRA2" => DeathType::Extra2,
+        "EXTRA3" => DeathType::Extra3,
+        "EXTRA4" => DeathType::Extra4,
+        "EXTRA5" => DeathType::Extra5,
+        "EXTRA6" => DeathType::Extra6,
+        "EXTRA7" => DeathType::Extra7,
+        "EXTRA8" => DeathType::Extra8,
+        "POISONED_GAMMA" | "POISONEDGAMMA" => DeathType::PoisonedGamma,
+        _ => DeathType::Normal,
+    }
+}
+
+fn parse_weapon_reload_type(s: &str) -> WeaponReloadType {
+    WeaponReloadType::from_ini(s.trim()).unwrap_or(WeaponReloadType::AutoReload)
+}
+
+fn parse_weapon_prefire_type(s: &str) -> WeaponPrefireType {
+    WeaponPrefireType::from_ini(s.trim()).unwrap_or(WeaponPrefireType::PrefirePerShot)
 }
 
 #[cfg(test)]

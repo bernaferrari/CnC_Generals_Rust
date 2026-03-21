@@ -44,7 +44,7 @@ mod damage_calculator;
 mod damage_feedback;
 mod damage_modifiers;
 mod damage_over_time;
-mod damage_system;
+pub mod damage_system;
 mod healing_system;
 mod projectile;
 mod projectile_launch_cast;
@@ -5509,6 +5509,7 @@ mod tests {
         template.weapon_speed = 100.0;
         template.laser_name = "RedLaser".to_string();
         template.primary_damage = 30.0;
+        template.attack_range = 150.0;
 
         let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
         let fire_mode = weapon.determine_fire_mode();
