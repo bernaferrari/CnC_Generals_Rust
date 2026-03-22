@@ -285,6 +285,26 @@ mod tests {
     }
 
     #[test]
+    fn apply_command_line_overrides_keeps_initial_map_side_effects_until_startup_handling() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec![
+                "generals".to_string(),
+                "-file".to_string(),
+                "Maps\\Test\\Test.map".to_string(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert_eq!(global.writable.initial_file, "Maps\\Test\\Test.map");
+            assert!(global.pending_file.is_empty());
+            assert!(global.writable.shell_map_on);
+            assert!(global.writable.play_intro);
+            assert!(!global.writable.after_intro);
+        });
+    }
+
+    #[test]
     fn game_logic_gate_without_network_matches_cpp_pause_behavior() {
         assert!(CnCGameEngine::should_update_game_logic_frame(false, None));
         assert!(!CnCGameEngine::should_update_game_logic_frame(true, None));
@@ -638,6 +658,175 @@ pub enum GameState {
     Paused,
     /// Shutting down
     Exiting,
+}
+
+#[cfg(feature = "internal")]
+pub mod parity_test_support {
+    use super::GameState;
+    use crate::ui::Screen;
+
+    /// Lightweight state-machine model used by parity tests.
+    ///
+    /// The real engine constructor is too heavy for fast integration tests, so this
+    /// harness mirrors the transition side effects that matter for startup, match
+    /// start, exit-to-menu, and quit deduplication coverage.
+    #[derive(Debug, Clone)]
+    pub struct StateMachineParityHarness {
+        current_state: GameState,
+        pending_state: Option<GameState>,
+        ui_screen: Option<Screen>,
+        game_paused: bool,
+        game_logic_paused: bool,
+        match_over: bool,
+        victory_summary_present: bool,
+        selected_objects: Vec<u32>,
+        quit_requests_emitted: usize,
+    }
+
+    impl Default for StateMachineParityHarness {
+        fn default() -> Self {
+            Self {
+                current_state: GameState::Menu,
+                pending_state: None,
+                ui_screen: Some(Screen::MainMenu),
+                game_paused: false,
+                game_logic_paused: false,
+                match_over: false,
+                victory_summary_present: false,
+                selected_objects: Vec::new(),
+                quit_requests_emitted: 0,
+            }
+        }
+    }
+
+    impl StateMachineParityHarness {
+        pub fn current_state(&self) -> GameState {
+            self.current_state
+        }
+
+        pub fn pending_state(&self) -> Option<GameState> {
+            self.pending_state
+        }
+
+        pub fn ui_screen(&self) -> Option<Screen> {
+            self.ui_screen
+        }
+
+        pub fn game_paused(&self) -> bool {
+            self.game_paused
+        }
+
+        pub fn game_logic_paused(&self) -> bool {
+            self.game_logic_paused
+        }
+
+        pub fn match_over(&self) -> bool {
+            self.match_over
+        }
+
+        pub fn victory_summary_present(&self) -> bool {
+            self.victory_summary_present
+        }
+
+        pub fn selected_objects(&self) -> &[u32] {
+            &self.selected_objects
+        }
+
+        pub fn quit_requests_emitted(&self) -> usize {
+            self.quit_requests_emitted
+        }
+
+        pub fn set_loading_state(&mut self) {
+            self.current_state = GameState::Loading;
+            self.pending_state = None;
+            self.ui_screen = Some(Screen::Loading);
+        }
+
+        pub fn set_dirty_play_state(&mut self) {
+            self.current_state = GameState::Playing;
+            self.pending_state = None;
+            self.ui_screen = Some(Screen::GameHUD);
+            self.game_paused = true;
+            self.game_logic_paused = true;
+            self.match_over = true;
+            self.victory_summary_present = true;
+            self.selected_objects = vec![101, 202, 303];
+        }
+
+        pub fn complete_startup_loading_to_menu(&mut self) {
+            self.transition_to_state(GameState::Menu);
+        }
+
+        pub fn complete_new_game_success(&mut self) {
+            self.selected_objects.clear();
+            self.match_over = false;
+            self.victory_summary_present = false;
+            self.transition_to_state(GameState::Playing);
+        }
+
+        pub fn complete_load_game_success(&mut self) {
+            self.selected_objects.clear();
+            self.match_over = false;
+            self.victory_summary_present = false;
+            self.transition_to_state(GameState::Playing);
+        }
+
+        pub fn return_to_main_menu_after_match(&mut self) {
+            self.selected_objects.clear();
+            self.game_paused = false;
+            self.game_logic_paused = false;
+            self.match_over = false;
+            self.victory_summary_present = false;
+            self.pending_state = None;
+            self.transition_to_state(GameState::Menu);
+        }
+
+        pub fn request_quit(&mut self) -> bool {
+            if self.current_state == GameState::Exiting
+                || self.pending_state == Some(GameState::Exiting)
+            {
+                return false;
+            }
+
+            self.pending_state = Some(GameState::Exiting);
+            self.quit_requests_emitted = self.quit_requests_emitted.saturating_add(1);
+            true
+        }
+
+        pub fn apply_pending_state_change(&mut self) {
+            if let Some(new_state) = self.pending_state.take() {
+                self.transition_to_state(new_state);
+            }
+        }
+
+        fn transition_to_state(&mut self, new_state: GameState) {
+            match new_state {
+                GameState::Menu => {
+                    self.game_paused = false;
+                    self.game_logic_paused = false;
+                    self.ui_screen = Some(Screen::MainMenu);
+                }
+                GameState::Loading => {
+                    self.ui_screen = Some(Screen::Loading);
+                }
+                GameState::Playing => {
+                    self.game_paused = false;
+                    self.game_logic_paused = false;
+                    self.ui_screen = Some(Screen::GameHUD);
+                }
+                GameState::Paused => {
+                    self.game_paused = true;
+                    self.game_logic_paused = true;
+                    self.ui_screen = Some(Screen::PauseMenu);
+                }
+                GameState::Exiting => {
+                    self.ui_screen = None;
+                }
+            }
+
+            self.current_state = new_state;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2057,8 +2246,9 @@ impl CnCGameEngine {
                         let _ = game_engine::common::recorder::with_recorder_mut(|recorder| {
                             recorder.set_command_sink(Some(startup_command_sink));
                         });
+                        let replay_to_play = replay_to_load.to_ascii_lowercase();
                         match game_engine::common::recorder::with_recorder_mut(|recorder| {
-                            recorder.playback_file(replay_to_load.clone())
+                            recorder.playback_file(replay_to_play.clone())
                         }) {
                             Some(Ok(true)) => {}
                             Some(Ok(false)) => {
@@ -2889,13 +3079,6 @@ impl CnCGameEngine {
             }
             if let Some(initial_file) = initial_file_override.as_ref() {
                 global.writable.initial_file = initial_file.clone();
-                if initial_file.to_ascii_lowercase().ends_with(".map") {
-                    // C++ GameEngine::init initial-file startup path.
-                    global.writable.shell_map_on = false;
-                    global.writable.play_intro = false;
-                    global.writable.after_intro = true;
-                    global.pending_file = initial_file.clone();
-                }
             }
             if let Some(map_name) = map_name_override.as_ref() {
                 // C++ parseMapName updates the writable startup map path.
