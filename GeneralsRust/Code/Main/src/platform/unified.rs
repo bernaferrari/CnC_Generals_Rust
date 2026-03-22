@@ -254,4 +254,8 @@ impl WindowMessageHandler for GameMessageHandler {
         }
         Ok(())
     }
+
+    fn is_quit_requested(&self) -> bool {
+        self.quit_requested
+    }
 }

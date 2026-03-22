@@ -65,6 +65,11 @@ pub trait WindowMessageHandler {
 
     /// Handle keyboard/mouse focus (WM_SETFOCUS, WM_KILLFOCUS equivalent)
     fn handle_input_focus(&mut self, gained: bool) -> Result<()>;
+
+    /// Query whether the platform layer has requested application shutdown.
+    fn is_quit_requested(&self) -> bool {
+        false
+    }
 }
 
 /// Window message event - abstraction over platform-specific events
@@ -172,6 +177,10 @@ impl WindowMessageProcessor {
 
     pub fn attach_window(&mut self, window: Arc<winit::window::Window>) {
         self.handler.attach_window(window);
+    }
+
+    pub fn is_quit_requested(&self) -> bool {
+        self.handler.is_quit_requested()
     }
 }
 
