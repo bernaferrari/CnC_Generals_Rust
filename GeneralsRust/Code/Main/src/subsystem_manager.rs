@@ -219,6 +219,7 @@ impl SubsystemInterface for GlobalDataSubsystem {
         }
 
         self.ini_crc = global_data.calculate_crc();
+        global_data.ini_crc = self.ini_crc;
         global_data.sync_runtime_view();
 
         // C++ parity: shell/control-bar schemes are loaded during startup from
