@@ -500,14 +500,14 @@ fn set_working_directory_to_executable() -> anyhow::Result<()> {
 }
 
 fn resolve_window_mode(cmd_args: &CommandLineArgs) -> (bool, bool) {
-    let has_windowed_flag =
-        cmd_args.windowed || cmd_args.has_option("win") || cmd_args.has_option("windowed");
-
-    if has_windowed_flag {
-        (true, false)
-    } else {
-        // C++ WinMain defaults to fullscreen-style startup unless -win is supplied.
-        (false, true)
+    // Match C++ parser behavior: last explicit mode flag wins by argument order.
+    match cmd_args.last_window_mode_override() {
+        Some(true) => (true, false),
+        Some(false) => (false, true),
+        None => {
+            // C++ WinMain defaults to fullscreen-style startup unless -win is supplied.
+            (false, true)
+        }
     }
 }
 
@@ -516,7 +516,7 @@ mod tests {
     use super::{resolve_window_mode, CommandLineArgs};
 
     #[test]
-    fn windowed_flag_wins_over_fullscreen_for_startup_mode() {
+    fn last_explicit_window_mode_wins_for_startup_mode() {
         let args = vec![
             "generals".to_string(),
             "-fullscreen".to_string(),
@@ -525,6 +525,14 @@ mod tests {
 
         let parsed = CommandLineArgs::parse_from_args(args).unwrap();
         assert_eq!(resolve_window_mode(&parsed), (true, false));
+
+        let reverse = vec![
+            "generals".to_string(),
+            "-win".to_string(),
+            "-fullscreen".to_string(),
+        ];
+        let parsed_reverse = CommandLineArgs::parse_from_args(reverse).unwrap();
+        assert_eq!(resolve_window_mode(&parsed_reverse), (false, true));
     }
 }
 
@@ -556,6 +564,8 @@ fn resolve_startup_resolution(cmd_args: &CommandLineArgs) -> (u32, u32) {
 
     match (explicit_width, explicit_height) {
         (Some(width), Some(height)) => (width, height),
-        _ => (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION),
+        (Some(width), None) => (width, DEFAULT_YRESOLUTION),
+        (None, Some(height)) => (DEFAULT_XRESOLUTION, height),
+        (None, None) => (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION),
     }
 }

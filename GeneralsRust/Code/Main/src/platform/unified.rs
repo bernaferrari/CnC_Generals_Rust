@@ -177,6 +177,19 @@ impl WindowMessageHandler for GameMessageHandler {
     ) -> Result<bool> {
         match command {
             SystemCommand::Close => self.handle_close_request(false),
+            SystemCommand::Move
+            | SystemCommand::Size
+            | SystemCommand::Maximize
+            | SystemCommand::KeyMenu
+            | SystemCommand::MonitorPower
+                if in_fullscreen =>
+            {
+                info!(
+                    "🛑 Ignoring system command {:?} in fullscreen mode",
+                    command
+                );
+                Ok(true)
+            }
             other => {
                 info!(
                     "📝 System command {:?} (fullscreen: {})",
@@ -192,13 +205,12 @@ impl WindowMessageHandler for GameMessageHandler {
 
         if is_session_ending {
             info!("🚪 Session ending - queueing immediate quit");
-            self.push_message(GameMessageType::MetaInstantQuit);
-            Ok(false)
         } else {
-            info!("🚪 Close requested - deferring to front end");
-            self.push_message(GameMessageType::MetaOptions);
-            Ok(false)
+            info!("🚪 Close requested - queueing immediate quit");
         }
+
+        self.push_message(GameMessageType::MetaInstantQuit);
+        Ok(false)
     }
 
     fn handle_resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) -> Result<()> {

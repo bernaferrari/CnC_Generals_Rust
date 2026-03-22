@@ -57,6 +57,9 @@ pub struct CommandLineArgs {
     pub network_host: Option<String>,
     pub display_debug_overlay: bool,
     pub integration_diagnostics: bool,
+    /// Last explicit startup window mode flag from command line order.
+    /// `Some(true)` => windowed, `Some(false)` => fullscreen.
+    window_mode_override: Option<bool>,
 }
 
 impl Default for CommandLineArgs {
@@ -88,6 +91,7 @@ impl Default for CommandLineArgs {
             network_host: None,
             display_debug_overlay: false,
             integration_diagnostics: false,
+            window_mode_override: None,
         }
     }
 }
@@ -119,17 +123,19 @@ impl CommandLineArgs {
                 match option.as_str() {
                     "win" | "windowed" | "w" => {
                         parsed.windowed = true;
+                        parsed.window_mode_override = Some(true);
                         Self::store_option_aliases(
                             &mut parsed.options,
                             &["win", "windowed", "w"],
                             &value,
                         );
                     }
-                    "fullscreen" | "f" => {
+                    "fullscreen" | "f" | "nowin" => {
                         parsed.fullscreen = true;
+                        parsed.window_mode_override = Some(false);
                         Self::store_option_aliases(
                             &mut parsed.options,
-                            &["fullscreen", "f"],
+                            &["fullscreen", "f", "nowin"],
                             &value,
                         );
                     }
@@ -141,6 +147,16 @@ impl CommandLineArgs {
                     "height" => {
                         if let Some(v) = value {
                             parsed.height = Some(v.parse().context("Invalid height value")?);
+                        }
+                    }
+                    "xres" => {
+                        if let Some(v) = value {
+                            parsed.width = Some(v.parse().context("Invalid xres value")?);
+                        }
+                    }
+                    "yres" => {
+                        if let Some(v) = value {
+                            parsed.height = Some(v.parse().context("Invalid yres value")?);
                         }
                     }
                     "file" => {
@@ -321,6 +337,8 @@ impl CommandLineArgs {
             option,
             "width"
                 | "height"
+                | "xres"
+                | "yres"
                 | "file"
                 | "map"
                 | "mod"
@@ -392,6 +410,11 @@ impl CommandLineArgs {
     pub fn has_option(&self, option: &str) -> bool {
         let key = option.to_ascii_lowercase();
         self.options.contains_key(&key)
+    }
+
+    /// Returns the final explicit startup window mode based on command line order.
+    pub fn last_window_mode_override(&self) -> Option<bool> {
+        self.window_mode_override
     }
 
     /// Get the value of a specific option
@@ -594,6 +617,40 @@ mod tests {
         let parsed = result.unwrap();
         assert!(parsed.windowed);
         assert!(parsed.fullscreen);
+    }
+
+    #[test]
+    fn test_last_window_mode_flag_wins() {
+        let first = vec![
+            "generals".to_string(),
+            "-win".to_string(),
+            "-fullscreen".to_string(),
+        ];
+        let second = vec![
+            "generals".to_string(),
+            "-fullscreen".to_string(),
+            "-win".to_string(),
+        ];
+
+        let parsed_first = CommandLineArgs::parse_from_args(first).unwrap();
+        let parsed_second = CommandLineArgs::parse_from_args(second).unwrap();
+
+        assert_eq!(parsed_first.last_window_mode_override(), Some(false));
+        assert_eq!(parsed_second.last_window_mode_override(), Some(true));
+    }
+
+    #[test]
+    fn test_xres_yres_flags_map_to_dimensions() {
+        let args = vec![
+            "generals".to_string(),
+            "-xres".to_string(),
+            "1024".to_string(),
+            "-yres=768".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(parsed.width, Some(1024));
+        assert_eq!(parsed.height, Some(768));
     }
 
     #[test]
