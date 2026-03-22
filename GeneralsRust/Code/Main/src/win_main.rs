@@ -382,16 +382,16 @@ fn build_window_attributes(
 }
 
 fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool) {
-    let has_windowed_flag = cmd_args.windowed || cmd_args.has_option("win");
+    let has_windowed_flag =
+        cmd_args.windowed || cmd_args.has_option("win") || cmd_args.has_option("windowed");
     let has_fullscreen_flag =
         cmd_args.fullscreen || cmd_args.has_option("fullscreen") || cmd_args.has_option("f");
 
-    if has_fullscreen_flag {
-        (false, true)
-    } else if has_windowed_flag {
+    if has_windowed_flag && !has_fullscreen_flag {
         (true, false)
     } else {
-        (true, false)
+        // Match the C++ WinMain default: fullscreen-style startup unless -win is present.
+        (false, true)
     }
 }
 
@@ -421,14 +421,10 @@ fn resolve_startup_resolution(cmd_args: &command_line::CommandLineArgs) -> (u32,
         .height
         .or_else(|| parse_u32_option(cmd_args, "yres"));
 
-    if explicit_width.is_none() && explicit_height.is_none() {
-        return (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION);
+    match (explicit_width, explicit_height) {
+        (Some(width), Some(height)) => (width, height),
+        _ => (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION),
     }
-
-    let width = explicit_width.unwrap_or(DEFAULT_XRESOLUTION);
-    let height = explicit_height.unwrap_or(DEFAULT_YRESOLUTION);
-
-    (width, height)
 }
 
 fn initialize_logger(cmd_args: &command_line::CommandLineArgs) {
