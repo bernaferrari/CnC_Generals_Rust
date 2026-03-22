@@ -294,17 +294,21 @@ impl GlobalData {
 
     /// Set initial file to load (from command line)
     pub fn set_initial_file<S: Into<String>>(&mut self, file: S) {
-        self.initial_file = file.into();
+        self.initial_file = normalize_startup_map_path(file.into());
         info!("Initial file set to: {}", self.initial_file);
     }
 
     /// Apply quick start behavior (skip intros/shell map).
     pub fn apply_quick_start(&mut self) {
+        self.apply_intro_disabled();
+        self.shell_map_on = false;
+        info!("QuickStart applied: intros disabled, shell map off");
+    }
+
+    /// Disable the intro sequence while preserving the current shell-map name.
+    fn apply_intro_disabled(&mut self) {
         self.play_intro = false;
         self.after_intro = true;
-        self.shell_map_on = false;
-        self.shell_map_name.clear();
-        info!("QuickStart applied: intros disabled, shell map off");
     }
 
     /// Override the current language (matches -lang).
@@ -395,11 +399,12 @@ impl GlobalData {
         let mut i = 0;
         while i < args.len() {
             let arg = &args[i];
+            let arg_lower = arg.to_ascii_lowercase();
 
-            match arg.as_str() {
+            match arg_lower.as_str() {
                 "-file" | "-replay" => {
                     if i + 1 < args.len() {
-                        self.initial_file = args[i + 1].clone();
+                        self.set_initial_file(args[i + 1].clone());
                         info!("Command line file: {}", self.initial_file);
                         i += 1;
                     }
@@ -413,20 +418,35 @@ impl GlobalData {
                         i += 1;
                     }
                 }
-                "-nointro" => {
-                    self.play_intro = false;
+                "-nologo" | "-nointro" => {
+                    self.apply_intro_disabled();
                     info!("Intro disabled");
                 }
-                "-buildcache" => {
+                "-quickstart" => {
+                    self.apply_quick_start();
+                }
+                "-buildmapcache" | "-buildcache" => {
                     self.build_map_cache = true;
                     info!("Map cache building enabled");
                 }
-                "-updatedds" => {
+                "-updateimages" | "-updatedds" => {
                     self.should_update_tga_to_dds = true;
                     info!("TGA to DDS update enabled");
                 }
+                "-noshellmap" => {
+                    self.shell_map_on = false;
+                    info!("Shell map disabled");
+                }
+                "-shellmap" => {
+                    if i + 1 < args.len() {
+                        self.shell_map_name = args[i + 1].clone();
+                        info!("Shell map override: {}", self.shell_map_name);
+                        i += 1;
+                    }
+                }
                 "-nofpslimit" => {
                     self.use_fps_limit = false;
+                    self.frames_per_second_limit = 30000;
                     info!("FPS limit disabled");
                 }
                 "-fps" => {
@@ -606,6 +626,52 @@ fn read_text_via_file_system(path: &Path) -> Option<String> {
     None
 }
 
+pub(crate) fn normalize_startup_map_path<S: Into<String>>(path: S) -> String {
+    let path = path.into();
+    let trimmed = path.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if !trimmed.contains('\\') && !trimmed.contains('/') {
+        return trimmed.to_string();
+    }
+
+    let mut prefix_parts: Vec<String> = Vec::new();
+    let mut map_stem: Option<String> = None;
+
+    for part in trimmed.split(['\\', '/']) {
+        if part.is_empty() {
+            continue;
+        }
+
+        if part.to_ascii_lowercase().ends_with(".map") {
+            let stem = &part[..part.len().saturating_sub(4)];
+            if stem.is_empty() {
+                return trimmed.to_string();
+            }
+            map_stem = Some(stem.to_string());
+            break;
+        }
+
+        prefix_parts.push(part.to_string());
+    }
+
+    let Some(map_stem) = map_stem else {
+        return trimmed.to_string();
+    };
+
+    let mut normalized = prefix_parts.join("\\");
+    if !normalized.is_empty() {
+        normalized.push('\\');
+    }
+    normalized.push_str(&map_stem);
+    normalized.push('\\');
+    normalized.push_str(&map_stem);
+    normalized.push_str(".map");
+    normalized
+}
+
 /// Global data statistics
 #[derive(Debug)]
 pub struct GlobalDataStats {
@@ -712,6 +778,26 @@ mod tests {
         assert_eq!(global_data.initial_file, "test.map");
         assert_eq!(global_data.frames_per_second_limit, 120);
         assert!(!global_data.play_intro);
+    }
+
+    #[test]
+    fn test_command_line_normalizes_short_map_paths_and_preserves_shell_map_name() {
+        let mut global_data = GlobalData::new();
+        let args = vec![
+            "program".to_string(),
+            "-file".to_string(),
+            "Maps\\ShellMap1.map".to_string(),
+            "-quickstart".to_string(),
+        ];
+
+        global_data.parse_command_line(&args[1..]).unwrap();
+
+        assert_eq!(
+            global_data.initial_file,
+            "Maps\\ShellMap1\\ShellMap1.map"
+        );
+        assert!(!global_data.shell_map_on);
+        assert_eq!(global_data.shell_map_name, "Maps\\ShellMap1\\ShellMap1.map");
     }
 
     #[test]

@@ -199,6 +199,7 @@ struct StartupLoadResult {
     loaded_map_name: Option<String>,
     start_in_menu: bool,
     map_requested_from_cli: bool,
+    replay_requested: bool,
 }
 
 enum StartupLoadMessage {
@@ -1138,6 +1139,8 @@ impl CnCGameEngine {
         start_in_menu: bool,
         map_to_load: Option<String>,
         map_requested_from_cli: bool,
+        replay_to_load: Option<String>,
+        replay_requested_from_cli: bool,
         player_name: Option<String>,
         graphics_device: Arc<wgpu::Device>,
         graphics_queue: Arc<wgpu::Queue>,
@@ -1148,6 +1151,8 @@ impl CnCGameEngine {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupLoadResult, String> {
                     let mut start_in_menu = start_in_menu;
+                    let mut map_to_load = map_to_load;
+                    let replay_startup_requested = replay_to_load.is_some();
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -1166,6 +1171,8 @@ impl CnCGameEngine {
                     let mut game_logic = GameLogic::initialize();
                     if start_in_menu {
                         game_logic.start_new_game(GameMode::Shell);
+                    } else if replay_startup_requested {
+                        game_logic.start_new_game(GameMode::Replay);
                     } else if map_requested_from_cli {
                         game_logic.start_new_game(GameMode::SinglePlayer);
                     } else {
@@ -1183,6 +1190,35 @@ impl CnCGameEngine {
                                 err
                             );
                         }
+                    }
+
+                    if let Some(replay_to_load) = replay_to_load.as_ref() {
+                        Self::emit_startup_load_progress(
+                            &sender,
+                            0.24,
+                            "Starting replay playback",
+                        );
+                        let replay_header = {
+                            if let Err(err) = crate::save_load::init_replay_system() {
+                                return Err(format!("replay system init failed: {err}"));
+                            }
+                            let mut replay_manager = crate::save_load::REPLAY_MANAGER.lock().unwrap();
+                            replay_manager.start_playback(replay_to_load).map_err(|err| {
+                                format!(
+                                    "replay playback startup failed for '{}': {err}",
+                                    replay_to_load
+                                )
+                            })?
+                        };
+
+                        if replay_header.map_name.trim().is_empty() {
+                            return Err(format!(
+                                "replay '{}' did not declare a map name",
+                                replay_to_load
+                            ));
+                        }
+
+                        map_to_load = Some(replay_header.map_name.clone());
                     }
 
                     let mut loaded_map_name = None;
@@ -1206,6 +1242,11 @@ impl CnCGameEngine {
                                 );
                                 game_logic.start_new_game(GameMode::Shell);
                                 start_in_menu = true;
+                            } else if replay_startup_requested {
+                                return Err(format!(
+                                    "Failed to load startup replay map '{}'",
+                                    map_to_load
+                                ));
                             } else {
                                 return Err(format!("Failed to load startup map '{}'", map_to_load));
                             }
@@ -1253,6 +1294,7 @@ impl CnCGameEngine {
                         loaded_map_name,
                         start_in_menu,
                         map_requested_from_cli,
+                        replay_requested: replay_startup_requested,
                     })
                 },
             ))
@@ -1284,7 +1326,9 @@ impl CnCGameEngine {
         self.game_logic = result.game_logic;
 
         if let Some(active_map_name) = result.loaded_map_name.as_ref() {
-            if result.map_requested_from_cli {
+            if result.replay_requested {
+                info!("Loaded startup replay map: {}", active_map_name);
+            } else if result.map_requested_from_cli {
                 info!("Loaded map from command line: {}", active_map_name);
             } else if result.start_in_menu {
                 info!("Loaded startup shell map: {}", active_map_name);
@@ -1612,6 +1656,11 @@ impl CnCGameEngine {
             DEFAULT_VIEW_FAR_CLIP,
         );
 
+        let build_map_cache = {
+            let global = game_engine::common::global_data::read();
+            global.writable.build_map_cache
+        };
+
         // C++ GameEngine::init updates MapCache before shell-map startup checks.
         game_client::map_util::refresh_map_cache();
 
@@ -1628,6 +1677,10 @@ impl CnCGameEngine {
             .as_ref()
             .filter(|value| value.to_ascii_lowercase().ends_with(".map"))
             .cloned();
+        let startup_initial_replay = startup_initial_file
+            .as_ref()
+            .filter(|value| value.to_ascii_lowercase().ends_with(".rep"))
+            .cloned();
 
         let startup_cli_map = if command_line.quick_start {
             command_line
@@ -1638,6 +1691,11 @@ impl CnCGameEngine {
         } else {
             None
         };
+        let startup_cli_replay =
+            Self::command_line_option_value_case_insensitive(&command_line, "file")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .filter(|value| value.to_ascii_lowercase().ends_with(".rep"));
 
         if let Some(map_name) = startup_cli_map.as_ref() {
             info!("QuickStart map override requested: {}", map_name);
@@ -1651,9 +1709,20 @@ impl CnCGameEngine {
             global.pending_file = initial_map.clone();
         }
 
+        if let Some(initial_replay) = startup_initial_replay.as_ref() {
+            let mut global = game_engine::common::global_data::write();
+            global.writable.shell_map_on = false;
+            global.writable.play_intro = false;
+            global.writable.after_intro = true;
+            global.pending_file.clear();
+            info!("Replay startup override requested: {}", initial_replay);
+        }
+
         let startup_map_requested_from_cli = startup_cli_map.is_some();
+        let startup_replay_requested_from_cli = startup_cli_replay.is_some();
         let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
-        let start_in_menu = startup_requested_map.is_none();
+        let startup_requested_replay = startup_cli_replay.or(startup_initial_replay.clone());
+        let start_in_menu = startup_requested_map.is_none() && startup_requested_replay.is_none();
         let startup_shell_map = start_in_menu
             .then(Self::configured_startup_shell_map)
             .flatten();
@@ -1662,14 +1731,20 @@ impl CnCGameEngine {
         } else {
             startup_requested_map
         };
-        let startup_load_state = Self::spawn_startup_map_load(
-            start_in_menu,
-            map_to_load,
-            startup_map_requested_from_cli,
-            command_line.player_name.clone(),
-            graphics_system.device_arc(),
-            graphics_system.queue_arc(),
-        );
+        let startup_load_state = if build_map_cache {
+            StartupLoadState::Complete
+        } else {
+            Self::spawn_startup_map_load(
+                start_in_menu,
+                map_to_load,
+                startup_map_requested_from_cli,
+                startup_requested_replay.clone(),
+                startup_replay_requested_from_cli,
+                command_line.player_name.clone(),
+                graphics_system.device_arc(),
+                graphics_system.queue_arc(),
+            )
+        };
 
         let camera_offset = camera_position - camera_target;
         let camera_orbit_distance = camera_offset.length().max(1.0);
@@ -1814,6 +1889,20 @@ impl CnCGameEngine {
             victory_summary: None,
         };
 
+        if let Some(subsystem_manager) = get_subsystem_manager() {
+            let mut manager = subsystem_manager.lock();
+            if let Err(err) = manager.reset_all() {
+                warn!("Subsystem reset after startup init failed: {}", err);
+            }
+        }
+
+        if build_map_cache {
+            engine.current_state = GameState::Exiting;
+            engine.startup_load_state = StartupLoadState::Complete;
+            engine.startup_target_state = None;
+            return Ok(engine);
+        }
+
         // Start background music
         // DISABLED: Using proper AssetManager audio system instead of synthetic tones
         // engine.start_background_music();
@@ -1860,12 +1949,29 @@ impl CnCGameEngine {
     fn apply_command_line_overrides(command_line: &CommandLineArgs) {
         let quick_start = command_line.quick_start
             || Self::has_command_line_option_case_insensitive(command_line, "quickstart");
+        let no_logo = Self::has_command_line_option_case_insensitive(command_line, "nologo")
+            || Self::has_command_line_option_case_insensitive(command_line, "nointro");
         let no_shell_map =
             Self::has_command_line_option_case_insensitive(command_line, "noshellmap");
+        let no_shell_anim =
+            Self::has_command_line_option_case_insensitive(command_line, "noshellanim");
+        let build_map_cache =
+            Self::has_command_line_option_case_insensitive(command_line, "buildmapcache")
+                || Self::has_command_line_option_case_insensitive(command_line, "buildcache");
+        let no_fps_limit =
+            Self::has_command_line_option_case_insensitive(command_line, "nofpslimit");
+        let update_images =
+            Self::has_command_line_option_case_insensitive(command_line, "updateimages")
+                || Self::has_command_line_option_case_insensitive(command_line, "updatedds");
         let shell_map_override =
             Self::command_line_option_value_case_insensitive(command_line, "shellmap")
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
+        let benchmark_override =
+            Self::command_line_option_value_case_insensitive(command_line, "benchmark")
+                .and_then(|value| value.trim().parse::<i32>().ok());
+        let fps_override = Self::command_line_option_value_case_insensitive(command_line, "fps")
+            .and_then(|value| value.trim().parse::<i32>().ok());
 
         let initial_file_override =
             Self::command_line_option_value_case_insensitive(command_line, "file")
@@ -1885,12 +1991,46 @@ impl CnCGameEngine {
                 }
             }
             if quick_start {
-                // C++ parseQuickStart: disable intro sequences.
+                // C++ parseQuickStart always disables shell-map/animated windows/sizzle.
+                global.writable.shell_map_on = false;
+                global.writable.animate_windows = false;
+                global.writable.play_sizzle = false;
+
+                // In internal/debug C++ builds quick-start also suppresses intro/logo.
+                if cfg!(any(debug_assertions, feature = "internal")) {
+                    global.writable.play_intro = false;
+                    global.writable.after_intro = true;
+                }
+            }
+            if no_logo {
+                // C++ parseNoLogo: skip intro and sizzle, mark after-intro state.
                 global.writable.play_intro = false;
                 global.writable.after_intro = true;
+                global.writable.play_sizzle = false;
             }
             if no_shell_map {
                 global.writable.shell_map_on = false;
+            }
+            if no_shell_anim {
+                global.writable.animate_windows = false;
+            }
+            if build_map_cache {
+                global.writable.build_map_cache = true;
+            }
+            if let Some(benchmark_seconds) = benchmark_override {
+                global.writable.benchmark_timer = benchmark_seconds;
+                global.writable.play_stats = benchmark_seconds;
+            }
+            if no_fps_limit {
+                // C++ parseNoFPSLimit also raises limit to a very high cap.
+                global.writable.use_fps_limit = false;
+                global.writable.frames_per_second_limit = 30000;
+            }
+            if let Some(fps_limit) = fps_override {
+                global.writable.frames_per_second_limit = fps_limit;
+            }
+            if update_images {
+                global.writable.should_update_tga_to_dds = true;
             }
             if let Some(shell_map_name) = shell_map_override {
                 global.writable.shell_map_name = shell_map_name;
@@ -2261,9 +2401,7 @@ impl CnCGameEngine {
 
     /// Check if quit has been requested through platform message handling
     pub fn is_quit_requested(&self) -> bool {
-        // Check if the platform-specific handler has requested quit
-        // This would require access to the handler, which we'll implement later
-        false
+        self.message_processor.is_quit_requested()
     }
 
     /// Set fullscreen mode and notify platform handler
@@ -4060,7 +4198,7 @@ impl CnCGameEngine {
         if let Some(previous) = self.script_fps_limit_last_tick {
             let mut now = Instant::now();
             while now.duration_since(previous) < limit {
-                std::thread::yield_now();
+                std::thread::sleep(Duration::ZERO);
                 now = Instant::now();
             }
             self.script_fps_limit_last_tick = Some(now);
@@ -6001,11 +6139,15 @@ pub async fn run_cnc_game(
     let mut slow_render_peak = Duration::ZERO;
     let mut last_render_health_log = Instant::now();
     const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+    const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
     let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
     let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
     if let Some(bridge) = runtime_host_bridge.as_mut() {
         bridge.publish_booting();
     }
+    let mut runtime_window_focused = true;
+    let mut runtime_window_minimized = false;
+    let mut runtime_window_occluded = false;
 
     #[cfg(feature = "integration-diagnostics")]
     let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
@@ -6020,6 +6162,7 @@ pub async fn run_cnc_game(
             engine: &mut CnCGameEngine,
             current_window: &Arc<Window>,
             runtime_host_bridge: &mut Option<RuntimeHostBridge>,
+            render_frame: bool,
         | {
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 for command in bridge.drain_commands() {
@@ -6078,30 +6221,34 @@ pub async fn run_cnc_game(
             let update_elapsed = update_started.elapsed();
 
             let render_started = Instant::now();
-            match engine.render() {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("❌ RENDER ERROR: {:?}", e);
-                    if let Some(source_err) = e.source() {
-                        if let Some(surface_err) = source_err.downcast_ref::<wgpu::SurfaceError>() {
-                            match surface_err {
-                                wgpu::SurfaceError::Lost => {
-                                    error!("🔄 SURFACE LOST: Attempting resize");
-                                    engine.resize(current_window.inner_size());
+            if render_frame {
+                match engine.render() {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("❌ RENDER ERROR: {:?}", e);
+                        if let Some(source_err) = e.source() {
+                            if let Some(surface_err) =
+                                source_err.downcast_ref::<wgpu::SurfaceError>()
+                            {
+                                match surface_err {
+                                    wgpu::SurfaceError::Lost => {
+                                        error!("🔄 SURFACE LOST: Attempting resize");
+                                        engine.resize(current_window.inner_size());
+                                    }
+                                    wgpu::SurfaceError::OutOfMemory => {
+                                        error!("💥 OUT OF MEMORY: Exiting");
+                                        elwt.exit();
+                                    }
+                                    _ => {
+                                        error!("🚨 Other surface error: {:?}", surface_err);
+                                    }
                                 }
-                                wgpu::SurfaceError::OutOfMemory => {
-                                    error!("💥 OUT OF MEMORY: Exiting");
-                                    elwt.exit();
-                                }
-                                _ => {
-                                    error!("🚨 Other surface error: {:?}", surface_err);
-                                }
+                            } else {
+                                error!("🚨 Non-surface error: {:?}", source_err);
                             }
                         } else {
-                            error!("🚨 Non-surface error: {:?}", source_err);
+                            error!("🚨 No source error available");
                         }
-                    } else {
-                        error!("🚨 No source error available");
                     }
                 }
             }
@@ -6324,9 +6471,7 @@ pub async fn run_cnc_game(
                         }
                     }
 
-                    if let Some(created_window) = window.as_ref() {
-                        created_window.request_redraw();
-                    }
+                    next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
                     elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
                 }
                 _ => {}
@@ -6406,15 +6551,36 @@ pub async fn run_cnc_game(
                             GameState::Exiting => {}
                         },
                         WindowEvent::Resized(physical_size) => {
+                            runtime_window_minimized =
+                                physical_size.width == 0 || physical_size.height == 0;
                             engine.resize(*physical_size);
                         }
                         WindowEvent::ScaleFactorChanged { .. } => {
                             // Keep UI/layout hit-testing in sync on HiDPI transitions (macOS).
                             engine.resize(current_window.inner_size());
                         }
+                        WindowEvent::Focused(focused) => {
+                            runtime_window_focused = *focused;
+                        }
+                        WindowEvent::Occluded(occluded) => {
+                            runtime_window_occluded = *occluded;
+                        }
                         WindowEvent::RedrawRequested => {
-                            if !runtime_headless_mode {
-                                drive_frame(engine, current_window, &mut runtime_host_bridge);
+                            let runtime_window_suspended =
+                                runtime_window_minimized || runtime_window_occluded || !runtime_window_focused;
+                            if runtime_headless_mode {
+                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                            } else if runtime_window_suspended {
+                                if engine.game_logic.isInMultiplayerGame() {
+                                    drive_frame(
+                                        engine,
+                                        current_window,
+                                        &mut runtime_host_bridge,
+                                        false,
+                                    );
+                                }
+                            } else {
+                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                             }
                         }
                         _ => {}
@@ -6424,12 +6590,19 @@ pub async fn run_cnc_game(
             Event::AboutToWait => {
                 let now = Instant::now();
                 if now >= next_redraw_at {
+                    let runtime_window_suspended =
+                        runtime_window_minimized || runtime_window_occluded || !runtime_window_focused;
                     if runtime_headless_mode {
-                        drive_frame(engine, current_window, &mut runtime_host_bridge);
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                    } else if runtime_window_suspended {
+                        if engine.game_logic.isInMultiplayerGame() {
+                            drive_frame(engine, current_window, &mut runtime_host_bridge, false);
+                        }
+                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
                     } else {
                         current_window.request_redraw();
+                        next_redraw_at = now + FRAME_INTERVAL;
                     }
-                    next_redraw_at = now + FRAME_INTERVAL;
                 }
                 elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
             }
