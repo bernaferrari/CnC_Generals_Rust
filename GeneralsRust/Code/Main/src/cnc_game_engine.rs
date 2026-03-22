@@ -6566,8 +6566,7 @@ pub async fn run_cnc_game(
                             runtime_window_occluded = *occluded;
                         }
                         WindowEvent::RedrawRequested => {
-                            let runtime_window_suspended =
-                                runtime_window_minimized || runtime_window_occluded || !runtime_window_focused;
+                            let runtime_window_suspended = runtime_window_minimized;
                             if runtime_headless_mode {
                                 drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                             } else if runtime_window_suspended {
@@ -6590,8 +6589,7 @@ pub async fn run_cnc_game(
             Event::AboutToWait => {
                 let now = Instant::now();
                 if now >= next_redraw_at {
-                    let runtime_window_suspended =
-                        runtime_window_minimized || runtime_window_occluded || !runtime_window_focused;
+                    let runtime_window_suspended = runtime_window_minimized;
                     if runtime_headless_mode {
                         drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                     } else if runtime_window_suspended {
