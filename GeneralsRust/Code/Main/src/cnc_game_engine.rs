@@ -484,6 +484,75 @@ struct StartupCameraDefaults {
 }
 
 impl CnCGameEngine {
+    fn append_message_argument_to_common_stream(
+        target: &mut game_engine::common::message_stream::GameMessage,
+        arg: &game_engine::common::message_stream::GameMessageArgumentType,
+    ) {
+        use game_engine::common::message_stream::GameMessageArgumentType;
+        match arg {
+            GameMessageArgumentType::Integer(v) => target.append_integer_argument(*v),
+            GameMessageArgumentType::Real(v) => target.append_real_argument(*v),
+            GameMessageArgumentType::Boolean(v) => target.append_boolean_argument(*v),
+            GameMessageArgumentType::ObjectID(v) => target.append_object_id_argument(*v),
+            GameMessageArgumentType::DrawableID(v) => target.append_drawable_id_argument(*v),
+            GameMessageArgumentType::TeamID(v) => target.append_team_id_argument(*v),
+            GameMessageArgumentType::SquadID(v) => target.append_team_id_argument(*v),
+            GameMessageArgumentType::Location(v) => target.append_location_argument(v.clone()),
+            GameMessageArgumentType::Pixel(v) => target.append_pixel_argument(v.clone()),
+            GameMessageArgumentType::PixelRegion(v) => {
+                target.append_pixel_region_argument(v.clone())
+            }
+            GameMessageArgumentType::Timestamp(v) => target.append_timestamp_argument(*v),
+            GameMessageArgumentType::WideChar(v) => target.append_wide_char_argument(*v),
+            GameMessageArgumentType::String(v) => target.append_string_argument(v.clone()),
+        }
+    }
+
+    fn append_common_message_to_stream(
+        stream: &mut game_engine::common::message_stream::MessageStream,
+        message: &game_engine::common::message_stream::GameMessage,
+    ) {
+        let forwarded = stream.append_message(message.get_type().clone());
+        for arg in message.get_arguments() {
+            Self::append_message_argument_to_common_stream(forwarded, &arg.data);
+        }
+    }
+
+    fn legacy_game_mode_from_new_game_code(mode: i32) -> Option<GameMode> {
+        match mode {
+            0 => Some(GameMode::SinglePlayer), // GAME_SINGLE_PLAYER
+            1 => Some(GameMode::Multiplayer),  // GAME_LAN
+            2 => Some(GameMode::Skirmish),     // GAME_SKIRMISH
+            3 => Some(GameMode::Replay),       // GAME_REPLAY
+            4 => Some(GameMode::Shell),        // GAME_SHELL
+            _ => None,
+        }
+    }
+
+    fn startup_mode_from_queued_new_game_message() -> Option<GameMode> {
+        use game_engine::common::message_stream::{
+            get_message_stream, GameMessageArgumentType, GameMessageType,
+        };
+
+        let stream = get_message_stream();
+        let stream_guard = match stream.read() {
+            Ok(guard) => guard,
+            Err(_) => return None,
+        };
+
+        let mut resolved_mode = None;
+        for message in stream_guard.get_messages().iter() {
+            if !matches!(message.get_type(), GameMessageType::NewGame) {
+                continue;
+            }
+            if let Some(GameMessageArgumentType::Integer(mode_code)) = message.get_argument(0) {
+                resolved_mode = Self::legacy_game_mode_from_new_game_code(*mode_code);
+            }
+        }
+
+        resolved_mode
+    }
+
     const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
     const CAUSTIC_WARMUP_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -926,6 +995,10 @@ impl CnCGameEngine {
             "Configured shell map '{}' was not found in map cache; starting without a shell background map",
             shell_map_name
         );
+        // C++ parity (GameEngine.cpp): disable shell-map mode globally when the configured
+        // shell map is missing from cache so subsequent startup/UI flow sees it as unavailable.
+        let mut global = game_engine::common::global_data::write();
+        global.writable.shell_map_on = false;
         None
     }
 
@@ -1359,32 +1432,23 @@ impl CnCGameEngine {
 
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
-                    if start_in_menu {
-                        game_logic.start_new_game(GameMode::Shell);
-                    } else if replay_startup_requested {
-                        game_logic.start_new_game(GameMode::Replay);
-                    } else if map_requested_from_cli || map_requested_from_initial_file {
-                        if map_requested_from_initial_file {
-                            // C++ parity: .map initial-file startup enqueues MSG_NEW_GAME
-                            // (GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0) and seeds RNG with 0.
-                            let stream = game_engine::common::message_stream::get_message_stream();
-                            if let Ok(mut stream_guard) = stream.write() {
-                                let msg = stream_guard.append_message(
-                                    game_engine::common::message_stream::GameMessageType::NewGame,
-                                );
-                                msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
-                                msg.append_integer_argument(1); // DIFFICULTY_NORMAL
-                                msg.append_integer_argument(0); // rank points
-                            } else {
-                                warn!("Failed to queue startup NewGame message for initial-file map");
-                            }
-                            game_engine::common::random_value::init_random_with_seed(0);
-                        }
-                        game_logic.start_new_game(GameMode::SinglePlayer);
-                    } else {
-                        game_logic.start_new_game(GameMode::Skirmish);
-                    }
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
+
+                    if map_requested_from_initial_file {
+                        // C++ parity: .map initial-file startup enqueues MSG_NEW_GAME
+                        // (GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0) and seeds RNG with 0.
+                        let stream = game_engine::common::message_stream::get_message_stream();
+                        if let Ok(mut stream_guard) = stream.write() {
+                            let msg = stream_guard
+                                .append_message(game_engine::common::message_stream::GameMessageType::NewGame);
+                            msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
+                            msg.append_integer_argument(1); // DIFFICULTY_NORMAL
+                            msg.append_integer_argument(0); // rank points
+                        } else {
+                            warn!("Failed to queue startup NewGame message for initial-file map");
+                        }
+                        game_engine::common::random_value::init_random_with_seed(0);
+                    }
 
                     if let Some(replay_to_load) = replay_to_load.as_ref() {
                         Self::emit_startup_load_progress(
@@ -1398,6 +1462,31 @@ impl CnCGameEngine {
                         // If that path cannot parse the replay, keep the existing Rust replay
                         // manager as a compatibility fallback.
                         game_engine::common::recorder::init_recorder();
+                        let startup_command_sink: Arc<
+                            dyn Fn(game_engine::common::message_stream::GameMessage)
+                                + Send
+                                + Sync,
+                        > = Arc::new(|message| {
+                            let stream = game_engine::common::message_stream::get_message_stream();
+                            let write_result = stream.write();
+                            match write_result {
+                                Ok(mut stream_guard) => {
+                                    CnCGameEngine::append_common_message_to_stream(
+                                        &mut stream_guard,
+                                        &message,
+                                    );
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Failed to forward recorder startup command into message stream: {}",
+                                        err
+                                    );
+                                }
+                            }
+                        });
+                        let _ = game_engine::common::recorder::with_recorder_mut(|recorder| {
+                            recorder.set_command_sink(Some(startup_command_sink));
+                        });
                         match game_engine::common::recorder::with_recorder_mut(|recorder| {
                             recorder.playback_file(replay_to_load.clone())
                         }) {
@@ -1454,6 +1543,19 @@ impl CnCGameEngine {
                             map_to_load = Some(replay_header.map_name.clone());
                         }
                     }
+
+                    let startup_mode = if start_in_menu {
+                        GameMode::Shell
+                    } else if let Some(mode) = Self::startup_mode_from_queued_new_game_message() {
+                        mode
+                    } else if replay_startup_requested {
+                        GameMode::Replay
+                    } else if map_requested_from_cli || map_requested_from_initial_file {
+                        GameMode::SinglePlayer
+                    } else {
+                        GameMode::Skirmish
+                    };
+                    game_logic.start_new_game(startup_mode);
 
                     let mut loaded_map_name = None;
                     if let Some(map_to_load) = map_to_load {
@@ -1949,8 +2051,18 @@ impl CnCGameEngine {
             info!("Replay startup override requested: {}", initial_replay);
         }
 
+        {
+            // C++ parity (GameEngine.cpp): if intro is disabled by INI/flags, startup must
+            // enter the post-intro state.
+            let mut global = game_engine::common::global_data::write();
+            if !global.writable.play_intro {
+                global.writable.after_intro = true;
+            }
+        }
+
         let startup_map_requested_from_cli = startup_cli_map.is_some();
-        let startup_map_requested_from_initial_file = startup_initial_map.is_some();
+        let startup_map_requested_from_initial_file =
+            startup_initial_map.is_some() && startup_cli_map.is_none();
         let startup_replay_requested_from_cli = startup_cli_replay.is_some();
         let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
         let startup_requested_replay = startup_cli_replay.or(startup_initial_replay.clone());
