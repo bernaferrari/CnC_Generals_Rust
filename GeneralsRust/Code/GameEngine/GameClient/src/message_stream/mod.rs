@@ -32,7 +32,8 @@ pub mod player_state;
 pub mod translators;
 pub mod window_xlat;
 
-// Input → Selection → Commands integration (C++ port)
+// Input → Selection → Commands integration (C++ port).
+// `translators` is the canonical command path; `command_xlat` is retained as a compatibility shim.
 pub mod command_xlat;
 pub mod input_processor;
 pub mod selection_xlat;
@@ -61,7 +62,7 @@ pub use window_xlat::*;
 
 // Re-export input processing types
 pub use command_xlat::{
-    CanAttackResult, CommandEvaluateType, CommandTranslator, CommandableObject,
+    CanAttackResult, CommandEvaluateType, CommandableObject,
 };
 pub use input_processor::{
     InputEvent, InputProcessor, InputProcessorConfig, InputProcessorStatistics,

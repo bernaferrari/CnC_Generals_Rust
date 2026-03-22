@@ -10,11 +10,15 @@ use game_engine::common::ini::{
 use log::debug;
 
 use super::game_message::{
-    build_region, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, IRegion2D,
+    build_region, Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D,
+    IRegion2D,
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
+use crate::helpers::TheInGameUI;
 use crate::gui::shell::get_shell;
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
+use gamelogic::commands::command::CommandType;
+use gamelogic::helpers::TheGameLogic;
 
 const MOD_CTRL: u32 = 1;
 const MOD_ALT: u32 = 2;
@@ -25,6 +29,7 @@ const KEY_STATE_SHIFT: u32 = 0x0010 | 0x0020 | 0x0400;
 const KEY_STATE_ALT: u32 = 0x0040 | 0x0080;
 const KEY_STATE_DOWN: u32 = 0x0002;
 const KEY_STATE_UP: u32 = 0x0001;
+const KEY_STATE_AUTOREPEAT: u32 = 0x0100;
 
 const COMMANDUSABLE_NONE: u32 = 0;
 const COMMANDUSABLE_SHELL: u32 = 1 << 0;
@@ -39,6 +44,7 @@ enum Transition {
 
 #[derive(Debug, Clone)]
 struct MetaMapRec {
+    name: String,
     meta: Option<GameMessageType>,
     key: u32,
     transition: Transition,
@@ -65,7 +71,20 @@ struct MetaMap {
 
 impl MetaMap {
     fn add_record(&mut self, record: MetaMapRec) {
-        self.records.push(record);
+        let existing_index = self.records.iter().position(|existing| {
+            if let (Some(existing_meta), Some(new_meta)) = (&existing.meta, &record.meta) {
+                return existing_meta == new_meta;
+            }
+            existing.meta.is_none()
+                && record.meta.is_none()
+                && existing.name.eq_ignore_ascii_case(&record.name)
+        });
+
+        if let Some(index) = existing_index {
+            self.records[index] = record;
+        } else {
+            self.records.push(record);
+        }
     }
 
     fn iter(&self) -> impl Iterator<Item = &MetaMapRec> {
@@ -247,16 +266,14 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         .to_string();
 
     let meta = lookup_meta_message_type(&name);
-    if meta.is_none() {
-        // Keep unknown command-map rows for keyboard-options parity and future behavior porting.
-        // They are skipped at emit-time until a concrete GameMessageType mapping is implemented.
-        debug!(
-            "CommandMap entry '{}' has no matching GameMessageType (kept as unresolved keybind)",
-            name
-        );
+    let has_custom_handler =
+        name.eq_ignore_ascii_case("PLACE_BEACON") || name.eq_ignore_ascii_case("DELETE_BEACON");
+    if meta.is_none() && !has_custom_handler {
+        return Err(INIError::InvalidData);
     }
 
     let mut record = MetaMapRec {
+        name: name.clone(),
         meta,
         key: 0,
         transition: Transition::Down,
@@ -560,9 +577,55 @@ fn lookup_meta_message_type(name: &str) -> Option<GameMessageType> {
         "TOGGLE_CAMERA_TRACKING_DRAWABLE" => Some(GameMessageType::MetaToggleCameraTracking),
         "TOGGLE_FAST_FORWARD_REPLAY" => Some(GameMessageType::MetaToggleFastForwardReplay),
         "DEMO_INSTANT_QUIT" => Some(GameMessageType::MetaDemoInstantQuit),
-        "TOGGLE_ATTACKMOVE" => Some(GameMessageType::MetaToggleAttackMove),
         _ => None,
     }
+}
+
+fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
+    if let Some(meta) = &record.meta {
+        if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
+            if TheGameLogic::is_in_replay_game() {
+                if let Some(global_data) = get_global_data() {
+                    let enabled = {
+                        let mut guard = global_data.write();
+                        guard.tivo_fast_mode = !guard.tivo_fast_mode;
+                        guard.tivo_fast_mode
+                    };
+                    TheInGameUI::message(if enabled {
+                        "GUI:FF_ON"
+                    } else {
+                        "GUI:FF_OFF"
+                    });
+                }
+            }
+            return Some(GameMessageDisposition::KeepMessage);
+        }
+        emit_message(GameMessage::new(meta.clone()));
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    // Runtime CommandMap currently relies on these aliases. Keep behavior close to C++:
+    // consume the key regardless of whether runtime game-state allows the command.
+    if record.name.eq_ignore_ascii_case("PLACE_BEACON") {
+        if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_replay_game() {
+            const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
+            TheInGameUI::clear_pending_special_power();
+            TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
+            TheInGameUI::set_force_attack_mode(false);
+            TheInGameUI::set_force_move_to_mode(false);
+            TheInGameUI::set_prefer_selection_mode(false);
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DELETE_BEACON") {
+        if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_replay_game() {
+            emit_message(GameMessage::new(GameMessageType::RemoveBeacon(Coord3D::default())));
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    None
 }
 
 #[derive(Default)]
@@ -616,6 +679,10 @@ impl GameMessageTranslator for MetaEventTranslator {
 
             let map_guard = get_meta_map().read().expect("MetaMap lock poisoned");
             for map in map_guard.iter() {
+                // C++ parity: ignore game-only keybinds before frame 1 to avoid load-screen input bugs.
+                if map.usable_in == COMMANDUSABLE_GAME && TheGameLogic::get_frame() < 1 {
+                    continue;
+                }
                 if shell_active && (map.usable_in & COMMANDUSABLE_SHELL) == 0 {
                     continue;
                 }
@@ -628,9 +695,8 @@ impl GameMessageTranslator for MetaEventTranslator {
                     && ((map.transition == Transition::Up && map.mod_state == self.last_mod_state)
                         || (map.transition == Transition::Down && map.mod_state == new_mod_state))
                 {
-                    if let Some(meta) = &map.meta {
-                        emit_message(GameMessage::new(meta.clone()));
-                        disp = GameMessageDisposition::DestroyMessage;
+                    if let Some(new_disp) = dispatch_map_entry(map) {
+                        disp = new_disp;
                         break;
                     }
                 }
@@ -638,18 +704,19 @@ impl GameMessageTranslator for MetaEventTranslator {
                 let transition_matches = match map.transition {
                     Transition::Up => (key_state & KEY_STATE_UP) != 0,
                     Transition::Down => (key_state & KEY_STATE_DOWN) != 0,
-                    Transition::DoubleDown => {
-                        (key_state & KEY_STATE_DOWN) != 0 && self.last_key_down == key
-                    }
+                    // C++ currently disables DOUBLEDOWN generation in MetaEvent.cpp.
+                    Transition::DoubleDown => false,
                 };
 
                 if map.key == key && map.mod_state == new_mod_state && transition_matches {
-                    if let Some(meta) = &map.meta {
-                        emit_message(GameMessage::new(meta.clone()));
+                    // C++ eats autorepeat for known keys but does not emit the meta-message.
+                    if (key_state & KEY_STATE_AUTOREPEAT) != 0 {
                         disp = GameMessageDisposition::DestroyMessage;
-                        if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
-                            disp = GameMessageDisposition::KeepMessage;
-                        }
+                        break;
+                    }
+
+                    if let Some(new_disp) = dispatch_map_entry(map) {
+                        disp = new_disp;
                         break;
                     }
                 }
