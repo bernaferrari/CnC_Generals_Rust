@@ -23,7 +23,7 @@ use crate::save_load::{
 };
 use crate::subsystem_manager::{
     get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, AudioManagerSubsystem,
-    NetworkSubsystem,
+    NetworkSubsystem, SubsystemInterface,
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
@@ -78,7 +78,10 @@ impl NetworkClock {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_keep_logic_running_while_iconic, CnCGameEngine, GameMode, GameState};
+    use super::{
+        should_keep_logic_running_while_iconic, CnCGameEngine, GameMode, GameState,
+        StartupNewGameDispatch,
+    };
     use crate::command_line::CommandLineArgs;
     use std::fs;
     use std::sync::Mutex;
@@ -91,6 +94,20 @@ mod tests {
         let snapshot = game_engine::common::global_data::read().clone();
         f();
         *game_engine::common::global_data::write() = snapshot;
+    }
+
+    fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
+        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let global_snapshot = game_engine::common::global_data::read().clone();
+        let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
+        let previous_rank_points =
+            gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+        f();
+        *game_engine::common::global_data::write() = global_snapshot;
+        gamelogic::helpers::TheScriptEngine::set_global_difficulty(previous_difficulty);
+        gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
+            previous_rank_points,
+        );
     }
 
     fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
@@ -150,6 +167,117 @@ mod tests {
     }
 
     #[test]
+    fn startup_new_game_dispatch_prefers_last_queued_message() {
+        use game_engine::common::message_stream::{GameMessage, GameMessageType};
+
+        let mut first = GameMessage::new(GameMessageType::NewGame);
+        first.append_integer_argument(0);
+        first.append_integer_argument(0);
+        first.append_integer_argument(0);
+
+        let mut replay = GameMessage::new(GameMessageType::NewGame);
+        replay.append_integer_argument(3);
+        replay.append_integer_argument(1);
+        replay.append_integer_argument(42);
+        replay.append_integer_argument(90);
+
+        let dispatch = CnCGameEngine::startup_new_game_dispatch_from_messages(&[
+            first,
+            GameMessage::new(GameMessageType::ClearGameData),
+            replay,
+        ])
+        .expect("expected startup dispatch");
+
+        assert_eq!(dispatch.game_mode, GameMode::Replay);
+        assert_eq!(dispatch.difficulty, super::GameDifficulty::Medium);
+        assert_eq!(dispatch.rank_points, 42);
+        assert_eq!(dispatch.max_fps, Some(90));
+    }
+
+    #[test]
+    fn startup_new_game_dispatch_applies_script_side_effects() {
+        with_global_and_startup_state_snapshot_restored(|| {
+            let dispatch = StartupNewGameDispatch {
+                game_mode_code: 0,
+                game_mode: GameMode::SinglePlayer,
+                difficulty_code: 2,
+                difficulty: super::GameDifficulty::Hard,
+                rank_points: 77,
+                max_fps: None,
+            };
+
+            let prepared_map = CnCGameEngine::apply_startup_new_game_dispatch(dispatch);
+            assert!(prepared_map.is_none());
+            assert_eq!(
+                gamelogic::helpers::TheScriptEngine::get_global_difficulty(),
+                2
+            );
+            assert_eq!(
+                gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
+                77
+            );
+        });
+    }
+
+    #[test]
+    fn startup_new_game_dispatch_ignores_unrelated_messages() {
+        use game_engine::common::message_stream::{GameMessage, GameMessageType};
+
+        let dispatch = CnCGameEngine::startup_new_game_dispatch_from_messages(&[
+            GameMessage::new(GameMessageType::Invalid),
+            GameMessage::new(GameMessageType::ClearGameData),
+        ]);
+
+        assert!(dispatch.is_none());
+    }
+
+    #[test]
+    fn startup_mode_requires_new_game_dispatch_for_non_menu_startup() {
+        let mut start_in_menu = false;
+        let mut map_to_load = Some("Maps\\ShellMapMD\\ShellMapMD.map".to_string());
+
+        let mode = CnCGameEngine::resolve_startup_mode_from_dispatch(
+            &mut start_in_menu,
+            &mut map_to_load,
+            None,
+            false,
+        );
+
+        assert_eq!(mode, GameMode::Shell);
+        assert!(start_in_menu);
+        assert!(map_to_load.is_none());
+    }
+
+    #[test]
+    fn startup_initial_file_helper_matches_cpp_table_and_gating() {
+        let replay_args = vec![
+            "generals".to_string(),
+            "-file".to_string(),
+            "Replays\\demo.rep".to_string(),
+        ];
+        let replay_parsed = CommandLineArgs::parse_from_args(replay_args).unwrap();
+        assert_eq!(
+            CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, true),
+            Some("Replays\\demo.rep".to_string())
+        );
+        assert_eq!(
+            CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, false),
+            None
+        );
+
+        let replay_alias_args = vec![
+            "generals".to_string(),
+            "-replay".to_string(),
+            "Replays\\demo.rep".to_string(),
+        ];
+        let replay_alias_parsed = CommandLineArgs::parse_from_args(replay_alias_args).unwrap();
+        assert_eq!(
+            CnCGameEngine::startup_initial_file_from_command_line(&replay_alias_parsed, true),
+            None
+        );
+    }
+
+    #[test]
     fn game_logic_gate_without_network_matches_cpp_pause_behavior() {
         assert!(CnCGameEngine::should_update_game_logic_frame(false, None));
         assert!(!CnCGameEngine::should_update_game_logic_frame(true, None));
@@ -173,6 +301,11 @@ mod tests {
             true,
             Some(false)
         ));
+    }
+
+    #[test]
+    fn network_gate_skips_runtime_network_lookup_until_multiplayer_exists() {
+        assert_eq!(CnCGameEngine::network_frame_data_ready_gate(false), None);
     }
 
     #[test]
@@ -270,7 +403,6 @@ mod tests {
                 "3".to_string(),
                 "-forceBenchmark".to_string(),
                 "-nomusic".to_string(),
-                "-nosizzle".to_string(),
                 "-noshaders".to_string(),
                 "-scriptDebug".to_string(),
                 "-winCursors".to_string(),
@@ -289,7 +421,7 @@ mod tests {
             assert!(global.writable.win_cursors);
             assert!(!global.writable.animate_windows);
             assert!(!global.writable.music_on);
-            assert!(!global.writable.play_sizzle);
+            assert!(global.writable.play_sizzle);
             assert_eq!(global.writable.chip_set_type, 1);
             assert!(global.writable.force_benchmark);
             assert!(global.writable.constant_debug_update);
@@ -299,6 +431,39 @@ mod tests {
             assert_eq!(global.writable.net_min_players, 3);
             assert_eq!(global.writable.benchmark_timer, 9);
             assert_eq!(global.writable.play_stats, 4);
+        });
+    }
+
+    #[test]
+    fn command_line_standalone_nosizzle_is_ignored_during_startup_overrides() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec!["generals".to_string(), "-nosizzle".to_string()];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert!(global.writable.play_sizzle);
+        });
+    }
+
+    #[test]
+    fn command_line_jump_to_frame_matches_cpp_no_draw_behavior() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec![
+                "generals".to_string(),
+                "-jumpToFrame".to_string(),
+                "240".to_string(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            let debug_gated = CnCGameEngine::allow_debug_startup_flags();
+            assert_eq!(global.writable.no_draw, debug_gated);
+            if debug_gated {
+                assert!(!global.writable.use_fps_limit);
+                assert_eq!(global.writable.frames_per_second_limit, 30000);
+            }
         });
     }
 
@@ -506,6 +671,16 @@ struct StartupLoadResult {
     start_in_menu: bool,
     map_requested_from_cli: bool,
     replay_requested: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StartupNewGameDispatch {
+    game_mode_code: i32,
+    game_mode: GameMode,
+    difficulty_code: i32,
+    difficulty: GameDifficulty,
+    rank_points: i32,
+    max_fps: Option<i32>,
 }
 
 enum StartupLoadMessage {
@@ -793,28 +968,157 @@ impl CnCGameEngine {
         }
     }
 
-    fn startup_mode_from_queued_new_game_message() -> Option<GameMode> {
-        use game_engine::common::message_stream::{
-            get_message_stream, GameMessageArgumentType, GameMessageType,
-        };
+    fn legacy_game_difficulty_from_new_game_code(difficulty: i32) -> GameDifficulty {
+        match difficulty {
+            0 => GameDifficulty::Easy,
+            1 => GameDifficulty::Medium,
+            2 => GameDifficulty::Hard,
+            _ => GameDifficulty::Medium,
+        }
+    }
 
-        let stream = get_message_stream();
-        let stream_guard = match stream.read() {
-            Ok(guard) => guard,
-            Err(_) => return None,
-        };
+    fn startup_new_game_dispatch_from_message(
+        message: &game_engine::common::message_stream::GameMessage,
+    ) -> Option<StartupNewGameDispatch> {
+        use game_engine::common::message_stream::GameMessageArgumentType;
 
-        let mut resolved_mode = None;
-        for message in stream_guard.get_messages().iter() {
-            if !matches!(message.get_type(), GameMessageType::NewGame) {
-                continue;
-            }
-            if let Some(GameMessageArgumentType::Integer(mode_code)) = message.get_argument(0) {
-                resolved_mode = Self::legacy_game_mode_from_new_game_code(*mode_code);
-            }
+        if !matches!(
+            message.get_type(),
+            game_engine::common::message_stream::GameMessageType::NewGame
+        ) {
+            return None;
         }
 
-        resolved_mode
+        let mode_code = match message.get_argument(0) {
+            Some(GameMessageArgumentType::Integer(mode_code)) => *mode_code,
+            _ => return None,
+        };
+        let game_mode = Self::legacy_game_mode_from_new_game_code(mode_code)?;
+
+        let difficulty_code = match message.get_argument(1) {
+            Some(GameMessageArgumentType::Integer(value)) => *value,
+            _ => 1,
+        };
+        let difficulty = Self::legacy_game_difficulty_from_new_game_code(difficulty_code);
+
+        let rank_points = match message.get_argument(2) {
+            Some(GameMessageArgumentType::Integer(value)) => *value,
+            _ => 0,
+        };
+
+        let max_fps = match message.get_argument(3) {
+            Some(GameMessageArgumentType::Integer(value)) => {
+                let resolved = if (1..=1000).contains(value) {
+                    *value
+                } else {
+                    game_engine::common::global_data::read()
+                        .writable
+                        .frames_per_second_limit
+                };
+                Some(resolved)
+            }
+            _ => None,
+        };
+
+        Some(StartupNewGameDispatch {
+            game_mode_code: mode_code,
+            game_mode,
+            difficulty_code,
+            difficulty,
+            rank_points,
+            max_fps,
+        })
+    }
+
+    fn startup_new_game_dispatch_from_messages(
+        messages: &[game_engine::common::message_stream::GameMessage],
+    ) -> Option<StartupNewGameDispatch> {
+        let mut resolved = None;
+        for message in messages {
+            if let Some(dispatch) = Self::startup_new_game_dispatch_from_message(message) {
+                resolved = Some(dispatch);
+            }
+        }
+        resolved
+    }
+
+    fn take_startup_messages_from_stream(
+    ) -> Result<Vec<game_engine::common::message_stream::GameMessage>, String> {
+        let stream = game_engine::common::message_stream::get_message_stream();
+        let mut stream_guard = stream
+            .write()
+            .map_err(|_| "failed to acquire startup message stream lock".to_string())?;
+        let messages = stream_guard
+            .get_messages()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        stream_guard.clear_messages();
+        Ok(messages)
+    }
+
+    fn apply_startup_new_game_dispatch(dispatch: StartupNewGameDispatch) -> Option<String> {
+        let mut prepared_map_name = None;
+        let mut global = game_engine::common::global_data::write();
+
+        gamelogic::helpers::TheScriptEngine::set_global_difficulty(dispatch.difficulty_code);
+        gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
+            dispatch.rank_points,
+        );
+
+        if let Some(max_fps) = dispatch.max_fps {
+            global.writable.use_fps_limit = true;
+            global.writable.frames_per_second_limit = max_fps;
+        }
+
+        if !global.pending_file.trim().is_empty() {
+            let pending_file = global.pending_file.clone();
+            global.writable.map_name = pending_file.clone();
+            global.pending_file.clear();
+            prepared_map_name = Some(pending_file);
+        } else if !global.writable.map_name.trim().is_empty() {
+            prepared_map_name = Some(global.writable.map_name.clone());
+        }
+
+        prepared_map_name
+    }
+
+    fn resolve_startup_mode_from_dispatch(
+        start_in_menu: &mut bool,
+        map_to_load: &mut Option<String>,
+        startup_new_game: Option<StartupNewGameDispatch>,
+        replay_startup_requested: bool,
+    ) -> GameMode {
+        if *start_in_menu {
+            return GameMode::Shell;
+        }
+
+        if let Some(dispatch) = startup_new_game {
+            debug!(
+                "Startup NewGame dispatch: mode_code={} difficulty_code={} rank_points={} max_fps={:?}",
+                dispatch.game_mode_code, dispatch.difficulty_code, dispatch.rank_points, dispatch.max_fps
+            );
+            let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
+            if map_to_load.is_none() {
+                *map_to_load = prepared_map;
+            }
+            return dispatch.game_mode;
+        }
+
+        warn!(
+            "Startup map/replay launch requested without a queued NewGame message; falling back to menu startup"
+        );
+        *start_in_menu = true;
+        *map_to_load = None;
+        game_engine::common::global_data::write()
+            .pending_file
+            .clear();
+
+        if replay_startup_requested {
+            warn!("Startup replay launch is deferred because recorder did not queue NewGame");
+        }
+
+        GameMode::Shell
     }
 
     const MENU_CAUSTIC_WARMUP_DELAY_FRAMES: u64 = 120;
@@ -1583,59 +1887,33 @@ impl CnCGameEngine {
                     );
                     Self::preload_startup_water_weather_inis();
 
-                    if let Err(err) = {
+                    {
                         let lexicon =
                             game_engine::common::system::function_lexicon::get_function_lexicon();
                         let mut lexicon = lexicon
                             .lock()
                             .map_err(|_| "function lexicon lock poisoned".to_string())?;
                         game_engine::common::system::SubsystemInterface::init(&mut *lexicon)
-                            .map_err(|err| err.to_string())
-                    } {
-                        warn!("FunctionLexicon init failed during startup bootstrap; continuing: {err}");
+                            .map_err(|err| {
+                                format!(
+                                    "FunctionLexicon init failed during startup bootstrap: {err}"
+                                )
+                            })?;
                     }
 
-                    if let Err(err) = {
-                        game_engine::common::ini::init_rank_info_store();
-                        Ok::<(), String>(())
-                    } {
-                        warn!("RankInfoStore init failed during startup bootstrap; continuing: {err}");
-                    }
-
-                    if let Err(err) = {
-                        let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
-                        let _ =
-                            game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
-                        Ok::<(), String>(())
-                    } {
-                        warn!("Terrain registry init failed during startup bootstrap; continuing: {err}");
-                    }
-
-                    if let Err(err) = {
-                        game_engine::common::ini::ini_special_power::initialize_special_power_store();
-                        Ok::<(), String>(())
-                    } {
-                        warn!("SpecialPowerStore init failed during startup bootstrap; continuing: {err}");
-                    }
-
-                    if let Err(err) = {
-                        game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
-                        game_engine::common::damage_fx::initialize_damage_fx_store();
-                        Ok::<(), String>(())
-                    } {
-                        warn!("DamageFX store init failed during startup bootstrap; continuing: {err}");
-                    }
-
-                    if let Err(err) = {
-                        game_engine::common::system::build_assistant::init_build_assistant();
-                        Ok::<(), String>(())
-                    } {
-                        warn!("BuildAssistant init failed during startup bootstrap; continuing: {err}");
-                    }
+                    // These bootstrap calls are required for startup parity. Any panic in this
+                    // section is caught by the outer startup worker guard and treated as fatal.
+                    game_engine::common::ini::init_rank_info_store();
+                    let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
+                    let _ = game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
+                    game_engine::common::ini::ini_special_power::initialize_special_power_store();
+                    game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
+                    game_engine::common::damage_fx::initialize_damage_fx_store();
+                    game_engine::common::system::build_assistant::init_build_assistant();
 
                     // C++ parity: bootstrap OCL/Armor from archive-backed INI content, not just
                     // extracted-file paths, so startup behavior matches original archive loading.
-                    if let Err(err) = {
+                    {
                         gamelogic::object_creation_list::init_object_creation_list_store();
                         let mut loaded_any_ocl = false;
                         for ocl_path in [
@@ -1659,14 +1937,25 @@ impl CnCGameEngine {
                         if !loaded_any_ocl {
                             gamelogic::object_creation_list::store::ensure_default_object_creation_lists_loaded();
                         }
+                        let ocl_count = gamelogic::object_creation_list::get_object_creation_list_store()
+                            .as_ref()
+                            .map(|store| store.get_ocl_count())
+                            .unwrap_or(0);
+                        if ocl_count == 0 {
+                            return Err(
+                                "ObjectCreationListStore bootstrap did not load any templates"
+                                    .to_string(),
+                            );
+                        }
                         Ok::<(), String>(())
-                    } {
-                        warn!(
-                            "ObjectCreationListStore init failed during startup bootstrap; continuing: {err}"
-                        );
                     }
+                    .map_err(|err| {
+                        format!(
+                            "ObjectCreationListStore init failed during startup bootstrap: {err}"
+                        )
+                    })?;
 
-                    if let Err(err) = {
+                    {
                         let mut loaded_any_armor = false;
                         for armor_path in ["Data/INI/Armor.ini", "Data/INI/Default/Armor.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(armor_path)? {
@@ -1689,17 +1978,21 @@ impl CnCGameEngine {
                         if !loaded_any_armor {
                             gamelogic::object::armor::ensure_default_templates_loaded();
                         }
+                        let armor_count = gamelogic::object::armor::TheArmorStore::read().len();
+                        if armor_count == 0 {
+                            return Err(
+                                "Armor bootstrap did not load any templates".to_string(),
+                            );
+                        }
                         Ok::<(), String>(())
-                    } {
-                        warn!("Armor template preload failed during startup bootstrap; continuing: {err}");
                     }
+                    .map_err(|err| {
+                        format!("Armor template preload failed during startup bootstrap: {err}")
+                    })?;
 
-                    if let Err(err) = game_engine::common::thing::init_thing_system() {
-                        warn!(
-                            "Thing system init failed during startup bootstrap; continuing with lazy init: {}",
-                            err
-                        );
-                    }
+                    game_engine::common::thing::init_thing_system().map_err(|err| {
+                        format!("Thing system init failed during startup bootstrap: {err}")
+                    })?;
 
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
@@ -1727,7 +2020,6 @@ impl CnCGameEngine {
                             0.24,
                             "Starting replay playback",
                         );
-                        let mut replay_map_name_from_legacy: Option<String> = None;
 
                         // C++ parity: bootstrap startup replay through the legacy recorder.
                         game_engine::common::recorder::init_recorder();
@@ -1759,12 +2051,7 @@ impl CnCGameEngine {
                         match game_engine::common::recorder::with_recorder_mut(|recorder| {
                             recorder.playback_file(replay_to_load.clone())
                         }) {
-                            Some(Ok(true)) => {
-                                let global = game_engine::common::global_data::read();
-                                if !global.pending_file.trim().is_empty() {
-                                    replay_map_name_from_legacy = Some(global.pending_file.clone());
-                                }
-                            }
+                            Some(Ok(true)) => {}
                             Some(Ok(false)) => {
                                 warn!(
                                     "Legacy recorder rejected startup replay '{}'",
@@ -1784,30 +2071,36 @@ impl CnCGameEngine {
                                 );
                             }
                         }
-
-                        if let Some(replay_map_name_from_legacy) = replay_map_name_from_legacy {
-                            map_to_load = Some(replay_map_name_from_legacy);
-                        }
                     }
 
-                    if replay_startup_requested && map_to_load.is_none() {
+                    let startup_messages = Self::take_startup_messages_from_stream()?;
+                    let startup_new_game =
+                        Self::startup_new_game_dispatch_from_messages(&startup_messages);
+
+                    if replay_startup_requested && startup_new_game.is_none() {
+                        warn!(
+                            "Startup replay did not emit a queued NewGame message; falling back to menu startup"
+                        );
+                        start_in_menu = true;
+                        map_to_load = None;
+                        game_engine::common::global_data::write().pending_file.clear();
+                    }
+
+                    let startup_mode = Self::resolve_startup_mode_from_dispatch(
+                        &mut start_in_menu,
+                        &mut map_to_load,
+                        startup_new_game,
+                        replay_startup_requested,
+                    );
+
+                    if replay_startup_requested && !start_in_menu && map_to_load.is_none() {
                         warn!(
                             "Startup replay did not resolve a playable map; falling back to menu startup"
                         );
                         start_in_menu = true;
+                        game_engine::common::global_data::write().pending_file.clear();
                     }
 
-                    let startup_mode = if start_in_menu {
-                        GameMode::Shell
-                    } else if let Some(mode) = Self::startup_mode_from_queued_new_game_message() {
-                        mode
-                    } else if replay_startup_requested {
-                        GameMode::Replay
-                    } else if map_requested_from_cli || map_requested_from_initial_file {
-                        GameMode::SinglePlayer
-                    } else {
-                        GameMode::Skirmish
-                    };
                     game_logic.start_new_game(startup_mode);
 
                     let mut loaded_map_name = None;
@@ -2105,6 +2398,7 @@ impl CnCGameEngine {
         init_subsystem_manager()
             .map_err(|err| anyhow::anyhow!("Subsystem manager initialization failed: {err}"))?;
         Self::apply_command_line_overrides(&command_line);
+        Self::apply_startup_audio_channel_flags();
         // C++ parity: initialize startup RNG stream during engine init.
         game_engine::common::random_value::init_random();
         Self::remove_legacy_duplicate_inizh_big_best_effort();
@@ -2261,14 +2555,10 @@ impl CnCGameEngine {
         // C++ GameEngine::init updates MapCache before shell-map startup checks.
         game_client::map_util::refresh_map_cache();
 
-        let startup_initial_file = {
-            let global = game_engine::common::global_data::read();
-            if global.writable.initial_file.is_empty() {
-                None
-            } else {
-                Some(global.writable.initial_file.clone())
-            }
-        };
+        let startup_initial_file = Self::startup_initial_file_from_command_line(
+            &command_line,
+            Self::allow_debug_startup_flags(),
+        );
 
         let startup_initial_map = startup_initial_file
             .as_ref()
@@ -2278,15 +2568,6 @@ impl CnCGameEngine {
             .as_ref()
             .filter(|value| value.to_ascii_lowercase().ends_with(".rep"))
             .cloned();
-
-        // C++ parity: `-map` sets map-name state but does not trigger startup map loading.
-        // Startup launch in GameEngine::init is only driven by `m_initialFile` (`-file`).
-        let startup_cli_map: Option<String> = None;
-        let startup_cli_replay =
-            Self::command_line_option_value_case_insensitive(&command_line, "file")
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .filter(|value| value.to_ascii_lowercase().ends_with(".rep"));
 
         if let Some(initial_map) = startup_initial_map.as_ref() {
             let mut global = game_engine::common::global_data::write();
@@ -2311,12 +2592,12 @@ impl CnCGameEngine {
             }
         }
 
-        let startup_map_requested_from_cli = startup_cli_map.is_some();
-        let startup_map_requested_from_initial_file =
-            startup_initial_map.is_some() && startup_cli_map.is_none();
-        let startup_replay_requested_from_cli = startup_cli_replay.is_some();
-        let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
-        let startup_requested_replay = startup_cli_replay.or(startup_initial_replay.clone());
+        // C++ treats `-file` as the startup initial file, not as a direct `-map` request.
+        let startup_map_requested_from_cli = false;
+        let startup_map_requested_from_initial_file = startup_initial_map.is_some();
+        let startup_replay_requested_from_initial_file = startup_initial_replay.is_some();
+        let startup_requested_map = startup_initial_map.clone();
+        let startup_requested_replay = startup_initial_replay.clone();
         let start_in_menu = startup_requested_map.is_none() && startup_requested_replay.is_none();
         let startup_shell_map = Self::configured_startup_shell_map();
         let map_to_load = if start_in_menu {
@@ -2333,7 +2614,7 @@ impl CnCGameEngine {
                 startup_map_requested_from_cli,
                 startup_map_requested_from_initial_file,
                 startup_requested_replay.clone(),
-                startup_replay_requested_from_cli,
+                startup_replay_requested_from_initial_file,
                 command_line.player_name.clone(),
                 graphics_system.device_arc(),
                 graphics_system.queue_arc(),
@@ -2699,6 +2980,26 @@ impl CnCGameEngine {
         !no_audio && !audio_ready
     }
 
+    fn apply_startup_audio_channel_flags() {
+        let global = game_engine::common::global_data::read();
+        let audio_on = global.writable.audio_on;
+        let music_on = global.writable.music_on;
+        let sounds_on = global.writable.sounds_on;
+        let speech_on = global.writable.speech_on;
+        let sounds_3d_on = global.sounds_3d_on;
+        drop(global);
+
+        with_subsystem_mut::<AudioManagerSubsystem, _>(|audio| {
+            audio.apply_startup_channel_flags(
+                audio_on,
+                music_on,
+                sounds_on,
+                sounds_3d_on,
+                speech_on,
+            );
+        });
+    }
+
     fn allow_debug_startup_flags() -> bool {
         cfg!(any(debug_assertions, feature = "internal"))
     }
@@ -2879,8 +3180,10 @@ impl CnCGameEngine {
                         writable.music_on = false;
                     }
                 }
-                "nosizzle" => {
-                    writable.play_sizzle = false;
+                "nodraw" => {
+                    if allow_debug_flags {
+                        writable.no_draw = true;
+                    }
                 }
                 "noshaders" => {
                     writable.chip_set_type = 1;
@@ -2937,6 +3240,17 @@ impl CnCGameEngine {
                             Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
                         {
                             writable.fixed_seed = Self::parse_startup_i32_like_atoi(&value);
+                        }
+                    }
+                }
+                "jumptoframe" => {
+                    if allow_debug_flags {
+                        if let Some(value) =
+                            Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                        {
+                            writable.no_draw = Self::parse_startup_i32_like_atoi(&value) != 0;
+                            writable.use_fps_limit = false;
+                            writable.frames_per_second_limit = 30000;
                         }
                     }
                 }
@@ -3016,6 +3330,19 @@ impl CnCGameEngine {
                 None
             }
         })
+    }
+
+    fn startup_initial_file_from_command_line(
+        command_line: &CommandLineArgs,
+        allow_debug_flags: bool,
+    ) -> Option<String> {
+        if !allow_debug_flags {
+            return None;
+        }
+
+        Self::command_line_option_value_case_insensitive(command_line, "file")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
     }
 
     /// Pre-load all unit models into the graphics system
@@ -3763,19 +4090,41 @@ impl CnCGameEngine {
     }
 
     fn network_frame_data_ready_gate(multiplayer_session_active: bool) -> Option<bool> {
-        with_subsystem_mut::<NetworkSubsystem, _>(|network| {
-            let has_network_backend = crate::network::has_active_network_interface();
-            if multiplayer_session_active && has_network_backend {
-                let frame_ready = crate::network::active_session_frame_data_ready().unwrap_or(true);
-                network.set_session_state(true, frame_ready);
-                Some(network.is_frame_data_ready())
-            } else {
-                // C++ parity: without a live network session object, treat as offline gate.
-                network.set_session_state(false, true);
-                None
+        if !multiplayer_session_active {
+            // C++ startup leaves `TheNetwork` unset until a live multiplayer session exists.
+            return None;
+        }
+
+        let has_network_backend = crate::network::has_active_network_interface();
+        if !has_network_backend {
+            return None;
+        }
+
+        let frame_ready = crate::network::active_session_frame_data_ready().unwrap_or(true);
+
+        let Some(subsystem_manager) = get_subsystem_manager() else {
+            return Some(frame_ready);
+        };
+
+        let mut manager = subsystem_manager.lock();
+        if manager.get::<NetworkSubsystem>().is_none() {
+            let mut network = NetworkSubsystem::new();
+            if let Err(err) = <NetworkSubsystem as SubsystemInterface>::init(&mut network) {
+                warn!(
+                    "Failed to lazily initialize the network subsystem during multiplayer gating: {}",
+                    err
+                );
+                return Some(false);
             }
-        })
-        .flatten()
+            let _ = manager.add_subsystem(network);
+        }
+
+        if let Some(network) = manager.get_mut::<NetworkSubsystem>() {
+            network.set_session_state(true, frame_ready);
+            Some(network.is_frame_data_ready())
+        } else {
+            Some(frame_ready)
+        }
     }
 
     fn should_update_game_logic_frame(
