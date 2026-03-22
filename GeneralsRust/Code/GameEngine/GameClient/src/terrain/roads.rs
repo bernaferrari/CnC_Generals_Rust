@@ -566,7 +566,8 @@ impl RoadSegment {
         road_normal_dir.y = 0.0;
         road_normal_dir = road_normal_dir.normalize_or_zero();
         if road_normal_dir.length_squared() <= 1.0e-6 {
-            road_normal_dir = Vec3::new(-road_vector_dir.z, 0.0, road_vector_dir.x).normalize_or_zero();
+            road_normal_dir =
+                Vec3::new(-road_vector_dir.z, 0.0, road_vector_dir.x).normalize_or_zero();
         }
         if road_normal_dir.length_squared() <= 1.0e-6 {
             road_normal_dir = Vec3::new(0.0, 0.0, 1.0);
@@ -597,14 +598,20 @@ impl RoadSegment {
             vertices.push(RoadVertex {
                 position: [bottom.x, bottom.y + elevation, bottom.z],
                 normal: [0.0, 1.0, 0.0],
-                tex_coords: [u_offset + bottom_u / (u_scale * 4.0), v_offset - bottom_v / (v_scale * 4.0)],
+                tex_coords: [
+                    u_offset + bottom_u / (u_scale * 4.0),
+                    v_offset - bottom_v / (v_scale * 4.0),
+                ],
                 color: [1.0, 1.0, 1.0, 1.0],
                 road_distance: road_len * t,
             });
             vertices.push(RoadVertex {
                 position: [top.x, top.y + elevation, top.z],
                 normal: [0.0, 1.0, 0.0],
-                tex_coords: [u_offset + top_u / (u_scale * 4.0), v_offset - top_v / (v_scale * 4.0)],
+                tex_coords: [
+                    u_offset + top_u / (u_scale * 4.0),
+                    v_offset - top_v / (v_scale * 4.0),
+                ],
                 color: [1.0, 1.0, 1.0, 1.0],
                 road_distance: road_len * t,
             });

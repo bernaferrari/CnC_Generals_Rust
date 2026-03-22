@@ -11,6 +11,7 @@ use super::{
 use crate::{
     game_logic::{victory::VictorySummary, GameMode},
     localization,
+    subsystem_manager::initialize_shell_ui_schemes,
 };
 use log::{debug, info, trace};
 use std::collections::HashMap;
@@ -170,6 +171,8 @@ impl UIManager {
 
     /// Initialize the UI system
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        initialize_shell_ui_schemes();
+
         #[cfg(not(feature = "game_client"))]
         {
             let mut font_manager = self.font_manager.lock().unwrap();
@@ -211,7 +214,7 @@ impl UIManager {
                 )
             );
         }
-        self.transition_to_screen(Screen::Title);
+        self.transition_to_screen(Screen::startup_entry_screen(self.quick_start_enabled));
 
         Ok(())
     }

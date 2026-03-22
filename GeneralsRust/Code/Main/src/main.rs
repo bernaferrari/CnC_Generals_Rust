@@ -211,6 +211,11 @@ async fn main() {
         }
     };
 
+    if cmd_args.wants_dx_stack_dump() {
+        cmd_args.emit_dx_stack_dump();
+        return;
+    }
+
     // Check for help flag
     if cmd_args.wants_help() {
         CommandLineArgs::print_help();
@@ -279,7 +284,9 @@ async fn main() {
     {
         unsafe {
             let is_dev_mode = cfg!(debug_assertions) || cmd_args.developer_mode;
-            let is_enabled = !std::env::args().any(|arg| arg == "--disable-copy-protection");
+            let is_enabled = !command_line::CommandLineArgs::startup_args()
+                .iter()
+                .any(|arg| arg == "--disable-copy-protection");
 
             generals_main::copy_protection::configure_copy_protection(is_dev_mode, is_enabled);
 

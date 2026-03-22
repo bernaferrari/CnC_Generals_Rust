@@ -78,7 +78,7 @@ pub unsafe fn win_main(
     }
 
     // Convert WinMain arguments to simple main argc and argv - exactly like C++
-    let args: Vec<String> = env::args().collect();
+    let args = command_line::CommandLineArgs::startup_args();
     let _argc = args.len() as c_int;
 
     // Create C-style argv (kept for parity/debug logging)
@@ -263,8 +263,11 @@ pub unsafe fn create_game_engine() -> *mut c_void {
 /// Initialize copy protection system (matching C++ CopyProtect initialization)
 unsafe fn init_copy_protection() -> Result<()> {
     // Configure copy protection based on build type and command line arguments
-    let is_dev_mode = cfg!(debug_assertions) || env::args().any(|arg| arg == "--dev-mode");
-    let is_enabled = !env::args().any(|arg| arg == "--disable-copy-protection");
+    let startup_args = command_line::CommandLineArgs::startup_args();
+    let is_dev_mode = cfg!(debug_assertions) || startup_args.iter().any(|arg| arg == "--dev-mode");
+    let is_enabled = !startup_args
+        .iter()
+        .any(|arg| arg == "--disable-copy-protection");
 
     info!(
         "Initializing copy protection: dev_mode={}, enabled={}",
@@ -333,6 +336,11 @@ fn launch_rts_runtime() -> Result<c_int> {
     let exit_code = rt.block_on(async {
         let cmd_args = command_line::initialize_command_line()
             .map_err(|e| anyhow::anyhow!("Failed to parse command line: {e}"))?;
+
+        if cmd_args.wants_dx_stack_dump() {
+            cmd_args.emit_dx_stack_dump();
+            return Ok::<c_int, anyhow::Error>(0);
+        }
 
         if let Some(lang) = cmd_args.language.as_ref() {
             crate::localization::init(lang);
@@ -415,6 +423,18 @@ mod tests {
         ];
         let parsed_reverse = command_line::CommandLineArgs::parse_from_args(reverse).unwrap();
         assert_eq!(resolve_window_mode(&parsed_reverse), (false, true));
+    }
+
+    #[test]
+    fn startup_args_are_capped_for_winmain_parity() {
+        let mut args = vec!["generals".to_string()];
+        for index in 1..25 {
+            args.push(format!("arg{index}"));
+        }
+
+        let capped = command_line::CommandLineArgs::limit_startup_args(args);
+        assert_eq!(capped.len(), command_line::MAX_STARTUP_ARGS);
+        assert_eq!(capped.last().map(String::as_str), Some("arg19"));
     }
 }
 

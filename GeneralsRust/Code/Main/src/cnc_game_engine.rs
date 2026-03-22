@@ -1693,9 +1693,9 @@ impl CnCGameEngine {
         };
         let startup_cli_replay =
             Self::command_line_option_value_case_insensitive(&command_line, "file")
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .filter(|value| value.to_ascii_lowercase().ends_with(".rep"));
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .filter(|value| value.to_ascii_lowercase().ends_with(".rep"));
 
         if let Some(map_name) = startup_cli_map.as_ref() {
             info!("QuickStart map override requested: {}", map_name);
