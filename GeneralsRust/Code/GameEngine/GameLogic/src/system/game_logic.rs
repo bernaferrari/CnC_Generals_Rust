@@ -187,6 +187,13 @@ pub const DEFAULT_TICK_FPS: u32 = 30;
 /// Fixed time step per frame in seconds
 pub const FIXED_DELTA_TIME: f32 = 1.0 / 30.0;
 
+/// C++ parity hook for `setFPMode()` from `FPUControl.h`.
+///
+/// The original game resets x87 control flags because DirectX could leave FP state dirty.
+/// In Rust on modern targets we run with stable IEEE-754 defaults, so this is intentionally
+/// a no-op placeholder and explicit call site for parity bookkeeping.
+pub fn set_fp_mode() {}
+
 /// Maximum number of sleepy updates to process per frame to avoid runaway execution
 const MAX_SLEEPY_UPDATES_PER_FRAME: usize = 256;
 
@@ -918,6 +925,9 @@ impl GameLogic {
                 "Re-entrant update call".to_string(),
             ));
         }
+
+        // C++ `GameLogic::update()` calls setFPMode() at update entry.
+        set_fp_mode();
 
         self.is_in_update = true;
         self.frame = frame;

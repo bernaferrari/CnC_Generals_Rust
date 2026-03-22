@@ -48,7 +48,7 @@ impl SingleInstanceGuard {
         if lock_file_path.exists() {
             if let Err(e) = Self::check_existing_instance(&lock_file_path) {
                 // If we can't verify the existing instance, remove stale lock file
-                warn!("Removing potentially stale lock file: {}", e);
+                info!("Removing stale lock file: {}", e);
                 let _ = std::fs::remove_file(&lock_file_path);
             } else {
                 return Err(anyhow::anyhow!(

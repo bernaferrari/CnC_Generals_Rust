@@ -24,6 +24,7 @@ pub mod defector_special_power;
 pub mod demoralize_special_power;
 pub mod fire_weapon_power;
 pub mod ocl_special_power;
+pub mod special_ability;
 pub mod spy_vision_special_power;
 
 pub use cash_bounty_power::{CashBountyPower, CashBountyPowerModuleData};
@@ -33,4 +34,5 @@ pub use defector_special_power::{DefectorSpecialPower, DefectorSpecialPowerModul
 pub use demoralize_special_power::{DemoralizeSpecialPower, DemoralizeSpecialPowerModuleData};
 pub use fire_weapon_power::{FireWeaponPower, FireWeaponPowerModuleData};
 pub use ocl_special_power::{OclSpecialPower, OclSpecialPowerModuleData};
+pub use special_ability::{SpecialAbility, SpecialAbilityModuleData};
 pub use spy_vision_special_power::{SpyVisionSpecialPower, SpyVisionSpecialPowerModuleData};
