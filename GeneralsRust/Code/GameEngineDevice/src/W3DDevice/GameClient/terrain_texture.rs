@@ -66,6 +66,14 @@ pub struct TextureClass {
     pub position_in_texture: (u32, u32),
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct AtlasPlacement {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
 /// Blend tile information
 /// Corresponds to C++ TBlendTileInfo
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +117,12 @@ pub struct TerrainTextureManager {
 
     /// Texture classes (C++ m_textureClasses)
     texture_classes: Vec<TextureClass>,
+
+    /// Cached source tile placements after atlas updates
+    source_tile_positions: Vec<Option<AtlasPlacement>>,
+
+    /// Cached edge tile placements after atlas updates
+    edge_tile_positions: Vec<Option<AtlasPlacement>>,
 
     /// Blend tile information (C++ m_blendedTiles)
     blend_tiles: Vec<BlendTileInfo>,
@@ -165,6 +179,8 @@ impl TerrainTextureManager {
             source_tiles: vec![None; NUM_SOURCE_TILES],
             edge_tiles: vec![None; NUM_BLEND_TILES],
             texture_classes: Vec::new(),
+            source_tile_positions: vec![None; NUM_SOURCE_TILES],
+            edge_tile_positions: vec![None; NUM_BLEND_TILES],
             blend_tiles: Vec::with_capacity(NUM_BLEND_TILES),
             extra_blend_tiles: Vec::with_capacity(NUM_BLEND_TILES),
         })
@@ -238,46 +254,13 @@ impl TerrainTextureManager {
 
     /// Update the base texture atlas
     /// Corresponds to C++ TerrainTextureClass::update
-    pub fn update_base_atlas(&self) -> Result<()> {
-        // Pack tiles into texture atlas
+    pub fn update_base_atlas(&mut self) -> Result<()> {
         let mut atlas_data = vec![0u8; (TERRAIN_TEXTURE_SIZE * TERRAIN_TEXTURE_SIZE * 4) as usize];
-
-        let mut current_y = 0;
-        let mut current_x = 0;
-        let mut row_height = 0;
-
-        for (idx, tile_opt) in self.source_tiles.iter().enumerate() {
-            if let Some(tile) = tile_opt {
-                // Check if we need to start a new row
-                if current_x + tile.width > TERRAIN_TEXTURE_SIZE {
-                    current_x = 0;
-                    current_y += row_height + TILE_OFFSET as u32;
-                    row_height = 0;
-                }
-
-                // Check if we have space
-                if current_y + tile.height > TERRAIN_TEXTURE_SIZE {
-                    break; // Atlas is full
-                }
-
-                // Copy tile pixels into atlas
-                for y in 0..tile.height {
-                    for x in 0..tile.width {
-                        let src_idx = ((y * tile.width + x) * 4) as usize;
-                        let dst_x = current_x + x;
-                        let dst_y = current_y + y;
-                        let dst_idx = ((dst_y * TERRAIN_TEXTURE_SIZE + dst_x) * 4) as usize;
-
-                        if dst_idx + 3 < atlas_data.len() && src_idx + 3 < tile.pixels.len() {
-                            atlas_data[dst_idx..dst_idx + 4].copy_from_slice(&tile.pixels[src_idx..src_idx + 4]);
-                        }
-                    }
-                }
-
-                current_x += tile.width + TILE_OFFSET as u32;
-                row_height = row_height.max(tile.height);
-            }
-        }
+        let source_tiles = &self.source_tiles;
+        let source_tile_positions = &mut self.source_tile_positions;
+        let texture_classes = &mut self.texture_classes;
+        source_tile_positions.fill(None);
+        Self::pack_tiles_into_atlas(source_tiles, source_tile_positions, texture_classes, &mut atlas_data);
 
         // Upload to GPU
         self.queue.write_texture(
@@ -305,42 +288,13 @@ impl TerrainTextureManager {
 
     /// Update the detail texture atlas
     /// Corresponds to C++ AlphaTerrainTextureClass::update
-    pub fn update_detail_atlas(&self) -> Result<()> {
+    pub fn update_detail_atlas(&mut self) -> Result<()> {
         let mut atlas_data = vec![0u8; (TERRAIN_TEXTURE_SIZE * TERRAIN_TEXTURE_SIZE * 4) as usize];
-
-        let mut current_y = 0;
-        let mut current_x = 0;
-        let mut row_height = 0;
-
-        for (idx, tile_opt) in self.edge_tiles.iter().enumerate() {
-            if let Some(tile) = tile_opt {
-                if current_x + tile.width > TERRAIN_TEXTURE_SIZE {
-                    current_x = 0;
-                    current_y += row_height + TILE_OFFSET as u32;
-                    row_height = 0;
-                }
-
-                if current_y + tile.height > TERRAIN_TEXTURE_SIZE {
-                    break;
-                }
-
-                for y in 0..tile.height {
-                    for x in 0..tile.width {
-                        let src_idx = ((y * tile.width + x) * 4) as usize;
-                        let dst_x = current_x + x;
-                        let dst_y = current_y + y;
-                        let dst_idx = ((dst_y * TERRAIN_TEXTURE_SIZE + dst_x) * 4) as usize;
-
-                        if dst_idx + 3 < atlas_data.len() && src_idx + 3 < tile.pixels.len() {
-                            atlas_data[dst_idx..dst_idx + 4].copy_from_slice(&tile.pixels[src_idx..src_idx + 4]);
-                        }
-                    }
-                }
-
-                current_x += tile.width + TILE_OFFSET as u32;
-                row_height = row_height.max(tile.height);
-            }
-        }
+        let edge_tiles = &self.edge_tiles;
+        let edge_tile_positions = &mut self.edge_tile_positions;
+        let texture_classes = &mut self.texture_classes;
+        edge_tile_positions.fill(None);
+        Self::pack_tiles_into_atlas(edge_tiles, edge_tile_positions, texture_classes, &mut atlas_data);
 
         self.queue.write_texture(
             ImageCopyTexture {
@@ -368,22 +322,43 @@ impl TerrainTextureManager {
     /// Get UV coordinates for a tile
     /// Corresponds to C++ WorldHeightMap::getUVData
     pub fn get_uv_for_tile(&self, tile_index: i16) -> [[f32; 2]; 4] {
+        if tile_index < 0 {
+            return [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        }
+
+        if let Some(Some(placement)) = self.source_tile_positions.get(tile_index as usize) {
+            let u_offset = placement.x as f32 / TERRAIN_TEXTURE_SIZE as f32;
+            let v_offset = placement.y as f32 / TERRAIN_TEXTURE_SIZE as f32;
+            let u_size = placement.width as f32 / TERRAIN_TEXTURE_SIZE as f32;
+            let v_size = placement.height as f32 / TERRAIN_TEXTURE_SIZE as f32;
+
+            return [
+                [u_offset, v_offset],
+                [u_offset + u_size, v_offset],
+                [u_offset + u_size, v_offset + v_size],
+                [u_offset, v_offset + v_size],
+            ];
+        }
+
         // Find the tile in the texture classes
         for class in &self.texture_classes {
             if tile_index >= class.first_tile as i16 && tile_index < (class.first_tile + class.num_tiles) as i16 {
                 let tile_offset = tile_index - class.first_tile as i16;
-
-                // Calculate UV coordinates based on tile position in atlas
-                let u_offset = (class.position_in_texture.0 as f32) / TERRAIN_TEXTURE_SIZE as f32;
-                let v_offset = (class.position_in_texture.1 as f32) / TERRAIN_TEXTURE_SIZE as f32;
-                let u_size = (class.width as f32) / TERRAIN_TEXTURE_SIZE as f32;
-                let v_size = (class.width as f32) / TERRAIN_TEXTURE_SIZE as f32;
+                let tile_width = class.width.max(1);
+                let tile_height = class.width.max(1);
+                let stride = tile_width + Self::atlas_border();
+                let tile_x = class.position_in_texture.0 + tile_offset.max(0) as u32 * stride;
+                let tile_y = class.position_in_texture.1;
+                let u_offset = tile_x as f32 / TERRAIN_TEXTURE_SIZE as f32;
+                let v_offset = tile_y as f32 / TERRAIN_TEXTURE_SIZE as f32;
+                let u_size = tile_width as f32 / TERRAIN_TEXTURE_SIZE as f32;
+                let v_size = tile_height as f32 / TERRAIN_TEXTURE_SIZE as f32;
 
                 return [
-                    [u_offset, v_offset],                       // Top-left
-                    [u_offset + u_size, v_offset],              // Top-right
-                    [u_offset + u_size, v_offset + v_size],     // Bottom-right
-                    [u_offset, v_offset + v_size],              // Bottom-left
+                    [u_offset, v_offset],
+                    [u_offset + u_size, v_offset],
+                    [u_offset + u_size, v_offset + v_size],
+                    [u_offset, v_offset + v_size],
                 ];
             }
         }
@@ -411,6 +386,172 @@ impl TerrainTextureManager {
 
         self.blend_tiles.push(blend_tile);
         self.blend_tiles.len() - 1
+    }
+
+    fn atlas_border() -> u32 {
+        (TILE_OFFSET as u32) / 2
+    }
+
+    fn tile_outer_extent(tile: &TileData) -> (u32, u32) {
+        let border = Self::atlas_border();
+        (
+            tile.width.saturating_add(border * 2),
+            tile.height.saturating_add(border * 2),
+        )
+    }
+
+    fn find_texture_class_for_tile(texture_classes: &[TextureClass], tile_index: usize) -> Option<usize> {
+        texture_classes.iter().enumerate().find_map(|(idx, class)| {
+            let start = class.first_tile;
+            let end = class.first_tile.saturating_add(class.num_tiles);
+            if tile_index >= start && tile_index < end {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn write_tile_with_border(
+        atlas_data: &mut [u8],
+        atlas_size: u32,
+        outer_x: u32,
+        outer_y: u32,
+        tile: &TileData,
+    ) -> Option<AtlasPlacement> {
+        let border = Self::atlas_border();
+        let (outer_width, outer_height) = Self::tile_outer_extent(tile);
+
+        if outer_x.checked_add(outer_width)? > atlas_size || outer_y.checked_add(outer_height)? > atlas_size {
+            return None;
+        }
+
+        if tile.width == 0 || tile.height == 0 {
+            return None;
+        }
+
+        let tile_width = tile.width as usize;
+        let inner_x = outer_x + border;
+        let inner_y = outer_y + border;
+
+        for oy in 0..outer_height {
+            let src_y = oy.saturating_sub(border).min(tile.height - 1) as usize;
+            for ox in 0..outer_width {
+                let src_x = ox.saturating_sub(border).min(tile.width - 1) as usize;
+                let src_idx = ((src_y * tile_width + src_x) * 4) as usize;
+                let dst_x = outer_x + ox;
+                let dst_y = outer_y + oy;
+                let dst_idx = ((dst_y * atlas_size + dst_x) * 4) as usize;
+
+                if src_idx + 3 < tile.pixels.len() && dst_idx + 3 < atlas_data.len() {
+                    atlas_data[dst_idx..dst_idx + 4].copy_from_slice(&tile.pixels[src_idx..src_idx + 4]);
+                }
+            }
+        }
+
+        Some(AtlasPlacement {
+            x: inner_x,
+            y: inner_y,
+            width: tile.width,
+            height: tile.height,
+        })
+    }
+
+    fn pack_tiles_into_atlas(
+        tiles: &[Option<TileData>],
+        placements: &mut [Option<AtlasPlacement>],
+        texture_classes: &mut [TextureClass],
+        atlas_data: &mut [u8],
+    ) {
+        placements.fill(None);
+
+        let mut used = vec![false; tiles.len()];
+        let mut tile_order = Vec::with_capacity(tiles.len());
+
+        let mut class_order: Vec<usize> = (0..texture_classes.len()).collect();
+        class_order.sort_by(|&lhs, &rhs| {
+            let a = &texture_classes[lhs];
+            let b = &texture_classes[rhs];
+            (
+                a.global_texture_class,
+                a.first_tile,
+                a.num_tiles,
+                a.is_blend_edge_tile,
+                a.name.as_str(),
+            )
+                .cmp(&(
+                    b.global_texture_class,
+                    b.first_tile,
+                    b.num_tiles,
+                    b.is_blend_edge_tile,
+                    b.name.as_str(),
+                ))
+        });
+
+        for class_idx in class_order {
+            let class = &texture_classes[class_idx];
+            let start = class.first_tile;
+            let end = class.first_tile.saturating_add(class.num_tiles);
+            for tile_idx in start..end {
+                if tile_idx < tiles.len() && tiles[tile_idx].is_some() && !used[tile_idx] {
+                    tile_order.push(tile_idx);
+                    used[tile_idx] = true;
+                }
+            }
+        }
+
+        for tile_idx in 0..tiles.len() {
+            if tiles[tile_idx].is_some() && !used[tile_idx] {
+                tile_order.push(tile_idx);
+                used[tile_idx] = true;
+            }
+        }
+
+        let mut cursor_x = 0u32;
+        let mut cursor_y = 0u32;
+        let mut row_height = 0u32;
+        let mut current_class: Option<usize> = None;
+
+        for tile_idx in tile_order {
+            let Some(tile) = tiles[tile_idx].as_ref() else {
+                continue;
+            };
+
+            if let Some(class_idx) = Self::find_texture_class_for_tile(texture_classes, tile_idx) {
+                if current_class != Some(class_idx) {
+                    let class = &mut texture_classes[class_idx];
+                    if class.position_in_texture == (0, 0) && (cursor_x != 0 || cursor_y != 0) {
+                        class.position_in_texture = (cursor_x, cursor_y);
+                    }
+
+                    cursor_x = class.position_in_texture.0;
+                    cursor_y = class.position_in_texture.1;
+                    current_class = Some(class_idx);
+                }
+            } else {
+                current_class = None;
+            }
+
+            let (outer_width, outer_height) = Self::tile_outer_extent(tile);
+            if cursor_x + outer_width > TERRAIN_TEXTURE_SIZE {
+                cursor_x = 0;
+                cursor_y = cursor_y.saturating_add(row_height);
+                row_height = 0;
+            }
+
+            if let Some(placement) = Self::write_tile_with_border(
+                atlas_data,
+                TERRAIN_TEXTURE_SIZE,
+                cursor_x,
+                cursor_y,
+                tile,
+            ) {
+                placements[tile_idx] = Some(placement);
+            }
+
+            cursor_x = cursor_x.saturating_add(outer_width);
+            row_height = row_height.max(outer_height);
+        }
     }
 
     /// Resolve a blend tile's four corner alpha values into a single mask value.
@@ -562,5 +703,23 @@ mod tests {
     fn test_resolve_blend_alpha_uses_all_corners() {
         assert_eq!(TerrainTextureManager::resolve_blend_alpha([0, 255, 255, 255]), 191);
         assert_eq!(TerrainTextureManager::resolve_blend_alpha([255, 0, 0, 0]), 64);
+    }
+
+    #[test]
+    fn test_write_tile_with_border_clones_edge_texels() {
+        let tile = TileData::from_pixels(1, 1, vec![10, 20, 30, 40]);
+        let mut atlas = vec![0u8; (32 * 32 * 4) as usize];
+
+        let placement = TerrainTextureManager::write_tile_with_border(&mut atlas, 32, 0, 0, &tile)
+            .expect("tile should fit");
+
+        let outer_pixel = &atlas[0..4];
+        let inner_idx = ((placement.y * 32 + placement.x) * 4) as usize;
+        let inner_pixel = &atlas[inner_idx..inner_idx + 4];
+
+        assert_eq!(placement.x, (TILE_OFFSET as u32) / 2);
+        assert_eq!(placement.y, (TILE_OFFSET as u32) / 2);
+        assert_eq!(outer_pixel, &[10, 20, 30, 40]);
+        assert_eq!(inner_pixel, &[10, 20, 30, 40]);
     }
 }
