@@ -300,9 +300,16 @@ impl GlobalData {
 
     /// Apply quick start behavior (skip intros/shell map).
     pub fn apply_quick_start(&mut self) {
-        self.apply_intro_disabled();
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            self.apply_intro_disabled();
+        }
         self.shell_map_on = false;
+        #[cfg(any(debug_assertions, feature = "internal"))]
         info!("QuickStart applied: intros disabled, shell map off");
+
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        info!("QuickStart applied: shell map off");
     }
 
     /// Disable the intro sequence while preserving the current shell-map name.
@@ -798,6 +805,10 @@ mod tests {
         );
         assert!(!global_data.shell_map_on);
         assert_eq!(global_data.shell_map_name, "Maps\\ShellMap1\\ShellMap1.map");
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        assert!(!global_data.play_intro);
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        assert!(global_data.play_intro);
     }
 
     #[test]

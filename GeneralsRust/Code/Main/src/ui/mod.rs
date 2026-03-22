@@ -101,12 +101,10 @@ pub enum Screen {
 
 impl Screen {
     /// Screen used while the engine is booting before the first menu-ready handoff.
-    pub const fn startup_entry_screen(quick_start: bool) -> Self {
-        if quick_start {
-            Self::GameHUD
-        } else {
-            Self::Title
-        }
+    pub const fn startup_entry_screen(_quick_start: bool) -> Self {
+        // C++ startup always begins from the title/menu shell path unless a real
+        // map or replay launch overrides the flow elsewhere.
+        Self::Title
     }
 
     /// Screen used once startup has completed and the interactive menu is ready.

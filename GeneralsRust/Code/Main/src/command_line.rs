@@ -117,9 +117,13 @@ impl CommandLineArgs {
 
                 // Handle specific options
                 match option.as_str() {
-                    "windowed" | "w" => {
+                    "win" | "windowed" | "w" => {
                         parsed.windowed = true;
-                        Self::store_option_aliases(&mut parsed.options, &["windowed", "w"], &value);
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["win", "windowed", "w"],
+                            &value,
+                        );
                     }
                     "fullscreen" | "f" => {
                         parsed.fullscreen = true;
@@ -293,16 +297,47 @@ impl CommandLineArgs {
             let value = option_name[equals_pos + 1..].to_string();
             Ok((name, Some(value)))
         } else {
+            let name = option_name.to_ascii_lowercase();
+
+            // Flags in the C++ parser never consume a following positional token.
+            if !Self::option_takes_value(&name) {
+                return Ok((name, None));
+            }
+
             // Check if next argument is the value (not starting with -)
             if *index + 1 < args.len() && !args[*index + 1].starts_with('-') {
                 *index += 1;
                 let value = args[*index].clone();
-                Ok((option_name.to_ascii_lowercase(), Some(value)))
+                Ok((name, Some(value)))
             } else {
                 // Flag without value
-                Ok((option_name.to_ascii_lowercase(), None))
+                Ok((name, None))
             }
         }
+    }
+
+    fn option_takes_value(option: &str) -> bool {
+        matches!(
+            option,
+            "width"
+                | "height"
+                | "file"
+                | "map"
+                | "mod"
+                | "player"
+                | "playername"
+                | "lang"
+                | "language"
+                | "replay"
+                | "config"
+                | "loglevel"
+                | "port"
+                | "host"
+                | "benchmark"
+                | "fps"
+                | "shellmap"
+                | "file"
+        )
     }
 
     fn store_option_aliases(
@@ -317,13 +352,6 @@ impl CommandLineArgs {
 
     /// Validate command line arguments for consistency
     fn validate(&self) -> Result<()> {
-        // Check for conflicting options
-        if self.windowed && self.fullscreen {
-            return Err(anyhow::anyhow!(
-                "Cannot specify both -windowed and -fullscreen"
-            ));
-        }
-
         if self.server_mode && self.client_mode {
             return Err(anyhow::anyhow!("Cannot specify both -server and -client"));
         }
@@ -412,7 +440,7 @@ impl CommandLineArgs {
         println!("    generals [OPTIONS]");
         println!();
         println!("OPTIONS:");
-        println!("    -windowed, -w          Run in windowed mode");
+        println!("    -win, -windowed, -w    Run in windowed mode");
         println!("    -fullscreen, -f        Run in fullscreen mode");
         println!("    -width <WIDTH>         Set window/screen width");
         println!("    -height <HEIGHT>       Set window/screen height");
@@ -536,6 +564,17 @@ mod tests {
     }
 
     #[test]
+    fn test_win_alias_parsing() {
+        let args = vec!["generals".to_string(), "-win".to_string()];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert!(parsed.windowed);
+        assert!(parsed.has_option("win"));
+        assert!(parsed.has_option("windowed"));
+        assert!(parsed.has_option("w"));
+    }
+
+    #[test]
     fn test_resolution_defaults() {
         let args = CommandLineArgs::default();
         let (width, height) = args.get_resolution();
@@ -544,15 +583,18 @@ mod tests {
     }
 
     #[test]
-    fn test_conflicting_options() {
+    fn test_windowed_and_fullscreen_can_coexist() {
         let args = vec![
             "generals".to_string(),
-            "-windowed".to_string(),
             "-fullscreen".to_string(),
+            "-win".to_string(),
         ];
 
         let result = CommandLineArgs::parse_from_args(args);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert!(parsed.windowed);
+        assert!(parsed.fullscreen);
     }
 
     #[test]

@@ -384,14 +384,29 @@ fn build_window_attributes(
 fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool) {
     let has_windowed_flag =
         cmd_args.windowed || cmd_args.has_option("win") || cmd_args.has_option("windowed");
-    let has_fullscreen_flag =
-        cmd_args.fullscreen || cmd_args.has_option("fullscreen") || cmd_args.has_option("f");
 
-    if has_windowed_flag && !has_fullscreen_flag {
+    if has_windowed_flag {
         (true, false)
     } else {
         // Match the C++ WinMain default: fullscreen-style startup unless -win is present.
         (false, true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{command_line, resolve_window_mode};
+
+    #[test]
+    fn windowed_flag_wins_over_fullscreen_for_winmain_startup_mode() {
+        let args = vec![
+            "generals".to_string(),
+            "-fullscreen".to_string(),
+            "-win".to_string(),
+        ];
+
+        let parsed = command_line::CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(resolve_window_mode(&parsed), (true, false));
     }
 }
 
