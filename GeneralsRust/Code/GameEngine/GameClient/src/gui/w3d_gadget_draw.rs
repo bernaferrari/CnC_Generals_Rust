@@ -289,6 +289,10 @@ fn draw_main_menu_button_drop_shadow_text(window: &GameWindow, inst_data: &Windo
 struct MainMenuPulseState {
     started_at: Instant,
     going_forward: bool,
+    width: i32,
+    x: i32,
+    y: i32,
+    initialized: bool,
 }
 
 fn main_menu_pulse_state() -> &'static Mutex<MainMenuPulseState> {
@@ -297,8 +301,17 @@ fn main_menu_pulse_state() -> &'static Mutex<MainMenuPulseState> {
         Mutex::new(MainMenuPulseState {
             started_at: Instant::now(),
             going_forward: true,
+            width: 0,
+            x: -800,
+            y: 0,
+            initialized: false,
         })
     })
+}
+
+#[inline]
+fn truncate_to_i32(value: f32) -> i32 {
+    value as i32
 }
 
 fn ui_screen_height() -> i32 {
@@ -322,27 +335,27 @@ fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32]) {
     let top_horizontal_1_drop = (pos_x, pos_y + 1, pos_x + size_x, pos_y + 1);
     let top_horizontal_2 = (
         pos_x,
-        pos_y + (size_y as f32 * 0.1).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.1),
         pos_x + size_x,
-        pos_y + (size_y as f32 * 0.1).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.1),
     );
     let top_horizontal_2_drop = (
         pos_x,
-        pos_y + (size_y as f32 * 0.12).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.12),
         pos_x + size_x,
-        pos_y + (size_y as f32 * 0.12).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.12),
     );
     let bottom_horizontal_1 = (
         pos_x,
-        pos_y + (size_y as f32 * 0.9).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.9),
         pos_x + size_x,
-        pos_y + (size_y as f32 * 0.9).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.9),
     );
     let bottom_horizontal_1_drop = (
         pos_x,
-        pos_y + (size_y as f32 * 0.92).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.92),
         pos_x + size_x,
-        pos_y + (size_y as f32 * 0.92).round() as i32,
+        pos_y + truncate_to_i32(size_y as f32 * 0.92),
     );
     let bottom_horizontal_2 = (pos_x, pos_y + size_y, pos_x + size_x, pos_y + size_y);
     let bottom_horizontal_2_drop = (
@@ -423,7 +436,7 @@ fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32]) {
         }
 
         for ratio in vertical_ratios {
-            let x = pos_x + (size_x as f32 * ratio).round() as i32;
+            let x = pos_x + truncate_to_i32(size_x as f32 * ratio);
             manager.win_draw_line(COLOR, 3.0, x, pos_y, x, height);
         }
     });
@@ -435,45 +448,51 @@ fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &str) {
         return;
     };
 
-    let (pos_x, pos_y) = window.get_screen_position();
+    let (_pos_x, pos_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
-    let width = size_x + image.width;
 
     let mut state = main_menu_pulse_state()
         .lock()
         .expect("main menu pulse state poisoned");
+    if !state.initialized {
+        state.width = size_x + image.width;
+        state.x = -800;
+        state.y = pos_y - (image.height / 2);
+        state.started_at = Instant::now();
+        state.going_forward = true;
+        state.initialized = true;
+    }
+
     let elapsed = state.started_at.elapsed().as_secs_f32();
     let percent_done = (elapsed / 10.0).clamp(0.0, 1.0);
 
-    let (draw_x, draw_y) = if state.going_forward {
+    if state.going_forward {
         if percent_done >= 1.0 {
+            state.y = pos_y + size_y - (image.height / 2);
             state.started_at = Instant::now();
             state.going_forward = false;
-            (pos_x + size_x, pos_y + size_y - (image.height / 2))
         } else {
-            (
-                pos_x + ((percent_done * width as f32) - image.width as f32).round() as i32,
-                pos_y - (image.height / 2),
-            )
+            state.y = pos_y - (image.height / 2);
+            state.x = truncate_to_i32(percent_done * state.width as f32) - image.width;
         }
-    } else if percent_done >= 1.0 {
-        state.started_at = Instant::now();
-        state.going_forward = true;
-        (pos_x - image.width, pos_y - (image.height / 2))
     } else {
-        (
-            pos_x + (size_x as f32 - (percent_done * width as f32)).round() as i32,
-            pos_y + size_y - (image.height / 2),
-        )
-    };
+        if percent_done >= 1.0 {
+            state.y = pos_y - (image.height / 2);
+            state.started_at = Instant::now();
+            state.going_forward = true;
+        } else {
+            state.y = pos_y + size_y - (image.height / 2);
+            state.x = size_x - truncate_to_i32(percent_done * state.width as f32);
+        }
+    }
 
     with_window_manager_ref(|manager| {
         manager.win_draw_image(
             &image,
-            draw_x,
-            draw_y,
-            draw_x + image.width,
-            draw_y + image.height,
+            state.x,
+            state.y,
+            state.x + image.width,
+            state.y + image.height,
             WIN_COLOR_UNDEFINED,
         );
     });
@@ -707,6 +726,18 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
         }
     }
     draw_button_overlays(window, inst_data);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_to_i32;
+
+    #[test]
+    fn test_truncate_to_i32_matches_cpp_cast_behavior() {
+        assert_eq!(truncate_to_i32(76.8), 76);
+        assert_eq!(truncate_to_i32(76.2), 76);
+        assert_eq!(truncate_to_i32(-3.7), -3);
+    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {

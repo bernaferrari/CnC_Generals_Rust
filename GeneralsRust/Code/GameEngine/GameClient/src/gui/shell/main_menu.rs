@@ -698,7 +698,10 @@ impl MainMenu {
 
         if pop_immediate {
             // Complete shutdown immediately - matches C++ lines 673-682
-            self.shutdown_complete(Some(layout), &state)?;
+            self.finish_shutdown_complete(Some(layout), &mut state)?;
+            drop(state);
+            self.complete_shell_shutdown()?;
+            log::info!("Main menu shutdown complete");
             return Ok(());
         }
 
@@ -814,7 +817,11 @@ impl MainMenu {
         // Check if shutdown is complete - matches C++ lines 939-942
         if state.is_shutting_down {
             if get_shell().is_anim_finished() && self.transitions_finished() {
-                self.shutdown_complete(Some(layout), &state)?;
+                self.finish_shutdown_complete(Some(layout), &mut state)?;
+                drop(state);
+                self.complete_shell_shutdown()?;
+                log::info!("Main menu shutdown complete");
+                return Ok(());
             }
         }
 
@@ -921,9 +928,6 @@ impl MainMenu {
                     return false;
                 }
                 if data1 == 1 {
-                    if state.not_shown {
-                        self.reveal_hidden_main_menu(&mut state);
-                    }
                     // *(Bool *)data2 = TRUE; - we want keyboard focus
                 }
                 return true;
@@ -1813,24 +1817,24 @@ impl MainMenu {
         Ok(())
     }
 
-    /// Shutdown complete
-    /// Port of shutdownComplete() - C++ lines 337-347
-    fn shutdown_complete(
+    /// Finish the layout/state side of shutdownComplete() without re-entering shell shutdown.
+    /// Port of the layout/state portion of shutdownComplete() - C++ lines 337-347.
+    fn finish_shutdown_complete(
         &self,
         layout: Option<&dyn std::any::Any>,
-        state: &MainMenuState,
+        state: &mut MainMenuState,
     ) -> MainMenuResult<()> {
         if let Some(layout) = layout.and_then(|any| any.downcast_ref::<ManagerWindowLayout>()) {
             layout.hide(true);
         }
-        if let Ok(mut state_guard) = self.state.write() {
-            state_guard.is_shutting_down = false;
-        }
+        state.is_shutting_down = false;
+        Ok(())
+    }
+
+    fn complete_shell_shutdown(&self) -> MainMenuResult<()> {
         get_shell()
             .shutdown_complete(None, false)
-            .map_err(|err| MainMenuError::ShutdownFailed(err.to_string()))?;
-        log::info!("Main menu shutdown complete");
-        Ok(())
+            .map_err(|err| MainMenuError::ShutdownFailed(err.to_string()))
     }
 
     /// Reverse side for difficulty menu
@@ -2138,6 +2142,23 @@ mod tests {
         assert_eq!(state.initial_gadget_delay, 1);
         assert_eq!(state.drop_down, DropdownType::Main);
         assert!(!state.not_shown);
+    }
+
+    #[test]
+    fn test_input_focus_does_not_reveal_hidden_menu() {
+        let mut menu = MainMenu::new();
+        {
+            let mut state = menu.state.write().unwrap();
+            state.window_ids = build_window_ids();
+            state.not_shown = true;
+        }
+
+        let handled = menu.system(build_window_ids().main_menu_id, GWM_INPUT_FOCUS, 1, 0);
+        assert!(handled);
+
+        let state = menu.state.read().unwrap();
+        assert!(state.not_shown);
+        assert_eq!(state.drop_down, DropdownType::None);
     }
 
     #[test]
