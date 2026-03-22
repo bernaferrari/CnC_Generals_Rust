@@ -221,12 +221,20 @@ impl Snapshotable for DynamicGeometryInfoUpdate {
                     e
                 )
             })?;
-        xfer.xfer_real(&mut self.logic.initial_height);
-        xfer.xfer_real(&mut self.logic.initial_major_radius);
-        xfer.xfer_real(&mut self.logic.initial_minor_radius);
-        xfer.xfer_real(&mut self.logic.final_height);
-        xfer.xfer_real(&mut self.logic.final_major_radius);
-        xfer.xfer_real(&mut self.logic.final_minor_radius);
+        xfer.xfer_real(&mut self.logic.initial_height)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer initial_height: {:?}", e))?;
+        xfer.xfer_real(&mut self.logic.initial_major_radius).map_err(|e| {
+            format!("DynamicGeometryInfoUpdate xfer initial_major_radius: {:?}", e)
+        })?;
+        xfer.xfer_real(&mut self.logic.initial_minor_radius).map_err(|e| {
+            format!("DynamicGeometryInfoUpdate xfer initial_minor_radius: {:?}", e)
+        })?;
+        xfer.xfer_real(&mut self.logic.final_height)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer final_height: {:?}", e))?;
+        xfer.xfer_real(&mut self.logic.final_major_radius)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer final_major_radius: {:?}", e))?;
+        xfer.xfer_real(&mut self.logic.final_minor_radius)
+            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer final_minor_radius: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.logic.transition_time)
             .map_err(|e| format!("DynamicGeometryInfoUpdate xfer transition_time: {:?}", e))?;
         Ok(())

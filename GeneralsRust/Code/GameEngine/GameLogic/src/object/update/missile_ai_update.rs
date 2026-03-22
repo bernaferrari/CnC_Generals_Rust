@@ -949,18 +949,26 @@ impl Snapshotable for MissileAIUpdate {
             .map_err(|e| format!("MissileAIUpdate xfer is_armed: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.fuel_expiration_date)
             .map_err(|e| format!("MissileAIUpdate xfer fuel_expiration_date: {:?}", e))?;
-        xfer.xfer_real(&mut self.no_turn_dist_left);
-        xfer.xfer_real(&mut self.prev_pos.x);
-        xfer.xfer_real(&mut self.prev_pos.y);
-        xfer.xfer_real(&mut self.prev_pos.z);
-        xfer.xfer_real(&mut self.max_accel);
+        xfer.xfer_real(&mut self.no_turn_dist_left)
+            .map_err(|e| format!("MissileAIUpdate xfer no_turn_dist_left: {:?}", e))?;
+        xfer.xfer_real(&mut self.prev_pos.x)
+            .map_err(|e| format!("MissileAIUpdate xfer prev_pos.x: {:?}", e))?;
+        xfer.xfer_real(&mut self.prev_pos.y)
+            .map_err(|e| format!("MissileAIUpdate xfer prev_pos.y: {:?}", e))?;
+        xfer.xfer_real(&mut self.prev_pos.z)
+            .map_err(|e| format!("MissileAIUpdate xfer prev_pos.z: {:?}", e))?;
+        xfer.xfer_real(&mut self.max_accel)
+            .map_err(|e| format!("MissileAIUpdate xfer max_accel: {:?}", e))?;
         xfer.xfer_bool(&mut self.is_tracking_target)
             .map_err(|e| format!("MissileAIUpdate xfer is_tracking_target: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.exhaust_id)
             .map_err(|e| format!("MissileAIUpdate xfer exhaust_id: {:?}", e))?;
-        xfer.xfer_real(&mut self.original_target_pos.x);
-        xfer.xfer_real(&mut self.original_target_pos.y);
-        xfer.xfer_real(&mut self.original_target_pos.z);
+        xfer.xfer_real(&mut self.original_target_pos.x)
+            .map_err(|e| format!("MissileAIUpdate xfer original_target_pos.x: {:?}", e))?;
+        xfer.xfer_real(&mut self.original_target_pos.y)
+            .map_err(|e| format!("MissileAIUpdate xfer original_target_pos.y: {:?}", e))?;
+        xfer.xfer_real(&mut self.original_target_pos.z)
+            .map_err(|e| format!("MissileAIUpdate xfer original_target_pos.z: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.frames_till_decoyed)
             .map_err(|e| format!("MissileAIUpdate xfer frames_till_decoyed: {:?}", e))?;
         xfer.xfer_bool(&mut self.no_damage)
