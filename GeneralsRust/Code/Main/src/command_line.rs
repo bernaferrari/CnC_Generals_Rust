@@ -19,6 +19,8 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
+use crate::config::global_data::normalize_startup_map_path;
+
 /// Command line arguments parsed from the application startup
 #[derive(Debug, Clone)]
 pub struct CommandLineArgs {
@@ -115,8 +117,18 @@ impl CommandLineArgs {
 
                 // Handle specific options
                 match option.as_str() {
-                    "windowed" | "w" => parsed.windowed = true,
-                    "fullscreen" | "f" => parsed.fullscreen = true,
+                    "windowed" | "w" => {
+                        parsed.windowed = true;
+                        Self::store_option_aliases(&mut parsed.options, &["windowed", "w"], &value);
+                    }
+                    "fullscreen" | "f" => {
+                        parsed.fullscreen = true;
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["fullscreen", "f"],
+                            &value,
+                        );
+                    }
                     "width" => {
                         if let Some(v) = value {
                             parsed.width = Some(v.parse().context("Invalid width value")?);
@@ -127,13 +139,44 @@ impl CommandLineArgs {
                             parsed.height = Some(v.parse().context("Invalid height value")?);
                         }
                     }
-                    "map" => parsed.map_name = value,
+                    "file" => {
+                        if let Some(v) = value {
+                            let normalized = normalize_startup_map_path(v);
+                            if normalized.to_ascii_lowercase().ends_with(".map") {
+                                parsed.map_name = Some(normalized.clone());
+                            }
+                            parsed
+                                .options
+                                .insert("file".to_string(), Some(normalized));
+                        }
+                    }
+                    "map" => {
+                        parsed.map_name = value.map(normalize_startup_map_path);
+                        parsed
+                            .options
+                            .insert("map".to_string(), parsed.map_name.clone());
+                    }
                     "mod" => parsed.mod_name = value,
-                    "player" | "playername" => parsed.player_name = value,
-                    "lang" | "language" => parsed.language = value,
+                    "player" | "playername" => {
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["player", "playername"],
+                            &value,
+                        );
+                        parsed.player_name = value;
+                    }
+                    "lang" | "language" => {
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["lang", "language"],
+                            &value,
+                        );
+                        parsed.language = value;
+                    }
                     "replay" => {
                         if let Some(v) = value {
-                            parsed.replay_file = Some(PathBuf::from(v));
+                            parsed.replay_file = Some(PathBuf::from(v.clone()));
+                            parsed.options.insert("replay".to_string(), Some(v));
                         }
                     }
                     "config" => {
@@ -144,7 +187,14 @@ impl CommandLineArgs {
                     "loglevel" => parsed.log_level = value,
                     "noaudio" => parsed.no_audio = true,
                     "novideo" => parsed.no_video = true,
-                    "dev" | "developer" => parsed.developer_mode = true,
+                    "dev" | "developer" => {
+                        parsed.developer_mode = true;
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["dev", "developer"],
+                            &value,
+                        );
+                    }
                     "quickstart" => parsed.quick_start = true,
                     "autoreplay" => parsed.auto_replay = true,
                     "benchmark" => parsed.benchmark_mode = true,
@@ -158,6 +208,11 @@ impl CommandLineArgs {
                     "host" => parsed.network_host = value,
                     "displaydebug" | "display_debug" => {
                         parsed.display_debug_overlay = true;
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["displaydebug", "display_debug"],
+                            &value,
+                        );
                     }
                     "integrationdiagnostics"
                     | "integration_diagnostics"
@@ -166,6 +221,39 @@ impl CommandLineArgs {
                     | "integrationdiagostics"
                     | "integrationdiagdebug" => {
                         parsed.integration_diagnostics = true;
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &[
+                                "integrationdiagnostics",
+                                "integration_diagnostics",
+                                "integrationdiag",
+                                "integrationdiagnostic",
+                                "integrationdiagostics",
+                                "integrationdiagdebug",
+                            ],
+                            &value,
+                        );
+                    }
+                    "buildmapcache" | "buildcache" => {
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["buildmapcache", "buildcache"],
+                            &value,
+                        );
+                    }
+                    "updateimages" | "updatedds" => {
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["updateimages", "updatedds"],
+                            &value,
+                        );
+                    }
+                    "nologo" | "nointro" => {
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["nologo", "nointro"],
+                            &value,
+                        );
                     }
                     _ => {
                         // Unknown option, log but don't fail
@@ -214,6 +302,16 @@ impl CommandLineArgs {
                 // Flag without value
                 Ok((option_name.to_ascii_lowercase(), None))
             }
+        }
+    }
+
+    fn store_option_aliases(
+        options: &mut HashMap<String, Option<String>>,
+        aliases: &[&str],
+        value: &Option<String>,
+    ) {
+        for alias in aliases {
+            options.insert((*alias).to_string(), value.clone());
         }
     }
 
@@ -455,5 +553,33 @@ mod tests {
 
         let result = CommandLineArgs::parse_from_args(args);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_file_path_is_normalized_to_long_form() {
+        let args = vec![
+            "generals".to_string(),
+            "-FILE".to_string(),
+            "Maps\\ShellMap1.map".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(
+            parsed.map_name.as_deref(),
+            Some("Maps\\ShellMap1\\ShellMap1.map")
+        );
+        assert_eq!(
+            parsed.get_option_value("file").map(String::as_str),
+            Some("Maps\\ShellMap1\\ShellMap1.map")
+        );
+    }
+
+    #[test]
+    fn test_intro_aliases_are_stored_case_insensitively() {
+        let args = vec!["generals".to_string(), "-NoIntro".to_string()];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert!(parsed.has_option("nologo"));
+        assert!(parsed.has_option("nointro"));
     }
 }
