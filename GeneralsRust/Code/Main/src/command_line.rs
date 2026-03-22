@@ -769,6 +769,25 @@ mod tests {
     }
 
     #[test]
+    fn test_file_path_already_long_form_is_preserved() {
+        let args = vec![
+            "generals".to_string(),
+            "-FILE".to_string(),
+            "Maps\\Tournament Desert\\Tournament Desert.map".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(
+            parsed.map_name.as_deref(),
+            Some("Maps\\Tournament Desert\\Tournament Desert.map")
+        );
+        assert_eq!(
+            parsed.get_option_value("file").map(String::as_str),
+            Some("Maps\\Tournament Desert\\Tournament Desert.map")
+        );
+    }
+
+    #[test]
     fn test_intro_aliases_are_stored_case_insensitively() {
         let args = vec!["generals".to_string(), "-NoIntro".to_string()];
 
