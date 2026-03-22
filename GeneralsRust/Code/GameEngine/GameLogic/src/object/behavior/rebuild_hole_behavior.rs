@@ -10,7 +10,6 @@ use std::any::Any;
 use std::sync::{Arc, RwLock};
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, INVALID_ID,
     LOGICFRAMES_PER_SECOND,
@@ -614,8 +613,10 @@ impl Snapshotable for RebuildHoleBehavior {
             .map(|t| t.get_name().to_string())
             .unwrap_or_default();
 
-        let _ = game_engine::system::Xfer::xfer_ascii_string(xfer, &mut worker_name);
-        let _ = game_engine::system::Xfer::xfer_ascii_string(xfer, &mut rebuild_name);
+        game_engine::system::Xfer::xfer_ascii_string(xfer, &mut worker_name)
+            .map_err(|e| e.to_string())?;
+        game_engine::system::Xfer::xfer_ascii_string(xfer, &mut rebuild_name)
+            .map_err(|e| e.to_string())?;
 
         if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
             self.worker_template = if worker_name.is_empty() {
