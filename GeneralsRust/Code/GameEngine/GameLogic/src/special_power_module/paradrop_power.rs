@@ -8,6 +8,7 @@
 use super::base_power::*;
 use super::cooldown::CooldownState;
 use super::targeting::TargetingInfo;
+use super::types::OclCreateLocType;
 use super::types::*;
 use crate::common::*;
 use crate::helpers::{
@@ -15,7 +16,6 @@ use crate::helpers::{
     ThePartitionManager, TheTerrainLogic,
 };
 use crate::object::registry::OBJECT_REGISTRY;
-use super::types::OclCreateLocType;
 use crate::player::player_list;
 use crate::terrain::get_terrain_logic;
 use std::sync::{Arc, RwLock};

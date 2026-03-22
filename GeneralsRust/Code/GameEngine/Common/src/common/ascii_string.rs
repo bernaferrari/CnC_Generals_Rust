@@ -186,7 +186,9 @@ impl AsciiString {
                 }
             }
             None => {
-                self.inner = Some(Arc::new(AsciiStringData::new(String::with_capacity(capacity))));
+                self.inner = Some(Arc::new(AsciiStringData::new(String::with_capacity(
+                    capacity,
+                ))));
             }
         }
     }
@@ -196,10 +198,10 @@ impl AsciiString {
         if s.is_empty() {
             return;
         }
-        
+
         let new_len = self.get_length() + s.len();
         self.ensure_unique_with_capacity(new_len);
-        
+
         if let Some(ref mut arc) = self.inner {
             // We have unique access now due to ensure_unique_with_capacity
             // Use Arc::get_mut to get mutable access
@@ -229,7 +231,7 @@ impl AsciiString {
     pub fn push(&mut self, c: char) {
         let new_len = self.get_length() + 1;
         self.ensure_unique_with_capacity(new_len);
-        
+
         if let Some(ref mut arc) = self.inner {
             if let Some(data) = Arc::get_mut(arc) {
                 data.data.push(c);
@@ -314,7 +316,9 @@ impl AsciiString {
 
     /// Compare with another AsciiString (case insensitive)
     pub fn compare_no_case(&self, other: &AsciiString) -> Ordering {
-        self.as_str().to_lowercase().cmp(&other.as_str().to_lowercase())
+        self.as_str()
+            .to_lowercase()
+            .cmp(&other.as_str().to_lowercase())
     }
 
     /// Compare with a string slice (case insensitive)
@@ -339,7 +343,9 @@ impl AsciiString {
 
     /// Check if string starts with the given prefix (case insensitive)
     pub fn starts_with_no_case(&self, prefix: &str) -> bool {
-        self.as_str().to_lowercase().starts_with(&prefix.to_lowercase())
+        self.as_str()
+            .to_lowercase()
+            .starts_with(&prefix.to_lowercase())
     }
 
     /// Check if string ends with the given suffix
@@ -349,7 +355,9 @@ impl AsciiString {
 
     /// Check if string ends with the given suffix (case insensitive)
     pub fn ends_with_no_case(&self, suffix: &str) -> bool {
-        self.as_str().to_lowercase().ends_with(&suffix.to_lowercase())
+        self.as_str()
+            .to_lowercase()
+            .ends_with(&suffix.to_lowercase())
     }
 
     /// Check if the string contains a substring
@@ -365,7 +373,7 @@ impl AsciiString {
         }
 
         let separators = seps.unwrap_or(" \n\r\t");
-        
+
         // Clone the data to avoid borrow issues
         let data = match &self.inner {
             Some(arc) => arc.data.clone(),
@@ -413,7 +421,7 @@ impl AsciiString {
     pub fn get_buffer_for_read(&mut self, len: usize) -> &mut String {
         // Always create a new unique buffer for reading
         self.inner = Some(Arc::new(AsciiStringData::new(String::with_capacity(len))));
-        
+
         // Get mutable reference - we know it's unique
         if let Some(ref mut arc) = self.inner {
             if let Some(data) = Arc::get_mut(arc) {
@@ -616,7 +624,7 @@ mod tests {
     fn test_refcount_sharing() {
         let s1 = AsciiString::from("hello");
         let s2 = s1.clone();
-        
+
         // Both should share the same underlying data
         assert!(s1.shares_data_with(&s2));
         assert_eq!(s1.ref_count(), 2);
@@ -629,13 +637,13 @@ mod tests {
     fn test_copy_on_write() {
         let s1 = AsciiString::from("hello");
         let mut s2 = s1.clone();
-        
+
         // They share data initially
         assert!(s1.shares_data_with(&s2));
-        
+
         // Modifying s2 should create a new buffer
         s2.concat(" world");
-        
+
         // They no longer share data
         assert!(!s1.shares_data_with(&s2));
         assert_eq!(s1.as_str(), "hello");
@@ -646,9 +654,9 @@ mod tests {
     fn test_set_from_ascii_string() {
         let s1 = AsciiString::from("shared data");
         let mut s2 = AsciiString::new();
-        
+
         s2.set_from_ascii_string(&s1);
-        
+
         // They should share data
         assert!(s1.shares_data_with(&s2));
         assert_eq!(s1.ref_count(), 2);
@@ -737,7 +745,7 @@ mod tests {
     fn test_clear_releases_reference() {
         let mut s = AsciiString::from("hello");
         assert_eq!(s.ref_count(), 1);
-        
+
         s.clear();
         assert!(s.is_empty());
         assert_eq!(s.ref_count(), 0);

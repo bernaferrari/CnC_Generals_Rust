@@ -4,6 +4,7 @@
 //! elements that modify terrain appearance and affect gameplay.
 
 use crate::terrain::{TerrainError, TerrainResult};
+use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::{Mat4, Vec3};
 use nalgebra::Point2;
 use std::collections::HashMap;
@@ -93,6 +94,29 @@ pub struct RoadSegmentProperties {
 
     /// Custom texture override
     pub texture_override: Option<String>,
+
+    /// Synthetic intersection origin used for runtime tee/four-way reconstruction.
+    pub synthetic_intersection: Option<RoadSyntheticIntersectionKind>,
+
+    /// C++ parity metadata: number of same-type segments sharing start endpoint.
+    pub endpoint_start_count: u8,
+    /// C++ parity metadata: number of same-type segments sharing end endpoint.
+    pub endpoint_end_count: u8,
+    /// C++ parity metadata: whether this start endpoint is the latest endpoint in the chain.
+    pub endpoint_start_last: bool,
+    /// C++ parity metadata: whether this end endpoint is the latest endpoint in the chain.
+    pub endpoint_end_last: bool,
+    /// C++ parity metadata: whether start endpoint is shared by more than one segment.
+    pub endpoint_start_multi: bool,
+    /// C++ parity metadata: whether end endpoint is shared by more than one segment.
+    pub endpoint_end_multi: bool,
+}
+
+/// Synthetic runtime intersections inserted for parity passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RoadSyntheticIntersectionKind {
+    Tee,
+    FourWay,
 }
 
 /// Types of roads with different appearances
@@ -339,6 +363,9 @@ pub struct RoadManager {
 
     /// Performance statistics
     stats: RoadStats,
+
+    /// Tracks whether road geometry changed and needs terrain-normal reprojection.
+    terrain_normals_dirty: bool,
 }
 
 /// Configuration for road generation
@@ -388,6 +415,13 @@ impl Default for RoadSegmentProperties {
             has_guardrails: false,
             has_markings: false,
             texture_override: None,
+            synthetic_intersection: None,
+            endpoint_start_count: 0,
+            endpoint_end_count: 0,
+            endpoint_start_last: true,
+            endpoint_end_last: true,
+            endpoint_start_multi: false,
+            endpoint_end_multi: false,
         }
     }
 }
@@ -444,6 +478,353 @@ impl Road {
 }
 
 impl RoadSegment {
+    const ROAD_FLOAT_HEIGHT_BIAS: f32 = MAP_HEIGHT_SCALE / 8.0;
+    const TEE_WIDTH_ADJUSTMENT: f32 = 1.03;
+    const CORNER_RADIUS: f32 = 1.5;
+    const TIGHT_CORNER_RADIUS: f32 = 0.5;
+
+    fn runtime_texture_override_value(&self, key: &str) -> Option<&str> {
+        let metadata = self.properties.texture_override.as_deref()?;
+        metadata.split_whitespace().find_map(|token| {
+            let (k, v) = token.split_once('=')?;
+            if k == key {
+                Some(v)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn runtime_texture_override_f32(&self, key: &str) -> Option<f32> {
+        self.runtime_texture_override_value(key)
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| value.is_finite())
+    }
+
+    fn runtime_kind_is(&self, expected: &str) -> bool {
+        self.runtime_texture_override_value("Kind")
+            .map(|kind| kind.eq_ignore_ascii_case(expected))
+            .unwrap_or(false)
+    }
+
+    fn runtime_linear_resolution_for_length(length: f32) -> u32 {
+        (((length.max(0.0) / MAP_XY_FACTOR) as u32).saturating_add(1)).max(2)
+    }
+
+    fn runtime_surface_resolution(
+        &self,
+        config: &RoadGenerationConfig,
+        segment_length: f32,
+    ) -> u32 {
+        let linear = Self::runtime_linear_resolution_for_length(segment_length);
+        if self.control_points.is_empty() {
+            linear
+        } else {
+            config.curve_resolution.max(linear)
+        }
+    }
+
+    fn runtime_aux_resolution(&self, segment_length: f32) -> u32 {
+        let linear = Self::runtime_linear_resolution_for_length(segment_length);
+        if self.control_points.is_empty() {
+            linear
+        } else {
+            16u32.max(linear)
+        }
+    }
+
+    fn horizontal_direction(&self) -> Vec3 {
+        let mut direction = self.end - self.start;
+        direction.y = 0.0;
+        if direction.length_squared() <= 1.0e-6 {
+            Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            direction.normalize()
+        }
+    }
+
+    fn generate_float4pt_strip_geometry(
+        &self,
+        loc: Vec3,
+        road_normal: Vec3,
+        road_vector: Vec3,
+        corners: [Vec3; 4], // [bottomLeft, bottomRight, topLeft, topRight]
+        u_offset: f32,
+        v_offset: f32,
+        u_scale: f32,
+        v_scale: f32,
+    ) -> TerrainResult<RoadGeometry> {
+        let road_len = road_vector.length().max(1.0e-6);
+        let mut road_vector_dir = road_vector / road_len;
+        road_vector_dir.y = 0.0;
+        road_vector_dir = road_vector_dir.normalize_or_zero();
+        if road_vector_dir.length_squared() <= 1.0e-6 {
+            road_vector_dir = Vec3::new(1.0, 0.0, 0.0);
+        }
+
+        let mut road_normal_dir = road_normal;
+        road_normal_dir.y = 0.0;
+        road_normal_dir = road_normal_dir.normalize_or_zero();
+        if road_normal_dir.length_squared() <= 1.0e-6 {
+            road_normal_dir = Vec3::new(-road_vector_dir.z, 0.0, road_vector_dir.x).normalize_or_zero();
+        }
+        if road_normal_dir.length_squared() <= 1.0e-6 {
+            road_normal_dir = Vec3::new(0.0, 0.0, 1.0);
+        }
+
+        let u_count = Self::runtime_linear_resolution_for_length(road_len);
+        let mut vertices = Vec::with_capacity((u_count * 2) as usize);
+        let mut indices = Vec::with_capacity(((u_count.saturating_sub(1)) * 6) as usize);
+        let elevation = self.properties.elevation;
+        let u_scale = u_scale.max(1.0e-6);
+        let v_scale = v_scale.max(1.0e-6);
+
+        for i in 0..u_count {
+            let t = if u_count == 2 {
+                i as f32
+            } else {
+                i as f32 / (u_count - 1) as f32
+            };
+            let bottom = corners[0].lerp(corners[1], t);
+            let top = corners[2].lerp(corners[3], t);
+            let bottom_cur = Vec3::new(bottom.x - loc.x, 0.0, bottom.z - loc.z);
+            let top_cur = Vec3::new(top.x - loc.x, 0.0, top.z - loc.z);
+            let bottom_u = road_vector_dir.dot(bottom_cur);
+            let bottom_v = road_normal_dir.dot(bottom_cur);
+            let top_u = road_vector_dir.dot(top_cur);
+            let top_v = road_normal_dir.dot(top_cur);
+
+            vertices.push(RoadVertex {
+                position: [bottom.x, bottom.y + elevation, bottom.z],
+                normal: [0.0, 1.0, 0.0],
+                tex_coords: [u_offset + bottom_u / (u_scale * 4.0), v_offset - bottom_v / (v_scale * 4.0)],
+                color: [1.0, 1.0, 1.0, 1.0],
+                road_distance: road_len * t,
+            });
+            vertices.push(RoadVertex {
+                position: [top.x, top.y + elevation, top.z],
+                normal: [0.0, 1.0, 0.0],
+                tex_coords: [u_offset + top_u / (u_scale * 4.0), v_offset - top_v / (v_scale * 4.0)],
+                color: [1.0, 1.0, 1.0, 1.0],
+                road_distance: road_len * t,
+            });
+        }
+
+        for i in 0..u_count.saturating_sub(1) {
+            let base = i * 2;
+            indices.extend_from_slice(&[base + 1, base, base + 2, base + 1, base + 2, base + 3]);
+        }
+
+        Ok(RoadGeometry {
+            vertices,
+            indices,
+            uvs: Vec::new(),
+            colors: Vec::new(),
+            edge_geometry: None,
+            marking_geometry: None,
+        })
+    }
+
+    fn generate_float_section(
+        &self,
+        loc: Vec3,
+        road_vector_in: Vec3,
+        half_height: f32,
+        left: f32,
+        right: f32,
+        u_offset: f32,
+        v_offset: f32,
+        scale: f32,
+    ) -> TerrainResult<RoadGeometry> {
+        let mut road_vector = Vec3::new(road_vector_in.x, 0.0, road_vector_in.z);
+        if road_vector.length_squared() <= 1.0e-6 {
+            road_vector = Vec3::new(1.0, 0.0, 0.0);
+        } else {
+            road_vector = road_vector.normalize();
+        }
+        let mut road_normal = Vec3::new(-road_vector.z, 0.0, road_vector.x);
+        if road_normal.length_squared() <= 1.0e-6 {
+            road_normal = Vec3::new(0.0, 0.0, 1.0);
+        } else {
+            road_normal = road_normal.normalize();
+        }
+
+        road_vector *= right;
+        road_normal *= half_height.abs();
+        let mut road_left = road_vector;
+        road_left = road_left.normalize_or_zero() * left;
+        road_vector += road_left;
+        let left_center = loc - road_left;
+
+        let bottom_left = left_center - road_normal;
+        let bottom_right = bottom_left + road_vector;
+        let top_right = bottom_right + road_normal * 2.0;
+        let top_left = bottom_left + road_normal * 2.0;
+
+        self.generate_float4pt_strip_geometry(
+            loc,
+            road_normal,
+            road_vector,
+            [bottom_left, bottom_right, top_left, top_right],
+            u_offset,
+            v_offset,
+            scale,
+            scale,
+        )
+    }
+
+    fn generate_synthetic_intersection_geometry(
+        &self,
+        kind: RoadSyntheticIntersectionKind,
+    ) -> TerrainResult<RoadGeometry> {
+        let loc1 = self.start;
+        let loc2 = self.end;
+        let road_vector = loc2 - loc1;
+        let scale = self.width.max(0.1);
+        let width_in_texture = self
+            .runtime_texture_override_f32("WidthInTexture")
+            .unwrap_or(1.0)
+            .max(0.1);
+        let tee_factor = scale * Self::TEE_WIDTH_ADJUSTMENT / 2.0;
+        let left = width_in_texture * scale / 2.0;
+        let right = tee_factor;
+        let u_offset = 425.0 / 512.0;
+        let v_offset = match kind {
+            RoadSyntheticIntersectionKind::Tee => 255.0 / 512.0,
+            RoadSyntheticIntersectionKind::FourWay => 425.0 / 512.0,
+        };
+
+        self.generate_float_section(
+            loc1,
+            road_vector,
+            tee_factor,
+            left,
+            right,
+            u_offset,
+            v_offset,
+            scale,
+        )
+    }
+
+    fn generate_alpha_join_geometry(&self) -> TerrainResult<RoadGeometry> {
+        const U_OFFSET: f32 = 106.0 / 512.0;
+        const V_OFFSET: f32 = 425.0 / 512.0;
+        const ALONG_SPAN: f32 = 48.0 / 128.0;
+        const EXTRA_NORMAL_SCALE: f32 = 1.0 + (8.0 / 128.0);
+
+        let mut road_dir = self.end - self.start;
+        road_dir.y = 0.0;
+        if road_dir.length_squared() <= 1.0e-6 {
+            road_dir = Vec3::new(1.0, 0.0, 0.0);
+        } else {
+            road_dir = road_dir.normalize();
+        }
+        let mut road_normal = Vec3::new(-road_dir.z, 0.0, road_dir.x);
+        if road_normal.length_squared() <= 1.0e-6 {
+            road_normal = Vec3::new(0.0, 0.0, 1.0);
+        } else {
+            road_normal = road_normal.normalize();
+        }
+
+        let scale = self.width.max(0.1);
+        let width_in_texture = self
+            .runtime_texture_override_f32("WidthInTexture")
+            .unwrap_or(1.0)
+            .max(0.1);
+
+        let road_vec = road_dir * (scale * ALONG_SPAN);
+        let normal_vec = road_normal * (width_in_texture * EXTRA_NORMAL_SCALE);
+
+        let anchor = self.start;
+        let top_left = anchor + normal_vec * 0.5 - road_vec * 0.65;
+        let bottom_left = top_left - normal_vec;
+        let top_right = top_left + road_vec;
+        let bottom_right = bottom_left + road_vec;
+        let up_normal = [0.0, 1.0, 0.0];
+        let y_bias = self.properties.elevation;
+
+        let _ = up_normal;
+        let _ = y_bias;
+        self.generate_float4pt_strip_geometry(
+            anchor,
+            normal_vec,
+            road_vec,
+            [bottom_left, bottom_right, top_left, top_right],
+            U_OFFSET,
+            V_OFFSET,
+            scale,
+            width_in_texture,
+        )
+    }
+
+    fn generate_curve_geometry(&self) -> TerrainResult<RoadGeometry> {
+        let mut road_vector = self.end - self.start;
+        road_vector.y = 0.0;
+        let mut road_normal = Vec3::new(-road_vector.z, 0.0, road_vector.x);
+        if road_vector.length_squared() <= 1.0e-6 {
+            road_vector = Vec3::new(1.0, 0.0, 0.0);
+            road_normal = Vec3::new(0.0, 0.0, 1.0);
+        } else {
+            road_vector = road_vector.normalize();
+            road_normal = road_normal.normalize_or_zero();
+        }
+
+        let curve_radius = self
+            .runtime_texture_override_f32("CurveRadius")
+            .unwrap_or(Self::CORNER_RADIUS);
+        let mut v_offset = 255.0 / 512.0;
+        if (curve_radius - Self::TIGHT_CORNER_RADIUS).abs() <= 0.05 {
+            v_offset = 425.0 / 512.0;
+        }
+        let u_offset = 4.0 / 512.0;
+        let scale = self.width.max(0.1);
+        let width_in_texture = self
+            .runtime_texture_override_f32("WidthInTexture")
+            .unwrap_or(1.0)
+            .max(0.1);
+        let curve_height = width_in_texture * scale / 2.0;
+
+        road_vector *= scale;
+        road_normal *= curve_height.abs();
+        let loc1 = self.start;
+        let mut bottom_left = loc1 - road_normal;
+        let mut bottom_right = bottom_left + road_vector;
+        let mut top_right = bottom_right + road_normal * 2.0;
+        let mut top_left = bottom_left + road_normal * 2.0;
+
+        if (curve_radius - Self::TIGHT_CORNER_RADIUS).abs() <= 0.05 {
+            bottom_right = bottom_left + road_vector * 0.5;
+            top_right = bottom_right + road_normal * 2.0;
+            top_left = bottom_left + road_normal * 2.0;
+            bottom_right += road_vector * 0.1;
+            bottom_right += road_normal * 0.2;
+            bottom_left -= road_normal * 0.1;
+            bottom_left -= road_vector * 0.02;
+            top_left -= road_vector * 0.02;
+            top_right -= road_vector * 0.4;
+            top_right += road_normal * 0.2;
+        } else {
+            bottom_right += road_vector * 0.1;
+            bottom_right += road_normal * 0.4;
+            bottom_left -= road_normal * 0.2;
+            bottom_left -= road_vector * 0.02;
+            top_left -= road_vector * 0.02;
+            top_right -= road_vector * 0.4;
+            top_right += road_normal * 0.4;
+        }
+
+        self.generate_float4pt_strip_geometry(
+            loc1,
+            road_normal,
+            road_vector,
+            [bottom_left, bottom_right, top_left, top_right],
+            u_offset,
+            v_offset,
+            scale,
+            scale,
+        )
+    }
+
     /// Create new road segment
     pub fn new(id: RoadSegmentId, road_id: RoadId, start: Vec3, end: Vec3, width: f32) -> Self {
         Self {
@@ -586,11 +967,24 @@ impl RoadSegment {
 
     /// Generate geometry for this segment
     pub fn generate_geometry(&mut self, config: &RoadGenerationConfig) -> TerrainResult<()> {
-        let resolution = if self.control_points.is_empty() {
-            2 // Just start and end for straight segments
-        } else {
-            config.curve_resolution
-        };
+        if self.runtime_kind_is("ALPHA_JOIN") {
+            self.geometry = Some(self.generate_alpha_join_geometry()?);
+            self.dirty = false;
+            return Ok(());
+        }
+        if self.runtime_kind_is("CURVE") {
+            self.geometry = Some(self.generate_curve_geometry()?);
+            self.dirty = false;
+            return Ok(());
+        }
+        if let Some(kind) = self.properties.synthetic_intersection {
+            self.geometry = Some(self.generate_synthetic_intersection_geometry(kind)?);
+            self.dirty = false;
+            return Ok(());
+        }
+
+        let segment_length = self.get_length();
+        let resolution = self.runtime_surface_resolution(config, segment_length);
 
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -598,7 +992,6 @@ impl RoadSegment {
         let mut colors = Vec::new();
 
         let half_width = self.width / 2.0;
-        let segment_length = self.get_length();
 
         // Generate vertices along the segment
         for i in 0..resolution {
@@ -682,14 +1075,9 @@ impl RoadSegment {
 
     /// Generate edge geometry (shoulders, guardrails)
     fn generate_edge_geometry(&self) -> TerrainResult<EdgeGeometry> {
-        let resolution = if self.control_points.is_empty() {
-            2
-        } else {
-            16
-        };
-
-        let edge_width = (self.width * 0.2).max(1.0);
         let segment_length = self.get_length();
+        let resolution = self.runtime_aux_resolution(segment_length);
+        let edge_width = (self.width * 0.2).max(1.0);
 
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -792,14 +1180,9 @@ impl RoadSegment {
 
     /// Generate marking geometry (lines, arrows)
     fn generate_marking_geometry(&self) -> TerrainResult<MarkingGeometry> {
-        let resolution = if self.control_points.is_empty() {
-            2
-        } else {
-            16
-        };
-
-        let mark_width = (self.width * 0.05).max(0.1);
         let segment_length = self.get_length();
+        let resolution = self.runtime_aux_resolution(segment_length);
+        let mark_width = (self.width * 0.05).max(0.1);
 
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -887,6 +1270,145 @@ impl RoadManager {
         n.to_array()
     }
 
+    fn sanitize_sampled_height(sampled: f32, fallback: f32) -> f32 {
+        if sampled.is_finite() {
+            sampled
+        } else {
+            fallback
+        }
+    }
+
+    fn project_vertices_to_terrain<F>(
+        vertices: &mut [RoadVertex],
+        overlay_height: f32,
+        clamp_rows: bool,
+        sample_height: &mut F,
+    ) where
+        F: FnMut(Vec3) -> f32,
+    {
+        if clamp_rows {
+            let mut pairs = vertices.chunks_exact_mut(2);
+            for pair in &mut pairs {
+                let pos_a = Vec3::new(
+                    pair[0].position[0],
+                    pair[0].position[1],
+                    pair[0].position[2],
+                );
+                let pos_b = Vec3::new(
+                    pair[1].position[0],
+                    pair[1].position[1],
+                    pair[1].position[2],
+                );
+                let h_a = Self::sanitize_sampled_height(sample_height(pos_a), pos_a.y);
+                let h_b = Self::sanitize_sampled_height(sample_height(pos_b), pos_b.y);
+                let projected = h_a.max(h_b) + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS + overlay_height;
+                pair[0].position[1] = projected;
+                pair[1].position[1] = projected;
+            }
+
+            for vertex in pairs.into_remainder().iter_mut() {
+                let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
+                let sampled = Self::sanitize_sampled_height(sample_height(pos), pos.y);
+                vertex.position[1] = sampled + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS + overlay_height;
+            }
+        } else {
+            for vertex in vertices.iter_mut() {
+                let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
+                let sampled = Self::sanitize_sampled_height(sample_height(pos), pos.y);
+                vertex.position[1] = sampled + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS + overlay_height;
+            }
+        }
+    }
+
+    fn reproject_vertex_normals<F>(vertices: &mut [RoadVertex], sample_normal: &mut F)
+    where
+        F: FnMut(Vec3) -> Vec3,
+    {
+        for vertex in vertices {
+            let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
+            let sampled = sample_normal(pos);
+            vertex.normal = Self::sanitize_sampled_normal(sampled, vertex.normal);
+        }
+    }
+
+    fn rebuild_strip_indices(indices: &mut Vec<u32>, row_count: u32) {
+        indices.clear();
+        if row_count < 2 {
+            return;
+        }
+        indices.reserve(((row_count - 1) * 6) as usize);
+        for i in 0..(row_count - 1) {
+            let base = i * 2;
+            indices.extend_from_slice(&[base, base + 2, base + 1, base + 1, base + 2, base + 3]);
+        }
+    }
+
+    fn collapse_strip_rows(vertices: &mut Vec<RoadVertex>, indices: &mut Vec<u32>) {
+        if vertices.len() < 6 || vertices.len() % 2 != 0 {
+            return;
+        }
+
+        let row_count = vertices.len() / 2;
+        let max_error = MAP_HEIGHT_SCALE * 1.1;
+        let mut keep = vec![true; row_count];
+        let mut prev_kept = 0usize;
+
+        for cur in 1..(row_count - 1) {
+            if !keep[cur] {
+                continue;
+            }
+            let mut next = cur + 1;
+            while next < row_count && !keep[next] {
+                next += 1;
+            }
+            if next >= row_count {
+                break;
+            }
+
+            let prev_u = prev_kept as f32;
+            let cur_u = cur as f32;
+            let next_u = next as f32;
+            let denom = (next_u - prev_u).max(1.0e-6);
+
+            let prev_top = vertices[prev_kept * 2].position[1];
+            let cur_top = vertices[cur * 2].position[1];
+            let next_top = vertices[next * 2].position[1];
+            let interp_top = (prev_top * (cur_u - prev_u) + next_top * (next_u - cur_u)) / denom;
+
+            let prev_bottom = vertices[prev_kept * 2 + 1].position[1];
+            let cur_bottom = vertices[cur * 2 + 1].position[1];
+            let next_bottom = vertices[next * 2 + 1].position[1];
+            let interp_bottom =
+                (prev_bottom * (cur_u - prev_u) + next_bottom * (next_u - cur_u)) / denom;
+
+            let top_ok = interp_top >= cur_top && interp_top < (cur_top + max_error);
+            let bottom_ok = interp_bottom >= cur_bottom && interp_bottom < (cur_bottom + max_error);
+            if top_ok && bottom_ok {
+                keep[cur] = false;
+                continue;
+            }
+
+            prev_kept = cur;
+        }
+
+        let kept_rows = keep.iter().filter(|&&k| k).count();
+        if kept_rows == row_count {
+            Self::rebuild_strip_indices(indices, row_count as u32);
+            return;
+        }
+
+        let mut compacted = Vec::with_capacity(kept_rows * 2);
+        for (row, keep_row) in keep.into_iter().enumerate() {
+            if !keep_row {
+                continue;
+            }
+            compacted.push(vertices[row * 2].clone());
+            compacted.push(vertices[row * 2 + 1].clone());
+        }
+        *vertices = compacted;
+        Self::rebuild_strip_indices(indices, (vertices.len() / 2) as u32);
+    }
+
     /// Initialize road system resources and prebuild geometry.
     pub fn init(&mut self) -> TerrainResult<()> {
         // Match C++ preload-style behavior: rebuild any pending/dirty geometry when the
@@ -904,6 +1426,7 @@ impl RoadManager {
         self.next_segment_id = 1;
         self.next_intersection_id = 1;
         self.stats = RoadStats::default();
+        self.terrain_normals_dirty = false;
         Ok(())
     }
 
@@ -913,11 +1436,13 @@ impl RoadManager {
         let mut total_vertices = 0u32;
         let mut total_triangles = 0u32;
         let mut total_memory = 0u64;
+        let mut regenerated_any = false;
 
         for segment in self.segments.values_mut() {
             if segment.dirty {
                 segment.generate_geometry(&self.generation_config)?;
                 segment.dirty = false;
+                regenerated_any = true;
             }
 
             if let Some(ref geometry) = segment.geometry {
@@ -937,6 +1462,9 @@ impl RoadManager {
         self.stats.total_triangles = total_triangles;
         self.stats.geometry_memory = total_memory;
         self.stats.generation_time = start_time.elapsed();
+        if regenerated_any {
+            self.terrain_normals_dirty = true;
+        }
         Ok(())
     }
 
@@ -947,33 +1475,88 @@ impl RoadManager {
     where
         F: FnMut(Vec3) -> Vec3,
     {
+        if !self.terrain_normals_dirty {
+            return;
+        }
+
         for segment in self.segments.values_mut() {
             let Some(geometry) = segment.geometry.as_mut() else {
                 continue;
             };
 
-            for vertex in &mut geometry.vertices {
-                let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
-                let sampled = sample_normal(pos);
-                vertex.normal = Self::sanitize_sampled_normal(sampled, vertex.normal);
-            }
+            Self::reproject_vertex_normals(&mut geometry.vertices, &mut sample_normal);
 
             if let Some(edge) = geometry.edge_geometry.as_mut() {
-                for vertex in &mut edge.vertices {
-                    let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
-                    let sampled = sample_normal(pos);
-                    vertex.normal = Self::sanitize_sampled_normal(sampled, vertex.normal);
-                }
+                Self::reproject_vertex_normals(&mut edge.vertices, &mut sample_normal);
             }
 
             if let Some(marking) = geometry.marking_geometry.as_mut() {
-                for vertex in &mut marking.vertices {
-                    let pos = Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
-                    let sampled = sample_normal(pos);
-                    vertex.normal = Self::sanitize_sampled_normal(sampled, vertex.normal);
-                }
+                Self::reproject_vertex_normals(&mut marking.vertices, &mut sample_normal);
             }
         }
+
+        self.terrain_normals_dirty = false;
+    }
+
+    /// Reproject road vertices onto terrain heights and refresh normals.
+    ///
+    /// This mirrors C++ `loadFloat4PtSection` behavior where road meshes float slightly above
+    /// terrain and each strip row is clamped to the maximum sampled height to avoid clipping.
+    pub fn apply_terrain_heights_and_normals<FH, FN>(
+        &mut self,
+        mut sample_height: FH,
+        mut sample_normal: FN,
+    ) where
+        FH: FnMut(Vec3) -> f32,
+        FN: FnMut(Vec3) -> Vec3,
+    {
+        if !self.terrain_normals_dirty {
+            return;
+        }
+
+        for segment in self.segments.values_mut() {
+            let Some(geometry) = segment.geometry.as_mut() else {
+                continue;
+            };
+            let clamp_surface_rows = segment.properties.synthetic_intersection.is_none();
+
+            Self::project_vertices_to_terrain(
+                &mut geometry.vertices,
+                segment.properties.elevation,
+                clamp_surface_rows,
+                &mut sample_height,
+            );
+            if clamp_surface_rows {
+                Self::collapse_strip_rows(&mut geometry.vertices, &mut geometry.indices);
+            }
+            Self::reproject_vertex_normals(&mut geometry.vertices, &mut sample_normal);
+
+            if let Some(edge) = geometry.edge_geometry.as_mut() {
+                Self::project_vertices_to_terrain(
+                    &mut edge.vertices,
+                    segment.properties.elevation,
+                    true,
+                    &mut sample_height,
+                );
+                Self::reproject_vertex_normals(&mut edge.vertices, &mut sample_normal);
+            }
+
+            if let Some(marking) = geometry.marking_geometry.as_mut() {
+                Self::project_vertices_to_terrain(
+                    &mut marking.vertices,
+                    segment.properties.elevation + 0.02,
+                    true,
+                    &mut sample_height,
+                );
+                Self::reproject_vertex_normals(&mut marking.vertices, &mut sample_normal);
+            }
+        }
+
+        self.terrain_normals_dirty = false;
+    }
+
+    pub fn needs_terrain_normal_reprojection(&self) -> bool {
+        self.terrain_normals_dirty
     }
 
     /// Validate road geometry for render submission.
@@ -1014,6 +1597,7 @@ impl RoadManager {
             next_intersection_id: 1,
             generation_config: RoadGenerationConfig::default(),
             stats: RoadStats::default(),
+            terrain_normals_dirty: false,
         }
     }
 
@@ -1054,6 +1638,7 @@ impl RoadManager {
         self.segments.insert(id, segment);
         self.next_segment_id += 1;
         self.stats.total_segments += 1;
+        self.terrain_normals_dirty = true;
 
         Ok(id)
     }
@@ -1068,6 +1653,7 @@ impl RoadManager {
             .filter(|segment| segment.dirty)
             .map(|segment| segment.id)
             .collect();
+        let rebuilt_any = !dirty_segments.is_empty();
 
         for segment_id in dirty_segments {
             if let Some(segment) = self.segments.get_mut(&segment_id) {
@@ -1077,6 +1663,9 @@ impl RoadManager {
 
         self.update_statistics();
         self.stats.generation_time = start_time.elapsed();
+        if rebuilt_any {
+            self.terrain_normals_dirty = true;
+        }
 
         Ok(())
     }
@@ -1143,6 +1732,45 @@ impl RoadManager {
         &self.stats
     }
 
+    /// Iterate visible road surface geometries for renderer submission.
+    pub fn for_each_visible_surface_geometry<F>(&self, mut visitor: F)
+    where
+        F: FnMut(f32, &[RoadVertex], &[u32]),
+    {
+        let mut ordered: Vec<(u8, RoadSegmentId)> = Vec::new();
+        for segment in self.segments.values() {
+            let Some(road) = self.roads.get(&segment.road_id) else {
+                continue;
+            };
+            if !road.visible {
+                continue;
+            }
+            let Some(geometry) = segment.geometry.as_ref() else {
+                continue;
+            };
+            if geometry.vertices.is_empty() || geometry.indices.is_empty() {
+                continue;
+            }
+
+            ordered.push((road.priority, segment.id));
+        }
+
+        ordered.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+        for (_, segment_id) in ordered {
+            let Some(segment) = self.segments.get(&segment_id) else {
+                continue;
+            };
+            let Some(geometry) = segment.geometry.as_ref() else {
+                continue;
+            };
+            if geometry.vertices.is_empty() || geometry.indices.is_empty() {
+                continue;
+            }
+            visitor(segment.width, &geometry.vertices, &geometry.indices);
+        }
+    }
+
     /// Export sampled road points for minimap/static map overlays.
     pub fn snapshot_minimap_samples(&self, samples_per_segment: u32) -> Vec<RoadMinimapSample> {
         let samples_per_segment = samples_per_segment.max(2);
@@ -1180,6 +1808,7 @@ impl RoadManager {
         self.next_segment_id = 1;
         self.next_intersection_id = 1;
         self.stats = RoadStats::default();
+        self.terrain_normals_dirty = false;
     }
 
     fn validate_geometry(
@@ -1365,6 +1994,25 @@ mod tests {
     }
 
     #[test]
+    fn test_straight_geometry_uses_map_cell_tessellation_density() {
+        let mut segment = RoadSegment::new(
+            1,
+            1,
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(45.0, 0.0, 0.0),
+            4.0,
+        );
+        segment
+            .generate_geometry(&RoadGenerationConfig::default())
+            .unwrap();
+        let geometry = segment.geometry.as_ref().unwrap();
+
+        let expected_resolution =
+            (((segment.get_length() / MAP_XY_FACTOR) as u32).saturating_add(1)).max(2);
+        assert_eq!(geometry.vertices.len(), (expected_resolution * 2) as usize);
+    }
+
+    #[test]
     fn test_render_validation_passes_for_generated_geometry() {
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
@@ -1448,6 +2096,47 @@ mod tests {
                 && (v.normal[1] - 1.0).abs() < 1.0e-4
                 && (v.normal[2] - 0.0).abs() < 1.0e-4
         }));
+    }
+
+    #[test]
+    fn test_apply_terrain_heights_and_normals_clamps_rows_to_max_height() {
+        let mut manager = RoadManager::new();
+        let road_id = manager.create_road(
+            "Height Project".to_string(),
+            RoadType::DirtPath { wear_factor: 0.2 },
+        );
+        let segment_id = manager
+            .create_segment(
+                road_id,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(20.0, 0.0, 0.0),
+                Some(4.0),
+            )
+            .unwrap();
+        manager.update_geometry().unwrap();
+
+        manager.apply_terrain_heights_and_normals(
+            |pos| {
+                if pos.z >= 0.0 {
+                    2.0
+                } else {
+                    5.0
+                }
+            },
+            |_| Vec3::new(0.0, 1.0, 0.0),
+        );
+
+        let geometry = manager
+            .get_segment(segment_id)
+            .and_then(|s| s.geometry.as_ref())
+            .unwrap();
+        let expected = 5.0 + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS;
+        for pair in geometry.vertices.chunks_exact(2) {
+            assert!((pair[0].position[1] - expected).abs() < 1.0e-4);
+            assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
+            assert!((pair[0].normal[1] - 1.0).abs() < 1.0e-4);
+            assert!((pair[1].normal[1] - 1.0).abs() < 1.0e-4);
+        }
     }
 
     #[test]

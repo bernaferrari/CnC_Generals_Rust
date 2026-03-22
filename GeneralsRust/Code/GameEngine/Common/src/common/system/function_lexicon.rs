@@ -504,11 +504,9 @@ mod tests {
         let reset_result = <FunctionLexicon as SubsystemInterface>::reset(&mut lexicon);
         assert!(reset_result.is_ok());
         assert_eq!(lexicon.function_count(), 1);
-        assert!(
-            lexicon
-                .find_function_by_name("TestFunction1", TableIndex::GameWinSystem)
-                .is_some()
-        );
+        assert!(lexicon
+            .find_function_by_name("TestFunction1", TableIndex::GameWinSystem)
+            .is_some());
     }
 
     #[test]

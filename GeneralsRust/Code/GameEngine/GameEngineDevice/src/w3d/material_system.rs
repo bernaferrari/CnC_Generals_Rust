@@ -8,35 +8,33 @@
 //! - Shader variants for different rendering paths
 //! - GPU-resident material data structures
 
-use super::{W3DError, Result, BoundingBox};
+use super::{BoundingBox, Result, W3DError};
 use crate::video::{ColorFormat, Resolution};
+use bytemuck::{Pod, Zeroable};
+use glam::{Mat4, Vec2, Vec3, Vec4};
+use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 #[cfg(feature = "w3d")]
 use std::sync::atomic::{AtomicU32, Ordering};
-use parking_lot::{RwLock, Mutex};
-use serde::{Deserialize, Serialize};
-use bytemuck::{Pod, Zeroable};
-use glam::{Vec2, Vec3, Vec4, Mat4};
+use std::sync::Arc;
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    Device, Queue, Buffer, BufferDescriptor, BufferUsages,
-    Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
-    Sampler, SamplerDescriptor, AddressMode, FilterMode, SamplerBorderColor,
-    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupEntry,
-    ShaderModule, ShaderModuleDescriptor, ShaderSource,
-    RenderPipeline, RenderPipelineDescriptor, ComputePipeline, ComputePipelineDescriptor,
-    PipelineLayout, PipelineLayoutDescriptor,
-    VertexState, FragmentState, VertexBufferLayout,
-    PrimitiveState, PrimitiveTopology, FrontFace, Face, PolygonMode,
-    MultisampleState, BlendState, ColorWrites, ColorTargetState, BlendComponent, BlendFactor, BlendOperation,
-    DepthStencilState, CompareFunction, StencilState, DepthBiasState,
-    util::{DeviceExt, BufferInitDescriptor},
-    Extent3d, Origin3d, TextureAspect, TexelCopyBufferLayout, TexelCopyTextureInfo,
-    BindingType, BufferBindingType, TextureSampleType, StorageTextureAccess,
-    ShaderStages, TextureViewDimension, SamplerBindingType,
+    util::{BufferInitDescriptor, DeviceExt},
+    AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindingType, BlendComponent, BlendFactor, BlendOperation,
+    BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState,
+    ColorWrites, CompareFunction, ComputePipeline, ComputePipelineDescriptor, DepthBiasState,
+    DepthStencilState, Device, Extent3d, Face, FilterMode, FragmentState, FrontFace,
+    MultisampleState, Origin3d, PipelineLayout, PipelineLayoutDescriptor, PolygonMode,
+    PrimitiveState, PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, Sampler,
+    SamplerBindingType, SamplerBorderColor, SamplerDescriptor, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, StencilState, StorageTextureAccess,
+    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDimension, VertexBufferLayout, VertexState,
 };
 
 /// Maximum number of materials in GPU buffer
@@ -287,7 +285,7 @@ pub struct W3DShaderManager {
     device: Arc<Device>,
     /// GPU queue
     queue: Arc<Queue>,
-    
+
     /// Loaded materials
     materials: Arc<RwLock<HashMap<String, W3DMaterial>>>,
     /// GPU material buffer
@@ -297,20 +295,20 @@ pub struct W3DShaderManager {
     material_buffer_data: Arc<RwLock<Vec<W3DMaterialData>>>,
     /// Material name to buffer index mapping
     material_indices: Arc<RwLock<HashMap<String, usize>>>,
-    
+
     /// Shader variants
     shader_variants: Arc<RwLock<HashMap<String, W3DShaderVariant>>>,
     /// Compiled shaders
     #[cfg(feature = "w3d")]
     compiled_shaders: Arc<RwLock<HashMap<String, W3DShader>>>,
-    
+
     /// Texture atlas system
     texture_manager: Arc<W3DTextureManager>,
-    
+
     /// Default materials
     default_material: Option<String>,
     missing_material: Option<String>,
-    
+
     /// Shader search paths
     shader_paths: Vec<PathBuf>,
 }
@@ -380,7 +378,7 @@ impl W3DShaderManager {
 
         // Create default PBR shader variant
         self.create_default_pbr_shader().await?;
-        
+
         // Create default materials
         self.create_default_materials().await?;
 
@@ -404,7 +402,9 @@ impl W3DShaderManager {
             render_state: RenderState::default(),
         };
 
-        self.shader_variants.write().insert("pbr_default".to_string(), pbr_variant);
+        self.shader_variants
+            .write()
+            .insert("pbr_default".to_string(), pbr_variant);
         self.compile_shader("pbr_default").await?;
 
         Ok(())
@@ -495,7 +495,9 @@ impl W3DShaderManager {
     /// Load built-in shader variants
     async fn load_builtin_shaders(&mut self) -> Result<()> {
         // Transparent shader variant
-        let mut transparent_variant = self.shader_variants.read()
+        let mut transparent_variant = self
+            .shader_variants
+            .read()
             .get("pbr_default")
             .unwrap()
             .clone();
@@ -506,21 +508,33 @@ impl W3DShaderManager {
         // Emissive shader variant
         let mut emissive_variant = transparent_variant.clone();
         emissive_variant.name = "pbr_emissive".to_string();
-        emissive_variant.defines.insert("EMISSIVE".to_string(), "1".to_string());
+        emissive_variant
+            .defines
+            .insert("EMISSIVE".to_string(), "1".to_string());
         emissive_variant.render_state.blend_mode = BlendMode::Additive;
 
         // Skinned mesh variant
-        let mut skinned_variant = self.shader_variants.read()
+        let mut skinned_variant = self
+            .shader_variants
+            .read()
             .get("pbr_default")
             .unwrap()
             .clone();
         skinned_variant.name = "pbr_skinned".to_string();
-        skinned_variant.defines.insert("SKINNED".to_string(), "1".to_string());
+        skinned_variant
+            .defines
+            .insert("SKINNED".to_string(), "1".to_string());
 
         // Add variants
-        self.shader_variants.write().insert(transparent_variant.name.clone(), transparent_variant);
-        self.shader_variants.write().insert(emissive_variant.name.clone(), emissive_variant);
-        self.shader_variants.write().insert(skinned_variant.name.clone(), skinned_variant);
+        self.shader_variants
+            .write()
+            .insert(transparent_variant.name.clone(), transparent_variant);
+        self.shader_variants
+            .write()
+            .insert(emissive_variant.name.clone(), emissive_variant);
+        self.shader_variants
+            .write()
+            .insert(skinned_variant.name.clone(), skinned_variant);
 
         // Compile all variants
         self.compile_shader("pbr_transparent").await?;
@@ -533,10 +547,10 @@ impl W3DShaderManager {
     /// Add material to the system
     pub async fn add_material(&mut self, material: W3DMaterial) -> Result<String> {
         let name = material.name.clone();
-        
+
         // Load textures for the material
         self.load_material_textures(&material).await?;
-        
+
         // Add to material buffer
         let mut buffer_data = self.material_buffer_data.write();
         let material_index = buffer_data.len();
@@ -549,7 +563,8 @@ impl W3DShaderManager {
         #[cfg(feature = "w3d")]
         {
             let data_slice = bytemuck::cast_slice(&buffer_data[..]);
-            self.queue.write_buffer(&self.material_buffer, 0, data_slice);
+            self.queue
+                .write_buffer(&self.material_buffer, 0, data_slice);
         }
 
         // Store material
@@ -589,9 +604,16 @@ impl W3DShaderManager {
     /// Compile shader variant
     #[cfg(feature = "w3d")]
     async fn compile_shader(&mut self, variant_name: &str) -> Result<()> {
-        let variant = self.shader_variants.read()
+        let variant = self
+            .shader_variants
+            .read()
             .get(variant_name)
-            .ok_or_else(|| W3DError::ShaderCompilationFailed(format!("Shader variant '{}' not found", variant_name)))?
+            .ok_or_else(|| {
+                W3DError::ShaderCompilationFailed(format!(
+                    "Shader variant '{}' not found",
+                    variant_name
+                ))
+            })?
             .clone();
 
         tracing::debug!("Compiling shader variant: {}", variant_name);
@@ -600,68 +622,70 @@ impl W3DShaderManager {
         let vertex_module = self.device.create_shader_module(ShaderModuleDescriptor {
             label: Some(&format!("{} Vertex", variant_name)),
             source: ShaderSource::Wgsl(variant.vertex_shader.into()),
-            
         });
 
         let fragment_module = self.device.create_shader_module(ShaderModuleDescriptor {
             label: Some(&format!("{} Fragment", variant_name)),
             source: ShaderSource::Wgsl(variant.fragment_shader.into()),
-            
         });
 
         // Create bind group layout
-        let bind_group_layout = self.device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some(&format!("{} Bind Group Layout", variant_name)),
-            entries: &[
-                // Camera uniforms
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let bind_group_layout = self
+            .device
+            .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some(&format!("{} Bind Group Layout", variant_name)),
+                entries: &[
+                    // Camera uniforms
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Material uniforms
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // Material uniforms
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Texture array
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: TextureViewDimension::D2Array,
-                        sample_type: TextureSampleType::Float { filterable: true },
+                    // Texture array
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: TextureViewDimension::D2Array,
+                            sample_type: TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: ShaderStages::FRAGMENT,
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         // Create pipeline layout
-        let pipeline_layout = self.device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some(&format!("{} Pipeline Layout", variant_name)),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some(&format!("{} Pipeline Layout", variant_name)),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         // Convert render state to wgpu types
         let blend_state = self.convert_blend_mode(&variant.render_state.blend_mode);
@@ -669,49 +693,51 @@ impl W3DShaderManager {
         let depth_compare = self.convert_depth_compare(&variant.render_state.depth_compare);
 
         // Create render pipeline
-        let render_pipeline = self.device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some(&format!("{} Render Pipeline", variant_name)),
-            layout: Some(&pipeline_layout),
-            vertex: VertexState {
-                module: &vertex_module,
-                entry_point: Some("vs_main"),
-                buffers: &[self.create_vertex_buffer_layout(&variant.vertex_layout)],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(FragmentState {
-                module: &fragment_module,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: TextureFormat::Rgba8UnormSrgb, // Default format
-                    blend: blend_state,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode,
-                unclipped_depth: false,
-                polygon_mode: PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: if variant.render_state.depth_test {
-                Some(DepthStencilState {
-                    format: TextureFormat::Depth32Float,
-                    depth_write_enabled: variant.render_state.depth_write,
-                    depth_compare,
-                    stencil: StencilState::default(),
-                    bias: DepthBiasState::default(),
-                })
-            } else {
-                None
-            },
-            multisample: MultisampleState::default(),
-            cache: None,
-            multiview: None,
-        });
+        let render_pipeline = self
+            .device
+            .create_render_pipeline(&RenderPipelineDescriptor {
+                label: Some(&format!("{} Render Pipeline", variant_name)),
+                layout: Some(&pipeline_layout),
+                vertex: VertexState {
+                    module: &vertex_module,
+                    entry_point: Some("vs_main"),
+                    buffers: &[self.create_vertex_buffer_layout(&variant.vertex_layout)],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(FragmentState {
+                    module: &fragment_module,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: TextureFormat::Rgba8UnormSrgb, // Default format
+                        blend: blend_state,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: PrimitiveState {
+                    topology: PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: FrontFace::Ccw,
+                    cull_mode,
+                    unclipped_depth: false,
+                    polygon_mode: PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: if variant.render_state.depth_test {
+                    Some(DepthStencilState {
+                        format: TextureFormat::Depth32Float,
+                        depth_write_enabled: variant.render_state.depth_write,
+                        depth_compare,
+                        stencil: StencilState::default(),
+                        bias: DepthBiasState::default(),
+                    })
+                } else {
+                    None
+                },
+                multisample: MultisampleState::default(),
+                cache: None,
+                multiview: None,
+            });
 
         let shader = W3DShader {
             name: variant_name.to_string(),
@@ -723,7 +749,9 @@ impl W3DShaderManager {
             compute_pipeline: None,
             bind_group_layout,
             pipeline_layout,
-            vertex_attributes: variant.vertex_layout.into_iter()
+            vertex_attributes: variant
+                .vertex_layout
+                .into_iter()
                 .enumerate()
                 .map(|(i, attr)| wgpu::VertexAttribute {
                     offset: attr.offset,
@@ -733,7 +761,9 @@ impl W3DShaderManager {
                 .collect(),
         };
 
-        self.compiled_shaders.write().insert(variant_name.to_string(), shader);
+        self.compiled_shaders
+            .write()
+            .insert(variant_name.to_string(), shader);
 
         tracing::info!("Successfully compiled shader variant: {}", variant_name);
         Ok(())
@@ -845,7 +875,8 @@ impl W3DShaderManager {
     /// Create vertex buffer layout from vertex attributes
     #[cfg(feature = "w3d")]
     fn create_vertex_buffer_layout(&self, attributes: &[VertexAttribute]) -> VertexBufferLayout {
-        let wgpu_attributes: Vec<wgpu::VertexAttribute> = attributes.iter()
+        let wgpu_attributes: Vec<wgpu::VertexAttribute> = attributes
+            .iter()
             .enumerate()
             .map(|(i, attr)| wgpu::VertexAttribute {
                 offset: attr.offset,
@@ -855,7 +886,8 @@ impl W3DShaderManager {
             .collect();
 
         VertexBufferLayout {
-            array_stride: attributes.last()
+            array_stride: attributes
+                .last()
                 .map(|attr| attr.offset + attr.format.size())
                 .unwrap_or(0),
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -871,7 +903,9 @@ impl W3DShaderManager {
     /// Get compiled shader
     #[cfg(feature = "w3d")]
     pub fn get_shader(&self, name: &str) -> Option<Arc<W3DShader>> {
-        self.compiled_shaders.read().get(name)
+        self.compiled_shaders
+            .read()
+            .get(name)
             .map(|shader| Arc::new(shader.clone()))
     }
 
@@ -879,7 +913,7 @@ impl W3DShaderManager {
     pub async fn update_material(&mut self, name: &str, data: W3DMaterialData) -> Result<()> {
         if let Some(material) = self.materials.write().get_mut(name) {
             material.data = data;
-            
+
             // Find material index and update GPU buffer
             if let Some(index) = self.material_indices.read().get(name).copied() {
                 #[cfg(feature = "w3d")]
@@ -892,10 +926,13 @@ impl W3DShaderManager {
                     );
                 }
             }
-            
+
             Ok(())
         } else {
-            Err(W3DError::ResourceError(format!("Material '{}' not found", name)))
+            Err(W3DError::ResourceError(format!(
+                "Material '{}' not found",
+                name
+            )))
         }
     }
 
@@ -913,7 +950,7 @@ pub struct W3DTextureManager {
     /// GPU queue
     #[cfg(feature = "w3d")]
     queue: Arc<Queue>,
-    
+
     /// Loaded textures
     textures: Arc<RwLock<HashMap<String, W3DTexture>>>,
     /// Cache of resolved texture paths keyed by normalized lookup name
@@ -934,7 +971,7 @@ pub struct W3DTextureManager {
     /// Default sampler
     #[cfg(feature = "w3d")]
     default_sampler: Sampler,
-    
+
     /// Texture search paths
     texture_paths: Vec<PathBuf>,
     /// Maximum texture size
@@ -1066,7 +1103,9 @@ impl W3DTextureManager {
             .lock()
             .ok()
             .and_then(|guard| guard.as_ref().map(Arc::clone))
-            .ok_or_else(|| W3DError::ResourceError("Failed to initialize texture atlas".to_string()))
+            .ok_or_else(|| {
+                W3DError::ResourceError("Failed to initialize texture atlas".to_string())
+            })
     }
 
     #[cfg(feature = "w3d")]
@@ -1103,8 +1142,9 @@ impl W3DTextureManager {
         }
 
         // Load image data
-        let image_data = tokio::fs::read(&texture_path).await
-            .map_err(|e| W3DError::ResourceError(format!("Failed to read texture {}: {}", path, e)))?;
+        let image_data = tokio::fs::read(&texture_path).await.map_err(|e| {
+            W3DError::ResourceError(format!("Failed to read texture {}: {}", path, e))
+        })?;
 
         // Decode image
         let extension = texture_path
@@ -1149,7 +1189,11 @@ impl W3DTextureManager {
                 TexelCopyTextureInfo {
                     texture: &atlas,
                     mip_level: 0,
-                    origin: Origin3d { x: 0, y: 0, z: layer },
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
                     aspect: TextureAspect::All,
                 },
                 &rgba,
@@ -1158,7 +1202,11 @@ impl W3DTextureManager {
                     bytes_per_row: Some(4 * width),
                     rows_per_image: Some(height),
                 },
-                Extent3d { width, height, depth_or_array_layers: 1 },
+                Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
             );
             layer
         };
@@ -1171,10 +1219,16 @@ impl W3DTextureManager {
         let (gpu_texture, gpu_view) = {
             let texture = self.device.create_texture(&TextureDescriptor {
                 label: Some(path),
-                size: Extent3d { width, height, depth_or_array_layers: 1 },
-                mip_level_count: if self.generate_mipmaps { 
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: if self.generate_mipmaps {
                     (width.min(height) as f32).log2().floor() as u32 + 1
-                } else { 1 },
+                } else {
+                    1
+                },
                 sample_count: 1,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba8UnormSrgb,
@@ -1195,7 +1249,11 @@ impl W3DTextureManager {
                     bytes_per_row: Some(4 * width),
                     rows_per_image: Some(height),
                 },
-                Extent3d { width, height, depth_or_array_layers: 1 },
+                Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
             );
 
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1210,9 +1268,11 @@ impl W3DTextureManager {
             width,
             height,
             format: ColorFormat::Rgba8,
-            mip_levels: if self.generate_mipmaps { 
+            mip_levels: if self.generate_mipmaps {
                 (width.min(height) as f32).log2().floor() as u32 + 1
-            } else { 1 },
+            } else {
+                1
+            },
             atlas_layer,
             compressed: false,
             gpu_texture,
@@ -1235,7 +1295,10 @@ impl W3DTextureManager {
         }
 
         if self.missing_paths.read().contains(&normalized) {
-            return Err(W3DError::ResourceError(format!("Texture file not found: {}", path)));
+            return Err(W3DError::ResourceError(format!(
+                "Texture file not found: {}",
+                path
+            )));
         }
 
         let path_obj = Path::new(path);
@@ -1274,7 +1337,10 @@ impl W3DTextureManager {
                 {
                     let mut alias_map = self.alias_map.write();
                     alias_map.insert(normalized.clone(), canonical_key.clone());
-                    alias_map.insert(Self::normalize_lookup_key(&canonical_key), canonical_key.clone());
+                    alias_map.insert(
+                        Self::normalize_lookup_key(&canonical_key),
+                        canonical_key.clone(),
+                    );
                 }
                 self.missing_paths.write().remove(&normalized);
 
@@ -1282,14 +1348,20 @@ impl W3DTextureManager {
             }
             None => {
                 self.missing_paths.write().insert(normalized);
-                Err(W3DError::ResourceError(format!("Texture file not found: {}", path)))
+                Err(W3DError::ResourceError(format!(
+                    "Texture file not found: {}",
+                    path
+                )))
             }
         }
     }
 
     /// Try a single path without repeating filesystem probes on failure
     fn probe_candidate(path: &Path) -> Option<PathBuf> {
-        path.try_exists().ok().filter(|exists| *exists).map(|_| path.to_path_buf())
+        path.try_exists()
+            .ok()
+            .filter(|exists| *exists)
+            .map(|_| path.to_path_buf())
     }
 
     /// Normalize lookup key: lowercase + forward slashes

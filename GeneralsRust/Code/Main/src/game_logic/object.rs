@@ -786,14 +786,13 @@ impl Object {
                 if distance_to_target < 2.0 {
                     // C++ parity: advance to the next waypoint in the path if one
                     // exists, otherwise stop moving.
-                    let next_waypoint = if self.movement.current_path_index + 1
-                        < self.movement.path.len()
-                    {
-                        self.movement.current_path_index += 1;
-                        Some(self.movement.path[self.movement.current_path_index])
-                    } else {
-                        None
-                    };
+                    let next_waypoint =
+                        if self.movement.current_path_index + 1 < self.movement.path.len() {
+                            self.movement.current_path_index += 1;
+                            Some(self.movement.path[self.movement.current_path_index])
+                        } else {
+                            None
+                        };
 
                     if let Some(waypoint) = next_waypoint {
                         self.movement.target_position = Some(waypoint);
@@ -841,7 +840,7 @@ impl Object {
     fn veterancy_bonuses(level: VeterancyLevel) -> (f32, f32, f32) {
         match level {
             VeterancyLevel::Rookie => (1.0, 1.0, 1.0),
-            VeterancyLevel::Veteran => (1.2, 1.1, 1.0 / 1.2),  // +20% RoF
+            VeterancyLevel::Veteran => (1.2, 1.1, 1.0 / 1.2), // +20% RoF
             VeterancyLevel::Elite => (1.3, 1.2, 1.0 / 1.4),   // +40% RoF
             VeterancyLevel::Heroic => (1.5, 1.3, 1.0 / 1.6),  // +60% RoF
         }

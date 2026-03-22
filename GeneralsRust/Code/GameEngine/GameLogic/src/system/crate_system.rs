@@ -5,5 +5,5 @@
 //! so that `system::crate_system` remains a valid path for existing code.
 
 pub use crate::object::crate_system::{
-    CrateCreationEntry, CrateSystem, CrateTemplate, THE_CRATE_SYSTEM, get_crate_system,
+    get_crate_system, CrateCreationEntry, CrateSystem, CrateTemplate, THE_CRATE_SYSTEM,
 };

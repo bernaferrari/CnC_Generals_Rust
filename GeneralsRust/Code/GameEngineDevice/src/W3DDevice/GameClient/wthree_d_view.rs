@@ -358,6 +358,8 @@ pub struct W3DView {
     pub uniform_buffer: Option<Buffer>,
     pub bind_group: Option<BindGroup>,
     pub line_renderer: Option<LineRenderer>,
+    pub depth_stencil_texture: Option<Arc<Texture>>,
+    pub depth_stencil_view: Option<Arc<TextureView>>,
     
     // Resource management
     pub textures: HashMap<String, Arc<Texture>>,
@@ -399,6 +401,8 @@ pub enum W3DViewError {
     TextureError(String),
     #[error("Render pipeline creation failed: {0}")]
     PipelineError(String),
+    #[error("Depth-stencil attachment not initialized")]
+    DepthStencilNotInitialized,
     #[error("Invalid camera parameters: {0}")]
     InvalidCameraParams(String),
     #[error("Picking operation failed: {0}")]
@@ -440,6 +444,8 @@ impl W3DView {
             uniform_buffer: None,
             bind_group: None,
             line_renderer: None,
+            depth_stencil_texture: None,
+            depth_stencil_view: None,
             textures: HashMap::new(),
             samplers: HashMap::new(),
             buffers: SlotMap::new(),
@@ -470,6 +476,10 @@ impl W3DView {
         self.surface = Some(surface);
         self.surface_config = Some(surface_config);
 
+        let width = self.surface_config.as_ref().unwrap().width;
+        let height = self.surface_config.as_ref().unwrap().height;
+        self.create_depth_stencil_resources(&device, width, height)?;
+
         self.line_renderer = Some(LineRenderer::new(
             &device,
             &self.queue.as_ref().unwrap(),
@@ -487,15 +497,18 @@ impl W3DView {
         let queue = self.queue.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
         let surface = self.surface.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
 
-        let now = NetworkInstant::now();
-        self.metrics.frame_time = now.duration_since(self.last_frame_time);
-        self.last_frame_time = now;
-        scene.update(self.metrics.frame_time.as_secs_f32());
+        let frame_time = self.advance_frame_clock();
+        scene.update(frame_time.as_secs_f32());
 
         let output = surface
             .get_current_texture()
             .map_err(|err| W3DViewError::SurfaceConfigError(format!("{err:?}")))?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth_stencil_view = self
+            .depth_stencil_view
+            .as_ref()
+            .cloned()
+            .ok_or(W3DViewError::DepthStencilNotInitialized)?;
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("w3d_view_render_encoder"),
@@ -512,7 +525,19 @@ impl W3DView {
                         store: StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_stencil_view.as_ref(),
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(1.0),
+                        store: StoreOp::Store,
+                    }),
+                    stencil_ops: Some(Operations {
+                        load: LoadOp::Clear(0),
+                        store: StoreOp::Store,
+                    }),
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
             if let Some(renderer) = self.line_renderer.as_mut() {
@@ -732,6 +757,13 @@ impl W3DView {
 
     /// Pick objects at screen coordinates
     pub fn pick_object(&self, screen_coords: ICoord2D, _pick_type: PickType) -> Result<PickResult> {
+        if self.viewport.width == 0 || self.viewport.height == 0 {
+            return Err(W3DViewError::PickingError(
+                "Viewport dimensions must be non-zero".to_string(),
+            )
+            .into());
+        }
+
         // Convert screen coordinates to normalized device coordinates
         let ndc_x = (2.0 * screen_coords.x as f32) / self.viewport.width as f32 - 1.0;
         let ndc_y = 1.0 - (2.0 * screen_coords.y as f32) / self.viewport.height as f32;
@@ -740,7 +772,11 @@ impl W3DView {
         let ray_start = self.camera.position;
         let ray_end = {
             let clip_coords = Vector4::new(ndc_x, ndc_y, 1.0, 1.0);
-            let view_coords = self.projection_matrix.invert().unwrap() * clip_coords;
+            let inv_projection = self
+                .projection_matrix
+                .invert()
+                .ok_or(W3DViewError::MatrixError)?;
+            let view_coords = inv_projection * clip_coords;
             let world_coords = self.inverse_view_matrix * Vector4::new(
                 view_coords.x, view_coords.y, -1.0, 0.0
             );
@@ -780,19 +816,23 @@ impl W3DView {
 
     /// Set viewport size
     pub fn set_viewport_size(&mut self, width: u32, height: u32) -> Result<()> {
-        self.viewport.width = width;
-        self.viewport.height = height;
-        self.camera.aspect_ratio = width as f32 / height as f32;
+        let clamped_width = width.max(1);
+        let clamped_height = height.max(1);
+
+        self.viewport.width = clamped_width;
+        self.viewport.height = clamped_height;
+        self.camera.aspect_ratio = clamped_width as f32 / clamped_height as f32;
         
-        // Reconfigure surface if available
-        if let (Some(surface), Some(device), Some(ref mut config)) = (
-            &self.surface,
-            &self.device,
-            &mut self.surface_config,
-        ) {
-            config.width = width;
-            config.height = height;
-            surface.configure(device, config);
+        // Reconfigure surface and depth attachment if available
+        let surface = self.surface.as_ref().cloned();
+        let device = self.device.as_ref().cloned();
+        if let (Some(surface), Some(device)) = (surface, device) {
+            if let Some(config) = self.surface_config.as_mut() {
+                config.width = clamped_width;
+                config.height = clamped_height;
+                surface.configure(&device, config);
+            }
+            self.create_depth_stencil_resources(&device, clamped_width, clamped_height)?;
         }
         
         self.update_camera_matrices()
@@ -826,10 +866,8 @@ impl W3DView {
 
     /// Begin frame rendering
     pub fn begin_frame(&mut self) -> Result<()> {
-        let now = NetworkInstant::now();
-        self.metrics.frame_time = now.duration_since(self.last_frame_time);
-        self.last_frame_time = now;
-        
+        self.advance_frame_clock();
+
         // Reset frame metrics
         self.metrics.render_calls = 0;
         self.metrics.objects_rendered = 0;
@@ -846,6 +884,14 @@ impl W3DView {
         self.calculate_frustum()?;
         
         Ok(())
+    }
+
+    fn advance_frame_clock(&mut self) -> Duration {
+        let now = NetworkInstant::now();
+        let frame_time = now.duration_since(self.last_frame_time);
+        self.last_frame_time = now;
+        self.metrics.frame_time = frame_time;
+        frame_time
     }
 
     /// Update view (called once per frame)
@@ -1123,6 +1169,37 @@ impl W3DView {
         if self.initialized {
             let _ = self.update_camera_matrices();
         }
+    }
+
+    fn create_depth_stencil_resources(
+        &mut self,
+        device: &Device,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        // Depth24PlusStencil8 is the portable WebGPU depth/stencil format used here for
+        // RTS3DScene parity prep; it preserves stencil capability without relying on a
+        // backend-specific depth-only fallback.
+        let depth_format = wgpu::TextureFormat::Depth24PlusStencil8;
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("w3d_view_depth_stencil_texture"),
+            size: wgpu::Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: depth_format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.depth_stencil_texture = Some(Arc::new(depth_texture));
+        self.depth_stencil_view = Some(Arc::new(depth_view));
+        Ok(())
     }
 }
 

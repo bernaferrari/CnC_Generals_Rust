@@ -1078,7 +1078,8 @@ impl CommandSystem {
                     unit.set_ai_state(AIState::AttackingGround);
                     log::debug!(
                         "Unit {} force-attacking ground at {:?}",
-                        unit_id.0, location
+                        unit_id.0,
+                        location
                     );
                 } else {
                     all_success = false;
@@ -1294,7 +1295,9 @@ impl CommandSystem {
 
             log::debug!(
                 "Unit {} constructing {} at {:?}",
-                unit_id.0, template_name, location
+                unit_id.0,
+                template_name,
+                location
             );
             return CommandResult::Success;
         }
@@ -1367,7 +1370,11 @@ impl CommandSystem {
         // Check if any selected unit is a worker/harvester on the same team
         for &unit_id in units {
             if let Some(unit) = game_logic.get_object(unit_id) {
-                if unit.is_worker() && unit.team == target.team && unit.is_alive() && unit.can_move() {
+                if unit.is_worker()
+                    && unit.team == target.team
+                    && unit.is_alive()
+                    && unit.can_move()
+                {
                     return true;
                 }
             }

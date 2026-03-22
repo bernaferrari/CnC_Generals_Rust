@@ -480,7 +480,10 @@ impl EliminationDetector {
                     0
                 };
                 let has_any_objects = runtime_player.has_any_objects();
-                runtime_census.insert(index as usize, (unit_count, building_count, has_any_objects));
+                runtime_census.insert(
+                    index as usize,
+                    (unit_count, building_count, has_any_objects),
+                );
             }
         }
 

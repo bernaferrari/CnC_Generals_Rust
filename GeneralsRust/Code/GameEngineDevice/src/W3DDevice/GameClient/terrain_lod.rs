@@ -12,34 +12,38 @@
 
 use cgmath::{Point3, Vector3, InnerSpace};
 
-/// Terrain LOD levels matching C++ TerrainLOD enum
-/// From GameEngine/Include/Common/GlobalData.h
+/// Terrain LOD levels matching C++ `TerrainVisual.h` `_TerrainLOD`
+/// Keep the numeric discriminants in sync with `TerrainLODNames[]`.
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TerrainLOD {
-    /// No terrain rendering
-    Disabled = 0,
+    /// Invalid / unset terrain LOD
+    Invalid = 0,
     /// Minimum quality (half resolution, no clouds, no water)
     Min = 1,
-    /// Half resolution with clouds
-    HalfClouds = 2,
     /// Stretched terrain, no clouds
-    StretchNoClouds = 3,
-    /// Stretched terrain with clouds
-    StretchClouds = 4,
+    StretchNoClouds = 2,
+    /// Half resolution with clouds
+    HalfClouds = 3,
     /// Full resolution, no clouds
-    NoClouds = 5,
+    NoClouds = 4,
+    /// Stretched terrain with clouds
+    StretchClouds = 5,
     /// Full resolution, no water
     NoWater = 6,
     /// Maximum quality (full resolution, all features)
     Max = 7,
     /// Automatic LOD based on performance
     Automatic = 8,
+    /// Terrain rendering disabled
+    Disable = 9,
+    /// Sentinel matching the C++ `TERRAIN_LOD_NUM_TYPES` terminator
+    NumTypes = 10,
 }
 
 impl Default for TerrainLOD {
     fn default() -> Self {
-        TerrainLOD::Max
+        TerrainLOD::Automatic
     }
 }
 
@@ -47,15 +51,17 @@ impl TerrainLOD {
     /// Convert from u32
     pub fn from_u32(value: u32) -> Option<Self> {
         match value {
-            0 => Some(TerrainLOD::Disabled),
+            0 => Some(TerrainLOD::Invalid),
             1 => Some(TerrainLOD::Min),
-            2 => Some(TerrainLOD::HalfClouds),
-            3 => Some(TerrainLOD::StretchNoClouds),
-            4 => Some(TerrainLOD::StretchClouds),
-            5 => Some(TerrainLOD::NoClouds),
+            2 => Some(TerrainLOD::StretchNoClouds),
+            3 => Some(TerrainLOD::HalfClouds),
+            4 => Some(TerrainLOD::NoClouds),
+            5 => Some(TerrainLOD::StretchClouds),
             6 => Some(TerrainLOD::NoWater),
             7 => Some(TerrainLOD::Max),
             8 => Some(TerrainLOD::Automatic),
+            9 => Some(TerrainLOD::Disable),
+            10 => Some(TerrainLOD::NumTypes),
             _ => None,
         }
     }
@@ -323,8 +329,17 @@ mod tests {
 
     #[test]
     fn test_terrain_lod_enum() {
+        assert_eq!(TerrainLOD::Invalid as u32, 0);
         assert_eq!(TerrainLOD::Min as u32, 1);
+        assert_eq!(TerrainLOD::StretchNoClouds as u32, 2);
+        assert_eq!(TerrainLOD::HalfClouds as u32, 3);
+        assert_eq!(TerrainLOD::NoClouds as u32, 4);
+        assert_eq!(TerrainLOD::StretchClouds as u32, 5);
+        assert_eq!(TerrainLOD::NoWater as u32, 6);
         assert_eq!(TerrainLOD::Max as u32, 7);
+        assert_eq!(TerrainLOD::Automatic as u32, 8);
+        assert_eq!(TerrainLOD::Disable as u32, 9);
+        assert_eq!(TerrainLOD::NumTypes as u32, 10);
 
         assert!(TerrainLOD::Max.use_cloud_map());
         assert!(TerrainLOD::Max.use_water_plane());

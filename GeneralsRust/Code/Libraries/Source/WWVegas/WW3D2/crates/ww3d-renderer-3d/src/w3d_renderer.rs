@@ -1,8 +1,6 @@
 use crate::core::error::RendererResult;
 use crate::render_object_system::RenderInfoClass;
-use crate::rendering::batching::batch_renderer::{
-    BatchRenderer, BatchVertex, MaterialKey,
-};
+use crate::rendering::batching::batch_renderer::{BatchRenderer, BatchVertex, MaterialKey};
 ///! W3DRenderer - High-level rendering API for drawing W3D meshes and models
 ///!
 ///! This module provides the main public rendering API that matches the C++ WW3D renderer

@@ -32,8 +32,8 @@ use crate::modules::{
     UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
 };
 use crate::weapon::with_weapon_store;
-use game_engine::common::system::{Snapshotable, Xfer};
 use crate::MAKE_MODELCONDITION_MASK;
+use game_engine::common::system::{Snapshotable, Xfer};
 pub type DieMuxData = crate::object::die::DieMuxData;
 use crate::helpers::TheWeaponStore;
 use crate::object::die::{

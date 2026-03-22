@@ -589,10 +589,10 @@ impl W3DPerformanceOptimizer {
 
     fn refresh_memory_stats(&mut self, draw_calls: u32, estimated_batch_memory: u64) {
         let mut stats = self.memory_stats.write();
-        let gpu_culler_memory =
-            self.gpu_culler
-                .approximate_memory_bytes()
-                .saturating_add(self.instance_manager.approximate_memory_bytes());
+        let gpu_culler_memory = self
+            .gpu_culler
+            .approximate_memory_bytes()
+            .saturating_add(self.instance_manager.approximate_memory_bytes());
 
         stats.used_bytes = estimated_batch_memory.saturating_add(gpu_culler_memory);
         stats.allocations = draw_calls;
@@ -637,8 +637,8 @@ impl W3DPerformanceOptimizer {
                 settings.culling_distance = (settings.culling_distance * 0.95).clamp(200.0, 5000.0);
                 settings.max_batch_size = settings.max_batch_size.saturating_add(64).max(128);
                 if settings.dynamic_resolution {
-                    settings.max_resolution_scale =
-                        (settings.max_resolution_scale - 0.05).clamp(settings.min_resolution_scale, 1.0);
+                    settings.max_resolution_scale = (settings.max_resolution_scale - 0.05)
+                        .clamp(settings.min_resolution_scale, 1.0);
                 }
             }
             QualityAdjustment::Increase => {
@@ -646,8 +646,8 @@ impl W3DPerformanceOptimizer {
                 settings.culling_distance = (settings.culling_distance * 1.05).clamp(200.0, 5000.0);
                 settings.max_batch_size = settings.max_batch_size.saturating_sub(32).max(128);
                 if settings.dynamic_resolution {
-                    settings.max_resolution_scale =
-                        (settings.max_resolution_scale + 0.02).clamp(settings.min_resolution_scale, 1.0);
+                    settings.max_resolution_scale = (settings.max_resolution_scale + 0.02)
+                        .clamp(settings.min_resolution_scale, 1.0);
                 }
             }
             QualityAdjustment::None => {}
@@ -1372,11 +1372,13 @@ fn quality_adjustment_direction(
 }
 
 fn estimated_batch_memory_bytes(batches: &[RenderBatch]) -> u64 {
-    let batch_bytes = (batches.len() as u64).saturating_mul(std::mem::size_of::<RenderBatch>() as u64);
+    let batch_bytes =
+        (batches.len() as u64).saturating_mul(std::mem::size_of::<RenderBatch>() as u64);
     let instance_bytes = batches
         .iter()
         .map(|batch| {
-            (batch.instances.len() as u64).saturating_mul(std::mem::size_of::<InstanceData>() as u64)
+            (batch.instances.len() as u64)
+                .saturating_mul(std::mem::size_of::<InstanceData>() as u64)
         })
         .sum::<u64>();
     batch_bytes.saturating_add(instance_bytes)
@@ -1386,7 +1388,9 @@ fn estimated_triangle_count(batches: &[RenderBatch]) -> u32 {
     batches
         .iter()
         .map(|batch| batch.instances.len() as u32)
-        .fold(0u32, |acc, count| acc.saturating_add(count.saturating_mul(2)))
+        .fold(0u32, |acc, count| {
+            acc.saturating_add(count.saturating_mul(2))
+        })
 }
 
 /// Extract frustum planes from view-projection matrix

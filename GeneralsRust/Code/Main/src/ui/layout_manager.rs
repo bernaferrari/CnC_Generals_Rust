@@ -386,7 +386,8 @@ impl UILayoutManager {
                 (bottom - top) * scale_y,
             )
         };
-        let rgba = |r: f32, g: f32, b: f32, a: f32| Vec4::new(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+        let rgba =
+            |r: f32, g: f32, b: f32, a: f32| Vec4::new(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
 
         // Main menu background
         let background_id = self.create_element("MainMenuBackground");
@@ -501,9 +502,18 @@ impl UILayoutManager {
             label.z_order = 20;
             label.visible = false;
         }
-        buttons.insert("StaticTextSelectDifficulty".to_string(), difficulty_label_id);
+        buttons.insert(
+            "StaticTextSelectDifficulty".to_string(),
+            difficulty_label_id,
+        );
 
-        let mut add_button = |name: &str, text: &str, left: f32, top: f32, right: f32, bottom: f32, visible: bool| {
+        let mut add_button = |name: &str,
+                              text: &str,
+                              left: f32,
+                              top: f32,
+                              right: f32,
+                              bottom: f32,
+                              visible: bool| {
             let button_id = self.create_element(name);
             if let Some(button) = self.get_element_mut(button_id) {
                 button.rect = scale_rect(left, top, right, bottom);
@@ -549,62 +559,14 @@ impl UILayoutManager {
             231.0,
             true,
         );
-        add_button(
-            "ButtonOptions",
-            "Options",
-            540.0,
-            236.0,
-            748.0,
-            272.0,
-            true,
-        );
-        add_button(
-            "ButtonCredits",
-            "Credits",
-            540.0,
-            276.0,
-            748.0,
-            312.0,
-            true,
-        );
-        add_button(
-            "ButtonExit",
-            "Exit",
-            540.0,
-            316.0,
-            748.0,
-            352.0,
-            true,
-        );
+        add_button("ButtonOptions", "Options", 540.0, 236.0, 748.0, 272.0, true);
+        add_button("ButtonCredits", "Credits", 540.0, 276.0, 748.0, 312.0, true);
+        add_button("ButtonExit", "Exit", 540.0, 316.0, 748.0, 352.0, true);
 
         // Single-player panel (MapBorder)
-        add_button(
-            "ButtonUSA",
-            "USA",
-            540.0,
-            116.0,
-            748.0,
-            152.0,
-            false,
-        );
-        add_button(
-            "ButtonGLA",
-            "GLA",
-            540.0,
-            156.0,
-            748.0,
-            192.0,
-            false,
-        );
-        add_button(
-            "ButtonChina",
-            "China",
-            540.0,
-            196.0,
-            748.0,
-            231.0,
-            false,
-        );
+        add_button("ButtonUSA", "USA", 540.0, 116.0, 748.0, 152.0, false);
+        add_button("ButtonGLA", "GLA", 540.0, 156.0, 748.0, 192.0, false);
+        add_button("ButtonChina", "China", 540.0, 196.0, 748.0, 231.0, false);
         add_button(
             "ButtonChallenge",
             "Generals Challenge",
@@ -634,15 +596,7 @@ impl UILayoutManager {
         );
 
         // Multiplayer panel (MapBorder1)
-        add_button(
-            "ButtonOnline",
-            "Online",
-            540.0,
-            116.0,
-            748.0,
-            151.0,
-            false,
-        );
+        add_button("ButtonOnline", "Online", 540.0, 116.0, 748.0, 151.0, false);
         add_button(
             "ButtonNetwork",
             "Network",
@@ -652,15 +606,7 @@ impl UILayoutManager {
             191.0,
             false,
         );
-        add_button(
-            "ButtonMultiBack",
-            "Back",
-            540.0,
-            196.0,
-            748.0,
-            232.0,
-            false,
-        );
+        add_button("ButtonMultiBack", "Back", 540.0, 196.0, 748.0, 232.0, false);
 
         // Load/replay panel (MapBorder3)
         add_button(
@@ -692,42 +638,10 @@ impl UILayoutManager {
         );
 
         // Difficulty panel (MapBorder4)
-        add_button(
-            "ButtonEasy",
-            "Easy",
-            540.0,
-            156.0,
-            748.0,
-            191.0,
-            false,
-        );
-        add_button(
-            "ButtonMedium",
-            "Medium",
-            540.0,
-            196.0,
-            748.0,
-            231.0,
-            false,
-        );
-        add_button(
-            "ButtonHard",
-            "Hard",
-            540.0,
-            236.0,
-            748.0,
-            272.0,
-            false,
-        );
-        add_button(
-            "ButtonDiffBack",
-            "Back",
-            540.0,
-            276.0,
-            748.0,
-            312.0,
-            false,
-        );
+        add_button("ButtonEasy", "Easy", 540.0, 156.0, 748.0, 191.0, false);
+        add_button("ButtonMedium", "Medium", 540.0, 196.0, 748.0, 231.0, false);
+        add_button("ButtonHard", "Hard", 540.0, 236.0, 748.0, 272.0, false);
+        add_button("ButtonDiffBack", "Back", 540.0, 276.0, 748.0, 312.0, false);
 
         buttons
     }

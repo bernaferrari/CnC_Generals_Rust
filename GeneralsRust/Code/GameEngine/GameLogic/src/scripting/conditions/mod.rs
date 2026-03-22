@@ -5,12 +5,14 @@
 pub mod skirmish_conditions;
 
 pub use super::{ScriptContext, ScriptValue};
-use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Relationship};
+use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
-use crate::object_manager::get_object_manager;
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object_manager::get_object_manager;
 use crate::player::{player_list, Player, PlayerType};
-use crate::scripting::engine::{get_area_tracker, get_event_manager, get_named_object_tracker, get_script_engine};
+use crate::scripting::engine::{
+    get_area_tracker, get_event_manager, get_named_object_tracker, get_script_engine,
+};
 use crate::scripting::events::{EventFilter, GameEventType};
 use crate::team::get_team_factory;
 use crate::upgrade::center::get_upgrade_center;
@@ -79,7 +81,10 @@ fn compare_f64(actual: f64, comparison: &str, expected: f64) -> GameLogicResult<
 }
 
 /// Helper: get string parameter from condition parameters
-pub(crate) fn get_str_param(parameters: &HashMap<String, ScriptValue>, key: &str) -> GameLogicResult<String> {
+pub(crate) fn get_str_param(
+    parameters: &HashMap<String, ScriptValue>,
+    key: &str,
+) -> GameLogicResult<String> {
     match parameters.get(key) {
         Some(ScriptValue::String(s)) => Ok(s.clone()),
         Some(v) => Err(GameLogicError::Configuration(format!(
@@ -106,9 +111,9 @@ pub(crate) fn get_player_arc(
     parameters: &HashMap<String, ScriptValue>,
     key: &str,
 ) -> GameLogicResult<Option<Arc<RwLock<Player>>>> {
-    let val = parameters.get(key).ok_or_else(|| {
-        GameLogicError::Configuration(format!("Missing parameter '{}'", key))
-    })?;
+    let val = parameters
+        .get(key)
+        .ok_or_else(|| GameLogicError::Configuration(format!("Missing parameter '{}'", key)))?;
     match val {
         ScriptValue::PlayerId(id) => {
             let list = player_list();
@@ -3352,16 +3357,24 @@ impl ScriptCondition for PlayerAllDestroyedCondition {
             Some(p) => p,
             None => return Ok(true), // Non-existent player is all destroyed
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(!player.has_any_objects())
     }
 
-    fn name(&self) -> &str { "player_all_destroyed" }
-    fn description(&self) -> &str { "Checks if a player has no objects remaining (C++ PLAYER_ALL_DESTROYED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_all_destroyed"
+    }
+    fn description(&self) -> &str {
+        "Checks if a player has no objects remaining (C++ PLAYER_ALL_DESTROYED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3384,19 +3397,29 @@ impl ScriptCondition for PlayerHasCreditsCondition {
         let credits = super::actions::get_int_param(parameters, "credits")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let money = player.get_money().count_money() as i64;
         Ok(perform_comparison(credits, &comparison, money))
     }
 
-    fn name(&self) -> &str { "player_has_credits" }
-    fn description(&self) -> &str { "Checks if player has credits matching comparison (C++ PLAYER_HAS_CREDITS)" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "credits".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "player_has_credits"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Checks if player has credits matching comparison (C++ PLAYER_HAS_CREDITS)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "credits".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3416,16 +3439,24 @@ impl ScriptCondition for PlayerHasPowerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(player.get_energy().has_sufficient_power())
     }
 
-    fn name(&self) -> &str { "player_has_power" }
-    fn description(&self) -> &str { "Checks if player has sufficient power (C++ PLAYER_HAS_POWER)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_has_power"
+    }
+    fn description(&self) -> &str {
+        "Checks if player has sufficient power (C++ PLAYER_HAS_POWER)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3440,13 +3471,24 @@ impl ScriptCondition for PlayerHasNoPowerCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        PlayerHasPowerCondition.evaluate(parameters, context).await.map(|b| !b)
+        PlayerHasPowerCondition
+            .evaluate(parameters, context)
+            .await
+            .map(|b| !b)
     }
 
-    fn name(&self) -> &str { "player_has_no_power" }
-    fn description(&self) -> &str { "Checks if player does NOT have sufficient power (C++ PLAYER_HAS_NO_POWER)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_has_no_power"
+    }
+    fn description(&self) -> &str {
+        "Checks if player does NOT have sufficient power (C++ PLAYER_HAS_NO_POWER)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3471,16 +3513,24 @@ impl ScriptCondition for NamedUnitExistsCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         Ok(!obj.is_effectively_dead())
     }
 
-    fn name(&self) -> &str { "named_unit_exists" }
-    fn description(&self) -> &str { "Checks if named unit exists and is not dead (C++ NAMED_NOT_DESTROYED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_unit_exists"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit exists and is not dead (C++ NAMED_NOT_DESTROYED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3509,16 +3559,24 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
             Some(arc) => arc,
             None => return Ok(true), // Was in tracker but gone from registry = destroyed
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         Ok(obj.is_effectively_dead())
     }
 
-    fn name(&self) -> &str { "named_unit_destroyed" }
-    fn description(&self) -> &str { "Checks if named unit is destroyed (C++ NAMED_DESTROYED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_unit_destroyed"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit is destroyed (C++ NAMED_DESTROYED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3543,16 +3601,24 @@ impl ScriptCondition for NamedUnitDyingCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         Ok(obj.is_effectively_dead())
     }
 
-    fn name(&self) -> &str { "named_unit_dying" }
-    fn description(&self) -> &str { "Checks if named unit is dying but not yet fully removed (C++ NAMED_DYING)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_unit_dying"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit is dying but not yet fully removed (C++ NAMED_DYING)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3587,10 +3653,18 @@ impl ScriptCondition for NamedUnitTotallyDeadCondition {
         }
     }
 
-    fn name(&self) -> &str { "named_unit_totally_dead" }
-    fn description(&self) -> &str { "Checks if named unit has been fully removed from the game (C++ NAMED_TOTALLY_DEAD)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_unit_totally_dead"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit has been fully removed from the game (C++ NAMED_TOTALLY_DEAD)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3610,9 +3684,9 @@ impl ScriptCondition for NamedOwnedByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
         drop(player);
 
@@ -3624,18 +3698,24 @@ impl ScriptCondition for NamedOwnedByPlayerCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         Ok(obj.get_controlling_player_id() == Some(player_id))
     }
 
-    fn name(&self) -> &str { "named_owned_by_player" }
-    fn description(&self) -> &str { "Checks if named unit is owned by a specific player (C++ NAMED_OWNED_BY_PLAYER)" }
+    fn name(&self) -> &str {
+        "named_owned_by_player"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit is owned by a specific player (C++ NAMED_OWNED_BY_PLAYER)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "player".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3661,22 +3741,30 @@ impl ScriptCondition for NamedInsideAreaCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         // Check if object is in the area's tracked objects
         let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+        let objects_in_area = area_tracker
+            .get_objects_in_area(&area_name)
+            .unwrap_or_default();
         Ok(objects_in_area.contains(&object_id))
     }
 
-    fn name(&self) -> &str { "named_inside_area" }
-    fn description(&self) -> &str { "Checks if named unit is inside a trigger area (C++ NAMED_INSIDE_AREA)" }
+    fn name(&self) -> &str {
+        "named_inside_area"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit is inside a trigger area (C++ NAMED_INSIDE_AREA)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3691,15 +3779,24 @@ impl ScriptCondition for NamedOutsideAreaCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        NamedInsideAreaCondition.evaluate(parameters, context).await.map(|b| !b)
+        NamedInsideAreaCondition
+            .evaluate(parameters, context)
+            .await
+            .map(|b| !b)
     }
 
-    fn name(&self) -> &str { "named_outside_area" }
-    fn description(&self) -> &str { "Checks if named unit is outside a trigger area (C++ NAMED_OUTSIDE_AREA)" }
+    fn name(&self) -> &str {
+        "named_outside_area"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit is outside a trigger area (C++ NAMED_OUTSIDE_AREA)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3719,9 +3816,9 @@ impl ScriptCondition for NamedDiscoveredCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_index = player.get_id() as u32;
         drop(player);
 
@@ -3733,9 +3830,9 @@ impl ScriptCondition for NamedDiscoveredCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         // Held/disabled objects are not visible
         if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
@@ -3745,12 +3842,18 @@ impl ScriptCondition for NamedDiscoveredCondition {
         Ok(obj.is_visible_to_player(player_index))
     }
 
-    fn name(&self) -> &str { "named_discovered" }
-    fn description(&self) -> &str { "Checks if named unit has been discovered by a player (C++ NAMED_DISCOVERED)" }
+    fn name(&self) -> &str {
+        "named_discovered"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit has been discovered by a player (C++ NAMED_DISCOVERED)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "player".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3775,9 +3878,9 @@ impl ScriptCondition for NamedBuildingIsEmptyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         if let Some(contain) = obj.get_contain() {
             if let Ok(contain_guard) = contain.lock() {
@@ -3787,10 +3890,18 @@ impl ScriptCondition for NamedBuildingIsEmptyCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "named_building_is_empty" }
-    fn description(&self) -> &str { "Checks if named building has no units inside (C++ NAMED_BUILDING_IS_EMPTY)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["building_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_building_is_empty"
+    }
+    fn description(&self) -> &str {
+        "Checks if named building has no units inside (C++ NAMED_BUILDING_IS_EMPTY)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["building_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3815,9 +3926,9 @@ impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         if let Some(contain) = obj.get_contain() {
             if let Ok(contain_guard) = contain.lock() {
@@ -3829,10 +3940,18 @@ impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "named_has_free_container_slots" }
-    fn description(&self) -> &str { "Checks if named unit has free container/garrison slots (C++ NAMED_HAS_FREE_CONTAINER_SLOTS)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_has_free_container_slots"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit has free container/garrison slots (C++ NAMED_HAS_FREE_CONTAINER_SLOTS)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3857,10 +3976,18 @@ impl ScriptCondition for NamedCreatedCondition {
         }
     }
 
-    fn name(&self) -> &str { "named_created" }
-    fn description(&self) -> &str { "Checks if named unit has been created (C++ NAMED_CREATED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_created"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit has been created (C++ NAMED_CREATED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3889,10 +4016,18 @@ impl ScriptCondition for NamedSelectedCondition {
         Ok(mgr.is_object_selected_by_any_player(object_id))
     }
 
-    fn name(&self) -> &str { "named_selected" }
-    fn description(&self) -> &str { "Checks if named unit is currently selected (C++ NAMED_SELECTED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "named_selected"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit is currently selected (C++ NAMED_SELECTED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3918,9 +4053,9 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         if let Some(ai) = obj.get_ai_update_interface() {
             if let Ok(ai_guard) = ai.try_lock() {
@@ -3930,12 +4065,18 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "named_reached_waypoints_end" }
-    fn description(&self) -> &str { "Checks if named unit has reached the end of its waypoint path (C++ NAMED_REACHED_WAYPOINTS_END)" }
+    fn name(&self) -> &str {
+        "named_reached_waypoints_end"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit has reached the end of its waypoint path (C++ NAMED_REACHED_WAYPOINTS_END)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "waypoint_path".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3953,7 +4094,11 @@ impl ScriptCondition for TeamDestroyedCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -3970,10 +4115,18 @@ impl ScriptCondition for TeamDestroyedCondition {
         }
     }
 
-    fn name(&self) -> &str { "team_destroyed" }
-    fn description(&self) -> &str { "Checks if a team has been destroyed (no objects remaining) (C++ TEAM_DESTROYED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "team_destroyed"
+    }
+    fn description(&self) -> &str {
+        "Checks if a team has been destroyed (no objects remaining) (C++ TEAM_DESTROYED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3991,7 +4144,11 @@ impl ScriptCondition for TeamHasUnitsCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -4008,10 +4165,18 @@ impl ScriptCondition for TeamHasUnitsCondition {
         }
     }
 
-    fn name(&self) -> &str { "team_has_units" }
-    fn description(&self) -> &str { "Checks if a team has any living units (C++ TEAM_HAS_UNITS)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "team_has_units"
+    }
+    fn description(&self) -> &str {
+        "Checks if a team has any living units (C++ TEAM_HAS_UNITS)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4029,7 +4194,11 @@ impl ScriptCondition for TeamStateIsCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let state_name = get_str_param(parameters, "state")?;
 
@@ -4048,12 +4217,18 @@ impl ScriptCondition for TeamStateIsCondition {
         }
     }
 
-    fn name(&self) -> &str { "team_state_is" }
-    fn description(&self) -> &str { "Checks if team's state matches a specific state (C++ TEAM_STATE_IS)" }
+    fn name(&self) -> &str {
+        "team_state_is"
+    }
+    fn description(&self) -> &str {
+        "Checks if team's state matches a specific state (C++ TEAM_STATE_IS)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "state".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4068,15 +4243,24 @@ impl ScriptCondition for TeamStateIsNotCondition {
         parameters: &HashMap<String, ScriptValue>,
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        TeamStateIsCondition.evaluate(parameters, context).await.map(|b| !b)
+        TeamStateIsCondition
+            .evaluate(parameters, context)
+            .await
+            .map(|b| !b)
     }
 
-    fn name(&self) -> &str { "team_state_is_not" }
-    fn description(&self) -> &str { "Checks if team's state does NOT match a specific state (C++ TEAM_STATE_IS_NOT)" }
+    fn name(&self) -> &str {
+        "team_state_is_not"
+    }
+    fn description(&self) -> &str {
+        "Checks if team's state does NOT match a specific state (C++ TEAM_STATE_IS_NOT)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "state".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4095,16 +4279,20 @@ impl ScriptCondition for TeamOwnedByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
         drop(player);
 
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -4121,12 +4309,18 @@ impl ScriptCondition for TeamOwnedByPlayerCondition {
         }
     }
 
-    fn name(&self) -> &str { "team_owned_by_player" }
-    fn description(&self) -> &str { "Checks if a team is owned by a specific player (C++ TEAM_OWNED_BY_PLAYER)" }
+    fn name(&self) -> &str {
+        "team_owned_by_player"
+    }
+    fn description(&self) -> &str {
+        "Checks if a team is owned by a specific player (C++ TEAM_OWNED_BY_PLAYER)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "player".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4146,16 +4340,20 @@ impl ScriptCondition for TeamDiscoveredCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_index = player.get_id() as u32;
         drop(player);
 
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -4165,9 +4363,9 @@ impl ScriptCondition for TeamDiscoveredCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         for &member_id in team.get_members() {
             if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
@@ -4183,12 +4381,18 @@ impl ScriptCondition for TeamDiscoveredCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "team_discovered" }
-    fn description(&self) -> &str { "Checks if any team member is visible to a player (C++ TEAM_DISCOVERED)" }
+    fn name(&self) -> &str {
+        "team_discovered"
+    }
+    fn description(&self) -> &str {
+        "Checks if any team member is visible to a player (C++ TEAM_DISCOVERED)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "player".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4206,7 +4410,11 @@ impl ScriptCondition for TeamCreatedCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -4223,10 +4431,18 @@ impl ScriptCondition for TeamCreatedCondition {
         }
     }
 
-    fn name(&self) -> &str { "team_created" }
-    fn description(&self) -> &str { "Checks if a team has been created (C++ TEAM_CREATED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "team_created"
+    }
+    fn description(&self) -> &str {
+        "Checks if a team has been created (C++ TEAM_CREATED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4250,17 +4466,25 @@ impl ScriptCondition for BridgeRepairedCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         // Bridge is repaired if it's not destroyed and has no damage status
         Ok(!obj.is_destroyed())
     }
 
-    fn name(&self) -> &str { "bridge_repaired" }
-    fn description(&self) -> &str { "Checks if a named bridge has been repaired (C++ BRIDGE_REPAIRED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["bridge_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "bridge_repaired"
+    }
+    fn description(&self) -> &str {
+        "Checks if a named bridge has been repaired (C++ BRIDGE_REPAIRED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["bridge_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4284,16 +4508,24 @@ impl ScriptCondition for BridgeBrokenCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         Ok(obj.is_destroyed())
     }
 
-    fn name(&self) -> &str { "bridge_broken" }
-    fn description(&self) -> &str { "Checks if a named bridge is broken (C++ BRIDGE_BROKEN)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["bridge_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "bridge_broken"
+    }
+    fn description(&self) -> &str {
+        "Checks if a named bridge is broken (C++ BRIDGE_BROKEN)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["bridge_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4311,7 +4543,11 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -4323,9 +4559,9 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         let members = team.get_members();
         let mut inside_count = 0u32;
@@ -4333,7 +4569,9 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
 
         for &member_id in members {
             let area_tracker = get_area_tracker();
-            let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+            let objects_in_area = area_tracker
+                .get_objects_in_area(&area_name)
+                .unwrap_or_default();
             if objects_in_area.contains(&member_id) {
                 inside_count += 1;
             }
@@ -4342,12 +4580,18 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
         Ok(inside_count > 0 && inside_count < total)
     }
 
-    fn name(&self) -> &str { "team_inside_area_partially" }
-    fn description(&self) -> &str { "Checks if some (but not all) team members are inside an area (C++ TEAM_INSIDE_AREA_PARTIALLY)" }
+    fn name(&self) -> &str {
+        "team_inside_area_partially"
+    }
+    fn description(&self) -> &str {
+        "Checks if some (but not all) team members are inside an area (C++ TEAM_INSIDE_AREA_PARTIALLY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4365,7 +4609,11 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -4377,9 +4625,9 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         let members = team.get_members();
         if members.is_empty() {
@@ -4388,7 +4636,9 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
 
         let area_tracker = get_area_tracker();
         for &member_id in members {
-            let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+            let objects_in_area = area_tracker
+                .get_objects_in_area(&area_name)
+                .unwrap_or_default();
             if !objects_in_area.contains(&member_id) {
                 return Ok(false);
             }
@@ -4396,12 +4646,18 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
         Ok(true)
     }
 
-    fn name(&self) -> &str { "team_inside_area_entirely" }
-    fn description(&self) -> &str { "Checks if ALL team members are inside an area (C++ TEAM_INSIDE_AREA_ENTIRELY)" }
+    fn name(&self) -> &str {
+        "team_inside_area_entirely"
+    }
+    fn description(&self) -> &str {
+        "Checks if ALL team members are inside an area (C++ TEAM_INSIDE_AREA_ENTIRELY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4417,17 +4673,27 @@ impl ScriptCondition for TeamOutsideAreaEntirelyCondition {
         context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         // Not entirely inside AND not partially inside = entirely outside
-        let entirely_inside = TeamInsideAreaEntirelyCondition.evaluate(parameters, context).await?;
-        let partially_inside = TeamInsideAreaPartiallyCondition.evaluate(parameters, context).await?;
+        let entirely_inside = TeamInsideAreaEntirelyCondition
+            .evaluate(parameters, context)
+            .await?;
+        let partially_inside = TeamInsideAreaPartiallyCondition
+            .evaluate(parameters, context)
+            .await?;
         Ok(!entirely_inside && !partially_inside)
     }
 
-    fn name(&self) -> &str { "team_outside_area_entirely" }
-    fn description(&self) -> &str { "Checks if ALL team members are outside an area (C++ TEAM_OUTSIDE_AREA_ENTIRELY)" }
+    fn name(&self) -> &str {
+        "team_outside_area_entirely"
+    }
+    fn description(&self) -> &str {
+        "Checks if ALL team members are outside an area (C++ TEAM_OUTSIDE_AREA_ENTIRELY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4447,9 +4713,9 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_mask = player.get_player_mask();
         drop(player);
 
@@ -4461,9 +4727,9 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         if let Some(contain) = obj.get_contain() {
             if let Ok(contain_guard) = contain.lock() {
@@ -4474,12 +4740,18 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "building_entered_by_player" }
-    fn description(&self) -> &str { "Checks if a building was entered by a specific player (C++ BUILDING_ENTERED_BY_PLAYER)" }
+    fn name(&self) -> &str {
+        "building_entered_by_player"
+    }
+    fn description(&self) -> &str {
+        "Checks if a building was entered by a specific player (C++ BUILDING_ENTERED_BY_PLAYER)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["building_name".to_string(), "player".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4505,20 +4777,26 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
         let status_mask = parse_object_status_mask(&status_str);
         Ok(obj.get_status_bits().intersects(status_mask))
     }
 
-    fn name(&self) -> &str { "unit_has_object_status" }
-    fn description(&self) -> &str { "Checks if named unit has a specific object status (C++ UNIT_HAS_OBJECT_STATUS)" }
+    fn name(&self) -> &str {
+        "unit_has_object_status"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit has a specific object status (C++ UNIT_HAS_OBJECT_STATUS)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "status".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4536,7 +4814,11 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
@@ -4549,9 +4831,9 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         for &member_id in team.get_members() {
             if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
@@ -4569,12 +4851,18 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
         Ok(true)
     }
 
-    fn name(&self) -> &str { "team_all_has_object_status" }
-    fn description(&self) -> &str { "Checks if ALL team members have a specific status (C++ TEAM_ALL_HAS_OBJECT_STATUS)" }
+    fn name(&self) -> &str {
+        "team_all_has_object_status"
+    }
+    fn description(&self) -> &str {
+        "Checks if ALL team members have a specific status (C++ TEAM_ALL_HAS_OBJECT_STATUS)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "status".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4592,7 +4880,11 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
@@ -4605,9 +4897,9 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         for &member_id in team.get_members() {
             if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
@@ -4621,12 +4913,18 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "team_some_has_object_status" }
-    fn description(&self) -> &str { "Checks if ANY team member has a specific status (C++ TEAM_SOME_HAS_OBJECT_STATUS)" }
+    fn name(&self) -> &str {
+        "team_some_has_object_status"
+    }
+    fn description(&self) -> &str {
+        "Checks if ANY team member has a specific status (C++ TEAM_SOME_HAS_OBJECT_STATUS)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "status".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4645,9 +4943,9 @@ impl ScriptCondition for BuiltByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
         drop(player);
 
@@ -4672,12 +4970,18 @@ impl ScriptCondition for BuiltByPlayerCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "built_by_player" }
-    fn description(&self) -> &str { "Checks if player has built an object of a specific type (C++ BUILT_BY_PLAYER)" }
+    fn name(&self) -> &str {
+        "built_by_player"
+    }
+    fn description(&self) -> &str {
+        "Checks if player has built an object of a specific type (C++ BUILT_BY_PLAYER)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["object_type".to_string(), "player".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4709,24 +5013,32 @@ impl ScriptCondition for NamedEnteredAreaCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         if obj.is_effectively_dead() {
             return Ok(false);
         }
 
         let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+        let objects_in_area = area_tracker
+            .get_objects_in_area(&area_name)
+            .unwrap_or_default();
         Ok(objects_in_area.contains(&object_id))
     }
 
-    fn name(&self) -> &str { "named_entered_area" }
-    fn description(&self) -> &str { "Checks if named unit entered a trigger area (C++ NAMED_ENTERED_AREA)" }
+    fn name(&self) -> &str {
+        "named_entered_area"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit entered a trigger area (C++ NAMED_ENTERED_AREA)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4753,25 +5065,33 @@ impl ScriptCondition for NamedExitedAreaCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object: {}", e))
-        })?;
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
         if obj.is_effectively_dead() {
             return Ok(false);
         }
 
         let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+        let objects_in_area = area_tracker
+            .get_objects_in_area(&area_name)
+            .unwrap_or_default();
         // "Exited" means not currently in the area
         Ok(!objects_in_area.contains(&object_id))
     }
 
-    fn name(&self) -> &str { "named_exited_area" }
-    fn description(&self) -> &str { "Checks if named unit exited a trigger area (C++ NAMED_EXITED_AREA)" }
+    fn name(&self) -> &str {
+        "named_exited_area"
+    }
+    fn description(&self) -> &str {
+        "Checks if named unit exited a trigger area (C++ NAMED_EXITED_AREA)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4789,7 +5109,11 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -4801,9 +5125,9 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         let members = team.get_members();
         if members.is_empty() {
@@ -4811,7 +5135,9 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
         }
 
         let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+        let objects_in_area = area_tracker
+            .get_objects_in_area(&area_name)
+            .unwrap_or_default();
         for &member_id in members {
             if !objects_in_area.contains(&member_id) {
                 return Ok(false);
@@ -4820,12 +5146,18 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
         Ok(true)
     }
 
-    fn name(&self) -> &str { "team_entered_area_entirely" }
-    fn description(&self) -> &str { "Checks if ALL team members entered an area (C++ TEAM_ENTERED_AREA_ENTIRELY)" }
+    fn name(&self) -> &str {
+        "team_entered_area_entirely"
+    }
+    fn description(&self) -> &str {
+        "Checks if ALL team members entered an area (C++ TEAM_ENTERED_AREA_ENTIRELY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4843,7 +5175,11 @@ impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
             Some(ScriptValue::String(n)) => n.clone(),
-            _ => return Err(GameLogicError::Configuration("Missing 'team' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'team' parameter".to_string(),
+                ))
+            }
         };
         let area_name = get_str_param(parameters, "area_name")?;
 
@@ -4855,12 +5191,14 @@ impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read team: {}", e))
-        })?;
+        let team = team_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
 
         let area_tracker = get_area_tracker();
-        let objects_in_area = area_tracker.get_objects_in_area(&area_name).unwrap_or_default();
+        let objects_in_area = area_tracker
+            .get_objects_in_area(&area_name)
+            .unwrap_or_default();
         for &member_id in team.get_members() {
             if objects_in_area.contains(&member_id) {
                 return Ok(true);
@@ -4869,12 +5207,18 @@ impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "team_entered_area_partially" }
-    fn description(&self) -> &str { "Checks if any team member entered an area (C++ TEAM_ENTERED_AREA_PARTIALLY)" }
+    fn name(&self) -> &str {
+        "team_entered_area_partially"
+    }
+    fn description(&self) -> &str {
+        "Checks if any team member entered an area (C++ TEAM_ENTERED_AREA_PARTIALLY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4890,17 +5234,27 @@ impl ScriptCondition for TeamExitedAreaEntirelyCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         // All members outside = NOT (some inside OR all inside)
-        let partially = TeamEnteredAreaPartiallyCondition.evaluate(parameters, _context).await?;
-        let entirely = TeamEnteredAreaEntirelyCondition.evaluate(parameters, _context).await?;
+        let partially = TeamEnteredAreaPartiallyCondition
+            .evaluate(parameters, _context)
+            .await?;
+        let entirely = TeamEnteredAreaEntirelyCondition
+            .evaluate(parameters, _context)
+            .await?;
         Ok(!partially && !entirely)
     }
 
-    fn name(&self) -> &str { "team_exited_area_entirely" }
-    fn description(&self) -> &str { "Checks if ALL team members exited an area (C++ TEAM_EXITED_AREA_ENTIRELY)" }
+    fn name(&self) -> &str {
+        "team_exited_area_entirely"
+    }
+    fn description(&self) -> &str {
+        "Checks if ALL team members exited an area (C++ TEAM_EXITED_AREA_ENTIRELY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4916,16 +5270,24 @@ impl ScriptCondition for TeamExitedAreaPartiallyCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         // Some members outside = NOT all inside
-        let entirely = TeamEnteredAreaEntirelyCondition.evaluate(parameters, _context).await?;
+        let entirely = TeamEnteredAreaEntirelyCondition
+            .evaluate(parameters, _context)
+            .await?;
         Ok(!entirely)
     }
 
-    fn name(&self) -> &str { "team_exited_area_partially" }
-    fn description(&self) -> &str { "Checks if some team members exited an area (C++ TEAM_EXITED_AREA_PARTIALLY)" }
+    fn name(&self) -> &str {
+        "team_exited_area_partially"
+    }
+    fn description(&self) -> &str {
+        "Checks if some team members exited an area (C++ TEAM_EXITED_AREA_PARTIALLY)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4961,10 +5323,18 @@ impl ScriptCondition for PlayerTriggeredSpecialPowerCondition {
         .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "player_triggered_special_power" }
-    fn description(&self) -> &str { "Checks if player triggered a special power (C++ PLAYER_TRIGGERED_SPECIAL_POWER)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_triggered_special_power"
+    }
+    fn description(&self) -> &str {
+        "Checks if player triggered a special power (C++ PLAYER_TRIGGERED_SPECIAL_POWER)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "power_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4999,10 +5369,22 @@ impl ScriptCondition for PlayerTriggeredSpecialPowerFromNamedCondition {
         .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "player_triggered_special_power_from_named" }
-    fn description(&self) -> &str { "Checks if a player triggered a special power from a named unit (C++ PLAYER_TRIGGERED_SPECIAL_POWER_FROM_NAMED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string(), "unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_triggered_special_power_from_named"
+    }
+    fn description(&self) -> &str {
+        "Checks if a player triggered a special power from a named unit (C++ PLAYER_TRIGGERED_SPECIAL_POWER_FROM_NAMED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "power_name".to_string(),
+            "unit_name".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5038,10 +5420,18 @@ impl ScriptCondition for PlayerMidwaySpecialPowerCondition {
         .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "player_midway_special_power" }
-    fn description(&self) -> &str { "Checks if player's special power is midway (C++ PLAYER_MIDWAY_SPECIAL_POWER)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_midway_special_power"
+    }
+    fn description(&self) -> &str {
+        "Checks if player's special power is midway (C++ PLAYER_MIDWAY_SPECIAL_POWER)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "power_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5076,10 +5466,22 @@ impl ScriptCondition for PlayerMidwaySpecialPowerFromNamedCondition {
         .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "player_midway_special_power_from_named" }
-    fn description(&self) -> &str { "Checks if a player is midway through a special power from a named unit (C++ PLAYER_MIDWAY_SPECIAL_POWER_FROM_NAMED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string(), "unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_midway_special_power_from_named"
+    }
+    fn description(&self) -> &str {
+        "Checks if a player is midway through a special power from a named unit (C++ PLAYER_MIDWAY_SPECIAL_POWER_FROM_NAMED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "power_name".to_string(),
+            "unit_name".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5115,10 +5517,18 @@ impl ScriptCondition for PlayerCompletedSpecialPowerCondition {
         .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "player_completed_special_power" }
-    fn description(&self) -> &str { "Checks if player completed a special power (C++ PLAYER_COMPLETED_SPECIAL_POWER)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_completed_special_power"
+    }
+    fn description(&self) -> &str {
+        "Checks if player completed a special power (C++ PLAYER_COMPLETED_SPECIAL_POWER)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "power_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5153,10 +5563,22 @@ impl ScriptCondition for PlayerCompletedSpecialPowerFromNamedCondition {
         .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "player_completed_special_power_from_named" }
-    fn description(&self) -> &str { "Checks if a player completed a special power from a named unit (C++ PLAYER_COMPLETED_SPECIAL_POWER_FROM_NAMED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string(), "unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_completed_special_power_from_named"
+    }
+    fn description(&self) -> &str {
+        "Checks if a player completed a special power from a named unit (C++ PLAYER_COMPLETED_SPECIAL_POWER_FROM_NAMED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "power_name".to_string(),
+            "unit_name".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5177,9 +5599,9 @@ impl ScriptCondition for PlayerBuiltUpgradeCondition {
         };
         let upgrade_name = get_str_param(parameters, "upgrade")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_index = player.get_player_index() as usize;
         let completed_mask = player.get_completed_upgrade_mask();
         let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
@@ -5188,22 +5610,25 @@ impl ScriptCondition for PlayerBuiltUpgradeCondition {
         drop(player);
 
         let engine_hit = with_script_engine_mut(|engine| {
-            engine.is_upgrade_complete(
-                player_index,
-                &upgrade_name,
-                true,
-                crate::common::INVALID_ID,
-            )
+            engine.is_upgrade_complete(player_index, &upgrade_name, true, crate::common::INVALID_ID)
         })
         .unwrap_or(false);
 
         Ok(engine_hit || has_upgrade)
     }
 
-    fn name(&self) -> &str { "player_built_upgrade" }
-    fn description(&self) -> &str { "Checks if player built an upgrade (C++ PLAYER_BUILT_UPGRADE)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "upgrade".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_built_upgrade"
+    }
+    fn description(&self) -> &str {
+        "Checks if player built an upgrade (C++ PLAYER_BUILT_UPGRADE)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "upgrade".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5228,9 +5653,9 @@ impl ScriptCondition for PlayerBuiltUpgradeFromNamedCondition {
             return Ok(false);
         };
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_index = player.get_player_index() as usize;
         let completed_mask = player.get_completed_upgrade_mask();
         let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
@@ -5246,10 +5671,22 @@ impl ScriptCondition for PlayerBuiltUpgradeFromNamedCondition {
         Ok(engine_hit || has_upgrade)
     }
 
-    fn name(&self) -> &str { "player_built_upgrade_from_named" }
-    fn description(&self) -> &str { "Checks if a player built an upgrade from a named unit (C++ PLAYER_BUILT_UPGRADE_FROM_NAMED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "upgrade".to_string(), "unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_built_upgrade_from_named"
+    }
+    fn description(&self) -> &str {
+        "Checks if a player built an upgrade from a named unit (C++ PLAYER_BUILT_UPGRADE_FROM_NAMED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "upgrade".to_string(),
+            "unit_name".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5270,9 +5707,9 @@ impl ScriptCondition for PlayerAcquiredScienceCondition {
         };
         let science_name = get_str_param(parameters, "science")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let Some(store) = get_science_store() else {
             return Ok(false);
@@ -5285,16 +5722,26 @@ impl ScriptCondition for PlayerAcquiredScienceCondition {
         let player_index = player.get_player_index() as usize;
         drop(player);
 
-        Ok(with_script_engine_mut(|engine| {
-            engine.is_science_acquired(player_index, science, true)
-        })
-        .unwrap_or(false))
+        Ok(
+            with_script_engine_mut(|engine| {
+                engine.is_science_acquired(player_index, science, true)
+            })
+            .unwrap_or(false),
+        )
     }
 
-    fn name(&self) -> &str { "player_acquired_science" }
-    fn description(&self) -> &str { "Checks if player has acquired a science (C++ PLAYER_ACQUIRED_SCIENCE)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "science".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_acquired_science"
+    }
+    fn description(&self) -> &str {
+        "Checks if player has acquired a science (C++ PLAYER_ACQUIRED_SCIENCE)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "science".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5315,9 +5762,9 @@ impl ScriptCondition for PlayerCanPurchaseScienceCondition {
         };
         let science_name = get_str_param(parameters, "science")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let Some(store) = get_science_store() else {
             return Ok(false);
@@ -5330,10 +5777,18 @@ impl ScriptCondition for PlayerCanPurchaseScienceCondition {
         Ok(player.is_capable_of_purchasing_science(science))
     }
 
-    fn name(&self) -> &str { "player_can_purchase_science" }
-    fn description(&self) -> &str { "Checks if player can purchase a science (C++ PLAYER_CAN_PURCHASE_SCIENCE)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "science".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_can_purchase_science"
+    }
+    fn description(&self) -> &str {
+        "Checks if player can purchase a science (C++ PLAYER_CAN_PURCHASE_SCIENCE)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "science".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5354,17 +5809,25 @@ impl ScriptCondition for PlayerHasSciencePurchasePointsCondition {
         };
         let points = super::actions::get_int_param(parameters, "points")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         Ok((player.get_science_purchase_points() as i64) >= points)
     }
 
-    fn name(&self) -> &str { "player_has_science_purchase_points" }
-    fn description(&self) -> &str { "Checks if player has enough science purchase points (C++ PLAYER_HAS_SCIENCEPURCHASEPOINTS)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "points".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_has_science_purchase_points"
+    }
+    fn description(&self) -> &str {
+        "Checks if player has enough science purchase points (C++ PLAYER_HAS_SCIENCEPURCHASEPOINTS)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "points".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5386,21 +5849,35 @@ impl ScriptCondition for PlayerPowerComparePercentCondition {
         let percent = super::actions::get_int_param(parameters, "percent")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let ratio = player.get_energy().supply_ratio();
         let test_ratio = percent as f64 / 100.0;
-        Ok(perform_comparison((ratio * 100.0) as i64, &comparison, percent as i64))
+        Ok(perform_comparison(
+            (ratio * 100.0) as i64,
+            &comparison,
+            percent as i64,
+        ))
     }
 
-    fn name(&self) -> &str { "player_power_compare_percent" }
-    fn description(&self) -> &str { "Compares player power supply ratio (C++ PLAYER_POWER_COMPARE_PERCENT)" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "percent".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "player_power_compare_percent"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Compares player power supply ratio (C++ PLAYER_POWER_COMPARE_PERCENT)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "percent".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5422,21 +5899,31 @@ impl ScriptCondition for PlayerExcessPowerCompareValueCondition {
         let kwh = super::actions::get_int_param(parameters, "kwh")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let energy = player.get_energy();
         let actual_kwh = energy.production() - energy.consumption();
         Ok(perform_comparison(actual_kwh as i64, &comparison, kwh))
     }
 
-    fn name(&self) -> &str { "player_excess_power_compare_value" }
-    fn description(&self) -> &str { "Compares player excess power in KWH (C++ PLAYER_EXCESS_POWER_COMPARE_VALUE)" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "kwh".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "player_excess_power_compare_value"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Compares player excess power in KWH (C++ PLAYER_EXCESS_POWER_COMPARE_VALUE)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "kwh".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5454,10 +5941,18 @@ impl ScriptCondition for MultiplayerAlliedVictoryCondition {
         Ok(TheVictoryConditions::is_local_allied_victory())
     }
 
-    fn name(&self) -> &str { "multiplayer_allied_victory" }
-    fn description(&self) -> &str { "Checks if allies have won (C++ MULTIPLAYER_ALLIED_VICTORY)" }
-    fn required_parameters(&self) -> Vec<String> { vec![] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "multiplayer_allied_victory"
+    }
+    fn description(&self) -> &str {
+        "Checks if allies have won (C++ MULTIPLAYER_ALLIED_VICTORY)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5511,10 +6006,18 @@ impl ScriptCondition for MultiplayerAlliedDefeatCondition {
         Ok(allied_count > 0)
     }
 
-    fn name(&self) -> &str { "multiplayer_allied_defeat" }
-    fn description(&self) -> &str { "Checks if allies have lost (C++ MULTIPLAYER_ALLIED_DEFEAT)" }
-    fn required_parameters(&self) -> Vec<String> { vec![] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "multiplayer_allied_defeat"
+    }
+    fn description(&self) -> &str {
+        "Checks if allies have lost (C++ MULTIPLAYER_ALLIED_DEFEAT)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5541,10 +6044,18 @@ impl ScriptCondition for MultiplayerPlayerDefeatCondition {
         Ok(local_player.is_defeated() || local_player.is_player_dead())
     }
 
-    fn name(&self) -> &str { "multiplayer_player_defeat" }
-    fn description(&self) -> &str { "Checks if local player is defeated (C++ MULTIPLAYER_PLAYER_DEFEAT)" }
-    fn required_parameters(&self) -> Vec<String> { vec![] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "multiplayer_player_defeat"
+    }
+    fn description(&self) -> &str {
+        "Checks if local player is defeated (C++ MULTIPLAYER_PLAYER_DEFEAT)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5560,14 +6071,24 @@ impl ScriptCondition for VideoCompletedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let video_name = get_str_param(parameters, "video")?;
-        Ok(with_script_engine_mut(|engine| engine.is_video_complete(&video_name, true))
-            .unwrap_or(false))
+        Ok(
+            with_script_engine_mut(|engine| engine.is_video_complete(&video_name, true))
+                .unwrap_or(false),
+        )
     }
 
-    fn name(&self) -> &str { "video_completed" }
-    fn description(&self) -> &str { "Checks if video has finished playing (C++ HAS_FINISHED_VIDEO)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["video".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "video_completed"
+    }
+    fn description(&self) -> &str {
+        "Checks if video has finished playing (C++ HAS_FINISHED_VIDEO)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["video".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5583,14 +6104,24 @@ impl ScriptCondition for SpeechCompletedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let speech_name = get_str_param(parameters, "speech")?;
-        Ok(with_script_engine_mut(|engine| engine.is_speech_complete(&speech_name, true))
-            .unwrap_or(false))
+        Ok(
+            with_script_engine_mut(|engine| engine.is_speech_complete(&speech_name, true))
+                .unwrap_or(false),
+        )
     }
 
-    fn name(&self) -> &str { "speech_completed" }
-    fn description(&self) -> &str { "Checks if speech has finished (C++ HAS_FINISHED_SPEECH)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["speech".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "speech_completed"
+    }
+    fn description(&self) -> &str {
+        "Checks if speech has finished (C++ HAS_FINISHED_SPEECH)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["speech".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5606,14 +6137,24 @@ impl ScriptCondition for AudioCompletedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let audio_name = get_str_param(parameters, "audio")?;
-        Ok(with_script_engine_mut(|engine| engine.is_audio_complete(&audio_name, true))
-            .unwrap_or(false))
+        Ok(
+            with_script_engine_mut(|engine| engine.is_audio_complete(&audio_name, true))
+                .unwrap_or(false),
+        )
     }
 
-    fn name(&self) -> &str { "audio_completed" }
-    fn description(&self) -> &str { "Checks if audio has finished (C++ HAS_FINISHED_AUDIO)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["audio".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "audio_completed"
+    }
+    fn description(&self) -> &str {
+        "Checks if audio has finished (C++ HAS_FINISHED_AUDIO)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["audio".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5647,10 +6188,18 @@ impl ScriptCondition for MusicTrackCompletedCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "music_track_completed" }
-    fn description(&self) -> &str { "Checks if music track has completed (C++ MUSIC_TRACK_HAS_COMPLETED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["track".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "music_track_completed"
+    }
+    fn description(&self) -> &str {
+        "Checks if music track has completed (C++ MUSIC_TRACK_HAS_COMPLETED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["track".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5675,10 +6224,18 @@ impl ScriptCondition for CameraMovementFinishedCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "camera_movement_finished" }
-    fn description(&self) -> &str { "Checks if camera movement finished (C++ CAMERA_MOVEMENT_FINISHED)" }
-    fn required_parameters(&self) -> Vec<String> { vec![] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "camera_movement_finished"
+    }
+    fn description(&self) -> &str {
+        "Checks if camera movement finished (C++ CAMERA_MOVEMENT_FINISHED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5697,10 +6254,22 @@ impl ScriptCondition for MissionAttemptsCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "mission_attempts" }
-    fn description(&self) -> &str { "Checks mission attempts (C++ MISSION_ATTEMPTS) - STUB" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "comparison".to_string(), "attempts".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "mission_attempts"
+    }
+    fn description(&self) -> &str {
+        "Checks mission attempts (C++ MISSION_ATTEMPTS) - STUB"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "comparison".to_string(),
+            "attempts".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5721,10 +6290,18 @@ impl ScriptCondition for UnitEmptiedCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "unit_emptied" }
-    fn description(&self) -> &str { "Checks if transport was just emptied (C++ UNIT_EMPTIED) - STUB" }
-    fn required_parameters(&self) -> Vec<String> { vec!["unit_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "unit_emptied"
+    }
+    fn description(&self) -> &str {
+        "Checks if transport was just emptied (C++ UNIT_EMPTIED) - STUB"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5743,10 +6320,18 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "player_lost_object_type" }
-    fn description(&self) -> &str { "Checks if player lost an object type (C++ PLAYER_LOST_OBJECT_TYPE) - STUB" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "object_type".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "player_lost_object_type"
+    }
+    fn description(&self) -> &str {
+        "Checks if player lost an object type (C++ PLAYER_LOST_OBJECT_TYPE) - STUB"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "object_type".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5811,10 +6396,18 @@ impl ScriptCondition for ConditionFalseCondition {
     ) -> GameLogicResult<bool> {
         Ok(false)
     }
-    fn name(&self) -> &str { "condition_false" }
-    fn description(&self) -> &str { "Always evaluates to false (C++ CONDITION_FALSE)" }
-    fn required_parameters(&self) -> Vec<String> { vec![] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "condition_false"
+    }
+    fn description(&self) -> &str {
+        "Always evaluates to false (C++ CONDITION_FALSE)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 struct ConditionTrueCondition;
@@ -5827,10 +6420,18 @@ impl ScriptCondition for ConditionTrueCondition {
     ) -> GameLogicResult<bool> {
         Ok(true)
     }
-    fn name(&self) -> &str { "condition_true" }
-    fn description(&self) -> &str { "Always evaluates to true (C++ CONDITION_TRUE)" }
-    fn required_parameters(&self) -> Vec<String> { vec![] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "condition_true"
+    }
+    fn description(&self) -> &str {
+        "Always evaluates to true (C++ CONDITION_TRUE)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5845,9 +6446,8 @@ impl ScriptCondition for TimerExpiredCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let timer_name = get_str_param(parameters, "timer_name").or_else(|_| {
-            get_str_param(parameters, "timer")
-        })?;
+        let timer_name = get_str_param(parameters, "timer_name")
+            .or_else(|_| get_str_param(parameters, "timer"))?;
 
         let expired = get_script_engine()
             .read()
@@ -5865,10 +6465,18 @@ impl ScriptCondition for TimerExpiredCondition {
         Ok(expired)
     }
 
-    fn name(&self) -> &str { "timer_expired" }
-    fn description(&self) -> &str { "If a named timer has expired (C++ TIMER_EXPIRED)" }
-    fn required_parameters(&self) -> Vec<String> { vec!["timer_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec!["timer".to_string()] }
+    fn name(&self) -> &str {
+        "timer_expired"
+    }
+    fn description(&self) -> &str {
+        "If a named timer has expired (C++ TIMER_EXPIRED)"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["timer_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec!["timer".to_string()]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5884,14 +6492,20 @@ impl ScriptCondition for UnitHealthCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let unit_name = get_str_param(parameters, "unit_name").or_else(|_| {
-            get_str_param(parameters, "unit")
-        })?;
+        let unit_name = get_str_param(parameters, "unit_name")
+            .or_else(|_| get_str_param(parameters, "unit"))?;
         let comparison = get_str_param(parameters, "comparison")?;
-        let health_percent = match parameters.get("health_percent").or(parameters.get("percent")) {
+        let health_percent = match parameters
+            .get("health_percent")
+            .or(parameters.get("percent"))
+        {
             Some(ScriptValue::Int(v)) => *v as i64,
             Some(ScriptValue::Float(v)) => *v as i64,
-            _ => return Err(GameLogicError::Configuration("Missing 'health_percent' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'health_percent' parameter".to_string(),
+                ))
+            }
         };
 
         // Look up the named object
@@ -5901,7 +6515,10 @@ impl ScriptCondition for UnitHealthCondition {
         })?;
 
         let obj_arc = OBJECT_REGISTRY.get_object(object_id).ok_or_else(|| {
-            GameLogicError::Configuration(format!("Unit '{}' (id={}) not in registry", unit_name, object_id))
+            GameLogicError::Configuration(format!(
+                "Unit '{}' (id={}) not in registry",
+                unit_name, object_id
+            ))
         })?;
 
         let obj = obj_arc.read().map_err(|e| {
@@ -5913,9 +6530,9 @@ impl ScriptCondition for UnitHealthCondition {
             GameLogicError::Configuration(format!("Unit '{}' has no body module", unit_name))
         })?;
 
-        let body_guard = body.lock().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to lock body module: {}", e))
-        })?;
+        let body_guard = body
+            .lock()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to lock body module: {}", e)))?;
 
         let cur_health = body_guard.get_health();
         let initial_health = body_guard.get_initial_health();
@@ -5930,10 +6547,18 @@ impl ScriptCondition for UnitHealthCondition {
         Ok(perform_comparison(cur_percent, &comparison, health_percent))
     }
 
-    fn name(&self) -> &str { "unit_health" }
-    fn description(&self) -> &str { "Compare unit health percentage against threshold (C++ UNIT_HEALTH)" }
+    fn name(&self) -> &str {
+        "unit_health"
+    }
+    fn description(&self) -> &str {
+        "Compare unit health percentage against threshold (C++ UNIT_HEALTH)"
+    }
     fn required_parameters(&self) -> Vec<String> {
-        vec!["unit_name".to_string(), "comparison".to_string(), "health_percent".to_string()]
+        vec![
+            "unit_name".to_string(),
+            "comparison".to_string(),
+            "health_percent".to_string(),
+        ]
     }
     fn optional_parameters(&self) -> Vec<String> {
         vec!["unit".to_string(), "percent".to_string()]
@@ -5954,13 +6579,12 @@ impl ScriptCondition for EnemySightedCondition {
         parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let unit_name = get_str_param(parameters, "unit_name").or_else(|_| {
-            get_str_param(parameters, "unit")
-        })?;
+        let unit_name = get_str_param(parameters, "unit_name")
+            .or_else(|_| get_str_param(parameters, "unit"))?;
 
         // Alliance parameter: "enemy", "neutral", "friend" (default: "enemy")
-        let alliance = get_str_param_optional(parameters, "alliance")
-            .unwrap_or_else(|| "enemy".to_string());
+        let alliance =
+            get_str_param_optional(parameters, "alliance").unwrap_or_else(|| "enemy".to_string());
 
         // Target player
         let player_arc = get_player_arc(parameters, "player")?;
@@ -5969,9 +6593,9 @@ impl ScriptCondition for EnemySightedCondition {
             None => return Ok(false),
         };
         let player_id = {
-            let p_guard = player.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read player: {}", e))
-            })?;
+            let p_guard = player
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
             p_guard.get_player_index()
         };
 
@@ -6042,10 +6666,21 @@ impl ScriptCondition for EnemySightedCondition {
                         if let Ok(src_player) = src_arc.read() {
                             if let Ok(tgt_player) = player.read() {
                                 let rel = src_player.get_relationship(&tgt_player);
-                                matches!(rel, Relationship::Friend | Relationship::Ally | Relationship::Allies)
-                            } else { false }
-                        } else { false }
-                    } else { false }
+                                matches!(
+                                    rel,
+                                    Relationship::Friend
+                                        | Relationship::Ally
+                                        | Relationship::Allies
+                                )
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 }
                 _ => {
                     // "enemy" (default)
@@ -6053,9 +6688,15 @@ impl ScriptCondition for EnemySightedCondition {
                         if let Ok(src_player) = src_arc.read() {
                             if let Ok(tgt_player) = player.read() {
                                 src_player.is_enemy_with_player(&tgt_player)
-                            } else { false }
-                        } else { false }
-                    } else { false }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 }
             };
 
@@ -6067,8 +6708,12 @@ impl ScriptCondition for EnemySightedCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "enemy_sighted" }
-    fn description(&self) -> &str { "Unit sees a unit belonging to a player (C++ ENEMY_SIGHTED)" }
+    fn name(&self) -> &str {
+        "enemy_sighted"
+    }
+    fn description(&self) -> &str {
+        "Unit sees a unit belonging to a player (C++ ENEMY_SIGHTED)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string(), "player".to_string()]
     }
@@ -6100,29 +6745,30 @@ impl ScriptCondition for PlayerHasObjectComparisonCondition {
         let count_threshold = match parameters.get("count").or(parameters.get("threshold")) {
             Some(ScriptValue::Int(v)) => *v,
             Some(ScriptValue::Float(v)) => *v as i64,
-            _ => return Err(GameLogicError::Configuration("Missing 'count' parameter".to_string())),
+            _ => {
+                return Err(GameLogicError::Configuration(
+                    "Missing 'count' parameter".to_string(),
+                ))
+            }
         };
 
         // Get the object type name to match
-        let object_type_name = get_str_param(parameters, "object_type").or_else(|_| {
-            get_str_param(parameters, "unit_type")
-        })?;
+        let object_type_name = get_str_param(parameters, "object_type")
+            .or_else(|_| get_str_param(parameters, "unit_type"))?;
 
         // Iterate player's owned objects and count those matching the template name.
         // C++ uses countObjectsByThingTemplate which matches by template pointer;
         // we match by template name string which is equivalent for single-template queries.
-        let player_guard = player.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player_guard = player
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let mut count: i64 = 0;
         let all_objects = player_guard.get_all_objects();
         for obj_id in all_objects {
             if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(obj_guard) = obj_arc.read() {
-                    if obj_guard.is_alive()
-                        && obj_guard.get_template_name() == object_type_name
-                    {
+                    if obj_guard.is_alive() && obj_guard.get_template_name() == object_type_name {
                         count += 1;
                     }
                 }
@@ -6132,10 +6778,19 @@ impl ScriptCondition for PlayerHasObjectComparisonCondition {
         Ok(perform_comparison(count, &comparison, count_threshold))
     }
 
-    fn name(&self) -> &str { "player_has_object_comparison" }
-    fn description(&self) -> &str { "Player has N objects of type, compared against threshold (C++ PLAYER_HAS_OBJECT_COMPARISON)" }
+    fn name(&self) -> &str {
+        "player_has_object_comparison"
+    }
+    fn description(&self) -> &str {
+        "Player has N objects of type, compared against threshold (C++ PLAYER_HAS_OBJECT_COMPARISON)"
+    }
     fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "comparison".to_string(), "count".to_string(), "object_type".to_string()]
+        vec![
+            "player".to_string(),
+            "comparison".to_string(),
+            "count".to_string(),
+            "object_type".to_string(),
+        ]
     }
     fn optional_parameters(&self) -> Vec<String> {
         vec!["unit_type".to_string(), "threshold".to_string()]

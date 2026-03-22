@@ -12,7 +12,7 @@
 //!   to verify that clients are producing consistent state.
 
 use crate::error::{NetworkError, NetworkResult};
-use crate::network_defs::{FRAME_DATA_LENGTH, FRAMES_TO_KEEP, MAX_FRAMES_AHEAD};
+use crate::network_defs::{FRAMES_TO_KEEP, FRAME_DATA_LENGTH, MAX_FRAMES_AHEAD};
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -158,9 +158,7 @@ impl FrameBuffer {
         if let Some(pos) = self.find_frame_position(frame_number) {
             self.ack_trackers[pos].acknowledge(player_index);
             // Propagate acked_by_all flag.
-            let num_players = self.ack_trackers[pos]
-                .ack_mask
-                .count_ones() as u8;
+            let num_players = self.ack_trackers[pos].ack_mask.count_ones() as u8;
             if num_players > 0 && self.ack_trackers[pos].all_acknowledged(num_players) {
                 if let Some(entry) = self.entries.get_mut(pos) {
                     entry.acked_by_all = true;
@@ -308,7 +306,10 @@ mod tests {
         assert_eq!(buf.len(), capacity);
         // Oldest frame should be 3 (frames 0..3 evicted).
         assert_eq!(buf.oldest_frame().unwrap().frame_number, 3);
-        assert_eq!(buf.latest_frame().unwrap().frame_number, capacity as u32 + 2);
+        assert_eq!(
+            buf.latest_frame().unwrap().frame_number,
+            capacity as u32 + 2
+        );
     }
 
     #[test]

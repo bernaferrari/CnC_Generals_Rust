@@ -99,6 +99,7 @@ pub struct WaterRenderer {
     // Buffers
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    index_count: u32,
     camera_buffer: wgpu::Buffer,
     water_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
@@ -128,6 +129,11 @@ pub struct WaterRenderer {
     elapsed_time: f32,
     uv_offset: [f32; 2],
     mesh_in_motion: bool,
+    river_v_origin: f32,
+    river_x_offset: f32,
+    river_y_offset: f32,
+    bump_frame: usize,
+    logic_time_accumulator: f32,
 
     // Performance
     use_high_quality: bool,
@@ -318,17 +324,17 @@ impl WaterRenderer {
                 })],
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                strip_index_format: Some(wgpu::IndexFormat::Uint16),
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
+                depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -360,17 +366,17 @@ impl WaterRenderer {
                 })],
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                strip_index_format: Some(wgpu::IndexFormat::Uint16),
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
+                depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -391,6 +397,7 @@ impl WaterRenderer {
             dy,
             water_level,
         );
+        let index_count = indices.len() as u32;
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Water Vertex Buffer"),
@@ -516,6 +523,7 @@ impl WaterRenderer {
             simple_pipeline,
             vertex_buffer,
             index_buffer,
+            index_count,
             camera_buffer,
             water_buffer,
             light_buffer,
@@ -540,6 +548,11 @@ impl WaterRenderer {
             elapsed_time: 0.0,
             uv_offset: [0.0, 0.0],
             mesh_in_motion: false,
+            river_v_origin: 0.0,
+            river_x_offset: 0.0,
+            river_y_offset: 0.0,
+            bump_frame: 0,
+            logic_time_accumulator: 0.0,
             use_high_quality: true,
             enable_reflections: true,
             enable_caustics: true,
@@ -555,6 +568,10 @@ impl WaterRenderer {
         dy: f32,
         water_level: f32,
     ) -> (Vec<WaterVertex>, Vec<u16>) {
+        if size_x < 2 || size_y < 2 {
+            return (Vec::new(), Vec::new());
+        }
+
         let mut vertices = Vec::with_capacity(size_x * size_y);
 
         let step_x = dx / (size_x - 1) as f32;
@@ -580,25 +597,21 @@ impl WaterRenderer {
             }
         }
 
-        // Generate indices (triangle strip converted to list)
-        let mut indices = Vec::new();
+        // Generate indices using the same triangle-strip-with-degenerates pattern as C++.
+        let mut indices = Vec::with_capacity((size_y - 1) * (size_x * 2 + 2) - 2);
 
         for y in 0..(size_y - 1) {
-            for x in 0..(size_x - 1) {
-                let top_left = (y * size_x + x) as u16;
-                let top_right = (y * size_x + x + 1) as u16;
-                let bottom_left = ((y + 1) * size_x + x) as u16;
-                let bottom_right = ((y + 1) * size_x + x + 1) as u16;
+            let row_start = y * size_x;
+            let next_row_start = (y + 1) * size_x;
 
-                // First triangle
-                indices.push(top_left);
-                indices.push(bottom_left);
-                indices.push(top_right);
+            for x in 0..size_x {
+                indices.push((next_row_start + x) as u16);
+                indices.push((row_start + x) as u16);
+            }
 
-                // Second triangle
-                indices.push(top_right);
-                indices.push(bottom_left);
-                indices.push(bottom_right);
+            if y + 1 < size_y - 1 {
+                indices.push((row_start + size_x - 1) as u16);
+                indices.push(((y + 2) * size_x) as u16);
             }
         }
 
@@ -670,40 +683,69 @@ impl WaterRenderer {
     pub fn update(&mut self, delta_time: f32) {
         self.elapsed_time += delta_time;
 
-        // Update UV scrolling
-        let current_setting = &self.settings[self.time_of_day as usize];
-        self.uv_offset[0] += current_setting.u_scroll_per_ms * delta_time;
-        self.uv_offset[1] += current_setting.v_scroll_per_ms * delta_time;
+        // C++ advances the scroll/bump animation every client frame.
+        self.river_v_origin += 0.002;
+        self.river_x_offset += 0.0125 * 33.0 / 5000.0;
+        self.river_y_offset += 2.0 * 0.0125 * 33.0 / 5000.0;
+        Self::wrap_unit_range(&mut self.river_x_offset);
+        Self::wrap_unit_range(&mut self.river_y_offset);
+        self.bump_frame = (self.bump_frame + 1) % constants::NUM_BUMP_FRAMES;
+        self.uv_offset = [self.river_x_offset, self.river_y_offset];
 
-        // Update 3D water mesh if in use
+        // Water grid simulation still runs on a logic-frame cadence to avoid oversampling.
+        self.logic_time_accumulator += delta_time;
+        const LOGIC_FRAME_SECONDS: f32 = 1.0 / 30.0;
+
+        while self.logic_time_accumulator >= LOGIC_FRAME_SECONDS {
+            self.logic_time_accumulator -= LOGIC_FRAME_SECONDS;
+            self.advance_logic_frame();
+        }
+    }
+
+    fn advance_logic_frame(&mut self) {
         if self.water_type == WaterType::GridMesh && self.mesh_in_motion {
-            self.update_water_mesh(delta_time);
+            self.update_water_mesh();
+        }
+    }
+
+    fn wrap_unit_range(value: &mut f32) {
+        if *value > 1.0 {
+            *value -= 1.0;
+        } else if *value < -1.0 {
+            *value += 1.0;
         }
     }
 
     /// Update 3D water mesh simulation
     /// Matches C++ WaterRenderObjClass::renderWaterMesh() physics
-    fn update_water_mesh(&mut self, delta_time: f32) {
+    fn update_water_mesh(&mut self) {
         let cells_x = self.grid_transform.cells_x;
         let cells_y = self.grid_transform.cells_y;
 
-        // Simple wave simulation using spring dynamics
-        let damping = 0.95;
+        // Clear the active flag first, mirroring the C++ logic.
+        self.mesh_in_motion = false;
+
+        // Approximate the legacy logic-frame behavior.
+        let delta_time = 1.0 / 30.0;
+        let damping = 0.93;
         let spring_constant = 0.025;
+        let preferred_height_fudge = 1.0;
+        let at_rest_velocity_fudge = 1.0;
 
         for y in 1..=cells_y {
             for x in 1..=cells_x {
                 let idx = y * (cells_x + 2) + x;
-                let mesh = &mut self.mesh_data[idx];
-
-                // Calculate height difference from neighbors
                 let left = self.mesh_data[y * (cells_x + 2) + (x - 1)].height;
                 let right = self.mesh_data[y * (cells_x + 2) + (x + 1)].height;
                 let up = self.mesh_data[(y - 1) * (cells_x + 2) + x].height;
                 let down = self.mesh_data[(y + 1) * (cells_x + 2) + x].height;
+                let preferred_height = self.mesh_data[idx].preferred_height as f32;
+                let mesh_height = self.mesh_data[idx].height;
 
                 let avg_neighbor = (left + right + up + down) * 0.25;
-                let force = (avg_neighbor - mesh.height) * spring_constant;
+                let force = (avg_neighbor - mesh_height) * spring_constant;
+
+                let mesh = &mut self.mesh_data[idx];
 
                 // Update velocity and position
                 mesh.velocity += force * delta_time;
@@ -716,11 +758,16 @@ impl WaterRenderer {
                     self.grid_transform.max_height,
                 );
 
-                // Update status
-                if mesh.velocity.abs() > 0.01 || (mesh.height - mesh.preferred_height as f32).abs() > 0.1 {
-                    mesh.status = mesh_status::IN_MOTION;
-                } else {
+                // Match the legacy "at rest" thresholds more closely.
+                if (mesh.height - preferred_height).abs() < preferred_height_fudge
+                    && mesh.velocity.abs() < at_rest_velocity_fudge
+                {
                     mesh.status = mesh_status::AT_REST;
+                    mesh.height = preferred_height;
+                    mesh.velocity = 0.0;
+                } else {
+                    mesh.status = mesh_status::IN_MOTION;
+                    self.mesh_in_motion = true;
                 }
             }
         }
@@ -730,15 +777,28 @@ impl WaterRenderer {
     /// Matches C++ WaterRenderObjClass::addVelocity()
     pub fn add_velocity(&mut self, world_x: f32, world_y: f32, z_velocity: f32, preferred_height: f32) {
         if let Some((grid_x, grid_y)) = self.world_to_grid_space(world_x, world_y) {
-            let x = grid_x as usize;
-            let y = grid_y as usize;
+            let min_x = (grid_x - self.grid_transform.change_max_range).floor().max(0.0) as usize;
+            let max_x = (grid_x + self.grid_transform.change_max_range)
+                .ceil()
+                .min(self.grid_transform.cells_x as f32) as usize;
+            let min_y = (grid_y - self.grid_transform.change_max_range).floor().max(0.0) as usize;
+            let max_y = (grid_y + self.grid_transform.change_max_range)
+                .ceil()
+                .min(self.grid_transform.cells_y as f32) as usize;
 
-            if x <= self.grid_transform.cells_x && y <= self.grid_transform.cells_y {
-                let idx = (y + 1) * (self.grid_transform.cells_x + 2) + (x + 1);
-                self.mesh_data[idx].velocity += z_velocity;
-                self.mesh_data[idx].preferred_height = (preferred_height.clamp(0.0, 255.0)) as u8;
-                self.mesh_in_motion = true;
+            let preferred_height = preferred_height.clamp(0.0, 255.0) as u8;
+
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    let idx = (y + 1) * (self.grid_transform.cells_x + 2) + (x + 1);
+                    let mesh_point = &mut self.mesh_data[idx];
+                    mesh_point.velocity += z_velocity;
+                    mesh_point.preferred_height = preferred_height;
+                    mesh_point.status = mesh_status::IN_MOTION;
+                }
             }
+
+            self.mesh_in_motion = true;
         }
     }
 
@@ -780,15 +840,15 @@ impl WaterRenderer {
             world_transform: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
             water_color: [0.2, 0.4, 0.6, 0.8],
             water_level: self.water_level,
-            time: self.elapsed_time,
+            time: self.river_v_origin,
             wave_scale: 1.0,
             wave_speed: 1.0,
             bump_scale: constants::SEA_BUMP_SCALE,
             reflection_factor: constants::REFLECTION_FACTOR,
             fresnel_bias: 0.1,
             fresnel_power: 2.0,
-            uv_scroll: self.uv_offset,
-            grid_scale: [1.0, 1.0],
+            uv_scroll: [self.river_x_offset, self.river_y_offset],
+            grid_scale: [constants::NOISE_REPEAT_FACTOR, constants::NOISE_REPEAT_FACTOR],
         };
 
         self.queue.write_buffer(
@@ -829,8 +889,7 @@ impl WaterRenderer {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        let index_count = (constants::PATCH_SIZE - 1) * (constants::PATCH_SIZE - 1) * 6;
-        render_pass.draw_indexed(0..index_count as u32, 0, 0..1);
+        render_pass.draw_indexed(0..self.index_count, 0, 0..1);
     }
 
     /// Set time of day
@@ -875,7 +934,7 @@ mod tests {
         );
 
         assert_eq!(vertices.len(), 100);
-        assert_eq!(indices.len(), 9 * 9 * 6); // (size-1) * (size-1) * 6
+        assert_eq!(indices.len(), (10 - 1) * (10 * 2 + 2) - 2);
     }
 
     #[test]

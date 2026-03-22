@@ -705,6 +705,10 @@ impl GlobalData {
         self.overrides.insert(key.into(), value);
     }
 
+    pub fn clear_override(&mut self, key: &str) {
+        self.overrides.remove(key);
+    }
+
     pub fn get_override(&self, key: &str) -> Option<&GlobalValue> {
         self.overrides.get(key)
     }
@@ -831,6 +835,10 @@ pub mod access {
 
     pub fn set_override<K: Into<String>>(key: K, value: GlobalValue) {
         write().set_override(key, value);
+    }
+
+    pub fn clear_override(key: &str) {
+        write().clear_override(key);
     }
 }
 

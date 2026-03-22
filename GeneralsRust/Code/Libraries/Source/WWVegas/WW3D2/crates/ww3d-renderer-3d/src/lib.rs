@@ -3,7 +3,6 @@
 //! This crate provides the complete rendering system for WW3D, implementing
 //! all the features that were in the original C++ DirectX8 renderer.
 #![allow(hidden_glob_reexports)]
-
 #![allow(ambiguous_glob_reexports)]
 #![allow(dead_code)]
 
@@ -46,11 +45,11 @@ pub mod texture_system;
 
 use crate::animation_synchronization::AnimationFrameInput;
 use crate::render_object_system::RenderInfoClass as RendererRenderInfoClass;
-use crate::rendering::lighting_system::LightEnvironmentClass;
 use crate::rendering::frame_graph::{
     FrameGraph, FrameGraphPass, FrameGraphPassContext, FrameGraphQueue,
 };
 use crate::rendering::frame_uniform_arena::FrameUniformArena;
+use crate::rendering::lighting_system::LightEnvironmentClass;
 use crate::rendering::shadow_system::shadow_map::ShadowCasterSubmission;
 use crate::rendering::swapchain_state::{
     make_surface_config, RendererSwapchainState, SwapchainFormatSet,
@@ -669,16 +668,33 @@ impl Renderer {
         } else {
             FrameGraphQueue::Opaque
         };
-        let should_queue_shadow = mesh
-            .model
+        let shadows_enabled_for_frame = self
+            .light_environment
             .as_ref()
-            .map(|model| model.index_count > 0 || model.vertex_count > 0)
-            .unwrap_or(false)
+            .map(|env| {
+                env.lights.iter().any(|light| {
+                    if let Ok(light) = light.lock() {
+                        light.enabled && light.casts_shadows
+                    } else {
+                        false
+                    }
+                })
+            })
+            .unwrap_or(false);
+
+        let should_queue_shadow = shadows_enabled_for_frame
+            && mesh
+                .model
+                .as_ref()
+                .map(|model| model.index_count > 0 || model.vertex_count > 0)
+                .unwrap_or(false)
             && !mesh.is_decal_instance;
 
-        self.frame_graph
-            .node_mut(FrameGraphPass::Main)
-            .submit_mesh(mesh.clone(), Some(queue), None);
+        self.frame_graph.node_mut(FrameGraphPass::Main).submit_mesh(
+            mesh.clone(),
+            Some(queue),
+            None,
+        );
         if should_queue_shadow {
             self.frame_graph.node_mut(FrameGraphPass::Main).submit_mesh(
                 mesh,
@@ -857,7 +873,9 @@ mod tests {
     fn shadow_submission_skips_hidden_or_decal_meshes() {
         let mut hidden = rendering::mesh_system::MeshClass::new();
         hidden.is_hidden = true;
-        hidden.model = Some(Arc::new(rendering::mesh_system::MeshModelClass::new("hidden")));
+        hidden.model = Some(Arc::new(rendering::mesh_system::MeshModelClass::new(
+            "hidden",
+        )));
         assert!(Renderer::shadow_submission_for_mesh(&hidden).is_none());
 
         let mut decal = rendering::mesh_system::MeshClass::new();

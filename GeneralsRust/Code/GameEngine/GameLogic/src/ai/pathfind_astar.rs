@@ -335,9 +335,7 @@ impl AStarPathfinder {
             PathfindCellType::Clear => (surfaces & (SURFACE_GROUND | SURFACE_AIR)) != 0,
             PathfindCellType::Water => (surfaces & SURFACE_WATER) != 0,
             PathfindCellType::Cliff => (surfaces & SURFACE_CLIFF) != 0,
-            PathfindCellType::Rubble => {
-                (surfaces & SURFACE_RUBBLE) != 0 || is_crusher
-            }
+            PathfindCellType::Rubble => (surfaces & SURFACE_RUBBLE) != 0 || is_crusher,
             _ => false,
         }
     }

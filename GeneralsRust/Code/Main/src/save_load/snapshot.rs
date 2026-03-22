@@ -1542,19 +1542,18 @@ impl SnapshotBuilder {
             return Ok(());
         }
 
-        let expected_len = match (terrain_snapshot.width as usize)
-            .checked_mul(terrain_snapshot.height as usize)
-        {
-            Some(len) if len > 0 => len,
-            _ => {
-                log::warn!(
-                    "Skipping terrain restore due to invalid grid dimensions ({}x{})",
-                    terrain_snapshot.width,
-                    terrain_snapshot.height
-                );
-                return Ok(());
-            }
-        };
+        let expected_len =
+            match (terrain_snapshot.width as usize).checked_mul(terrain_snapshot.height as usize) {
+                Some(len) if len > 0 => len,
+                _ => {
+                    log::warn!(
+                        "Skipping terrain restore due to invalid grid dimensions ({}x{})",
+                        terrain_snapshot.width,
+                        terrain_snapshot.height
+                    );
+                    return Ok(());
+                }
+            };
 
         if !terrain_snapshot.height_map.is_empty() {
             if terrain_snapshot.height_map.len() != expected_len {

@@ -4,9 +4,12 @@
 //! These conditions enable the AI to make strategic decisions based on game state,
 //! resources, enemy positions, and build capabilities.
 
-use super::{get_player_arc, get_str_param, lookup_named_object_id, perform_comparison, ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
-use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND};
+use super::{
+    get_player_arc, get_str_param, lookup_named_object_id, perform_comparison, ConditionRegistry,
+    ScriptCondition, ScriptContext, ScriptValue,
+};
 use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
+use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheThingFactory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
@@ -21,7 +24,11 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-fn has_hostile_object_near_owned_objects<F>(player: &crate::player::Player, radius: f32, filter: F) -> bool
+fn has_hostile_object_near_owned_objects<F>(
+    player: &crate::player::Player,
+    radius: f32,
+    filter: F,
+) -> bool
 where
     F: Fn(&Object) -> bool,
 {
@@ -71,11 +78,13 @@ where
             let hostile = players
                 .get_player(owner_id as i32)
                 .cloned()
-                .and_then(|owner_arc| owner_arc.read().ok().map(|owner| {
-                    owner.get_player_type() != PlayerType::Neutral
-                        && !owner.is_player_observer()
-                        && !player.is_allied_with_player(&owner)
-                }))
+                .and_then(|owner_arc| {
+                    owner_arc.read().ok().map(|owner| {
+                        owner.get_player_type() != PlayerType::Neutral
+                            && !owner.is_player_observer()
+                            && !player.is_allied_with_player(&owner)
+                    })
+                })
                 .unwrap_or(true);
             if hostile {
                 return true;
@@ -151,9 +160,9 @@ fn player_has_ready_special_power(
             continue;
         }
 
-        let Some(ready) = obj.with_special_power_module_interface_by_name(template_name, |module| {
-            module.is_ready()
-        }) else {
+        let Some(ready) = obj
+            .with_special_power_module_interface_by_name(template_name, |module| module.is_ready())
+        else {
             continue;
         };
 
@@ -183,9 +192,9 @@ impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
             None => return Ok(false),
         };
         let power_name = get_str_param(parameters, "power_name")?;
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let Some(store) = get_special_power_store() else {
             return Ok(false);
@@ -201,10 +210,18 @@ impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "skirmish_special_power_ready" }
-    fn description(&self) -> &str { "Checks if a special power is ready" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string(), "power_name".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_special_power_ready"
+    }
+    fn description(&self) -> &str {
+        "Checks if a special power is ready"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string(), "power_name".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -230,9 +247,9 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
             return Ok(false);
         };
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let Some(store) = get_special_power_store() else {
             return Ok(false);
@@ -270,12 +287,22 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
             .unwrap_or(false))
     }
 
-    fn name(&self) -> &str { "skirmish_special_power_ready_from_named" }
-    fn description(&self) -> &str { "Checks if a named unit has a ready special power" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "power_name".to_string(), "unit_name".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_special_power_ready_from_named"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Checks if a named unit has a ready special power"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "power_name".to_string(),
+            "unit_name".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -299,9 +326,9 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
 
         let teams = factory_guard.find_team_instances(&team_name);
         for team_arc in &teams {
-            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read team: {}", e))
-            })?;
+            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
             if !team.has_any_objects() {
                 return Ok(false);
             }
@@ -319,10 +346,18 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "skirmish_command_button_ready" }
-    fn description(&self) -> &str { "Checks if a team has alive members ready for commands" }
-    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_command_button_ready"
+    }
+    fn description(&self) -> &str {
+        "Checks if a team has alive members ready for commands"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -342,17 +377,25 @@ impl ScriptCondition for SkirmishEasyAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(player.get_player_type() == PlayerType::Computer
             && player.get_player_difficulty() == GameDifficulty::Easy)
     }
 
-    fn name(&self) -> &str { "skirmish_easy_ai" }
-    fn description(&self) -> &str { "Checks if player is an easy AI" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_easy_ai"
+    }
+    fn description(&self) -> &str {
+        "Checks if player is an easy AI"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -372,17 +415,25 @@ impl ScriptCondition for SkirmishMediumAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(player.get_player_type() == PlayerType::Computer
             && player.get_player_difficulty() == GameDifficulty::Normal)
     }
 
-    fn name(&self) -> &str { "skirmish_medium_ai" }
-    fn description(&self) -> &str { "Checks if player is a medium AI" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_medium_ai"
+    }
+    fn description(&self) -> &str {
+        "Checks if player is a medium AI"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -402,17 +453,25 @@ impl ScriptCondition for SkirmishHardAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(player.get_player_type() == PlayerType::Computer
             && player.get_player_difficulty() == GameDifficulty::Hard)
     }
 
-    fn name(&self) -> &str { "skirmish_hard_ai" }
-    fn description(&self) -> &str { "Checks if player is a hard AI" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_hard_ai"
+    }
+    fn description(&self) -> &str {
+        "Checks if player is a hard AI"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -432,16 +491,24 @@ impl ScriptCondition for SkirmishPlayerIsAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(player.get_player_type() == PlayerType::Computer)
     }
 
-    fn name(&self) -> &str { "skirmish_player_is_ai" }
-    fn description(&self) -> &str { "Checks if player is any AI type" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_player_is_ai"
+    }
+    fn description(&self) -> &str {
+        "Checks if player is any AI type"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -464,19 +531,29 @@ impl ScriptCondition for SkirmishHasEnoughMoneyCondition {
         let amount = super::super::actions::get_int_param(parameters, "amount")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let money = player.get_money().count_money() as i64;
         Ok(perform_comparison(money, &comparison, amount))
     }
 
-    fn name(&self) -> &str { "skirmish_has_enough_money" }
-    fn description(&self) -> &str { "Checks if player has enough money with comparison" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "amount".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_has_enough_money"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Checks if player has enough money with comparison"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "amount".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -497,9 +574,9 @@ impl ScriptCondition for SkirmishNeedsSupplyCondition {
             None => return Ok(false),
         };
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_player_index() as u32;
         let money = player.get_money().count_money();
         let is_skirmish_ai = player.is_skirmish_ai();
@@ -521,10 +598,18 @@ impl ScriptCondition for SkirmishNeedsSupplyCondition {
         Ok(money < 2000)
     }
 
-    fn name(&self) -> &str { "skirmish_needs_supply" }
-    fn description(&self) -> &str { "Checks if player needs supply" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_needs_supply"
+    }
+    fn description(&self) -> &str {
+        "Checks if player needs supply"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -547,9 +632,9 @@ impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
 
         drop(player); // release lock before accessing object manager
@@ -574,12 +659,22 @@ impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
         Ok(perform_comparison(destroyed_count, &comparison, count))
     }
 
-    fn name(&self) -> &str { "skirmish_buildings_destroyed" }
-    fn description(&self) -> &str { "Counts player's destroyed structures with comparison" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_buildings_destroyed"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Counts player's destroyed structures with comparison"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "count".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -602,9 +697,9 @@ impl ScriptCondition for SkirmishUnitsDestroyedCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
 
         drop(player);
@@ -630,12 +725,22 @@ impl ScriptCondition for SkirmishUnitsDestroyedCondition {
         Ok(perform_comparison(destroyed_count, &comparison, count))
     }
 
-    fn name(&self) -> &str { "skirmish_units_destroyed" }
-    fn description(&self) -> &str { "Counts player's destroyed units with comparison" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_units_destroyed"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Counts player's destroyed units with comparison"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "count".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -657,9 +762,9 @@ impl ScriptCondition for SkirmishEnemyInAreaCondition {
         };
         let area_name = get_str_param(parameters, "area")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
 
         drop(player);
@@ -686,12 +791,18 @@ impl ScriptCondition for SkirmishEnemyInAreaCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "skirmish_enemy_in_area" }
-    fn description(&self) -> &str { "Checks if enemy units are in the specified area" }
+    fn name(&self) -> &str {
+        "skirmish_enemy_in_area"
+    }
+    fn description(&self) -> &str {
+        "Checks if enemy units are in the specified area"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "area".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -719,9 +830,9 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
         }
 
         for team_arc in &teams {
-            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read team: {}", e))
-            })?;
+            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
             let members = team.get_members();
             if members.is_empty() {
                 continue;
@@ -745,10 +856,18 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
         Ok(true)
     }
 
-    fn name(&self) -> &str { "skirmish_all_units_garrisoned" }
-    fn description(&self) -> &str { "Checks if all team units are garrisoned" }
-    fn required_parameters(&self) -> Vec<String> { vec!["team".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_all_units_garrisoned"
+    }
+    fn description(&self) -> &str {
+        "Checks if all team units are garrisoned"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -768,9 +887,9 @@ impl ScriptCondition for SkirmishBaseUnderAttackCondition {
             Some(player) => player,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         if is_player_recently_under_attack(&player, 90) {
             return Ok(true);
@@ -782,13 +901,25 @@ impl ScriptCondition for SkirmishBaseUnderAttackCondition {
             return Ok(true);
         }
 
-        Ok(has_hostile_object_near_owned_objects(&player, 250.0, |_| true))
+        Ok(has_hostile_object_near_owned_objects(
+            &player,
+            250.0,
+            |_| true,
+        ))
     }
 
-    fn name(&self) -> &str { "skirmish_base_under_attack" }
-    fn description(&self) -> &str { "Checks if player's base is under attack" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_base_under_attack"
+    }
+    fn description(&self) -> &str {
+        "Checks if player's base is under attack"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -808,9 +939,9 @@ impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
             Some(player) => player,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_player_index() as u32;
         let is_skirmish_ai = player.is_skirmish_ai();
 
@@ -827,19 +958,31 @@ impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
             }
         }
 
-        Ok(has_hostile_object_near_owned_objects(&player, 120.0, |obj| {
-            obj.is_kind_of(KindOf::SupplySource)
-                || obj.is_kind_of(KindOf::ResourceNode)
-                || obj.is_kind_of(KindOf::FSSupplyCenter)
-                || obj.is_kind_of(KindOf::FSSupplyDropzone)
-                || obj.is_kind_of(KindOf::Refinery)
-        }))
+        Ok(has_hostile_object_near_owned_objects(
+            &player,
+            120.0,
+            |obj| {
+                obj.is_kind_of(KindOf::SupplySource)
+                    || obj.is_kind_of(KindOf::ResourceNode)
+                    || obj.is_kind_of(KindOf::FSSupplyCenter)
+                    || obj.is_kind_of(KindOf::FSSupplyDropzone)
+                    || obj.is_kind_of(KindOf::Refinery)
+            },
+        ))
     }
 
-    fn name(&self) -> &str { "skirmish_supply_source_attacked" }
-    fn description(&self) -> &str { "Checks if a supply source is being attacked" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_supply_source_attacked"
+    }
+    fn description(&self) -> &str {
+        "Checks if a supply source is being attacked"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -861,9 +1004,9 @@ impl ScriptCondition for SkirmishCanBuildCondition {
         };
         let object_name = get_str_param(parameters, "object_name")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let Some(template) = TheThingFactory::find_template(object_name.as_str()) else {
             return Ok(false);
         };
@@ -871,12 +1014,18 @@ impl ScriptCondition for SkirmishCanBuildCondition {
         Ok(player.can_build_template(template.as_ref()))
     }
 
-    fn name(&self) -> &str { "skirmish_can_build" }
-    fn description(&self) -> &str { "Checks if player can build a specific object" }
+    fn name(&self) -> &str {
+        "skirmish_can_build"
+    }
+    fn description(&self) -> &str {
+        "Checks if player can build a specific object"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "object_name".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -896,9 +1045,9 @@ impl ScriptCondition for SkirmishCanReinforceCondition {
             Some(player) => player,
             None => return Ok(false),
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         Ok(player.is_skirmish_ai()
             && !player.is_defeated()
@@ -907,10 +1056,18 @@ impl ScriptCondition for SkirmishCanReinforceCondition {
             && player.get_money().count_money() > 0)
     }
 
-    fn name(&self) -> &str { "skirmish_can_reinforce" }
-    fn description(&self) -> &str { "Checks if player can reinforce" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_can_reinforce"
+    }
+    fn description(&self) -> &str {
+        "Checks if player can reinforce"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -940,9 +1097,9 @@ impl ScriptCondition for SkirmishTeamNearPositionCondition {
 
         let teams = factory_guard.find_team_instances(&team_name);
         for team_arc in &teams {
-            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read team: {}", e))
-            })?;
+            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
             for &member_id in team.get_members() {
                 if let Some(obj_arc) = OBJECT_REGISTRY.get_object(member_id) {
                     if let Ok(obj) = obj_arc.read() {
@@ -963,12 +1120,23 @@ impl ScriptCondition for SkirmishTeamNearPositionCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "skirmish_team_near_position" }
-    fn description(&self) -> &str { "Checks if any member of a team is near a position" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["team".to_string(), "x".to_string(), "y".to_string(), "radius".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_team_near_position"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Checks if any member of a team is near a position"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "team".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "radius".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -990,9 +1158,9 @@ impl ScriptCondition for SkirmishPlayerHasScienceCondition {
         };
         let science_name = get_str_param(parameters, "science")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         // Use the science store to look up the science type by name
         let science_store = game_engine::common::rts::get_science_store();
@@ -1006,12 +1174,18 @@ impl ScriptCondition for SkirmishPlayerHasScienceCondition {
         Ok(has_it)
     }
 
-    fn name(&self) -> &str { "skirmish_player_has_science" }
-    fn description(&self) -> &str { "Checks if player has a specific science" }
+    fn name(&self) -> &str {
+        "skirmish_player_has_science"
+    }
+    fn description(&self) -> &str {
+        "Checks if player has a specific science"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "science".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1033,9 +1207,9 @@ impl ScriptCondition for SkirmishPlayerHasUpgradeCondition {
         };
         let upgrade_name = get_str_param(parameters, "upgrade")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         // Check the upgrade bitmask
         let mask_bit = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
@@ -1043,12 +1217,18 @@ impl ScriptCondition for SkirmishPlayerHasUpgradeCondition {
         Ok(completed_mask.bits() & mask_bit.bits() != 0)
     }
 
-    fn name(&self) -> &str { "skirmish_player_has_upgrade" }
-    fn description(&self) -> &str { "Checks if player has completed a specific upgrade" }
+    fn name(&self) -> &str {
+        "skirmish_player_has_upgrade"
+    }
+    fn description(&self) -> &str {
+        "Checks if player has completed a specific upgrade"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "upgrade".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1071,9 +1251,9 @@ impl ScriptCondition for SkirmishStructureCountCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
 
         drop(player);
@@ -1101,12 +1281,22 @@ impl ScriptCondition for SkirmishStructureCountCondition {
         Ok(perform_comparison(structure_count, &comparison, count))
     }
 
-    fn name(&self) -> &str { "skirmish_structure_count" }
-    fn description(&self) -> &str { "Counts player's living structures with comparison" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_structure_count"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Counts player's living structures with comparison"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "count".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1129,9 +1319,9 @@ impl ScriptCondition for SkirmishUnitCountCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_id = player.get_id() as u32;
 
         drop(player);
@@ -1160,12 +1350,22 @@ impl ScriptCondition for SkirmishUnitCountCondition {
         Ok(perform_comparison(unit_count, &comparison, count))
     }
 
-    fn name(&self) -> &str { "skirmish_unit_count" }
-    fn description(&self) -> &str { "Counts player's living units with comparison" }
-    fn required_parameters(&self) -> Vec<String> {
-        vec!["player".to_string(), "count".to_string(), "comparison".to_string()]
+    fn name(&self) -> &str {
+        "skirmish_unit_count"
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn description(&self) -> &str {
+        "Counts player's living units with comparison"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec![
+            "player".to_string(),
+            "count".to_string(),
+            "comparison".to_string(),
+        ]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1185,16 +1385,24 @@ impl ScriptCondition for SkirmishPlayerDefeatedCondition {
             Some(p) => p,
             None => return Ok(true), // Non-existent player is defeated
         };
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         Ok(player.is_defeated())
     }
 
-    fn name(&self) -> &str { "skirmish_player_defeated" }
-    fn description(&self) -> &str { "Checks if player is defeated" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_player_defeated"
+    }
+    fn description(&self) -> &str {
+        "Checks if player is defeated"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1215,17 +1423,17 @@ impl ScriptCondition for SkirmishAlliedWithHumanCondition {
             None => return Ok(false),
         };
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         let player_mask = player.get_player_mask();
         drop(player);
 
         // Iterate all players to find any human player that shares an alliance
         let list = player_list();
-        let guard = list.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player list: {}", e))
-        })?;
+        let guard = list
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player list: {}", e)))?;
 
         for i in 0..guard.get_player_count() {
             if let Some(other_arc) = guard.get_player(i as i32) {
@@ -1251,10 +1459,18 @@ impl ScriptCondition for SkirmishAlliedWithHumanCondition {
         Ok(false)
     }
 
-    fn name(&self) -> &str { "skirmish_allied_with_human" }
-    fn description(&self) -> &str { "Checks if an AI player is allied with a human player" }
-    fn required_parameters(&self) -> Vec<String> { vec!["player".to_string()] }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn name(&self) -> &str {
+        "skirmish_allied_with_human"
+    }
+    fn description(&self) -> &str {
+        "Checks if an AI player is allied with a human player"
+    }
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["player".to_string()]
+    }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1276,24 +1492,34 @@ impl ScriptCondition for SkirmishEnemyNearBaseCondition {
         };
         let radius = super::super::actions::get_float_param(parameters, "radius")? as f32;
 
-        let player = player_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read player: {}", e))
-        })?;
+        let player = player_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
         if has_hostile_object_near_owned_objects(&player, radius, |obj| {
             obj.is_kind_of(KindOf::Structure)
         }) {
             return Ok(true);
         }
 
-        Ok(has_hostile_object_near_owned_objects(&player, radius, |_| true))
+        Ok(has_hostile_object_near_owned_objects(
+            &player,
+            radius,
+            |_| true,
+        ))
     }
 
-    fn name(&self) -> &str { "skirmish_enemy_near_base" }
-    fn description(&self) -> &str { "Checks if enemies are near player's base" }
+    fn name(&self) -> &str {
+        "skirmish_enemy_near_base"
+    }
+    fn description(&self) -> &str {
+        "Checks if enemies are near player's base"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "radius".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1315,15 +1541,25 @@ impl ScriptCondition for SkirmishTimeElapsedCondition {
         let frame = TheGameLogic::get_frame();
         let elapsed_seconds = (frame as i64) / (LOGICFRAMES_PER_SECOND as i64);
 
-        Ok(perform_comparison(elapsed_seconds, &comparison, time_seconds))
+        Ok(perform_comparison(
+            elapsed_seconds,
+            &comparison,
+            time_seconds,
+        ))
     }
 
-    fn name(&self) -> &str { "skirmish_time_elapsed" }
-    fn description(&self) -> &str { "Checks if game time matches comparison (in seconds)" }
+    fn name(&self) -> &str {
+        "skirmish_time_elapsed"
+    }
+    fn description(&self) -> &str {
+        "Checks if game time matches comparison (in seconds)"
+    }
     fn required_parameters(&self) -> Vec<String> {
         vec!["time".to_string(), "comparison".to_string()]
     }
-    fn optional_parameters(&self) -> Vec<String> { vec![] }
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
 }
 
 //-------------------------------------------------------------------------------------------------

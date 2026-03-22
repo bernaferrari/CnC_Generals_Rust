@@ -1073,8 +1073,7 @@ impl Unit {
                 }
                 MovementState::Following => {
                     let order = self.current_order.take();
-                    if let Some(UnitOrder::Follow { target, distance }) = order
-                    {
+                    if let Some(UnitOrder::Follow { target, distance }) = order {
                         let _ = self.process_follow_order(target, distance);
                         self.current_order = Some(UnitOrder::Follow { target, distance });
                     }
@@ -3029,7 +3028,9 @@ impl UnitAIUpdate {
                                 }
                             }
                         } else {
-                            log::warn!("Unit::update_rappel_state unresolved FXList 'CombatDropKillFX'");
+                            log::warn!(
+                                "Unit::update_rappel_state unresolved FXList 'CombatDropKillFX'"
+                            );
                         }
                     }
 
@@ -5759,9 +5760,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         !matches!(
             loc_guard.get_appearance(),
-            LocomotorAppearance::Hover
-                | LocomotorAppearance::Thrust
-                | LocomotorAppearance::Wings
+            LocomotorAppearance::Hover | LocomotorAppearance::Thrust | LocomotorAppearance::Wings
         )
     }
 

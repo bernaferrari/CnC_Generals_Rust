@@ -309,10 +309,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Laser(draw) => draw.bind_owner_id(object_id),
             Self::ProjectileStream(draw) => draw.bind_owner_id(object_id),
             Self::Debris(draw) => draw.bind_owner_id(object_id),
-            Self::Tracer(_)
-            | Self::Rope(_)
-            | Self::Projectile(_)
-            | Self::Tree(_) => {}
+            Self::Tracer(_) | Self::Rope(_) | Self::Projectile(_) | Self::Tree(_) => {}
         }
     }
 }

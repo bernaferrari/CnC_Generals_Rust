@@ -444,7 +444,9 @@ impl AIPlayer {
 
                     log::debug!(
                         "AI Player {} building {} at {:?}",
-                        self.player_id, building.template_name, building.position
+                        self.player_id,
+                        building.template_name,
+                        building.position
                     );
                 }
             }

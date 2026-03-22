@@ -168,10 +168,7 @@ pub fn queue_projectile(pending: PendingProjectile) {
 
 /// Drain all pending projectiles and spawn them into the combat system.
 /// Resolves target object positions from the objects map.
-pub fn drain_pending_projectiles(
-    combat: &mut CombatSystem,
-    objects: &HashMap<ObjectId, Object>,
-) {
+pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<ObjectId, Object>) {
     let pending = if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
         std::mem::take(&mut *queue)
     } else {

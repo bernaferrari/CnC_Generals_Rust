@@ -9,9 +9,7 @@ use std::io;
 fn add_crc_word(crc: u32, word: u32) -> u32 {
     let word = word.to_be();
     let hibit = u32::from((crc & 0x8000_0000) != 0);
-    crc.wrapping_shl(1)
-        .wrapping_add(word)
-        .wrapping_add(hibit)
+    crc.wrapping_shl(1).wrapping_add(word).wrapping_add(hibit)
 }
 
 fn fold_crc_bytes(mut crc: u32, data: &[u8]) -> u32 {

@@ -42,9 +42,7 @@ pub use audio_engine::{
     AudioPosition, AudioPriority, SoundType,
 };
 
-pub use audio_event::{
-    AudioEvent, AudioEventQueue, AudioRequest, OwnerType, PlayPortion,
-};
+pub use audio_event::{AudioEvent, AudioEventQueue, AudioRequest, OwnerType, PlayPortion};
 
 pub use music_system::{MusicMood, MusicSystem, MusicTrack};
 

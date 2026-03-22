@@ -14,7 +14,6 @@ use crate::assets::{
     ww3d_asset_manager::WW3DAssetManager,
 };
 use crate::localization;
-use crate::subsystem_manager::{with_subsystem, GlobalDataSubsystem};
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
@@ -216,22 +215,16 @@ impl AssetManager {
         let mut language = "English".to_string();
         let mut mod_path = None;
 
-        if let Some(result) = with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
-            subsystem.get_global_data().map(|global| {
-                (
-                    global.language().to_string(),
-                    global.active_mod().map(|m| m.to_string()),
-                )
-            })
-        }) {
-            if let Some((lang, mod_string)) = result {
-                if !lang.trim().is_empty() {
-                    language = lang;
-                }
-                if let Some(mod_str) = mod_string {
-                    let candidate = PathBuf::from(mod_str);
-                    mod_path = std::fs::canonicalize(&candidate).ok().or(Some(candidate));
-                }
+        let global = game_engine::common::global_data::read();
+        if let Some(lang) = global.get_override("language").and_then(|v| v.as_str()) {
+            if !lang.trim().is_empty() {
+                language = lang.to_string();
+            }
+        }
+        if let Some(mod_str) = global.get_override("active_mod").and_then(|v| v.as_str()) {
+            if !mod_str.trim().is_empty() {
+                let candidate = PathBuf::from(mod_str);
+                mod_path = std::fs::canonicalize(&candidate).ok().or(Some(candidate));
             }
         }
 

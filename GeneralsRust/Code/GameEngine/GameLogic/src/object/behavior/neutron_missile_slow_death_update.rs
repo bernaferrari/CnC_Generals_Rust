@@ -336,14 +336,27 @@ impl Snapshotable for NeutronMissileSlowDeathUpdate {
         xfer.xfer_bool(&mut self.scorch_placed)
             .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer scorch_placed: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.activation_frame)
-            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer activation_frame: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "NeutronMissileSlowDeathUpdate xfer activation_frame: {:?}",
+                    e
+                )
+            })?;
         for completed in &mut self.completed_blasts {
-            xfer.xfer_bool(completed)
-                .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer completed_blast: {:?}", e))?;
+            xfer.xfer_bool(completed).map_err(|e| {
+                format!(
+                    "NeutronMissileSlowDeathUpdate xfer completed_blast: {:?}",
+                    e
+                )
+            })?;
         }
         for completed in &mut self.completed_scorch_blasts {
-            xfer.xfer_bool(completed)
-                .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer completed_scorch: {:?}", e))?;
+            xfer.xfer_bool(completed).map_err(|e| {
+                format!(
+                    "NeutronMissileSlowDeathUpdate xfer completed_scorch: {:?}",
+                    e
+                )
+            })?;
         }
         Ok(())
     }

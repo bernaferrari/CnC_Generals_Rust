@@ -83,12 +83,12 @@ impl CrateTemplate {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            creation_chance: 0.0,       // C++: m_creationChance = 0
-            veterancy_level: None,        // C++: m_veterancyLevel = LEVEL_INVALID
-            killed_by_type_kindof: 0,     // C++: CLEAR_KINDOFMASK(m_killedByTypeKindof)
+            creation_chance: 0.0,            // C++: m_creationChance = 0
+            veterancy_level: None,           // C++: m_veterancyLevel = LEVEL_INVALID
+            killed_by_type_kindof: 0,        // C++: CLEAR_KINDOFMASK(m_killedByTypeKindof)
             killer_science: SCIENCE_INVALID, // C++: m_killerScience = SCIENCE_INVALID
-            possible_crates: Vec::new(),  // C++: m_possibleCrates.clear()
-            is_owned_by_maker: false,     // C++: m_isOwnedByMaker = FALSE
+            possible_crates: Vec::new(),     // C++: m_possibleCrates.clear()
+            is_owned_by_maker: false,        // C++: m_isOwnedByMaker = FALSE
             is_override: false,
         }
     }
@@ -109,7 +109,8 @@ impl CrateTemplate {
     /// Add a possible crate to the weighted list.
     /// Matches C++ `CrateTemplate::parseCrateCreationEntry`
     pub fn add_possible_crate(&mut self, name: String, chance: f32) {
-        self.possible_crates.push(CrateCreationEntry::new(name, chance));
+        self.possible_crates
+            .push(CrateCreationEntry::new(name, chance));
     }
 
     /// Get the total chance sum of all possible crates.
@@ -347,15 +348,19 @@ pub fn get_crate_system() -> Arc<RwLock<CrateSystem>> {
 ///   OwnedByMaker = yes             % Bool
 /// End
 /// ```
-pub fn parse_crate_template_definition(ini: &mut game_engine::common::ini::INI) -> Result<(), game_engine::common::ini::INIError> {
+pub fn parse_crate_template_definition(
+    ini: &mut game_engine::common::ini::INI,
+) -> Result<(), game_engine::common::ini::INIError> {
     use game_engine::common::ini::INIResult;
 
     // Read the crate template name token
-    let name = ini.get_next_value_token()
+    let name = ini
+        .get_next_value_token()
         .ok_or(game_engine::common::ini::INIError::InvalidData)?;
 
     let system = get_crate_system();
-    let mut system_guard = system.write()
+    let mut system_guard = system
+        .write()
         .map_err(|_| game_engine::common::ini::INIError::UnknownError)?;
 
     // Check for existing template (C++ parseCrateTemplateDefinition logic)
@@ -374,42 +379,50 @@ pub fn parse_crate_template_definition(ini: &mut game_engine::common::ini::INI) 
         match token.as_str() {
             "End" => break,
             "CreationChance" => {
-                let token_str = ini.get_next_token()
+                let token_str = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
                 let val = game_engine::common::ini::INI::parse_real(&token_str)?;
                 template.creation_chance = val;
             }
             "VeterancyLevel" => {
                 // C++: INI::parseIndexList with TheVeterancyNames
-                let level_str = ini.get_next_token()
+                let level_str = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
                 template.veterancy_level = Some(parse_veterancy_level(&level_str));
             }
             "KilledByType" => {
                 // C++: KindOfMaskType::parseFromINI -- parse KindOf flags
-                let kind_str = ini.get_next_token()
+                let kind_str = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
                 template.killed_by_type_kindof = parse_kind_of_mask(&kind_str);
             }
             "KillerScience" => {
                 // C++: INI::parseScience
-                let sci_str = ini.get_next_token()
+                let sci_str = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
                 template.killer_science = parse_science_type(&sci_str);
             }
             "CrateObject" => {
                 // C++: CrateTemplate::parseCrateCreationEntry
                 // Format: CrateObject <name> <chance>
-                let crate_name = ini.get_next_token()
+                let crate_name = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
-                let chance_str = ini.get_next_token()
+                let chance_str = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
-                let chance: f32 = chance_str.parse()
+                let chance: f32 = chance_str
+                    .parse()
                     .map_err(|_| game_engine::common::ini::INIError::InvalidData)?;
                 template.add_possible_crate(crate_name, chance);
             }
             "OwnedByMaker" => {
-                let token_str = ini.get_next_token()
+                let token_str = ini
+                    .get_next_token()
                     .ok_or(game_engine::common::ini::INIError::InvalidData)?;
                 let val = game_engine::common::ini::INI::parse_bool(&token_str)?;
                 template.is_owned_by_maker = val;
@@ -487,7 +500,7 @@ mod tests {
         let template = CrateTemplate::new("TestCrate".to_string());
         // C++ constructor defaults:
         assert_eq!(template.creation_chance, 0.0);
-        assert_eq!(template.veterancy_level, None);  // LEVEL_INVALID in C++
+        assert_eq!(template.veterancy_level, None); // LEVEL_INVALID in C++
         assert_eq!(template.killed_by_type_kindof, 0); // CLEAR_KINDOFMASK
         assert_eq!(template.killer_science, SCIENCE_INVALID);
         assert!(template.possible_crates.is_empty());
@@ -601,8 +614,8 @@ mod tests {
         // Now create a new template -- should inherit from DefaultCrate
         let tmpl = system.new_crate_template("NewCrate".to_string());
         assert_eq!(tmpl.name, "NewCrate");
-        assert_eq!(tmpl.creation_chance, 0.5);  // inherited
-        assert!(tmpl.is_owned_by_maker);         // inherited
+        assert_eq!(tmpl.creation_chance, 0.5); // inherited
+        assert!(tmpl.is_owned_by_maker); // inherited
         assert_eq!(tmpl.possible_crates.len(), 1); // inherited
     }
 

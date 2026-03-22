@@ -302,7 +302,9 @@ pub fn get_mouse_settings_mut() -> Option<parking_lot::RwLockWriteGuard<'static,
 }
 
 /// Get cursor info by name
-pub fn get_cursor_info(name: &str) -> Option<parking_lot::RwLockReadGuard<'static, HashMap<String, CursorInfo>>> {
+pub fn get_cursor_info(
+    name: &str,
+) -> Option<parking_lot::RwLockReadGuard<'static, HashMap<String, CursorInfo>>> {
     let guard = CURSOR_INFO_MAP.get()?.read();
     // Return the guard directly - caller can look up the cursor
     drop(guard);
@@ -527,11 +529,7 @@ fn parse_tooltip_width(
     Ok(())
 }
 
-fn parse_cursor_mode(
-    _ini: &mut INI,
-    settings: &mut MouseSettings,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_cursor_mode(_ini: &mut INI, settings: &mut MouseSettings, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     let value = INI::parse_int(token)?;
     settings.cursor_mode = RedrawMode::from_i32(value)?;
@@ -578,11 +576,7 @@ fn parse_ortho_camera(
     Ok(())
 }
 
-fn parse_ortho_zoom(
-    _ini: &mut INI,
-    settings: &mut MouseSettings,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_ortho_zoom(_ini: &mut INI, settings: &mut MouseSettings, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     settings.ortho_zoom = INI::parse_real(token)?;
     Ok(())
@@ -714,11 +708,7 @@ pub const MOUSE_SETTINGS_FIELD_PARSE_TABLE: &[FieldParse<MouseSettings>] = &[
 // CursorInfo field parse functions
 // ============================================================================
 
-fn parse_cursor_text(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_cursor_text(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.cursor_text = INI::parse_ascii_string(token)?;
     Ok(())
@@ -742,100 +732,60 @@ fn parse_cursor_text_drop_color(
     Ok(())
 }
 
-fn parse_w3d_model(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_w3d_model(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.w3d_model_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_w3d_anim(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_w3d_anim(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.w3d_anim_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_w3d_scale(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_w3d_scale(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.w3d_scale = INI::parse_real(token)?;
     Ok(())
 }
 
-fn parse_loop(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_loop(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.loop_animation = INI::parse_bool(token)?;
     Ok(())
 }
 
-fn parse_image(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_image(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.image_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_texture(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_texture(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.texture_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_hot_spot(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_hot_spot(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     cursor.hot_spot = parse_icoord2d(args)?;
     Ok(())
 }
 
-fn parse_frames(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_frames(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.num_frames = INI::parse_int(token)?;
     Ok(())
 }
 
-fn parse_fps(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_fps(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.fps = INI::parse_real(token)?;
     Ok(())
 }
 
-fn parse_directions(
-    _ini: &mut INI,
-    cursor: &mut CursorInfo,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_directions(_ini: &mut INI, cursor: &mut CursorInfo, args: &[&str]) -> INIResult<()> {
     let token = args.first().ok_or(INIError::InvalidData)?;
     cursor.num_directions = INI::parse_int(token)?;
     Ok(())
@@ -914,8 +864,7 @@ pub fn parse_mouse_definition(ini: &mut INI) -> INIResult<()> {
     init_global_mouse_settings();
 
     // Get mutable settings
-    let mut settings = get_mouse_settings_mut()
-        .ok_or(INIError::InvalidData)?;
+    let mut settings = get_mouse_settings_mut().ok_or(INIError::InvalidData)?;
 
     // Parse fields from INI
     ini.init_from_ini_with_fields_allow_unknown(&mut *settings, MOUSE_SETTINGS_FIELD_PARSE_TABLE)?;

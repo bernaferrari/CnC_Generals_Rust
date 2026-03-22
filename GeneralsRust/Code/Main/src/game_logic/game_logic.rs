@@ -35,9 +35,12 @@ use crate::ui::objectives::{ObjectiveCategory, ObjectiveDisplay, ObjectiveStatus
 use game_engine::common::dict::Dict;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
+use game_engine::common::system::build_assistant::get_build_assistant;
 use game_engine::common::well_known_keys::{
     key_player_display_name, key_player_faction, key_player_is_human, key_player_name,
 };
+use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
+use gamelogic::ai::THE_AI;
 use gamelogic::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerTemplate as LogicPlayerTemplate, PlayerType as LogicPlayerType, ThePlayerList,
@@ -47,7 +50,6 @@ use gamelogic::scripting::engine::ScriptActionHandler;
 use gamelogic::scripting::{
     ScriptEvent as MissionScriptEvent, ScriptPriority, ScriptValue, ScriptingEngine,
 };
-use game_engine::common::system::build_assistant::get_build_assistant;
 use gamelogic::sides_list::get_sides_list;
 use gamelogic::special_power_module::update as update_special_powers;
 use gamelogic::system::beacon_manager::snapshot_beacons;
@@ -56,10 +58,8 @@ use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use gamelogic::team::get_team_factory;
-use gamelogic::weapon::{update_dot_effects, update_projectiles, with_weapon_store_mut};
-use gamelogic::ai::THE_AI;
-use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 use gamelogic::update_game_logic;
+use gamelogic::weapon::{update_dot_effects, update_projectiles, with_weapon_store_mut};
 use glam::{Vec2, Vec3};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -464,6 +464,7 @@ pub struct GameLogic {
     last_map_settings: Option<super::script_loader::MapMetadata>,
     spawned_map_object_ids: Vec<(ObjectId, usize)>,
     terrain: Option<super::terrain::TerrainData>,
+    runtime_road_segments: Vec<super::script_loader::RuntimeRoadSegment>,
     pathfinding_height_samples: Option<PathfindingHeightSamples>,
     weather_state: RuntimeWeatherState,
 }
@@ -556,7 +557,8 @@ impl ScriptCameraMoveTo {
         let ease_in = (request.ease_in_seconds / total_time_seconds).clamp(0.0, 1.0);
         let ease_out = (request.ease_out_seconds / total_time_seconds).clamp(0.0, 1.0);
         let ease = ParabolicEase::new(ease_in, ease_out);
-        let shutter_frames = (request.camera_stutter_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
+        let shutter_frames =
+            (request.camera_stutter_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
         let shutter_frames = shutter_frames.max(1);
         Self {
             start,
@@ -756,7 +758,8 @@ impl ScriptCameraPathMove {
         let ease_out = (request.ease_out_seconds / total_time_seconds).clamp(0.0, 1.0);
         let ease = ParabolicEase::new(ease_in, ease_out);
 
-        let shutter_frames = (request.camera_stutter_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
+        let shutter_frames =
+            (request.camera_stutter_seconds * LOGIC_FRAMES_PER_SECOND).round() as u32;
         let shutter_frames = shutter_frames.max(1);
 
         Some(Self {
@@ -1222,6 +1225,7 @@ impl GameLogic {
             last_map_settings: None,
             spawned_map_object_ids: Vec::new(),
             terrain: None,
+            runtime_road_segments: Vec::new(),
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
         };
@@ -1320,6 +1324,7 @@ impl GameLogic {
         self.script_superweapon_hidden_objects.clear();
         self.recent_beacons.clear();
         self.terrain = None;
+        self.runtime_road_segments.clear();
         self.pathfinding_height_samples = None;
         self.weather_state = RuntimeWeatherState::default();
         log::debug!("GameLogic::reset() complete");
@@ -1377,8 +1382,36 @@ impl GameLogic {
     }
 
     #[cfg(feature = "game_client")]
-    pub fn terrain_heightmap_snapshot(&self) -> Option<game_client::terrain::height_map::HeightMap> {
-        self.terrain.as_ref().map(|terrain| terrain.heightmap_clone())
+    pub fn terrain_heightmap_snapshot(
+        &self,
+    ) -> Option<game_client::terrain::height_map::HeightMap> {
+        self.terrain
+            .as_ref()
+            .map(|terrain| terrain.heightmap_clone())
+    }
+
+    /// Snapshot map bridge spans converted to runtime world-space vectors for visual road parity.
+    pub fn terrain_bridge_segments_snapshot(&self) -> Vec<(Vec3, Vec3, f32, String)> {
+        let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+            return Vec::new();
+        };
+        terrain
+            .bridge_data_snapshot()
+            .into_iter()
+            .map(|bridge| {
+                (
+                    Vec3::new(bridge.from.x, bridge.from.z, bridge.from.y),
+                    Vec3::new(bridge.to.x, bridge.to.z, bridge.to.y),
+                    bridge.width,
+                    bridge.template_name,
+                )
+            })
+            .collect()
+    }
+
+    /// Snapshot map road spans parsed from map-object ROAD_POINT flags.
+    pub fn terrain_road_segments_snapshot(&self) -> Vec<super::script_loader::RuntimeRoadSegment> {
+        self.runtime_road_segments.clone()
     }
 
     /// Export terrain/pathing passability as a compact grid mask for save/load parity.
@@ -1816,6 +1849,7 @@ impl GameLogic {
     fn sync_legacy_runtime_from_chunky(&mut self, map_path: &Path, map_bytes: &[u8]) {
         let sync_started = Instant::now();
         let mut loader = LogicMapLoader::new();
+        self.runtime_road_segments.clear();
         log::info!("Legacy runtime sync started for '{}'", map_path.display());
         if loader.load_runtime_support_from_bytes(map_bytes).is_err() {
             log::warn!(
@@ -1915,6 +1949,29 @@ impl GameLogic {
                     (Vec::new(), Vec::new())
                 }
             };
+        let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(chunky) {
+            Ok(value) => value,
+            Err(err) => {
+                log::warn!(
+                    "Fast legacy runtime sync bridge parse failed for '{}': {}",
+                    map_path.display(),
+                    err
+                );
+                Vec::new()
+            }
+        };
+        self.runtime_road_segments =
+            match super::script_loader::parse_runtime_roads_from_chunky(chunky) {
+                Ok(value) => value,
+                Err(err) => {
+                    log::warn!(
+                        "Fast legacy runtime sync road parse failed for '{}': {}",
+                        map_path.display(),
+                        err
+                    );
+                    Vec::new()
+                }
+            };
         let sides_data = match super::script_loader::parse_runtime_sides_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -1933,7 +1990,7 @@ impl GameLogic {
                 height: heightmap.height.max(0) as u32,
                 heightmap: heightmap.data,
                 water_height: None,
-                bridges: Vec::new(),
+                bridges,
                 texture_tiles: Vec::new(),
                 boundaries: heightmap
                     .boundaries
@@ -2902,7 +2959,11 @@ impl GameLogic {
             //    updates including economy, construction, military decisions).
             if let Some(result) = with_ai_integration_mut(|mgr| mgr.update_ai_players_only()) {
                 if let Err(e) = result {
-                    log::warn!("AiIntegrationManager update failed at frame {}: {:?}", self.frame, e);
+                    log::warn!(
+                        "AiIntegrationManager update failed at frame {}: {:?}",
+                        self.frame,
+                        e
+                    );
                 }
             }
         }
@@ -3038,7 +3099,9 @@ impl GameLogic {
                     let build_team = obj.team;
                     let dozer_count = dozer_info
                         .iter()
-                        .filter(|(pos, t)| *t == build_team && pos.distance(build_pos) <= BUILDER_RANGE)
+                        .filter(|(pos, t)| {
+                            *t == build_team && pos.distance(build_pos) <= BUILDER_RANGE
+                        })
                         .count()
                         .max(1); // At least 1 so AI-built structures still progress.
 
@@ -3184,12 +3247,36 @@ impl GameLogic {
 
         let span = bounds_max - bounds_min;
         let spawn_positions = [
-            Vec3::new(bounds_min.x + span.x * 0.20, 0.0, bounds_min.z + span.z * 0.20),
-            Vec3::new(bounds_max.x - span.x * 0.20, 0.0, bounds_max.z - span.z * 0.20),
-            Vec3::new(bounds_max.x - span.x * 0.20, 0.0, bounds_min.z + span.z * 0.20),
-            Vec3::new(bounds_min.x + span.x * 0.20, 0.0, bounds_max.z - span.z * 0.20),
-            Vec3::new(bounds_min.x + span.x * 0.50, 0.0, bounds_min.z + span.z * 0.15),
-            Vec3::new(bounds_min.x + span.x * 0.50, 0.0, bounds_max.z - span.z * 0.15),
+            Vec3::new(
+                bounds_min.x + span.x * 0.20,
+                0.0,
+                bounds_min.z + span.z * 0.20,
+            ),
+            Vec3::new(
+                bounds_max.x - span.x * 0.20,
+                0.0,
+                bounds_max.z - span.z * 0.20,
+            ),
+            Vec3::new(
+                bounds_max.x - span.x * 0.20,
+                0.0,
+                bounds_min.z + span.z * 0.20,
+            ),
+            Vec3::new(
+                bounds_min.x + span.x * 0.20,
+                0.0,
+                bounds_max.z - span.z * 0.20,
+            ),
+            Vec3::new(
+                bounds_min.x + span.x * 0.50,
+                0.0,
+                bounds_min.z + span.z * 0.15,
+            ),
+            Vec3::new(
+                bounds_min.x + span.x * 0.50,
+                0.0,
+                bounds_max.z - span.z * 0.15,
+            ),
         ];
 
         let mut spawned_count = 0usize;
@@ -3285,10 +3372,7 @@ impl GameLogic {
         target_position: Vec3,
         ai_state_override: Option<AIState>,
     ) {
-        let start_pos = self
-            .objects
-            .get(&object_id)
-            .map(|obj| obj.get_position());
+        let start_pos = self.objects.get(&object_id).map(|obj| obj.get_position());
 
         let start_pos = match start_pos {
             Some(pos) => pos,
@@ -3316,7 +3400,7 @@ impl GameLogic {
                 if waypoints.len() >= 2 {
                     obj.movement.path = waypoints;
                     obj.movement.current_path_index = 1; // skip start node
-                    // target_position will be set to path[1] by update_movement
+                                                         // target_position will be set to path[1] by update_movement
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.ai_state = ai_state_override.unwrap_or(AIState::Moving);
                     obj.status.moving = true;
@@ -3461,7 +3545,8 @@ impl GameLogic {
                 // Queue unit production (in a full implementation)
                 log::trace!(
                     "AI Building {} queuing production of {}",
-                    object_id, unit_to_produce
+                    object_id,
+                    unit_to_produce
                 );
 
                 // Mirror production parity: charge cost before spawning.
@@ -4712,9 +4797,7 @@ impl GameLogic {
                         // Full — head to nearest supply center.
                         let refinery_dest = self
                             .find_nearest_supply_center(team, position)
-                            .and_then(|rid| {
-                                self.objects.get(&rid).map(|r| r.get_position())
-                            });
+                            .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
                         if let Some(dest) = refinery_dest {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.set_destination(dest);
@@ -4734,9 +4817,8 @@ impl GameLogic {
                         })
                         .unwrap_or((None, position));
 
-                    let at_refinery = refinery_id
-                        .is_some()
-                        && position.distance(refinery_pos) <= INTERACT_RANGE;
+                    let at_refinery =
+                        refinery_id.is_some() && position.distance(refinery_pos) <= INTERACT_RANGE;
 
                     if at_refinery {
                         // Deposit.
@@ -4753,14 +4835,15 @@ impl GameLogic {
                             }
                             // Credit the player.
                             if let Some(player) = self.get_player_mut_by_team(team) {
-                                player.resources.supplies = player
-                                    .resources
-                                    .supplies
-                                    .saturating_add(deposit_amount);
+                                player.resources.supplies =
+                                    player.resources.supplies.saturating_add(deposit_amount);
                             }
                             // Head back to gather more from the original source.
                             let source_dest = target_id.and_then(|sid| {
-                                self.objects.get(&sid).filter(|s| s.is_alive()).map(|s| s.get_position())
+                                self.objects
+                                    .get(&sid)
+                                    .filter(|s| s.is_alive())
+                                    .map(|s| s.get_position())
                             });
                             if let Some(dest) = source_dest {
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -4859,20 +4942,20 @@ impl GameLogic {
 
         // Handle AttackingGround: fire at target_location.
         if ai_state == AIState::AttackingGround {
-            let can_fire_ground = self.objects.get(&object_id).map(|attacker| {
-                attacker.can_attack()
-                    && attacker.can_fire(self.frame as f32 * LOGIC_FRAME_TIMESTEP)
-                    && attacker.target_location.is_some()
-            }).unwrap_or(false);
+            let can_fire_ground = self
+                .objects
+                .get(&object_id)
+                .map(|attacker| {
+                    attacker.can_attack()
+                        && attacker.can_fire(self.frame as f32 * LOGIC_FRAME_TIMESTEP)
+                        && attacker.target_location.is_some()
+                })
+                .unwrap_or(false);
 
             if can_fire_ground {
                 if let Some(attacker) = self.objects.get(&object_id) {
                     let shooter_pos = attacker.get_position();
-                    let weapon_damage = attacker
-                        .weapon
-                        .as_ref()
-                        .map(|w| w.damage)
-                        .unwrap_or(25.0);
+                    let weapon_damage = attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(25.0);
                     let target_loc = attacker.target_location.unwrap();
                     super::combat::queue_projectile(super::combat::PendingProjectile {
                         shooter_id: object_id,
@@ -5033,10 +5116,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&obj_id) else {
                 continue;
             };
-            if !obj.is_alive()
-                || !obj.is_constructed()
-                || !obj.is_kind_of(KindOf::Structure)
-            {
+            if !obj.is_alive() || !obj.is_constructed() || !obj.is_kind_of(KindOf::Structure) {
                 continue;
             }
             // Skip buildings that are garrisonable until destroyed.
@@ -5107,9 +5187,8 @@ impl GameLogic {
             if !obj.is_kind_of(KindOf::Powered) {
                 continue;
             }
-            let should_disable = underpowered_teams.contains(&obj.team)
-                && obj.is_alive()
-                && obj.is_constructed();
+            let should_disable =
+                underpowered_teams.contains(&obj.team) && obj.is_alive() && obj.is_constructed();
             obj.status.disabled_underpowered = should_disable;
         }
     }
@@ -5271,11 +5350,7 @@ impl GameLogic {
     }
 
     /// Find the nearest supply center (refinery/supply dropzone) for a team.
-    fn find_nearest_supply_center(
-        &self,
-        team: Team,
-        from_position: Vec3,
-    ) -> Option<ObjectId> {
+    fn find_nearest_supply_center(&self, team: Team, from_position: Vec3) -> Option<ObjectId> {
         let mut nearest_id: Option<ObjectId> = None;
         let mut nearest_dist = f32::MAX;
 
@@ -5823,9 +5898,7 @@ impl GameLogic {
         // If not set, use a default based on the object type.
         let xp_val = Self::object_definition_attr(definition, "experiencevalue")
             .and_then(|s| s.split_whitespace().next()?.parse::<f32>().ok())
-            .unwrap_or_else(|| {
-                if is_structure { 100.0 } else { 50.0 }
-            });
+            .unwrap_or_else(|| if is_structure { 100.0 } else { 50.0 });
         template.experience_value = xp_val;
 
         // C++ parity: parse Armor from INI (default 0).
@@ -7704,7 +7777,6 @@ impl GameLogic {
                     result.total_scripts,
                     map_name
                 );
-
             }
             Ok(None) => {
                 self.loaded_script_lists.clear();
@@ -7813,7 +7885,9 @@ impl GameLogic {
                 if let Some(pos) = event.position {
                     log::trace!(
                         "🔊 Audio: {} at {:?} from object {}",
-                        event.event_type, pos, obj_id
+                        event.event_type,
+                        pos,
+                        obj_id
                     );
                 } else {
                     log::trace!("🔊 Audio: {} from object {}", event.event_type, obj_id);
@@ -7850,7 +7924,8 @@ impl GameLogic {
                 ScriptEvent::PlayerDefeated { player_id } => {
                     log::debug!(
                         "📜 Script event: player {} defeated (frame {})",
-                        player_id, self.frame
+                        player_id,
+                        self.frame
                     );
                     self.partition_manager.reveal_map_for_player(player_id);
                 }
@@ -7861,7 +7936,8 @@ impl GameLogic {
                 ScriptEvent::AllianceStateChanged { player_id, state } => {
                     log::debug!(
                         "📜 Script event: alliance state {:?} for player {}",
-                        state, player_id
+                        state,
+                        player_id
                     );
                 }
             }
@@ -8844,8 +8920,8 @@ impl GameLogic {
     /// Matches pattern from C++ InGameUI::preDraw() (InGameUI.h line 466)
     pub fn update_ui_state(&mut self, player_id: u32) -> crate::ui::GameUIState {
         use crate::ui::{
-            BuildQueueEntry, GameUIState, MinimapDot, RadarMessageEntry, RadarPing,
-            RadarPingKind, UnitDisplayInfo,
+            BuildQueueEntry, GameUIState, MinimapDot, RadarMessageEntry, RadarPing, RadarPingKind,
+            UnitDisplayInfo,
         };
 
         // Get player associated with the current viewport/camera
@@ -8956,7 +9032,12 @@ impl GameLogic {
                     2.0
                 };
 
-                minimap_unit_dots.push(MinimapDot::normalized(normalized_x, normalized_y, color, size));
+                minimap_unit_dots.push(MinimapDot::normalized(
+                    normalized_x,
+                    normalized_y,
+                    color,
+                    size,
+                ));
             }
         }
 
@@ -9281,9 +9362,7 @@ impl GameLogic {
         static DEBUG_CAMERA_FOCUS_LOGS: std::sync::atomic::AtomicUsize =
             std::sync::atomic::AtomicUsize::new(0);
         if DEBUG_CAMERA_FOCUS_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 24 {
-            log::trace!(
-                "DEBUG_SHELL_CAMERA_BRIDGE: request_camera_focus position={position:?}"
-            );
+            log::trace!("DEBUG_SHELL_CAMERA_BRIDGE: request_camera_focus position={position:?}");
         }
         self.pending_camera_focus = Some(position);
         self.script_camera_focus_estimate = position;
@@ -9740,10 +9819,7 @@ mod tests {
             GameLogic::remap_known_model_alias("PMPlygdSt"),
             "PMPavilion"
         );
-        assert_eq!(
-            GameLogic::remap_known_model_alias("AVAMPHIB"),
-            "AVChinook"
-        );
+        assert_eq!(GameLogic::remap_known_model_alias("AVAMPHIB"), "AVChinook");
         assert_eq!(
             GameLogic::remap_known_model_alias("AVChinook_A2"),
             "AVChinook_A2MSH"

@@ -83,8 +83,8 @@ pub use science::{
 pub use score_keeper::ScoreKeeper;
 pub use special_power::{SpecialPowerStore, SpecialPowerTemplate, SpecialPowerType};
 pub use team::{
-    Relationship, SidesListReader, Team, TeamFactory, TeamID, TeamInfoReader, TeamMember,
-    TeamPrototype, TeamPrototypeFlags, TeamRelationMap, PlayerRef, TEAM_ID_INVALID,
+    PlayerRef, Relationship, SidesListReader, Team, TeamFactory, TeamID, TeamInfoReader,
+    TeamMember, TeamPrototype, TeamPrototypeFlags, TeamRelationMap, TEAM_ID_INVALID,
     TEAM_PROTOTYPE_ID_INVALID,
 };
 pub use tunnel_tracker::TunnelTracker;

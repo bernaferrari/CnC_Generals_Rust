@@ -460,7 +460,8 @@ impl CampaignStore {
 
     /// Add or replace a campaign (matches C++ CampaignManager::newCampaign behavior)
     pub fn add_campaign(&mut self, campaign: Campaign) {
-        self.campaigns.insert(campaign.name.to_lowercase(), campaign);
+        self.campaigns
+            .insert(campaign.name.to_lowercase(), campaign);
     }
 
     /// Get a campaign by name

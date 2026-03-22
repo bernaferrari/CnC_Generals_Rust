@@ -112,10 +112,7 @@ impl ObjectPlacer {
             if wp.bi_directional {
                 map_obj
                     .get_properties_mut()
-                    .insert(
-                        "waypointPathBiDirectional".to_string(),
-                        "true".to_string(),
-                    );
+                    .insert("waypointPathBiDirectional".to_string(), "true".to_string());
             }
 
             system.add_map_object(Box::new(map_obj));
@@ -133,9 +130,7 @@ impl ObjectPlacer {
     /// initialization system.
     pub fn register_starting_positions(waypoints: &[MapWaypoint]) {
         let Ok(mut system) = TheMapSystem.write() else {
-            log::warn!(
-                "ObjectPlacer: unable to acquire MapSystem lock for starting positions"
-            );
+            log::warn!("ObjectPlacer: unable to acquire MapSystem lock for starting positions");
             return;
         };
 
@@ -262,17 +257,15 @@ mod tests {
     fn test_place_waypoints() {
         // Test placement by adding waypoints and verifying at least one exists.
         // We use unique names to avoid collisions with parallel tests.
-        let waypoints = vec![
-            MapWaypoint {
-                id: 9001,
-                name: "TestPW_Player_1_Start".to_string(),
-                location: SysCoord3D::new(100.0, 200.0, 0.0),
-                path_label1: "AttackPath".to_string(),
-                path_label2: String::new(),
-                path_label3: String::new(),
-                bi_directional: true,
-            },
-        ];
+        let waypoints = vec![MapWaypoint {
+            id: 9001,
+            name: "TestPW_Player_1_Start".to_string(),
+            location: SysCoord3D::new(100.0, 200.0, 0.0),
+            path_label1: "AttackPath".to_string(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: true,
+        }];
 
         ObjectPlacer::place_waypoints(&waypoints);
 
@@ -329,14 +322,8 @@ mod tests {
         assert!(found.is_some());
 
         let found_obj = found.unwrap();
-        assert_eq!(
-            found_obj.get_properties().get("owner").unwrap(),
-            "Plyr1"
-        );
-        assert_eq!(
-            found_obj.get_properties().get("uniqueID").unwrap(),
-            "100"
-        );
+        assert_eq!(found_obj.get_properties().get("owner").unwrap(), "Plyr1");
+        assert_eq!(found_obj.get_properties().get("uniqueID").unwrap(), "100");
     }
 
     #[test]
@@ -345,17 +332,15 @@ mod tests {
         // We can't assert the object is found after placing because another
         // parallel test may call clear_all().  Instead we verify that
         // clear_all() empties the system.
-        let waypoints = vec![
-            MapWaypoint {
-                id: 9200,
-                name: "TestClear_TempWP_unique_9200".to_string(),
-                location: SysCoord3D::new(0.0, 0.0, 0.0),
-                path_label1: String::new(),
-                path_label2: String::new(),
-                path_label3: String::new(),
-                bi_directional: false,
-            },
-        ];
+        let waypoints = vec![MapWaypoint {
+            id: 9200,
+            name: "TestClear_TempWP_unique_9200".to_string(),
+            location: SysCoord3D::new(0.0, 0.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        }];
         ObjectPlacer::place_waypoints(&waypoints);
 
         // Verify placement succeeded (no panic, no error return)
@@ -363,6 +348,8 @@ mod tests {
         ObjectPlacer::clear_all();
 
         let system = TheMapSystem.read().unwrap();
-        assert!(system.find_map_object("TestClear_TempWP_unique_9200").is_none());
+        assert!(system
+            .find_map_object("TestClear_TempWP_unique_9200")
+            .is_none());
     }
 }

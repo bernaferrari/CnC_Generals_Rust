@@ -989,16 +989,7 @@ impl Team {
             .and_then(|logic| logic.get_first_object());
 
         while let Some(object_arc) = current.clone() {
-            let (
-                next,
-                obj_template,
-                obj_player,
-                obj_team,
-                is_dead,
-                held,
-                pos,
-                candidate_name,
-            ) = {
+            let (next, obj_template, obj_player, obj_team, is_dead, held, pos, candidate_name) = {
                 let Ok(object_guard) = object_arc.read() else {
                     break;
                 };
@@ -1698,7 +1689,9 @@ impl Team {
                     continue;
                 };
                 let is_beacon = beacon_template.as_ref().is_some_and(|template| {
-                    object_guard.get_template().is_equivalent_to(template.as_ref())
+                    object_guard
+                        .get_template()
+                        .is_equivalent_to(template.as_ref())
                 });
                 (
                     object_guard.is_destroyed(),

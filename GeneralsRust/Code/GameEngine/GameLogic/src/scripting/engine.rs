@@ -1099,8 +1099,7 @@ impl ScriptEngine {
                 continue;
             }
             if let Some(template) = self.action_templates.get_mut(idx as usize) {
-                let internal_name =
-                    Self::enum_name_to_internal_name(&format!("{:?}", action_type));
+                let internal_name = Self::enum_name_to_internal_name(&format!("{:?}", action_type));
                 template.base.internal_name = internal_name.clone();
                 template.base.internal_name_key = NameKeyGenerator::name_to_key(&internal_name);
                 if template.base.ui_name.is_empty() {
@@ -2128,7 +2127,8 @@ impl ScriptEngine {
                         continue;
                     };
 
-                    let is_singleton = prototype.is_singleton() || prototype.get_max_instances() < 2;
+                    let is_singleton =
+                        prototype.is_singleton() || prototype.get_max_instances() < 2;
                     if is_singleton {
                         singleton_team_name = team_name.to_string();
                     } else if multi_team_name.is_empty() {
@@ -4235,31 +4235,53 @@ mod tests {
     #[test]
     fn sequential_pending_wait_conversion_matches_cxx_wait_patterns() {
         // Retry-style wait actions re-run the same instruction on the next frame.
-        assert_eq!(ScriptEngine::pending_to_sequential_wait_frames(1.0, true), 0);
-        assert_eq!(ScriptEngine::pending_to_sequential_wait_frames(3.0, true), 2);
+        assert_eq!(
+            ScriptEngine::pending_to_sequential_wait_frames(1.0, true),
+            0
+        );
+        assert_eq!(
+            ScriptEngine::pending_to_sequential_wait_frames(3.0, true),
+            2
+        );
 
         // Framecount actions wait before advancing to the next instruction.
-        assert_eq!(ScriptEngine::pending_to_sequential_wait_frames(1.0, false), 1);
-        assert_eq!(ScriptEngine::pending_to_sequential_wait_frames(3.0, false), 3);
+        assert_eq!(
+            ScriptEngine::pending_to_sequential_wait_frames(1.0, false),
+            1
+        );
+        assert_eq!(
+            ScriptEngine::pending_to_sequential_wait_frames(3.0, false),
+            3
+        );
     }
 
     #[test]
     fn sequential_pending_retry_action_classification_matches_cxx() {
-        assert!(ScriptEngine::pending_repeats_current_sequential_instruction(
-            ScriptActionType::SkirmishWaitForCommandbuttonAvailableAll
-        ));
-        assert!(ScriptEngine::pending_repeats_current_sequential_instruction(
-            ScriptActionType::SkirmishWaitForCommandbuttonAvailablePartial
-        ));
-        assert!(ScriptEngine::pending_repeats_current_sequential_instruction(
-            ScriptActionType::TeamWaitForNotContainedAll
-        ));
-        assert!(ScriptEngine::pending_repeats_current_sequential_instruction(
-            ScriptActionType::TeamWaitForNotContainedPartial
-        ));
-        assert!(!ScriptEngine::pending_repeats_current_sequential_instruction(
-            ScriptActionType::TeamGuardForFramecount
-        ));
+        assert!(
+            ScriptEngine::pending_repeats_current_sequential_instruction(
+                ScriptActionType::SkirmishWaitForCommandbuttonAvailableAll
+            )
+        );
+        assert!(
+            ScriptEngine::pending_repeats_current_sequential_instruction(
+                ScriptActionType::SkirmishWaitForCommandbuttonAvailablePartial
+            )
+        );
+        assert!(
+            ScriptEngine::pending_repeats_current_sequential_instruction(
+                ScriptActionType::TeamWaitForNotContainedAll
+            )
+        );
+        assert!(
+            ScriptEngine::pending_repeats_current_sequential_instruction(
+                ScriptActionType::TeamWaitForNotContainedPartial
+            )
+        );
+        assert!(
+            !ScriptEngine::pending_repeats_current_sequential_instruction(
+                ScriptActionType::TeamGuardForFramecount
+            )
+        );
 
         assert!(ScriptEngine::pending_is_sequential_only_action(
             ScriptActionType::TeamGuardForFramecount
@@ -4351,7 +4373,9 @@ mod tests {
             .set_script_list_for_player(0, Some(Box::new(script_list)))
             .unwrap();
 
-        assert!(engine.execute_subroutine_by_name("SubroutinePersist").unwrap());
+        assert!(engine
+            .execute_subroutine_by_name("SubroutinePersist")
+            .unwrap());
 
         let stored = engine.side_script_lists[0]
             .as_ref()
@@ -4386,7 +4410,9 @@ mod tests {
             .set_script_list_for_player(0, Some(Box::new(script_list)))
             .unwrap();
 
-        assert!(engine.execute_subroutine_by_name("NamedSubroutineGroup").unwrap());
+        assert!(engine
+            .execute_subroutine_by_name("NamedSubroutineGroup")
+            .unwrap());
 
         let grouped_script = engine.side_script_lists[0]
             .as_ref()

@@ -75,11 +75,17 @@ impl ArchiveFileSystem {
             push_unique(root.join("Command & Conquer Generals/Data"));
             push_unique(root.join("Command and Conquer Generals"));
             push_unique(root.join("Command and Conquer Generals/Data"));
-            push_unique(root.join("Command and Conquer Generals + Zero Hour/Command & Conquer Generals"));
-            push_unique(root.join(
-                "Command and Conquer Generals + Zero Hour/Command & Conquer Generals/Data",
-            ));
-            push_unique(root.join("Command and Conquer Generals + Zero Hour/Command and Conquer Generals"));
+            push_unique(
+                root.join("Command and Conquer Generals + Zero Hour/Command & Conquer Generals"),
+            );
+            push_unique(
+                root.join(
+                    "Command and Conquer Generals + Zero Hour/Command & Conquer Generals/Data",
+                ),
+            );
+            push_unique(
+                root.join("Command and Conquer Generals + Zero Hour/Command and Conquer Generals"),
+            );
             push_unique(root.join(
                 "Command and Conquer Generals + Zero Hour/Command and Conquer Generals/Data",
             ));

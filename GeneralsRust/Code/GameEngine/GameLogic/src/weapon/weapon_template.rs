@@ -2189,48 +2189,76 @@ impl WeaponTemplate {
             match key.as_str() {
                 // --- Damage ---
                 "PrimaryDamage" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.primary_damage = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.primary_damage = v;
+                    }
                 }
                 "PrimaryDamageRadius" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.primary_damage_radius = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.primary_damage_radius = v;
+                    }
                 }
                 "SecondaryDamage" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.secondary_damage = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.secondary_damage = v;
+                    }
                 }
                 "SecondaryDamageRadius" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.secondary_damage_radius = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.secondary_damage_radius = v;
+                    }
                 }
                 "ShockWaveAmount" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.shock_wave_amount = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.shock_wave_amount = v;
+                    }
                 }
                 "ShockWaveRadius" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.shock_wave_radius = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.shock_wave_radius = v;
+                    }
                 }
                 "ShockWaveTaperOff" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.shock_wave_taper_off = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.shock_wave_taper_off = v;
+                    }
                 }
 
                 // --- Range & targeting ---
                 "AttackRange" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.attack_range = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.attack_range = v;
+                    }
                 }
                 "MinimumAttackRange" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.minimum_attack_range = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.minimum_attack_range = v;
+                    }
                 }
                 "RequestAssistRange" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.request_assist_range = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.request_assist_range = v;
+                    }
                 }
                 "AcceptableAimDelta" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.aim_delta = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.aim_delta = v;
+                    }
                 }
                 "ScatterRadius" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.scatter_radius = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.scatter_radius = v;
+                    }
                 }
                 "ScatterTargetScalar" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.scatter_target_scalar = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.scatter_target_scalar = v;
+                    }
                 }
                 "ScatterRadiusVsInfantry" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.infantry_inaccuracy_dist = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.infantry_inaccuracy_dist = v;
+                    }
                 }
 
                 // --- Damage & death types ---
@@ -2248,27 +2276,41 @@ impl WeaponTemplate {
 
                 // --- Speed ---
                 "WeaponSpeed" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.weapon_speed = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.weapon_speed = v;
+                    }
                 }
                 "MinWeaponSpeed" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.min_weapon_speed = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.min_weapon_speed = v;
+                    }
                 }
                 "ScaleWeaponSpeed" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_scale_weapon_speed = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.is_scale_weapon_speed = v;
+                    }
                 }
 
                 // --- Angles ---
                 "WeaponRecoil" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.weapon_recoil = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.weapon_recoil = v;
+                    }
                 }
                 "MinTargetPitch" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.min_target_pitch = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.min_target_pitch = v;
+                    }
                 }
                 "MaxTargetPitch" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.max_target_pitch = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.max_target_pitch = v;
+                    }
                 }
                 "RadiusDamageAngle" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.radius_damage_angle = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.radius_damage_angle = v;
+                    }
                 }
 
                 // --- Projectile ---
@@ -2287,62 +2329,96 @@ impl WeaponTemplate {
 
                 // --- Timing ---
                 "ClipSize" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.clip_size = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.clip_size = v;
+                    }
                 }
                 "ClipReloadTime" => {
                     // C++: parseDurationUnsignedInt -> frames at 30 FPS
-                    if let Ok(v) = trimmed.parse::<u32>() { self.clip_reload_time = v as i32; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.clip_reload_time = v as i32;
+                    }
                 }
                 "AutoReloadWhenIdle" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.auto_reload_when_idle_frames = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.auto_reload_when_idle_frames = v;
+                    }
                 }
                 "ShotsPerBarrel" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.shots_per_barrel = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.shots_per_barrel = v;
+                    }
                 }
                 "PreAttackDelay" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.pre_attack_delay = v as i32; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.pre_attack_delay = v as i32;
+                    }
                 }
                 "SuspendFXDelay" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.suspend_fx_delay = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.suspend_fx_delay = v;
+                    }
                 }
 
                 // --- Continuous fire ---
                 "ContinuousFireOne" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.continuous_fire_one_shots_needed = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.continuous_fire_one_shots_needed = v;
+                    }
                 }
                 "ContinuousFireTwo" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.continuous_fire_two_shots_needed = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.continuous_fire_two_shots_needed = v;
+                    }
                 }
                 "ContinuousFireCoast" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.continuous_fire_coast_frames = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.continuous_fire_coast_frames = v;
+                    }
                 }
 
                 // --- Special targeting ---
                 "ContinueAttackRange" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.continue_attack_range = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.continue_attack_range = v;
+                    }
                 }
 
                 // --- Flags ---
                 "DamageDealtAtSelfPosition" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.damage_dealt_at_self_position = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.damage_dealt_at_self_position = v;
+                    }
                 }
                 "LeechRangeWeapon" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.leech_range_weapon = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.leech_range_weapon = v;
+                    }
                 }
                 "CapableOfFollowingWaypoints" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.capable_of_following_waypoint = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.capable_of_following_waypoint = v;
+                    }
                 }
                 "ShowsAmmoPips" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_shows_ammo_pips = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.is_shows_ammo_pips = v;
+                    }
                 }
                 "AllowAttackGarrisonedBldgs" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.allow_attack_garrisoned_bldgs = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.allow_attack_garrisoned_bldgs = v;
+                    }
                 }
                 "PlayFXWhenStealthed" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.play_fx_when_stealthed = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.play_fx_when_stealthed = v;
+                    }
                 }
                 "MissileCallsOnDie" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.die_on_detonate = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.die_on_detonate = v;
+                    }
                 }
 
                 // --- Anti-mask ---
@@ -2383,13 +2459,19 @@ impl WeaponTemplate {
 
                 // --- Historic bonus ---
                 "HistoricBonusTime" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.historic_bonus_time = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.historic_bonus_time = v;
+                    }
                 }
                 "HistoricBonusRadius" => {
-                    if let Ok(v) = trimmed.parse::<f32>() { self.historic_bonus_radius = v; }
+                    if let Ok(v) = trimmed.parse::<f32>() {
+                        self.historic_bonus_radius = v;
+                    }
                 }
                 "HistoricBonusCount" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.historic_bonus_count = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.historic_bonus_count = v;
+                    }
                 }
 
                 // --- Fire sound ---
@@ -2397,7 +2479,9 @@ impl WeaponTemplate {
                     self.fire_sound = AudioEventRts::new(trimmed.to_string());
                 }
                 "FireSoundLoopTime" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.fire_sound_loop_time = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.fire_sound_loop_time = v;
+                    }
                 }
 
                 // --- DelayBetweenShots ---
@@ -2430,9 +2514,15 @@ impl WeaponTemplate {
                             "ENEMIES" => self.affects_mask.insert(WeaponAffectsMask::ENEMIES),
                             "NEUTRALS" => self.affects_mask.insert(WeaponAffectsMask::NEUTRALS),
                             "KILLS_SELF" => self.affects_mask.insert(WeaponAffectsMask::KILLS_SELF),
-                            "DOESNT_AFFECT_SIMILAR" => self.affects_mask.insert(WeaponAffectsMask::DOESNT_AFFECT_SIMILAR),
-                            "DOESNT_AFFECT_AIRBORNE" => self.affects_mask.insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
-                            "NOT_AIRBORNE" => self.affects_mask.insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
+                            "DOESNT_AFFECT_SIMILAR" => self
+                                .affects_mask
+                                .insert(WeaponAffectsMask::DOESNT_AFFECT_SIMILAR),
+                            "DOESNT_AFFECT_AIRBORNE" => self
+                                .affects_mask
+                                .insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
+                            "NOT_AIRBORNE" => self
+                                .affects_mask
+                                .insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
                             _ => {}
                         }
                     }
@@ -2446,10 +2536,16 @@ impl WeaponTemplate {
                             "ENEMIES" => self.collide_mask.insert(WeaponCollideMask::ENEMIES),
                             "STRUCTURES" => self.collide_mask.insert(WeaponCollideMask::STRUCTURES),
                             "SHRUBBERY" => self.collide_mask.insert(WeaponCollideMask::SHRUBBERY),
-                            "PROJECTILES" => self.collide_mask.insert(WeaponCollideMask::PROJECTILE),
+                            "PROJECTILES" => {
+                                self.collide_mask.insert(WeaponCollideMask::PROJECTILE)
+                            }
                             "WALLS" => self.collide_mask.insert(WeaponCollideMask::WALLS),
-                            "SMALL_MISSILES" => self.collide_mask.insert(WeaponCollideMask::SMALL_MISSILES),
-                            "BALLISTIC_MISSILES" => self.collide_mask.insert(WeaponCollideMask::BALLISTIC_MISSILES),
+                            "SMALL_MISSILES" => {
+                                self.collide_mask.insert(WeaponCollideMask::SMALL_MISSILES)
+                            }
+                            "BALLISTIC_MISSILES" => self
+                                .collide_mask
+                                .insert(WeaponCollideMask::BALLISTIC_MISSILES),
                             _ => {}
                         }
                     }
@@ -2565,7 +2661,9 @@ fn parse_death_type(s: &str) -> DeathType {
         "LASERED" => DeathType::Lasered,
         "DETONATED" => DeathType::Detonated,
         "SPLATTED" => DeathType::Splatted,
-        "POISONED_BETA" | "POISONEDBETA" | "ANTHRAX_BETA" | "ANTHRAXBETA" | "ANTHRAX" => DeathType::PoisonedBeta,
+        "POISONED_BETA" | "POISONEDBETA" | "ANTHRAX_BETA" | "ANTHRAXBETA" | "ANTHRAX" => {
+            DeathType::PoisonedBeta
+        }
         "EXTRA2" => DeathType::Extra2,
         "EXTRA3" => DeathType::Extra3,
         "EXTRA4" => DeathType::Extra4,

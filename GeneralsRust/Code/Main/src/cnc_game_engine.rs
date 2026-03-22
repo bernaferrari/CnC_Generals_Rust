@@ -9,7 +9,6 @@
 
 use crate::assets::{get_asset_manager, W3DModel};
 use crate::command_line::CommandLineArgs;
-use crate::config::GlobalData;
 use crate::fow_rendering;
 use crate::game_logic::script_events::{self, ScriptEvent};
 use crate::game_logic::victory_conditions::AllianceState;
@@ -23,8 +22,7 @@ use crate::save_load::{
     init_game_state_system, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
 };
 use crate::subsystem_manager::{
-    get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, GlobalDataSubsystem,
-    NetworkSubsystem,
+    get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, NetworkSubsystem,
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
@@ -764,9 +762,7 @@ impl CnCGameEngine {
         }
 
         if self.startup_stall_events == 0 {
-            info!(
-                "Startup health: all checks succeeded (progress=100%, stalls=0, render_boot=ok)"
-            );
+            info!("Startup health: all checks succeeded (progress=100%, stalls=0, render_boot=ok)");
         } else {
             info!(
                 "Startup health: completed with {} transient stalls (max_stall={:.2}s), no fatal startup errors",
@@ -872,21 +868,12 @@ impl CnCGameEngine {
     }
 
     fn configured_startup_shell_map() -> Option<String> {
-        let shell_map_name =
-            crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
-                subsystem.get_global_data().and_then(|global| {
-                    if global.shell_map_on {
-                        Some(global.shell_map_name.clone())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .flatten();
-
-        let Some(shell_map_name) = shell_map_name else {
+        let global = game_engine::common::global_data::read();
+        if !global.writable.shell_map_on {
             return None;
-        };
+        }
+        let shell_map_name = global.writable.shell_map_name.clone();
+        drop(global);
 
         if game_client::map_util::is_map_cached_without_refresh(&shell_map_name) {
             return Some(shell_map_name);
@@ -944,30 +931,7 @@ impl CnCGameEngine {
     }
 
     fn configured_startup_camera_defaults() -> StartupCameraDefaults {
-        if let Some(defaults) =
-            crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
-                subsystem
-                    .get_global_data()
-                    .map(|global| StartupCameraDefaults {
-                        pitch_degrees: global.camera_pitch,
-                        yaw_degrees: global.camera_yaw,
-                        camera_height: global.camera_height,
-                        max_camera_height: global.max_camera_height,
-                    })
-            })
-            .flatten()
-        {
-            return defaults;
-        }
-
-        let mut global = GlobalData::new();
-        let _ = global.load_ini("Data/INI/Default/GameData.ini");
-        let _ = global.load_ini("Data/INI/GameData.ini");
-        #[cfg(any(debug_assertions, feature = "internal"))]
-        {
-            let _ = global.load_ini("Data/INI/GameDataDebug.ini");
-        }
-
+        let global = game_engine::common::global_data::read();
         StartupCameraDefaults {
             pitch_degrees: global.camera_pitch,
             yaw_degrees: global.camera_yaw,
@@ -1649,17 +1613,14 @@ impl CnCGameEngine {
         // C++ GameEngine::init updates MapCache before shell-map startup checks.
         game_client::map_util::refresh_map_cache();
 
-        let startup_initial_file =
-            crate::subsystem_manager::with_subsystem::<GlobalDataSubsystem, _>(|subsystem| {
-                subsystem.get_global_data().and_then(|global| {
-                    if global.initial_file.is_empty() {
-                        None
-                    } else {
-                        Some(global.initial_file.clone())
-                    }
-                })
-            })
-            .flatten();
+        let startup_initial_file = {
+            let global = game_engine::common::global_data::read();
+            if global.writable.initial_file.is_empty() {
+                None
+            } else {
+                Some(global.writable.initial_file.clone())
+            }
+        };
 
         let startup_initial_map = startup_initial_file
             .as_ref()
@@ -1681,16 +1642,11 @@ impl CnCGameEngine {
         }
 
         if let Some(initial_map) = startup_initial_map.as_ref() {
-            let _ =
-                crate::subsystem_manager::with_subsystem_mut::<GlobalDataSubsystem, _>(|subsystem| {
-                    if let Some(global) = subsystem.get_global_data_mut() {
-                        global.shell_map_on = false;
-                        global.play_intro = false;
-                        global.after_intro = true;
-                        global.pending_file = initial_map.clone();
-                        global.sync_runtime_view();
-                    }
-                });
+            let mut global = game_engine::common::global_data::write();
+            global.writable.shell_map_on = false;
+            global.writable.play_intro = false;
+            global.writable.after_intro = true;
+            global.pending_file = initial_map.clone();
         }
 
         let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
@@ -1899,71 +1855,69 @@ impl CnCGameEngine {
     }
 
     fn apply_command_line_overrides(command_line: &CommandLineArgs) {
-        let mut applied = false;
         let quick_start = command_line.quick_start
             || Self::has_command_line_option_case_insensitive(command_line, "quickstart");
         let no_shell_map =
             Self::has_command_line_option_case_insensitive(command_line, "noshellmap");
-        let shell_map_override = Self::command_line_option_value_case_insensitive(
-            command_line,
-            "shellmap",
-        )
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        let shell_map_override =
+            Self::command_line_option_value_case_insensitive(command_line, "shellmap")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
 
-        let initial_file_override = Self::command_line_option_value_case_insensitive(
-            command_line,
-            "file",
-        )
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        let initial_file_override =
+            Self::command_line_option_value_case_insensitive(command_line, "file")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
 
-        if let Some(handle) = get_subsystem_manager() {
-            let mut manager = handle.lock();
-            if let Some(subsystem) = manager.get_mut::<GlobalDataSubsystem>() {
-                if let Some(global) = subsystem.get_global_data_mut() {
-                    if let Some(initial_file) = initial_file_override.as_ref() {
-                        global.initial_file = initial_file.clone();
-                        if initial_file.to_ascii_lowercase().ends_with(".map") {
-                            // C++ GameEngine::init initial-file startup path.
-                            global.shell_map_on = false;
-                            global.play_intro = false;
-                            global.after_intro = true;
-                            global.pending_file = initial_file.clone();
-                        }
-                    }
-                    if quick_start {
-                        // C++ parseQuickStart: disable intro sequences.
-                        global.play_intro = false;
-                        global.after_intro = true;
-                    }
-                    if no_shell_map {
-                        global.shell_map_on = false;
-                    }
-                    if let Some(shell_map_name) = shell_map_override {
-                        global.shell_map_name = shell_map_name;
-                    }
-                    if let Some(lang) = command_line.language.as_deref() {
-                        global.set_language(lang);
-                    }
-                    if let Some(mod_name) = command_line.mod_name.as_deref() {
-                        global.set_active_mod(mod_name);
-                    }
-                    global.sync_runtime_view();
-                    applied = true;
+        {
+            let mut global = game_engine::common::global_data::write();
+            if let Some(initial_file) = initial_file_override.as_ref() {
+                global.writable.initial_file = initial_file.clone();
+                if initial_file.to_ascii_lowercase().ends_with(".map") {
+                    // C++ GameEngine::init initial-file startup path.
+                    global.writable.shell_map_on = false;
+                    global.writable.play_intro = false;
+                    global.writable.after_intro = true;
+                    global.pending_file = initial_file.clone();
                 }
             }
-        }
-
-        if !applied {
-            debug!("GlobalData subsystem unavailable; command line overrides skipped");
+            if quick_start {
+                // C++ parseQuickStart: disable intro sequences.
+                global.writable.play_intro = false;
+                global.writable.after_intro = true;
+            }
+            if no_shell_map {
+                global.writable.shell_map_on = false;
+            }
+            if let Some(shell_map_name) = shell_map_override {
+                global.writable.shell_map_name = shell_map_name;
+            }
+            if let Some(lang) = command_line.language.as_deref() {
+                global.set_override(
+                    "language",
+                    game_engine::common::global_data::GlobalValue::String(lang.to_string()),
+                );
+            }
+            if let Some(mod_name) = command_line.mod_name.as_deref() {
+                if mod_name.trim().is_empty() {
+                    global.clear_override("active_mod");
+                } else {
+                    global.set_override(
+                        "active_mod",
+                        game_engine::common::global_data::GlobalValue::String(mod_name.to_string()),
+                    );
+                }
+            }
         }
 
         let language = command_line.language.as_deref().unwrap_or("English");
         localization::set_language(language);
     }
 
-    fn has_command_line_option_case_insensitive(command_line: &CommandLineArgs, option: &str) -> bool {
+    fn has_command_line_option_case_insensitive(
+        command_line: &CommandLineArgs,
+        option: &str,
+    ) -> bool {
         command_line
             .options
             .keys()
@@ -3003,7 +2957,10 @@ impl CnCGameEngine {
                     warn!("Game HUD update failed: {}", err);
                 }
             } else {
-                warn!("Skipping Game HUD update due to non-finite delta time: {}", dt);
+                warn!(
+                    "Skipping Game HUD update due to non-finite delta time: {}",
+                    dt
+                );
             }
         }
 
@@ -3499,9 +3456,9 @@ impl CnCGameEngine {
             SaveFileType::QuickSave,
         );
 
-        if let Err(err) = self
-            .save_file_manager
-            .save_game("quicksave", &self.game_logic, &save_info)
+        if let Err(err) =
+            self.save_file_manager
+                .save_game("quicksave", &self.game_logic, &save_info)
         {
             warn!("Quick save failed for 'quicksave': {}", err);
         } else {
@@ -3530,7 +3487,10 @@ impl CnCGameEngine {
         }
 
         if !self.save_file_manager.save_exists("quicksave") {
-            warn!("{} requested quick load, but no 'quicksave' slot exists", source);
+            warn!(
+                "{} requested quick load, but no 'quicksave' slot exists",
+                source
+            );
             if self.ui_manager.current_screen() == Some(Screen::Loading) {
                 if let Some(screen) = restore_screen {
                     self.ui_manager.transition_to_screen(screen);
@@ -3549,7 +3509,8 @@ impl CnCGameEngine {
             return;
         }
 
-        let save_info = self.build_save_info(slot, display_name, display_name, SaveFileType::Normal);
+        let save_info =
+            self.build_save_info(slot, display_name, display_name, SaveFileType::Normal);
 
         if let Err(err) = self
             .save_file_manager
@@ -3741,9 +3702,7 @@ impl CnCGameEngine {
                 meta.sky_color,
             );
         } else {
-            warn!(
-                "Map settings provide no lighting metadata; using fallback ambient/sun defaults"
-            );
+            warn!("Map settings provide no lighting metadata; using fallback ambient/sun defaults");
             render_pipeline.set_environment_lighting(
                 Some(FALLBACK_SUN_DIRECTION),
                 Some(FALLBACK_SUN_COLOR),
@@ -3822,6 +3781,13 @@ impl CnCGameEngine {
                     );
                 }
             }
+        }
+
+        if let Err(err) = render_pipeline.sync_runtime_map_roads(game_logic) {
+            warn!(
+                "Failed to sync runtime map roads for '{}': {}",
+                map_name, err
+            );
         }
     }
 
@@ -4012,18 +3978,11 @@ impl CnCGameEngine {
     }
 
     fn apply_script_fps_limit_request(&mut self, fps: i32) {
-        let global_default =
-            with_subsystem_mut::<GlobalDataSubsystem, _>(|subsystem| -> Option<i32> {
-                let global = subsystem.get_global_data_mut()?;
-                global.use_fps_limit = true;
-                Some(global.frames_per_second_limit)
-            })
-            .flatten();
-
-        {
+        let global_default = {
             let mut global = game_engine::common::global_data::write();
             global.writable.use_fps_limit = true;
-        }
+            Some(global.writable.frames_per_second_limit)
+        };
 
         let resolved_fps = if fps <= 0 {
             global_default.unwrap_or_else(|| {
@@ -4574,9 +4533,7 @@ impl CnCGameEngine {
             Key::Character(c) if c.eq_ignore_ascii_case("v") => {
                 self.debug_show_victory(Some(self.current_player_id));
             }
-            Key::Character(c)
-                if c.eq_ignore_ascii_case("l") && !ctrl_down =>
-            {
+            Key::Character(c) if c.eq_ignore_ascii_case("l") && !ctrl_down => {
                 let winner = self.game_logic.first_opponent_id(self.current_player_id);
                 self.debug_show_victory(winner);
             }
@@ -4845,7 +4802,9 @@ impl CnCGameEngine {
                 screen_scroll.x -= horizontal_scroll_speed_factor * scroll_step;
             }
             if self.is_character_key_pressed("d")
-                || self.keys_pressed.contains(&Key::Named(NamedKey::ArrowRight))
+                || self
+                    .keys_pressed
+                    .contains(&Key::Named(NamedKey::ArrowRight))
             {
                 screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
             }
@@ -4875,8 +4834,8 @@ impl CnCGameEngine {
                 }
 
                 if edge_dx != 0.0 || edge_dy != 0.0 {
-                    let edge_step = SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0)
-                        * logic_frames_per_second;
+                    let edge_step =
+                        SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0) * logic_frames_per_second;
                     screen_scroll.x += edge_dx * horizontal_scroll_speed_factor * edge_step;
                     screen_scroll.y += edge_dy * vertical_scroll_speed_factor * edge_step;
                 }
@@ -4896,7 +4855,10 @@ impl CnCGameEngine {
                         let dist = dist_sq.sqrt().min(max_dist);
                         let norm_dx = dx / dist_sq.sqrt().max(1.0);
                         let norm_dy = dy / dist_sq.sqrt().max(1.0);
-                        let speed = keyboard_scroll_factor * dist * 0.01 * dt.max(0.0)
+                        let speed = keyboard_scroll_factor
+                            * dist
+                            * 0.01
+                            * dt.max(0.0)
                             * logic_frames_per_second;
                         screen_scroll.x += norm_dx * speed * horizontal_scroll_speed_factor;
                         screen_scroll.y += norm_dy * speed * vertical_scroll_speed_factor;
@@ -5918,13 +5880,11 @@ impl RuntimeHostBridge {
             let fs_guard_result = fs.lock();
             if let Ok(mut fs_guard) = fs_guard_result {
                 for candidate in candidates {
-                    if let Some(mut file) = fs_guard
-                        .open_file(
-                            candidate,
-                            game_engine::common::system::file::FileAccess::READ
-                                .combine(game_engine::common::system::file::FileAccess::BINARY),
-                        )
-                    {
+                    if let Some(mut file) = fs_guard.open_file(
+                        candidate,
+                        game_engine::common::system::file::FileAccess::READ
+                            .combine(game_engine::common::system::file::FileAccess::BINARY),
+                    ) {
                         let Ok(bytes) = file.read_entire_and_close() else {
                             continue;
                         };
@@ -6555,7 +6515,6 @@ impl CnCGameEngine {
                 loaded_count,
                 failed_count
             );
-
         }
 
         println!(

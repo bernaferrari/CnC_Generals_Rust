@@ -628,12 +628,22 @@ impl PartitionManager {
 
             for i in 0..samples {
                 // Try one side
-                if let Some(pos) = self.try_position(center, dist, start_angle + angle_spacing * i as f32, options) {
+                if let Some(pos) = self.try_position(
+                    center,
+                    dist,
+                    start_angle + angle_spacing * i as f32,
+                    options,
+                ) {
                     return Some(pos);
                 }
                 // Try the other side (skip duplicate at i==0)
                 if i != 0 {
-                    if let Some(pos) = self.try_position(center, dist, start_angle - angle_spacing * i as f32, options) {
+                    if let Some(pos) = self.try_position(
+                        center,
+                        dist,
+                        start_angle - angle_spacing * i as f32,
+                        options,
+                    ) {
                         return Some(pos);
                     }
                 }
@@ -664,11 +674,7 @@ impl PartitionManager {
     ) -> Option<Coord3D> {
         let cos_a = angle.cos();
         let sin_a = angle.sin();
-        let mut pos = Coord3D::new(
-            dist * cos_a + center.x,
-            dist * sin_a + center.y,
-            0.0,
-        );
+        let mut pos = Coord3D::new(dist * cos_a + center.x, dist * sin_a + center.y, 0.0);
 
         // Query terrain for height.
         let terrain = get_terrain_logic().read().ok()?;
@@ -709,7 +715,10 @@ impl PartitionManager {
         }
 
         // Object overlap checks
-        if !options.flags.contains(FindPositionFlags::IGNORE_ALL_OBJECTS) {
+        if !options
+            .flags
+            .contains(FindPositionFlags::IGNORE_ALL_OBJECTS)
+        {
             let probe_radius = 5.0; // small sphere radius matching C++
             let nearby = self.find_objects_in_radius(&pos, probe_radius * 2.0, &[]);
 
@@ -725,9 +734,10 @@ impl PartitionManager {
 
                 // Relationship-based filtering
                 if let Some(rel_id) = options.relationship_object {
-                    if let (Some(rel_handle), Some(other_handle)) =
-                        (OBJECT_REGISTRY.get_object(rel_id), OBJECT_REGISTRY.get_object(obj_id))
-                    {
+                    if let (Some(rel_handle), Some(other_handle)) = (
+                        OBJECT_REGISTRY.get_object(rel_id),
+                        OBJECT_REGISTRY.get_object(obj_id),
+                    ) {
                         let relationship = rel_handle.get_relationship(&other_handle);
 
                         let is_enemy = relationship == Relationship::Enemy;
@@ -737,8 +747,10 @@ impl PartitionManager {
                         let other_guard = other_handle.read().ok();
                         let is_unit = other_guard
                             .as_ref()
-                            .map(|g| g.is_kind_of(crate::common::KindOf::Infantry)
-                                || g.is_kind_of(crate::common::KindOf::Vehicle))
+                            .map(|g| {
+                                g.is_kind_of(crate::common::KindOf::Infantry)
+                                    || g.is_kind_of(crate::common::KindOf::Vehicle)
+                            })
                             .unwrap_or(false);
                         let is_structure = other_guard
                             .as_ref()
@@ -885,7 +897,12 @@ impl PartitionManager {
     /// value from `callback` (which signals early exit).
     ///
     /// Matches C++ `PartitionManager::iterateCellsAlongLine`.
-    pub fn iterate_cells_along_line<F>(&self, pos: &Coord3D, other_pos: &Coord3D, mut callback: F) -> i32
+    pub fn iterate_cells_along_line<F>(
+        &self,
+        pos: &Coord3D,
+        other_pos: &Coord3D,
+        mut callback: F,
+    ) -> i32
     where
         F: FnMut(CellCoord) -> i32,
     {
@@ -964,10 +981,22 @@ impl PartitionManager {
         while let Some(cur) = queue.pop_front() {
             // Enqueue unvisited neighbors (left, up, right, down)
             let neighbors = [
-                CellCoord { x: cur.x - 1, y: cur.y },
-                CellCoord { x: cur.x, y: cur.y - 1 },
-                CellCoord { x: cur.x + 1, y: cur.y },
-                CellCoord { x: cur.x, y: cur.y + 1 },
+                CellCoord {
+                    x: cur.x - 1,
+                    y: cur.y,
+                },
+                CellCoord {
+                    x: cur.x,
+                    y: cur.y - 1,
+                },
+                CellCoord {
+                    x: cur.x + 1,
+                    y: cur.y,
+                },
+                CellCoord {
+                    x: cur.x,
+                    y: cur.y + 1,
+                },
             ];
             for n in &neighbors {
                 if !visited.contains(n) {
@@ -982,7 +1011,9 @@ impl PartitionManager {
                 // This matches the C++ `cellY * m_cellCountX + cellX` but
                 // we don't have fixed grid dimensions; use a hash-like
                 // encoding that preserves uniqueness.
-                return (cur.y as i32).wrapping_mul(1_000_003).wrapping_add(cur.x as i32);
+                return (cur.y as i32)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add(cur.x as i32);
             }
         }
 
@@ -1031,8 +1062,8 @@ impl PartitionManager {
                 // value.  A full implementation would use the cell's
                 // stored threat/cash value as computed by the AI.
                 let contribution = match val_type {
-                    ValueOrThreat::CashValue => 10,   // placeholder
-                    ValueOrThreat::ThreatValue => 5,  // placeholder
+                    ValueOrThreat::CashValue => 10,  // placeholder
+                    ValueOrThreat::ThreatValue => 5, // placeholder
                 };
                 cell_value += contribution;
             }
@@ -1106,7 +1137,11 @@ impl PartitionManager {
                 value < query.value_required
             };
 
-            if passes { 1 } else { 0 }
+            if passes {
+                1
+            } else {
+                0
+            }
         });
 
         if result_index < 0 {
@@ -1121,7 +1156,9 @@ impl PartitionManager {
         // using the same BFS that stops at the matching index.
         let mut result_coord: Option<CellCoord> = None;
         self.iterate_cells_breadth_first(source_pos, |cell_coord| {
-            let encoded = (cell_coord.y as i32).wrapping_mul(1_000_003).wrapping_add(cell_coord.x as i32);
+            let encoded = (cell_coord.y as i32)
+                .wrapping_mul(1_000_003)
+                .wrapping_add(cell_coord.x as i32);
             if encoded == result_index {
                 result_coord = Some(cell_coord);
                 return 1; // stop

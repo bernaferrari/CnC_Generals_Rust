@@ -789,7 +789,12 @@ impl Snapshotable for StealthUpdate {
 
         // disguise as player index -- C++ StealthUpdate.cpp line 1142
         xfer.xfer_int(&mut self.disguise_as_player_index)
-            .map_err(|e| format!("StealthUpdate disguise_as_player_index xfer failed: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "StealthUpdate disguise_as_player_index xfer failed: {:?}",
+                    e
+                )
+            })?;
 
         // disguise as template -- C++ StealthUpdate.cpp line 1145-1165
         // The Rust port does not store a disguise template pointer, so we xfer
@@ -800,15 +805,30 @@ impl Snapshotable for StealthUpdate {
 
         // disguise transition frames -- C++ StealthUpdate.cpp line 1168
         xfer.xfer_unsigned_int(&mut self.disguise_transition_frames)
-            .map_err(|e| format!("StealthUpdate disguise_transition_frames xfer failed: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "StealthUpdate disguise_transition_frames xfer failed: {:?}",
+                    e
+                )
+            })?;
 
         // disguise halfpoint reached -- C++ StealthUpdate.cpp line 1171
         xfer.xfer_bool(&mut self.disguise_halfpoint_reached)
-            .map_err(|e| format!("StealthUpdate disguise_halfpoint_reached xfer failed: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "StealthUpdate disguise_halfpoint_reached xfer failed: {:?}",
+                    e
+                )
+            })?;
 
         // transitioning to disguise -- C++ StealthUpdate.cpp line 1174
         xfer.xfer_bool(&mut self.transitioning_to_disguise)
-            .map_err(|e| format!("StealthUpdate transitioning_to_disguise xfer failed: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "StealthUpdate transitioning_to_disguise xfer failed: {:?}",
+                    e
+                )
+            })?;
 
         // disguised -- C++ StealthUpdate.cpp line 1177
         xfer.xfer_bool(&mut self.disguised)

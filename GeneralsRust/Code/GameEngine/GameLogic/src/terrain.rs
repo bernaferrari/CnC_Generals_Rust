@@ -753,6 +753,14 @@ impl TerrainLogic {
         }
     }
 
+    /// Snapshot parsed map bridge geometry.
+    pub fn bridge_data_snapshot(&self) -> Vec<crate::system::map_loader::BridgeData> {
+        self.terrain_data
+            .as_ref()
+            .map(|terrain_data| terrain_data.bridges.clone())
+            .unwrap_or_default()
+    }
+
     /// Get map extent including border in world coordinates.
     pub fn get_extent_including_border(&self) -> Region3D {
         let width = (self.map_dx.max(0) as f32) * MAP_XY_FACTOR;

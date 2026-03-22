@@ -29,19 +29,19 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+use game_engine::common::system::game_memory::init_game_memory;
+use generals_main::command_line::{self, CommandLineArgs};
+use generals_main::subsystem_manager;
+use log::{debug, error, info, warn, LevelFilter};
+use std::io::Write;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use winit::{
     dpi::{LogicalSize, PhysicalPosition},
     event_loop::EventLoop,
     window::{Fullscreen, Window, WindowAttributes},
 };
-use generals_main::command_line::{self, CommandLineArgs};
-use generals_main::subsystem_manager;
-use log::{debug, error, info, warn, LevelFilter};
-use game_engine::common::system::game_memory::init_game_memory;
-use std::io::Write;
-use std::sync::Arc;
-use std::path::Path;
-use std::time::{Duration, Instant};
 
 /// Game state machine - matches C++ GameEngine states
 /// These states control the main game loop flow and determine which
@@ -194,7 +194,10 @@ fn parse_level(level: &str) -> LevelFilter {
 #[tokio::main]
 async fn main() {
     if let Err(err) = set_working_directory_to_executable() {
-        warn!("Failed to set working directory to executable path: {}", err);
+        warn!(
+            "Failed to set working directory to executable path: {}",
+            err
+        );
     }
 
     // =========================================================================
@@ -501,9 +504,8 @@ fn resolve_window_mode(cmd_args: &CommandLineArgs) -> (bool, bool) {
         || cmd_args.has_option("win")
         || cmd_args.has_option("windowed")
         || cmd_args.has_option("w");
-    let has_fullscreen_flag = cmd_args.fullscreen
-        || cmd_args.has_option("fullscreen")
-        || cmd_args.has_option("f");
+    let has_fullscreen_flag =
+        cmd_args.fullscreen || cmd_args.has_option("fullscreen") || cmd_args.has_option("f");
 
     if has_fullscreen_flag {
         (false, true)

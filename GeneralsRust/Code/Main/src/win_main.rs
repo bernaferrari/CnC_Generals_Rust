@@ -15,23 +15,23 @@
 use crate::command_line;
 use crate::runtime::attachments::AttachmentDispatcher;
 use anyhow::{Context, Result};
-use winit::{
-    self,
-    dpi::{LogicalSize, PhysicalPosition},
-    event_loop::EventLoop,
-    window::{Fullscreen, Window, WindowAttributes},
-};
 use log::{debug, error, info, warn};
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
 use std::env;
 use std::ffi::c_void;
 use std::ffi::CString;
-use std::path::Path;
 use std::os::raw::{c_char, c_int};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use winit::{
+    self,
+    dpi::{LogicalSize, PhysicalPosition},
+    event_loop::EventLoop,
+    window::{Fullscreen, Window, WindowAttributes},
+};
 
 // Import the GameMain function from our game engine
 // use crate::game_engine::GameMain; // Removed - use cnc_game_engine instead
@@ -383,9 +383,8 @@ fn build_window_attributes(
 
 fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool) {
     let has_windowed_flag = cmd_args.windowed || cmd_args.has_option("win");
-    let has_fullscreen_flag = cmd_args.fullscreen
-        || cmd_args.has_option("fullscreen")
-        || cmd_args.has_option("f");
+    let has_fullscreen_flag =
+        cmd_args.fullscreen || cmd_args.has_option("fullscreen") || cmd_args.has_option("f");
 
     if has_fullscreen_flag {
         (false, true)
@@ -415,8 +414,12 @@ fn resolve_startup_resolution(cmd_args: &command_line::CommandLineArgs) -> (u32,
     const DEFAULT_XRESOLUTION: u32 = 800;
     const DEFAULT_YRESOLUTION: u32 = 600;
 
-    let explicit_width = cmd_args.width.or_else(|| parse_u32_option(cmd_args, "xres"));
-    let explicit_height = cmd_args.height.or_else(|| parse_u32_option(cmd_args, "yres"));
+    let explicit_width = cmd_args
+        .width
+        .or_else(|| parse_u32_option(cmd_args, "xres"));
+    let explicit_height = cmd_args
+        .height
+        .or_else(|| parse_u32_option(cmd_args, "yres"));
 
     if explicit_width.is_none() && explicit_height.is_none() {
         return (DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION);

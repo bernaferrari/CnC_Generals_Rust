@@ -644,7 +644,13 @@ impl ProductionUpdate {
         if self.is_door_open(exit_door, now) {
             let modules_door = exit_door.to_modules_exit_door_type();
             self.spawn_unit_from_door(
-                &template, &player, &building, &exit_interface, modules_door, idx, ctx,
+                &template,
+                &player,
+                &building,
+                &exit_interface,
+                modules_door,
+                idx,
+                ctx,
             );
         } else {
             // Start opening the door if not already animating
@@ -793,8 +799,10 @@ impl ProductionUpdate {
         let upgrade_cost;
         let upgrade_name;
         {
-            let Some(upgrade_any) =
-                ctx.upgrade_center.as_ref().and_then(|uc| uc.find_upgrade(upgrade_id))
+            let Some(upgrade_any) = ctx
+                .upgrade_center
+                .as_ref()
+                .and_then(|uc| uc.find_upgrade(upgrade_id))
             else {
                 self.remove_from_production_queue(idx, ctx);
                 return;
@@ -829,14 +837,18 @@ impl ProductionUpdate {
 
             // Record in academy stats
             if let Ok(mut player_guard) = player.write() {
-                player_guard.get_academy_stats_mut().record_upgrade(upgrade, false);
+                player_guard
+                    .get_academy_stats_mut()
+                    .record_upgrade(upgrade, false);
             }
         }
         // Borrow on ctx.upgrade_center is now dropped.
 
         // Record money spent
         if let Ok(mut player_guard) = player.write() {
-            player_guard.get_score_keeper_mut().add_money_spent(upgrade_cost);
+            player_guard
+                .get_score_keeper_mut()
+                .add_money_spent(upgrade_cost);
         }
 
         // Notify script engine of completed upgrade
@@ -849,11 +861,7 @@ impl ProductionUpdate {
                         .ok()
                         .map(|p| p.get_player_index() as usize)
                         .unwrap_or(0);
-                    se.notify_of_completed_upgrade(
-                        player_index,
-                        upgrade_name.as_str(),
-                        self.thing,
-                    );
+                    se.notify_of_completed_upgrade(player_index, upgrade_name.as_str(), self.thing);
                 }
             }
             Err(_) => {

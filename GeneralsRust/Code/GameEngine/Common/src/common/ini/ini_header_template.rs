@@ -3,7 +3,7 @@
 //! Corresponds to C++ INI::parseHeaderTemplateDefinition in HeaderTemplate.cpp
 //! Parses font header templates for UI consistency.
 
-use crate::common::ini::{ini, FieldParse, INI, INIError, INIResult};
+use crate::common::ini::{ini, FieldParse, INIError, INIResult, INI};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
@@ -81,9 +81,18 @@ impl HeaderTemplateManager {
 /// Field parse table for HeaderTemplate
 /// Matches C++ m_headerFieldParseTable
 const HEADER_TEMPLATE_FIELD_PARSE_TABLE: &[FieldParse<HeaderTemplate>] = &[
-    FieldParse { token: "Font", parse: parse_font },
-    FieldParse { token: "Point", parse: parse_point },
-    FieldParse { token: "Bold", parse: parse_bold },
+    FieldParse {
+        token: "Font",
+        parse: parse_font,
+    },
+    FieldParse {
+        token: "Point",
+        parse: parse_point,
+    },
+    FieldParse {
+        token: "Bold",
+        parse: parse_bold,
+    },
 ];
 
 fn parse_font(ini: &mut INI, target: &mut HeaderTemplate, _tokens: &[&str]) -> INIResult<()> {
@@ -107,12 +116,14 @@ pub fn init_header_template_manager() {
 }
 
 /// Get a read reference to the HeaderTemplateManager
-pub fn get_header_template_manager() -> Option<std::sync::RwLockReadGuard<'static, HeaderTemplateManager>> {
+pub fn get_header_template_manager(
+) -> Option<std::sync::RwLockReadGuard<'static, HeaderTemplateManager>> {
     HEADER_TEMPLATE_MANAGER.get()?.read().ok()
 }
 
 /// Get a write reference to the HeaderTemplateManager
-pub fn get_header_template_manager_mut() -> Option<std::sync::RwLockWriteGuard<'static, HeaderTemplateManager>> {
+pub fn get_header_template_manager_mut(
+) -> Option<std::sync::RwLockWriteGuard<'static, HeaderTemplateManager>> {
     HEADER_TEMPLATE_MANAGER.get()?.write().ok()
 }
 
@@ -184,19 +195,19 @@ mod tests {
     #[test]
     fn test_header_template_manager() {
         let mut manager = HeaderTemplateManager::new();
-        
+
         let template = HeaderTemplate {
             name: "TestHeader".to_string(),
             font_name: "Arial".to_string(),
             point: 12,
             bold: true,
         };
-        
+
         manager.add_template(template);
-        
+
         assert!(manager.find_header_template("TestHeader").is_some());
         assert!(manager.find_header_template("NonExistent").is_none());
-        
+
         let found = manager.find_header_template("TestHeader").unwrap();
         assert_eq!(found.font_name, "Arial");
         assert_eq!(found.point, 12);

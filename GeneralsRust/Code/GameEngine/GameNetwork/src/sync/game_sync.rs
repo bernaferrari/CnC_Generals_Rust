@@ -19,9 +19,7 @@
 use crate::desync_manager::DesyncManager;
 use crate::error::{NetworkError, NetworkResult};
 use crate::game_info::NET_CRC_INTERVAL;
-use crate::network_defs::{
-    FRAME_DATA_LENGTH, FRAMES_TO_KEEP, MAX_FRAMES_AHEAD, MIN_RUNAHEAD,
-};
+use crate::network_defs::{FRAMES_TO_KEEP, FRAME_DATA_LENGTH, MAX_FRAMES_AHEAD, MIN_RUNAHEAD};
 use crate::sync::frame_buffer::FrameBuffer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -116,10 +114,7 @@ impl CommandBuffer {
 
     /// Insert a command into the buffer.
     pub fn insert(&mut self, cmd: NetCommand) {
-        self.frames
-            .entry(cmd.frame)
-            .or_default()
-            .push(cmd);
+        self.frames.entry(cmd.frame).or_default().push(cmd);
     }
 
     /// Take all commands for a given frame, removing them from the buffer.
@@ -426,10 +421,7 @@ impl GameSynchronizer {
         player_id: u8,
         sender: mpsc::UnboundedSender<NetCommand>,
     ) {
-        self.command_outputs
-            .lock()
-            .await
-            .insert(player_id, sender);
+        self.command_outputs.lock().await.insert(player_id, sender);
     }
 
     /// Disconnect an output channel.
@@ -503,7 +495,11 @@ impl GameSynchronizer {
         }
 
         // Extract commands for this frame.
-        let commands = self.command_buffer.lock().await.take_frame_commands(target_frame);
+        let commands = self
+            .command_buffer
+            .lock()
+            .await
+            .take_frame_commands(target_frame);
         let command_count = commands.len();
 
         // Execute through the dispatch handler.
@@ -512,7 +508,12 @@ impl GameSynchronizer {
         // Record in frame buffer.
         {
             let mut fb = self.frame_buffer.lock().await;
-            fb.record_frame(target_frame, state_crc, command_count as u16, target_frame as u64);
+            fb.record_frame(
+                target_frame,
+                state_crc,
+                command_count as u16,
+                target_frame as u64,
+            );
         }
 
         // Update metrics.

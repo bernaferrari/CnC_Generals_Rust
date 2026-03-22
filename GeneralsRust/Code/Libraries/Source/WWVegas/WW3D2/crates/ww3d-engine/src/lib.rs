@@ -11,6 +11,7 @@
 //! The engine orchestrates all subsystems and provides a unified game loop
 //! with proper frame timing, update phases, and rendering.
 
+use log::info;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -19,7 +20,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use log::info;
 use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{GpuDevice, GpuError};
 
@@ -1303,7 +1303,11 @@ impl Engine {
             SurfaceMode::Windowed(_) => {
                 let Some(surface_texture) = surface_texture else {
                     for request in &requests {
-                        if request.path.to_string_lossy().contains("generals_internal_frame") {
+                        if request
+                            .path
+                            .to_string_lossy()
+                            .contains("generals_internal_frame")
+                        {
                             eprintln!(
                                 "DEBUG_SCREENSHOT: deferred_no_surface path={}",
                                 request.path.display()
@@ -1329,7 +1333,11 @@ impl Engine {
                 let texture_ref = &surface_texture.texture;
 
                 for request in requests {
-                    if request.path.to_string_lossy().contains("generals_internal_frame") {
+                    if request
+                        .path
+                        .to_string_lossy()
+                        .contains("generals_internal_frame")
+                    {
                         eprintln!(
                             "DEBUG_SCREENSHOT: capturing path={} size={}x{} format={:?}",
                             request.path.display(),
@@ -1359,12 +1367,7 @@ impl Engine {
                         unreachable!()
                     };
                     let (width, height) = target.size();
-                    (
-                        width,
-                        height,
-                        self.color_format,
-                        target.texture().clone(),
-                    )
+                    (width, height, self.color_format, target.texture().clone())
                 };
 
                 for request in requests {
@@ -1499,7 +1502,8 @@ impl Engine {
         let padded_row_size = pending.padded_row_size;
         std::thread::spawn(move || {
             let mut image_data = vec![0u8; width as usize * height as usize * 4];
-            for (row_index, dest_chunk) in image_data.chunks_exact_mut(width as usize * 4).enumerate()
+            for (row_index, dest_chunk) in
+                image_data.chunks_exact_mut(width as usize * 4).enumerate()
             {
                 let src_offset = row_index * padded_row_size;
                 let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
@@ -1604,10 +1608,14 @@ impl Engine {
 
         write_screenshot_png(path, width, height, &image_data)
     }
-
 }
 
-fn write_screenshot_png(path: &Path, width: u32, height: u32, image_data: &[u8]) -> EngineResult<()> {
+fn write_screenshot_png(
+    path: &Path,
+    width: u32,
+    height: u32,
+    image_data: &[u8],
+) -> EngineResult<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|err| {

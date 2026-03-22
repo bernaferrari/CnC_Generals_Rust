@@ -26,7 +26,7 @@ use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePar
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    ContainWant, ExitDoorType, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -8061,10 +8061,7 @@ impl ClassicState for AIDeadState {
 /// Find the first enemy inside a container (garrisoned building, transport, etc.)
 /// The "killer" object's relationship perspective is used to determine enemies.
 /// C++ Reference: AIStates.cpp:391 findEnemyInContainer()
-fn find_enemy_in_container(
-    killer: &Object,
-    building: &Object,
-) -> Option<ObjectID> {
+fn find_enemy_in_container(killer: &Object, building: &Object) -> Option<ObjectID> {
     let Some(contain) = building.get_contain() else {
         return None;
     };
@@ -8095,11 +8092,7 @@ fn find_enemy_in_container(
 /// Kill enemies inside a container, up to max_to_kill.
 /// Returns the number of enemies killed.
 /// C++ Reference: AIStates.cpp:415 killEnemiesInContainer()
-fn kill_enemies_in_container(
-    killer_id: ObjectID,
-    building: &Object,
-    max_to_kill: i32,
-) -> i32 {
+fn kill_enemies_in_container(killer_id: ObjectID, building: &Object, max_to_kill: i32) -> i32 {
     let mut num_killed = 0;
     while num_killed < max_to_kill {
         let Some(killer_arc) = OBJECT_REGISTRY.get_object(killer_id) else {
@@ -8133,9 +8126,10 @@ fn kill_enemies_in_container(
 
         // Score the kill (C++ line 433)
         if let Some(killer_arc) = OBJECT_REGISTRY.get_object(killer_id) {
-            if let (Ok(mut killer_guard), Ok(enemy_guard)) =
-                (killer_arc.write(), OBJECT_REGISTRY.get_object(enemy_id).unwrap().read())
-            {
+            if let (Ok(mut killer_guard), Ok(enemy_guard)) = (
+                killer_arc.write(),
+                OBJECT_REGISTRY.get_object(enemy_id).unwrap().read(),
+            ) {
                 killer_guard.score_the_kill(&enemy_guard);
             }
         }

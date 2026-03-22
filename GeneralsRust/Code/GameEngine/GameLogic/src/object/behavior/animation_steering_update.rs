@@ -156,7 +156,12 @@ impl Snapshotable for AnimationSteeringUpdate {
         xfer.xfer_real(&mut self.last_direction)
             .map_err(|e| format!("AnimationSteeringUpdate xfer last_direction: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.next_transition_frame)
-            .map_err(|e| format!("AnimationSteeringUpdate xfer next_transition_frame: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "AnimationSteeringUpdate xfer next_transition_frame: {:?}",
+                    e
+                )
+            })?;
         Ok(())
     }
 

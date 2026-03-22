@@ -14,7 +14,7 @@
 //!
 //! # C++ Field Parse Table (Credits.cpp lines 51-65)
 //! ```cpp
-//! const FieldParse CreditsManager::m_creditsFieldParseTable[] = 
+//! const FieldParse CreditsManager::m_creditsFieldParseTable[] =
 //! {
 //!     { "ScrollRate",              INI::parseInt,          NULL, offsetof(CreditsManager, m_scrollRate) },
 //!     { "ScrollRateEveryFrames",   INI::parseInt,          NULL, offsetof(CreditsManager, m_scrollRatePerFrames) },
@@ -43,7 +43,7 @@ pub const CREDIT_SPACE_OFFSET: i32 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreditStyle {
     Title = 0,
-    Position = 1,  // Called MINORTITLE in INI
+    Position = 1, // Called MINORTITLE in INI
     Normal = 2,
     Column = 3,
     Blank = 4,
@@ -96,28 +96,28 @@ impl CreditStyle {
 pub struct CreditsLine {
     /// Style of this credit line (TITLE, POSITION, NORMAL, COLUMN, BLANK)
     pub style: CreditStyle,
-    
+
     /// Primary text content
     pub text: String,
-    
+
     /// Secondary text for COLUMN style (right column)
     pub second_text: String,
-    
+
     /// Flag indicating if second text should be used
     pub use_second: bool,
-    
+
     /// Flag indicating if this line is done processing
     pub done: bool,
-    
+
     /// Y position for drawing
     pub pos_y: i32,
-    
+
     /// X position for drawing
     pub pos_x: i32,
-    
+
     /// Height of this line
     pub height: i32,
-    
+
     /// Color for drawing
     pub color: u32,
 }
@@ -180,47 +180,47 @@ pub struct CreditsManager {
     /// Scroll rate in pixels per scroll step
     /// Matches C++ m_scrollRate
     pub scroll_rate: i32,
-    
+
     /// How many frames between each scroll step
     /// Matches C++ m_scrollRatePerFrames
     pub scroll_rate_per_frames: i32,
-    
+
     /// If true, text scrolls from top to bottom; if false, bottom to top
     /// Matches C++ m_scrollDown
     pub scroll_down: bool,
-    
+
     /// Color for title lines (ARGB)
     /// Matches C++ m_titleColor
     pub title_color: u32,
-    
+
     /// Color for position/minor title lines (ARGB)
     /// Matches C++ m_positionColor
     pub position_color: u32,
-    
+
     /// Color for normal text lines (ARGB)
     /// Matches C++ m_normalColor
     pub normal_color: u32,
-    
+
     /// Current style for parsing text entries
     /// Matches C++ m_currentStyle
     pub current_style: CreditStyle,
-    
+
     /// List of all credit lines
     /// Matches C++ m_creditLineList
     pub credit_lines: Vec<CreditsLine>,
-    
+
     /// Flag indicating credits have finished scrolling
     /// Matches C++ m_isFinished
     pub is_finished: bool,
-    
+
     /// Frames since scrolling started
     /// Matches C++ m_framesSinceStarted
     pub frames_since_started: i32,
-    
+
     /// Height of normal font for blank lines
     /// Matches C++ m_normalFontHeight
     pub normal_font_height: i32,
-    
+
     /// Flag indicating this is an override
     is_override: bool,
 }
@@ -233,9 +233,9 @@ impl CreditsManager {
             scroll_rate: 1,
             scroll_rate_per_frames: 1,
             scroll_down: true,
-            title_color: 0xFFFFFFFF,      // White
-            position_color: 0xFFFFFFFF,    // White  
-            normal_color: 0xFFFFFFFF,      // White
+            title_color: 0xFFFFFFFF,    // White
+            position_color: 0xFFFFFFFF, // White
+            normal_color: 0xFFFFFFFF,   // White
             current_style: CreditStyle::Normal,
             credit_lines: Vec::new(),
             is_finished: false,
@@ -244,17 +244,17 @@ impl CreditsManager {
             is_override: false,
         }
     }
-    
+
     /// Mark this as an override
     pub fn mark_as_override(&mut self) {
         self.is_override = true;
     }
-    
+
     /// Check if this is an override
     pub fn is_override(&self) -> bool {
         self.is_override
     }
-    
+
     /// Add a blank line to the credits
     /// Matches C++ CreditsManager::addBlank() from Credits.cpp lines 164-169
     pub fn add_blank(&mut self) {
@@ -264,7 +264,7 @@ impl CreditsManager {
         };
         self.credit_lines.push(line);
     }
-    
+
     /// Add text to the credits based on current style
     /// Matches C++ CreditsManager::addText() from Credits.cpp lines 186-221
     pub fn add_text(&mut self, text: &str) {
@@ -287,7 +287,7 @@ impl CreditsManager {
                         false
                     }
                 };
-                
+
                 if should_update_last {
                     let unicode_text = Self::get_unicode_string_static(text);
                     if let Some(last) = self.credit_lines.last_mut() {
@@ -296,7 +296,7 @@ impl CreditsManager {
                     }
                     return;
                 }
-                
+
                 // Create new column entry
                 let unicode_text = Self::get_unicode_string_static(text);
                 let line = CreditsLine {
@@ -313,14 +313,14 @@ impl CreditsManager {
             }
         }
     }
-    
+
     /// Convert text to unicode string, handling localization labels
     /// Matches C++ CreditsManager::getUnicodeString() from Credits.cpp lines 226-237
     fn get_unicode_string_static(str: &str) -> String {
         if str == "<BLANK>" {
             return String::new();
         }
-        
+
         // If it contains ':', it's a localization label
         // Otherwise, just translate the string directly
         if str.contains(':') {
@@ -331,14 +331,14 @@ impl CreditsManager {
             str.to_string()
         }
     }
-    
+
     /// Parse credits definition from INI
     /// Matches C++ INI::parseCredits() from Credits.cpp lines 47-57
     pub fn parse_credits_definition(&mut self, ini: &mut INI) -> INIResult<()> {
         self.parse_credits_fields(ini)?;
         Ok(())
     }
-    
+
     /// Parse credits fields from INI
     /// Matches C++ field parse table from Credits.cpp lines 51-65
     fn parse_credits_fields(&mut self, ini: &mut INI) -> INIResult<()> {
@@ -347,21 +347,21 @@ impl CreditsManager {
             if ini.is_eof() {
                 return Err(INIError::MissingEndToken);
             }
-            
+
             let tokens = ini.get_line_tokens();
             if tokens.is_empty() {
                 continue;
             }
-            
+
             let key = tokens[0];
             if key.eq_ignore_ascii_case("End") {
                 break;
             }
-            
+
             // Get the value tokens (skip key and any '=' signs)
             let mut value_tokens: Vec<&str> = tokens.iter().skip(1).copied().collect();
             value_tokens.retain(|t| *t != "=");
-            
+
             // Parse fields based on key
             // Matches C++ field parse table from Credits.cpp lines 51-65
             match key.to_ascii_lowercase().as_str() {
@@ -383,33 +383,32 @@ impl CreditsManager {
                 }
                 "scrolldown" => {
                     // parseBool
-                    self.scroll_down = Self::parse_bool_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?
-                    )?;
+                    self.scroll_down =
+                        Self::parse_bool_value(value_tokens.first().ok_or(INIError::InvalidData)?)?;
                 }
                 "titlecolor" => {
                     // parseColorInt
                     self.title_color = Self::parse_color_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?
+                        value_tokens.first().ok_or(INIError::InvalidData)?,
                     )?;
                 }
                 "minortitlecolor" => {
                     // parseColorInt
                     self.position_color = Self::parse_color_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?
+                        value_tokens.first().ok_or(INIError::InvalidData)?,
                     )?;
                 }
                 "normalcolor" => {
                     // parseColorInt
                     self.normal_color = Self::parse_color_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?
+                        value_tokens.first().ok_or(INIError::InvalidData)?,
                     )?;
                 }
                 "style" => {
                     // parseLookupList - CreditStyleNames
                     let style_name = value_tokens.first().ok_or(INIError::InvalidData)?;
-                    self.current_style = CreditStyle::from_str(style_name)
-                        .ok_or(INIError::InvalidData)?;
+                    self.current_style =
+                        CreditStyle::from_str(style_name).ok_or(INIError::InvalidData)?;
                 }
                 "blank" => {
                     // parseBlank - adds a blank line
@@ -424,7 +423,7 @@ impl CreditsManager {
                         let joined = value_tokens.join(" ");
                         // Remove surrounding quotes if present
                         if joined.starts_with('"') && joined.ends_with('"') {
-                            joined[1..joined.len()-1].to_string()
+                            joined[1..joined.len() - 1].to_string()
                         } else {
                             joined
                         }
@@ -437,7 +436,7 @@ impl CreditsManager {
                 }
             }
         }
-        
+
         // Validate scroll settings (matches C++ load() validation)
         if self.scroll_rate_per_frames <= 0 {
             self.scroll_rate_per_frames = 1;
@@ -445,10 +444,10 @@ impl CreditsManager {
         if self.scroll_rate <= 0 {
             self.scroll_rate = 1;
         }
-        
+
         Ok(())
     }
-    
+
     /// Parse boolean value (Yes/No/True/False/1/0)
     fn parse_bool_value(token: &str) -> INIResult<bool> {
         match token.to_ascii_lowercase().as_str() {
@@ -457,7 +456,7 @@ impl CreditsManager {
             _ => Err(INIError::InvalidData),
         }
     }
-    
+
     /// Parse color value as ARGB integer
     /// Matches C++ INI::parseColorInt
     fn parse_color_value(token: &str) -> INIResult<u32> {
@@ -465,7 +464,7 @@ impl CreditsManager {
         if let Ok(val) = token.parse::<u32>() {
             return Ok(val);
         }
-        
+
         // Try parsing as hex with 0x prefix
         if token.starts_with("0x") || token.starts_with("0X") {
             let hex_str = &token[2..];
@@ -517,11 +516,11 @@ pub fn init_credits_manager() {
 /// Matches C++ INI::parseCredits from Credits.cpp lines 47-57
 pub fn parse_credits_definition(ini: &mut INI) -> Result<(), String> {
     let mut manager = get_credits_manager_mut();
-    
+
     if ini.get_load_type() == crate::common::ini::INILoadType::CreateOverrides {
         manager.mark_as_override();
     }
-    
+
     manager
         .parse_credits_definition(ini)
         .map_err(|e| format!("Credits parse error: {:?}", e))
@@ -530,81 +529,84 @@ pub fn parse_credits_definition(ini: &mut INI) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_credits_line_creation() {
         let line = CreditsLine::new();
-        
+
         assert_eq!(line.style, CreditStyle::Blank);
         assert!(line.text.is_empty());
         assert!(line.second_text.is_empty());
         assert!(!line.use_second);
         assert!(!line.done);
     }
-    
+
     #[test]
     fn test_credits_manager_creation() {
         let manager = CreditsManager::new();
-        
+
         assert_eq!(manager.scroll_rate, 1);
         assert_eq!(manager.scroll_rate_per_frames, 1);
         assert!(manager.scroll_down);
         assert!(manager.credit_lines.is_empty());
         assert!(!manager.is_finished);
     }
-    
+
     #[test]
     fn test_credit_style_parsing() {
         assert_eq!(CreditStyle::from_str("TITLE"), Some(CreditStyle::Title));
-        assert_eq!(CreditStyle::from_str("MINORTITLE"), Some(CreditStyle::Position));
+        assert_eq!(
+            CreditStyle::from_str("MINORTITLE"),
+            Some(CreditStyle::Position)
+        );
         assert_eq!(CreditStyle::from_str("NORMAL"), Some(CreditStyle::Normal));
         assert_eq!(CreditStyle::from_str("COLUMN"), Some(CreditStyle::Column));
         assert_eq!(CreditStyle::from_str("title"), Some(CreditStyle::Title));
         assert_eq!(CreditStyle::from_str("UNKNOWN"), None);
     }
-    
+
     #[test]
     fn test_add_blank() {
         let mut manager = CreditsManager::new();
         manager.add_blank();
-        
+
         assert_eq!(manager.credit_lines.len(), 1);
         assert_eq!(manager.credit_lines[0].style, CreditStyle::Blank);
     }
-    
+
     #[test]
     fn test_add_text_normal() {
         let mut manager = CreditsManager::new();
         manager.current_style = CreditStyle::Normal;
         manager.add_text("Test Text");
-        
+
         assert_eq!(manager.credit_lines.len(), 1);
         assert_eq!(manager.credit_lines[0].style, CreditStyle::Normal);
         assert_eq!(manager.credit_lines[0].text, "Test Text");
     }
-    
+
     #[test]
     fn test_add_text_column() {
         let mut manager = CreditsManager::new();
         manager.current_style = CreditStyle::Column;
-        
+
         // First text creates new column with first text
         manager.add_text("Left Column");
         assert_eq!(manager.credit_lines.len(), 1);
         assert!(manager.credit_lines[0].use_second);
         assert!(!manager.credit_lines[0].done);
-        
+
         // Second text fills in second column
         manager.add_text("Right Column");
         assert_eq!(manager.credit_lines.len(), 1);
         assert!(manager.credit_lines[0].done);
         assert_eq!(manager.credit_lines[0].second_text, "Right Column");
-        
+
         // Third text creates new column entry
         manager.add_text("Left Column 2");
         assert_eq!(manager.credit_lines.len(), 2);
     }
-    
+
     #[test]
     fn test_parse_bool_value() {
         assert_eq!(CreditsManager::parse_bool_value("Yes").unwrap(), true);
@@ -616,19 +618,25 @@ mod tests {
         assert_eq!(CreditsManager::parse_bool_value("0").unwrap(), false);
         assert!(CreditsManager::parse_bool_value("invalid").is_err());
     }
-    
+
     #[test]
     fn test_parse_color_value() {
         assert_eq!(CreditsManager::parse_color_value("0").unwrap(), 0);
         assert_eq!(CreditsManager::parse_color_value("255").unwrap(), 255);
-        assert_eq!(CreditsManager::parse_color_value("0xFFFFFFFF").unwrap(), 0xFFFFFFFF);
-        assert_eq!(CreditsManager::parse_color_value("0xFF0000FF").unwrap(), 0xFF0000FF);
+        assert_eq!(
+            CreditsManager::parse_color_value("0xFFFFFFFF").unwrap(),
+            0xFFFFFFFF
+        );
+        assert_eq!(
+            CreditsManager::parse_color_value("0xFF0000FF").unwrap(),
+            0xFF0000FF
+        );
     }
-    
+
     #[test]
     fn test_global_manager() {
         init_credits_manager();
-        
+
         let manager = get_credits_manager();
         assert!(!manager.is_override());
     }

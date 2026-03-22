@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use super::graphics_system::GraphicsSystem;
 use super::minimap_renderer::{
@@ -85,6 +86,84 @@ fn transform_is_reasonable_for_mesh(transform: Mat4) -> bool {
     scales_ok && translation_ok
 }
 
+#[derive(Clone, Copy)]
+struct CullingPlane {
+    normal: Vec3,
+    distance: f32,
+}
+
+fn normalized_plane(plane: Vec4) -> CullingPlane {
+    let normal = plane.truncate();
+    let len = normal.length();
+    if !len.is_finite() || len <= f32::EPSILON {
+        return CullingPlane {
+            normal: Vec3::Y,
+            distance: f32::MAX,
+        };
+    }
+    CullingPlane {
+        normal: normal / len,
+        distance: plane.w / len,
+    }
+}
+
+fn extract_frustum_planes(view_proj: &Mat4) -> [CullingPlane; 6] {
+    // Plane extraction uses row-major equations over glam's column-major storage.
+    let row0 = Vec4::new(
+        view_proj.x_axis.x,
+        view_proj.y_axis.x,
+        view_proj.z_axis.x,
+        view_proj.w_axis.x,
+    );
+    let row1 = Vec4::new(
+        view_proj.x_axis.y,
+        view_proj.y_axis.y,
+        view_proj.z_axis.y,
+        view_proj.w_axis.y,
+    );
+    let row2 = Vec4::new(
+        view_proj.x_axis.z,
+        view_proj.y_axis.z,
+        view_proj.z_axis.z,
+        view_proj.w_axis.z,
+    );
+    let row3 = Vec4::new(
+        view_proj.x_axis.w,
+        view_proj.y_axis.w,
+        view_proj.z_axis.w,
+        view_proj.w_axis.w,
+    );
+
+    [
+        normalized_plane(row3 + row0), // left
+        normalized_plane(row3 - row0), // right
+        normalized_plane(row3 + row1), // bottom
+        normalized_plane(row3 - row1), // top
+        normalized_plane(row3 + row2), // near
+        normalized_plane(row3 - row2), // far
+    ]
+}
+
+fn world_sphere_in_expanded_frustum(
+    planes: &[CullingPlane; 6],
+    world_position: Vec3,
+    world_radius: f32,
+    camera_position: Vec3,
+) -> bool {
+    // Conservative sphere culling to mirror C++ `Cull_Sphere` behavior.
+    const PLANE_MARGIN: f32 = 18.0;
+    const NEAR_BYPASS_DISTANCE_SQ: f32 = 150.0 * 150.0;
+
+    let radius = world_radius.max(1.0);
+    for plane in planes {
+        let signed_distance = plane.normal.dot(world_position) + plane.distance;
+        if signed_distance < -(radius + PLANE_MARGIN) {
+            return world_position.distance_squared(camera_position) <= NEAR_BYPASS_DISTANCE_SQ;
+        }
+    }
+    true
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CachedLighting {
     pub sun_direction: Option<[f32; 3]>,
@@ -121,6 +200,8 @@ fn material_stage_texture(material: &W3DMaterial, stage: usize) -> Option<&str> 
         _ => None,
     }
 }
+
+const PROFILE_STEP_LOG_THRESHOLD: Duration = Duration::from_millis(20);
 
 /// Render pipeline stages - equivalent to C++ SAGE RenderPass enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +248,7 @@ pub struct RenderPipeline {
     debug_last_zero_mesh_models: usize,
     debug_last_missing_model_samples: Vec<String>,
     debug_warned_bad_mesh_transforms: HashSet<String>,
+    model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -487,6 +569,7 @@ impl RenderPipeline {
             debug_last_zero_mesh_models: 0,
             debug_last_missing_model_samples: Vec::new(),
             debug_warned_bad_mesh_transforms: HashSet::new(),
+            model_cull_bounds_cache: HashMap::new(),
         })
     }
 
@@ -558,6 +641,8 @@ impl RenderPipeline {
             self.collect_render_items(
                 graphics_system,
                 game_logic,
+                view_matrix,
+                projection_matrix,
                 camera_position,
                 allow_sync_model_loads,
                 &mut deferred_model_load_budget,
@@ -856,31 +941,35 @@ impl RenderPipeline {
         static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
         static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
 
+        let terrain_pass_started = Instant::now();
         if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
             if let Some(terrain_visual) = guard.as_mut() {
                 let client_view_matrix =
                     GameClientMat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
                 let client_projection_matrix =
                     GameClientMat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
-                let terrain_render_started = std::time::Instant::now();
+                let terrain_render_started = Instant::now();
                 terrain_visual
                     .render(&client_view_matrix, &client_projection_matrix)
                     .map_err(|e| {
                         anyhow::anyhow!("terrain visual render state update failed: {}", e)
                     })?;
                 let terrain_render_elapsed = terrain_render_started.elapsed();
-                let terrain_update_started = std::time::Instant::now();
+                let terrain_update_started = Instant::now();
                 terrain_visual
                     .update()
                     .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
                 let terrain_update_elapsed = terrain_update_started.elapsed();
 
                 let chunk_count = terrain_visual.chunk_draw_count();
-                if terrain_render_elapsed + terrain_update_elapsed
-                    >= std::time::Duration::from_millis(200)
+                let terrain_total_elapsed = terrain_pass_started.elapsed();
+                if terrain_total_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+                    || terrain_render_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+                    || terrain_update_elapsed >= PROFILE_STEP_LOG_THRESHOLD
                 {
-                    warn!(
-                        "TerrainVisual breakdown: render={:?} update={:?} visible_chunks={} total_chunks={} pending_visible_chunks={}",
+                    debug!(
+                        "TerrainVisual breakdown: total={:?} render={:?} update={:?} visible_chunks={} total_chunks={} pending_visible_chunks={}",
+                        terrain_total_elapsed,
                         terrain_render_elapsed,
                         terrain_update_elapsed,
                         terrain_visual.debug_visible_chunk_count(),
@@ -909,6 +998,7 @@ impl RenderPipeline {
         let _projection = *projection_matrix;
         let clear_color = self.terrain_clear_color();
         self.forward_pass.enqueue_pre_scene_callback(move |frame| {
+            let terrain_draw_started = Instant::now();
             let depth_view = frame.depth_view_arc();
             let color_view = frame.color_view_arc();
             let encoder = frame.encoder();
@@ -948,6 +1038,14 @@ impl RenderPipeline {
             }
             drop(render_pass);
 
+            let terrain_draw_elapsed = terrain_draw_started.elapsed();
+            if terrain_draw_elapsed >= PROFILE_STEP_LOG_THRESHOLD {
+                debug!(
+                    "TerrainVisual chunk draw recording took {:?}",
+                    terrain_draw_elapsed
+                );
+            }
+
             Ok(())
         });
 
@@ -960,15 +1058,19 @@ impl RenderPipeline {
         &mut self,
         graphics_system: &mut GraphicsSystem,
         game_logic: &GameLogic,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
         camera_position: Vec3,
         allow_sync_model_loads: bool,
         deferred_model_load_budget: &mut usize,
     ) -> Result<()> {
+        let collect_started = Instant::now();
         trace!(
             "collect_render_items processing {} objects",
             game_logic.get_objects().len()
         );
         // Collect all object IDs for batch visibility query
+        let object_ids_started = Instant::now();
         let mut object_ids: Vec<ObjectID> = game_logic.get_objects().keys().copied().collect();
         object_ids.sort_unstable();
         if !allow_sync_model_loads {
@@ -999,19 +1101,27 @@ impl RenderPipeline {
                     .then_with(|| a.cmp(b))
             });
         }
+        let object_ids_elapsed = object_ids_started.elapsed();
 
         let bypass_fow = game_logic.isInShellGame();
         let mut alive_objects = 0usize;
         let mut fow_filtered = 0usize;
         let mut model_missing = 0usize;
         // Shell maps render as fully visible background scenes in C++.
+        let visibility_started = Instant::now();
         let visibilities = if bypass_fow {
             std::collections::HashMap::new()
         } else {
             self.get_batch_fow_visibility(&object_ids)
         };
+        let visibility_elapsed = visibility_started.elapsed();
+
+        let view_proj = *projection_matrix * *view_matrix;
+        let frustum_planes = extract_frustum_planes(&view_proj);
 
         // Process each object with FOW filtering in stable ID order.
+        let mut render_model_load_elapsed = Duration::ZERO;
+        let mut render_item_build_elapsed = Duration::ZERO;
         for object_id in object_ids {
             let Some(object) = game_logic.get_objects().get(&object_id) else {
                 continue;
@@ -1032,20 +1142,43 @@ impl RenderPipeline {
                 continue;
             }
 
+            let world_matrix = gameplay_to_render_transform(object.get_transform_matrix());
+            let world_position = world_matrix.w_axis.truncate();
             let model_name = object.get_template().get_model_name();
+            let (cull_center, cull_radius) = self.resolve_object_world_cull_sphere(
+                graphics_system,
+                model_name,
+                &object.template_name,
+                object.selection_radius,
+                world_matrix,
+            );
+            if !world_sphere_in_expanded_frustum(
+                &frustum_planes,
+                cull_center,
+                cull_radius,
+                camera_position,
+            ) {
+                continue;
+            }
+
             let model_hint = object
                 .get_template()
                 .model_name
                 .as_deref()
                 .or(Some(model_name));
 
-            match Self::ensure_render_model_loaded(
+            let model_load_started = Instant::now();
+            let render_model_load_result = Self::ensure_render_model_loaded(
                 graphics_system,
                 &object.template_name,
                 model_name,
                 allow_sync_model_loads,
                 deferred_model_load_budget,
-            ) {
+            );
+            render_model_load_elapsed += model_load_started.elapsed();
+
+            let render_item_build_started = Instant::now();
+            match render_model_load_result {
                 RenderModelLoadResult::Ready(w3d_model) => {
                     if w3d_model.meshes.is_empty() {
                         self.debug_last_zero_mesh_models += 1;
@@ -1104,9 +1237,6 @@ impl RenderPipeline {
                                 }
                             }
 
-                            let world_matrix =
-                                gameplay_to_render_transform(object.get_transform_matrix());
-                            let world_position = world_matrix.w_axis.truncate();
                             // Mesh local transforms coming from WW3D hierarchy/HLOD data are in
                             // source gameplay basis. If we axis-convert vertex payload at mesh build
                             // time, local transforms must be converted into the same render basis.
@@ -1155,6 +1285,7 @@ impl RenderPipeline {
                             visibility.visibility_alpha,
                             visibility.is_explored
                         );
+                        render_item_build_elapsed += render_item_build_started.elapsed();
                         continue; // Skip the fallback path
                     }
 
@@ -1167,10 +1298,6 @@ impl RenderPipeline {
                                 .get(&object_id)
                                 .copied()
                                 .unwrap_or_else(ObjectVisibility::default);
-
-                            let world_matrix =
-                                gameplay_to_render_transform(object.get_transform_matrix());
-                            let world_position = world_matrix.w_axis.truncate();
 
                             let fallback_mesh = &fallback_model.meshes[0];
                             let mut render_item = RenderItem::new(
@@ -1224,10 +1351,6 @@ impl RenderPipeline {
                                 .copied()
                                 .unwrap_or_else(ObjectVisibility::default);
 
-                            let world_matrix =
-                                gameplay_to_render_transform(object.get_transform_matrix());
-                            let world_position = world_matrix.w_axis.truncate();
-
                             let fallback_mesh = &fallback_model.meshes[0];
                             let mut render_item = RenderItem::new(
                                 object_id,
@@ -1246,6 +1369,7 @@ impl RenderPipeline {
                     }
                 }
             }
+            render_item_build_elapsed += render_item_build_started.elapsed();
         }
 
         self.debug_last_alive_objects = alive_objects;
@@ -1256,8 +1380,87 @@ impl RenderPipeline {
             self.render_items.len(),
             self.current_player_id
         );
+        let collect_elapsed = collect_started.elapsed();
+        if collect_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+            || object_ids_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+            || visibility_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+            || render_model_load_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+            || render_item_build_elapsed >= PROFILE_STEP_LOG_THRESHOLD
+        {
+            debug!(
+                "Render collection breakdown: total={:?} ids={:?} visibility={:?} model_load={:?} item_build={:?} alive={} filtered={} missing={} items={}",
+                collect_elapsed,
+                object_ids_elapsed,
+                visibility_elapsed,
+                render_model_load_elapsed,
+                render_item_build_elapsed,
+                self.debug_last_alive_objects,
+                self.debug_last_fow_filtered,
+                self.debug_last_model_missing,
+                self.render_items.len()
+            );
+        }
 
         Ok(())
+    }
+
+    fn resolve_object_world_cull_sphere(
+        &mut self,
+        graphics_system: &GraphicsSystem,
+        model_name: &str,
+        template_name: &str,
+        selection_radius: f32,
+        world_matrix: Mat4,
+    ) -> (Vec3, f32) {
+        let mut model_bounds = self.model_cull_bounds_cache.get(model_name).copied();
+        if model_bounds.is_none() {
+            let source = graphics_system
+                .get_model(model_name)
+                .or_else(|| graphics_system.get_model(template_name));
+            if let Some(model) = source {
+                model_bounds = Self::model_local_cull_bounds(model.as_ref());
+                if let Some(bounds) = model_bounds {
+                    self.model_cull_bounds_cache
+                        .insert(model_name.to_string(), bounds);
+                }
+            }
+        }
+
+        let world_scale = world_matrix
+            .x_axis
+            .truncate()
+            .length()
+            .max(world_matrix.y_axis.truncate().length())
+            .max(world_matrix.z_axis.truncate().length())
+            .max(1.0);
+        let fallback_radius = selection_radius.max(10.0);
+        let fallback_center = world_matrix.w_axis.truncate();
+        model_bounds
+            .map(|(local_center, local_radius)| {
+                let world_center = world_matrix.transform_point3(local_center);
+                let world_radius = (local_radius * world_scale).max(fallback_radius);
+                (world_center, world_radius)
+            })
+            .unwrap_or((fallback_center, fallback_radius))
+    }
+
+    fn model_local_cull_bounds(model: &crate::assets::W3DModel) -> Option<(Vec3, f32)> {
+        let min = model.bounding_box_min;
+        let max = model.bounding_box_max;
+        if !min.is_finite() || !max.is_finite() {
+            return None;
+        }
+        if min.x > max.x || min.y > max.y || min.z > max.z {
+            return None;
+        }
+        let center = (min + max) * 0.5;
+        let extents = (max - min) * 0.5;
+        let radius = extents.length();
+        if radius.is_finite() && radius > 0.0 {
+            Some((center, radius))
+        } else {
+            None
+        }
     }
 
     fn ensure_render_model_loaded(
@@ -1777,6 +1980,58 @@ impl RenderPipeline {
         }
     }
 
+    /// Sync map roads/bridges from GameLogic into the terrain-road render path.
+    pub fn sync_runtime_map_roads(&mut self, game_logic: &GameLogic) -> Result<()> {
+        #[cfg(feature = "game_client")]
+        {
+            let road_segments: Vec<game_client::terrain::terrain_visual::RuntimeRoadVisualSegment> =
+                game_logic
+                    .terrain_road_segments_snapshot()
+                    .into_iter()
+                    .map(
+                        |segment| game_client::terrain::terrain_visual::RuntimeRoadVisualSegment {
+                            start: [segment.from.x, segment.from.z, segment.from.y],
+                            end: [segment.to.x, segment.to.z, segment.to.y],
+                            width: segment.width,
+                            template_name: segment.template_name,
+                            width_in_texture: segment.width_in_texture,
+                            road_type_id: segment.road_type_id,
+                            start_is_angled: segment.start_is_angled,
+                            start_is_join: segment.start_is_join,
+                            end_is_angled: segment.end_is_angled,
+                            end_is_join: segment.end_is_join,
+                            curve_radius: segment.curve_radius,
+                        },
+                    )
+                    .collect();
+            let bridge_segments = game_logic.terrain_bridge_segments_snapshot();
+            if road_segments.is_empty() && bridge_segments.is_empty() {
+                return Ok(());
+            }
+            let bridge_segments: Vec<([f32; 3], [f32; 3], f32, String)> = bridge_segments
+                .into_iter()
+                .map(|(start, end, width, template_name)| {
+                    (start.to_array(), end.to_array(), width, template_name)
+                })
+                .collect();
+
+            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
+                if let Some(visual) = guard.as_mut() {
+                    visual
+                        .set_runtime_map_road_segments(&road_segments, &bridge_segments)
+                        .map_err(|e| anyhow::anyhow!("Terrain map-road sync failed: {}", e))?;
+                }
+            }
+        }
+
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = game_logic;
+        }
+
+        Ok(())
+    }
+
     /// World size from the loaded heightmap, if available.
     pub fn heightmap_world_size(&self) -> Option<(f32, f32)> {
         self.heightmap_world_size
@@ -2249,6 +2504,7 @@ impl ForwardPass {
                 }
                 if item.fow_visibility.visibility_alpha <= 0.01 {
                     hidden_count += 1;
+                    continue;
                 }
 
                 // Prepare mesh instance - handles missing models gracefully
@@ -2534,7 +2790,6 @@ impl ForwardPass {
             }
             mesh.is_decal_instance = true;
         }
-        mesh.update_cached_bounding_volumes();
 
         Ok(Some(Arc::new(mesh)))
     }

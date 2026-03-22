@@ -28,10 +28,7 @@ impl XferLoad {
     }
 
     /// Register a callback that records loaded snapshots for post-processing.
-    pub fn set_post_process_snapshot_callback(
-        &mut self,
-        callback: Option<Box<dyn FnMut()>>,
-    ) {
+    pub fn set_post_process_snapshot_callback(&mut self, callback: Option<Box<dyn FnMut()>>) {
         self.post_process_snapshot_callback = callback;
     }
 }

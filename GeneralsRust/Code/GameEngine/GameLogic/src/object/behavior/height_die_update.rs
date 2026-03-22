@@ -13,7 +13,9 @@ use crate::common::{
 use crate::helpers::TheGameLogic;
 use crate::helpers::ThePartitionManager;
 use crate::helpers::TheTerrainLogic;
-use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE};
+use crate::modules::{
+    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -86,7 +88,11 @@ impl HeightDieUpdate {
             // Matches C++ HeightDieUpdate.cpp:73-78
             has_died: false,
             particles_destroyed: false,
-            last_position: Coord3D { x: -1.0, y: -1.0, z: -1.0 },
+            last_position: Coord3D {
+                x: -1.0,
+                y: -1.0,
+                z: -1.0,
+            },
             // C++ v2: initialized to UINT_MAX, set on first update
             earliest_death_frame: u32::MAX,
         })
@@ -258,9 +264,7 @@ impl UpdateModuleInterface for HeightDieUpdate {
             #[cfg(feature = "particle_systems")]
             {
                 // TODO: call particle system manager to destroy attached systems
-                log::debug!(
-                    "HeightDieUpdate: destroying attached particle systems for object"
-                );
+                log::debug!("HeightDieUpdate: destroying attached particle systems for object");
             }
 
             // Don't do this again. C++ line 237

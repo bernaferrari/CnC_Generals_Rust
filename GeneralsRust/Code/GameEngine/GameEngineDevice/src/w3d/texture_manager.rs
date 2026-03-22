@@ -558,7 +558,11 @@ pub fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
             4.0 + (r - g) / delta
         };
         let hue = hue * 60.0;
-        if hue < 0.0 { hue + 360.0 } else { hue }
+        if hue < 0.0 {
+            hue + 360.0
+        } else {
+            hue
+        }
     };
 
     (h, s, v)
@@ -666,7 +670,7 @@ pub fn recolor_texture_32bit_hue_shift(data: &mut [u8], width: u32, height: u32,
                 // Get current HSV and apply shift
                 // C++ parity: RGB_To_HSV(hsv,Vector3(((pixel>>16)&0xff)/255.0f,((pixel>>8)&0xff)/255.0f,(pixel&0xff)/255.0f));
                 let (h, s, v) = rgb_to_hsv(r, g, b);
-                
+
                 // C++: hsv.X = hsv_color.X (replace hue with target color hue)
                 // C++: hsv.Y *= hsv_color.Y (multiply saturation by target saturation)
                 let (new_r, new_g, new_b) = if h < 0.0 {
@@ -731,7 +735,7 @@ pub fn recolor_texture_16bit_hue_shift(data: &mut [u16], width: u32, height: u32
                 // Apply hue shift matching C++ DO_HUE_SHIFT branch
                 // C++: RGB_To_HSV(hsv,Vector3(((pixel>>8)&0xf)/15.0f,((pixel>>4)&0xf)/15.0f,(pixel &0xf)/15.0f));
                 let (h, s, v) = rgb_to_hsv(r, g, b);
-                
+
                 // C++: hsv.X = hsv_color.X (replace hue)
                 // C++: hsv.Y *= hsv_color.Y (multiply saturation)
                 let new_h = h_color;
@@ -747,7 +751,7 @@ pub fn recolor_texture_16bit_hue_shift(data: &mut [u16], width: u32, height: u32
 
                 data[idx] = new_pixel;
             }
-            
+
             // Force alpha to opaque (parity with C++: data[x] |= 0xf000)
             data[idx] |= 0xF000;
         }
@@ -1106,7 +1110,7 @@ impl W3DTextureManager {
 
     /// Downsample RGBA8 texture using C++ Combine_A8R8G8B8 algorithm.
     /// This matches the exact mipmap generation behavior from bitmaphandler.cpp.
-    /// 
+    ///
     /// The C++ algorithm:
     /// 1. Masks each pixel with 0xfcfcfcfc (clears bottom 2 bits per channel)
     /// 2. Divides each by 4 (right shift by 2)
@@ -1127,12 +1131,12 @@ impl W3DTextureManager {
                 // Read four 2x2 pixels as 32-bit words (BGRA format in memory)
                 // This exactly matches C++ Combine_A8R8G8B8 behavior
                 let mut pixels: [u32; 4] = [0; 4];
-                
+
                 for (i, (oy, ox)) in [(0, 0), (0, 1), (1, 0), (1, 1)].iter().enumerate() {
                     let sample_x = (src_x + ox).min(src_width.saturating_sub(1));
                     let sample_y = (src_y + oy).min(src_height.saturating_sub(1));
                     let idx = ((sample_y * src_width + sample_x) * 4) as usize;
-                    
+
                     // Read as little-endian 32-bit value (BGRA in memory -> ARGB in u32)
                     // Memory layout: [B, G, R, A] -> u32 = A << 24 | R << 16 | G << 8 | B
                     pixels[i] = u32::from_le_bytes([
@@ -1150,14 +1154,14 @@ impl W3DTextureManager {
                 let p2 = (pixels[1] & 0xfcfcfcfc) >> 2;
                 let p3 = (pixels[2] & 0xfcfcfcfc) >> 2;
                 let p4 = (pixels[3] & 0xfcfcfcfc) >> 2;
-                
+
                 // Sum: p1 + p2 + p3 + p4
                 let result = p1.wrapping_add(p2).wrapping_add(p3).wrapping_add(p4);
 
                 // Write back as little-endian 32-bit value
                 let out_idx = ((y * dst_width + x) * 4) as usize;
                 let bytes = result.to_le_bytes();
-                dst[out_idx] = bytes[0];     // B
+                dst[out_idx] = bytes[0]; // B
                 dst[out_idx + 1] = bytes[1]; // G
                 dst[out_idx + 2] = bytes[2]; // R
                 dst[out_idx + 3] = bytes[3]; // A
@@ -1394,14 +1398,14 @@ mod tests {
         let src_height = 2;
         // BGRA format in memory: [B, G, R, A]
         let src = vec![
-            0, 0, 0, 255,     // top-left (B=0, G=0, R=0, A=255)
-            100, 0, 0, 255,   // top-right (B=100, G=0, R=0, A=255)
-            0, 100, 0, 255,   // bottom-left (B=0, G=100, R=0, A=255)
-            0, 0, 100, 255,   // bottom-right (B=0, G=0, R=100, A=255)
+            0, 0, 0, 255, // top-left (B=0, G=0, R=0, A=255)
+            100, 0, 0, 255, // top-right (B=100, G=0, R=0, A=255)
+            0, 100, 0, 255, // bottom-left (B=0, G=100, R=0, A=255)
+            0, 0, 100, 255, // bottom-right (B=0, G=0, R=100, A=255)
         ];
 
         let mip = W3DTextureManager::downsample_rgba8(&src, src_width, src_height);
-        
+
         // C++ parity: Apply 0xFC mask, divide by 4, then sum
         // For each channel:
         // - 0 & 0xFC = 0, 0 >> 2 = 0
@@ -1424,8 +1428,8 @@ mod tests {
         let src_height = 1;
         // BGRA format in memory
         let src = vec![
-            10, 20, 30, 40,   // x=0 (B=10, G=20, R=30, A=40)
-            50, 60, 70, 80,   // x=1 (B=50, G=60, R=70, A=80)
+            10, 20, 30, 40, // x=0 (B=10, G=20, R=30, A=40)
+            50, 60, 70, 80, // x=1 (B=50, G=60, R=70, A=80)
             90, 100, 110, 120, // x=2 (B=90, G=100, R=110, A=120)
         ];
 
@@ -1439,10 +1443,10 @@ mod tests {
         // R: (30&0xFC)>>2 = 7, (70&0xFC)>>2 = 17 -> sum = 7+17+7+17 = 48
         // A: (40&0xFC)>>2 = 10, (80&0xFC)>>2 = 20 -> sum = 10+20+10+20 = 60
         assert_eq!(mip.len(), 4);
-        assert_eq!(mip[0], 28);  // B
-        assert_eq!(mip[1], 40);  // G
-        assert_eq!(mip[2], 48);  // R
-        assert_eq!(mip[3], 60);  // A
+        assert_eq!(mip[0], 28); // B
+        assert_eq!(mip[1], 40); // G
+        assert_eq!(mip[2], 48); // R
+        assert_eq!(mip[3], 60); // A
     }
 
     #[test]

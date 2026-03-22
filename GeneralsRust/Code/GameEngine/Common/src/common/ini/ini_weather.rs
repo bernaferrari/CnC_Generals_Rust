@@ -201,11 +201,7 @@ impl WeatherSetting {
 
 // Field parsing functions
 
-fn parse_snow_texture(
-    _ini: &mut INI,
-    target: &mut WeatherSetting,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_snow_texture(_ini: &mut INI, target: &mut WeatherSetting, args: &[&str]) -> INIResult<()> {
     let value = args.first().ok_or(INIError::InvalidData)?;
     target.snow_texture = INI::parse_ascii_string(value)?;
     Ok(())
@@ -321,11 +317,7 @@ fn parse_use_point_sprites(
     Ok(())
 }
 
-fn parse_snow_enabled(
-    _ini: &mut INI,
-    target: &mut WeatherSetting,
-    args: &[&str],
-) -> INIResult<()> {
+fn parse_snow_enabled(_ini: &mut INI, target: &mut WeatherSetting, args: &[&str]) -> INIResult<()> {
     let value = args.first().ok_or(INIError::InvalidData)?;
     target.snow_enabled = INI::parse_bool(value)?;
     Ok(())
@@ -349,10 +341,9 @@ fn get_weather_setting_mut() -> &'static RwLock<Option<WeatherSetting>> {
 }
 
 /// Get read access to the weather setting store
-pub fn get_weather_setting_lock() -> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
-    WEATHER_SETTING
-        .get()
-        .and_then(|lock| lock.read().ok())
+pub fn get_weather_setting_lock(
+) -> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
+    WEATHER_SETTING.get().and_then(|lock| lock.read().ok())
 }
 
 /// Initialize the weather settings system
@@ -370,10 +361,10 @@ pub fn init_weather_setting() {
 /// - Otherwise, overwrite the existing setting (throws error in C++)
 pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
     let load_type = ini.get_load_type();
-    
+
     // Get the current setting (if any)
     let current = get_weather_setting();
-    
+
     // Determine what to do based on load type and current state
     let setting = if current.is_none() {
         // No existing setting, create a new one
@@ -389,7 +380,7 @@ pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
         // for flexibility and to match other parsers in this codebase
         WeatherSetting::new()
     };
-    
+
     // Parse the fields using the field parse table
     parse_weather_fields(ini, setting)
 }
@@ -397,15 +388,15 @@ pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
 /// Parse weather fields from INI using the field parse table
 fn parse_weather_fields(ini: &mut INI, mut setting: WeatherSetting) -> INIResult<()> {
     let field_parse_table = WeatherSetting::get_field_parse();
-    
+
     ini.init_from_ini_with_fields(&mut setting, &field_parse_table)?;
-    
+
     // Store the setting
     let mut guard = get_weather_setting_mut()
         .write()
         .map_err(|_| INIError::UnknownError)?;
     *guard = Some(setting);
-    
+
     Ok(())
 }
 
@@ -469,12 +460,12 @@ mod tests {
         let mut override_setting = WeatherSetting::new();
         override_setting.snow_enabled = true;
         override_setting.mark_as_override();
-        
+
         base.set_next_override(override_setting);
-        
+
         assert!(base.get_next_override().is_some());
         assert!(base.get_next_override().unwrap().snow_enabled);
-        
+
         // Test get_final_override
         let final_override = base.get_final_override();
         assert!(final_override.is_override());
@@ -484,7 +475,7 @@ mod tests {
     fn test_get_field_parse_table() {
         let table = WeatherSetting::get_field_parse();
         assert_eq!(table.len(), 13);
-        
+
         // Verify all expected fields are present
         let tokens: Vec<&str> = table.iter().map(|f| f.token).collect();
         assert!(tokens.contains(&"SnowTexture"));

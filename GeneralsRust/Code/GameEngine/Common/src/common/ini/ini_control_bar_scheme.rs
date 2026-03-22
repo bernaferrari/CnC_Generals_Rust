@@ -258,8 +258,7 @@ impl ControlBarScheme {
                 break;
             }
 
-            if key.eq_ignore_ascii_case("ImagePart")
-            {
+            if key.eq_ignore_ascii_case("ImagePart") {
                 let image_part = Self::parse_image_part_block(ini)?;
                 self.scheme_images.push(image_part.image.clone());
                 self.image_parts.push(image_part);
@@ -376,7 +375,9 @@ impl ControlBarScheme {
             match key.to_ascii_lowercase().as_str() {
                 "name" => animation_part.name = value_tokens[0].to_string(),
                 "animation" => animation_part.animation_name = value_tokens[0].to_string(),
-                "duration" => animation_part.duration_ms = INI::parse_unsigned_int(value_tokens[0])?,
+                "duration" => {
+                    animation_part.duration_ms = INI::parse_unsigned_int(value_tokens[0])?
+                }
                 "finalpos" => {
                     let (x, y) = parse_icoord2d(&value_tokens)?;
                     animation_part.final_pos = ICoord2D { x, y };
