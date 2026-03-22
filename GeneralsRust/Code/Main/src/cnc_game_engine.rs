@@ -1288,6 +1288,8 @@ impl CnCGameEngine {
                 info!("Loaded map from command line: {}", active_map_name);
             } else if result.start_in_menu {
                 info!("Loaded startup shell map: {}", active_map_name);
+            } else {
+                info!("Loaded startup initial-file map: {}", active_map_name);
             }
 
             Self::apply_heightmap_hint(&mut self.render_pipeline, &self.game_logic);
@@ -1649,6 +1651,7 @@ impl CnCGameEngine {
             global.pending_file = initial_map.clone();
         }
 
+        let startup_map_requested_from_cli = startup_cli_map.is_some();
         let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
         let start_in_menu = startup_requested_map.is_none();
         let startup_shell_map = start_in_menu
@@ -1662,7 +1665,7 @@ impl CnCGameEngine {
         let startup_load_state = Self::spawn_startup_map_load(
             start_in_menu,
             map_to_load,
-            !start_in_menu,
+            startup_map_requested_from_cli,
             command_line.player_name.clone(),
             graphics_system.device_arc(),
             graphics_system.queue_arc(),
@@ -1802,7 +1805,7 @@ impl CnCGameEngine {
             runtime_host_ui_screen_override: None,
             models_loaded: true, // Already loaded during init
             pending_shell_model_prewarm,
-            menu_enter_frame: if start_in_menu { Some(0) } else { None },
+            menu_enter_frame: None,
             shell_ui_enqueued_frame: None,
             last_shell_prewarm_log: None,
             shell_prewarm_completion_logged: false,
