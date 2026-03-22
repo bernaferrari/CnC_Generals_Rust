@@ -336,7 +336,6 @@ impl CommandLineArgs {
                 | "benchmark"
                 | "fps"
                 | "shellmap"
-                | "file"
         )
     }
 
