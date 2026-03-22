@@ -23,6 +23,7 @@ use crate::gui::{toggle_control_bar, toggle_diplomacy};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::system::beacon_display;
+use gamelogic::action_manager::ActionManager;
 use gamelogic::attack::{AbleToAttackType, CanAttackResult};
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
@@ -141,7 +142,10 @@ fn pending_command_for_object(
     target: ObjectID,
 ) -> Option<GameMessageType> {
     match pending.command_type {
-        CommandType::ConvertToCarbomb => Some(GameMessageType::Enter(0, target)),
+        CommandType::ConvertToCarbomb => Some(GameMessageType::ConvertToCarbomb(
+            pending.source_object_id,
+            target,
+        )),
         CommandType::CaptureBuilding => Some(GameMessageType::CaptureBuilding(
             pending.source_object_id,
             target,
@@ -173,6 +177,68 @@ fn pending_command_for_object(
     }
 }
 
+fn pending_command_hint_for_object(
+    pending: &PendingCommand,
+    _local_player: i32,
+    local_player_u32: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target: ObjectID,
+) -> Option<GameMessageType> {
+    match pending.command_type {
+        CommandType::ConvertToCarbomb => Some(GameMessageType::ConvertToCarbombHint(target)),
+        CommandType::CaptureBuilding => Some(GameMessageType::CaptureBuildingHint(target)),
+        CommandType::DisableVehicleHack
+        | CommandType::StealCashHack
+        | CommandType::DisableBuildingHack => Some(GameMessageType::HackHint(target)),
+        CommandType::Enter => {
+            if selection_can_hijack_target(local_player_u32, selection, target) {
+                Some(GameMessageType::HijackHint(target))
+            } else if selection_can_sabotage_target(local_player_u32, selection, target) {
+                Some(GameMessageType::SabotageHint(target))
+            } else {
+                Some(GameMessageType::EnterHint(target))
+            }
+        }
+        CommandType::DoRepair => Some(GameMessageType::DoRepairHint(target)),
+        CommandType::GetRepaired => Some(GameMessageType::GetRepairedHint(target)),
+        CommandType::GetHealed => Some(GameMessageType::GetHealedHint(target)),
+        CommandType::ResumeConstruction => Some(GameMessageType::ResumeConstructionHint(target)),
+        CommandType::Dock => Some(GameMessageType::DockHint(target)),
+        CommandType::DoAttackMoveTo => None,
+        CommandType::DoGuardPosition | CommandType::DoGuardObject => None,
+        _ => {
+            if selection_can_capture_building_target(local_player_u32, selection, target) {
+                Some(GameMessageType::CaptureBuildingHint(target))
+            } else if selection_can_disable_vehicle_hack_target(
+                local_player_u32,
+                selection,
+                target,
+            ) || selection_can_steal_cash_hack_target(local_player_u32, selection, target)
+                || selection_can_disable_building_hack_target(local_player_u32, selection, target)
+            {
+                Some(GameMessageType::HackHint(target))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn pending_command_hint_for_position(
+    pending: &PendingCommand,
+    position: Coord3D,
+) -> Option<GameMessageType> {
+    match pending.command_type {
+        CommandType::DoAttackMoveTo => Some(GameMessageType::DoAttackMoveToHint(position)),
+        CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPointHint(position)),
+        CommandType::DoGuardPosition => None,
+        CommandType::DoGuardObject => None,
+        CommandType::PlaceBeacon | CommandType::RemoveBeacon => None,
+        _ if pending_command_accepts_position(pending.options) => Some(GameMessageType::DoMoveToHint(position)),
+        _ => None,
+    }
+}
+
 fn pending_command_for_position(
     pending: &PendingCommand,
     position: Coord3D,
@@ -180,11 +246,99 @@ fn pending_command_for_position(
     match pending.command_type {
         CommandType::DoAttackMoveTo => Some(GameMessageType::DoAttackMoveTo(position)),
         CommandType::DoGuardPosition => Some(GameMessageType::DoGuardPosition(position, 0)),
+        CommandType::PlaceBeacon => Some(GameMessageType::PlaceBeacon(position.clone())),
+        CommandType::RemoveBeacon => Some(GameMessageType::RemoveBeacon(position.clone())),
         CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPoint(
             pending.source_object_id,
             position,
         )),
         _ => None,
+    }
+}
+
+fn selection_source_object_id(
+    selection: &HashSet<ObjectID>,
+    local_player_u32: Option<u32>,
+) -> ObjectID {
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player_u32
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if is_mine {
+            return id;
+        }
+    }
+
+    gamelogic::common::INVALID_ID
+}
+
+fn selection_attack_result(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> CanAttackResult {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return CanAttackResult::NotPossible;
+    };
+    let Ok(target_guard) = target.read() else {
+        return CanAttackResult::NotPossible;
+    };
+
+    let mut saw_invalid_shot = false;
+    let mut saw_possible_after_moving = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if !sel_guard.is_able_to_attack() {
+            continue;
+        }
+
+        match sel_guard.get_able_to_attack_specific_object(
+            AbleToAttackType::CanAttackSpecific,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) {
+            CanAttackResult::Possible => return CanAttackResult::Possible,
+            CanAttackResult::PossibleAfterMoving => saw_possible_after_moving = true,
+            CanAttackResult::InvalidShot => saw_invalid_shot = true,
+            CanAttackResult::NotPossible => {}
+        }
+    }
+
+    if saw_possible_after_moving {
+        CanAttackResult::PossibleAfterMoving
+    } else if saw_invalid_shot {
+        CanAttackResult::InvalidShot
+    } else {
+        CanAttackResult::NotPossible
     }
 }
 
@@ -197,6 +351,12 @@ fn pending_command_selection_valid(
     match pending.command_type {
         CommandType::Enter => selection_can_enter_target(local_player, selection, target_id),
         CommandType::DoRepair => selection_can_repair_target(local_player, selection, target_id),
+        CommandType::GetRepaired => {
+            selection_can_get_repaired_target(local_player, selection, target_id)
+        }
+        CommandType::GetHealed => {
+            selection_can_get_healed_target(local_player, selection, target_id)
+        }
         CommandType::ResumeConstruction => {
             selection_can_resume_construction_target(local_player, selection, target_id)
         }
@@ -293,6 +453,522 @@ impl CommandTranslator {
         self.current_selection.clear();
         self.current_selection
             .extend(selection.get_selected_objects());
+    }
+
+    fn clear_targeting_modes(&mut self) {
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_force_attack_mode(false);
+        TheInGameUI::set_force_move_to_mode(false);
+        TheInGameUI::set_prefer_selection_mode(false);
+        self.force_attack_mode = false;
+        self.force_move_mode = false;
+        self.prefer_selection_mode = false;
+    }
+
+    fn pick_context_target(
+        &self,
+        region: &IRegion2D,
+        local_player: Option<u32>,
+    ) -> Option<ObjectID> {
+        const PICK_RADIUS_WORLD: f32 = 10.0;
+        let (mut mine, mut other) =
+            collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player);
+        let mine_pick = pick_closest(&mut mine);
+        let other_pick = pick_closest(&mut other);
+
+        match (mine_pick, other_pick) {
+            (Some(mine_id), Some(other_id)) => {
+                let mine_dist = mine
+                    .iter()
+                    .find(|(id, _)| *id == mine_id)
+                    .map(|(_, d)| *d)
+                    .unwrap_or(f32::MAX);
+                let other_dist = other
+                    .iter()
+                    .find(|(id, _)| *id == other_id)
+                    .map(|(_, d)| *d)
+                    .unwrap_or(f32::MAX);
+                if mine_dist <= other_dist {
+                    Some(mine_id)
+                } else {
+                    Some(other_id)
+                }
+            }
+            (Some(id), None) | (None, Some(id)) => Some(id),
+            (None, None) => None,
+        }
+    }
+
+    fn resolve_pending_command_click(
+        &mut self,
+        local_player: i32,
+        local_player_u32: Option<u32>,
+        target: Option<ObjectID>,
+        world: &Coord3D,
+    ) -> Option<GameMessageType> {
+        let pending = TheInGameUI::get_pending_command()?;
+
+        if let Some(object_id) = target {
+            if pending_command_accepts_object(pending.options)
+                && pending_command_target_allowed(pending.options, local_player, object_id)
+                && pending_command_selection_valid(
+                    &pending,
+                    local_player_u32,
+                    &self.current_selection,
+                    object_id,
+                )
+            {
+                if let Some(message) = pending_command_for_object(&pending, object_id) {
+                    self.clear_targeting_modes();
+                    return Some(message);
+                }
+            }
+
+            if pending_command_accepts_position(pending.options) {
+                if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                    if let Ok(obj_guard) = obj.read() {
+                        if let Some(message) = pending_command_for_position(
+                            &pending,
+                            logic_to_message_coord(obj_guard.get_position()),
+                        ) {
+                            self.clear_targeting_modes();
+                            return Some(message);
+                        }
+                    }
+                }
+            }
+        } else if pending_command_accepts_position(pending.options) {
+            if let Some(message) = pending_command_for_position(&pending, world.clone()) {
+                self.clear_targeting_modes();
+                return Some(message);
+            }
+        }
+
+        None
+    }
+
+    fn resolve_move_command(&self, world: Coord3D) -> GameMessageType {
+        if self.waypoint_mode {
+            GameMessageType::AddWaypoint(world)
+        } else if TheInGameUI::is_in_attack_move_to_mode() {
+            GameMessageType::DoAttackMoveTo(world)
+        } else if self.force_move_mode || TheInGameUI::is_in_force_move_to_mode() {
+            GameMessageType::DoForceMoveTO(world)
+        } else {
+            GameMessageType::DoMoveTo(world)
+        }
+    }
+
+    fn resolve_move_hint(&self, world: Coord3D) -> GameMessageType {
+        if !selection_has_quick_path_to(&self.current_selection, &world) {
+            // TODO: Match the full C++ shroud/path fallback, including the explicit shroud
+            // status bypass and cliff-locomotor special case.
+            return GameMessageType::DoInvalidHint;
+        }
+
+        if self.waypoint_mode {
+            GameMessageType::AddWaypointHint(world)
+        } else if TheInGameUI::is_in_attack_move_to_mode() {
+            GameMessageType::DoAttackMoveToHint(world)
+        } else {
+            GameMessageType::DoMoveToHint(world)
+        }
+    }
+
+    fn evaluate_force_attack_command(
+        &self,
+        local_player_u32: Option<u32>,
+        target: Option<ObjectID>,
+        world: Coord3D,
+    ) -> Option<GameMessageType> {
+        if let Some(target_id) = target {
+            if selection_can_attack_target(local_player_u32, &self.current_selection, target_id) {
+                return Some(GameMessageType::DoForceAttackObject(target_id));
+            }
+            return None;
+        }
+
+        if selection_has_attack_capability(local_player_u32, &self.current_selection) {
+            Some(GameMessageType::DoForceAttackGround(world))
+        } else {
+            None
+        }
+    }
+
+    fn evaluate_force_attack_hint(
+        &self,
+        local_player_u32: Option<u32>,
+        target: Option<ObjectID>,
+        world: Coord3D,
+    ) -> Option<GameMessageType> {
+        if let Some(target_id) = target {
+            match selection_attack_result(local_player_u32, &self.current_selection, target_id) {
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
+                    return Some(GameMessageType::DoForceAttackObjectHint(target_id));
+                }
+                CanAttackResult::InvalidShot => return Some(GameMessageType::ImpossibleAttackHint),
+                CanAttackResult::NotPossible => return None,
+            }
+        }
+
+        if selection_has_attack_capability(local_player_u32, &self.current_selection) {
+            Some(GameMessageType::DoForceAttackGroundHint(world))
+        } else {
+            None
+        }
+    }
+
+    fn evaluate_context_action(
+        &self,
+        _local_player: i32,
+        local_player_u32: Option<u32>,
+        target_id: ObjectID,
+    ) -> Option<GameMessageType> {
+        if selection_can_resume_construction_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
+            return Some(GameMessageType::ResumeConstruction(target_id));
+        }
+
+        if selection_can_dock_at_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::Dock(target_id));
+        }
+
+        if selection_can_repair_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::DoRepair(target_id));
+        }
+
+        if selection_can_get_repaired_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::GetRepaired(target_id));
+        }
+
+        if selection_can_get_healed_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::GetHealed(target_id));
+        }
+
+        if selection_can_hijack_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::Enter(0, target_id));
+        }
+
+        if selection_can_convert_to_carbomb_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
+            return Some(GameMessageType::ConvertToCarbomb(
+                selection_source_object_id(&self.current_selection, local_player_u32),
+                target_id,
+            ));
+        }
+
+        if selection_can_sabotage_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::Enter(0, target_id));
+        }
+
+        if let Some(dest) =
+            selection_can_pickup_crate_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::DoMoveTo(dest));
+        }
+
+        if let Some(dest) =
+            selection_can_salvage_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::DoSalvage(dest));
+        }
+
+        if selection_can_enter_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::Enter(0, target_id));
+        }
+
+        match selection_attack_result(local_player_u32, &self.current_selection, target_id) {
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
+                return Some(GameMessageType::DoAttackObject(target_id));
+            }
+            CanAttackResult::InvalidShot => return None,
+            CanAttackResult::NotPossible => {}
+        }
+
+        if selection_can_capture_building_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::CaptureBuilding(
+                selection_source_object_id(&self.current_selection, local_player_u32),
+                target_id,
+            ));
+        }
+
+        if selection_can_disable_vehicle_hack_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
+            return Some(GameMessageType::DisableVehicleHack(
+                selection_source_object_id(&self.current_selection, local_player_u32),
+                target_id,
+            ));
+        }
+
+        if selection_can_steal_cash_hack_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::StealCashHack(
+                selection_source_object_id(&self.current_selection, local_player_u32),
+                target_id,
+            ));
+        }
+
+        if selection_can_disable_building_hack_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
+            return Some(GameMessageType::DisableBuildingHack(
+                selection_source_object_id(&self.current_selection, local_player_u32),
+                target_id,
+            ));
+        }
+
+        None
+    }
+
+    fn evaluate_context_hint(
+        &self,
+        _local_player: i32,
+        local_player_u32: Option<u32>,
+        target_id: ObjectID,
+        world: Coord3D,
+    ) -> Option<GameMessageType> {
+        if selection_can_resume_construction_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
+            return Some(GameMessageType::ResumeConstructionHint(target_id));
+        }
+
+        if selection_can_dock_at_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::DockHint(target_id));
+        }
+
+        if selection_can_repair_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::DoRepairHint(target_id));
+        }
+
+        if selection_can_get_repaired_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::GetRepairedHint(target_id));
+        }
+
+        if selection_can_get_healed_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::GetHealedHint(target_id));
+        }
+
+        if selection_can_hijack_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::HijackHint(target_id));
+        }
+
+        if selection_can_convert_to_carbomb_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
+            return Some(GameMessageType::ConvertToCarbombHint(target_id));
+        }
+
+        if selection_can_sabotage_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::SabotageHint(target_id));
+        }
+
+        if selection_can_pickup_crate_target(local_player_u32, &self.current_selection, target_id)
+            .is_some()
+        {
+            return Some(self.resolve_move_hint(world));
+        }
+
+        if let Some(dest) =
+            selection_can_salvage_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::DoSalvageHint(dest));
+        }
+
+        if selection_can_enter_target(local_player_u32, &self.current_selection, target_id) {
+            return Some(GameMessageType::EnterHint(target_id));
+        }
+
+        match selection_attack_result(local_player_u32, &self.current_selection, target_id) {
+            CanAttackResult::Possible => return Some(GameMessageType::DoAttackObjectHint(target_id)),
+            CanAttackResult::PossibleAfterMoving => {
+                return Some(GameMessageType::DoAttackObjectAfterMovingHint(target_id));
+            }
+            CanAttackResult::InvalidShot => return Some(GameMessageType::ImpossibleAttackHint),
+            CanAttackResult::NotPossible => {}
+        }
+
+        if selection_can_capture_building_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::CaptureBuildingHint(target_id));
+        }
+
+        if selection_can_disable_vehicle_hack_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) || selection_can_steal_cash_hack_target(local_player_u32, &self.current_selection, target_id)
+            || selection_can_disable_building_hack_target(
+                local_player_u32,
+                &self.current_selection,
+                target_id,
+            )
+        {
+            return Some(GameMessageType::HackHint(target_id));
+        }
+
+        None
+    }
+
+    fn handle_point_click(
+        &mut self,
+        region: &IRegion2D,
+        right_click: bool,
+    ) -> Vec<GameMessageType> {
+        if region.width != 0 || region.height != 0 {
+            return Vec::new();
+        }
+
+        let click_pos = ICoord2D::new(region.x, region.y);
+        let world = screen_to_terrain(&click_pos).unwrap_or(Coord3D {
+            x: click_pos.x as f32,
+            y: click_pos.y as f32,
+            z: 0.0,
+        });
+
+        let local_player = get_local_player_id();
+        let local_player_u32 = if local_player >= 0 {
+            Some(local_player as u32)
+        } else {
+            None
+        };
+        let target = self.pick_context_target(region, local_player_u32);
+
+        // Right click cancels active targeted command modes.
+        if right_click && TheInGameUI::get_pending_command().is_some() {
+            self.clear_targeting_modes();
+            TheInGameUI::clear_attack_move_to_mode();
+            return Vec::new();
+        }
+
+        if !right_click {
+            if let Some(message) =
+                self.resolve_pending_command_click(local_player, local_player_u32, target, &world)
+            {
+                TheInGameUI::clear_attack_move_to_mode();
+                return vec![message];
+            }
+            if TheInGameUI::get_pending_command().is_some() {
+                // Targeting mode stays active until fulfilled/cancelled.
+                return Vec::new();
+            }
+        }
+
+        if self.current_selection.is_empty() {
+            return Vec::new();
+        }
+
+        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        let command = if force_attack_active {
+            self.evaluate_force_attack_command(local_player_u32, target, world.clone())
+        } else if let Some(target_id) = target {
+            self.evaluate_context_action(local_player, local_player_u32, target_id)
+        } else {
+            Some(self.resolve_move_command(world.clone()))
+        };
+
+        TheInGameUI::clear_attack_move_to_mode();
+
+        if command.is_none() && target.is_some() {
+            return Vec::new();
+        }
+
+        command.map(|msg| vec![msg]).unwrap_or_default()
+    }
+
+    fn handle_mouseover_location_hint(&self, pos: &Coord3D) -> Vec<GameMessageType> {
+        if self.current_selection.is_empty() {
+            return Vec::new();
+        }
+
+        let local_player = get_local_player_id();
+        let local_player_u32 = if local_player >= 0 {
+            Some(local_player as u32)
+        } else {
+            None
+        };
+
+        if let Some(pending) = TheInGameUI::get_pending_command() {
+            if let Some(hint) = pending_command_hint_for_position(&pending, pos.clone()) {
+                return vec![hint];
+            }
+        }
+
+        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        if force_attack_active {
+            return self
+                .evaluate_force_attack_hint(local_player_u32, None, pos.clone())
+                .map(|hint| vec![hint])
+                .unwrap_or_default();
+        }
+
+        vec![self.resolve_move_hint(pos.clone())]
+    }
+
+    fn handle_mouseover_drawable_hint(&self, drawable: DrawableID) -> Vec<GameMessageType> {
+        if self.current_selection.is_empty() {
+            return Vec::new();
+        }
+
+        let local_player = get_local_player_id();
+        let local_player_u32 = if local_player >= 0 {
+            Some(local_player as u32)
+        } else {
+            None
+        };
+        let target_id = drawable as ObjectID;
+        let world = OBJECT_REGISTRY
+            .get_object(target_id)
+            .and_then(|obj| {
+                obj.read()
+                    .ok()
+                    .map(|guard| logic_to_message_coord(guard.get_position()))
+            })
+            .unwrap_or_default();
+
+        if let Some(pending) = TheInGameUI::get_pending_command() {
+            if let Some(hint) = pending_command_hint_for_object(
+                &pending,
+                local_player,
+                local_player_u32,
+                &self.current_selection,
+                target_id,
+            ) {
+                return vec![hint];
+            }
+        }
+
+        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        if force_attack_active {
+            return self
+                .evaluate_force_attack_hint(local_player_u32, Some(target_id), world)
+                .map(|hint| vec![hint])
+                .unwrap_or_default();
+        }
+
+        if let Some(hint) =
+            self.evaluate_context_hint(local_player, local_player_u32, target_id, world.clone())
+        {
+            return vec![hint];
+        }
+
+        vec![self.resolve_move_hint(world)]
     }
 
     /// Process mouse button up events
@@ -722,6 +1398,16 @@ impl CommandTranslator {
                     messages.push(GameMessageType::MetaEndForceAttack);
                 }
             }
+            0x10 => {
+                // Shift key
+                if down {
+                    self.waypoint_mode = true;
+                    messages.push(GameMessageType::MetaBeginWaypoints);
+                } else {
+                    self.waypoint_mode = false;
+                    messages.push(GameMessageType::MetaEndWaypoints);
+                }
+            }
             _ => {}
         }
 
@@ -743,7 +1429,7 @@ impl Default for CommandTranslator {
 
 impl GameMessageTranslator for CommandTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        let new_messages = match msg.get_type() {
+        let (new_messages, disposition) = match msg.get_type() {
             GameMessageType::FrameTick(_) => {
                 // Keep the client-side selection cache in sync with the GameLogic selection manager
                 // so commands work after selection changes originating outside this translator
@@ -751,26 +1437,112 @@ impl GameMessageTranslator for CommandTranslator {
                 self.sync_selection_from_logic();
                 return GameMessageDisposition::KeepMessage;
             }
-            GameMessageType::RawMouseLeftButtonDown(pos, _modifiers, _time) => {
-                self.handle_mouse_button_down(pos, MouseButton::Left, *_modifiers)
+            GameMessageType::CreateSelectedGroup(create_new, objects) => {
+                if *create_new {
+                    self.current_selection.clear();
+                }
+                self.current_selection.extend(objects.iter().copied());
+                return GameMessageDisposition::KeepMessage;
             }
-            GameMessageType::RawMouseRightButtonDown(pos, _modifiers, _time) => {
-                self.handle_mouse_button_down(pos, MouseButton::Right, *_modifiers)
+            GameMessageType::CreateSelectedGroupNoSound(create_new, objects) => {
+                if *create_new {
+                    self.current_selection.clear();
+                }
+                self.current_selection.extend(objects.iter().copied());
+                return GameMessageDisposition::KeepMessage;
             }
-            GameMessageType::RawMouseMiddleButtonDown(pos, _modifiers, _time) => {
-                self.handle_mouse_button_down(pos, MouseButton::Middle, *_modifiers)
+            GameMessageType::RemoveFromSelectedGroup(objects) => {
+                for object_id in objects {
+                    self.current_selection.remove(object_id);
+                }
+                return GameMessageDisposition::KeepMessage;
             }
-            GameMessageType::RawMouseLeftButtonUp(pos, _modifiers, _time) => {
-                self.handle_mouse_button_up(pos, MouseButton::Left, *_modifiers)
+            GameMessageType::MetaBeginForceAttack => {
+                self.force_attack_mode = true;
+                TheInGameUI::set_force_attack_mode(true);
+                return GameMessageDisposition::DestroyMessage;
             }
-            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, _time) => {
-                self.handle_mouse_button_up(pos, MouseButton::Right, *_modifiers)
+            GameMessageType::MetaEndForceAttack => {
+                self.force_attack_mode = false;
+                TheInGameUI::set_force_attack_mode(false);
+                return GameMessageDisposition::DestroyMessage;
             }
-            GameMessageType::RawMouseMiddleButtonUp(pos, _modifiers, _time) => {
-                self.handle_mouse_button_up(pos, MouseButton::Middle, *_modifiers)
+            GameMessageType::MetaBeginForceMove => {
+                self.force_move_mode = true;
+                TheInGameUI::set_force_move_to_mode(true);
+                return GameMessageDisposition::DestroyMessage;
             }
-            GameMessageType::RawKeyDown(key) => self.handle_keyboard(*key, true),
-            GameMessageType::RawKeyUp(key) => self.handle_keyboard(*key, false),
+            GameMessageType::MetaEndForceMove => {
+                self.force_move_mode = false;
+                TheInGameUI::set_force_move_to_mode(false);
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MetaBeginWaypoints => {
+                self.waypoint_mode = true;
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MetaEndWaypoints => {
+                self.waypoint_mode = false;
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MetaBeginPreferSelection => {
+                self.prefer_selection_mode = true;
+                TheInGameUI::set_prefer_selection_mode(true);
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MetaEndPreferSelection => {
+                self.prefer_selection_mode = false;
+                TheInGameUI::set_prefer_selection_mode(false);
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MouseRightClick(region, _modifiers) => (
+                self.handle_point_click(region, true),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::MouseLeftClick(region, _modifiers) => (
+                self.handle_point_click(region, false),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::MouseoverLocationHint(pos) => (
+                self.handle_mouseover_location_hint(pos),
+                GameMessageDisposition::KeepMessage,
+            ),
+            GameMessageType::MouseoverDrawableHint(drawable) => (
+                self.handle_mouseover_drawable_hint(*drawable),
+                GameMessageDisposition::KeepMessage,
+            ),
+            GameMessageType::RawMouseLeftButtonDown(pos, _modifiers, _time) => (
+                self.handle_mouse_button_down(pos, MouseButton::Left, *_modifiers),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawMouseRightButtonDown(pos, _modifiers, _time) => (
+                self.handle_mouse_button_down(pos, MouseButton::Right, *_modifiers),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawMouseMiddleButtonDown(pos, _modifiers, _time) => (
+                self.handle_mouse_button_down(pos, MouseButton::Middle, *_modifiers),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawMouseLeftButtonUp(pos, _modifiers, _time) => (
+                self.handle_mouse_button_up(pos, MouseButton::Left, *_modifiers),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, _time) => (
+                self.handle_mouse_button_up(pos, MouseButton::Right, *_modifiers),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawMouseMiddleButtonUp(pos, _modifiers, _time) => (
+                self.handle_mouse_button_up(pos, MouseButton::Middle, *_modifiers),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawKeyDown(key) => (
+                self.handle_keyboard(*key, true),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::RawKeyUp(key) => (
+                self.handle_keyboard(*key, false),
+                GameMessageDisposition::DestroyMessage,
+            ),
             _ => {
                 // Pass through other messages unchanged
                 return GameMessageDisposition::KeepMessage;
@@ -783,8 +1555,7 @@ impl GameMessageTranslator for CommandTranslator {
             dispatch_translated_message(&new_msg);
         }
 
-        // Destroy raw input messages after processing
-        GameMessageDisposition::DestroyMessage
+        disposition
     }
 }
 
@@ -1029,6 +1800,179 @@ fn selection_can_attack_target(
     false
 }
 
+fn selection_can_hijack_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_hijack_vehicle(sel, target, source)
+    })
+}
+
+fn selection_can_convert_to_carbomb_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_convert_object_to_car_bomb(sel, target, source)
+    })
+}
+
+fn selection_can_sabotage_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_sabotage_building(sel, target, source)
+    })
+}
+
+fn selection_can_capture_building_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_capture_building(sel, target, source)
+    })
+}
+
+fn selection_can_disable_vehicle_hack_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_disable_vehicle_via_hacking(sel, target, source, true)
+    })
+}
+
+fn selection_can_steal_cash_hack_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_steal_cash_via_hacking(sel, target, source)
+    })
+}
+
+fn selection_can_disable_building_hack_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    selection_can_action(local_player, selection, target_id, |sel, target, source| {
+        ActionManager::can_disable_building_via_hacking(sel, target, source)
+    })
+}
+
+fn selection_can_action<F>(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+    mut predicate: F,
+) -> bool
+where
+    F: FnMut(&gamelogic::object::Object, &gamelogic::object::Object, CommandSourceType) -> bool,
+{
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if predicate(&sel_guard, &target_guard, CommandSourceType::FromPlayer) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_has_quick_path_to(selection: &HashSet<ObjectID>, world: &Coord3D) -> bool {
+    let world = LogicCoord3D::new(world.x, world.y, world.z);
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let Some(ai_arc) = sel_guard.get_ai() else {
+            continue;
+        };
+        let Ok(ai_guard) = ai_arc.lock() else {
+            continue;
+        };
+
+        if ai_guard.is_quick_path_available(&world) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_has_attack_capability(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+) -> bool {
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+        if sel_guard.is_destroyed() {
+            continue;
+        }
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_able_to_attack() {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn selection_can_enter_target(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
@@ -1096,21 +2040,7 @@ fn selection_can_repair_target(
     let Ok(target_guard) = target.read() else {
         return false;
     };
-    if target_guard.is_destroyed() {
-        return false;
-    }
-
-    let Some(owner) = target_guard.get_controlling_player_id() else {
-        return false;
-    };
-    if owner != local_player {
-        return false;
-    }
-
-    let damaged = target_guard.get_health() + f32::EPSILON < target_guard.get_max_health();
-    if !damaged {
-        return false;
-    }
+    let current_repairer = target_guard.get_sole_healing_benefactor();
 
     for &id in selection {
         let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
@@ -1128,7 +2058,13 @@ fn selection_can_repair_target(
             continue;
         }
 
-        if sel_guard.is_kind_of(KindOf::Dozer) {
+        if ActionManager::can_repair_object(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) && (current_repairer == gamelogic::common::INVALID_ID
+            || current_repairer == sel_guard.get_id())
+        {
             return true;
         }
     }
@@ -1151,24 +2087,6 @@ fn selection_can_resume_construction_target(
     let Ok(target_guard) = target.read() else {
         return false;
     };
-    if target_guard.is_destroyed() {
-        return false;
-    }
-
-    let Some(owner) = target_guard.get_controlling_player_id() else {
-        return false;
-    };
-    if owner != local_player {
-        return false;
-    }
-
-    let status = target_guard.get_status_bits();
-    let under_construction = status.contains(LogicObjectStatusMaskType::UNDER_CONSTRUCTION)
-        || status.contains(LogicObjectStatusMaskType::RECONSTRUCTING);
-    if !under_construction {
-        return false;
-    }
-
     for &id in selection {
         let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
             continue;
@@ -1185,7 +2103,11 @@ fn selection_can_resume_construction_target(
             continue;
         }
 
-        if sel_guard.is_kind_of(KindOf::Dozer) {
+        if ActionManager::can_resume_construction_of(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) {
             return true;
         }
     }
@@ -1212,20 +2134,134 @@ fn selection_can_dock_at_target(
     let Ok(target_guard) = target.read() else {
         return false;
     };
-    if target_guard.is_destroyed() {
-        return false;
+    let mut saw_any = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            return false;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            return false;
+        };
+
+        let is_mine = sel_guard
+            .get_controlling_player_id()
+            .map(|owner| owner == local_player)
+            .unwrap_or(false);
+        if !is_mine {
+            return false;
+        }
+
+        if !ActionManager::can_dock_at(&sel_guard, &target_guard, CommandSourceType::FromPlayer) {
+            return false;
+        }
+        saw_any = true;
     }
 
-    let Some(owner) = target_guard.get_controlling_player_id() else {
+    saw_any
+}
+
+fn selection_can_get_repaired_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(local_player) = local_player else {
         return false;
     };
-    if owner != local_player {
+
+    if selection.is_empty() {
         return false;
     }
 
-    target_guard
-        .with_dock_update_interface(|_| true)
-        .unwrap_or(false)
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    if let Some(contain) = target_guard.get_contain() {
+        if let Ok(contain_guard) = contain.lock() {
+            if contain_guard.is_heal_contain() {
+                return false;
+            }
+        }
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = sel_guard
+            .get_controlling_player_id()
+            .map(|owner| owner == local_player)
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if ActionManager::can_get_repaired_at(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn selection_can_get_healed_target(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(local_player) = local_player else {
+        return false;
+    };
+
+    if selection.is_empty() {
+        return false;
+    }
+
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = sel_guard
+            .get_controlling_player_id()
+            .map(|owner| owner == local_player)
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if ActionManager::can_get_healed_at(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn selection_can_pickup_crate_target(
@@ -1673,6 +2709,51 @@ impl HintSpy {
     }
 }
 
+fn hint_text_for_message(msg: &GameMessageType) -> Option<String> {
+    use GameMessageType::*;
+
+    let text = match msg {
+        MouseoverDrawableHint(drawable) => format!("Mouse over drawable {}", drawable),
+        MouseoverLocationHint(pos) => format!("Mouse over location {:?}", pos),
+        ValidGUICommandHint => "Valid GUI command".to_string(),
+        InvalidGUICommandHint => "Invalid GUI command".to_string(),
+        AreaSelectionHint(region) => format!("Area selection {:?}", region),
+        DoAttackObjectHint(target) => format!("Attack object {}", target),
+        ImpossibleAttackHint => "Impossible attack".to_string(),
+        DoForceAttackObjectHint(target) => format!("Force attack object {}", target),
+        DoForceAttackGroundHint(pos) => format!("Force attack ground {:?}", pos),
+        GetRepairedHint(target) => format!("Get repaired {}", target),
+        GetHealedHint(target) => format!("Get healed {}", target),
+        DoRepairHint(target) => format!("Repair object {}", target),
+        ResumeConstructionHint(target) => format!("Resume construction {}", target),
+        EnterHint(target) => format!("Enter object {}", target),
+        DockHint(target) => format!("Dock at object {}", target),
+        DoMoveToHint(pos) => format!("Move to {:?}", pos),
+        DoAttackMoveToHint(pos) => format!("Attack move to {:?}", pos),
+        AddWaypointHint(pos) => format!("Add waypoint {:?}", pos),
+        HijackHint(target) => format!("Hijack object {}", target),
+        SabotageHint(target) => format!("Sabotage object {}", target),
+        FirebombHint(target) => format!("Firebomb object {}", target),
+        ConvertToCarbombHint(target) => format!("Convert to carbomb {}", target),
+        CaptureBuildingHint(target) => format!("Capture building {}", target),
+        SnipeVehicleHint(target) => format!("Snipe vehicle {}", target),
+        DefectorHint(target) => format!("Defector {}", target),
+        SetRallyPointHint(pos) => format!("Set rally point {:?}", pos),
+        DoSpecialPowerOverrideDestinationHint(pos) => {
+            format!("Special power destination {:?}", pos)
+        }
+        DoSalvageHint(pos) => format!("Salvage {:?}", pos),
+        DoInvalidHint => "Invalid action".to_string(),
+        DoAttackObjectAfterMovingHint(target) => {
+            format!("Attack object after moving {}", target)
+        }
+        HackHint(target) => format!("Hack object {}", target),
+        _ => return None,
+    };
+
+    Some(text)
+}
+
 impl Default for HintSpy {
     fn default() -> Self {
         Self::new()
@@ -1681,24 +2762,11 @@ impl Default for HintSpy {
 
 impl GameMessageTranslator for HintSpy {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        match msg.get_type() {
-            GameMessageType::DoMoveToHint(pos) => {
-                self.process_hint(format!("Move to {:?}", pos));
-                GameMessageDisposition::DestroyMessage
-            }
-            GameMessageType::DoAttackObjectHint(target) => {
-                self.process_hint(format!("Attack object {}", target));
-                GameMessageDisposition::DestroyMessage
-            }
-            GameMessageType::DoRepairHint(target) => {
-                self.process_hint(format!("Repair object {}", target));
-                GameMessageDisposition::DestroyMessage
-            }
-            GameMessageType::DoInvalidHint => {
-                self.process_hint("Invalid action".to_string());
-                GameMessageDisposition::DestroyMessage
-            }
-            _ => GameMessageDisposition::KeepMessage,
+        if let Some(hint) = hint_text_for_message(msg.get_type()) {
+            self.process_hint(hint);
+            GameMessageDisposition::DestroyMessage
+        } else {
+            GameMessageDisposition::KeepMessage
         }
     }
 }
@@ -1850,16 +2918,61 @@ mod tests {
 
         assert!(hint_spy.last_hint.is_none());
 
-        // Test move hint
-        let move_hint = GameMessage::new(GameMessageType::DoMoveToHint(Coord3D::default()));
-        let result = hint_spy.translate_game_message(&move_hint);
-        assert_eq!(result, GameMessageDisposition::DestroyMessage);
-        assert!(hint_spy.last_hint.is_some());
+        let cases = [
+            (
+                GameMessageType::DoMoveToHint(Coord3D::new(1.0, 2.0, 3.0)),
+                "Move to",
+            ),
+            (
+                GameMessageType::AddWaypointHint(Coord3D::new(4.0, 5.0, 6.0)),
+                "Add waypoint",
+            ),
+            (
+                GameMessageType::DoAttackObjectHint(123),
+                "Attack object 123",
+            ),
+            (
+                GameMessageType::DoAttackObjectAfterMovingHint(456),
+                "Attack object after moving 456",
+            ),
+            (GameMessageType::HijackHint(654), "Hijack object 654"),
+            (GameMessageType::SabotageHint(987), "Sabotage object 987"),
+            (
+                GameMessageType::ConvertToCarbombHint(246),
+                "Convert to carbomb 246",
+            ),
+            (
+                GameMessageType::CaptureBuildingHint(135),
+                "Capture building 135",
+            ),
+            (
+                GameMessageType::SetRallyPointHint(Coord3D::new(9.0, 8.0, 7.0)),
+                "Set rally point",
+            ),
+            (GameMessageType::HackHint(864), "Hack object 864"),
+            (GameMessageType::DoRepairHint(789), "Repair object 789"),
+            (GameMessageType::GetHealedHint(321), "Get healed 321"),
+            (
+                GameMessageType::DoSpecialPowerOverrideDestinationHint(Coord3D::new(7.0, 8.0, 9.0)),
+                "Special power destination",
+            ),
+            (GameMessageType::DoInvalidHint, "Invalid action"),
+        ];
 
-        // Test attack hint
-        let attack_hint = GameMessage::new(GameMessageType::DoAttackObjectHint(123));
-        let result = hint_spy.translate_game_message(&attack_hint);
-        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+        for (message_type, expected_text) in cases {
+            let message = GameMessage::new(message_type);
+            let result = hint_spy.translate_game_message(&message);
+            assert_eq!(result, GameMessageDisposition::DestroyMessage);
+            assert!(
+                hint_spy
+                    .last_hint
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(expected_text),
+                "missing hint text for {:?}",
+                message.get_type()
+            );
+        }
 
         // Test pass-through
         let other_msg = GameMessage::new(GameMessageType::Invalid);
@@ -1960,5 +3073,29 @@ mod tests {
 
         assert_eq!(translator.selected_objects.len(), 2);
         assert_eq!(translator.last_selected_group, Some(1));
+    }
+
+    #[test]
+    fn test_pending_command_for_beacon_position() {
+        let position = Coord3D::new(123.0, 456.0, 7.0);
+        let place = PendingCommand {
+            command_type: CommandType::PlaceBeacon,
+            options: 0x20,
+            source_object_id: 0,
+        };
+        let remove = PendingCommand {
+            command_type: CommandType::RemoveBeacon,
+            options: 0x20,
+            source_object_id: 0,
+        };
+
+        assert!(matches!(
+            pending_command_for_position(&place, position.clone()),
+            Some(GameMessageType::PlaceBeacon(_))
+        ));
+        assert!(matches!(
+            pending_command_for_position(&remove, position),
+            Some(GameMessageType::RemoveBeacon(_))
+        ));
     }
 }
