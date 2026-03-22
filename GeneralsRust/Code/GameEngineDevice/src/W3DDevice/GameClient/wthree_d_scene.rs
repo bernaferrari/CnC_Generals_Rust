@@ -5,12 +5,15 @@
 //! This module provides comprehensive scene management including render object management,
 //! visibility culling, lighting, occlusion, translucent object sorting, and scene rendering.
 
+use crate::W3DDevice::GameClient::wthree_d_dynamic_light::{
+    LightEnvironment, W3DDynamicLight, MAX_LIGHTS,
+};
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::SegmentedLine;
-use crate::W3DDevice::GameClient::wthree_d_dynamic_light::{W3DDynamicLight, LightEnvironment, MAX_LIGHTS};
-use crate::W3DDevice::GameClient::wthree_d_shader_manager::{CustomScenePassMode, ShaderType};
-use cgmath::{Vector3, Matrix4, Point3, SquareMatrix, Zero};
+use crate::W3DDevice::GameClient::wthree_d_shader_manager::CustomScenePassMode;
+use crate::W3DDevice::GameClient::Shadow::wthree_d_shadow::the_w3d_shadow_manager;
+use cgmath::{Matrix4, Point3, SquareMatrix, Vector3, Zero};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 pub type RenderObjectId = u64;
@@ -41,23 +44,23 @@ impl DrawableInfoFlags {
     pub const POTENTIAL_OCCLUDER: u32 = 1 << 2;
     pub const POTENTIAL_OCCLUDEE: u32 = 1 << 3;
     pub const IS_NON_OCCLUDER_OR_OCCLUDEE: u32 = 1 << 4;
-    
+
     pub fn new() -> Self {
         Self(0)
     }
-    
+
     pub fn contains(&self, flag: u32) -> bool {
         (self.0 & flag) != 0
     }
-    
+
     pub fn set(&mut self, flag: u32) {
         self.0 |= flag;
     }
-    
+
     pub fn clear(&mut self, flag: u32) {
         self.0 &= !flag;
     }
-    
+
     pub fn reset(&mut self) {
         self.0 = DrawableInfoFlags::NORMAL;
     }
@@ -85,7 +88,7 @@ impl DrawableInfo {
             shroud_status_object_id: 0, // INVALID_ID equivalent
         }
     }
-    
+
     pub fn with_drawable(id: u32) -> Self {
         Self {
             drawable_id: Some(id),
@@ -115,7 +118,7 @@ impl BoundingSphere {
     pub fn new(center: Point3<f32>, radius: f32) -> Self {
         Self { center, radius }
     }
-    
+
     /// Check if sphere intersects with another sphere
     pub fn intersects(&self, other: &BoundingSphere) -> bool {
         let dist_sq = (self.center - other.center).magnitude2();
@@ -138,6 +141,7 @@ pub struct RenderObject {
     pub opacity: f32,
     pub kindof_flags: u32, // KINDOF_* flags
     pub collision_type: u32,
+    pub controlling_player_index: Option<usize>,
 }
 
 impl Default for RenderObject {
@@ -160,19 +164,24 @@ impl RenderObject {
             opacity: 1.0,
             kindof_flags: 0,
             collision_type: 0,
+            controlling_player_index: None,
         }
     }
-    
+
     pub fn is_really_visible(&self) -> bool {
         self.visible && !self.hidden
     }
-    
+
     pub fn get_position(&self) -> Point3<f32> {
         self.position
     }
-    
+
     pub fn get_bounding_sphere(&self) -> &BoundingSphere {
         &self.bounding_sphere
+    }
+
+    pub fn set_controlling_player_index(&mut self, player_index: Option<usize>) {
+        self.controlling_player_index = player_index;
     }
 }
 
@@ -219,19 +228,19 @@ impl RenderInfo {
             material_pass_stack: Vec::new(),
         }
     }
-    
+
     pub fn push_material_pass(&mut self, pass: u32) {
         self.material_pass_stack.push(pass);
     }
-    
+
     pub fn pop_material_pass(&mut self) -> Option<u32> {
         self.material_pass_stack.pop()
     }
-    
+
     pub fn push_override_flags(&mut self, flags: u32) {
         self.override_flags |= flags;
     }
-    
+
     pub fn pop_override_flags(&mut self) {
         // Simple implementation - just clear override flags
         self.override_flags = 0;
@@ -245,24 +254,25 @@ pub struct W3DScene {
     next_id: RenderObjectId,
     render_objects: HashMap<RenderObjectId, RenderObject>,
     segmented_lines: HashMap<RenderObjectId, Arc<RwLock<SegmentedLine>>>,
-    
+
     // Dynamic lighting
     dynamic_lights: Vec<W3DDynamicLight>,
     global_lights: [Option<Arc<RwLock<W3DDynamicLight>>>; MAX_LIGHTS],
     infantry_lights: [Option<Arc<RwLock<W3DDynamicLight>>>; MAX_LIGHTS],
     num_global_lights: usize,
-    
+
     // Scene state
     draw_terrain_only: bool,
     custom_pass_mode: CustomScenePassMode,
-    
+    terrain_object_present: bool,
+
     // Visibility and culling
     visibility_checked: bool,
-    
+
     // Translucent object handling (matching C++ m_translucentObjectsBuffer)
     translucent_objects_count: usize,
     translucent_objects: Vec<Option<RenderObjectId>>,
-    
+
     // Occlusion handling
     potential_occluders: Vec<Option<RenderObjectId>>,
     potential_occludees: Vec<Option<RenderObjectId>>,
@@ -271,12 +281,13 @@ pub struct W3DScene {
     num_potential_occludees: usize,
     num_non_occluder_or_occludee: usize,
     occluded_objects_count: usize,
-    
+    last_stencil_shadow_mask: i32,
+
     // Default light environments
     default_light_env: LightEnvironment,
     fogged_light_env: LightEnvironment,
     infantry_ambient: Vector3<f32>,
-    
+
     // Scene ambient light
     ambient_light: Vector3<f32>,
 }
@@ -300,6 +311,7 @@ impl W3DScene {
             num_global_lights: 0,
             draw_terrain_only: false,
             custom_pass_mode: CustomScenePassMode::Default,
+            terrain_object_present: false,
             visibility_checked: false,
             translucent_objects_count: 0,
             translucent_objects: vec![None; MAX_TRANSLUCENT_OBJECTS],
@@ -310,17 +322,18 @@ impl W3DScene {
             num_potential_occludees: 0,
             num_non_occluder_or_occludee: 0,
             occluded_objects_count: 0,
+            last_stencil_shadow_mask: 0,
             default_light_env: LightEnvironment::new(),
             fogged_light_env: LightEnvironment::new(),
             infantry_ambient: Vector3::new(0.3, 0.3, 0.3),
             ambient_light: Vector3::new(0.3, 0.3, 0.3),
         };
-        
+
         // Initialize default lights
         scene.initialize_default_lights();
         scene
     }
-    
+
     /// Initialize default light setup
     fn initialize_default_lights(&mut self) {
         // Create default directional light
@@ -328,19 +341,19 @@ impl W3DScene {
         sun_light.set_direction(Vector3::new(0.5, -1.0, 0.3));
         sun_light.set_diffuse(Vector3::new(1.0, 1.0, 0.9));
         sun_light.set_ambient(Vector3::new(0.3, 0.3, 0.3));
-        
+
         self.global_lights[0] = Some(Arc::new(RwLock::new(sun_light)));
         self.num_global_lights = 1;
-        
+
         // Initialize infantry lights (modified copy of global)
         let mut infantry_light = W3DDynamicLight::directional();
         infantry_light.set_direction(Vector3::new(0.5, -1.0, 0.3));
         infantry_light.set_diffuse(Vector3::new(1.2, 1.2, 1.1)); // Brighter for infantry
         infantry_light.set_ambient(Vector3::new(0.4, 0.4, 0.4));
-        
+
         self.infantry_lights[0] = Some(Arc::new(RwLock::new(infantry_light)));
     }
-    
+
     /// Add a render object to the scene
     pub fn add_render_object(&mut self, mut obj: RenderObject) -> RenderObjectId {
         let id = self.next_id;
@@ -349,22 +362,22 @@ impl W3DScene {
         self.render_objects.insert(id, obj);
         id
     }
-    
+
     /// Remove a render object from the scene
     pub fn remove_render_object(&mut self, id: RenderObjectId) -> Option<RenderObject> {
         self.render_objects.remove(&id)
     }
-    
+
     /// Get a render object by ID
     pub fn get_render_object(&self, id: RenderObjectId) -> Option<&RenderObject> {
         self.render_objects.get(&id)
     }
-    
+
     /// Get mutable render object by ID
     pub fn get_render_object_mut(&mut self, id: RenderObjectId) -> Option<&mut RenderObject> {
         self.render_objects.get_mut(&id)
     }
-    
+
     /// Add a segmented line to the scene
     pub fn add_segmented_line(&mut self, line: SegmentedLine) -> RenderObjectId {
         let id = self.next_id;
@@ -372,27 +385,30 @@ impl W3DScene {
         self.segmented_lines.insert(id, Arc::new(RwLock::new(line)));
         id
     }
-    
+
     /// Remove a segmented line from the scene
-    pub fn remove_segmented_line(&mut self, id: RenderObjectId) -> Option<Arc<RwLock<SegmentedLine>>> {
+    pub fn remove_segmented_line(
+        &mut self,
+        id: RenderObjectId,
+    ) -> Option<Arc<RwLock<SegmentedLine>>> {
         self.segmented_lines.remove(&id)
     }
-    
+
     /// Get a segmented line by ID
     pub fn get_segmented_line(&self, id: RenderObjectId) -> Option<Arc<RwLock<SegmentedLine>>> {
         self.segmented_lines.get(&id).cloned()
     }
-    
+
     /// Iterate over all segmented lines
     pub fn iter_segmented_lines(&self) -> impl Iterator<Item = Arc<RwLock<SegmentedLine>>> + '_ {
         self.segmented_lines.values().cloned()
     }
-    
+
     /// Add a dynamic light to the scene
     pub fn add_dynamic_light(&mut self, light: W3DDynamicLight) {
         self.dynamic_lights.push(light);
     }
-    
+
     /// Remove a dynamic light from the scene
     pub fn remove_dynamic_light(&mut self, index: usize) -> Option<W3DDynamicLight> {
         if index < self.dynamic_lights.len() {
@@ -401,12 +417,12 @@ impl W3DScene {
             None
         }
     }
-    
+
     /// Get dynamic lights iterator
     pub fn iter_dynamic_lights(&self) -> impl Iterator<Item = &W3DDynamicLight> {
         self.dynamic_lights.iter()
     }
-    
+
     /// Set a global light
     pub fn set_global_light(&mut self, light: W3DDynamicLight, index: usize) {
         if index < MAX_LIGHTS {
@@ -416,48 +432,53 @@ impl W3DScene {
             }
         }
     }
-    
+
     /// Get ambient light color
     pub fn get_ambient_light(&self) -> Vector3<f32> {
         self.ambient_light
     }
-    
+
     /// Set ambient light color
     pub fn set_ambient_light(&mut self, color: Vector3<f32>) {
         self.ambient_light = color;
     }
-    
+
     /// Set custom pass mode
     pub fn set_custom_pass_mode(&mut self, mode: CustomScenePassMode) {
         self.custom_pass_mode = mode;
     }
-    
+
     /// Get custom pass mode
     pub fn get_custom_pass_mode(&self) -> CustomScenePassMode {
         self.custom_pass_mode
     }
-    
+
     /// Set draw terrain only mode
     pub fn set_draw_terrain_only(&mut self, draw: bool) {
         self.draw_terrain_only = draw;
     }
-    
+
+    /// Set whether a terrain object is currently present in the scene.
+    pub fn set_terrain_object_present(&mut self, present: bool) {
+        self.terrain_object_present = present;
+    }
+
     /// Get default light environment
     pub fn get_default_light_env(&self) -> &LightEnvironment {
         &self.default_light_env
     }
-    
+
     /// Visibility check for all objects (matching C++ Visibility_Check)
     pub fn visibility_check(&mut self, camera: &CameraInfo) {
         self.translucent_objects_count = 0;
         self.num_potential_occluders = 0;
         self.num_potential_occludees = 0;
         self.num_non_occluder_or_occludee = 0;
-        
+
         for (&id, obj) in &mut self.render_objects {
             // Reset drawable flags
             obj.info.flags.reset();
-            
+
             // Check visibility
             if obj.force_visible {
                 obj.visible = true;
@@ -469,7 +490,7 @@ impl W3DScene {
                 let dist = to_camera.magnitude();
                 obj.visible = dist <= camera.far_z + obj.bounding_sphere.radius;
             }
-            
+
             // Classify object for rendering
             if obj.visible && !obj.hidden {
                 if obj.opacity < 1.0 && self.translucent_objects_count < MAX_TRANSLUCENT_OBJECTS {
@@ -479,29 +500,39 @@ impl W3DScene {
                 }
             }
         }
-        
+
         self.visibility_checked = true;
     }
-    
+
     /// Render the scene (matching C++ Render)
     pub fn render(&mut self, rinfo: &mut RenderInfo) {
         // Update fixed light environments
         self.update_fixed_light_environments(rinfo);
-        
+
         // Update dynamic lights
         for light in &mut self.dynamic_lights {
             light.on_frame_update();
         }
-        
+
         // Custom render pass
         self.customized_render(rinfo);
-        
+
         // Flush render queue
         self.flush(rinfo);
     }
-    
+
     /// Custom render pass (matching C++ Customized_Render)
-    pub fn customized_render(&mut self, rinfo: &RenderInfo) {
+    pub fn customized_render(&mut self, _rinfo: &RenderInfo) {
+        let should_queue_shadows = self.custom_pass_mode == CustomScenePassMode::Default
+            && (self.terrain_object_present || self.draw_terrain_only);
+
+        // C++ queues shadows only after the terrain pass is known to exist.
+        // This module only emulates the queueing signal, because the actual shadow render
+        // path lives in the separate shadow module with a different RenderInfo type.
+        the_w3d_shadow_manager()
+            .write()
+            .queue_shadows(should_queue_shadows);
+
         // Render all visible objects
         for obj in self.render_objects.values() {
             if obj.visible && !obj.hidden {
@@ -510,16 +541,34 @@ impl W3DScene {
             }
         }
     }
-    
+
     /// Flush render queue (matching C++ Flush)
     pub fn flush(&mut self, _rinfo: &RenderInfo) {
-        // Flush translucent objects
+        // C++ draws non-stencil shadows before the main mesh flush when the scene is in the
+        // default pass. We cannot call into the full shadow renderer from here, but keeping the
+        // queue state intact preserves the ordering contract for the later shadow system.
+        self.flush_non_stencil_shadow_sequence_hook();
+
+        // Stencil/occlusion work happens before translucent flushing so any hidden units can be
+        // accounted for before we finish the frame's blended pass.
+        self.flush_occluded_objects_into_stencil();
+
+        // Translucent objects are still flushed after the occlusion path.
         self.flush_translucent_objects();
-        
-        // Flush occluded objects
-        self.flush_occluded_objects();
+
+        // The actual stencil-shadow render pass is consumed later by the shadow module.
+        self.flush_stencil_shadow_sequence_hook();
     }
-    
+
+    fn flush_non_stencil_shadow_sequence_hook(&self) {
+        if self.custom_pass_mode != CustomScenePassMode::Default {
+            return;
+        }
+
+        // No direct renderer hook in this simplified module; the queue flag is set in
+        // customized_render() once terrain presence is known.
+    }
+
     /// Flush translucent objects
     fn flush_translucent_objects(&mut self) {
         for i in 0..self.translucent_objects_count {
@@ -530,23 +579,143 @@ impl W3DScene {
             }
         }
     }
-    
-    /// Flush occluded objects
-    fn flush_occluded_objects(&mut self) {
-        for i in 0..self.occluded_objects_count {
-            if let Some(obj) = self.potential_occludees.get(i).and_then(|id| id.and_then(|id| self.render_objects.get(&id))) {
-                if obj.info.flags.contains(DrawableInfoFlags::IS_OCCLUDED) {
-                    // Render with occlusion material
+
+    fn flush_stencil_shadow_sequence_hook(&self) {
+        if self.custom_pass_mode != CustomScenePassMode::Default {
+            return;
+        }
+
+        // The real stencil-shadow pass is triggered later in the frame. This hook exists only
+        // to preserve the sequence and make the queueing point explicit in the Rust port.
+    }
+
+    fn player_index_to_color_index(player_index: usize) -> usize {
+        const NUMBER_PLAYER_COLOR_BITS: usize = 4;
+        let nibble = (player_index & ((1 << NUMBER_PLAYER_COLOR_BITS) - 1)) as u8;
+        (nibble.reverse_bits() >> (8 - NUMBER_PLAYER_COLOR_BITS)) as usize
+    }
+
+    fn flush_occluded_objects_into_stencil(&mut self) {
+        let has_deferred_lists = self.num_potential_occludees > 0
+            || self.num_potential_occluders > 0
+            || self.num_non_occluder_or_occludee > 0;
+
+        if !has_deferred_lists {
+            self.last_stencil_shadow_mask = 0;
+            the_w3d_shadow_manager().write().set_stencil_shadow_mask(0);
+            return;
+        }
+
+        // Gather potentially occluded objects by controlling player to emulate the C++ stencil
+        // bucketing sequence. Player 0 is the fallback bucket when no explicit player is set.
+        let mut buckets: BTreeMap<usize, Vec<RenderObjectId>> = BTreeMap::new();
+
+        for i in 0..self.num_potential_occludees {
+            if let Some(Some(id)) = self.potential_occludees.get(i) {
+                let player_index = self
+                    .render_objects
+                    .get(id)
+                    .and_then(|obj| obj.controlling_player_index)
+                    .unwrap_or(0)
+                    .min(MAX_PLAYER_COUNT.saturating_sub(1));
+                buckets.entry(player_index).or_default().push(*id);
+            }
+        }
+
+        if buckets.is_empty() {
+            self.occluded_objects_count = 0;
+            self.flush_deferred_lists_without_stencil();
+            self.last_stencil_shadow_mask = 0;
+            the_w3d_shadow_manager().write().set_stencil_shadow_mask(0);
+            return;
+        }
+
+        self.occluded_objects_count = buckets.values().map(|ids| ids.len()).sum();
+        let mut used_stencil_refs: u32 = 0;
+        let mut used_visible_player_count = 0usize;
+        let mut next_color_index = 1usize;
+
+        for (player_index, object_ids) in buckets {
+            let color_index = Self::player_index_to_color_index(next_color_index);
+            next_color_index += 1;
+            used_visible_player_count += 1;
+
+            let stencil_ref = ((color_index as u32) << 3) | 0x80;
+            used_stencil_refs |= stencil_ref;
+
+            // Emulate the per-player color assignment. The actual draw call is omitted here, but
+            // we still stamp the occluded flag and keep deterministic bucket order.
+            let _synthetic_color = Self::synthetic_player_color(player_index, color_index);
+            for id in object_ids {
+                if let Some(obj) = self.render_objects.get_mut(&id) {
+                    obj.info.flags.set(DrawableInfoFlags::IS_OCCLUDED);
+                }
+            }
+        }
+
+        if used_visible_player_count >= 8 {
+            // C++ falls back to an MSB-only stencil mask once too many visible players are in
+            // play because there are not enough low bits left for shadow volumes.
+            used_stencil_refs = 0x80808080;
+        }
+
+        self.last_stencil_shadow_mask = used_stencil_refs as i32;
+        the_w3d_shadow_manager()
+            .write()
+            .set_stencil_shadow_mask(self.last_stencil_shadow_mask);
+
+        // Non-occluder/occludee and occluder lists are still present in the deferred queues.
+        // We keep the flush ordering explicit even though the real mesh renderer is not wired in.
+        self.flush_deferred_lists_without_stencil();
+    }
+
+    fn flush_deferred_lists_without_stencil(&mut self) {
+        if self.num_potential_occludees == 0
+            && self.num_potential_occluders == 0
+            && self.num_non_occluder_or_occludee == 0
+        {
+            return;
+        }
+
+        // Fallback path mirroring the C++ "no occluded objects" branch: render deferred
+        // occludees, then occluders, then non-occluder/non-occludee objects.
+        for i in 0..self.num_potential_occludees {
+            if let Some(Some(id)) = self.potential_occludees.get(i) {
+                if let Some(obj) = self.render_objects.get(id) {
+                    let _ = obj;
+                }
+            }
+        }
+
+        for i in 0..self.num_potential_occluders {
+            if let Some(Some(id)) = self.potential_occluders.get(i) {
+                if let Some(obj) = self.render_objects.get(id) {
+                    let _ = obj;
+                }
+            }
+        }
+
+        for i in 0..self.num_non_occluder_or_occludee {
+            if let Some(Some(id)) = self.non_occluders_or_occludees.get(i) {
+                if let Some(obj) = self.render_objects.get(id) {
+                    let _ = obj;
                 }
             }
         }
     }
-    
+
+    fn synthetic_player_color(player_index: usize, color_index: usize) -> u32 {
+        let seed =
+            ((player_index as u32 + 1) * 0x45d9f3b) ^ ((color_index as u32 + 1) * 0x27d4eb2d);
+        0xff000000 | (seed & 0x00ff_ffff)
+    }
+
     /// Update fixed light environments (matching C++ updateFixedLightEnvironments)
     fn update_fixed_light_environments(&mut self, _rinfo: &RenderInfo) {
         // Reset default light environment
-        self.default_light_env.reset(Vector3::zero(), self.ambient_light);
-        
+        self.default_light_env
+            .reset(Vector3::zero(), self.ambient_light);
+
         // Add global lights
         for i in 0..self.num_global_lights {
             if let Some(ref light_arc) = self.global_lights[i] {
@@ -554,51 +723,58 @@ impl W3DScene {
                 self.default_light_env.add_light(&light);
             }
         }
-        
+
         // Setup fogged light environment
         let fogged_light_frac = 0.5; // From global data
-        self.fogged_light_env.reset(Vector3::zero(), self.ambient_light * fogged_light_frac);
-        
+        self.fogged_light_env
+            .reset(Vector3::zero(), self.ambient_light * fogged_light_frac);
+
         // Update infantry ambient
         self.infantry_ambient = self.ambient_light;
     }
-    
+
     /// Cast ray against scene objects (matching C++ castRay)
-    pub fn cast_ray(&self, ray_origin: Point3<f32>, ray_dir: Vector3<f32>, test_all: bool, collision_type: u32) -> Option<(RenderObjectId, f32)> {
+    pub fn cast_ray(
+        &self,
+        ray_origin: Point3<f32>,
+        ray_dir: Vector3<f32>,
+        test_all: bool,
+        collision_type: u32,
+    ) -> Option<(RenderObjectId, f32)> {
         let mut closest_hit: Option<(RenderObjectId, f32)> = None;
         let mut closest_dist = f32::MAX;
-        
+
         for (&id, obj) in &self.render_objects {
             // Skip if not visible and not testing all
             if !test_all && !obj.is_really_visible() {
                 continue;
             }
-            
+
             // Check collision type mask
             if obj.collision_type & collision_type == 0 {
                 continue;
             }
-            
+
             // Ray-sphere intersection test
             let sphere = &obj.bounding_sphere;
             let to_sphere = sphere.center - ray_origin;
             let alpha = to_sphere.dot(ray_dir);
             let beta = sphere.radius * sphere.radius - (to_sphere.dot(to_sphere) - alpha * alpha);
-            
+
             if beta < 0.0 {
                 continue; // No intersection
             }
-            
+
             let dist = alpha - beta.sqrt();
             if dist > 0.0 && dist < closest_dist {
                 closest_dist = dist;
                 closest_hit = Some((id, dist));
             }
         }
-        
+
         closest_hit
     }
-    
+
     /// Update scene state
     pub fn update(&mut self, delta_time_seconds: f32) {
         // Update segmented lines
@@ -607,23 +783,23 @@ impl W3DScene {
                 guard.advance_uv(delta_time_seconds);
             }
         }
-        
+
         // Update dynamic lights
         for light in &mut self.dynamic_lights {
             light.on_frame_update();
         }
     }
-    
+
     /// Get render object count
     pub fn render_object_count(&self) -> usize {
         self.render_objects.len()
     }
-    
+
     /// Get dynamic light count
     pub fn dynamic_light_count(&self) -> usize {
         self.dynamic_lights.len()
     }
-    
+
     /// Clear all render objects
     pub fn clear_render_objects(&mut self) {
         self.render_objects.clear();
@@ -632,6 +808,8 @@ impl W3DScene {
         self.num_potential_occludees = 0;
         self.num_non_occluder_or_occludee = 0;
         self.occluded_objects_count = 0;
+        self.last_stencil_shadow_mask = 0;
+        self.terrain_object_present = false;
     }
 }
 
@@ -655,15 +833,15 @@ impl W3D2DScene {
             camera: CameraInfo::default(),
         }
     }
-    
+
     pub fn add_object(&mut self, id: RenderObjectId) {
         self.objects.push(id);
     }
-    
+
     pub fn remove_object(&mut self, id: RenderObjectId) {
         self.objects.retain(|&obj_id| obj_id != id);
     }
-    
+
     pub fn render(&self, _rinfo: &RenderInfo) {
         // Render 2D overlay objects
     }
@@ -679,11 +857,11 @@ impl W3DInterfaceScene {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn add_object(&mut self, id: RenderObjectId) {
         self.objects.push(id);
     }
-    
+
     pub fn render(&self, _rinfo: &RenderInfo) {
         // Render interface elements
     }
@@ -692,14 +870,14 @@ impl W3DInterfaceScene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_scene_creation() {
         let scene = W3DScene::new();
         assert_eq!(scene.render_object_count(), 0);
         assert_eq!(scene.dynamic_light_count(), 0);
     }
-    
+
     #[test]
     fn test_add_render_object() {
         let mut scene = W3DScene::new();
@@ -707,7 +885,7 @@ mod tests {
         let id = scene.add_render_object(obj);
         assert!(scene.get_render_object(id).is_some());
     }
-    
+
     #[test]
     fn test_remove_render_object() {
         let mut scene = W3DScene::new();
@@ -717,7 +895,7 @@ mod tests {
         assert!(removed.is_some());
         assert!(scene.get_render_object(id).is_none());
     }
-    
+
     #[test]
     fn test_add_dynamic_light() {
         let mut scene = W3DScene::new();
@@ -725,22 +903,22 @@ mod tests {
         scene.add_dynamic_light(light);
         assert_eq!(scene.dynamic_light_count(), 1);
     }
-    
+
     #[test]
     fn test_visibility_check() {
         let mut scene = W3DScene::new();
         let mut obj = RenderObject::new();
         obj.bounding_sphere = BoundingSphere::new(Point3::new(0.0, 0.0, 0.0), 10.0);
         scene.add_render_object(obj);
-        
+
         let camera = CameraInfo::default();
         scene.visibility_check(&camera);
-        
+
         // Object should be visible
         let visible_count = scene.render_objects.values().filter(|o| o.visible).count();
         assert_eq!(visible_count, 1);
     }
-    
+
     #[test]
     fn test_cast_ray() {
         let mut scene = W3DScene::new();
@@ -748,20 +926,20 @@ mod tests {
         obj.bounding_sphere = BoundingSphere::new(Point3::new(0.0, 0.0, 0.0), 10.0);
         obj.collision_type = 1;
         scene.add_render_object(obj);
-        
+
         let ray_origin = Point3::new(0.0, 0.0, -50.0);
         let ray_dir = Vector3::new(0.0, 0.0, 1.0);
-        
+
         let hit = scene.cast_ray(ray_origin, ray_dir, true, 1);
         assert!(hit.is_some());
     }
-    
+
     #[test]
     fn test_bounding_sphere_intersection() {
         let s1 = BoundingSphere::new(Point3::new(0.0, 0.0, 0.0), 10.0);
         let s2 = BoundingSphere::new(Point3::new(15.0, 0.0, 0.0), 10.0);
         let s3 = BoundingSphere::new(Point3::new(30.0, 0.0, 0.0), 5.0);
-        
+
         assert!(s1.intersects(&s2));
         assert!(!s1.intersects(&s3));
     }
