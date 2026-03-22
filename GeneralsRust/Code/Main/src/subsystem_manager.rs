@@ -1045,26 +1045,20 @@ pub struct SubsystemManager {
 
 impl SubsystemManager {
     pub fn new() -> Self {
-        // Define initialization order matching C++ GameEngine.cpp
-        // The update order (in update_all) follows the same sequence as C++ GameEngine::update():
-        // 1. Radar
-        // 2. Audio
-        // 3. GameClient
-        // 4. MessageStream (propagateMessages)
-        // 5. Network (if active)
-        // 6. CDManager
-        // 7. GameLogic (if not paused)
+        // Define startup initialization order matching the C++ GameEngine::init() sequence.
+        // The runtime update order still follows the subsystem registration order below,
+        // which mirrors the C++ GameEngine::update() cadence for the active gameplay systems.
         let initialization_order = vec![
             "FileSystem",    // File system must be first
             "GlobalData",    // Load INI configuration
-            "Radar",         // Radar subsystem
+            "CDManager",     // Legacy CD/DVD subsystem
             "AudioManager",  // Audio subsystem
-            "GameClient",    // Game client (drawables, effects)
             "MessageStream", // Message propagation
-            "Network",       // Network layer
-            "CDManager",     // CD manager (legacy)
+            "GameClient",    // Game client (drawables, effects)
             "InputSystem",   // Input handling
-            "GameLogic",     // Game logic (updated last after messages)
+            "GameLogic",     // Game logic
+            "Radar",         // Radar/minimap is initialized after gameplay systems
+            "Network",       // Network layer is kept last for startup readiness gating
         ];
 
         Self {
@@ -1116,6 +1110,7 @@ impl SubsystemManager {
     pub fn initialize_all(&mut self) -> Result<()> {
         info!("Starting subsystem initialization sequence");
         self.start_time = Some(SystemTime::now());
+        self.initialized = false;
 
         let mut initialized = HashSet::new();
 
@@ -1149,7 +1144,9 @@ impl SubsystemManager {
                     initialized.insert(index);
                 }
                 None => {
-                    warn!("Subsystem {} not found during initialization", target_name);
+                    let err = anyhow!("Subsystem {} not found during initialization", target_name);
+                    error!("{}", err);
+                    return Err(err);
                 }
             }
         }
@@ -1162,7 +1159,12 @@ impl SubsystemManager {
             let name = slot.name();
             info!("Initializing additional subsystem: {}", name);
             if let Err(e) = slot.init() {
-                warn!("Failed to initialize additional subsystem {}: {}", name, e);
+                error!("Failed to initialize additional subsystem {}: {}", name, e);
+                return Err(anyhow!(
+                    "Additional subsystem {} initialization failed: {}",
+                    name,
+                    e
+                ));
             }
         }
 
@@ -1171,7 +1173,12 @@ impl SubsystemManager {
         for slot in &mut self.subsystems {
             let name = slot.name();
             if let Err(e) = slot.post_process_load() {
-                warn!("Post-process loading failed for {}: {}", name, e);
+                error!("Post-process loading failed for {}: {}", name, e);
+                return Err(anyhow!(
+                    "Subsystem {} post-process loading failed: {}",
+                    name,
+                    e
+                ));
             }
         }
 

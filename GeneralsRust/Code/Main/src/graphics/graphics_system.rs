@@ -222,8 +222,6 @@ impl GraphicsSystem {
             bytemuck::cast_slice(&[material_properties]),
         );
 
-        info!("GraphicsSystem initialized successfully (with depth buffer)");
-
         let mut loaded_models = HashMap::new();
 
         // Cache a fallback cube model for objects whose W3D assets fail to load.
@@ -233,6 +231,8 @@ impl GraphicsSystem {
             loaded_models.insert("__fallback_cube__".to_string(), Arc::new(fallback));
             info!("GraphicsSystem: fallback cube model cached for missing W3D assets");
         }
+
+        info!("GraphicsSystem initialized successfully and ready for first frame");
 
         Ok(Self {
             device,

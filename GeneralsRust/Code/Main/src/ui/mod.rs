@@ -99,6 +99,22 @@ pub enum Screen {
     Disconnect,
 }
 
+impl Screen {
+    /// Screen used while the engine is booting before the first menu-ready handoff.
+    pub const fn startup_entry_screen(quick_start: bool) -> Self {
+        if quick_start {
+            Self::GameHUD
+        } else {
+            Self::Title
+        }
+    }
+
+    /// Screen used once startup has completed and the interactive menu is ready.
+    pub const fn first_menu_screen() -> Self {
+        Self::MainMenu
+    }
+}
+
 /// UI colors matching the original Generals theme
 pub mod colors {
     pub const BLUE_DARK: (u8, u8, u8) = (20, 40, 80);
