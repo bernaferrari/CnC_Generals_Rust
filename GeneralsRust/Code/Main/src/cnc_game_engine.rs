@@ -133,10 +133,14 @@ mod tests {
 
     #[test]
     fn iconic_minimized_mode_keeps_network_sessions_running() {
-        assert!(should_keep_logic_running_while_iconic(GameMode::Multiplayer));
+        assert!(should_keep_logic_running_while_iconic(
+            GameMode::Multiplayer
+        ));
         assert!(should_keep_logic_running_while_iconic(GameMode::Lan));
         assert!(should_keep_logic_running_while_iconic(GameMode::Internet));
-        assert!(!should_keep_logic_running_while_iconic(GameMode::SinglePlayer));
+        assert!(!should_keep_logic_running_while_iconic(
+            GameMode::SinglePlayer
+        ));
         assert!(!should_keep_logic_running_while_iconic(GameMode::Skirmish));
         assert!(!should_keep_logic_running_while_iconic(GameMode::Shell));
     }
@@ -153,7 +157,10 @@ fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
 const DEFAULT_VIEW_FAR_CLIP: f32 = 20_000.0;
 
 fn should_keep_logic_running_while_iconic(mode: GameMode) -> bool {
-    matches!(mode, GameMode::Multiplayer | GameMode::Lan | GameMode::Internet)
+    matches!(
+        mode,
+        GameMode::Multiplayer | GameMode::Lan | GameMode::Internet
+    )
 }
 
 fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
@@ -1202,6 +1209,153 @@ impl CnCGameEngine {
                         .map_err(|err| format!("asset manager init failed: {err}"))?;
 
                     Self::emit_startup_load_progress(&sender, 0.14, "Asset manager ready");
+
+                    let extract_ini_text_from_archives = |virtual_path: &str| {
+                        runtime.block_on(async {
+                            let Some(manager_arc) = crate::assets::manager::get_asset_manager()
+                            else {
+                                return Ok::<Option<String>, String>(None);
+                            };
+                            let mut manager = manager_arc
+                                .lock()
+                                .map_err(|_| "asset manager lock poisoned".to_string())?;
+                            match manager.extract_file(virtual_path).await {
+                                Ok(bytes) => {
+                                    let text = String::from_utf8(bytes).map_err(|err| {
+                                        format!(
+                                            "INI file '{}' was not valid UTF-8: {err}",
+                                            virtual_path
+                                        )
+                                    })?;
+                                    Ok(Some(text))
+                                }
+                                Err(_) => Ok(None),
+                            }
+                        })
+                    };
+
+                    // C++ parity: force eager initialization of the lazy stores/managers that
+                    // the original boot path expects to exist before game-session setup.
+                    game_engine::common::ini::initialize_ini_systems();
+
+                    if let Err(err) = {
+                        let lexicon =
+                            game_engine::common::system::function_lexicon::get_function_lexicon();
+                        let mut lexicon = lexicon
+                            .lock()
+                            .map_err(|_| "function lexicon lock poisoned".to_string())?;
+                        game_engine::common::system::SubsystemInterface::init(&mut *lexicon)
+                            .map_err(|err| err.to_string())
+                    } {
+                        warn!("FunctionLexicon init failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    if let Err(err) = {
+                        game_engine::common::ini::init_rank_info_store();
+                        Ok::<(), String>(())
+                    } {
+                        warn!("RankInfoStore init failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    if let Err(err) = {
+                        let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
+                        let _ =
+                            game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
+                        Ok::<(), String>(())
+                    } {
+                        warn!("Terrain registry init failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    if let Err(err) = {
+                        game_engine::common::ini::ini_special_power::initialize_special_power_store();
+                        Ok::<(), String>(())
+                    } {
+                        warn!("SpecialPowerStore init failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    if let Err(err) = {
+                        game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
+                        game_engine::common::damage_fx::initialize_damage_fx_store();
+                        Ok::<(), String>(())
+                    } {
+                        warn!("DamageFX store init failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    if let Err(err) = {
+                        game_engine::common::system::build_assistant::init_build_assistant();
+                        Ok::<(), String>(())
+                    } {
+                        warn!("BuildAssistant init failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    // C++ parity: bootstrap OCL/Armor from archive-backed INI content, not just
+                    // extracted-file paths, so startup behavior matches original archive loading.
+                    if let Err(err) = {
+                        gamelogic::object_creation_list::init_object_creation_list_store();
+                        let mut loaded_any_ocl = false;
+                        for ocl_path in [
+                            "Data/INI/Default/ObjectCreationList.ini",
+                            "Data/INI/ObjectCreationList.ini",
+                        ] {
+                            if let Some(content) = extract_ini_text_from_archives(ocl_path)? {
+                                match gamelogic::object_creation_list::store::load_object_creation_lists_from_str(&content) {
+                                    Ok(count) => {
+                                        loaded_any_ocl |= count > 0;
+                                    }
+                                    Err(load_err) => {
+                                        warn!(
+                                            "Failed parsing OCL definitions from '{}': {}",
+                                            ocl_path, load_err
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        if !loaded_any_ocl {
+                            gamelogic::object_creation_list::store::ensure_default_object_creation_lists_loaded();
+                        }
+                        Ok::<(), String>(())
+                    } {
+                        warn!(
+                            "ObjectCreationListStore init failed during startup bootstrap; continuing: {err}"
+                        );
+                    }
+
+                    if let Err(err) = {
+                        let mut loaded_any_armor = false;
+                        for armor_path in ["Data/INI/Armor.ini", "Data/INI/Default/Armor.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(armor_path)? {
+                                match gamelogic::object::armor::load_armor_templates_from_str(
+                                    &content,
+                                    Some(Path::new(armor_path)),
+                                ) {
+                                    Ok(count) => {
+                                        loaded_any_armor |= count > 0;
+                                    }
+                                    Err(load_err) => {
+                                        warn!(
+                                            "Failed parsing armor templates from '{}': {}",
+                                            armor_path, load_err
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        if !loaded_any_armor {
+                            gamelogic::object::armor::ensure_default_templates_loaded();
+                        }
+                        Ok::<(), String>(())
+                    } {
+                        warn!("Armor template preload failed during startup bootstrap; continuing: {err}");
+                    }
+
+                    if let Err(err) = game_engine::common::thing::init_thing_system() {
+                        warn!(
+                            "Thing system init failed during startup bootstrap; continuing with lazy init: {}",
+                            err
+                        );
+                    }
+
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
                     if start_in_menu {
@@ -1214,18 +1368,6 @@ impl CnCGameEngine {
                         game_logic.start_new_game(GameMode::Skirmish);
                     }
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
-                    let thing_factory_needs_init = game_engine::common::thing::get_thing_factory()
-                        .ok()
-                        .map(|guard| guard.is_none())
-                        .unwrap_or(false);
-                    if thing_factory_needs_init {
-                        if let Err(err) = game_engine::common::thing::init_thing_factory() {
-                            warn!(
-                                "ThingFactory prewarm failed before map spawn; continuing with lazy init: {}",
-                                err
-                            );
-                        }
-                    }
 
                     if let Some(replay_to_load) = replay_to_load.as_ref() {
                         Self::emit_startup_load_progress(
@@ -6377,11 +6519,8 @@ pub async fn run_cnc_game(
 
             if runtime_headless_mode {
                 created_window.set_visible(false);
-                created_window.set_minimized(false);
             } else {
                 created_window.set_visible(true);
-                created_window.set_minimized(false);
-                created_window.focus_window();
             }
             created_window.request_redraw();
             window = Some(created_window.clone());
