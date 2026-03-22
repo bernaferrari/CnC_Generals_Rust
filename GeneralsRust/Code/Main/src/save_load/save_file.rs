@@ -1,8 +1,11 @@
 use crate::game_logic::GameLogic;
 use crate::save_load::*;
+use game_engine::common::system::save_game::GameState as CommonGameState;
+use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
+use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -310,27 +313,26 @@ impl SaveFileManager {
             .open(path)?;
         let mut writer = BufWriter::new(file);
 
-        // Serialize world snapshot
-        let serialized = bincode::serialize(world_snapshot)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        // Canonical save payload now goes through Common SaveGame + Xfer.
+        let encoded_state = Self::encode_common_game_state(world_snapshot, save_info)?;
 
         // Compress data
-        let compressed = compression::compress(&serialized)?;
-        let is_compressed = compressed.len() < serialized.len();
+        let compressed = compression::compress(&encoded_state)?;
+        let is_compressed = compressed.len() < encoded_state.len();
 
         // Create header
         let mut header = SaveFileHeader::new();
         header.set_compressed(is_compressed);
-        header.uncompressed_size = serialized.len() as u64;
+        header.uncompressed_size = encoded_state.len() as u64;
         header.compressed_size = if is_compressed {
             compressed.len()
         } else {
-            serialized.len()
+            encoded_state.len()
         } as u64;
         header.checksum = crc32fast::hash(if is_compressed {
             &compressed
         } else {
-            &serialized
+            &encoded_state
         });
 
         // Write header
@@ -349,7 +351,7 @@ impl SaveFileManager {
         writer.write_all(if is_compressed {
             &compressed
         } else {
-            &serialized
+            &encoded_state
         })?;
 
         writer.flush()?;
@@ -398,11 +400,72 @@ impl SaveFileManager {
             world_data
         };
 
-        // Deserialize world snapshot
-        let world_snapshot: WorldSnapshot = bincode::deserialize(&decompressed)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        // Prefer canonical Common SaveGame payload; fall back to legacy payload.
+        let world_snapshot = match Self::decode_common_game_state(&decompressed) {
+            Ok(common_state) => bincode::deserialize::<WorldSnapshot>(&common_state.data)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?,
+            Err(common_err) => {
+                log::warn!(
+                    "Common SaveGame payload decode failed ({}), falling back to legacy snapshot payload",
+                    common_err
+                );
+                bincode::deserialize::<WorldSnapshot>(&decompressed)
+                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+            }
+        };
 
         Ok((world_snapshot, save_info))
+    }
+
+    fn encode_common_game_state(
+        world_snapshot: &WorldSnapshot,
+        save_info: &SaveGameInfo,
+    ) -> SaveLoadResult<Vec<u8>> {
+        let mut state = CommonGameState::new(SAVE_FILE_VERSION);
+        state.timestamp = save_info
+            .save_date
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        state.map_name = save_info.map_name.clone();
+        state.game_mode = format!("{:?}", save_info.save_type);
+        state.player_count = world_snapshot.players.len() as u32;
+        state.current_frame = u32::try_from(world_snapshot.frame_number).unwrap_or(u32::MAX);
+        state.elapsed_time = save_info.play_time.as_secs_f32();
+        state.set_metadata("display_name".to_string(), save_info.display_name.clone());
+        state.set_metadata("description".to_string(), save_info.description.clone());
+        state.set_metadata("game_version".to_string(), save_info.game_version.clone());
+        state.set_metadata(
+            "difficulty".to_string(),
+            format!("{:?}", save_info.difficulty),
+        );
+        if let Some(side) = &save_info.campaign_side {
+            state.set_metadata("campaign_side".to_string(), side.clone());
+        }
+        if let Some(mission_number) = save_info.mission_number {
+            state.set_metadata("mission_number".to_string(), mission_number.to_string());
+        }
+
+        state.data = bincode::serialize(world_snapshot)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+
+        let mut cursor = Cursor::new(Vec::<u8>::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            state
+                .xfer(&mut xfer)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        }
+        Ok(cursor.into_inner())
+    }
+
+    fn decode_common_game_state(data: &[u8]) -> SaveLoadResult<CommonGameState> {
+        let mut state = CommonGameState::default();
+        let mut xfer = CommonXferLoad::new(Cursor::new(data), SAVE_FILE_VERSION);
+        state
+            .xfer(&mut xfer)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        Ok(state)
     }
 
     /// Read file header
