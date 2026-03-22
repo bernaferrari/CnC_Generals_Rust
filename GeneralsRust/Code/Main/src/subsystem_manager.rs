@@ -383,6 +383,32 @@ impl AudioManagerSubsystem {
         audio_manager.set_master_volume(current_master);
         debug!("Audio wake pulse applied after iconic/minimized return");
     }
+
+    pub fn apply_startup_channel_flags(
+        &mut self,
+        audio_on: bool,
+        music_on: bool,
+        sounds_on: bool,
+        sounds_3d_on: bool,
+        speech_on: bool,
+    ) {
+        self._music_on = audio_on && music_on;
+        self._sounds_on = audio_on && sounds_on;
+        self._speech_on = audio_on && speech_on;
+
+        let Some(audio_manager) = self.audio_manager.as_mut() else {
+            return;
+        };
+
+        // C++ parity: apply per-affect startup channel toggles after init.
+        audio_manager.set_on(self._music_on, crate::assets::AudioAffect::Music);
+        audio_manager.set_on(audio_on && sounds_on, crate::assets::AudioAffect::Sound);
+        audio_manager.set_on(
+            audio_on && sounds_3d_on,
+            crate::assets::AudioAffect::Sound3D,
+        );
+        audio_manager.set_on(self._speech_on, crate::assets::AudioAffect::Speech);
+    }
 }
 
 impl SubsystemInterface for AudioManagerSubsystem {
@@ -741,6 +767,23 @@ impl SubsystemInterface for MessageStreamSubsystem {
         Ok(())
     }
 }
+
+impl_bootstrap_subsystem!(MetaMapSubsystem, "MetaMap", {
+    let _ = game_client::message_stream::meta_event::get_command_map_entries();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(ActionManagerSubsystem, "ActionManager", {
+    let _ = gamelogic::action_manager::get_rts_action_manager();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(GameStateMapSubsystem, "GameStateMap", {
+    drop(game_engine::get_game_state());
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(GameResultsQueueSubsystem, "GameResultsQueue", { Ok(()) });
 
 /// Network subsystem - network communication (matches C++ TheNetwork)
 pub struct NetworkSubsystem {
@@ -1172,7 +1215,10 @@ impl SubsystemManager {
             "InputSystem",             // Input handling
             "GameLogic",               // Game logic
             "Radar",                   // Radar/minimap is initialized after gameplay systems
-            "Network",                 // Network layer is kept last for startup readiness gating
+            "MetaMap",                 // Command map / hotkey bootstrap
+            "ActionManager",           // Gameplay action validation helper
+            "GameStateMap",            // Save-game map bootstrap
+            "GameResultsQueue",        // Post-game results queue stub
         ];
 
         Self {
@@ -1520,7 +1566,11 @@ pub fn init_subsystem_manager() -> Result<()> {
         let _ = manager.add_subsystem(InputSystemSubsystem::new());
         let _ = manager.add_subsystem(GameLogicSubsystem::new());
         let _ = manager.add_subsystem(RadarSubsystem::new());
-        let _ = manager.add_subsystem(NetworkSubsystem::new());
+        let _ = manager.add_subsystem(MetaMapSubsystem::new());
+        let _ = manager.add_subsystem(ActionManagerSubsystem::new());
+        let _ = manager.add_subsystem(GameStateMapSubsystem::new());
+        let _ = manager.add_subsystem(GameResultsQueueSubsystem::new());
+        // Network is registered lazily when multiplayer startup actually needs it.
     }
 
     if SUBSYSTEM_MANAGER.get().is_none() {
@@ -1611,7 +1661,10 @@ mod tests {
             "InputSystem",
             "GameLogic",
             "Radar",
-            "Network",
+            "MetaMap",
+            "ActionManager",
+            "GameStateMap",
+            "GameResultsQueue",
         ];
 
         for name in expected {
@@ -1638,6 +1691,22 @@ mod tests {
             .initialization_order
             .windows(2)
             .any(|pair| pair == ["ObjectCreationListStore", "BuildAssistant"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["Radar", "MetaMap"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["MetaMap", "ActionManager"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["ActionManager", "GameStateMap"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["GameStateMap", "GameResultsQueue"].as_slice()));
     }
 
     #[test]
@@ -1652,6 +1721,10 @@ mod tests {
         let mut locomotor = LocomotorSubsystem::new();
         let mut object_creation_list = ObjectCreationListSubsystem::new();
         let mut build_assistant = BuildAssistantSubsystem::new();
+        let mut meta_map = MetaMapSubsystem::new();
+        let mut action_manager = ActionManagerSubsystem::new();
+        let mut game_state_map = GameStateMapSubsystem::new();
+        let mut game_results_queue = GameResultsQueueSubsystem::new();
 
         assert!(terrain_types.init().is_ok());
         assert!(terrain_roads.init().is_ok());
@@ -1663,6 +1736,10 @@ mod tests {
         assert!(locomotor.init().is_ok());
         assert!(object_creation_list.init().is_ok());
         assert!(build_assistant.init().is_ok());
+        assert!(meta_map.init().is_ok());
+        assert!(action_manager.init().is_ok());
+        assert!(game_state_map.init().is_ok());
+        assert!(game_results_queue.init().is_ok());
     }
 
     #[test]
