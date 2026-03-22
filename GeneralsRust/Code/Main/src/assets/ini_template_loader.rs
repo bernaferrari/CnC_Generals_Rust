@@ -865,8 +865,11 @@ fn register_upgrade_template(name: &str, _properties: &HashMap<String, String>) 
     let ascii_name = AsciiString::from(name);
 
     with_upgrade_center_mut(|center| {
-        // Create the upgrade template - this registers it in the center
-        let _template = center.new_upgrade(ascii_name);
+        // C++ parity: duplicate Upgrade blocks can exist in INI and should not
+        // spam warnings during registration.
+        if center.find_upgrade(name).is_none() {
+            let _template = center.new_upgrade(ascii_name);
+        }
         debug!("Registered upgrade template: {}", name);
     });
 
