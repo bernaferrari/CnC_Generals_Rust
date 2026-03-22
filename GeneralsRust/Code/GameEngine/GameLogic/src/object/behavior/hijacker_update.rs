@@ -149,9 +149,12 @@ impl Snapshotable for HijackerUpdate {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         xfer.xfer_object_id(&mut self.target_id)
             .map_err(|e| format!("HijackerUpdate xfer target_id: {:?}", e))?;
-        xfer.xfer_real(&mut self.eject_pos.x);
-        xfer.xfer_real(&mut self.eject_pos.y);
-        xfer.xfer_real(&mut self.eject_pos.z);
+        xfer.xfer_real(&mut self.eject_pos.x)
+            .map_err(|e| format!("HijackerUpdate xfer eject_pos.x: {:?}", e))?;
+        xfer.xfer_real(&mut self.eject_pos.y)
+            .map_err(|e| format!("HijackerUpdate xfer eject_pos.y: {:?}", e))?;
+        xfer.xfer_real(&mut self.eject_pos.z)
+            .map_err(|e| format!("HijackerUpdate xfer eject_pos.z: {:?}", e))?;
         xfer.xfer_bool(&mut self.update)
             .map_err(|e| format!("HijackerUpdate xfer update: {:?}", e))?;
         xfer.xfer_bool(&mut self.is_in_vehicle)

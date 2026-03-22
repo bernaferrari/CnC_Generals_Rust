@@ -391,8 +391,10 @@ impl Snapshotable for PropagandaCenterBehavior {
 
         self.prison_behavior.xfer(xfer).map_err(|e| e.to_string())?;
 
-        xfer.xfer_object_id(&mut self.brainwashing_subject_id);
-        xfer.xfer_unsigned_int(&mut self.brainwashing_subject_start_frame);
+        xfer.xfer_object_id(&mut self.brainwashing_subject_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.brainwashing_subject_start_frame)
+            .map_err(|e| e.to_string())?;
 
         let mut list_count: u16 = self.brainwashed_list.len().min(u16::MAX as usize) as u16;
         xfer.xfer_unsigned_short(&mut list_count)
@@ -406,13 +408,14 @@ impl Snapshotable for PropagandaCenterBehavior {
                 .take(list_count as usize)
             {
                 let mut id_copy = id;
-                xfer.xfer_object_id(&mut id_copy);
+                xfer.xfer_object_id(&mut id_copy)
+                    .map_err(|e| e.to_string())?;
             }
         } else {
             self.brainwashed_list.clear();
             for _ in 0..list_count {
                 let mut id: ObjectID = 0;
-                xfer.xfer_object_id(&mut id);
+                xfer.xfer_object_id(&mut id).map_err(|e| e.to_string())?;
                 self.brainwashed_list.push(id);
             }
         }
