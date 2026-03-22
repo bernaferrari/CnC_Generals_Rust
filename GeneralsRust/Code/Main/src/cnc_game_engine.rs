@@ -22,7 +22,8 @@ use crate::save_load::{
     init_game_state_system, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
 };
 use crate::subsystem_manager::{
-    get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, NetworkSubsystem,
+    get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, AudioManagerSubsystem,
+    NetworkSubsystem,
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
@@ -77,7 +78,7 @@ impl NetworkClock {
 
 #[cfg(test)]
 mod tests {
-    use super::{CnCGameEngine, GameState};
+    use super::{should_keep_logic_running_while_iconic, CnCGameEngine, GameMode, GameState};
 
     #[test]
     fn startup_deferred_budget_is_disabled() {
@@ -129,6 +130,16 @@ mod tests {
             Some(false)
         ));
     }
+
+    #[test]
+    fn iconic_minimized_mode_keeps_network_sessions_running() {
+        assert!(should_keep_logic_running_while_iconic(GameMode::Multiplayer));
+        assert!(should_keep_logic_running_while_iconic(GameMode::Lan));
+        assert!(should_keep_logic_running_while_iconic(GameMode::Internet));
+        assert!(!should_keep_logic_running_while_iconic(GameMode::SinglePlayer));
+        assert!(!should_keep_logic_running_while_iconic(GameMode::Skirmish));
+        assert!(!should_keep_logic_running_while_iconic(GameMode::Shell));
+    }
 }
 
 const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
@@ -140,6 +151,30 @@ fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
 }
 const DEFAULT_VIEW_FAR_CLIP: f32 = 20_000.0;
+
+fn should_keep_logic_running_while_iconic(mode: GameMode) -> bool {
+    matches!(mode, GameMode::Multiplayer | GameMode::Lan | GameMode::Internet)
+}
+
+fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
+    let size = window.inner_size();
+    let zero_sized = size.width == 0 || size.height == 0;
+    window.is_minimized().unwrap_or(fallback || zero_sized) || zero_sized
+}
+
+fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
+    let was_minimized = *minimized;
+    *minimized = query_window_is_iconic(window, *minimized);
+
+    if was_minimized && !*minimized {
+        info!("Window exited iconic/minimized state");
+        with_subsystem_mut::<AudioManagerSubsystem, _>(|audio| {
+            audio.wake_after_iconic_return();
+        });
+    } else if !was_minimized && *minimized {
+        info!("Window entered iconic/minimized state");
+    }
+}
 
 // C++ SAGE Engine equivalent modules
 use crate::graphics::{
@@ -6140,14 +6175,13 @@ pub async fn run_cnc_game(
     let mut last_render_health_log = Instant::now();
     const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
     const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
+    const MINIMIZED_POLL_INTERVAL: Duration = Duration::from_millis(5);
     let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
     let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
     if let Some(bridge) = runtime_host_bridge.as_mut() {
         bridge.publish_booting();
     }
-    let mut runtime_window_focused = true;
     let mut runtime_window_minimized = false;
-    let mut runtime_window_occluded = false;
 
     #[cfg(feature = "integration-diagnostics")]
     let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
@@ -6551,26 +6585,38 @@ pub async fn run_cnc_game(
                             GameState::Exiting => {}
                         },
                         WindowEvent::Resized(physical_size) => {
-                            runtime_window_minimized =
+                            runtime_window_minimized |=
                                 physical_size.width == 0 || physical_size.height == 0;
-                            engine.resize(*physical_size);
+                            update_iconic_state_and_wake_audio(
+                                current_window,
+                                &mut runtime_window_minimized,
+                            );
+                            if !runtime_window_minimized {
+                                engine.resize(*physical_size);
+                            }
                         }
                         WindowEvent::ScaleFactorChanged { .. } => {
                             // Keep UI/layout hit-testing in sync on HiDPI transitions (macOS).
-                            engine.resize(current_window.inner_size());
-                        }
-                        WindowEvent::Focused(focused) => {
-                            runtime_window_focused = *focused;
-                        }
-                        WindowEvent::Occluded(occluded) => {
-                            runtime_window_occluded = *occluded;
+                            update_iconic_state_and_wake_audio(
+                                current_window,
+                                &mut runtime_window_minimized,
+                            );
+                            if !runtime_window_minimized {
+                                engine.resize(current_window.inner_size());
+                            }
                         }
                         WindowEvent::RedrawRequested => {
+                            update_iconic_state_and_wake_audio(
+                                current_window,
+                                &mut runtime_window_minimized,
+                            );
                             let runtime_window_suspended = runtime_window_minimized;
                             if runtime_headless_mode {
                                 drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                             } else if runtime_window_suspended {
-                                if engine.game_logic.isInMultiplayerGame() {
+                                if should_keep_logic_running_while_iconic(
+                                    engine.game_logic.game_mode(),
+                                ) {
                                     drive_frame(
                                         engine,
                                         current_window,
@@ -6589,14 +6635,18 @@ pub async fn run_cnc_game(
             Event::AboutToWait => {
                 let now = Instant::now();
                 if now >= next_redraw_at {
+                    update_iconic_state_and_wake_audio(
+                        current_window,
+                        &mut runtime_window_minimized,
+                    );
                     let runtime_window_suspended = runtime_window_minimized;
                     if runtime_headless_mode {
                         drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                     } else if runtime_window_suspended {
-                        if engine.game_logic.isInMultiplayerGame() {
+                        if should_keep_logic_running_while_iconic(engine.game_logic.game_mode()) {
                             drive_frame(engine, current_window, &mut runtime_host_bridge, false);
                         }
-                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
+                        next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
                     } else {
                         current_window.request_redraw();
                         next_redraw_at = now + FRAME_INTERVAL;

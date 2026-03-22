@@ -1738,6 +1738,18 @@ impl GameLogic {
         self.game_mode == GameMode::Multiplayer
     }
 
+    pub fn isInInternetGame(&self) -> bool {
+        self.game_mode == GameMode::Internet
+    }
+
+    pub fn isInLanGame(&self) -> bool {
+        self.game_mode == GameMode::Lan
+    }
+
+    pub fn isInNetworkGame(&self) -> bool {
+        self.isInMultiplayerGame() || self.isInInternetGame() || self.isInLanGame()
+    }
+
     pub fn isGamePaused(&self) -> bool {
         self.is_paused
     }
@@ -9591,6 +9603,26 @@ struct ShroudVisibilitySnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_mode_helpers_match_lan_internet_multiplayer() {
+        let mut game_logic = GameLogic::new();
+
+        game_logic.game_mode = GameMode::SinglePlayer;
+        assert!(!game_logic.isInNetworkGame());
+
+        game_logic.game_mode = GameMode::Multiplayer;
+        assert!(game_logic.isInMultiplayerGame());
+        assert!(game_logic.isInNetworkGame());
+
+        game_logic.game_mode = GameMode::Lan;
+        assert!(game_logic.isInLanGame());
+        assert!(game_logic.isInNetworkGame());
+
+        game_logic.game_mode = GameMode::Internet;
+        assert!(game_logic.isInInternetGame());
+        assert!(game_logic.isInNetworkGame());
+    }
 
     fn ensure_test_tank_template(game_logic: &mut GameLogic) {
         if game_logic.templates.contains_key("TestTank") {
