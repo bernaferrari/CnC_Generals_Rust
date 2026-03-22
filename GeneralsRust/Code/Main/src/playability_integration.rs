@@ -285,6 +285,9 @@ impl PlayabilityAuditSummary {
 
     pub fn pass_gate(&self, phase: PlayabilityPhase) -> bool {
         let target = phase_threshold(phase);
+        if target.require_complete_inputs && self.has_input_warnings() {
+            return false;
+        }
         let unresolved = if target.strict_missing_headers {
             self.total_unresolved_including_headers()
         } else {
@@ -298,13 +301,18 @@ impl PlayabilityAuditSummary {
     pub fn gate_description(&self, phase: PlayabilityPhase) -> String {
         let target = phase_threshold(phase);
         format!(
-            "{}: parity {:.1}% >= {:.1}%; unresolved blockers <= {} ({} phase scope); layout mismatches <= {}",
+            "{}: parity {:.1}% >= {:.1}%; unresolved blockers <= {} ({} phase scope); layout mismatches <= {}{}",
             phase.as_str(),
             self.total_parity_percent(),
             target.min_parity_percent,
             target.max_unresolved_blockers,
             if target.strict_missing_headers { "strict" } else { "high-impact-only" },
-            target.max_layout_mismatches
+            target.max_layout_mismatches,
+            if target.require_complete_inputs {
+                "; input tracking must be complete"
+            } else {
+                ""
+            }
         )
     }
 
@@ -332,6 +340,7 @@ struct PhaseGateConfig {
     max_unresolved_blockers: usize,
     max_layout_mismatches: usize,
     strict_missing_headers: bool,
+    require_complete_inputs: bool,
 }
 
 fn phase_threshold(phase: PlayabilityPhase) -> PhaseGateConfig {
@@ -341,30 +350,35 @@ fn phase_threshold(phase: PlayabilityPhase) -> PhaseGateConfig {
             max_unresolved_blockers: 0,
             max_layout_mismatches: 700,
             strict_missing_headers: false,
+            require_complete_inputs: false,
         },
         PlayabilityPhase::GameplayParity => PhaseGateConfig {
             min_parity_percent: 0.0,
             max_unresolved_blockers: 12,
             max_layout_mismatches: 600,
             strict_missing_headers: false,
+            require_complete_inputs: false,
         },
         PlayabilityPhase::SaveLoadTerrain => PhaseGateConfig {
             min_parity_percent: 0.0,
             max_unresolved_blockers: 6,
             max_layout_mismatches: 420,
             strict_missing_headers: false,
+            require_complete_inputs: false,
         },
         PlayabilityPhase::UiInputParity => PhaseGateConfig {
             min_parity_percent: 0.0,
             max_unresolved_blockers: 2,
             max_layout_mismatches: 250,
             strict_missing_headers: true,
+            require_complete_inputs: true,
         },
         PlayabilityPhase::PlayabilityReleaseCandidate => PhaseGateConfig {
             min_parity_percent: 0.0,
             max_unresolved_blockers: 0,
             max_layout_mismatches: 0,
             strict_missing_headers: true,
+            require_complete_inputs: true,
         },
     }
 }
