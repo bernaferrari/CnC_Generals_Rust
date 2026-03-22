@@ -647,6 +647,7 @@ pub(crate) fn normalize_startup_map_path<S: Into<String>>(path: S) -> String {
     let mut prefix_parts: Vec<String> = Vec::new();
     let mut map_stem: Option<String> = None;
 
+    let mut map_filename: Option<String> = None;
     for part in trimmed.split(['\\', '/']) {
         if part.is_empty() {
             continue;
@@ -658,6 +659,7 @@ pub(crate) fn normalize_startup_map_path<S: Into<String>>(path: S) -> String {
                 return trimmed.to_string();
             }
             map_stem = Some(stem.to_string());
+            map_filename = Some(part.to_string());
             break;
         }
 
@@ -667,6 +669,20 @@ pub(crate) fn normalize_startup_map_path<S: Into<String>>(path: S) -> String {
     let Some(map_stem) = map_stem else {
         return trimmed.to_string();
     };
+    let map_filename = map_filename.unwrap_or_else(|| format!("{map_stem}.map"));
+
+    if prefix_parts
+        .last()
+        .map(|segment| segment.eq_ignore_ascii_case(&map_stem))
+        .unwrap_or(false)
+    {
+        let mut normalized = prefix_parts.join("\\");
+        if !normalized.is_empty() {
+            normalized.push('\\');
+        }
+        normalized.push_str(&map_filename);
+        return normalized;
+    }
 
     let mut normalized = prefix_parts.join("\\");
     if !normalized.is_empty() {
@@ -806,6 +822,23 @@ mod tests {
         assert!(!global_data.play_intro);
         #[cfg(not(any(debug_assertions, feature = "internal")))]
         assert!(global_data.play_intro);
+    }
+
+    #[test]
+    fn test_command_line_preserves_already_long_map_paths() {
+        let mut global_data = GlobalData::new();
+        let args = vec![
+            "program".to_string(),
+            "-file".to_string(),
+            "Maps\\Tournament Desert\\Tournament Desert.map".to_string(),
+        ];
+
+        global_data.parse_command_line(&args[1..]).unwrap();
+
+        assert_eq!(
+            global_data.initial_file,
+            "Maps\\Tournament Desert\\Tournament Desert.map"
+        );
     }
 
     #[test]
