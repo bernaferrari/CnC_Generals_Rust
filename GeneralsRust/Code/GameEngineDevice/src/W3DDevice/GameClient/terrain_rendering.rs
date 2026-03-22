@@ -22,6 +22,9 @@ use wgpu::{
     VertexFormat, VertexStepMode, BufferAddress, ShaderStages,
     BindGroupLayoutEntry, BindingType, TextureSampleType, SamplerBindingType,
     BufferBindingType, IndexFormat, RenderPass, CommandEncoder,
+    Texture, TextureView, Sampler, TextureDescriptor, TextureUsages,
+    TextureDimension, Extent3d, SamplerDescriptor, AddressMode, FilterMode,
+    TextureViewDescriptor, ImageCopyTexture, ImageDataLayout, Origin3d,
 };
 use std::sync::Arc;
 use parking_lot::RwLock;
@@ -30,7 +33,7 @@ use anyhow::{Result, Context};
 // Constants from C++ HeightMap.h and BaseHeightMap.h
 pub const VERTEX_BUFFER_TILE_LENGTH: usize = 32; // C++ line 20: 32x32 vertex tiles
 pub const MAP_XY_FACTOR: f32 = 10.0; // World units per grid cell
-pub const MAP_HEIGHT_SCALE: f32 = 1.0; // Height scaling factor
+pub const MAP_HEIGHT_SCALE: f32 = MAP_XY_FACTOR / 16.0; // C++ parity: 10/16 = 0.625
 pub const MAX_GLOBAL_LIGHTS: usize = 3; // Maximum terrain lights
 pub const MAX_DYNAMIC_LIGHTS: usize = 20; // Maximum dynamic lights
 
@@ -237,7 +240,7 @@ impl HeightMapMesh {
         }
 
         // Create dummy bind group (will be properly initialized with textures later)
-        let bind_group = Self::create_dummy_bind_group(&device, bind_group_layout, &uniform_buffer);
+        let bind_group = Self::create_dummy_bind_group(&device, &queue, bind_group_layout, &uniform_buffer);
 
         // Create render pipeline
         let pipeline = Self::create_pipeline(&device, bind_group_layout)?;
@@ -460,14 +463,80 @@ impl HeightMapMesh {
         (min_h, max_h)
     }
 
+    fn create_placeholder_texture(
+        device: &Device,
+        queue: &Queue,
+        label: &str,
+    ) -> (Texture, TextureView) {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255, 255, 255, 255],
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        (texture, view)
+    }
+
+    fn create_placeholder_sampler(device: &Device, label: &str) -> Sampler {
+        device.create_sampler(&SamplerDescriptor {
+            label: Some(label),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 100.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
+        })
+    }
+
     /// Create dummy bind group (placeholder until textures are loaded)
     fn create_dummy_bind_group(
         device: &Device,
+        queue: &Queue,
         layout: &BindGroupLayout,
         uniform_buffer: &Buffer,
     ) -> BindGroup {
-        // This would be properly implemented with actual textures
-        // For now, create a minimal bind group
+        let (_, base_view) = Self::create_placeholder_texture(device, queue, "Terrain Base Placeholder");
+        let base_sampler = Self::create_placeholder_sampler(device, "Terrain Base Sampler");
+        let (_, detail_view) = Self::create_placeholder_texture(device, queue, "Terrain Detail Placeholder");
+        let detail_sampler = Self::create_placeholder_sampler(device, "Terrain Detail Sampler");
+        let (_, blend_view) = Self::create_placeholder_texture(device, queue, "Terrain Blend Placeholder");
+        let blend_sampler = Self::create_placeholder_sampler(device, "Terrain Blend Sampler");
+
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Terrain Bind Group"),
             layout,
@@ -475,6 +544,30 @@ impl HeightMapMesh {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&base_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&base_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&detail_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&detail_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&blend_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&blend_sampler),
                 },
             ],
         })
