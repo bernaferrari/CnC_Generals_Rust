@@ -1158,12 +1158,19 @@ impl Recorder {
     /// Start playback from file
     /// Matches C++ RecorderClass::playbackFile() from Recorder.cpp:1029-1138
     pub fn playback_file(&mut self, filename: String) -> Result<bool, std::io::Error> {
-        if !self.doing_analysis {
-            // Clear game data before playback (TheGameLogic->clearGameData())
-        }
-
         // Adapter parity: stale queued commands must not survive a new playback session.
         self.pending_commands.clear();
+
+        if !self.doing_analysis {
+            // C++ clears live game data before playback starts.
+            let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
+            if let Some(sink) = &self.command_sink {
+                sink(clear_msg);
+            } else {
+                self.pending_commands.push(clear_msg);
+            }
+        }
+
         self.mode = RecorderMode::Playback;
 
         // Read replay header
@@ -1373,10 +1380,14 @@ impl Recorder {
         }
         self.filename.clear();
 
-        // Don't clear game data if replay is over - let things continue
-        // if !self.doing_analysis {
-        //     TheMessageStream->appendMessage(GameMessage::MSG_CLEAR_GAME_DATA)
-        // }
+        if !self.doing_analysis {
+            let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
+            if let Some(sink) = &self.command_sink {
+                sink(clear_msg);
+            } else {
+                self.pending_commands.push(clear_msg);
+            }
+        }
     }
 
     /// Test if replay version matches current version
@@ -1955,6 +1966,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let map_name = "Maps/TestPlayback.map".to_string();
         let expected_seed = 0x1357_9BDF;
+        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -1988,6 +2000,10 @@ mod tests {
         }
 
         let mut reader = Recorder::new();
+        let sink_types = captured_types.clone();
+        reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+            sink_types.lock().unwrap().push(msg.get_type().clone());
+        })));
         assert!(reader.playback_file(replay_name).unwrap());
         assert_eq!(get_game_logic_random_seed(), expected_seed);
 
@@ -1995,8 +2011,20 @@ mod tests {
             .map(|global| global.read().pending_file.clone())
             .unwrap_or_default();
         assert_eq!(pending, map_name);
+        assert_eq!(
+            captured_types.lock().unwrap().as_slice(),
+            &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
+        );
 
         reader.stop_playback();
+        assert_eq!(
+            captured_types.lock().unwrap().as_slice(),
+            &[
+                GameMessageType::ClearGameData,
+                GameMessageType::NewGame,
+                GameMessageType::ClearGameData,
+            ]
+        );
     }
 
     #[test]
@@ -2031,6 +2059,44 @@ mod tests {
 
         analyzer.update();
         assert!(!analyzer.is_analysis_in_progress());
+    }
+
+    #[test]
+    fn test_analyze_replay_suppresses_clear_game_data_messages() {
+        let temp = tempfile::tempdir().unwrap();
+
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = "Maps/AnalysisClearReplay.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 3, 60).unwrap();
+        writer.set_current_frame(4);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xFACE_B00C)))
+            .unwrap();
+        writer.stop_recording();
+
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+
+        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut analyzer = Recorder::new();
+        let sink_types = captured_types.clone();
+        analyzer.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+            sink_types.lock().unwrap().push(msg.get_type().clone());
+        })));
+
+        assert!(analyzer.analyze_replay(replay_name).unwrap());
+        analyzer.stop_playback();
+
+        assert!(captured_types.lock().unwrap().is_empty());
     }
 
     #[test]

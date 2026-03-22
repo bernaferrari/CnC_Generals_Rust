@@ -389,6 +389,15 @@ pub fn init_disabled_types_manager() {
     }
 }
 
+/// C++ parity entrypoint for startup mask initialization (`initDisabledMasks`).
+///
+/// In the original code this initializes global `DISABLEDMASK_ALL`.
+/// Rust uses bitflags `all()` semantics, so this keeps parity as a lightweight
+/// startup hook while ensuring the disabled-types manager is reset.
+pub fn init_disabled_masks() {
+    init_disabled_types_manager();
+}
+
 /// Get reference to the global disabled types manager
 pub fn get_disabled_types_manager() -> Option<std::sync::MutexGuard<'static, DisabledTypesManager>>
 {

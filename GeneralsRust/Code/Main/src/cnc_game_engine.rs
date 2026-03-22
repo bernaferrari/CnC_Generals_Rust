@@ -79,11 +79,55 @@ impl NetworkClock {
 #[cfg(test)]
 mod tests {
     use super::{should_keep_logic_running_while_iconic, CnCGameEngine, GameMode, GameState};
+    use crate::command_line::CommandLineArgs;
+    use std::fs;
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_global_data_snapshot_restored<F: FnOnce()>(f: F) {
+        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let snapshot = game_engine::common::global_data::read().clone();
+        f();
+        *game_engine::common::global_data::write() = snapshot;
+    }
+
+    fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "generals_main_{prefix}_{}_{}",
+            std::process::id(),
+            nonce
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn startup_deferred_budget_is_disabled() {
         let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
         assert_eq!(budget, 0);
+    }
+
+    #[test]
+    fn configured_startup_shell_map_disables_missing_shell_map() {
+        with_global_data_snapshot_restored(|| {
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.shell_map_on = true;
+                global.writable.shell_map_name = "__definitely_missing_shell_map__".to_string();
+            }
+
+            let shell_map = CnCGameEngine::configured_startup_shell_map();
+            assert!(shell_map.is_none());
+
+            let global = game_engine::common::global_data::read();
+            assert!(!global.writable.shell_map_on);
+        });
     }
 
     #[test]
@@ -143,6 +187,226 @@ mod tests {
         ));
         assert!(!should_keep_logic_running_while_iconic(GameMode::Skirmish));
         assert!(!should_keep_logic_running_while_iconic(GameMode::Shell));
+    }
+
+    #[test]
+    fn command_line_fps_order_matches_cpp_fps_then_nofpslimit() {
+        let args = vec![
+            "generals".to_string(),
+            "-fps".to_string(),
+            "60".to_string(),
+            "-nofpslimit".to_string(),
+        ];
+        let mut writable = game_engine::common::command_line::WritableGlobalData::default();
+        CnCGameEngine::apply_fps_limit_overrides_from_raw_args(&args, &mut writable);
+        assert!(!writable.use_fps_limit);
+        assert_eq!(writable.frames_per_second_limit, 30000);
+    }
+
+    #[test]
+    fn command_line_fps_order_matches_cpp_nofpslimit_then_fps() {
+        let args = vec![
+            "generals".to_string(),
+            "-nofpslimit".to_string(),
+            "-fps".to_string(),
+            "60".to_string(),
+        ];
+        let mut writable = game_engine::common::command_line::WritableGlobalData::default();
+        CnCGameEngine::apply_fps_limit_overrides_from_raw_args(&args, &mut writable);
+        assert!(!writable.use_fps_limit);
+        assert_eq!(writable.frames_per_second_limit, 60);
+    }
+
+    #[test]
+    fn command_line_window_resolution_overrides_sync_to_writable_globals() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec![
+                "generals".to_string(),
+                "-win".to_string(),
+                "-xres".to_string(),
+                "1280".to_string(),
+                "-yres".to_string(),
+                "720".to_string(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert!(global.writable.windowed);
+            assert_eq!(global.writable.x_resolution, 1280);
+            assert_eq!(global.writable.y_resolution, 720);
+        });
+    }
+
+    #[test]
+    fn command_line_noaudio_overrides_sync_to_writable_globals() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec!["generals".to_string(), "-noaudio".to_string()];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert!(!global.writable.audio_on);
+            assert!(!global.writable.speech_on);
+            assert!(!global.writable.sounds_on);
+            assert!(!global.writable.music_on);
+        });
+    }
+
+    #[test]
+    fn command_line_startup_parity_flags_apply_in_argv_order() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec![
+                "generals".to_string(),
+                "-particleEdit".to_string(),
+                "-fullscreen".to_string(),
+                "-benchmark".to_string(),
+                "9".to_string(),
+                "-playStats".to_string(),
+                "4".to_string(),
+                "-seed".to_string(),
+                "-1".to_string(),
+                "-netMinPlayers".to_string(),
+                "3".to_string(),
+                "-forceBenchmark".to_string(),
+                "-nomusic".to_string(),
+                "-nosizzle".to_string(),
+                "-noshaders".to_string(),
+                "-scriptDebug".to_string(),
+                "-winCursors".to_string(),
+                "-constantDebug".to_string(),
+                "-showTeamDot".to_string(),
+                "-nomovecamera".to_string(),
+                "-NoShellAnim".to_string(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert!(!global.writable.windowed);
+            assert!(global.writable.particle_edit);
+            assert!(global.writable.script_debug);
+            assert!(global.writable.win_cursors);
+            assert!(!global.writable.animate_windows);
+            assert!(!global.writable.music_on);
+            assert!(!global.writable.play_sizzle);
+            assert_eq!(global.writable.chip_set_type, 1);
+            assert!(global.writable.force_benchmark);
+            assert!(global.writable.constant_debug_update);
+            assert!(global.writable.show_team_dot);
+            assert!(global.writable.disable_camera_movement);
+            assert_eq!(global.writable.fixed_seed, -1);
+            assert_eq!(global.writable.net_min_players, 3);
+            assert_eq!(global.writable.benchmark_timer, 9);
+            assert_eq!(global.writable.play_stats, 4);
+        });
+    }
+
+    #[test]
+    fn startup_water_weather_preload_paths_match_cpp_order() {
+        assert_eq!(
+            CnCGameEngine::startup_water_weather_ini_paths(),
+            [
+                "Data/INI/Default/Water.ini",
+                "Data/INI/Water.ini",
+                "Data/INI/Default/Weather.ini",
+                "Data/INI/Weather.ini",
+            ]
+        );
+    }
+
+    #[test]
+    fn startup_audio_failure_quits_only_when_audio_is_enabled() {
+        assert!(CnCGameEngine::startup_audio_should_quit(false, false));
+        assert!(!CnCGameEngine::startup_audio_should_quit(true, false));
+        assert!(!CnCGameEngine::startup_audio_should_quit(false, true));
+    }
+
+    #[test]
+    fn debug_startup_flag_gating_matches_build_mode() {
+        assert_eq!(
+            CnCGameEngine::allow_debug_startup_flags(),
+            cfg!(any(debug_assertions, feature = "internal"))
+        );
+    }
+
+    #[test]
+    fn command_line_map_override_syncs_to_writable_globals() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec![
+                "generals".to_string(),
+                "-map".to_string(),
+                "Maps\\ShellMap1.map".to_string(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert_eq!(global.writable.map_name, "Maps\\ShellMap1\\ShellMap1.map");
+        });
+    }
+
+    #[test]
+    fn command_line_mod_override_updates_active_mod_and_loads_best_effort() {
+        with_global_data_snapshot_restored(|| {
+            let temp_root = create_temp_test_dir("mod_override");
+            let user_data_dir = temp_root.join("UserData");
+            let mod_dir = user_data_dir.join("Mods").join("TestMod");
+            std::fs::create_dir_all(&mod_dir).unwrap();
+
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.set_user_data_dir(user_data_dir.to_string_lossy().into_owned());
+            }
+
+            let args = vec![
+                "generals".to_string(),
+                "-mod".to_string(),
+                std::path::Path::new("Mods")
+                    .join("TestMod")
+                    .to_string_lossy()
+                    .into_owned(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let expected = format!("{}{}", mod_dir.to_string_lossy(), std::path::MAIN_SEPARATOR);
+            let global = game_engine::common::global_data::read();
+            assert_eq!(global.writable.mod_dir, expected);
+            assert!(global.writable.mod_big.is_empty());
+            assert_eq!(
+                global
+                    .get_override("active_mod")
+                    .and_then(|value| value.as_str()),
+                Some(expected.as_str())
+            );
+
+            let _ = fs::remove_dir_all(temp_root);
+        });
+    }
+
+    #[test]
+    fn command_line_update_images_sets_writable_flag() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec!["generals".to_string(), "-updateimages".to_string()];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert!(global.writable.should_update_tga_to_dds);
+        });
+    }
+
+    #[test]
+    fn command_line_update_images_alias_is_case_insensitive() {
+        with_global_data_snapshot_restored(|| {
+            let args = vec!["generals".to_string(), "-UpDaTeDdS".to_string()];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            CnCGameEngine::apply_command_line_overrides(&parsed);
+
+            let global = game_engine::common::global_data::read();
+            assert!(global.writable.should_update_tga_to_dds);
+        });
     }
 }
 
@@ -1312,6 +1576,13 @@ impl CnCGameEngine {
                     // the original boot path expects to exist before game-session setup.
                     game_engine::common::ini::initialize_ini_systems();
 
+                    Self::emit_startup_load_progress(
+                        &sender,
+                        0.145,
+                        "Preloading water and weather settings",
+                    );
+                    Self::preload_startup_water_weather_inis();
+
                     if let Err(err) = {
                         let lexicon =
                             game_engine::common::system::function_lexicon::get_function_lexicon();
@@ -1458,9 +1729,7 @@ impl CnCGameEngine {
                         );
                         let mut replay_map_name_from_legacy: Option<String> = None;
 
-                        // C++ parity: bootstrap startup replay through the legacy recorder first.
-                        // If that path cannot parse the replay, keep the existing Rust replay
-                        // manager as a compatibility fallback.
+                        // C++ parity: bootstrap startup replay through the legacy recorder.
                         game_engine::common::recorder::init_recorder();
                         let startup_command_sink: Arc<
                             dyn Fn(game_engine::common::message_stream::GameMessage)
@@ -1498,19 +1767,19 @@ impl CnCGameEngine {
                             }
                             Some(Ok(false)) => {
                                 warn!(
-                                    "Legacy recorder rejected startup replay '{}'; falling back to Rust replay manager",
+                                    "Legacy recorder rejected startup replay '{}'",
                                     replay_to_load
                                 );
                             }
                             Some(Err(err)) => {
                                 warn!(
-                                    "Legacy recorder replay bootstrap failed for '{}': {}; falling back to Rust replay manager",
+                                    "Legacy recorder replay bootstrap failed for '{}': {}",
                                     replay_to_load, err
                                 );
                             }
                             None => {
                                 warn!(
-                                    "Legacy recorder unavailable for startup replay '{}'; falling back to Rust replay manager",
+                                    "Legacy recorder unavailable for startup replay '{}'",
                                     replay_to_load
                                 );
                             }
@@ -1518,30 +1787,14 @@ impl CnCGameEngine {
 
                         if let Some(replay_map_name_from_legacy) = replay_map_name_from_legacy {
                             map_to_load = Some(replay_map_name_from_legacy);
-                        } else {
-                            let replay_header = {
-                                if let Err(err) = crate::save_load::init_replay_system() {
-                                    return Err(format!("replay system init failed: {err}"));
-                                }
-                                let mut replay_manager =
-                                    crate::save_load::REPLAY_MANAGER.lock().unwrap();
-                                replay_manager.start_playback(replay_to_load).map_err(|err| {
-                                    format!(
-                                        "replay playback startup failed for '{}': {err}",
-                                        replay_to_load
-                                    )
-                                })?
-                            };
-
-                            if replay_header.map_name.trim().is_empty() {
-                                return Err(format!(
-                                    "replay '{}' did not declare a map name",
-                                    replay_to_load
-                                ));
-                            }
-
-                            map_to_load = Some(replay_header.map_name.clone());
                         }
+                    }
+
+                    if replay_startup_requested && map_to_load.is_none() {
+                        warn!(
+                            "Startup replay did not resolve a playable map; falling back to menu startup"
+                        );
+                        start_in_menu = true;
                     }
 
                     let startup_mode = if start_in_menu {
@@ -1841,7 +2094,8 @@ impl CnCGameEngine {
         info!("📋 Starting subsystem initialization sequence...");
 
         let debug_overlay = command_line.wants_debug_overlay();
-        if command_line.no_audio {
+        let no_audio_command_line = command_line.no_audio && Self::allow_debug_startup_flags();
+        if no_audio_command_line {
             info!("🔇 Audio disabled via -noaudio");
         }
         if command_line.quick_start {
@@ -1851,6 +2105,9 @@ impl CnCGameEngine {
         init_subsystem_manager()
             .map_err(|err| anyhow::anyhow!("Subsystem manager initialization failed: {err}"))?;
         Self::apply_command_line_overrides(&command_line);
+        // C++ parity: initialize startup RNG stream during engine init.
+        game_engine::common::random_value::init_random();
+        Self::remove_legacy_duplicate_inizh_big_best_effort();
 
         init_game_state_system()
             .map_err(|err| anyhow::anyhow!("Game state manager init failed: {err}"))?;
@@ -1927,17 +2184,21 @@ impl CnCGameEngine {
         message_processor.attach_window(window.clone());
 
         // Initialize audio system unless disabled
-        let (audio_output, audio_handle) = if command_line.no_audio {
+        let (audio_output, audio_handle) = if no_audio_command_line {
             (None, None)
         } else {
             match OutputStream::try_default() {
                 Ok((output, handle)) => (Some(output), Some(handle)),
                 Err(e) => {
-                    warn!("Failed to initialize audio output: {e}; continuing without audio");
+                    warn!(
+                        "Failed to initialize audio output: {e}; C++ init would quit when music is not ready, so startup will exit"
+                    );
                     (None, None)
                 }
             }
         };
+        let audio_startup_requires_quit =
+            Self::startup_audio_should_quit(no_audio_command_line, audio_handle.is_some());
 
         let mut ui_sound_cache: HashMap<String, Arc<[u8]>> = HashMap::new();
         if audio_handle.is_some() {
@@ -2018,24 +2279,14 @@ impl CnCGameEngine {
             .filter(|value| value.to_ascii_lowercase().ends_with(".rep"))
             .cloned();
 
-        let startup_cli_map = if command_line.quick_start {
-            command_line
-                .map_name
-                .as_ref()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-        } else {
-            None
-        };
+        // C++ parity: `-map` sets map-name state but does not trigger startup map loading.
+        // Startup launch in GameEngine::init is only driven by `m_initialFile` (`-file`).
+        let startup_cli_map: Option<String> = None;
         let startup_cli_replay =
             Self::command_line_option_value_case_insensitive(&command_line, "file")
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
                 .filter(|value| value.to_ascii_lowercase().ends_with(".rep"));
-
-        if let Some(map_name) = startup_cli_map.as_ref() {
-            info!("QuickStart map override requested: {}", map_name);
-        }
 
         if let Some(initial_map) = startup_initial_map.as_ref() {
             let mut global = game_engine::common::global_data::write();
@@ -2067,15 +2318,13 @@ impl CnCGameEngine {
         let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
         let startup_requested_replay = startup_cli_replay.or(startup_initial_replay.clone());
         let start_in_menu = startup_requested_map.is_none() && startup_requested_replay.is_none();
-        let startup_shell_map = start_in_menu
-            .then(Self::configured_startup_shell_map)
-            .flatten();
+        let startup_shell_map = Self::configured_startup_shell_map();
         let map_to_load = if start_in_menu {
             startup_shell_map
         } else {
             startup_requested_map
         };
-        let startup_load_state = if build_map_cache {
+        let startup_load_state = if build_map_cache || audio_startup_requires_quit {
             StartupLoadState::Complete
         } else {
             Self::spawn_startup_map_load(
@@ -2234,6 +2483,17 @@ impl CnCGameEngine {
             victory_summary: None,
         };
 
+        if audio_startup_requires_quit {
+            warn!(
+                "Audio startup parity: music was not ready during init, marking engine as exiting"
+            );
+            engine.current_state = GameState::Exiting;
+            engine.startup_target_state = None;
+            engine.startup_load_state = StartupLoadState::Complete;
+        }
+
+        Self::initialize_cpp_startup_masks();
+
         if let Some(subsystem_manager) = get_subsystem_manager() {
             let mut manager = subsystem_manager.lock();
             if let Err(err) = manager.reset_all() {
@@ -2241,10 +2501,16 @@ impl CnCGameEngine {
             }
         }
 
+        engine.hide_control_bar();
+
         if build_map_cache {
             engine.current_state = GameState::Exiting;
             engine.startup_load_state = StartupLoadState::Complete;
             engine.startup_target_state = None;
+            return Ok(engine);
+        }
+
+        if audio_startup_requires_quit {
             return Ok(engine);
         }
 
@@ -2292,39 +2558,40 @@ impl CnCGameEngine {
     }
 
     fn apply_command_line_overrides(command_line: &CommandLineArgs) {
-        let quick_start = command_line.quick_start
-            || Self::has_command_line_option_case_insensitive(command_line, "quickstart");
-        let no_logo = Self::has_command_line_option_case_insensitive(command_line, "nologo")
-            || Self::has_command_line_option_case_insensitive(command_line, "nointro");
-        let no_shell_map =
-            Self::has_command_line_option_case_insensitive(command_line, "noshellmap");
-        let no_shell_anim =
-            Self::has_command_line_option_case_insensitive(command_line, "noshellanim");
-        let build_map_cache =
-            Self::has_command_line_option_case_insensitive(command_line, "buildmapcache")
-                || Self::has_command_line_option_case_insensitive(command_line, "buildcache");
-        let no_fps_limit =
-            Self::has_command_line_option_case_insensitive(command_line, "nofpslimit");
-        let update_images =
-            Self::has_command_line_option_case_insensitive(command_line, "updateimages")
-                || Self::has_command_line_option_case_insensitive(command_line, "updatedds");
-        let shell_map_override =
+        let allow_debug_flags = Self::allow_debug_startup_flags();
+        let shell_map_override = if allow_debug_flags {
             Self::command_line_option_value_case_insensitive(command_line, "shellmap")
                 .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty());
-        let benchmark_override =
-            Self::command_line_option_value_case_insensitive(command_line, "benchmark")
-                .and_then(|value| value.trim().parse::<i32>().ok());
-        let fps_override = Self::command_line_option_value_case_insensitive(command_line, "fps")
-            .and_then(|value| value.trim().parse::<i32>().ok());
+                .filter(|value| !value.is_empty())
+        } else {
+            None
+        };
 
-        let initial_file_override =
+        let initial_file_override = if allow_debug_flags {
             Self::command_line_option_value_case_insensitive(command_line, "file")
                 .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty());
+                .filter(|value| !value.is_empty())
+        } else {
+            None
+        };
+        let map_name_override = if allow_debug_flags {
+            command_line
+                .map_name
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        } else {
+            None
+        };
 
         {
             let mut global = game_engine::common::global_data::write();
+            if let Some(width) = command_line.width {
+                global.writable.x_resolution = i32::try_from(width).unwrap_or(i32::MAX);
+            }
+            if let Some(height) = command_line.height {
+                global.writable.y_resolution = i32::try_from(height).unwrap_or(i32::MAX);
+            }
             if let Some(initial_file) = initial_file_override.as_ref() {
                 global.writable.initial_file = initial_file.clone();
                 if initial_file.to_ascii_lowercase().ends_with(".map") {
@@ -2335,48 +2602,15 @@ impl CnCGameEngine {
                     global.pending_file = initial_file.clone();
                 }
             }
-            if quick_start {
-                // C++ parseQuickStart always disables shell-map/animated windows/sizzle.
-                global.writable.shell_map_on = false;
-                global.writable.animate_windows = false;
-                global.writable.play_sizzle = false;
-
-                // In internal/debug C++ builds quick-start also suppresses intro/logo.
-                if cfg!(any(debug_assertions, feature = "internal")) {
-                    global.writable.play_intro = false;
-                    global.writable.after_intro = true;
-                }
+            if let Some(map_name) = map_name_override.as_ref() {
+                // C++ parseMapName updates the writable startup map path.
+                global.writable.map_name = map_name.clone();
             }
-            if no_logo {
-                // C++ parseNoLogo: skip intro and sizzle, mark after-intro state.
-                global.writable.play_intro = false;
-                global.writable.after_intro = true;
-                global.writable.play_sizzle = false;
-            }
-            if no_shell_map {
-                global.writable.shell_map_on = false;
-            }
-            if no_shell_anim {
-                global.writable.animate_windows = false;
-            }
-            if build_map_cache {
-                global.writable.build_map_cache = true;
-            }
-            if let Some(benchmark_seconds) = benchmark_override {
-                global.writable.benchmark_timer = benchmark_seconds;
-                global.writable.play_stats = benchmark_seconds;
-            }
-            if no_fps_limit {
-                // C++ parseNoFPSLimit also raises limit to a very high cap.
-                global.writable.use_fps_limit = false;
-                global.writable.frames_per_second_limit = 30000;
-            }
-            if let Some(fps_limit) = fps_override {
-                global.writable.frames_per_second_limit = fps_limit;
-            }
-            if update_images {
-                global.writable.should_update_tga_to_dds = true;
-            }
+            Self::apply_ordered_startup_overrides_from_raw_args(
+                &command_line.raw_args,
+                &mut global.writable,
+                allow_debug_flags,
+            );
             if let Some(shell_map_name) = shell_map_override {
                 global.writable.shell_map_name = shell_map_name;
             }
@@ -2386,20 +2620,379 @@ impl CnCGameEngine {
                     game_engine::common::global_data::GlobalValue::String(lang.to_string()),
                 );
             }
-            if let Some(mod_name) = command_line.mod_name.as_deref() {
-                if mod_name.trim().is_empty() {
-                    global.clear_override("active_mod");
-                } else {
+            if command_line.has_option("mod") {
+                if let Some(mod_dir) = command_line.mod_dir.as_deref() {
+                    global.writable.mod_dir = mod_dir.to_string();
+                    global.writable.mod_big.clear();
                     global.set_override(
                         "active_mod",
-                        game_engine::common::global_data::GlobalValue::String(mod_name.to_string()),
+                        game_engine::common::global_data::GlobalValue::String(mod_dir.to_string()),
                     );
+                } else if let Some(mod_big) = command_line.mod_big.as_deref() {
+                    global.writable.mod_big = mod_big.to_string();
+                    global.writable.mod_dir.clear();
+                    global.set_override(
+                        "active_mod",
+                        game_engine::common::global_data::GlobalValue::String(mod_big.to_string()),
+                    );
+                } else if let Some(mod_name) = command_line.mod_name.as_deref() {
+                    if mod_name.trim().is_empty() {
+                        global.writable.mod_dir.clear();
+                        global.writable.mod_big.clear();
+                        global.clear_override("active_mod");
+                    } else {
+                        global.writable.mod_dir.clear();
+                        global.writable.mod_big.clear();
+                        global.set_override(
+                            "active_mod",
+                            game_engine::common::global_data::GlobalValue::String(
+                                mod_name.to_string(),
+                            ),
+                        );
+                    }
+                } else {
+                    // Invalid `-mod` path should behave like C++ parseMod: consume option
+                    // but leave prior mod configuration untouched.
                 }
             }
         }
 
+        Self::load_mods_best_effort();
+
         let language = command_line.language.as_deref().unwrap_or("English");
         localization::set_language(language);
+    }
+
+    fn initialize_cpp_startup_masks() {
+        game_engine::common::system::kind_of::init_kind_of_masks();
+        Self::init_disabled_masks();
+        gamelogic::damage::init_damage_type_flags();
+    }
+
+    fn init_disabled_masks() {
+        game_engine::common::system::disabled_types::init_disabled_masks();
+    }
+
+    fn startup_water_weather_ini_paths() -> [&'static str; 4] {
+        [
+            "Data/INI/Default/Water.ini",
+            "Data/INI/Water.ini",
+            "Data/INI/Default/Weather.ini",
+            "Data/INI/Weather.ini",
+        ]
+    }
+
+    fn preload_startup_water_weather_inis() {
+        let mut ini = game_engine::common::ini::INI::new();
+        for path in Self::startup_water_weather_ini_paths() {
+            match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
+                Ok(()) => info!("Preloaded startup INI: {}", path),
+                Err(err) => warn!(
+                    "Failed to preload startup INI '{}' during init; continuing: {}",
+                    path, err
+                ),
+            }
+        }
+    }
+
+    fn startup_audio_should_quit(no_audio: bool, audio_ready: bool) -> bool {
+        !no_audio && !audio_ready
+    }
+
+    fn allow_debug_startup_flags() -> bool {
+        cfg!(any(debug_assertions, feature = "internal"))
+    }
+
+    fn remove_legacy_duplicate_inizh_big_best_effort() {
+        let legacy_path = std::path::Path::new("Data").join("INI").join("INIZH.big");
+        if !legacy_path.exists() {
+            return;
+        }
+
+        match std::fs::remove_file(&legacy_path) {
+            Ok(()) => info!(
+                "Removed legacy duplicate INI archive to match C++ startup cleanup: {}",
+                legacy_path.display()
+            ),
+            Err(err) => warn!(
+                "Failed to remove legacy duplicate INI archive '{}': {}",
+                legacy_path.display(),
+                err
+            ),
+        }
+    }
+
+    fn hide_control_bar(&mut self) {
+        // GameHUD only exposes a visibility toggle; it starts visible at boot.
+        self.game_hud.toggle_visibility();
+    }
+
+    fn load_mods_best_effort() {
+        game_engine::common::system::archive_file_system::init_archive_file_system();
+
+        let (mod_dir, mod_big) = {
+            let global = game_engine::common::global_data::read();
+            let mod_dir = global.writable.mod_dir.trim().to_string();
+            let mod_big = global.writable.mod_big.trim().to_string();
+            (mod_dir, mod_big)
+        };
+
+        if let Some(mut archive_file_system) =
+            game_engine::common::system::archive_file_system::get_archive_file_system()
+        {
+            if !mod_dir.is_empty() {
+                archive_file_system.add_search_path(std::path::Path::new(mod_dir.as_str()));
+            }
+            if !mod_big.is_empty() {
+                if let Err(err) = archive_file_system.open_archive_file(mod_big.as_str()) {
+                    warn!("Best-effort mod archive open failed: {}", err);
+                }
+            }
+            if let Err(err) = archive_file_system.load_mods() {
+                warn!("Best-effort mod archive load failed: {}", err);
+            }
+        }
+    }
+
+    fn apply_fps_limit_overrides_from_raw_args(
+        raw_args: &[String],
+        writable: &mut game_engine::common::command_line::WritableGlobalData,
+    ) {
+        // C++ parity: process `-nofpslimit`/`-fps` in original argv order.
+        // This preserves precedence when both are present.
+        let mut arg_index = 1usize;
+        while arg_index < raw_args.len() {
+            let raw = raw_args[arg_index].trim();
+            if !raw.starts_with('-') {
+                arg_index += 1;
+                continue;
+            }
+
+            let mut option = raw.trim_start_matches('-');
+            let mut inline_value: Option<&str> = None;
+            if let Some((name, value)) = option.split_once('=') {
+                option = name;
+                inline_value = Some(value);
+            }
+
+            match option.to_ascii_lowercase().as_str() {
+                "nofpslimit" => {
+                    writable.use_fps_limit = false;
+                    writable.frames_per_second_limit = 30000;
+                }
+                "fps" => {
+                    if let Some(value) =
+                        Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                    {
+                        writable.frames_per_second_limit =
+                            Self::parse_startup_i32_like_atoi(&value);
+                    }
+                }
+                _ => {}
+            }
+
+            arg_index += 1;
+        }
+    }
+
+    fn apply_ordered_startup_overrides_from_raw_args(
+        raw_args: &[String],
+        writable: &mut game_engine::common::command_line::WritableGlobalData,
+        allow_debug_flags: bool,
+    ) {
+        let mut arg_index = 1usize;
+        while arg_index < raw_args.len() {
+            let raw = raw_args[arg_index].trim();
+            if !raw.starts_with('-') {
+                arg_index += 1;
+                continue;
+            }
+
+            let mut option = raw.trim_start_matches('-');
+            let mut inline_value: Option<&str> = None;
+            if let Some((name, value)) = option.split_once('=') {
+                option = name;
+                inline_value = Some(value);
+            }
+
+            match option.to_ascii_lowercase().as_str() {
+                "win" | "windowed" | "w" => {
+                    writable.windowed = true;
+                }
+                "fullscreen" | "f" | "nowin" => {
+                    writable.windowed = false;
+                }
+                "particleedit" => {
+                    writable.particle_edit = true;
+                    writable.win_cursors = true;
+                    writable.windowed = true;
+                }
+                "quickstart" => {
+                    writable.shell_map_on = false;
+                    writable.animate_windows = false;
+                    writable.play_sizzle = false;
+
+                    if cfg!(any(debug_assertions, feature = "internal")) {
+                        writable.play_intro = false;
+                        writable.after_intro = true;
+                    }
+                }
+                "nologo" | "nointro" => {
+                    if allow_debug_flags {
+                        writable.play_intro = false;
+                        writable.after_intro = true;
+                        writable.play_sizzle = false;
+                    }
+                }
+                "noshellmap" => {
+                    writable.shell_map_on = false;
+                }
+                "noshellanim" => {
+                    if allow_debug_flags {
+                        writable.animate_windows = false;
+                    }
+                }
+                "noaudio" => {
+                    if allow_debug_flags {
+                        writable.audio_on = false;
+                        writable.speech_on = false;
+                        writable.sounds_on = false;
+                        writable.music_on = false;
+                    }
+                }
+                "novideo" => {
+                    if allow_debug_flags {
+                        writable.video_on = false;
+                    }
+                }
+                "scriptdebug" => {
+                    writable.script_debug = true;
+                    writable.win_cursors = true;
+                }
+                "wincursors" => {
+                    if allow_debug_flags {
+                        writable.win_cursors = true;
+                    }
+                }
+                "nomusic" => {
+                    if allow_debug_flags {
+                        writable.music_on = false;
+                    }
+                }
+                "nosizzle" => {
+                    writable.play_sizzle = false;
+                }
+                "noshaders" => {
+                    writable.chip_set_type = 1;
+                }
+                "forcebenchmark" => {
+                    if allow_debug_flags {
+                        writable.force_benchmark = true;
+                    }
+                }
+                "nomovecamera" => {
+                    if allow_debug_flags {
+                        writable.disable_camera_movement = true;
+                    }
+                }
+                "constantdebug" => {
+                    if allow_debug_flags {
+                        writable.constant_debug_update = true;
+                    }
+                }
+                "showteamdot" => {
+                    if allow_debug_flags {
+                        writable.show_team_dot = true;
+                    }
+                }
+                "nofpslimit" => {
+                    if allow_debug_flags {
+                        writable.use_fps_limit = false;
+                        writable.frames_per_second_limit = 30000;
+                    }
+                }
+                "buildmapcache" | "buildcache" => {
+                    if allow_debug_flags {
+                        writable.build_map_cache = true;
+                    }
+                }
+                "updateimages" | "updatedds" => {
+                    if allow_debug_flags {
+                        writable.should_update_tga_to_dds = true;
+                    }
+                }
+                "fps" => {
+                    if allow_debug_flags {
+                        if let Some(value) =
+                            Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                        {
+                            writable.frames_per_second_limit =
+                                Self::parse_startup_i32_like_atoi(&value);
+                        }
+                    }
+                }
+                "seed" => {
+                    if allow_debug_flags {
+                        if let Some(value) =
+                            Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                        {
+                            writable.fixed_seed = Self::parse_startup_i32_like_atoi(&value);
+                        }
+                    }
+                }
+                "netminplayers" => {
+                    if allow_debug_flags {
+                        if let Some(value) =
+                            Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                        {
+                            writable.net_min_players = Self::parse_startup_i32_like_atoi(&value);
+                        }
+                    }
+                }
+                "playstats" => {
+                    if let Some(value) =
+                        Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                    {
+                        writable.play_stats = Self::parse_startup_i32_like_atoi(&value);
+                    }
+                }
+                "benchmark" => {
+                    if allow_debug_flags {
+                        if let Some(value) =
+                            Self::consume_startup_value(raw_args, &mut arg_index, inline_value)
+                        {
+                            let parsed = Self::parse_startup_i32_like_atoi(&value);
+                            writable.benchmark_timer = parsed;
+                            writable.play_stats = parsed;
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            arg_index += 1;
+        }
+    }
+
+    fn consume_startup_value(
+        raw_args: &[String],
+        arg_index: &mut usize,
+        inline_value: Option<&str>,
+    ) -> Option<String> {
+        if let Some(value) = inline_value {
+            return Some(value.to_string());
+        }
+
+        if *arg_index + 1 < raw_args.len() {
+            *arg_index += 1;
+            return Some(raw_args[*arg_index].trim().to_string());
+        }
+
+        None
+    }
+
+    fn parse_startup_i32_like_atoi(value: &str) -> i32 {
+        value.trim().parse::<i32>().unwrap_or(0)
     }
 
     fn has_command_line_option_case_insensitive(
