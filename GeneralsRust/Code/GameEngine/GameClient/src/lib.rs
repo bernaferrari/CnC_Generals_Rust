@@ -17,6 +17,8 @@
 #![cfg_attr(test, cfg(feature = "internal"))]
 
 // Core modules
+#[allow(non_snake_case)]
+pub mod HotKey;
 pub mod audio;
 pub mod core;
 pub mod display;
@@ -31,8 +33,6 @@ pub mod game_client_dispatch;
 pub mod graph_draw;
 pub mod gui;
 pub mod helpers;
-#[allow(non_snake_case)]
-pub mod HotKey;
 pub mod in_game_ui;
 pub mod input;
 pub mod language_filter;
@@ -109,8 +109,8 @@ pub mod gadget;
 pub mod gadget_slider;
 pub mod game_window_id;
 pub mod gui_callbacks;
-pub mod key_defs;
 pub mod input_bridge;
+pub mod key_defs;
 pub mod selection_system;
 pub mod shadow;
 pub mod shell_hooks;

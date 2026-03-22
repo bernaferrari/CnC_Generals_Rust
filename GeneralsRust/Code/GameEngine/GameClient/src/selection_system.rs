@@ -241,7 +241,13 @@ pub struct DragBox {
 impl DragBox {
     /// Create an inactive drag box.
     pub fn new() -> Self {
-        Self { start_x: 0, start_y: 0, end_x: 0, end_y: 0, active: false }
+        Self {
+            start_x: 0,
+            start_y: 0,
+            end_x: 0,
+            end_y: 0,
+            active: false,
+        }
     }
 
     /// Begin a new drag at the given position.
@@ -408,7 +414,12 @@ impl SelectionManager {
 
     /// Finish the drag.  If the drag produced a rectangle, perform a box
     /// selection.  Returns the number of newly selected objects.
-    pub fn finish_drag(&mut self, player: i32, modifiers_ctrl: bool, modifiers_shift: bool) -> usize {
+    pub fn finish_drag(
+        &mut self,
+        player: i32,
+        modifiers_ctrl: bool,
+        modifiers_shift: bool,
+    ) -> usize {
         let region = match self.drag_box_mut(player) {
             Some(box_) => box_.finish(),
             None => return 0,
@@ -532,7 +543,14 @@ mod tests {
     struct TestPicker;
 
     impl ObjectPicker for TestPicker {
-        fn pick_in_rect(&self, _player: i32, left: i32, _top: i32, right: i32, _bottom: i32) -> Vec<u32> {
+        fn pick_in_rect(
+            &self,
+            _player: i32,
+            left: i32,
+            _top: i32,
+            right: i32,
+            _bottom: i32,
+        ) -> Vec<u32> {
             // Objects at x positions: obj 1 at x=10, obj 2 at x=20, ... obj 10 at x=100.
             (1..=10)
                 .filter(|&id| {

@@ -133,7 +133,9 @@ impl ParsedCrateSystem {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &ParsedCrateTemplate> {
-        self.template_order.iter().filter_map(|n| self.templates.get(n))
+        self.template_order
+            .iter()
+            .filter_map(|n| self.templates.get(n))
     }
 
     pub fn names(&self) -> &[String] {
@@ -184,9 +186,7 @@ pub fn get_crate_system() -> Option<Arc<RwLock<ParsedCrateSystem>>> {
 /// 3. Parse fields using the C++ field parse table
 pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
     // 1. Read the template name
-    let name = ini
-        .get_next_value_token()
-        .ok_or(INIError::InvalidData)?;
+    let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
 
     let system = ensure_crate_system();
     let mut system_guard = system.write();
@@ -227,40 +227,28 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
 
             // Matches C++: { "VeterancyLevel", INI::parseIndexList, TheVeterancyNames, ... }
             "VeterancyLevel" => {
-                let level_str = ini
-                    .get_next_token()
-                    .ok_or(INIError::InvalidData)?;
+                let level_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
                 template.veterancy_level = level_str;
             }
 
             // Matches C++: { "KilledByType", KindOfMaskType::parseFromINI, ... }
             "KilledByType" => {
-                let kind_str = ini
-                    .get_next_token()
-                    .ok_or(INIError::InvalidData)?;
+                let kind_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
                 template.killed_by_type_kindof = parse_kind_of_mask(&kind_str);
             }
 
             // Matches C++: { "KillerScience", INI::parseScience, ... }
             "KillerScience" => {
-                let sci_str = ini
-                    .get_next_token()
-                    .ok_or(INIError::InvalidData)?;
+                let sci_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
                 template.killer_science = sci_str;
             }
 
             // Matches C++: { "CrateObject", CrateTemplate::parseCrateCreationEntry, ... }
             // C++ format: CrateObject <crateName> <crateChance>
             "CrateObject" => {
-                let crate_name = ini
-                    .get_next_token()
-                    .ok_or(INIError::InvalidData)?;
-                let chance_str = ini
-                    .get_next_token()
-                    .ok_or(INIError::InvalidData)?;
-                let chance: f32 = chance_str
-                    .parse()
-                    .map_err(|_| INIError::InvalidData)?;
+                let crate_name = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let chance_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let chance: f32 = chance_str.parse().map_err(|_| INIError::InvalidData)?;
                 template.possible_crates.push(ParsedCrateCreationEntry {
                     crate_name,
                     crate_chance: chance,

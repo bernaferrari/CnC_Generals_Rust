@@ -256,15 +256,30 @@ impl Snapshotable for FirestormDynamicGeometryInfoUpdate {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // Transfer base geometry logic
         xfer.xfer_unsigned_int(&mut self.logic.starting_delay_countdown)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer starting_delay_countdown: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer starting_delay_countdown: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_unsigned_int(&mut self.logic.time_active)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer time_active: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer time_active: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_bool(&mut self.logic.started)
             .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer started: {:?}", e))?;
         xfer.xfer_bool(&mut self.logic.finished)
             .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer finished: {:?}", e))?;
         xfer.xfer_bool(&mut self.logic.switched_directions)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer switched_directions: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer switched_directions: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_real(&mut self.logic.initial_height);
         xfer.xfer_real(&mut self.logic.initial_major_radius);
         xfer.xfer_real(&mut self.logic.initial_minor_radius);
@@ -272,15 +287,33 @@ impl Snapshotable for FirestormDynamicGeometryInfoUpdate {
         xfer.xfer_real(&mut self.logic.final_major_radius);
         xfer.xfer_real(&mut self.logic.final_minor_radius);
         xfer.xfer_unsigned_int(&mut self.logic.transition_time)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer transition_time: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer transition_time: {:?}",
+                    e
+                )
+            })?;
 
         // Transfer firestorm-specific state
-        xfer.xfer_bool(&mut self.effects_fired)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer effects_fired: {:?}", e))?;
-        xfer.xfer_bool(&mut self.scorch_placed)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer scorch_placed: {:?}", e))?;
+        xfer.xfer_bool(&mut self.effects_fired).map_err(|e| {
+            format!(
+                "FirestormDynamicGeometryInfoUpdate xfer effects_fired: {:?}",
+                e
+            )
+        })?;
+        xfer.xfer_bool(&mut self.scorch_placed).map_err(|e| {
+            format!(
+                "FirestormDynamicGeometryInfoUpdate xfer scorch_placed: {:?}",
+                e
+            )
+        })?;
         xfer.xfer_unsigned_int(&mut self.last_damage_frame)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer last_damage_frame: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer last_damage_frame: {:?}",
+                    e
+                )
+            })?;
         Ok(())
     }
 

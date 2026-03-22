@@ -435,7 +435,6 @@ impl LocomotorTemplate {
         template.close_enough_dist = 3.0;
         template
     }
-
 }
 
 // ============================================================================
@@ -825,14 +824,20 @@ impl Locomotor {
         // C++ Locomotor.cpp:1190-1192
         let dx = current_pos.x - goal_pos.x;
         let dy = current_pos.y - goal_pos.y;
-        if (dx * dx + dy * dy) < (2.0 * PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F) && angle_coeff > 0.05 {
+        if (dx * dx + dy * dy) < (2.0 * PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F)
+            && angle_coeff > 0.05
+        {
             goal_speed = current_speed * 0.6;
         }
 
         // Braking logic - matches C++ Locomotor.cpp:1187-1221
         // C++ uses actualSpeed / getBraking() for time and actualSpeed/1.50f * time for dist
         let braking = self.get_braking();
-        let slow_down_time = if braking > 0.0 { current_speed / braking } else { 0.0 };
+        let slow_down_time = if braking > 0.0 {
+            current_speed / braking
+        } else {
+            0.0
+        };
         let slow_down_dist = (current_speed / 1.5) * slow_down_time;
 
         // Start braking if close enough and not already braking
@@ -847,7 +852,9 @@ impl Locomotor {
 
         // Stop braking if far enough from goal
         // C++ Locomotor.cpp:1200-1203
-        if on_path_dist_to_goal > PATHFIND_CELL_SIZE_F && on_path_dist_to_goal > 2.0 * slow_down_dist {
+        if on_path_dist_to_goal > PATHFIND_CELL_SIZE_F
+            && on_path_dist_to_goal > 2.0 * slow_down_dist
+        {
             self.set_flag(FLAG_IS_BRAKING, false);
         }
 
@@ -973,7 +980,11 @@ impl Locomotor {
 
         // Braking distance calculation - C++ Locomotor.cpp:1332-1337
         let braking = self.get_braking();
-        let slow_down_time = if braking > 0.0 { actual_speed / braking + 1.0 } else { 0.0 };
+        let slow_down_time = if braking > 0.0 {
+            actual_speed / braking + 1.0
+        } else {
+            0.0
+        };
         let slow_down_dist = (actual_speed / 1.5) * slow_down_time + actual_speed;
         let mut effective_slow_down_dist = slow_down_dist;
         if effective_slow_down_dist < 1.0 * PATHFIND_CELL_SIZE_F {
@@ -989,15 +1000,17 @@ impl Locomotor {
             self.braking_factor = 1.1;
         }
 
-        if on_path_dist_to_goal > PATHFIND_CELL_SIZE_F && on_path_dist_to_goal > 2.0 * slow_down_dist {
+        if on_path_dist_to_goal > PATHFIND_CELL_SIZE_F
+            && on_path_dist_to_goal > 2.0 * slow_down_dist
+        {
             self.set_flag(FLAG_IS_BRAKING, false);
         }
 
         // Donut timer - stop near destination for precise positioning
         // C++ Locomotor.cpp:1405-1411
         if on_path_dist_to_goal > DONUT_DISTANCE {
-            self.donut_timer = current_frame
-                + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
+            self.donut_timer =
+                current_frame + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
         } else if current_frame >= self.donut_timer {
             self.set_flag(FLAG_IS_BRAKING, true);
         }
@@ -1262,7 +1275,11 @@ impl Locomotor {
 
         // C++ Locomotor.cpp:2368-2374: uses minSpeed, not 0.0
         if !self.no_slow_down_approaching_dest() {
-            let slow_down_dist = Self::calc_slow_down_dist(current_speed, self.template.min_speed, self.get_braking());
+            let slow_down_dist = Self::calc_slow_down_dist(
+                current_speed,
+                self.template.min_speed,
+                self.get_braking(),
+            );
             if on_path_dist_to_goal < slow_down_dist {
                 _goal_speed = self.template.min_speed;
             }
@@ -1396,7 +1413,8 @@ impl Locomotor {
                         current_frame,
                     );
                 let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
+                let new_speed =
+                    (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
                 let new_angle =
                     self.step_angle(current_angle, desired_angle, condition, delta_time);
                 let new_pos = self.advance_position(
@@ -2007,11 +2025,8 @@ impl Locomotor {
 
         // Slow down approaching destination - C++ Locomotor.cpp:1899-1904
         if braking > 0.0 {
-            let slow_down_dist = Self::calc_slow_down_dist(
-                current_speed,
-                self.template.min_speed,
-                braking,
-            );
+            let slow_down_dist =
+                Self::calc_slow_down_dist(current_speed, self.template.min_speed, braking);
             if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
                 desired_speed = self.template.min_speed;
             }
@@ -2045,7 +2060,8 @@ impl Locomotor {
 
         // Desired heading toward goal with thrust angle clamping
         // C++ Locomotor.cpp:1936-1950
-        let raw_desired_angle = (local_goal_pos.y - current_pos.y).atan2(local_goal_pos.x - current_pos.x);
+        let raw_desired_angle =
+            (local_goal_pos.y - current_pos.y).atan2(local_goal_pos.x - current_pos.x);
         let mut desired_angle = if matches!(
             self.template.appearance,
             LocomotorAppearance::Wings | LocomotorAppearance::Thrust
@@ -2055,7 +2071,12 @@ impl Locomotor {
                 self.apply_wings_circling(current_pos, local_goal_pos, raw_desired_angle),
             )
         } else {
-            self.desired_angle_with_pivot(current_pos, current_angle, local_goal_pos, self.is_braking())
+            self.desired_angle_with_pivot(
+                current_pos,
+                current_angle,
+                local_goal_pos,
+                self.is_braking(),
+            )
         };
 
         // C++ Locomotor.cpp:1948-1950: clamp thrust angle relative to forward direction
@@ -2238,7 +2259,11 @@ impl Locomotor {
 
             // C++ Locomotor.cpp:1734-1739 - reduce speed based on slope
             let ground_slope = (ground_z - current_pos.z).abs();
-            let ground_slope = if ground_slope < 1.0 { 1.0 } else { ground_slope };
+            let ground_slope = if ground_slope < 1.0 {
+                1.0
+            } else {
+                ground_slope
+            };
             if ground_slope > 1.0 {
                 desired_speed /= ground_slope * 4.0;
             }
@@ -2349,10 +2374,11 @@ impl Locomotor {
                         current_speed,
                         condition,
                         self.close_enough_dist, // major_radius proxy
-                        0, // no frame available in move_towards context
+                        0,                      // no frame available in move_towards context
                     );
                 let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
+                let new_speed =
+                    (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
                 let new_angle =
                     self.step_angle(current_angle, desired_angle, condition, delta_time);
                 let new_pos = self.advance_position(
@@ -2820,7 +2846,10 @@ impl LocomotorSet {
 
     /// Find a locomotor that supports the given surface type mask
     /// Matches C++ LocomotorSet::findLocomotor(LocomotorSurfaceTypeMask t)
-    pub fn find_locomotor(&self, surface_mask: LocomotorSurfaceTypeMask) -> Option<Arc<Mutex<Locomotor>>> {
+    pub fn find_locomotor(
+        &self,
+        surface_mask: LocomotorSurfaceTypeMask,
+    ) -> Option<Arc<Mutex<Locomotor>>> {
         // C++ iterates m_locomotors and returns the first one whose template
         // surfaces overlap with the requested mask
         for (_name, loco) in &self.locomotors {
@@ -3070,10 +3099,7 @@ mod tests {
         assert_eq!(table.get_multiplier(LocomotorAppearance::Wings, 2), 1.0);
 
         // Treads get road bonus
-        assert_eq!(
-            table.get_multiplier(LocomotorAppearance::Treads, 5),
-            1.2
-        );
+        assert_eq!(table.get_multiplier(LocomotorAppearance::Treads, 5), 1.2);
     }
 
     #[test]

@@ -388,7 +388,9 @@ impl MapCache {
 
     pub fn has_map(&self, map_name: &str) -> bool {
         let map_name = map_name.to_lowercase();
-        get_map_cache().as_ref().is_some_and(|cache| cache.get(&map_name).is_some())
+        get_map_cache()
+            .as_ref()
+            .is_some_and(|cache| cache.get(&map_name).is_some())
     }
 
     pub fn has_map_cpp_key(&self, map_name: &str) -> bool {

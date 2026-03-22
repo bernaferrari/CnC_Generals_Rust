@@ -416,25 +416,29 @@ impl Snapshotable for TeamRelationMap {
         // Version
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
 
         // Team relation count
         let mut relation_count = self.relations.len() as u16;
-        xfer.xfer_unsigned_short(&mut relation_count).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_short(&mut relation_count)
+            .map_err(|e| e.to_string())?;
 
         // Team relations
         if xfer.get_xfer_mode() == XferMode::Save {
             // Save all relations
             for (&team_id, &relationship) in self.relations.iter() {
                 let mut tid = team_id;
-                xfer.xfer_unsigned_int(&mut tid).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_int(&mut tid)
+                    .map_err(|e| e.to_string())?;
                 // Relationship is an enum - convert to u8 for xfer
                 let mut rel_byte: u8 = match relationship {
                     Relationship::Enemies => 0u8,
                     Relationship::Neutral => 1u8,
                     Relationship::Allies => 2u8,
                 };
-                xfer.xfer_unsigned_byte(&mut rel_byte).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_byte(&mut rel_byte)
+                    .map_err(|e| e.to_string())?;
             }
         } else {
             // Load relations
@@ -442,8 +446,10 @@ impl Snapshotable for TeamRelationMap {
             for _ in 0..relation_count {
                 let mut team_id: TeamID = TEAM_ID_INVALID;
                 let mut rel_byte: u8 = 0;
-                xfer.xfer_unsigned_int(&mut team_id).map_err(|e| e.to_string())?;
-                xfer.xfer_unsigned_byte(&mut rel_byte).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_int(&mut team_id)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_byte(&mut rel_byte)
+                    .map_err(|e| e.to_string())?;
                 let relationship = match rel_byte {
                     0 => Relationship::Enemies,
                     1 => Relationship::Neutral,
@@ -489,7 +495,8 @@ impl PlayerRelationMap {
 
     /// Set a relationship override for a player
     pub fn set_relationship(&mut self, player_index: i32, relationship: Relationship) {
-        if player_index != -1 { // PLAYER_INDEX_INVALID
+        if player_index != -1 {
+            // PLAYER_INDEX_INVALID
             self.relations.insert(player_index, relationship);
         }
     }
@@ -540,11 +547,13 @@ impl Snapshotable for PlayerRelationMap {
         // Version
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
 
         // Player relation count
         let mut relation_count = self.relations.len() as u16;
-        xfer.xfer_unsigned_short(&mut relation_count).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_short(&mut relation_count)
+            .map_err(|e| e.to_string())?;
 
         // Player relations
         if xfer.get_xfer_mode() == XferMode::Save {
@@ -558,7 +567,8 @@ impl Snapshotable for PlayerRelationMap {
                     Relationship::Neutral => 1u8,
                     Relationship::Allies => 2u8,
                 };
-                xfer.xfer_unsigned_byte(&mut rel_byte).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_byte(&mut rel_byte)
+                    .map_err(|e| e.to_string())?;
             }
         } else {
             // Load relations
@@ -566,8 +576,10 @@ impl Snapshotable for PlayerRelationMap {
             for _ in 0..relation_count {
                 let mut player_index: i32 = -1;
                 let mut rel_byte: u8 = 0;
-                xfer.xfer_int(&mut player_index).map_err(|e| e.to_string())?;
-                xfer.xfer_unsigned_byte(&mut rel_byte).map_err(|e| e.to_string())?;
+                xfer.xfer_int(&mut player_index)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_byte(&mut rel_byte)
+                    .map_err(|e| e.to_string())?;
                 let relationship = match rel_byte {
                     0 => Relationship::Enemies,
                     1 => Relationship::Neutral,
@@ -685,16 +697,16 @@ pub trait Damageable {
 pub trait AIGroup {
     /// Add an object to the group
     fn add(&mut self, object_id: u32);
-    
+
     /// Remove an object from the group
     fn remove(&mut self, object_id: u32);
-    
+
     /// Get the number of objects in the group
     fn count(&self) -> usize;
-    
+
     /// Check if an object is in the group
     fn contains(&self, object_id: u32) -> bool;
-    
+
     /// Clear all objects from the group
     fn clear(&mut self);
 }
@@ -704,7 +716,7 @@ pub trait AIGroup {
 pub trait ScriptExecutor {
     /// Run a script by name with this team as context
     fn run_script(&mut self, script_name: &str, team: &Team) -> bool;
-    
+
     /// Evaluate conditions for a script
     fn evaluate_conditions(&self, script_name: &str, team: &Team) -> bool;
 }
@@ -916,8 +928,13 @@ impl Team {
     /// If player_index is -1 (PLAYER_INDEX_INVALID), this is a no-op.
     ///
     /// Corresponds to C++ Team::setOverridePlayerRelationship()
-    pub fn set_override_player_relationship(&mut self, player_index: i32, relationship: Relationship) {
-        self.player_relations.set_relationship(player_index, relationship);
+    pub fn set_override_player_relationship(
+        &mut self,
+        player_index: i32,
+        relationship: Relationship,
+    ) {
+        self.player_relations
+            .set_relationship(player_index, relationship);
     }
 
     /// Remove an override relationship for a specific player.
@@ -1166,7 +1183,7 @@ impl Team {
 
     /// Set the controlling player.
     /// In full implementation, this would call m_proto->setControllingPlayer().
-    /// 
+    ///
     /// Corresponds to C++ Team::setControllingPlayer()
     pub fn set_controlling_player(&mut self, _player_index: i32) {
         // In full implementation, this would set the player via prototype
@@ -1294,7 +1311,10 @@ impl Team {
     /// Get count of targetable units
     ///
     /// Corresponds to C++ Team::getTargetableCount()
-    pub fn get_targetable_count<M: TeamMember>(&self, get_member: impl Fn(u32) -> Option<M>) -> i32 {
+    pub fn get_targetable_count<M: TeamMember>(
+        &self,
+        get_member: impl Fn(u32) -> Option<M>,
+    ) -> i32 {
         let mut count = 0;
         for &member_id in &self.members {
             if let Some(member) = get_member(member_id) {
@@ -1348,7 +1368,8 @@ impl Team {
                             self.cur_units += 1;
                         }
                     }
-                    self.destroy_threshold = self.cur_units - (self.cur_units as f32 * info.destroyed_threshold) as i32;
+                    self.destroy_threshold =
+                        self.cur_units - (self.cur_units as f32 * info.destroyed_threshold) as i32;
                     if self.destroy_threshold > self.cur_units - 1 {
                         self.destroy_threshold = self.cur_units - 1;
                     }
@@ -1440,8 +1461,11 @@ impl Team {
     /// Notify team that an object died
     ///
     /// Corresponds to C++ Team::notifyTeamOfObjectDeath()
-    pub fn notify_team_of_object_death<G>(&mut self, template_info: Option<&TeamTemplateInfo>, mut run_script: G)
-    where
+    pub fn notify_team_of_object_death<G>(
+        &mut self,
+        template_info: Option<&TeamTemplateInfo>,
+        mut run_script: G,
+    ) where
         G: FnMut(&str, &Team) -> bool,
     {
         if let Some(info) = template_info {
@@ -1725,7 +1749,10 @@ impl Team {
     /// Get an estimate of the team's position (returns position of first member)
     ///
     /// Corresponds to C++ Team::getEstimateTeamPosition()
-    pub fn get_estimate_team_position<M: TeamMember>(&self, get_member: impl Fn(u32) -> Option<M>) -> Option<Coord3D> {
+    pub fn get_estimate_team_position<M: TeamMember>(
+        &self,
+        get_member: impl Fn(u32) -> Option<M>,
+    ) -> Option<Coord3D> {
         for &member_id in &self.members {
             if let Some(member) = get_member(member_id) {
                 if let Some(pos) = member.get_position() {
@@ -1988,7 +2015,11 @@ impl Team {
     /// Heal all objects in the team
     ///
     /// Corresponds to C++ Team::healAllObjects()
-    pub fn heal_all_objects<M: TeamMember>(&mut self, get_member: impl Fn(u32) -> Option<M>, heal_member: impl Fn(&mut M)) {
+    pub fn heal_all_objects<M: TeamMember>(
+        &mut self,
+        get_member: impl Fn(u32) -> Option<M>,
+        heal_member: impl Fn(&mut M),
+    ) {
         for &member_id in &self.members {
             if let Some(mut member) = get_member(member_id) {
                 heal_member(&mut member);
@@ -2021,8 +2052,11 @@ impl Team {
     /// Update generic scripts
     ///
     /// Corresponds to C++ Team::updateGenericScripts()
-    pub fn update_generic_scripts<F>(&mut self, get_script: impl Fn(usize) -> Option<String>, evaluate_and_execute: F)
-    where
+    pub fn update_generic_scripts<F>(
+        &mut self,
+        get_script: impl Fn(usize) -> Option<String>,
+        evaluate_and_execute: F,
+    ) where
         F: FnMut(&str, &mut Team) -> bool,
     {
         for i in 0..MAX_GENERIC_SCRIPTS {
@@ -2043,7 +2077,11 @@ impl Team {
     /// Check if team has any build facility
     ///
     /// Corresponds to C++ Team::hasAnyBuildFacility()
-    pub fn has_any_build_facility<M: TeamMember>(&self, get_member: impl Fn(u32) -> Option<M>, is_build_facility: impl Fn(&M) -> bool) -> bool {
+    pub fn has_any_build_facility<M: TeamMember>(
+        &self,
+        get_member: impl Fn(u32) -> Option<M>,
+        is_build_facility: impl Fn(&M) -> bool,
+    ) -> bool {
         for &member_id in &self.members {
             if let Some(member) = get_member(member_id) {
                 if is_build_facility(&member) {
@@ -2087,7 +2125,11 @@ impl Team {
     /// Note: In full implementation, this would give a "team move" command, not individual move orders.
     ///
     /// Corresponds to C++ Team::moveTeamTo()
-    pub fn move_team_to<M: TeamMember>(&mut self, get_member: impl Fn(u32) -> Option<M>, _destination: Coord3D) {
+    pub fn move_team_to<M: TeamMember>(
+        &mut self,
+        get_member: impl Fn(u32) -> Option<M>,
+        _destination: Coord3D,
+    ) {
         // In full implementation, this would send move commands to all units
         for &member_id in &self.members {
             if let Some(member) = get_member(member_id) {
@@ -2110,11 +2152,13 @@ impl Snapshotable for Team {
         // Version
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
 
         // Xfer id - sanity check
         let mut team_id = self.id;
-        xfer.xfer_unsigned_int(&mut team_id).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut team_id)
+            .map_err(|e| e.to_string())?;
         if team_id != self.id {
             return Err(format!(
                 "Team::xfer - TeamID mismatch. Xfered '{}' but should be '{}'",
@@ -2124,7 +2168,8 @@ impl Snapshotable for Team {
 
         // Member list count and data
         let mut member_count = self.members.len() as u16;
-        xfer.xfer_unsigned_short(&mut member_count).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_short(&mut member_count)
+            .map_err(|e| e.to_string())?;
 
         if xfer.get_xfer_mode() == XferMode::Save {
             // Save all member info
@@ -2137,47 +2182,60 @@ impl Snapshotable for Team {
             self.xfer_member_id_list.clear();
             for _ in 0..member_count {
                 let mut member_id: u32 = 0;
-                xfer.xfer_unsigned_int(&mut member_id).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_int(&mut member_id)
+                    .map_err(|e| e.to_string())?;
                 self.xfer_member_id_list.push(member_id);
             }
         }
 
         // State
-        xfer.xfer_ascii_string(&mut self.state).map_err(|e| e.to_string())?;
+        xfer.xfer_ascii_string(&mut self.state)
+            .map_err(|e| e.to_string())?;
 
         // Entered or exited
-        xfer.xfer_bool(&mut self.entered_or_exited).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.entered_or_exited)
+            .map_err(|e| e.to_string())?;
 
         // Active status
-        xfer.xfer_bool(&mut self.active).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.active)
+            .map_err(|e| e.to_string())?;
 
         // Created flag
-        xfer.xfer_bool(&mut self.created).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.created)
+            .map_err(|e| e.to_string())?;
 
         // Check enemy sighted
-        xfer.xfer_bool(&mut self.check_enemy_sighted).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.check_enemy_sighted)
+            .map_err(|e| e.to_string())?;
 
         // See enemy
-        xfer.xfer_bool(&mut self.see_enemy).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.see_enemy)
+            .map_err(|e| e.to_string())?;
 
         // Previous see enemy
-        xfer.xfer_bool(&mut self.prev_see_enemy).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.prev_see_enemy)
+            .map_err(|e| e.to_string())?;
 
         // Was idle
-        xfer.xfer_bool(&mut self.was_idle).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.was_idle)
+            .map_err(|e| e.to_string())?;
 
         // Destroy threshold
-        xfer.xfer_int(&mut self.destroy_threshold).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.destroy_threshold)
+            .map_err(|e| e.to_string())?;
 
         // Current units
-        xfer.xfer_int(&mut self.cur_units).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.cur_units)
+            .map_err(|e| e.to_string())?;
 
         // Waypoint
-        xfer.xfer_unsigned_int(&mut self.current_waypoint_id).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.current_waypoint_id)
+            .map_err(|e| e.to_string())?;
 
         // Should attempt generic scripts
         let mut script_count = MAX_GENERIC_SCRIPTS as u16;
-        xfer.xfer_unsigned_short(&mut script_count).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_short(&mut script_count)
+            .map_err(|e| e.to_string())?;
         if script_count as usize != MAX_GENERIC_SCRIPTS {
             return Err(format!(
                 "Team::xfer - The number of allowable Generic scripts has changed. Expected {}, got {}",
@@ -2186,17 +2244,21 @@ impl Snapshotable for Team {
         }
 
         for i in 0..MAX_GENERIC_SCRIPTS {
-            xfer.xfer_bool(&mut self.should_attempt_generic_script[i]).map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut self.should_attempt_generic_script[i])
+                .map_err(|e| e.to_string())?;
         }
 
         // Recruitability set
-        xfer.xfer_bool(&mut self.is_recruitability_set).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_recruitability_set)
+            .map_err(|e| e.to_string())?;
 
         // Is recruitable
-        xfer.xfer_bool(&mut self.is_recruitable).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_recruitable)
+            .map_err(|e| e.to_string())?;
 
         // Common attack target
-        xfer.xfer_unsigned_int(&mut self.common_attack_target).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.common_attack_target)
+            .map_err(|e| e.to_string())?;
 
         // Team relations (C++ Team.cpp line 2685)
         self.team_relations.xfer(xfer)?;
@@ -2414,14 +2476,16 @@ impl TeamPrototype {
     ///
     /// Corresponds to C++ TeamPrototype::increaseAIPriorityForSuccess()
     pub fn increase_ai_priority_for_success(&mut self) {
-        self.team_template.production_priority += self.team_template.production_priority_success_increase;
+        self.team_template.production_priority +=
+            self.team_template.production_priority_success_increase;
     }
 
     /// Make a team less likely to be selected by the AI for building due to failure
     ///
     /// Corresponds to C++ TeamPrototype::decreaseAIPriorityForFailure()
     pub fn decrease_ai_priority_for_failure(&mut self) {
-        self.team_template.production_priority -= self.team_template.production_priority_failure_decrease;
+        self.team_template.production_priority -=
+            self.team_template.production_priority_failure_decrease;
     }
 
     /// Evaluate the team's production condition
@@ -2550,7 +2614,9 @@ impl TeamPrototype {
                         continue;
                     }
                     let member_kind = member.get_kind_of_mask();
-                    if member_kind.contains(KindOfMask::STRUCTURE) && member_kind.contains_all(kind_of) {
+                    if member_kind.contains(KindOfMask::STRUCTURE)
+                        && member_kind.contains_all(kind_of)
+                    {
                         return true;
                     }
                 }
@@ -2660,12 +2726,14 @@ impl Snapshotable for TeamPrototype {
         // Version info - C++ uses version 2
         const CURRENT_VERSION: XferVersion = 2;
         let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
 
         // Owning player index (saved as player index, resolved to player pointer on load)
         // In this implementation, we store the player index as a simple i32
         let mut owning_player_index: i32 = self.owning_player.map(|p| p as i32).unwrap_or(-1);
-        xfer.xfer_int(&mut owning_player_index).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut owning_player_index)
+            .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Load {
             self.owning_player = if owning_player_index >= 0 {
                 Some(owning_player_index as usize)
@@ -2689,14 +2757,16 @@ impl Snapshotable for TeamPrototype {
 
         // Xfer team instance count
         let mut instance_count = self.team_instances.len() as u16;
-        xfer.xfer_unsigned_short(&mut instance_count).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_short(&mut instance_count)
+            .map_err(|e| e.to_string())?;
 
         // Xfer each team instance
         if xfer.get_xfer_mode() == XferMode::Save {
             for team in &mut self.team_instances {
                 // Write team ID
                 let mut team_id = team.id;
-                xfer.xfer_unsigned_int(&mut team_id).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_int(&mut team_id)
+                    .map_err(|e| e.to_string())?;
                 // Xfer team data
                 team.xfer(xfer)?;
             }
@@ -2707,7 +2777,8 @@ impl Snapshotable for TeamPrototype {
             for _ in 0..instance_count {
                 // Read team ID
                 let mut team_id: TeamID = TEAM_ID_INVALID;
-                xfer.xfer_unsigned_int(&mut team_id).map_err(|e| e.to_string())?;
+                xfer.xfer_unsigned_int(&mut team_id)
+                    .map_err(|e| e.to_string())?;
 
                 // Create team with ID
                 let mut team = Team::with_id(self.name.clone(), team_id);
@@ -2901,7 +2972,10 @@ impl TeamFactory {
     }
 
     /// Find a mutable team prototype by ID
-    pub fn find_team_prototype_by_id_mut(&mut self, id: TeamPrototypeID) -> Option<&mut TeamPrototype> {
+    pub fn find_team_prototype_by_id_mut(
+        &mut self,
+        id: TeamPrototypeID,
+    ) -> Option<&mut TeamPrototype> {
         self.prototypes.values_mut().find(|p| p.get_id() == id)
     }
 
@@ -3072,7 +3146,8 @@ impl Snapshotable for TeamFactory {
         // Version
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
 
         // Unique team ID counter
         xfer.xfer_unsigned_int(&mut self.unique_team_id)
@@ -3080,7 +3155,8 @@ impl Snapshotable for TeamFactory {
 
         // Prototype count
         let mut prototype_count = self.prototypes.len() as u16;
-        xfer.xfer_unsigned_short(&mut prototype_count).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_short(&mut prototype_count)
+            .map_err(|e| e.to_string())?;
 
         // Verify count matches (prototypes cannot change during runtime)
         if prototype_count as usize != self.prototypes.len() {

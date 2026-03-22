@@ -510,32 +510,32 @@ pub fn do_shadows(rinfo: &mut RenderInfo, stencil_pass: bool) {
     // Store the camera frustum for shadow culling
     // C++: shadowCameraFrustum = &rinfo.Camera.Get_Frustum();
     let camera_frustum = rinfo.camera_frustum.clone();
-
-    let mgr = manager.read();
-
-    if !mgr.is_shadow_scene() {
-        return;
-    }
+    let (is_shadow_scene, projected_manager, volumetric_manager) = {
+        let mgr = manager.read();
+        (
+            mgr.is_shadow_scene(),
+            mgr.projected_manager.clone(),
+            mgr.volumetric_manager.clone(),
+        )
+    };
 
     let mut projection_count: i32 = 0;
 
     // Projected shadows render first because they may fill the stencil buffer
     // which will be used by the shadow volumes
     // C++: if (stencilPass == FALSE && TheW3DProjectedShadowManager)
-    if !stencil_pass {
-        if let Some(ref proj_manager) = mgr.projected_manager {
-            drop(mgr);
+    if !stencil_pass && is_shadow_scene {
+        if let Some(proj_manager) = projected_manager {
             projection_count = proj_manager.write().render_shadows(rinfo);
         }
     }
 
     // C++: if (stencilPass == TRUE && TheW3DVolumetricShadowManager)
-    if stencil_pass {
+    if stencil_pass && is_shadow_scene {
         // Restore camera frustum for volumetric shadows
         rinfo.camera_frustum = camera_frustum;
 
-        if let Some(ref vol_manager) = mgr.volumetric_manager {
-            drop(mgr);
+        if let Some(vol_manager) = volumetric_manager {
             vol_manager.write().render_shadows(projection_count, false);
         }
     }
@@ -565,6 +565,20 @@ impl Default for RenderInfo {
     }
 }
 
+impl RenderInfo {
+    /// Attach a frame number for downstream systems that need stable sequencing.
+    pub fn with_frame_number(mut self, frame_number: u64) -> Self {
+        self.frame_number = frame_number;
+        self
+    }
+
+    /// Attach a camera frustum for downstream culling-sensitive systems.
+    pub fn with_camera_frustum(mut self, camera_frustum: Option<Frustum>) -> Self {
+        self.camera_frustum = camera_frustum;
+        self
+    }
+}
+
 /// Frustum for culling (abstraction for FrustumClass)
 #[derive(Debug, Clone)]
 pub struct Frustum {
@@ -576,6 +590,101 @@ impl Default for Frustum {
     fn default() -> Self {
         Self {
             planes: [Vec4::ZERO; 6],
+        }
+    }
+}
+
+impl Frustum {
+    /// Build a frustum from the available camera state.
+    pub fn from_camera(
+        camera_position: Vec3,
+        camera_direction: Vec3,
+        near_z: f32,
+        far_z: f32,
+        fov_degrees: f32,
+    ) -> Self {
+        fn plane_from_points(a: Vec3, b: Vec3, c: Vec3, inside_point: Vec3) -> Vec4 {
+            let mut normal = (b - a).cross(c - a);
+            if normal.length_squared() <= f32::EPSILON {
+                return Vec4::ZERO;
+            }
+
+            normal = normal.normalize();
+            let mut distance = -normal.dot(a);
+            if normal.dot(inside_point) + distance < 0.0 {
+                normal = -normal;
+                distance = -distance;
+            }
+
+            Vec4::new(normal.x, normal.y, normal.z, distance)
+        }
+
+        let mut forward = if camera_direction.length_squared() > f32::EPSILON {
+            camera_direction.normalize()
+        } else {
+            Vec3::new(0.0, 0.0, 1.0)
+        };
+
+        if forward.length_squared() <= f32::EPSILON {
+            forward = Vec3::new(0.0, 0.0, 1.0);
+        }
+
+        let mut up_hint = Vec3::Y;
+        if forward.dot(up_hint).abs() > 0.99 {
+            up_hint = Vec3::Z;
+        }
+
+        let mut right = forward.cross(up_hint);
+        if right.length_squared() <= f32::EPSILON {
+            right = Vec3::X;
+        } else {
+            right = right.normalize();
+        }
+
+        let mut up = right.cross(forward);
+        if up.length_squared() <= f32::EPSILON {
+            up = Vec3::Y;
+        } else {
+            up = up.normalize();
+        }
+
+        let near_z = near_z.max(0.001);
+        let far_z = far_z.max(near_z + 0.001);
+        let fov_radians = fov_degrees
+            .to_radians()
+            .clamp(0.01, std::f32::consts::PI - 0.01);
+        let half_tan = (fov_radians * 0.5).tan();
+        let aspect_ratio = 1.0f32;
+
+        let near_half_height = near_z * half_tan;
+        let near_half_width = near_half_height * aspect_ratio;
+        let far_half_height = far_z * half_tan;
+        let far_half_width = far_half_height * aspect_ratio;
+
+        let near_center = camera_position + forward * near_z;
+        let far_center = camera_position + forward * far_z;
+
+        let ntl = near_center + up * near_half_height - right * near_half_width;
+        let ntr = near_center + up * near_half_height + right * near_half_width;
+        let nbl = near_center - up * near_half_height - right * near_half_width;
+        let nbr = near_center - up * near_half_height + right * near_half_width;
+
+        let ftl = far_center + up * far_half_height - right * far_half_width;
+        let ftr = far_center + up * far_half_height + right * far_half_width;
+        let fbl = far_center - up * far_half_height - right * far_half_width;
+        let fbr = far_center - up * far_half_height + right * far_half_width;
+
+        let inside_point = camera_position + forward * ((near_z + far_z) * 0.5);
+
+        Self {
+            planes: [
+                plane_from_points(ntl, ntr, nbr, inside_point),
+                plane_from_points(ftl, fbl, fbr, inside_point),
+                plane_from_points(camera_position, nbl, ntl, inside_point),
+                plane_from_points(camera_position, ntr, nbr, inside_point),
+                plane_from_points(camera_position, ntl, ntr, inside_point),
+                plane_from_points(camera_position, nbr, nbl, inside_point),
+            ],
         }
     }
 }

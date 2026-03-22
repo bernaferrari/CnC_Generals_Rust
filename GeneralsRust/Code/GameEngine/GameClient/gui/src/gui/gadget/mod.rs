@@ -113,11 +113,13 @@ pub fn render_port(port: &GadgetPort) -> gpui::AnyElement {
             "Build progress",
             &gadget_progress_bar::ProgressBarState::new(66),
         ),
-        GadgetKind::StaticText => gadget_static_text::render(&gadget_static_text::StaticTextState {
-            label: "Mission Briefing".to_string(),
-            body: "Destroy the enemy command center before reinforcements arrive.".to_string(),
-            font_name: None,
-        }),
+        GadgetKind::StaticText => {
+            gadget_static_text::render(&gadget_static_text::StaticTextState {
+                label: "Mission Briefing".to_string(),
+                body: "Destroy the enemy command center before reinforcements arrive.".to_string(),
+                font_name: None,
+            })
+        }
         GadgetKind::TextEntry => {
             let state = gadget_text_entry::TextEntryState {
                 text: "PlayerName_01".to_string(),

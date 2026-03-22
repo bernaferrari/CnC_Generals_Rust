@@ -1538,7 +1538,8 @@ impl WaterManager {
                 }
             }
 
-            segment.dirty = true;
+            // Flow simulation updates per-vertex velocity fields directly; do not force a full
+            // geometry regeneration every frame.
         }
 
         Ok(())

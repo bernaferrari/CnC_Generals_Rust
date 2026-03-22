@@ -102,11 +102,12 @@ impl GlobalData {
             info!("Resolved INI path {:?} -> {:?}", requested, path);
         }
 
-        let contents = Self::read_ini_text(&path).map_err(|err| {
-            anyhow::anyhow!("Failed to read INI '{}': {}", path.display(), err)
-        })?;
+        let contents = Self::read_ini_text(&path)
+            .map_err(|err| anyhow::anyhow!("Failed to read INI '{}': {}", path.display(), err))?;
 
-        let result = self.ini_parser.load_from_string(&contents, LoadMode::MultiFile)?;
+        let result = self
+            .ini_parser
+            .load_from_string(&contents, LoadMode::MultiFile)?;
 
         // Load specific settings from the INI
         self.load_settings_from_ini();
@@ -240,6 +241,18 @@ impl GlobalData {
         runtime.max_camera_height = self.max_camera_height;
         runtime.ini_crc = self.ini_crc;
         runtime.set_user_data_dir(self.user_data_path.to_string_lossy().into_owned());
+        runtime.set_override(
+            "language",
+            runtime_global_data::GlobalValue::String(self.language.clone()),
+        );
+        if let Some(active_mod) = &self.active_mod {
+            runtime.set_override(
+                "active_mod",
+                runtime_global_data::GlobalValue::String(active_mod.clone()),
+            );
+        } else {
+            runtime.clear_override("active_mod");
+        }
     }
 
     /// Calculate CRC of all loaded INI data
@@ -297,6 +310,12 @@ impl GlobalData {
     /// Override the current language (matches -lang).
     pub fn set_language<S: Into<String>>(&mut self, language: S) {
         self.language = language.into();
+        if let Ok(mut runtime) = runtime_global_data::write_safe() {
+            runtime.set_override(
+                "language",
+                runtime_global_data::GlobalValue::String(self.language.clone()),
+            );
+        }
         info!("Language override set to '{}'", self.language);
     }
 
@@ -312,6 +331,16 @@ impl GlobalData {
             self.active_mod = None;
         } else {
             self.active_mod = Some(name);
+        }
+        if let Ok(mut runtime) = runtime_global_data::write_safe() {
+            if let Some(active_mod) = &self.active_mod {
+                runtime.set_override(
+                    "active_mod",
+                    runtime_global_data::GlobalValue::String(active_mod.clone()),
+                );
+            } else {
+                runtime.clear_override("active_mod");
+            }
         }
         match &self.active_mod {
             Some(name) => info!("Mod override enabled: {}", name),

@@ -1364,7 +1364,9 @@ impl ScriptActionDispatcher {
         );
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let Some(team_center) = self.compute_team_center_and_first(&team_arc).map(|(center, _)| center)
+        let Some(team_center) = self
+            .compute_team_center_and_first(&team_arc)
+            .map(|(center, _)| center)
         else {
             return Ok(ScriptActionResult::Success);
         };
@@ -3816,8 +3818,10 @@ impl ScriptActionDispatcher {
 
             if let Ok(mut ai) = ai_arc.lock() {
                 let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
-                let params =
-                    AiCommandParams::new(AiCommandType::WanderInPlace, CommandSourceType::FromScript);
+                let params = AiCommandParams::new(
+                    AiCommandType::WanderInPlace,
+                    CommandSourceType::FromScript,
+                );
                 let _ = ai.execute_command(&params);
             };
         }
@@ -4864,7 +4868,9 @@ impl ScriptActionDispatcher {
         );
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let Some(team_center) = self.compute_team_center_and_first(&team_arc).map(|(center, _)| center)
+        let Some(team_center) = self
+            .compute_team_center_and_first(&team_arc)
+            .map(|(center, _)| center)
         else {
             return Ok(ScriptActionResult::Success);
         };

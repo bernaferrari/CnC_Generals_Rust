@@ -1096,8 +1096,7 @@ impl ObjectFactory {
                 {
                     warn!(
                         "Descriptor for draw module '{}' missing during drawable init (object {})",
-                        module_name,
-                        object_id
+                        module_name, object_id
                     );
                     continue;
                 }
@@ -1185,7 +1184,9 @@ impl ObjectFactory {
                             warn!("ModuleFactory still not initialised after retry while creating draw modules");
                         }
                     }
-                    Err(_) => warn!("Failed to lock ModuleFactory after retry while creating draw modules"),
+                    Err(_) => warn!(
+                        "Failed to lock ModuleFactory after retry while creating draw modules"
+                    ),
                 }
             } else {
                 warn!("ModuleFactory initialisation failed while creating draw modules");

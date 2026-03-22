@@ -42,9 +42,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::input::{
-    InputEvent, KeyCode, KeyModifiers, MouseButton,
-};
+use crate::input::{InputEvent, KeyCode, KeyModifiers, MouseButton};
 use gamelogic::commands::CommandType;
 
 // ---------------------------------------------------------------------------
@@ -71,7 +69,12 @@ pub enum GameCommandArg {
     ObjectID(u32),
     Location(f32, f32, f32),
     Pixel(i32, i32),
-    PixelRegion { left: i32, top: i32, right: i32, bottom: i32 },
+    PixelRegion {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    },
 }
 
 impl GameCommand {
@@ -81,7 +84,11 @@ impl GameCommand {
         for id in objects {
             args.push(GameCommandArg::ObjectID(id));
         }
-        Self { command_type: CommandType::DoMoveTo, arguments: args, player_index: player }
+        Self {
+            command_type: CommandType::DoMoveTo,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create an attack-object command.
@@ -90,19 +97,37 @@ impl GameCommand {
         for id in attackers {
             args.push(GameCommandArg::ObjectID(id));
         }
-        Self { command_type: CommandType::DoAttackObject, arguments: args, player_index: player }
+        Self {
+            command_type: CommandType::DoAttackObject,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create a stop command.
     pub fn stop(objects: Vec<u32>, player: i32) -> Self {
-        let args: Vec<GameCommandArg> = objects.iter().map(|&id| GameCommandArg::ObjectID(id)).collect();
-        Self { command_type: CommandType::DoStop, arguments: args, player_index: player }
+        let args: Vec<GameCommandArg> = objects
+            .iter()
+            .map(|&id| GameCommandArg::ObjectID(id))
+            .collect();
+        Self {
+            command_type: CommandType::DoStop,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create a scatter command.
     pub fn scatter(objects: Vec<u32>, player: i32) -> Self {
-        let args: Vec<GameCommandArg> = objects.iter().map(|&id| GameCommandArg::ObjectID(id)).collect();
-        Self { command_type: CommandType::DoScatter, arguments: args, player_index: player }
+        let args: Vec<GameCommandArg> = objects
+            .iter()
+            .map(|&id| GameCommandArg::ObjectID(id))
+            .collect();
+        Self {
+            command_type: CommandType::DoScatter,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create a guard-position command.
@@ -111,7 +136,11 @@ impl GameCommand {
         for id in objects {
             args.push(GameCommandArg::ObjectID(id));
         }
-        Self { command_type: CommandType::DoGuardPosition, arguments: args, player_index: player }
+        Self {
+            command_type: CommandType::DoGuardPosition,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create an attack-move command.
@@ -120,7 +149,11 @@ impl GameCommand {
         for id in objects {
             args.push(GameCommandArg::ObjectID(id));
         }
-        Self { command_type: CommandType::DoAttackMoveTo, arguments: args, player_index: player }
+        Self {
+            command_type: CommandType::DoAttackMoveTo,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create a force-move command.
@@ -129,14 +162,23 @@ impl GameCommand {
         for id in objects {
             args.push(GameCommandArg::ObjectID(id));
         }
-        Self { command_type: CommandType::DoForceMoveTo, arguments: args, player_index: player }
+        Self {
+            command_type: CommandType::DoForceMoveTo,
+            arguments: args,
+            player_index: player,
+        }
     }
 
     /// Convenience: create an area-selection command.
     pub fn area_selection(left: i32, top: i32, right: i32, bottom: i32, player: i32) -> Self {
         Self {
             command_type: CommandType::AreaSelection,
-            arguments: vec![GameCommandArg::PixelRegion { left, top, right, bottom }],
+            arguments: vec![GameCommandArg::PixelRegion {
+                left,
+                top,
+                right,
+                bottom,
+            }],
             player_index: player,
         }
     }
@@ -165,7 +207,11 @@ impl GameCommand {
         for id in objects {
             args.push(GameCommandArg::ObjectID(id));
         }
-        Self { command_type: CommandType::AddWaypoint, arguments: args, player_index: player }
+        Self {
+            command_type: CommandType::AddWaypoint,
+            arguments: args,
+            player_index: player,
+        }
     }
 }
 
@@ -321,31 +367,44 @@ impl GameInputHandler {
     // -----------------------------------------------------------------------
 
     /// Process a single input event and return any resulting game commands.
-    pub fn process_input_event(&mut self, event: &InputEvent, modifiers: KeyModifiers) -> Vec<GameCommand> {
+    pub fn process_input_event(
+        &mut self,
+        event: &InputEvent,
+        modifiers: KeyModifiers,
+    ) -> Vec<GameCommand> {
         let mut commands = Vec::new();
 
         match event {
             // --- Mouse button press / release ------------------------------------
-            InputEvent::MouseButtonPressed { button, x, y, click_count, timestamp } => {
-                match button {
-                    MouseButton::Left => {
-                        self.handle_left_button_down(*x, *y, *click_count, *timestamp, modifiers, &mut commands);
-                    }
-                    MouseButton::Right => {
-                        self.handle_right_button_down(*x, *y, modifiers, &mut commands);
-                    }
-                    _ => {}
+            InputEvent::MouseButtonPressed {
+                button,
+                x,
+                y,
+                click_count,
+                timestamp,
+            } => match button {
+                MouseButton::Left => {
+                    self.handle_left_button_down(
+                        *x,
+                        *y,
+                        *click_count,
+                        *timestamp,
+                        modifiers,
+                        &mut commands,
+                    );
                 }
-            }
+                MouseButton::Right => {
+                    self.handle_right_button_down(*x, *y, modifiers, &mut commands);
+                }
+                _ => {}
+            },
 
-            InputEvent::MouseButtonReleased { button, x, y, .. } => {
-                match button {
-                    MouseButton::Left => {
-                        self.handle_left_button_up(*x, *y, modifiers, &mut commands);
-                    }
-                    _ => {}
+            InputEvent::MouseButtonReleased { button, x, y, .. } => match button {
+                MouseButton::Left => {
+                    self.handle_left_button_up(*x, *y, modifiers, &mut commands);
                 }
-            }
+                _ => {}
+            },
 
             // --- Mouse drag (continuous) ----------------------------------------
             InputEvent::MouseMoved { x, y, .. } => {
@@ -360,7 +419,11 @@ impl GameInputHandler {
             }
 
             // --- Keyboard press -------------------------------------------------
-            InputEvent::KeyPressed { key, modifiers: mods, .. } => {
+            InputEvent::KeyPressed {
+                key,
+                modifiers: mods,
+                ..
+            } => {
                 self.handle_key_press(*key, *mods, &mut commands);
             }
 
@@ -379,7 +442,11 @@ impl GameInputHandler {
     }
 
     /// Convenience: process a batch of events.
-    pub fn process_input_events(&mut self, events: &[InputEvent], modifiers: KeyModifiers) -> Vec<GameCommand> {
+    pub fn process_input_events(
+        &mut self,
+        events: &[InputEvent],
+        modifiers: KeyModifiers,
+    ) -> Vec<GameCommand> {
         let mut all_commands = Vec::new();
         for event in events {
             all_commands.extend(self.process_input_event(event, modifiers));
@@ -402,7 +469,8 @@ impl GameInputHandler {
 
     fn handle_left_button_down(
         &mut self,
-        x: f32, y: f32,
+        x: f32,
+        y: f32,
         click_count: u32,
         timestamp: Instant,
         modifiers: KeyModifiers,
@@ -482,7 +550,8 @@ impl GameInputHandler {
 
     fn handle_left_button_up(
         &mut self,
-        x: f32, y: f32,
+        x: f32,
+        y: f32,
         _modifiers: KeyModifiers,
         commands: &mut Vec<GameCommand>,
     ) {
@@ -495,7 +564,11 @@ impl GameInputHandler {
                 let bottom = ay.max(y) as i32;
 
                 commands.push(GameCommand::area_selection(
-                    left, top, right, bottom, self.player_index,
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    self.player_index,
                 ));
             } else {
                 // Single click (not a drag).
@@ -524,7 +597,8 @@ impl GameInputHandler {
 
     fn handle_right_button_down(
         &mut self,
-        x: f32, y: f32,
+        x: f32,
+        y: f32,
         modifiers: KeyModifiers,
         commands: &mut Vec<GameCommand>,
     ) {
@@ -541,7 +615,9 @@ impl GameInputHandler {
             // Force-attack: attack target or ground.
             if let Some(tid) = target_id {
                 commands.push(GameCommand::attack_object(
-                    self.selected_objects.clone(), tid, self.player_index,
+                    self.selected_objects.clone(),
+                    tid,
+                    self.player_index,
                 ));
             } else {
                 commands.push(GameCommand {
@@ -559,7 +635,11 @@ impl GameInputHandler {
         if modifiers.contains(KeyModifiers::ALT) {
             // Force-move (ignore enemies, move through).
             commands.push(GameCommand::force_move_to(
-                self.selected_objects.clone(), world.0, world.1, world.2, self.player_index,
+                self.selected_objects.clone(),
+                world.0,
+                world.1,
+                world.2,
+                self.player_index,
             ));
             return;
         }
@@ -567,7 +647,11 @@ impl GameInputHandler {
         // Shift held = queue waypoint.
         if modifiers.contains(KeyModifiers::SHIFT) {
             commands.push(GameCommand::add_waypoint(
-                self.selected_objects.clone(), world.0, world.1, world.2, self.player_index,
+                self.selected_objects.clone(),
+                world.0,
+                world.1,
+                world.2,
+                self.player_index,
             ));
             return;
         }
@@ -584,21 +668,35 @@ impl GameInputHandler {
             // object ownership and capabilities.  We emit a hint-style
             // command that the logic layer can re-interpret.
             commands.push(GameCommand::attack_object(
-                self.selected_objects.clone(), tid, self.player_index,
+                self.selected_objects.clone(),
+                tid,
+                self.player_index,
             ));
         } else {
             // Right-click on empty ground = move.
             if self.cursor_mode == CursorMode::AttackMove {
                 commands.push(GameCommand::attack_move_to(
-                    self.selected_objects.clone(), world.0, world.1, world.2, self.player_index,
+                    self.selected_objects.clone(),
+                    world.0,
+                    world.1,
+                    world.2,
+                    self.player_index,
                 ));
             } else if self.cursor_mode == CursorMode::Waypoint {
                 commands.push(GameCommand::add_waypoint(
-                    self.selected_objects.clone(), world.0, world.1, world.2, self.player_index,
+                    self.selected_objects.clone(),
+                    world.0,
+                    world.1,
+                    world.2,
+                    self.player_index,
                 ));
             } else {
                 commands.push(GameCommand::move_to(
-                    self.selected_objects.clone(), world.0, world.1, world.2, self.player_index,
+                    self.selected_objects.clone(),
+                    world.0,
+                    world.1,
+                    world.2,
+                    self.player_index,
                 ));
             }
         }
@@ -621,7 +719,8 @@ impl GameInputHandler {
             if modifiers.contains(KeyModifiers::CTRL) {
                 self.control_groups[group_idx] = self.selected_objects.clone();
                 commands.push(GameCommand::create_selected_group(
-                    group_idx as u8, self.player_index,
+                    group_idx as u8,
+                    self.player_index,
                 ));
                 return;
             }
@@ -642,10 +741,16 @@ impl GameInputHandler {
                     if modifiers.contains(KeyModifiers::ALT) {
                         // Alt+N = select group AND move camera to center of group.
                         self.selected_objects = group.clone();
-                        commands.push(GameCommand::select_group(group_idx as u8, self.player_index));
+                        commands.push(GameCommand::select_group(
+                            group_idx as u8,
+                            self.player_index,
+                        ));
                     } else {
                         self.selected_objects = group.clone();
-                        commands.push(GameCommand::select_group(group_idx as u8, self.player_index));
+                        commands.push(GameCommand::select_group(
+                            group_idx as u8,
+                            self.player_index,
+                        ));
                     }
                 }
             }
@@ -655,10 +760,14 @@ impl GameInputHandler {
         // Game-command hotkeys (only when selection is non-empty).
         if !self.selected_objects.is_empty() {
             match key {
-                KeyCode::S if !modifiers.contains(KeyModifiers::CTRL) && !modifiers.contains(KeyModifiers::ALT) => {
+                KeyCode::S
+                    if !modifiers.contains(KeyModifiers::CTRL)
+                        && !modifiers.contains(KeyModifiers::ALT) =>
+                {
                     // S = Stop
                     commands.push(GameCommand::stop(
-                        self.selected_objects.clone(), self.player_index,
+                        self.selected_objects.clone(),
+                        self.player_index,
                     ));
                 }
                 KeyCode::G => {
@@ -667,14 +776,19 @@ impl GameInputHandler {
                     // command is issued at the last known selected position.
                     commands.push(GameCommand {
                         command_type: CommandType::DoGuardPosition,
-                        arguments: self.selected_objects.iter().map(|&id| GameCommandArg::ObjectID(id)).collect(),
+                        arguments: self
+                            .selected_objects
+                            .iter()
+                            .map(|&id| GameCommandArg::ObjectID(id))
+                            .collect(),
                         player_index: self.player_index,
                     });
                 }
                 KeyCode::X => {
                     // X = Scatter
                     commands.push(GameCommand::scatter(
-                        self.selected_objects.clone(), self.player_index,
+                        self.selected_objects.clone(),
+                        self.player_index,
                     ));
                 }
                 KeyCode::A if modifiers.contains(KeyModifiers::ALT) => {
@@ -697,7 +811,11 @@ impl GameInputHandler {
                     // D = Deploy (for deployable units like Tunnel Networks)
                     commands.push(GameCommand {
                         command_type: CommandType::MetaDeploy,
-                        arguments: self.selected_objects.iter().map(|&id| GameCommandArg::ObjectID(id)).collect(),
+                        arguments: self
+                            .selected_objects
+                            .iter()
+                            .map(|&id| GameCommandArg::ObjectID(id))
+                            .collect(),
                         player_index: self.player_index,
                     });
                 }
@@ -826,10 +944,14 @@ mod tests {
 
     impl TestContext {
         fn new() -> Self {
-            Self { ground_object_id: Some(42) }
+            Self {
+                ground_object_id: Some(42),
+            }
         }
         fn without_objects() -> Self {
-            Self { ground_object_id: None }
+            Self {
+                ground_object_id: None,
+            }
         }
     }
 
@@ -852,7 +974,8 @@ mod tests {
 
     #[test]
     fn test_right_click_move_to_empty_ground() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1, 2];
 
         let event = InputEvent::MouseButtonPressed {
@@ -889,7 +1012,8 @@ mod tests {
 
     #[test]
     fn test_ctrl_right_click_force_attack() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1];
 
         let event = InputEvent::MouseButtonPressed {
@@ -907,7 +1031,8 @@ mod tests {
 
     #[test]
     fn test_alt_right_click_force_move() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1];
 
         let event = InputEvent::MouseButtonPressed {
@@ -925,7 +1050,8 @@ mod tests {
 
     #[test]
     fn test_key_s_stop() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![5, 6];
 
         let event = InputEvent::KeyPressed {
@@ -941,7 +1067,8 @@ mod tests {
 
     #[test]
     fn test_key_x_scatter() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![5];
 
         let event = InputEvent::KeyPressed {
@@ -957,7 +1084,8 @@ mod tests {
 
     #[test]
     fn test_ctrl_1_creates_group() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![10, 20, 30];
 
         let event = InputEvent::KeyPressed {
@@ -974,7 +1102,8 @@ mod tests {
 
     #[test]
     fn test_recall_group() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.control_groups[2] = vec![99];
 
         let event = InputEvent::KeyPressed {
@@ -991,7 +1120,8 @@ mod tests {
 
     #[test]
     fn test_escape_clears_selection_and_mode() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1, 2, 3];
         handler.cursor_mode = CursorMode::AttackMove;
 
@@ -1008,7 +1138,8 @@ mod tests {
 
     #[test]
     fn test_no_commands_when_selection_empty_and_right_click() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         assert!(handler.selected_objects.is_empty());
 
         let event = InputEvent::MouseButtonPressed {
@@ -1024,7 +1155,8 @@ mod tests {
 
     #[test]
     fn test_shift_right_click_queues_waypoint() {
-        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
+        let mut handler =
+            GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1];
 
         let event = InputEvent::MouseButtonPressed {

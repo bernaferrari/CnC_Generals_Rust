@@ -1692,11 +1692,17 @@ End
     #[test]
     fn test_helper_ensure_ocl_lookup_does_not_create_placeholder() {
         let missing = "OCL_Missing_ParityTest_20260302_Batch83";
-        assert!(crate::helpers::TheObjectCreationListStore::find_object_creation_list(missing)
-            .is_none());
-        assert!(crate::helpers::TheObjectCreationListStore::ensure_object_creation_list(missing)
-            .is_none());
-        assert!(crate::helpers::TheObjectCreationListStore::find_object_creation_list(missing)
-            .is_none());
+        assert!(
+            crate::helpers::TheObjectCreationListStore::find_object_creation_list(missing)
+                .is_none()
+        );
+        assert!(
+            crate::helpers::TheObjectCreationListStore::ensure_object_creation_list(missing)
+                .is_none()
+        );
+        assert!(
+            crate::helpers::TheObjectCreationListStore::find_object_creation_list(missing)
+                .is_none()
+        );
     }
 }

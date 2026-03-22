@@ -3067,9 +3067,7 @@ impl MeshClass {
         let far_plane = render_info.camera.get_far_plane();
         let forward_depth = -view_center.z;
 
-        if forward_depth + sphere.radius < near_plane
-            || forward_depth - sphere.radius > far_plane
-        {
+        if forward_depth + sphere.radius < near_plane || forward_depth - sphere.radius > far_plane {
             return false;
         }
 

@@ -187,7 +187,11 @@ pub trait AIPlayerTrait: Send + Sync {
     fn set_difficulty(&mut self, difficulty: GameDifficulty);
 
     /// Called when a unit is produced
-    fn on_unit_produced(&mut self, _factory_id: ObjectID, _unit_id: ObjectID) -> Result<(), AiError> {
+    fn on_unit_produced(
+        &mut self,
+        _factory_id: ObjectID,
+        _unit_id: ObjectID,
+    ) -> Result<(), AiError> {
         Ok(())
     }
 

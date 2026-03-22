@@ -216,33 +216,33 @@ pub fn init_online_chat_colors() {
 /// Field names and their corresponding indices in the color array
 /// Matches C++ GameSpyColorFieldParse table from Chat.cpp
 const COLOR_FIELD_NAMES: &[(&str, usize)] = &[
-    ("Default", 0),                       // GSCOLOR_DEFAULT
-    ("CurrentRoom", 1),                   // GSCOLOR_CURRENTROOM
-    ("ChatRoom", 2),                      // GSCOLOR_ROOM
-    ("Game", 3),                          // GSCOLOR_GAME
-    ("GameFull", 4),                      // GSCOLOR_GAME_FULL
-    ("GameCRCMismatch", 5),               // GSCOLOR_GAME_CRCMISMATCH
-    ("PlayerNormal", 6),                  // GSCOLOR_PLAYER_NORMAL
-    ("PlayerOwner", 7),                   // GSCOLOR_PLAYER_OWNER
-    ("PlayerBuddy", 8),                   // GSCOLOR_PLAYER_BUDDY
-    ("PlayerSelf", 9),                    // GSCOLOR_PLAYER_SELF
-    ("PlayerIgnored", 10),                // GSCOLOR_PLAYER_IGNORED
-    ("ChatNormal", 11),                   // GSCOLOR_CHAT_NORMAL
-    ("ChatEmote", 12),                    // GSCOLOR_CHAT_EMOTE
-    ("ChatOwner", 13),                    // GSCOLOR_CHAT_OWNER
-    ("ChatOwnerEmote", 14),               // GSCOLOR_CHAT_OWNER_EMOTE
-    ("ChatPriv", 15),                     // GSCOLOR_CHAT_PRIVATE
-    ("ChatPrivEmote", 16),                // GSCOLOR_CHAT_PRIVATE_EMOTE
-    ("ChatPrivOwner", 17),                // GSCOLOR_CHAT_PRIVATE_OWNER
-    ("ChatPrivOwnerEmote", 18),           // GSCOLOR_CHAT_PRIVATE_OWNER_EMOTE
-    ("ChatBuddy", 19),                    // GSCOLOR_CHAT_BUDDY
-    ("ChatSelf", 20),                     // GSCOLOR_CHAT_SELF
-    ("AcceptTrue", 21),                   // GSCOLOR_ACCEPT_TRUE
-    ("AcceptFalse", 22),                  // GSCOLOR_ACCEPT_FALSE
-    ("MapSelected", 23),                  // GSCOLOR_MAP_SELECTED
-    ("MapUnselected", 24),                // GSCOLOR_MAP_UNSELECTED
-    ("MOTD", 25),                         // GSCOLOR_MOTD
-    ("MOTDHeading", 26),                  // GSCOLOR_MOTD_HEADING
+    ("Default", 0),             // GSCOLOR_DEFAULT
+    ("CurrentRoom", 1),         // GSCOLOR_CURRENTROOM
+    ("ChatRoom", 2),            // GSCOLOR_ROOM
+    ("Game", 3),                // GSCOLOR_GAME
+    ("GameFull", 4),            // GSCOLOR_GAME_FULL
+    ("GameCRCMismatch", 5),     // GSCOLOR_GAME_CRCMISMATCH
+    ("PlayerNormal", 6),        // GSCOLOR_PLAYER_NORMAL
+    ("PlayerOwner", 7),         // GSCOLOR_PLAYER_OWNER
+    ("PlayerBuddy", 8),         // GSCOLOR_PLAYER_BUDDY
+    ("PlayerSelf", 9),          // GSCOLOR_PLAYER_SELF
+    ("PlayerIgnored", 10),      // GSCOLOR_PLAYER_IGNORED
+    ("ChatNormal", 11),         // GSCOLOR_CHAT_NORMAL
+    ("ChatEmote", 12),          // GSCOLOR_CHAT_EMOTE
+    ("ChatOwner", 13),          // GSCOLOR_CHAT_OWNER
+    ("ChatOwnerEmote", 14),     // GSCOLOR_CHAT_OWNER_EMOTE
+    ("ChatPriv", 15),           // GSCOLOR_CHAT_PRIVATE
+    ("ChatPrivEmote", 16),      // GSCOLOR_CHAT_PRIVATE_EMOTE
+    ("ChatPrivOwner", 17),      // GSCOLOR_CHAT_PRIVATE_OWNER
+    ("ChatPrivOwnerEmote", 18), // GSCOLOR_CHAT_PRIVATE_OWNER_EMOTE
+    ("ChatBuddy", 19),          // GSCOLOR_CHAT_BUDDY
+    ("ChatSelf", 20),           // GSCOLOR_CHAT_SELF
+    ("AcceptTrue", 21),         // GSCOLOR_ACCEPT_TRUE
+    ("AcceptFalse", 22),        // GSCOLOR_ACCEPT_FALSE
+    ("MapSelected", 23),        // GSCOLOR_MAP_SELECTED
+    ("MapUnselected", 24),      // GSCOLOR_MAP_UNSELECTED
+    ("MOTD", 25),               // GSCOLOR_MOTD
+    ("MOTDHeading", 26),        // GSCOLOR_MOTD_HEADING
 ];
 
 /// Find the field index for a given field name
@@ -316,7 +316,9 @@ fn parse_color_int(tokens: &[&str]) -> INIResult<u32> {
     let a = a.unwrap_or(255);
 
     // Return packed ARGB color (matches C++ GameMakeColor)
-    Ok(OnlineChatColors::make_color(r as u8, g as u8, b as u8, a as u8))
+    Ok(OnlineChatColors::make_color(
+        r as u8, g as u8, b as u8, a as u8,
+    ))
 }
 
 /// Parse the OnlineChatColors INI block
@@ -356,7 +358,7 @@ pub fn parse_online_chat_color_definition(ini: &mut INI) -> INIResult<()> {
 
         // Find the field index
         let field_name = first.trim_end_matches(':');
-        
+
         if let Some(field_index) = find_field_index(field_name) {
             // Get the value tokens (everything after '=' or the field name)
             let value_tokens: Vec<&str> = tokens
@@ -444,18 +446,9 @@ mod tests {
         let colors = OnlineChatColors::new();
 
         // Verify default color values match C++ defaults
-        assert_eq!(
-            colors.get_color(GSColorIndex::Default),
-            0xFFFFFFFF
-        );
-        assert_eq!(
-            colors.get_color(GSColorIndex::CurrentRoom),
-            0xFFFFFF00
-        );
-        assert_eq!(
-            colors.get_color(GSColorIndex::PlayerSelf),
-            0xFFFF0000
-        );
+        assert_eq!(colors.get_color(GSColorIndex::Default), 0xFFFFFFFF);
+        assert_eq!(colors.get_color(GSColorIndex::CurrentRoom), 0xFFFFFF00);
+        assert_eq!(colors.get_color(GSColorIndex::PlayerSelf), 0xFFFF0000);
     }
 
     #[test]
@@ -471,14 +464,8 @@ mod tests {
 
     #[test]
     fn test_gs_color_index() {
-        assert_eq!(
-            GSColorIndex::from_usize(0),
-            Some(GSColorIndex::Default)
-        );
-        assert_eq!(
-            GSColorIndex::from_usize(9),
-            Some(GSColorIndex::PlayerSelf)
-        );
+        assert_eq!(GSColorIndex::from_usize(0), Some(GSColorIndex::Default));
+        assert_eq!(GSColorIndex::from_usize(9), Some(GSColorIndex::PlayerSelf));
         assert_eq!(GSColorIndex::from_usize(27), None);
     }
 }

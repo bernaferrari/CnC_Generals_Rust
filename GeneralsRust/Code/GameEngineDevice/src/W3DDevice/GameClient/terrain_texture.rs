@@ -17,7 +17,7 @@ use wgpu::{
     FilterMode, TextureViewDescriptor, ImageCopyTexture, ImageDataLayout, Origin3d,
 };
 use std::sync::Arc;
-use anyhow::{Result, Context};
+use anyhow::Result;
 
 // Constants from C++ WorldHeightMap.h and TerrainTex.h
 pub const TILE_OFFSET: usize = 8; // TerrainTex.h line 17
@@ -163,7 +163,7 @@ impl TerrainTextureManager {
             blend_texture_view,
             blend_sampler,
             source_tiles: vec![None; NUM_SOURCE_TILES],
-            edge_tiles: vec![None; NUM_SOURCE_TILES],
+            edge_tiles: vec![None; NUM_BLEND_TILES],
             texture_classes: Vec::new(),
             blend_tiles: Vec::with_capacity(NUM_BLEND_TILES),
             extra_blend_tiles: Vec::with_capacity(NUM_BLEND_TILES),
@@ -194,12 +194,13 @@ impl TerrainTextureManager {
     fn create_sampler(device: &Device, label: &str) -> Sampler {
         device.create_sampler(&SamplerDescriptor {
             label: Some(label),
-            address_mode_u: AddressMode::Repeat,
-            address_mode_v: AddressMode::Repeat,
-            address_mode_w: AddressMode::Repeat,
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            // C++ terrain textures clamp at the atlas edge and default to point sampling.
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 100.0,
             compare: None,
@@ -221,7 +222,7 @@ impl TerrainTextureManager {
 
     /// Load an edge blend tile
     pub fn load_edge_tile(&mut self, index: usize, tile: TileData) -> Result<()> {
-        if index >= NUM_SOURCE_TILES {
+        if index >= NUM_BLEND_TILES {
             anyhow::bail!("Edge tile index out of range: {}", index);
         }
 
@@ -412,9 +413,29 @@ impl TerrainTextureManager {
         self.blend_tiles.len() - 1
     }
 
+    /// Resolve a blend tile's four corner alpha values into a single mask value.
+    /// This keeps the output stable while avoiding the top-left bias from alpha[0].
+    fn resolve_blend_alpha(alpha: [u8; 4]) -> u8 {
+        let top = u16::from(alpha[0]) + u16::from(alpha[1]);
+        let bottom = u16::from(alpha[3]) + u16::from(alpha[2]);
+        ((top + bottom + 2) / 4) as u8
+    }
+
+    #[inline]
+    fn clamp_texel(coord: f32) -> u32 {
+        coord
+            .floor()
+            .max(0.0)
+            .min((TERRAIN_TEXTURE_SIZE - 1) as f32) as u32
+    }
+
     /// Generate blend map texture
     /// Corresponds to C++ AlphaEdgeTextureClass::update
     pub fn update_blend_map(&self, map_width: usize, map_height: usize, blend_indices: &[i16]) -> Result<()> {
+        if map_width == 0 || map_height == 0 {
+            return Ok(());
+        }
+
         // Create blend map data (single channel alpha)
         let mut blend_data = vec![0u8; (TERRAIN_TEXTURE_SIZE * TERRAIN_TEXTURE_SIZE * 4) as usize];
 
@@ -431,19 +452,19 @@ impl TerrainTextureManager {
                     if blend_idx >= 0 && (blend_idx as usize) < self.blend_tiles.len() {
                         let blend_info = &self.blend_tiles[blend_idx as usize];
 
-                        // Get alpha value for this tile (simplified - just use first corner)
-                        let alpha = blend_info.alpha[0];
+                        // Resolve the four corner alphas into one representative mask value.
+                        let alpha = Self::resolve_blend_alpha(blend_info.alpha);
 
                         // Write to blend texture
-                        let tex_x = (x as f32 * scale_x) as u32;
-                        let tex_y = (y as f32 * scale_y) as u32;
+                        let tex_x = Self::clamp_texel(x as f32 * scale_x);
+                        let tex_y = Self::clamp_texel(y as f32 * scale_y);
                         let tex_idx = ((tex_y * TERRAIN_TEXTURE_SIZE + tex_x) * 4) as usize;
 
                         if tex_idx + 3 < blend_data.len() {
                             blend_data[tex_idx] = alpha;     // R
                             blend_data[tex_idx + 1] = alpha; // G
                             blend_data[tex_idx + 2] = alpha; // B
-                            blend_data[tex_idx + 3] = 255;   // A
+                            blend_data[tex_idx + 3] = alpha;  // A
                         }
                     }
                 }
@@ -535,5 +556,11 @@ mod tests {
         };
 
         assert_eq!(blend.alpha[0], 255);
+    }
+
+    #[test]
+    fn test_resolve_blend_alpha_uses_all_corners() {
+        assert_eq!(TerrainTextureManager::resolve_blend_alpha([0, 255, 255, 255]), 191);
+        assert_eq!(TerrainTextureManager::resolve_blend_alpha([255, 0, 0, 0]), 64);
     }
 }

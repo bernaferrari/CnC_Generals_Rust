@@ -34,7 +34,7 @@ pub use collision_system::{
 };
 pub use partition_manager::{
     CellCoord, FindPositionFlags, FindPositionOptions, PartitionFilter, PartitionManager,
-    PartitionStatistics, PARTITION_MANAGER, RANDOM_START_ANGLE, ValueOrThreat,
+    PartitionStatistics, ValueOrThreat, PARTITION_MANAGER, RANDOM_START_ANGLE,
 };
 
 use crate::common::{

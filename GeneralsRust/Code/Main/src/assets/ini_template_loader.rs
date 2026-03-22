@@ -202,11 +202,7 @@ fn strip_inline_comment(value: &str) -> String {
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
             b';' | b'#' if !in_single && !in_double => return value[..i].trim_end().to_string(),
-            b'/' if !in_single
-                && !in_double
-                && i + 1 < bytes.len()
-                && bytes[i + 1] == b'/' =>
-            {
+            b'/' if !in_single && !in_double && i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
                 return value[..i].trim_end().to_string();
             }
             _ => {}
@@ -361,7 +357,10 @@ pub async fn load_weapon_templates(
         "Loading weapon templates from {} INI files",
         weapon_files.len()
     );
-    debug!("Weapon INI discovery matched {} file(s)", weapon_files.len());
+    debug!(
+        "Weapon INI discovery matched {} file(s)",
+        weapon_files.len()
+    );
 
     let mut total_weapons = 0usize;
 
@@ -1046,10 +1045,7 @@ End
 
         assert_eq!(sections[1].0, "Science");
         assert_eq!(sections[1].1, "Science_Superweapon");
-        assert_eq!(
-            sections[1].2.get("PrerequisiteSciences").unwrap(),
-            "None"
-        );
+        assert_eq!(sections[1].2.get("PrerequisiteSciences").unwrap(), "None");
     }
 
     #[test]

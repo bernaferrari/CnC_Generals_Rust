@@ -25,8 +25,8 @@ use crate::common::{
     audio::AudioEventRts,
     global_data,
     rts::{
-        AsciiString, Color, NameKeyType, ProductionPrerequisite, Real, UnicodeString, UnsignedByte,
-        UnsignedShort, SCIENCE_INVALID, get_science_store,
+        get_science_store, AsciiString, Color, NameKeyType, ProductionPrerequisite, Real,
+        UnicodeString, UnsignedByte, UnsignedShort, SCIENCE_INVALID,
     },
     system::{
         geometry::{GeometryInfo, GeometryType},
@@ -1629,10 +1629,7 @@ impl ThingTemplate {
                             prereq.add_science_prereq(science_type);
                         } else {
                             #[cfg(any(debug_assertions, feature = "internal"))]
-                            eprintln!(
-                                "WARNING: could not find science prerequisite '{}'",
-                                value
-                            );
+                            eprintln!("WARNING: could not find science prerequisite '{}'", value);
                         }
                     }
                     self.prereq_info.push(prereq);
@@ -1797,7 +1794,10 @@ impl ThingTemplate {
     /// WeaponSet and ArmorSet sub-blocks are handled by their own dedicated
     /// parsers (see `load_weapon_sets_from_definitions` and
     /// `parse_armor_set_from_properties`) and are NOT processed here.
-    pub fn parse_object_fields_from_ini(&mut self, properties: &std::collections::HashMap<String, String>) {
+    pub fn parse_object_fields_from_ini(
+        &mut self,
+        properties: &std::collections::HashMap<String, String>,
+    ) {
         for (key, value) in properties {
             let trimmed = value.trim();
             match key.as_str() {
@@ -1817,10 +1817,14 @@ impl ThingTemplate {
 
                 // --- Physical ---
                 "Scale" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.asset_scale = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.asset_scale = v;
+                    }
                 }
                 "InstanceScaleFuzziness" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.instance_scale_fuzziness = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.instance_scale_fuzziness = v;
+                    }
                 }
 
                 // --- Radar & transport ---
@@ -1828,40 +1832,60 @@ impl ThingTemplate {
                     self.radar_priority = parse_radar_priority(trimmed);
                 }
                 "TransportSlotCount" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.transport_slot_count = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() {
+                        self.transport_slot_count = v;
+                    }
                 }
 
                 // --- Fence / bridge ---
                 "FenceWidth" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.fence_width = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.fence_width = v;
+                    }
                 }
                 "FenceXOffset" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.fence_x_offset = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.fence_x_offset = v;
+                    }
                 }
                 "IsBridge" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_bridge = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.is_bridge = v;
+                    }
                 }
 
                 // --- Vision / shroud ---
                 "VisionRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.vision_range = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.vision_range = v;
+                    }
                 }
                 "ShroudClearingRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_clearing_range = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shroud_clearing_range = v;
+                    }
                 }
                 "ShroudRevealToAllRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_reveal_to_all_range = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shroud_reveal_to_all_range = v;
+                    }
                 }
 
                 // --- Placement / factory ---
                 "PlacementViewAngle" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.placement_view_angle = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.placement_view_angle = v;
+                    }
                 }
                 "FactoryExitWidth" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.factory_exit_width = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.factory_exit_width = v;
+                    }
                 }
                 "FactoryExtraBibWidth" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.factory_extra_bib_width = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.factory_extra_bib_width = v;
+                    }
                 }
 
                 // --- Experience / skill ---
@@ -1875,13 +1899,19 @@ impl ThingTemplate {
                     parse_int_list_into(trimmed, &mut self.experience_required);
                 }
                 "IsTrainable" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_trainable = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.is_trainable = v;
+                    }
                 }
                 "EnterGuard" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.enter_guard = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.enter_guard = v;
+                    }
                 }
                 "HijackGuard" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.hijack_guard = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.hijack_guard = v;
+                    }
                 }
 
                 // --- Side ---
@@ -1894,28 +1924,42 @@ impl ThingTemplate {
                     self.buildable = parse_buildable_status(trimmed);
                 }
                 "BuildCost" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedShort>() { self.build_cost = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedShort>() {
+                        self.build_cost = v;
+                    }
                 }
                 "BuildTime" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.build_time = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.build_time = v;
+                    }
                 }
                 "RefundValue" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedShort>() { self.refund_value = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedShort>() {
+                        self.refund_value = v;
+                    }
                 }
                 "BuildCompletion" => {
                     self.build_completion = parse_build_completion(trimmed);
                 }
                 "EnergyProduction" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.energy_production = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.energy_production = v;
+                    }
                 }
                 "EnergyBonus" => {
-                    if let Ok(v) = trimmed.parse::<i32>() { self.energy_bonus = v; }
+                    if let Ok(v) = trimmed.parse::<i32>() {
+                        self.energy_bonus = v;
+                    }
                 }
                 "IsForbidden" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_forbidden = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.is_forbidden = v;
+                    }
                 }
                 "IsPrerequisite" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.is_prerequisite = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.is_prerequisite = v;
+                    }
                 }
 
                 // --- Command set / build variations ---
@@ -1946,27 +1990,45 @@ impl ThingTemplate {
                 "ButtonImage" => {
                     self.button_image_name = AsciiString::from(trimmed);
                 }
-                "UpgradeCameo1" => { self.upgrade_cameo_upgrade_names[0] = AsciiString::from(trimmed); }
-                "UpgradeCameo2" => { self.upgrade_cameo_upgrade_names[1] = AsciiString::from(trimmed); }
-                "UpgradeCameo3" => { self.upgrade_cameo_upgrade_names[2] = AsciiString::from(trimmed); }
-                "UpgradeCameo4" => { self.upgrade_cameo_upgrade_names[3] = AsciiString::from(trimmed); }
-                "UpgradeCameo5" => { self.upgrade_cameo_upgrade_names[4] = AsciiString::from(trimmed); }
+                "UpgradeCameo1" => {
+                    self.upgrade_cameo_upgrade_names[0] = AsciiString::from(trimmed);
+                }
+                "UpgradeCameo2" => {
+                    self.upgrade_cameo_upgrade_names[1] = AsciiString::from(trimmed);
+                }
+                "UpgradeCameo3" => {
+                    self.upgrade_cameo_upgrade_names[2] = AsciiString::from(trimmed);
+                }
+                "UpgradeCameo4" => {
+                    self.upgrade_cameo_upgrade_names[3] = AsciiString::from(trimmed);
+                }
+                "UpgradeCameo5" => {
+                    self.upgrade_cameo_upgrade_names[4] = AsciiString::from(trimmed);
+                }
 
                 // --- Shadow ---
                 "Shadow" => {
                     self.shadow_type = parse_shadow_type(trimmed);
                 }
                 "ShadowSizeX" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_size_x = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shadow_size_x = v;
+                    }
                 }
                 "ShadowSizeY" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_size_y = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shadow_size_y = v;
+                    }
                 }
                 "ShadowOffsetX" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_offset_x = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shadow_offset_x = v;
+                    }
                 }
                 "ShadowOffsetY" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shadow_offset_y = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shadow_offset_y = v;
+                    }
                 }
                 "ShadowTexture" => {
                     self.shadow_texture_name = AsciiString::from(trimmed);
@@ -1975,12 +2037,16 @@ impl ThingTemplate {
                 // --- Occlusion ---
                 "OcclusionDelay" => {
                     // C++ uses parseDurationUnsignedInt -- frames at 30 FPS
-                    if let Ok(v) = trimmed.parse::<u32>() { self.occlusion_delay = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.occlusion_delay = v;
+                    }
                 }
 
                 // --- Combat ---
                 "ThreatValue" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedShort>() { self.threat_value = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedShort>() {
+                        self.threat_value = v;
+                    }
                 }
                 "MaxSimultaneousOfType" => {
                     if trimmed.eq_ignore_ascii_case("DeterminedBySuperweaponRestriction") {
@@ -1991,15 +2057,21 @@ impl ThingTemplate {
                     }
                 }
                 "CrusherLevel" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.crusher_level = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() {
+                        self.crusher_level = v;
+                    }
                 }
                 "CrushableLevel" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.crushable_level = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() {
+                        self.crushable_level = v;
+                    }
                 }
 
                 // --- Structure ---
                 "StructureRubbleHeight" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedByte>() { self.structure_rubble_height = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() {
+                        self.structure_rubble_height = v;
+                    }
                 }
 
                 // --- Geometry (delegated to GeometryInfo) ---
@@ -2007,16 +2079,24 @@ impl ThingTemplate {
                     self.geometry_info.geometry_type = parse_geometry_type(trimmed);
                 }
                 "GeometryMajorRadius" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.geometry_info.width = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.geometry_info.width = v;
+                    }
                 }
                 "GeometryMinorRadius" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.geometry_info.depth = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.geometry_info.depth = v;
+                    }
                 }
                 "GeometryHeight" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.geometry_info.height = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.geometry_info.height = v;
+                    }
                 }
                 "GeometryIsSmall" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) { self.geometry_info.is_small = v; }
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.geometry_info.is_small = v;
+                    }
                 }
 
                 // --- WeaponSet / ArmorSet are handled separately ---

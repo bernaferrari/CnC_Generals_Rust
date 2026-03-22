@@ -15,6 +15,7 @@
 
 use bytemuck::{Pod, Zeroable};
 use cgmath::{Vector2, Vector3, Vector4, InnerSpace, Matrix4, Point3};
+use wgpu::util::DeviceExt;
 use wgpu::{
     Device, Queue, Buffer, BindGroup, BindGroupLayout, RenderPipeline,
     BufferUsages, TextureFormat, VertexBufferLayout, VertexAttribute,
@@ -116,6 +117,10 @@ pub struct TerrainChunk {
     pub vertex_buffer: Buffer,
     /// Number of vertices in this chunk
     pub vertex_count: usize,
+    /// Number of active cells in this chunk along X
+    pub cell_width: usize,
+    /// Number of active cells in this chunk along Y
+    pub cell_height: usize,
     /// CPU-side vertex backup for dynamic lighting updates (C++ m_vertexBufferBackup)
     pub vertex_backup: Vec<TerrainVertex>,
     /// Is this chunk visible in frustum
@@ -186,8 +191,19 @@ impl HeightMapMesh {
         bind_group_layout: &BindGroupLayout,
     ) -> Result<Self> {
         // Calculate chunk grid (C++ HeightMap.cpp:1323-1339)
-        let num_chunks_x = (width + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
-        let num_chunks_y = (height + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
+        // C++ rounds based on terrain cells, which are one less than the sampled vertex grid.
+        let num_chunks_x = if width == 0 {
+            0
+        } else {
+            ((width - 1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH
+        }
+        .max(1);
+        let num_chunks_y = if height == 0 {
+            0
+        } else {
+            ((height - 1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH
+        }
+        .max(1);
 
         // Create shared index buffer (C++ HeightMap.cpp:1301-1321)
         let index_buffer = Self::create_index_buffer(&device)?;
@@ -256,18 +272,16 @@ impl HeightMapMesh {
     fn create_index_buffer(device: &Device) -> Result<Buffer> {
         let mut indices = Vec::with_capacity(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 2 * 3);
 
-        // Generate index buffer for triangle list (C++ HeightMap.cpp:1307-1320)
-        for j in 0..(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 4) {
-            if j % (VERTEX_BUFFER_TILE_LENGTH * 4) == 0 {
-                continue;
-            }
-            for i in (j..j + VERTEX_BUFFER_TILE_LENGTH * 4).step_by(4) {
-                // First triangle
+        // Generate index buffer for triangle list exactly like C++ HeightMap.cpp:1307-1320.
+        let row_stride = VERTEX_BUFFER_TILE_LENGTH * 4;
+        for row in 0..VERTEX_BUFFER_TILE_LENGTH {
+            let row_start = row * row_stride;
+            for cell in 0..VERTEX_BUFFER_TILE_LENGTH {
+                let i = row_start + cell * 4;
                 indices.push(i as u16);
                 indices.push((i + 2) as u16);
                 indices.push((i + 3) as u16);
 
-                // Second triangle
                 indices.push(i as u16);
                 indices.push((i + 1) as u16);
                 indices.push((i + 2) as u16);
@@ -295,22 +309,24 @@ impl HeightMapMesh {
     ) -> Result<TerrainChunk> {
         let origin_x = chunk_x * VERTEX_BUFFER_TILE_LENGTH;
         let origin_y = chunk_y * VERTEX_BUFFER_TILE_LENGTH;
+        let max_sample_x = map_width.saturating_sub(1);
+        let max_sample_y = map_height.saturating_sub(1);
+        let cell_width = max_sample_x.saturating_sub(origin_x).min(VERTEX_BUFFER_TILE_LENGTH);
+        let cell_height = max_sample_y.saturating_sub(origin_y).min(VERTEX_BUFFER_TILE_LENGTH);
 
-        let end_x = (origin_x + VERTEX_BUFFER_TILE_LENGTH + 1).min(map_width);
-        let end_y = (origin_y + VERTEX_BUFFER_TILE_LENGTH + 1).min(map_height);
+        let mut vertices = Vec::with_capacity(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 4);
 
-        let mut vertices = Vec::new();
-
-        // Generate vertices for this chunk (C++ HeightMap.cpp:310-459)
-        for j in origin_y..end_y {
-            for i in origin_x..end_x {
-                // Create 4 vertices per cell (quad)
-                if i + 1 < map_width && j + 1 < map_height {
-                    let quad_vertices = Self::create_quad_vertices(
-                        i, j, map_width, height_data
-                    );
-                    vertices.extend_from_slice(&quad_vertices);
-                }
+        // Generate vertices for this chunk in row-major order, matching the C++ tile layout.
+        for local_y in 0..VERTEX_BUFFER_TILE_LENGTH {
+            for local_x in 0..VERTEX_BUFFER_TILE_LENGTH {
+                let quad_vertices = Self::create_quad_vertices(
+                    origin_x + local_x,
+                    origin_y + local_y,
+                    map_width,
+                    map_height,
+                    height_data,
+                );
+                vertices.extend_from_slice(&quad_vertices);
             }
         }
 
@@ -330,6 +346,8 @@ impl HeightMapMesh {
             origin_y,
             vertex_buffer,
             vertex_count,
+            cell_width,
+            cell_height,
             vertex_backup,
             visible: true,
             lod_level: 0,
@@ -339,13 +357,17 @@ impl HeightMapMesh {
     /// Create vertices for a single quad
     /// Corresponds to C++ HeightMap.cpp:360-459 updateVB vertex generation
     fn create_quad_vertices(
-        x: usize,
-        y: usize,
+        cell_x: usize,
+        cell_y: usize,
         map_width: usize,
+        map_height: usize,
         height_data: &[u8],
     ) -> [TerrainVertex; 4] {
+        let max_x = map_width.saturating_sub(1);
+        let max_y = map_height.saturating_sub(1);
+
         let get_height = |gx: usize, gy: usize| -> f32 {
-            let idx = gy * map_width + gx;
+            let idx = gy.saturating_mul(map_width).saturating_add(gx);
             if idx < height_data.len() {
                 height_data[idx] as f32 * MAP_HEIGHT_SCALE
             } else {
@@ -355,10 +377,12 @@ impl HeightMapMesh {
 
         // Calculate normals using cross product (C++ HeightMap.cpp:361-368)
         let calc_normal = |cx: usize, cy: usize| -> Vector3<f32> {
-            let h_left = get_height(cx.saturating_sub(1), cy);
-            let h_right = get_height((cx + 1).min(map_width - 1), cy);
-            let h_down = get_height(cx, cy.saturating_sub(1));
-            let h_up = get_height(cx, (cy + 1).min(map_width - 1));
+            let sample_x = cx.min(max_x);
+            let sample_y = cy.min(max_y);
+            let h_left = get_height(sample_x.saturating_sub(1), sample_y);
+            let h_right = get_height((sample_x + 1).min(max_x), sample_y);
+            let h_down = get_height(sample_x, sample_y.saturating_sub(1));
+            let h_up = get_height(sample_x, (sample_y + 1).min(max_y));
 
             let l2r = Vector3::new(2.0 * MAP_XY_FACTOR, 0.0, h_right - h_left);
             let n2f = Vector3::new(0.0, 2.0 * MAP_XY_FACTOR, h_up - h_down);
@@ -382,28 +406,33 @@ impl HeightMapMesh {
         let uv_scale = 1.0 / 64.0; // Texture repeat factor
 
         // Top-left vertex (C++ HeightMap.cpp:360-380)
-        let pos0 = [x as f32 * MAP_XY_FACTOR, y as f32 * MAP_XY_FACTOR, get_height(x, y)];
-        let normal0 = calc_normal(x, y);
+        let x0 = cell_x.min(max_x);
+        let y0 = cell_y.min(max_y);
+        let x1 = cell_x.saturating_add(1).min(max_x);
+        let y1 = cell_y.saturating_add(1).min(max_y);
+
+        let pos0 = [x0 as f32 * MAP_XY_FACTOR, y0 as f32 * MAP_XY_FACTOR, get_height(x0, y0)];
+        let normal0 = calc_normal(x0, y0);
         let diffuse0 = calc_diffuse(normal0);
-        let uv00 = [x as f32 * uv_scale, y as f32 * uv_scale];
+        let uv00 = [x0 as f32 * uv_scale, y0 as f32 * uv_scale];
 
         // Top-right vertex (C++ HeightMap.cpp:382-402)
-        let pos1 = [(x + 1) as f32 * MAP_XY_FACTOR, y as f32 * MAP_XY_FACTOR, get_height(x + 1, y)];
-        let normal1 = calc_normal(x + 1, y);
+        let pos1 = [x1 as f32 * MAP_XY_FACTOR, y0 as f32 * MAP_XY_FACTOR, get_height(x1, y0)];
+        let normal1 = calc_normal(x1, y0);
         let diffuse1 = calc_diffuse(normal1);
-        let uv01 = [(x + 1) as f32 * uv_scale, y as f32 * uv_scale];
+        let uv01 = [x1 as f32 * uv_scale, y0 as f32 * uv_scale];
 
         // Bottom-right vertex (C++ HeightMap.cpp:404-428)
-        let pos2 = [(x + 1) as f32 * MAP_XY_FACTOR, (y + 1) as f32 * MAP_XY_FACTOR, get_height(x + 1, y + 1)];
-        let normal2 = calc_normal(x + 1, y + 1);
+        let pos2 = [x1 as f32 * MAP_XY_FACTOR, y1 as f32 * MAP_XY_FACTOR, get_height(x1, y1)];
+        let normal2 = calc_normal(x1, y1);
         let diffuse2 = calc_diffuse(normal2);
-        let uv02 = [(x + 1) as f32 * uv_scale, (y + 1) as f32 * uv_scale];
+        let uv02 = [x1 as f32 * uv_scale, y1 as f32 * uv_scale];
 
         // Bottom-left vertex (C++ HeightMap.cpp:430-458)
-        let pos3 = [x as f32 * MAP_XY_FACTOR, (y + 1) as f32 * MAP_XY_FACTOR, get_height(x, y + 1)];
-        let normal3 = calc_normal(x, y + 1);
+        let pos3 = [x0 as f32 * MAP_XY_FACTOR, y1 as f32 * MAP_XY_FACTOR, get_height(x0, y1)];
+        let normal3 = calc_normal(x0, y1);
         let diffuse3 = calc_diffuse(normal3);
-        let uv03 = [x as f32 * uv_scale, (y + 1) as f32 * uv_scale];
+        let uv03 = [x0 as f32 * uv_scale, y1 as f32 * uv_scale];
 
         [
             TerrainVertex { position: pos0, diffuse: diffuse0, uv0: uv00, uv1: uv00 },
@@ -415,6 +444,10 @@ impl HeightMapMesh {
 
     /// Calculate height bounds from heightmap data
     fn calculate_height_bounds(height_data: &[u8]) -> (f32, f32) {
+        if height_data.is_empty() {
+            return (0.0, 0.0);
+        }
+
         let mut min_h = f32::MAX;
         let mut max_h = f32::MIN;
 
@@ -565,8 +598,8 @@ impl HeightMapMesh {
             // Calculate chunk bounding box
             let min_x = chunk.origin_x as f32 * MAP_XY_FACTOR;
             let min_y = chunk.origin_y as f32 * MAP_XY_FACTOR;
-            let max_x = (chunk.origin_x + VERTEX_BUFFER_TILE_LENGTH) as f32 * MAP_XY_FACTOR;
-            let max_y = (chunk.origin_y + VERTEX_BUFFER_TILE_LENGTH) as f32 * MAP_XY_FACTOR;
+            let max_x = (chunk.origin_x + chunk.cell_width) as f32 * MAP_XY_FACTOR;
+            let max_y = (chunk.origin_y + chunk.cell_height) as f32 * MAP_XY_FACTOR;
 
             let center = Vector3::new(
                 (min_x + max_x) * 0.5,
@@ -689,11 +722,11 @@ mod tests {
     fn test_chunk_calculation() {
         let width = 129;
         let height = 129;
-        let num_chunks_x = (width + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
-        let num_chunks_y = (height + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
+        let num_chunks_x = (width.saturating_sub(1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
+        let num_chunks_y = (height.saturating_sub(1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
 
-        // 129 vertices = 5 chunks of 32 + 1 partial (ceiling division)
-        assert_eq!(num_chunks_x, 5);
-        assert_eq!(num_chunks_y, 5);
+        // C++ rounds terrain cells, not sampled vertices. 129 sampled vertices -> 128 cells -> 4 tiles.
+        assert_eq!(num_chunks_x, 4);
+        assert_eq!(num_chunks_y, 4);
     }
 }

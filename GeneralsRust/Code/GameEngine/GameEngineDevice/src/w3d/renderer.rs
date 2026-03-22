@@ -439,8 +439,12 @@ impl W3DRenderer {
         ];
         let model_matrix = model_matrix.unwrap_or(identity);
         let normal_matrix = compute_normal_matrix(model_matrix);
-        let camera_distance =
-            mesh_camera_distance(mesh, self.current_camera.as_ref(), model_matrix, world_center);
+        let camera_distance = mesh_camera_distance(
+            mesh,
+            self.current_camera.as_ref(),
+            model_matrix,
+            world_center,
+        );
         let transparent = effective_batch_transparency(material, transparent_override);
         let batch = RenderBatch {
             mesh_id: mesh.id.clone(),
@@ -534,8 +538,14 @@ fn sort_opaque_batches(batches: &mut [RenderBatch]) {
             }
         }
         (Some(_), None) => a.priority.cmp(&b.priority).then(std::cmp::Ordering::Less),
-        (None, Some(_)) => a.priority.cmp(&b.priority).then(std::cmp::Ordering::Greater),
-        (None, None) => a.priority.cmp(&b.priority).then_with(|| a.mesh_id.cmp(&b.mesh_id)),
+        (None, Some(_)) => a
+            .priority
+            .cmp(&b.priority)
+            .then(std::cmp::Ordering::Greater),
+        (None, None) => a
+            .priority
+            .cmp(&b.priority)
+            .then_with(|| a.mesh_id.cmp(&b.mesh_id)),
     });
 }
 
@@ -583,8 +593,11 @@ fn resolve_world_center(
 
     let local_center = mesh.bounding_box.center();
     let model = Mat4::from_cols_array_2d(&model_matrix);
-    let transformed =
-        model.transform_point3(glam::Vec3::new(local_center[0], local_center[1], local_center[2]));
+    let transformed = model.transform_point3(glam::Vec3::new(
+        local_center[0],
+        local_center[1],
+        local_center[2],
+    ));
     transformed.to_array()
 }
 
@@ -592,11 +605,8 @@ fn effective_batch_transparency(
     material: Option<&Material>,
     transparent_override: Option<bool>,
 ) -> bool {
-    transparent_override.unwrap_or_else(|| {
-        material
-            .map(|m| m.properties.transparent)
-            .unwrap_or(false)
-    })
+    transparent_override
+        .unwrap_or_else(|| material.map(|m| m.properties.transparent).unwrap_or(false))
 }
 
 pub(crate) fn batch_material_params(material: Option<&Material>) -> [f32; 4] {

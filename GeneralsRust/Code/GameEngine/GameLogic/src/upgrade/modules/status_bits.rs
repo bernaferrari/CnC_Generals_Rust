@@ -243,7 +243,8 @@ impl Snapshotable for StatusBitsUpgrade {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
         self.mux.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {

@@ -3,7 +3,7 @@
 //! Corresponds to C++ INI::parseInGameUIDefinition in InGameUI.cpp
 //! Parses UI configuration for in-game elements like messages, captions, and superweapon countdowns.
 
-use crate::common::ini::{ini, FieldParse, INI, INIError, INIResult};
+use crate::common::ini::{ini, FieldParse, INIError, INIResult, INI};
 use std::sync::{OnceLock, RwLock};
 
 /// In-game UI settings singleton
@@ -34,7 +34,12 @@ pub struct RGBAColorInt {
 
 impl RGBAColorInt {
     pub fn new(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
-        Self { red, green, blue, alpha }
+        Self {
+            red,
+            green,
+            blue,
+            alpha,
+        }
     }
 }
 
@@ -153,91 +158,241 @@ fn make_color(r: u8, g: u8, b: u8, a: u8) -> u32 {
 /// Field parse table for InGameUI settings
 /// Matches C++ s_fieldParseTable in InGameUI.cpp
 const INGAME_UI_FIELD_PARSE_TABLE: &[FieldParse<InGameUISettings>] = &[
-    FieldParse { token: "MaxSelectionSize", parse: parse_max_selection_size },
-    FieldParse { token: "MessageColor1", parse: parse_message_color1 },
-    FieldParse { token: "MessageColor2", parse: parse_message_color2 },
-    FieldParse { token: "MessagePosition", parse: parse_message_position },
-    FieldParse { token: "MessageFont", parse: parse_message_font },
-    FieldParse { token: "MessagePointSize", parse: parse_message_point_size },
-    FieldParse { token: "MessageBold", parse: parse_message_bold },
-    FieldParse { token: "MessageDelayMS", parse: parse_message_delay_ms },
-    FieldParse { token: "MilitaryCaptionColor", parse: parse_military_caption_color },
-    FieldParse { token: "MilitaryCaptionPosition", parse: parse_military_caption_position },
-    FieldParse { token: "MilitaryCaptionTitleFont", parse: parse_military_caption_title_font },
-    FieldParse { token: "MilitaryCaptionTitlePointSize", parse: parse_military_caption_title_point_size },
-    FieldParse { token: "MilitaryCaptionTitleBold", parse: parse_military_caption_title_bold },
-    FieldParse { token: "MilitaryCaptionFont", parse: parse_military_caption_font },
-    FieldParse { token: "MilitaryCaptionPointSize", parse: parse_military_caption_point_size },
-    FieldParse { token: "MilitaryCaptionBold", parse: parse_military_caption_bold },
-    FieldParse { token: "MilitaryCaptionRandomizeTyping", parse: parse_military_caption_randomize_typing },
-    FieldParse { token: "MilitaryCaptionSpeed", parse: parse_military_caption_speed },
-    FieldParse { token: "SuperweaponCountdownPosition", parse: parse_superweapon_position },
-    FieldParse { token: "SuperweaponCountdownFlashDuration", parse: parse_superweapon_flash_duration },
-    FieldParse { token: "SuperweaponCountdownFlashColor", parse: parse_superweapon_flash_color },
-    FieldParse { token: "SuperweaponCountdownNormalFont", parse: parse_superweapon_normal_font },
-    FieldParse { token: "SuperweaponCountdownNormalPointSize", parse: parse_superweapon_normal_point_size },
-    FieldParse { token: "SuperweaponCountdownNormalBold", parse: parse_superweapon_normal_bold },
-    FieldParse { token: "SuperweaponCountdownReadyFont", parse: parse_superweapon_ready_font },
-    FieldParse { token: "SuperweaponCountdownReadyPointSize", parse: parse_superweapon_ready_point_size },
-    FieldParse { token: "SuperweaponCountdownReadyBold", parse: parse_superweapon_ready_bold },
-    FieldParse { token: "NamedTimerCountdownPosition", parse: parse_named_timer_position },
-    FieldParse { token: "NamedTimerCountdownFlashDuration", parse: parse_named_timer_flash_duration },
-    FieldParse { token: "NamedTimerCountdownFlashColor", parse: parse_named_timer_flash_color },
-    FieldParse { token: "NamedTimerCountdownNormalFont", parse: parse_named_timer_normal_font },
-    FieldParse { token: "NamedTimerCountdownNormalPointSize", parse: parse_named_timer_normal_point_size },
-    FieldParse { token: "NamedTimerCountdownNormalBold", parse: parse_named_timer_normal_bold },
-    FieldParse { token: "NamedTimerCountdownNormalColor", parse: parse_named_timer_normal_color },
-    FieldParse { token: "NamedTimerCountdownReadyFont", parse: parse_named_timer_ready_font },
-    FieldParse { token: "NamedTimerCountdownReadyPointSize", parse: parse_named_timer_ready_point_size },
-    FieldParse { token: "NamedTimerCountdownReadyBold", parse: parse_named_timer_ready_bold },
-    FieldParse { token: "NamedTimerCountdownReadyColor", parse: parse_named_timer_ready_color },
+    FieldParse {
+        token: "MaxSelectionSize",
+        parse: parse_max_selection_size,
+    },
+    FieldParse {
+        token: "MessageColor1",
+        parse: parse_message_color1,
+    },
+    FieldParse {
+        token: "MessageColor2",
+        parse: parse_message_color2,
+    },
+    FieldParse {
+        token: "MessagePosition",
+        parse: parse_message_position,
+    },
+    FieldParse {
+        token: "MessageFont",
+        parse: parse_message_font,
+    },
+    FieldParse {
+        token: "MessagePointSize",
+        parse: parse_message_point_size,
+    },
+    FieldParse {
+        token: "MessageBold",
+        parse: parse_message_bold,
+    },
+    FieldParse {
+        token: "MessageDelayMS",
+        parse: parse_message_delay_ms,
+    },
+    FieldParse {
+        token: "MilitaryCaptionColor",
+        parse: parse_military_caption_color,
+    },
+    FieldParse {
+        token: "MilitaryCaptionPosition",
+        parse: parse_military_caption_position,
+    },
+    FieldParse {
+        token: "MilitaryCaptionTitleFont",
+        parse: parse_military_caption_title_font,
+    },
+    FieldParse {
+        token: "MilitaryCaptionTitlePointSize",
+        parse: parse_military_caption_title_point_size,
+    },
+    FieldParse {
+        token: "MilitaryCaptionTitleBold",
+        parse: parse_military_caption_title_bold,
+    },
+    FieldParse {
+        token: "MilitaryCaptionFont",
+        parse: parse_military_caption_font,
+    },
+    FieldParse {
+        token: "MilitaryCaptionPointSize",
+        parse: parse_military_caption_point_size,
+    },
+    FieldParse {
+        token: "MilitaryCaptionBold",
+        parse: parse_military_caption_bold,
+    },
+    FieldParse {
+        token: "MilitaryCaptionRandomizeTyping",
+        parse: parse_military_caption_randomize_typing,
+    },
+    FieldParse {
+        token: "MilitaryCaptionSpeed",
+        parse: parse_military_caption_speed,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownPosition",
+        parse: parse_superweapon_position,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownFlashDuration",
+        parse: parse_superweapon_flash_duration,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownFlashColor",
+        parse: parse_superweapon_flash_color,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownNormalFont",
+        parse: parse_superweapon_normal_font,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownNormalPointSize",
+        parse: parse_superweapon_normal_point_size,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownNormalBold",
+        parse: parse_superweapon_normal_bold,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownReadyFont",
+        parse: parse_superweapon_ready_font,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownReadyPointSize",
+        parse: parse_superweapon_ready_point_size,
+    },
+    FieldParse {
+        token: "SuperweaponCountdownReadyBold",
+        parse: parse_superweapon_ready_bold,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownPosition",
+        parse: parse_named_timer_position,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownFlashDuration",
+        parse: parse_named_timer_flash_duration,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownFlashColor",
+        parse: parse_named_timer_flash_color,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownNormalFont",
+        parse: parse_named_timer_normal_font,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownNormalPointSize",
+        parse: parse_named_timer_normal_point_size,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownNormalBold",
+        parse: parse_named_timer_normal_bold,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownNormalColor",
+        parse: parse_named_timer_normal_color,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownReadyFont",
+        parse: parse_named_timer_ready_font,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownReadyPointSize",
+        parse: parse_named_timer_ready_point_size,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownReadyBold",
+        parse: parse_named_timer_ready_bold,
+    },
+    FieldParse {
+        token: "NamedTimerCountdownReadyColor",
+        parse: parse_named_timer_ready_color,
+    },
 ];
 
 // Field parser functions
 
-fn parse_max_selection_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_max_selection_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.max_selection_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_message_color1(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_color1(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.message_color1 = ini.parse_color_int()?;
     Ok(())
 }
 
-fn parse_message_color2(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_color2(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.message_color2 = ini.parse_color_int()?;
     Ok(())
 }
 
-fn parse_message_position(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_position(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     let x = ini.scan_int_from_sub_token("X")?;
     let y = ini.scan_int_from_sub_token("Y")?;
     target.message_position = ICoord2D { x, y };
     Ok(())
 }
 
-fn parse_message_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.message_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_message_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.message_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_message_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.message_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_message_delay_ms(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_message_delay_ms(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.message_delay_ms = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_military_caption_color(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     // Parse R: G: B: A: format
     let r = ini.scan_int_from_sub_token("R")? as u8;
     let g = ini.scan_int_from_sub_token("G")? as u8;
@@ -247,155 +402,271 @@ fn parse_military_caption_color(ini: &mut INI, target: &mut InGameUISettings, _t
     Ok(())
 }
 
-fn parse_military_caption_position(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_position(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     let x = ini.scan_int_from_sub_token("X")?;
     let y = ini.scan_int_from_sub_token("Y")?;
     target.military_caption_position = ICoord2D { x, y };
     Ok(())
 }
 
-fn parse_military_caption_title_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_title_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_title_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_military_caption_title_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_title_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_title_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_military_caption_title_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_title_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_title_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_military_caption_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_military_caption_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_military_caption_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_military_caption_randomize_typing(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_randomize_typing(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_randomize_typing = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_military_caption_speed(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_military_caption_speed(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.military_caption_speed = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_superweapon_position(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_position(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     let x = ini.scan_real_from_sub_token("X")?;
     let y = ini.scan_real_from_sub_token("Y")?;
     target.superweapon_position = Coord2D { x, y };
     Ok(())
 }
 
-fn parse_superweapon_flash_duration(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_flash_duration(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
     target.superweapon_flash_duration = INI::parse_duration_real(&token)?;
     Ok(())
 }
 
-fn parse_superweapon_flash_color(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_flash_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_flash_color = ini.parse_color_int()?;
     Ok(())
 }
 
-fn parse_superweapon_normal_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_normal_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_normal_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_superweapon_normal_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_normal_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_normal_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_superweapon_normal_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_normal_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_normal_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_superweapon_ready_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_ready_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_ready_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_superweapon_ready_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_ready_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_ready_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_superweapon_ready_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_superweapon_ready_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.superweapon_ready_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_named_timer_position(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_position(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     let x = ini.scan_real_from_sub_token("X")?;
     let y = ini.scan_real_from_sub_token("Y")?;
     target.named_timer_position = Coord2D { x, y };
     Ok(())
 }
 
-fn parse_named_timer_flash_duration(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_flash_duration(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
     target.named_timer_flash_duration = INI::parse_duration_real(&token)?;
     Ok(())
 }
 
-fn parse_named_timer_flash_color(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_flash_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_flash_color = ini.parse_color_int()?;
     Ok(())
 }
 
-fn parse_named_timer_normal_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_normal_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_normal_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_named_timer_normal_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_normal_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_normal_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_named_timer_normal_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_normal_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_normal_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_named_timer_normal_color(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_normal_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_normal_color = ini.parse_color_int()?;
     Ok(())
 }
 
-fn parse_named_timer_ready_font(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_ready_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_ready_font = ini.parse_quoted_ascii_string()?;
     Ok(())
 }
 
-fn parse_named_timer_ready_point_size(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_ready_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_ready_point_size = ini.parse_next_int()?;
     Ok(())
 }
 
-fn parse_named_timer_ready_bold(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_ready_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_ready_bold = ini.parse_next_bool()?;
     Ok(())
 }
 
-fn parse_named_timer_ready_color(ini: &mut INI, target: &mut InGameUISettings, _tokens: &[&str]) -> INIResult<()> {
+fn parse_named_timer_ready_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
     target.named_timer_ready_color = ini.parse_color_int()?;
     Ok(())
 }
@@ -411,7 +682,8 @@ pub fn get_in_game_ui_settings() -> Option<std::sync::RwLockReadGuard<'static, I
 }
 
 /// Get a write reference to the InGameUI settings
-pub fn get_in_game_ui_settings_mut() -> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
+pub fn get_in_game_ui_settings_mut(
+) -> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
     INGAME_UI_SETTINGS.get()?.write().ok()
 }
 

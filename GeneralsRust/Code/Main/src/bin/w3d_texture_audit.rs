@@ -13,7 +13,9 @@
 */
 
 use anyhow::{anyhow, Result};
-use generals_main::assets::{archive::ArchiveFileSystem, models::W3DLoader, texture_candidate_paths};
+use generals_main::assets::{
+    archive::ArchiveFileSystem, models::W3DLoader, texture_candidate_paths,
+};
 use std::collections::{BTreeMap, HashMap};
 
 fn build_virtual_path_index(archive: &ArchiveFileSystem) -> HashMap<String, String> {

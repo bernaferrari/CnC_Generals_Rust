@@ -41,7 +41,9 @@ use crate::common::system::{
     },
 };
 use crate::common::{
-    command_line::CommandLineParser, global_data, name_key_generator::NameKeyGenerator,
+    command_line::CommandLineParser,
+    global_data,
+    name_key_generator::NameKeyGenerator,
     recorder::{with_recorder, with_recorder_mut},
     rts::science::ScienceSubsystem,
 };
@@ -120,14 +122,14 @@ impl RustGameNetwork {
 impl NetworkInterface for RustGameNetwork {
     fn init(&mut self) -> SubsystemResult<()> {
         // Already initialised in constructor.
-        self.multiplayer_session_active = with_recorder(|recorder| recorder.is_multiplayer())
-            .unwrap_or(false);
+        self.multiplayer_session_active =
+            with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false);
         Ok(())
     }
 
     fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
-        self.multiplayer_session_active = with_recorder(|recorder| recorder.is_multiplayer())
-            .unwrap_or(false);
+        self.multiplayer_session_active =
+            with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false);
         self.handle
             .block_on(self.inner.update_concurrent())
             .map_err(|e| SubsystemError::UpdateFailed(e.to_string()))
@@ -706,8 +708,7 @@ impl GameEngine {
     }
 
     pub fn is_multiplayer_session(&self) -> bool {
-        with_recorder(|recorder| recorder.is_multiplayer())
-            .unwrap_or(false)
+        with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false)
     }
 
     pub fn is_active(&self) -> bool {

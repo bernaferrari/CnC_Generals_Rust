@@ -12,11 +12,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kira::manager::{AudioManager as KiraManager, AudioManagerSettings};
-use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings, StaticSoundHandle};
+use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use kira::sound::streaming::StreamingSoundSettings;
+use kira::sound::PlaybackRate;
 use kira::tween::Tween;
 use kira::Volume;
-use kira::sound::PlaybackRate;
 
 use crate::system::{SubsystemInterface, TimeOfDay};
 
@@ -527,22 +527,21 @@ impl AudioEngine {
     }
 
     pub fn effective_music_volume(&self) -> f32 {
-        (self.system_music_volume * self.script_music_volume * self.master_volume)
-            .clamp(0.0, 1.0)
+        (self.system_music_volume * self.script_music_volume * self.master_volume).clamp(0.0, 1.0)
     }
 
     pub fn effective_sfx_volume(&self) -> f32 {
-        (self.system_sfx_volume * self.script_sfx_volume * self.master_volume)
-            .clamp(0.0, 1.0)
+        (self.system_sfx_volume * self.script_sfx_volume * self.master_volume).clamp(0.0, 1.0)
     }
 
     pub fn effective_speech_volume(&self) -> f32 {
-        (self.system_speech_volume * self.script_speech_volume * self.master_volume)
-            .clamp(0.0, 1.0)
+        (self.system_speech_volume * self.script_speech_volume * self.master_volume).clamp(0.0, 1.0)
     }
 
     pub fn effective_3d_volume(&self) -> f32 {
-        (self.system_sound_3d_volume * self.script_sound_3d_volume * self.master_volume
+        (self.system_sound_3d_volume
+            * self.script_sound_3d_volume
+            * self.master_volume
             * self.zoom_volume)
             .clamp(0.0, 1.0)
     }
@@ -696,13 +695,14 @@ impl AudioEngine {
         }
 
         // Attempt playback via kira.
-        let kira_handle = match self.play_file_with_kira(&full_path, effective_vol, info.loop_count > 1) {
-            Ok(h) => h,
-            Err(e) => {
-                log::warn!("AudioEngine: failed to play {:?}: {}", full_path, e);
-                return 0;
-            }
-        };
+        let kira_handle =
+            match self.play_file_with_kira(&full_path, effective_vol, info.loop_count > 1) {
+                Ok(h) => h,
+                Err(e) => {
+                    log::warn!("AudioEngine: failed to play {:?}: {}", full_path, e);
+                    return 0;
+                }
+            };
 
         let handle = self.allocate_handle();
         self.instances.insert(
@@ -853,7 +853,8 @@ mod tests {
 
     #[test]
     fn test_audio_affect_bits() {
-        let all = AudioAffect::Music | AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::Speech;
+        let all =
+            AudioAffect::Music | AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::Speech;
         assert_eq!(all, AudioAffect::All);
         assert!(all.has(AudioAffect::Music));
         assert!(all.has(AudioAffect::Speech));

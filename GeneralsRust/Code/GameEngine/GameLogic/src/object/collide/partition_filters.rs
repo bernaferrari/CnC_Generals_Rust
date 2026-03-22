@@ -5,12 +5,11 @@
 
 use super::collision_geometry::{CollideInfo, GeometryInfo};
 use super::{Coord3D, GameObject, ObjectId, ObjectStatusMask};
+use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::{
     CommandSourceType, DisabledType, KindOf, KindOfMaskType, ObjectShroudStatus,
-    ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship, INVALID_ID,
-    KIND_OF_MASK_NONE,
+    ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship, INVALID_ID, KIND_OF_MASK_NONE,
 };
-use crate::attack::{AbleToAttackType, CanAttackResult};
 
 // ---------------------------------------------------------------------------
 // PartitionFilterIsFlying
@@ -410,7 +409,9 @@ impl PartitionFilterLastAttackedBy {
         // Body module / last-damage-source tracking not yet fully exposed.
         // Default to INVALID_ID.
         // TODO: Hook into BodyModule::getLastDamageInfo once ported.
-        let _obj_exists = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id).is_some();
+        let _obj_exists = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
+            .is_some();
         let last_attacked_by = INVALID_ID;
         Self { last_attacked_by }
     }
@@ -457,8 +458,7 @@ impl PartitionFilterAcceptByObjectStatus {
 impl super::partition_manager::PartitionFilter for PartitionFilterAcceptByObjectStatus {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         let status = obj.get_status_bits();
-        status.test_for_all(self.must_be_set)
-            && !(status.test_for_any(self.must_be_clear))
+        status.test_for_all(self.must_be_set) && !(status.test_for_any(self.must_be_clear))
     }
 
     fn debug_name(&self) -> &'static str {
@@ -497,8 +497,7 @@ impl PartitionFilterRejectByObjectStatus {
 impl super::partition_manager::PartitionFilter for PartitionFilterRejectByObjectStatus {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         let status = obj.get_status_bits();
-        !(status.test_for_all(self.must_be_set)
-            && !(status.test_for_any(self.must_be_clear)))
+        !(status.test_for_all(self.must_be_set) && !(status.test_for_any(self.must_be_clear)))
     }
 
     fn debug_name(&self) -> &'static str {
@@ -780,23 +779,19 @@ pub struct PartitionFilterRejectBuildings {
 
 impl PartitionFilterRejectBuildings {
     pub fn new(obj_id: ObjectId) -> Self {
-        let acquire_enemies = if let Some(handle) =
-            crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        {
-            if let Ok(guard) = handle.read() {
-                // Check if the player is a computer player.
-                // get_player_type() not yet ported; approximate by checking
-                // if the player ID is not the human player (player 0).
-                guard
-                    .get_player_id()
-                    .map(|pid| pid.0 != 0)
-                    .unwrap_or(false)
+        let acquire_enemies =
+            if let Some(handle) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(guard) = handle.read() {
+                    // Check if the player is a computer player.
+                    // get_player_type() not yet ported; approximate by checking
+                    // if the player ID is not the human player (player 0).
+                    guard.get_player_id().map(|pid| pid.0 != 0).unwrap_or(false)
+                } else {
+                    false
+                }
             } else {
                 false
-            }
-        } else {
-            false
-        };
+            };
 
         Self {
             obj_id,
@@ -930,7 +925,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterFreeOfFog {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
-                return guard.get_shrouded_status(self.comparison_index) == ObjectShroudStatus::Clear;
+                return guard.get_shrouded_status(self.comparison_index)
+                    == ObjectShroudStatus::Clear;
             }
         }
         false
@@ -1284,8 +1280,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonable {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
-                let garrisonable = guard.is_kind_of(KindOf::Structure)
-                    && !guard.is_kind_of(KindOf::NoGarrison);
+                let garrisonable =
+                    guard.is_kind_of(KindOf::Structure) && !guard.is_kind_of(KindOf::NoGarrison);
                 return garrisonable == self.match_flag;
             }
         }
@@ -1325,8 +1321,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonableBy
         // Approximate: check if the building is garrisonable and the relationship allows it.
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
-                let garrisonable = guard.is_kind_of(KindOf::Structure)
-                    && !guard.is_kind_of(KindOf::NoGarrison);
+                let garrisonable =
+                    guard.is_kind_of(KindOf::Structure) && !guard.is_kind_of(KindOf::NoGarrison);
                 return garrisonable == self.match_flag;
             }
         }

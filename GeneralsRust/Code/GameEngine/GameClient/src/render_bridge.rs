@@ -546,8 +546,10 @@ impl RenderBridge {
             })
             .collect();
 
-        let loaded_model_names: Vec<String> =
-            after_cull.iter().map(|s| s.model_name.to_lowercase()).collect();
+        let loaded_model_names: Vec<String> = after_cull
+            .iter()
+            .map(|s| s.model_name.to_lowercase())
+            .collect();
 
         // Phase 3: Partition into opaque / transparent.
         let mut opaque: Vec<&DrawSubmission> = Vec::new();

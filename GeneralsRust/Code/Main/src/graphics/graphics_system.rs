@@ -529,45 +529,165 @@ impl GraphicsSystem {
         let s = 5.0; // half-extent in world units (visible from gameplay camera)
         let vertices = vec![
             // Front face (z = +s)
-            W3DVertex { position: [-s, -s,  s], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s, -s,  s], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s,  s,  s], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [-s,  s,  s], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex {
+                position: [-s, -s, s],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0, 0.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, -s, s],
+                normal: [0.0, 0.0, 1.0],
+                uv: [1.0, 0.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, s, s],
+                normal: [0.0, 0.0, 1.0],
+                uv: [1.0, 1.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [-s, s, s],
+                normal: [0.0, 0.0, 1.0],
+                uv: [0.0, 1.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
             // Back face (z = -s)
-            W3DVertex { position: [ s, -s, -s], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [-s, -s, -s], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [-s,  s, -s], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [ s,  s, -s], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex {
+                position: [s, -s, -s],
+                normal: [0.0, 0.0, -1.0],
+                uv: [0.0, 0.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [-s, -s, -s],
+                normal: [0.0, 0.0, -1.0],
+                uv: [1.0, 0.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [-s, s, -s],
+                normal: [0.0, 0.0, -1.0],
+                uv: [1.0, 1.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [s, s, -s],
+                normal: [0.0, 0.0, -1.0],
+                uv: [0.0, 1.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
             // Top face (y = +s)
-            W3DVertex { position: [-s,  s,  s], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s,  s,  s], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s,  s, -s], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [-s,  s, -s], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex {
+                position: [-s, s, s],
+                normal: [0.0, 1.0, 0.0],
+                uv: [0.0, 0.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, s, s],
+                normal: [0.0, 1.0, 0.0],
+                uv: [1.0, 0.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, s, -s],
+                normal: [0.0, 1.0, 0.0],
+                uv: [1.0, 1.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [-s, s, -s],
+                normal: [0.0, 1.0, 0.0],
+                uv: [0.0, 1.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
             // Bottom face (y = -s)
-            W3DVertex { position: [-s, -s, -s], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [ s, -s, -s], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [ s, -s,  s], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [-s, -s,  s], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex {
+                position: [-s, -s, -s],
+                normal: [0.0, -1.0, 0.0],
+                uv: [0.0, 0.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [s, -s, -s],
+                normal: [0.0, -1.0, 0.0],
+                uv: [1.0, 0.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [s, -s, s],
+                normal: [0.0, -1.0, 0.0],
+                uv: [1.0, 1.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [-s, -s, s],
+                normal: [0.0, -1.0, 0.0],
+                uv: [0.0, 1.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
             // Right face (x = +s)
-            W3DVertex { position: [ s, -s,  s], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s, -s, -s], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s,  s, -s], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
-            W3DVertex { position: [ s,  s,  s], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [1.0, 0.0, 1.0, 1.0] },
+            W3DVertex {
+                position: [s, -s, s],
+                normal: [1.0, 0.0, 0.0],
+                uv: [0.0, 0.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, -s, -s],
+                normal: [1.0, 0.0, 0.0],
+                uv: [1.0, 0.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, s, -s],
+                normal: [1.0, 0.0, 0.0],
+                uv: [1.0, 1.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
+            W3DVertex {
+                position: [s, s, s],
+                normal: [1.0, 0.0, 0.0],
+                uv: [0.0, 1.0],
+                color: [1.0, 0.0, 1.0, 1.0],
+            },
             // Left face (x = -s)
-            W3DVertex { position: [-s, -s, -s], normal: [-1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [-s, -s,  s], normal: [-1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [-s,  s,  s], normal: [-1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
-            W3DVertex { position: [-s,  s, -s], normal: [-1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.0, 0.8, 1.0] },
+            W3DVertex {
+                position: [-s, -s, -s],
+                normal: [-1.0, 0.0, 0.0],
+                uv: [0.0, 0.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [-s, -s, s],
+                normal: [-1.0, 0.0, 0.0],
+                uv: [1.0, 0.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [-s, s, s],
+                normal: [-1.0, 0.0, 0.0],
+                uv: [1.0, 1.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
+            W3DVertex {
+                position: [-s, s, -s],
+                normal: [-1.0, 0.0, 0.0],
+                uv: [0.0, 1.0],
+                color: [0.8, 0.0, 0.8, 1.0],
+            },
         ];
 
         // Two triangles per face, 6 faces = 36 indices
         let indices: Vec<u32> = vec![
-            0,  1,  2,  0,  2,  3,   // front
-            4,  5,  6,  4,  6,  7,   // back
-            8,  9,  10, 8,  10, 11,  // top
-            12, 13, 14, 12, 14, 15,  // bottom
-            16, 17, 18, 16, 18, 19,  // right
-            20, 21, 22, 20, 22, 23,  // left
+            0, 1, 2, 0, 2, 3, // front
+            4, 5, 6, 4, 6, 7, // back
+            8, 9, 10, 8, 10, 11, // top
+            12, 13, 14, 12, 14, 15, // bottom
+            16, 17, 18, 16, 18, 19, // right
+            20, 21, 22, 20, 22, 23, // left
         ];
 
         let mut material = W3DMaterial::default();

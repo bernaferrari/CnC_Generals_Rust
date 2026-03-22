@@ -53,7 +53,7 @@ impl PlayerList {
     /// and sets player 0 as the local player (neutral player).
     pub fn init(&mut self) {
         self.player_count = 1;
-        
+
         // Initialize player 0 (neutral) with no name
         self.players[0].init(None);
 
@@ -102,7 +102,7 @@ impl PlayerList {
 
         // Create players from sides
         let mut set_local = false;
-        
+
         for side in sides {
             let name = match get_player_name(side) {
                 Some(n) if !n.is_empty() => n,
@@ -176,7 +176,8 @@ impl PlayerList {
             let enemies = get_enemies(side);
             for enemy_name in enemies.split_whitespace() {
                 if let Some(enemy_idx) = self.find_player_by_name(enemy_name) {
-                    self.players[player_idx].set_player_relationship(enemy_idx as i32, Relationship::Enemies);
+                    self.players[player_idx]
+                        .set_player_relationship(enemy_idx as i32, Relationship::Enemies);
                 }
             }
 
@@ -184,12 +185,14 @@ impl PlayerList {
             let allies = get_allies(side);
             for ally_name in allies.split_whitespace() {
                 if let Some(ally_idx) = self.find_player_by_name(ally_name) {
-                    self.players[player_idx].set_player_relationship(ally_idx as i32, Relationship::Allies);
+                    self.players[player_idx]
+                        .set_player_relationship(ally_idx as i32, Relationship::Allies);
                 }
             }
 
             // Make sure self is allied with self
-            self.players[player_idx].set_player_relationship(player_idx as i32, Relationship::Allies);
+            self.players[player_idx]
+                .set_player_relationship(player_idx as i32, Relationship::Allies);
 
             // Make sure neutral player relationship is neutral (if not the neutral player)
             if player_idx != 0 {
@@ -223,10 +226,10 @@ impl PlayerList {
         if self.local_player_index != Some(new_index) {
             // Old local player stops being local
             // (In full implementation, this would call becomingLocalPlayer(false))
-            
+
             // Set new local player
             self.local_player_index = Some(new_index);
-            
+
             // (In full implementation, this would call becomingLocalPlayer(true))
         }
     }
@@ -282,7 +285,8 @@ impl PlayerList {
     }
 
     pub fn get_local_player_mut(&mut self) -> Option<&mut Player> {
-        self.local_player_index.and_then(|i| self.get_nth_player_mut(i))
+        self.local_player_index
+            .and_then(|i| self.get_nth_player_mut(i))
     }
 
     pub fn get_local_player_index(&self) -> Option<usize> {
@@ -321,7 +325,11 @@ impl PlayerList {
 
     /// Find a player by name key (mutable version).
     /// C++ Reference: PlayerList::findPlayerWithNameKey() lines 72-80
-    pub fn find_player_with_name_key_mut(&mut self, _name_key: u32, name: &str) -> Option<&mut Player> {
+    pub fn find_player_with_name_key_mut(
+        &mut self,
+        _name_key: u32,
+        name: &str,
+    ) -> Option<&mut Player> {
         for i in 0..self.player_count {
             if self.players[i].get_player_name() == name {
                 return Some(&mut self.players[i]);

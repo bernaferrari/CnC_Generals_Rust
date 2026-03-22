@@ -71,13 +71,13 @@ pub mod ini_upgrade;
 pub mod ini_video;
 pub mod ini_water;
 pub mod ini_weapon;
-pub mod ini_webpage_url;
 pub mod ini_weather;
+pub mod ini_webpage_url;
 
 // Re-export main types from the batch 1 modules
 pub use ini::{
-    register_block_parser, FieldParse, INIError, INIFieldParseProc, INILoadType, INIResult, INI,
-    LookupListRec,
+    register_block_parser, FieldParse, INIError, INIFieldParseProc, INILoadType, INIResult,
+    LookupListRec, INI,
 };
 pub use ini_ai_data::{
     get_ai_data_store, get_ai_data_store_mut, parse_ai_data_definition, AIData, AiSideBuildList,
@@ -98,15 +98,16 @@ pub use ini_control_bar_scheme::{
     ControlBarSchemeManager, SchemeDrawFunc, SchemeImage,
 };
 pub use ini_crate::{
-    parse_crate_template_definition, ensure_crate_system, get_crate_system,
-    initialize_crate_system,
-    ParsedCrateCreationEntry, ParsedCrateSystem, ParsedCrateTemplate,
+    ensure_crate_system, get_crate_system, initialize_crate_system,
+    parse_crate_template_definition, ParsedCrateCreationEntry, ParsedCrateSystem,
+    ParsedCrateTemplate,
 };
 
 // Re-export main types from batch 2 modules
 pub use ini_audio_settings::{
-    get_audio_settings, get_audio_settings_read, get_audio_settings_write, init_global_audio_settings,
-    parse_audio_settings_definition, AudioSettings, SpeakerType, MAX_HW_PROVIDERS,
+    get_audio_settings, get_audio_settings_read, get_audio_settings_write,
+    init_global_audio_settings, parse_audio_settings_definition, AudioSettings, SpeakerType,
+    MAX_HW_PROVIDERS,
 };
 pub use ini_damage_fx::{parse_damage_fx_definition, DamageFX, DamageFXStore, DamageType};
 pub use ini_draw_group_info::{
@@ -154,12 +155,11 @@ pub use ini_fx_list::{
     FXListResult, FXListStore, FXNugget,
 };
 pub use ini_game_lod::{
-    get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager,
-    parse_bench_profile, parse_dynamic_game_lod_definition, parse_lod_preset,
-    parse_really_low_mhz, parse_static_game_lod_definition, BenchProfile, ChipsetType,
-    CpuType, DynamicGameLODInfo, DynamicGameLODLevel, GameLODManager, LODPresetInfo,
-    ParticlePriorityType, StaticGameLODInfo, StaticGameLODLevel, MAX_BENCH_PROFILES,
-    MAX_LOD_PRESETS_PER_LEVEL,
+    get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager, parse_bench_profile,
+    parse_dynamic_game_lod_definition, parse_lod_preset, parse_really_low_mhz,
+    parse_static_game_lod_definition, BenchProfile, ChipsetType, CpuType, DynamicGameLODInfo,
+    DynamicGameLODLevel, GameLODManager, LODPresetInfo, ParticlePriorityType, StaticGameLODInfo,
+    StaticGameLODLevel, MAX_BENCH_PROFILES, MAX_LOD_PRESETS_PER_LEVEL,
 };
 pub use ini_language::{
     get_global_language, get_global_language_read, get_global_language_write, init_global_language,
@@ -185,25 +185,26 @@ pub use ini_science::{
 };
 
 // Re-export main types from batch 4 modules (UI/Shell parsers)
+pub use ini_mouse::{
+    add_cursor_info, get_cursor_info, get_mouse_settings, get_mouse_settings_mut,
+    init_global_mouse_settings, parse_mouse_cursor_definition, parse_mouse_definition, CursorInfo,
+    MouseSettings, RGBAColorInt, RedrawMode, CURSOR_INFO_FIELD_PARSE_TABLE,
+    MOUSE_SETTINGS_FIELD_PARSE_TABLE,
+};
+pub use ini_online_chat_colors::{
+    get_online_chat_colors, get_online_chat_colors_mut, init_online_chat_colors,
+    parse_online_chat_color_definition, register_online_chat_colors_parser, GSColorIndex,
+    OnlineChatColors, GSCOLOR_MAX,
+};
+pub use ini_shell_menu_scheme::{
+    get_shell_menu_scheme_manager, init_shell_menu_scheme_manager,
+    parse_shell_menu_scheme_definition, ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine,
+    ShellMenuSchemeManager,
+};
 pub use ini_window_transition::{
     get_window_transition_store, get_window_transition_store_mut, init_window_transition_store,
     parse_window_transition_block, parse_window_transition_definition, TransitionGroup,
     TransitionStyle, TransitionWindow, WindowTransitionStore,
-};
-pub use ini_shell_menu_scheme::{
-    get_shell_menu_scheme_manager, init_shell_menu_scheme_manager, parse_shell_menu_scheme_definition,
-    ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine, ShellMenuSchemeManager,
-};
-pub use ini_mouse::{
-    add_cursor_info, get_cursor_info, get_mouse_settings, get_mouse_settings_mut,
-    init_global_mouse_settings, parse_mouse_cursor_definition, parse_mouse_definition,
-    CursorInfo, MouseSettings, RedrawMode, RGBAColorInt,
-    CURSOR_INFO_FIELD_PARSE_TABLE, MOUSE_SETTINGS_FIELD_PARSE_TABLE,
-};
-pub use ini_online_chat_colors::{
-    get_online_chat_colors, get_online_chat_colors_mut, init_online_chat_colors,
-    parse_online_chat_color_definition, register_online_chat_colors_parser,
-    GSColorIndex, OnlineChatColors, GSCOLOR_MAX,
 };
 
 pub use crate::common::system::Matrix3D;

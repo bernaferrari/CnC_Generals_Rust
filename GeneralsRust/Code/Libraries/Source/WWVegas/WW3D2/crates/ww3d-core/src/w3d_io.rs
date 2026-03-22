@@ -44,13 +44,9 @@ impl<R: Read + Seek> W3DReader<R> {
             W3DChunkType::Mesh => W3DChunk::Mesh(self.read_mesh(chunk_size)?),
             W3DChunkType::MeshHeader3 => W3DChunk::MeshHeader(self.read_mesh_header()?),
             W3DChunkType::Vertices => W3DChunk::Vertices(self.read_vertices(chunk_size)?),
-            W3DChunkType::VertexNormals => {
-                W3DChunk::VertexNormals(self.read_normals(chunk_size)?)
-            }
+            W3DChunkType::VertexNormals => W3DChunk::VertexNormals(self.read_normals(chunk_size)?),
             W3DChunkType::Triangles => W3DChunk::Triangles(self.read_triangles(chunk_size)?),
-            W3DChunkType::StageTexcoords => {
-                W3DChunk::TexCoords(self.read_texcoords(chunk_size)?)
-            }
+            W3DChunkType::StageTexcoords => W3DChunk::TexCoords(self.read_texcoords(chunk_size)?),
             W3DChunkType::VertexInfluences => {
                 W3DChunk::VertexInfluences(self.read_vertex_influences(chunk_size)?)
             }
@@ -60,7 +56,9 @@ impl<R: Read + Seek> W3DReader<R> {
                 W3DChunk::VertexMaterials(self.read_vertex_materials(chunk_size)?)
             }
             W3DChunkType::Textures => W3DChunk::Textures(self.read_textures(chunk_size)?),
-            W3DChunkType::MaterialPass => W3DChunk::MaterialPass(self.read_material_pass(chunk_size)?),
+            W3DChunkType::MaterialPass => {
+                W3DChunk::MaterialPass(self.read_material_pass(chunk_size)?)
+            }
             W3DChunkType::Hierarchy => W3DChunk::Hierarchy(self.read_hierarchy(chunk_size)?),
             W3DChunkType::HierarchyHeader => {
                 W3DChunk::HierarchyHeader(self.read_hierarchy_header()?)
@@ -88,9 +86,7 @@ impl<R: Read + Seek> W3DReader<R> {
             W3DChunkType::TimeCodedBitChannel => {
                 W3DChunk::TimeCodedBitChannel(self.read_timecoded_bit_channel(chunk_size)?)
             }
-            W3DChunkType::BitChannel => {
-                W3DChunk::BitChannel(self.read_bit_channel(chunk_size)?)
-            }
+            W3DChunkType::BitChannel => W3DChunk::BitChannel(self.read_bit_channel(chunk_size)?),
             W3DChunkType::MorphAnimation => {
                 W3DChunk::MorphAnimation(self.read_morph_animation(chunk_size)?)
             }
@@ -125,9 +121,9 @@ impl<R: Read + Seek> W3DReader<R> {
             W3DChunkType::EmitterRotationKeyframes => W3DChunk::EmitterRotationKeyframes(
                 self.read_emitter_rotation_keyframes(chunk_size)?,
             ),
-            W3DChunkType::EmitterFrameKeyframes => W3DChunk::EmitterFrameKeyframes(
-                self.read_emitter_frame_keyframes(chunk_size)?,
-            ),
+            W3DChunkType::EmitterFrameKeyframes => {
+                W3DChunk::EmitterFrameKeyframes(self.read_emitter_frame_keyframes(chunk_size)?)
+            }
             W3DChunkType::EmitterBlurTimeKeyframes => W3DChunk::EmitterBlurTimeKeyframes(
                 self.read_emitter_blur_time_keyframes(chunk_size)?,
             ),

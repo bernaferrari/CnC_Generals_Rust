@@ -700,7 +700,10 @@ mod tests {
 
     #[test]
     fn test_init_team_alliances_keeps_observers_neutral() {
-        let templates = vec![make_player_template("Player", "USA"), make_observer_template()];
+        let templates = vec![
+            make_player_template("Player", "USA"),
+            make_observer_template(),
+        ];
         let player_list = PlayerInitializer::init_from_map(2, &templates, &[]);
 
         let player = player_list.get_player(0).unwrap();

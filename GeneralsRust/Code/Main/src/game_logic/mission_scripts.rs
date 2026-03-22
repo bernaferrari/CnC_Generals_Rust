@@ -618,8 +618,7 @@ impl MissionScriptRuntime {
             return Ok(());
         }
 
-        let shell_chunk_heavy =
-            shell_safe_mode && Self::is_shell_heavy_attack_script(entry);
+        let shell_chunk_heavy = shell_safe_mode && Self::is_shell_heavy_attack_script(entry);
         let eval_started = Instant::now();
         let (condition_result, yielded) = if shell_chunk_heavy {
             Self::evaluate_shell_heavy_script_chunked(&self.evaluator, entry)?
@@ -789,15 +788,18 @@ impl MissionScriptRuntime {
 
         let mut current_and = or_node.first_and.as_deref_mut();
         for _ in 0..cursor.next_and_index {
-            current_and = current_and.and_then(|and_node| and_node.next_and_condition.as_deref_mut());
+            current_and =
+                current_and.and_then(|and_node| and_node.next_and_condition.as_deref_mut());
         }
 
         let Some(and_node) = current_and else {
             if or_node.next_or.is_some() {
-                return Ok(ShellConditionStepOutcome::Advance(ShellPendingConditionCursor {
-                    next_or_index: cursor.next_or_index + 1,
-                    next_and_index: 0,
-                }));
+                return Ok(ShellConditionStepOutcome::Advance(
+                    ShellPendingConditionCursor {
+                        next_or_index: cursor.next_or_index + 1,
+                        next_and_index: 0,
+                    },
+                ));
             }
             return Ok(ShellConditionStepOutcome::Complete(false));
         };
@@ -809,18 +811,22 @@ impl MissionScriptRuntime {
 
         if condition_result {
             if has_next_and {
-                Ok(ShellConditionStepOutcome::Advance(ShellPendingConditionCursor {
-                    next_or_index: cursor.next_or_index,
-                    next_and_index: cursor.next_and_index + 1,
-                }))
+                Ok(ShellConditionStepOutcome::Advance(
+                    ShellPendingConditionCursor {
+                        next_or_index: cursor.next_or_index,
+                        next_and_index: cursor.next_and_index + 1,
+                    },
+                ))
             } else {
                 Ok(ShellConditionStepOutcome::Complete(true))
             }
         } else if or_node.next_or.is_some() {
-            Ok(ShellConditionStepOutcome::Advance(ShellPendingConditionCursor {
-                next_or_index: cursor.next_or_index + 1,
-                next_and_index: 0,
-            }))
+            Ok(ShellConditionStepOutcome::Advance(
+                ShellPendingConditionCursor {
+                    next_or_index: cursor.next_or_index + 1,
+                    next_and_index: 0,
+                },
+            ))
         } else {
             Ok(ShellConditionStepOutcome::Complete(false))
         }
@@ -872,8 +878,7 @@ impl MissionScriptRuntime {
 
             if has_more
                 && (executed >= Self::SHELL_HEAVY_ACTIONS_PER_SLICE
-                    || slice_started.elapsed()
-                        >= Duration::from_millis(Self::SHELL_HEAVY_SLICE_MS))
+                    || slice_started.elapsed() >= Duration::from_millis(Self::SHELL_HEAVY_SLICE_MS))
             {
                 return Ok((next_action_index, true, true));
             }
@@ -907,7 +912,8 @@ impl MissionScriptRuntime {
                     total_members = members.len();
                     let mut alive = 0usize;
                     for member in members {
-                        let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(*member)
+                        let Some(obj) =
+                            gamelogic::helpers::TheGameLogic::find_object_by_id(*member)
                         else {
                             continue;
                         };
@@ -939,10 +945,7 @@ impl MissionScriptRuntime {
         }
     }
 
-    fn script_action_at_index(
-        start_action: &ScriptAction,
-        index: usize,
-    ) -> Option<&ScriptAction> {
+    fn script_action_at_index(start_action: &ScriptAction, index: usize) -> Option<&ScriptAction> {
         let mut current = Some(start_action);
         let mut offset = 0usize;
         while offset < index {
@@ -1155,8 +1158,7 @@ impl MissionScriptHooks {
                 let original_name = original_name.to_ascii_lowercase();
                 let looks_like_attack_wave = (runtime_name.contains("attack")
                     && runtime_name.contains("spawn"))
-                    || (original_name.contains("and attack")
-                        && original_name.contains("spawn"));
+                    || (original_name.contains("and attack") && original_name.contains("spawn"));
                 if looks_like_attack_wave && entry.enabled {
                     entry.enabled = false;
                     entry.script.set_active(false);
@@ -3179,7 +3181,9 @@ mod tests {
         };
 
         assert!(MissionScriptRuntime::is_shell_heavy_attack_script(&heavy));
-        assert!(!MissionScriptRuntime::is_shell_heavy_attack_script(&allowed));
+        assert!(!MissionScriptRuntime::is_shell_heavy_attack_script(
+            &allowed
+        ));
     }
 
     #[test]
@@ -3199,8 +3203,11 @@ mod tests {
         };
 
         let (condition_result, yielded) =
-            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(&runtime.evaluator, &mut entry)
-                .expect("first shell chunk should run");
+            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(
+                &runtime.evaluator,
+                &mut entry,
+            )
+            .expect("first shell chunk should run");
         assert!(condition_result);
         assert!(yielded);
         let first = &entry;
@@ -3214,9 +3221,11 @@ mod tests {
             "one-shot script should not complete until the full action chain runs"
         );
 
-        let (_, second_yielded) =
-            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(&runtime.evaluator, &mut entry)
-                .expect("second shell chunk should complete remaining actions");
+        let (_, second_yielded) = MissionScriptRuntime::evaluate_shell_heavy_script_chunked(
+            &runtime.evaluator,
+            &mut entry,
+        )
+        .expect("second shell chunk should complete remaining actions");
         assert!(!second_yielded);
         if entry.script.is_one_shot() {
             entry.state.completed = true;
@@ -3249,9 +3258,11 @@ mod tests {
             enabled: true,
         };
 
-        let (_, yielded_first) =
-            MissionScriptRuntime::evaluate_shell_heavy_script_chunked(&runtime.evaluator, &mut entry)
-                .expect("condition slice should run");
+        let (_, yielded_first) = MissionScriptRuntime::evaluate_shell_heavy_script_chunked(
+            &runtime.evaluator,
+            &mut entry,
+        )
+        .expect("condition slice should run");
         assert!(
             yielded_first,
             "long heavy condition chains should yield to the next frame"
@@ -3281,7 +3292,9 @@ mod tests {
             state: ScriptState::new(),
             enabled: true,
         });
-        runtime.original_lookup.insert("spawn techs and attack".to_string(), 0);
+        runtime
+            .original_lookup
+            .insert("spawn techs and attack".to_string(), 0);
         runtime.scripts[0].state.pending_condition_cursor = Some(ShellPendingConditionCursor {
             next_or_index: 1,
             next_and_index: 0,

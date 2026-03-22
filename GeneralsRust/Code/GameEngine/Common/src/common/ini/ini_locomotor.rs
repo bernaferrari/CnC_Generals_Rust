@@ -734,11 +734,19 @@ pub fn parse_locomotor_template_definition(
             "Surfaces" => {
                 for part in value.split('|') {
                     match part.trim().to_uppercase().as_str() {
-                        "GROUND" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::GROUND),
-                        "WATER" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::WATER),
-                        "CLIFF" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::CLIFF),
+                        "GROUND" => template
+                            .surfaces
+                            .add_surface(LocomotorSurfaceTypeMask::GROUND),
+                        "WATER" => template
+                            .surfaces
+                            .add_surface(LocomotorSurfaceTypeMask::WATER),
+                        "CLIFF" => template
+                            .surfaces
+                            .add_surface(LocomotorSurfaceTypeMask::CLIFF),
                         "AIR" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::AIR),
-                        "RUBBLE" => template.surfaces.add_surface(LocomotorSurfaceTypeMask::RUBBLE),
+                        "RUBBLE" => template
+                            .surfaces
+                            .add_surface(LocomotorSurfaceTypeMask::RUBBLE),
                         _ => {}
                     }
                 }
@@ -748,20 +756,20 @@ pub fn parse_locomotor_template_definition(
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("Extra2DFriction: {}", e)))?
             }
-            "GroupMovementPriority" => {
-                match value.trim().to_uppercase().as_str() {
-                    "MOVES_BACK" | "BACK" => template.move_priority = LocomotorPriority::MovesBack,
-                    "MOVES_MIDDLE" | "MIDDLE" => template.move_priority = LocomotorPriority::MovesMiddle,
-                    "MOVES_FRONT" | "FRONT" => template.move_priority = LocomotorPriority::MovesFront,
-                    _ => {
-                        let idx: i32 = value
-                            .parse()
-                            .map_err(|e| LocomotorError::ParseError(format!("GroupMovementPriority: {}", e)))?;
-                        template.move_priority = LocomotorPriority::from_index(idx)
-                            .ok_or(LocomotorError::InvalidPriority)?;
-                    }
+            "GroupMovementPriority" => match value.trim().to_uppercase().as_str() {
+                "MOVES_BACK" | "BACK" => template.move_priority = LocomotorPriority::MovesBack,
+                "MOVES_MIDDLE" | "MIDDLE" => {
+                    template.move_priority = LocomotorPriority::MovesMiddle
                 }
-            }
+                "MOVES_FRONT" | "FRONT" => template.move_priority = LocomotorPriority::MovesFront,
+                _ => {
+                    let idx: i32 = value.parse().map_err(|e| {
+                        LocomotorError::ParseError(format!("GroupMovementPriority: {}", e))
+                    })?;
+                    template.move_priority = LocomotorPriority::from_index(idx)
+                        .ok_or(LocomotorError::InvalidPriority)?;
+                }
+            },
             _ => {
                 // Unknown field - log warning but don't fail
                 eprintln!("Warning: Unknown locomotor field: {}", key);
@@ -878,16 +886,26 @@ mod tests {
         let template = parse_locomotor_template_definition("TestConv", &props).unwrap();
 
         // Speed: 300 / 30 = 10.0
-        assert!((template.max_speed - 10.0).abs() < 1e-6,
-            "Speed should be 10.0, got {}", template.max_speed);
+        assert!(
+            (template.max_speed - 10.0).abs() < 1e-6,
+            "Speed should be 10.0, got {}",
+            template.max_speed
+        );
 
         // TurnRate: 180 * PI / (180 * 30) = PI / 30
         let expected_turn = std::f32::consts::PI / 30.0;
-        assert!((template.max_turn_rate - expected_turn).abs() < 1e-5,
-            "TurnRate should be PI/30 ({:.6}), got {:.6}", expected_turn, template.max_turn_rate);
+        assert!(
+            (template.max_turn_rate - expected_turn).abs() < 1e-5,
+            "TurnRate should be PI/30 ({:.6}), got {:.6}",
+            expected_turn,
+            template.max_turn_rate
+        );
 
         // Acceleration: 900 / 900 = 1.0
-        assert!((template.acceleration - 1.0).abs() < 1e-6,
-            "Acceleration should be 1.0, got {}", template.acceleration);
+        assert!(
+            (template.acceleration - 1.0).abs() < 1e-6,
+            "Acceleration should be 1.0, got {}",
+            template.acceleration
+        );
     }
 }

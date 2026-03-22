@@ -587,7 +587,8 @@ impl TextureManager {
                 let block_size = Self::dds_block_size_bytes(compression);
                 let blocks_x = raw.width.div_ceil(4);
                 let blocks_y = raw.height.div_ceil(4);
-                let expected_size = Self::dds_expected_payload_size(raw.width, raw.height, compression);
+                let expected_size =
+                    Self::dds_expected_payload_size(raw.width, raw.height, compression);
 
                 if raw.data.len() >= expected_size {
                     let texture_size = wgpu::Extent3d {
@@ -658,13 +659,21 @@ impl TextureManager {
 
             let mut rgba_data = Vec::new();
             let decode_result = match compression {
-                DdsCompression::Dxt1 => self.decode_dxt1(&raw.data, &mut rgba_data, raw.width, raw.height),
-                DdsCompression::Dxt3 => self.decode_dxt3(&raw.data, &mut rgba_data, raw.width, raw.height),
-                DdsCompression::Dxt5 => self.decode_dxt5(&raw.data, &mut rgba_data, raw.width, raw.height),
+                DdsCompression::Dxt1 => {
+                    self.decode_dxt1(&raw.data, &mut rgba_data, raw.width, raw.height)
+                }
+                DdsCompression::Dxt3 => {
+                    self.decode_dxt3(&raw.data, &mut rgba_data, raw.width, raw.height)
+                }
+                DdsCompression::Dxt5 => {
+                    self.decode_dxt5(&raw.data, &mut rgba_data, raw.width, raw.height)
+                }
             };
 
             if decode_result.is_ok() {
-                return self.create_gpu_texture_from_rgba(device, queue, &raw.name, raw.width, raw.height, &rgba_data);
+                return self.create_gpu_texture_from_rgba(
+                    device, queue, &raw.name, raw.width, raw.height, &rgba_data,
+                );
             }
 
             warn!(
@@ -687,7 +696,9 @@ impl TextureManager {
             );
         }
 
-        self.create_gpu_texture_from_rgba(device, queue, &raw.name, raw.width, raw.height, &raw.data)
+        self.create_gpu_texture_from_rgba(
+            device, queue, &raw.name, raw.width, raw.height, &raw.data,
+        )
     }
 
     fn create_gpu_texture_from_rgba(

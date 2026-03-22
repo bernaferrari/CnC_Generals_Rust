@@ -1,5 +1,5 @@
 //! INI parser for WindowTransition
-//! 
+//!
 //! Reference: GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GameWindowTransitions.cpp
 //! Reference: GeneralsMD/Code/GameEngine/Include/GameClient/GameWindowTransitions.h
 //! Parses [WindowTransition] blocks from INI files for GUI window animations.
@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use super::ini::{INI, INIError, INIResult};
+use super::ini::{INIError, INIResult, INI};
 
 /// Transition style types - matches C++ TransitionStyleNames lookup table
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -202,7 +202,8 @@ pub fn get_window_transition_store() -> std::sync::RwLockReadGuard<'static, Wind
 }
 
 /// Get the window transition store (write guard)
-pub fn get_window_transition_store_mut() -> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
+pub fn get_window_transition_store_mut(
+) -> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
     WINDOW_TRANSITION_STORE
         .get_or_init(|| RwLock::new(WindowTransitionStore::new()))
         .write()
@@ -227,31 +228,35 @@ fn parse_bool(value: &str) -> bool {
 /// Matches C++ GameWindowTransitionsHandler::parseWindow
 fn parse_window_field(ini: &mut INI, group: &mut TransitionGroup) -> INIResult<()> {
     let mut window = TransitionWindow::new();
-    
+
     loop {
         ini.read_line()?;
-        
+
         if ini.is_eof() {
             return Err(INIError::EndOfFile);
         }
-        
+
         let tokens = ini.get_line_tokens();
         let Some(first) = tokens.first() else {
             continue;
         };
-        
+
         // Check for End of Window block
         if first.eq_ignore_ascii_case("End") {
             break;
         }
-        
+
         let field_name = first;
-        let value_idx = if tokens.len() > 2 && tokens[1] == "=" { 2 } else { 1 };
-        
+        let value_idx = if tokens.len() > 2 && tokens[1] == "=" {
+            2
+        } else {
+            1
+        };
+
         if value_idx >= tokens.len() {
             continue;
         }
-        
+
         match field_name.to_lowercase().as_str() {
             "winname" => {
                 // WinName = <window_name>
@@ -259,11 +264,10 @@ fn parse_window_field(ini: &mut INI, group: &mut TransitionGroup) -> INIResult<(
             }
             "style" => {
                 // Style = <style_name>
-                window.style = TransitionStyle::from_str(tokens[value_idx])
-                    .ok_or_else(|| {
-                        log::warn!("Unknown transition style: {}", tokens[value_idx]);
-                        INIError::InvalidData
-                    })?;
+                window.style = TransitionStyle::from_str(tokens[value_idx]).ok_or_else(|| {
+                    log::warn!("Unknown transition style: {}", tokens[value_idx]);
+                    INIError::InvalidData
+                })?;
             }
             "framedelay" => {
                 // FrameDelay = <value>
@@ -274,15 +278,15 @@ fn parse_window_field(ini: &mut INI, group: &mut TransitionGroup) -> INIResult<(
             }
         }
     }
-    
+
     group.add_window(window);
     Ok(())
 }
 
 /// Parse a [WindowTransition] block from an INI file
-/// 
+///
 /// Matches the C++ INI::parseWindowTransitions function
-/// 
+///
 /// Example INI format:
 /// ```ini
 /// WindowTransition MyTransition
@@ -302,32 +306,32 @@ fn parse_window_field(ini: &mut INI, group: &mut TransitionGroup) -> INIResult<(
 pub fn parse_window_transition_definition(ini: &mut INI) -> INIResult<()> {
     // Read the group name
     let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
-    
+
     if name.trim().is_empty() {
         return Err(INIError::InvalidData);
     }
-    
+
     // Create a new group in the store
     let mut group = TransitionGroup::new(name.clone());
-    
+
     // Parse the group contents
     loop {
         ini.read_line()?;
-        
+
         if ini.is_eof() {
             return Err(INIError::EndOfFile);
         }
-        
+
         let tokens = ini.get_line_tokens();
         let Some(first) = tokens.first() else {
             continue;
         };
-        
+
         // Check for End of WindowTransition block
         if first.eq_ignore_ascii_case("End") {
             break;
         }
-        
+
         // Check for FireOnce field
         if first.eq_ignore_ascii_case("FireOnce") {
             let value = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
@@ -338,7 +342,7 @@ pub fn parse_window_transition_definition(ini: &mut INI) -> INIResult<()> {
             parse_window_field(ini, &mut group)?;
         }
     }
-    
+
     // Store the parsed group
     {
         let mut store = get_window_transition_store_mut();
@@ -348,7 +352,7 @@ pub fn parse_window_transition_definition(ini: &mut INI) -> INIResult<()> {
             stored_group.windows = group.windows;
         }
     }
-    
+
     Ok(())
 }
 
@@ -363,10 +367,22 @@ mod tests {
 
     #[test]
     fn test_transition_style_from_str() {
-        assert_eq!(TransitionStyle::from_str("FLASH"), Some(TransitionStyle::Flash));
-        assert_eq!(TransitionStyle::from_str("flash"), Some(TransitionStyle::Flash));
-        assert_eq!(TransitionStyle::from_str("BUTTONFLASH"), Some(TransitionStyle::ButtonFlash));
-        assert_eq!(TransitionStyle::from_str("WINFADE"), Some(TransitionStyle::WinFade));
+        assert_eq!(
+            TransitionStyle::from_str("FLASH"),
+            Some(TransitionStyle::Flash)
+        );
+        assert_eq!(
+            TransitionStyle::from_str("flash"),
+            Some(TransitionStyle::Flash)
+        );
+        assert_eq!(
+            TransitionStyle::from_str("BUTTONFLASH"),
+            Some(TransitionStyle::ButtonFlash)
+        );
+        assert_eq!(
+            TransitionStyle::from_str("WINFADE"),
+            Some(TransitionStyle::WinFade)
+        );
         assert_eq!(TransitionStyle::from_str("UNKNOWN"), None);
     }
 
@@ -390,7 +406,7 @@ mod tests {
         assert_eq!(group.name, "TestGroup");
         assert!(!group.fire_once);
         assert!(group.windows.is_empty());
-        
+
         group.fire_once = true;
         group.add_window(TransitionWindow::new());
         assert!(group.fire_once);
@@ -401,13 +417,13 @@ mod tests {
     fn test_window_transition_store() {
         let mut store = WindowTransitionStore::new();
         assert!(store.is_empty());
-        
+
         store.new_group("Group1".to_string());
         assert_eq!(store.len(), 1);
-        
+
         assert!(store.find_group("Group1").is_some());
         assert!(store.find_group("Group2").is_none());
-        
+
         store.clear();
         assert!(store.is_empty());
     }
@@ -419,7 +435,7 @@ mod tests {
         assert!(parse_bool("true"));
         assert!(parse_bool("TRUE"));
         assert!(parse_bool("1"));
-        
+
         assert!(!parse_bool("no"));
         assert!(!parse_bool("NO"));
         assert!(!parse_bool("false"));
