@@ -618,7 +618,9 @@ impl RenderPipeline {
         let mut terrain_elapsed = std::time::Duration::ZERO;
         if render_world_scene {
             self.sync_lighting_from_map_metadata(game_logic);
-            self.prewarm_startup_models(graphics_system, game_logic, allow_sync_model_loads);
+            if allow_sync_model_loads {
+                self.prewarm_startup_models(graphics_system, game_logic, allow_sync_model_loads);
+            }
 
             // Shell/menu startup needs to make visible progress without stalling first paint.
             let mut deferred_model_load_budget = if allow_sync_model_loads {
@@ -849,7 +851,7 @@ impl RenderPipeline {
         } else if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
             if let Ok(asset_manager) = asset_manager_arc.lock() {
                 for unit in asset_manager.get_common_cnc_units() {
-                    if candidates.len() >= if allow_sync_model_loads { 48 } else { 24 } {
+                    if candidates.len() >= if allow_sync_model_loads { 48 } else { 12 } {
                         break;
                     }
                     let key = unit.to_ascii_lowercase();
@@ -860,7 +862,7 @@ impl RenderPipeline {
             }
         }
 
-        let prewarm_limit = if allow_sync_model_loads { 48 } else { 24 };
+        let prewarm_limit = if allow_sync_model_loads { 48 } else { 12 };
         candidates.truncate(prewarm_limit);
         if candidates.is_empty() {
             self.last_startup_model_prewarm_signature = Some(signature);
@@ -1072,34 +1074,36 @@ impl RenderPipeline {
         // Collect all object IDs for batch visibility query
         let object_ids_started = Instant::now();
         let mut object_ids: Vec<ObjectID> = game_logic.get_objects().keys().copied().collect();
-        object_ids.sort_unstable();
-        if !allow_sync_model_loads {
-            object_ids.sort_by(|a, b| {
-                let a_distance = game_logic
-                    .get_objects()
-                    .get(a)
-                    .map(|obj| {
-                        gameplay_to_render_transform(obj.get_transform_matrix())
-                            .w_axis
-                            .truncate()
-                            .distance_squared(camera_position)
-                    })
-                    .unwrap_or(f32::INFINITY);
-                let b_distance = game_logic
-                    .get_objects()
-                    .get(b)
-                    .map(|obj| {
-                        gameplay_to_render_transform(obj.get_transform_matrix())
-                            .w_axis
-                            .truncate()
-                            .distance_squared(camera_position)
-                    })
-                    .unwrap_or(f32::INFINITY);
+        if allow_sync_model_loads {
+            object_ids.sort_unstable();
+        } else {
+            let mut object_ids_with_distance: Vec<(ObjectID, f32)> = object_ids
+                .iter()
+                .copied()
+                .map(|object_id| {
+                    let distance_squared = game_logic
+                        .get_objects()
+                        .get(&object_id)
+                        .map(|obj| {
+                            gameplay_to_render_transform(obj.get_transform_matrix())
+                                .w_axis
+                                .truncate()
+                                .distance_squared(camera_position)
+                        })
+                        .unwrap_or(f32::INFINITY);
+                    (object_id, distance_squared)
+                })
+                .collect();
+            object_ids_with_distance.sort_by(|(a_id, a_distance), (b_id, b_distance)| {
                 a_distance
-                    .partial_cmp(&b_distance)
+                    .partial_cmp(b_distance)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.cmp(b))
+                    .then_with(|| a_id.cmp(b_id))
             });
+            object_ids = object_ids_with_distance
+                .into_iter()
+                .map(|(object_id, _)| object_id)
+                .collect();
         }
         let object_ids_elapsed = object_ids_started.elapsed();
 
