@@ -11,7 +11,7 @@ use crate::common::message_stream::{
     is_network_command_message, GameMessage, GameMessageArgumentDataType, GameMessageArgumentType,
     GameMessageType, MessageSerializer,
 };
-use crate::common::random_value::get_game_logic_random_seed;
+use crate::common::random_value::{get_game_logic_random_seed, init_game_logic_random};
 use crate::common::version::get_version;
 use crate::game_network::{
     game_info::{
@@ -1226,6 +1226,8 @@ impl Recorder {
             } else {
                 self.pending_commands.push(msg);
             }
+
+            init_game_logic_random(self.game_info.get_seed());
         }
 
         self.current_replay_filename = filename;
@@ -1952,6 +1954,7 @@ mod tests {
     fn test_replay_dir_and_playback_updates_pending_map_from_header() {
         let temp = tempfile::tempdir().unwrap();
         let map_name = "Maps/TestPlayback.map".to_string();
+        let expected_seed = 0x1357_9BDF;
 
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -1959,6 +1962,8 @@ mod tests {
             data.map_name = map_name.clone();
             data.pending_file.clear();
         }
+
+        init_game_logic_random(expected_seed);
 
         let mut writer = Recorder::new();
         assert_eq!(writer.replay_dir(), temp.path().join("Replays"));
@@ -1984,6 +1989,7 @@ mod tests {
 
         let mut reader = Recorder::new();
         assert!(reader.playback_file(replay_name).unwrap());
+        assert_eq!(get_game_logic_random_seed(), expected_seed);
 
         let pending = get_global_data()
             .map(|global| global.read().pending_file.clone())

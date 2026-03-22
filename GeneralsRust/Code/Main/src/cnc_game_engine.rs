@@ -1181,6 +1181,7 @@ impl CnCGameEngine {
         start_in_menu: bool,
         map_to_load: Option<String>,
         map_requested_from_cli: bool,
+        map_requested_from_initial_file: bool,
         replay_to_load: Option<String>,
         replay_requested_from_cli: bool,
         player_name: Option<String>,
@@ -1362,7 +1363,23 @@ impl CnCGameEngine {
                         game_logic.start_new_game(GameMode::Shell);
                     } else if replay_startup_requested {
                         game_logic.start_new_game(GameMode::Replay);
-                    } else if map_requested_from_cli {
+                    } else if map_requested_from_cli || map_requested_from_initial_file {
+                        if map_requested_from_initial_file {
+                            // C++ parity: .map initial-file startup enqueues MSG_NEW_GAME
+                            // (GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0) and seeds RNG with 0.
+                            let stream = game_engine::common::message_stream::get_message_stream();
+                            if let Ok(mut stream_guard) = stream.write() {
+                                let msg = stream_guard.append_message(
+                                    game_engine::common::message_stream::GameMessageType::NewGame,
+                                );
+                                msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
+                                msg.append_integer_argument(1); // DIFFICULTY_NORMAL
+                                msg.append_integer_argument(0); // rank points
+                            } else {
+                                warn!("Failed to queue startup NewGame message for initial-file map");
+                            }
+                            game_engine::common::random_value::init_random_with_seed(0);
+                        }
                         game_logic.start_new_game(GameMode::SinglePlayer);
                     } else {
                         game_logic.start_new_game(GameMode::Skirmish);
@@ -1375,27 +1392,67 @@ impl CnCGameEngine {
                             0.24,
                             "Starting replay playback",
                         );
-                        let replay_header = {
-                            if let Err(err) = crate::save_load::init_replay_system() {
-                                return Err(format!("replay system init failed: {err}"));
-                            }
-                            let mut replay_manager = crate::save_load::REPLAY_MANAGER.lock().unwrap();
-                            replay_manager.start_playback(replay_to_load).map_err(|err| {
-                                format!(
-                                    "replay playback startup failed for '{}': {err}",
-                                    replay_to_load
-                                )
-                            })?
-                        };
+                        let mut replay_map_name_from_legacy: Option<String> = None;
 
-                        if replay_header.map_name.trim().is_empty() {
-                            return Err(format!(
-                                "replay '{}' did not declare a map name",
-                                replay_to_load
-                            ));
+                        // C++ parity: bootstrap startup replay through the legacy recorder first.
+                        // If that path cannot parse the replay, keep the existing Rust replay
+                        // manager as a compatibility fallback.
+                        game_engine::common::recorder::init_recorder();
+                        match game_engine::common::recorder::with_recorder_mut(|recorder| {
+                            recorder.playback_file(replay_to_load.clone())
+                        }) {
+                            Some(Ok(true)) => {
+                                let global = game_engine::common::global_data::read();
+                                if !global.pending_file.trim().is_empty() {
+                                    replay_map_name_from_legacy = Some(global.pending_file.clone());
+                                }
+                            }
+                            Some(Ok(false)) => {
+                                warn!(
+                                    "Legacy recorder rejected startup replay '{}'; falling back to Rust replay manager",
+                                    replay_to_load
+                                );
+                            }
+                            Some(Err(err)) => {
+                                warn!(
+                                    "Legacy recorder replay bootstrap failed for '{}': {}; falling back to Rust replay manager",
+                                    replay_to_load, err
+                                );
+                            }
+                            None => {
+                                warn!(
+                                    "Legacy recorder unavailable for startup replay '{}'; falling back to Rust replay manager",
+                                    replay_to_load
+                                );
+                            }
                         }
 
-                        map_to_load = Some(replay_header.map_name.clone());
+                        if let Some(replay_map_name_from_legacy) = replay_map_name_from_legacy {
+                            map_to_load = Some(replay_map_name_from_legacy);
+                        } else {
+                            let replay_header = {
+                                if let Err(err) = crate::save_load::init_replay_system() {
+                                    return Err(format!("replay system init failed: {err}"));
+                                }
+                                let mut replay_manager =
+                                    crate::save_load::REPLAY_MANAGER.lock().unwrap();
+                                replay_manager.start_playback(replay_to_load).map_err(|err| {
+                                    format!(
+                                        "replay playback startup failed for '{}': {err}",
+                                        replay_to_load
+                                    )
+                                })?
+                            };
+
+                            if replay_header.map_name.trim().is_empty() {
+                                return Err(format!(
+                                    "replay '{}' did not declare a map name",
+                                    replay_to_load
+                                ));
+                            }
+
+                            map_to_load = Some(replay_header.map_name.clone());
+                        }
                     }
 
                     let mut loaded_map_name = None;
@@ -1887,15 +1944,13 @@ impl CnCGameEngine {
         }
 
         if let Some(initial_replay) = startup_initial_replay.as_ref() {
-            let mut global = game_engine::common::global_data::write();
-            global.writable.shell_map_on = false;
-            global.writable.play_intro = false;
-            global.writable.after_intro = true;
-            global.pending_file.clear();
+            // C++ parity: `.rep` startup is delegated to the recorder path and does not
+            // force shell/intro flags or clear `pending_file` here.
             info!("Replay startup override requested: {}", initial_replay);
         }
 
         let startup_map_requested_from_cli = startup_cli_map.is_some();
+        let startup_map_requested_from_initial_file = startup_initial_map.is_some();
         let startup_replay_requested_from_cli = startup_cli_replay.is_some();
         let startup_requested_map = startup_cli_map.or(startup_initial_map.clone());
         let startup_requested_replay = startup_cli_replay.or(startup_initial_replay.clone());
@@ -1915,6 +1970,7 @@ impl CnCGameEngine {
                 start_in_menu,
                 map_to_load,
                 startup_map_requested_from_cli,
+                startup_map_requested_from_initial_file,
                 startup_requested_replay.clone(),
                 startup_replay_requested_from_cli,
                 command_line.player_name.clone(),
