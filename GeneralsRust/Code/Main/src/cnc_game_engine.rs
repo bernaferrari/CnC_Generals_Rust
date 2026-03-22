@@ -131,6 +131,12 @@ mod tests {
     }
 
     #[test]
+    fn startup_deferred_budget_is_enabled_for_visible_menu_frames() {
+        let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(12), 12);
+        assert_eq!(budget, 4);
+    }
+
+    #[test]
     fn configured_startup_shell_map_disables_missing_shell_map() {
         with_global_data_snapshot_restored(|| {
             {
@@ -1588,10 +1594,21 @@ impl CnCGameEngine {
         startup_frame: Option<u64>,
         current_logic_frame: u64,
     ) -> usize {
-        let _ = current_state;
-        let _ = startup_frame;
-        let _ = current_logic_frame;
-        0
+        if current_state != GameState::Menu {
+            return 0;
+        }
+
+        let Some(startup_frame) = startup_frame else {
+            return 0;
+        };
+
+        let startup_age = current_logic_frame.saturating_sub(startup_frame);
+        match startup_age {
+            0 => 4,
+            1..=2 => 8,
+            3..=7 => 12,
+            _ => 16,
+        }
     }
 
     fn maybe_trigger_deferred_caustic_warmup(&mut self) {
@@ -4604,10 +4621,14 @@ impl CnCGameEngine {
                 .unwrap_or(0.0)
                 * self.game_logic.visual_speed_multiplier().max(0.0)
         };
-        // C++ loads shell/menu assets synchronously when they are needed; do not trickle
-        // startup loads through a frame budget.
-        let allow_sync_model_loads = true;
-        let deferred_startup_model_load_budget = 0usize;
+        let startup_frame = self.shell_start_frame();
+        let current_startup_logic_frame = self.current_startup_logic_frame();
+        let deferred_startup_model_load_budget = Self::startup_deferred_model_load_budget(
+            self.current_state,
+            startup_frame,
+            current_startup_logic_frame,
+        );
+        let allow_sync_model_loads = deferred_startup_model_load_budget == 0;
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
         let render_pipeline_started = Instant::now();
         self.render_pipeline.execute(
