@@ -15,6 +15,52 @@ SOURCE_STATUS_FOUND = "FOUND"
 SOURCE_STATUS_FOUND_BY_BASENAME = "FOUND_BY_BASENAME"
 SOURCE_STATUS_MISSING = "MISSING"
 
+# Explicit C++ -> Rust mappings for renamed faithful ports where file names diverge.
+# Keys are: (kind, relative_cpp_path_from_Source_or_Include_root).
+MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
+    ("Source", "GameLogic/AI/AIDock.cpp"): "GameLogic/src/ai/dock.rs",
+    ("Source", "GameLogic/AI/AIGuard.cpp"): "GameLogic/src/ai/guard.rs",
+    ("Source", "GameLogic/AI/AIGuardRetaliate.cpp"): "GameLogic/src/ai/guard_retaliate.rs",
+    ("Source", "GameLogic/AI/AIPathfind.cpp"): "GameLogic/src/ai/pathfind.rs",
+    ("Source", "GameLogic/AI/AISkirmishPlayer.cpp"): "GameLogic/src/ai/skirmish_player.rs",
+    ("Source", "GameLogic/AI/AITNGuard.cpp"): "GameLogic/src/ai/tn_guard.rs",
+    (
+        "Source",
+        "GameLogic/Object/Behavior/NeutonBlastBehavior.cpp",
+    ): "GameLogic/src/object/behavior/neutron_blast_behavior.rs",
+    (
+        "Source",
+        "GameLogic/Object/SpecialPower/SpecialAbility.cpp",
+    ): "GameLogic/src/object/special_powers/special_ability.rs",
+    ("Include", "GameLogic/AIDock.h"): "GameLogic/src/ai/dock.rs",
+    ("Include", "GameLogic/AIGuard.h"): "GameLogic/src/ai/guard.rs",
+    ("Include", "GameLogic/AIGuardRetaliate.h"): "GameLogic/src/ai/guard_retaliate.rs",
+    ("Include", "GameLogic/AIPathfind.h"): "GameLogic/src/ai/pathfind.rs",
+    ("Include", "GameLogic/AISkirmishPlayer.h"): "GameLogic/src/ai/skirmish_player.rs",
+    ("Include", "GameLogic/AIStateMachine.h"): "GameLogic/src/ai/state_machine.rs",
+    ("Include", "GameLogic/AITNGuard.h"): "GameLogic/src/ai/tn_guard.rs",
+    ("Include", "GameLogic/ArmorSet.h"): "GameLogic/src/weapon/damage_calculator.rs",
+    ("Include", "GameLogic/FPUControl.h"): "GameLogic/src/system/game_logic.rs",
+    ("Include", "GameLogic/LogicRandomValue.h"): "GameLogic/src/helpers.rs",
+    (
+        "Include",
+        "GameLogic/Module/SpecialAbility.h",
+    ): "GameLogic/src/object/special_powers/special_ability.rs",
+    ("Include", "GameLogic/ObjectIter.h"): "GameLogic/src/object/simple_object_iterator.rs",
+    (
+        "Include",
+        "GameLogic/ObjectScriptStatusBits.h",
+    ): "GameLogic/src/common/types.rs",
+    ("Include", "GameLogic/Powers.h"): "GameLogic/src/special_power.rs",
+    (
+        "Include",
+        "GameLogic/WeaponBonusConditionFlags.h",
+    ): "GameLogic/src/common/types.rs",
+    ("Include", "GameLogic/WeaponSetFlags.h"): "GameLogic/src/weapon/weapon_set.rs",
+    ("Include", "GameLogic/WeaponSetType.h"): "GameLogic/src/weapon/weapon_set.rs",
+    ("Include", "GameLogic/WeaponStatus.h"): "GameLogic/src/weapon/weapon.rs",
+}
+
 
 @dataclass(frozen=True)
 class MappingRow:
@@ -81,6 +127,28 @@ def build_mapping_rows(
     for cpp_abs in cpp_files:
         cpp_rel = cpp_abs.relative_to(cpp_root)
         subsystem = cpp_subsystem(cpp_rel)
+        manual_rel = MANUAL_CPP_TO_RUST.get((kind, cpp_rel.as_posix()))
+        if manual_rel:
+            manual_abs = rust_root / manual_rel
+            if manual_abs.is_file():
+                chosen_rel = manual_abs.relative_to(rust_root)
+                chosen_subsystem = rust_subsystem(chosen_rel)
+                status = (
+                    SOURCE_STATUS_FOUND
+                    if chosen_subsystem.lower() == subsystem.lower()
+                    else SOURCE_STATUS_FOUND_BY_BASENAME
+                )
+                rows.append(
+                    MappingRow(
+                        kind=kind,
+                        source_rel=cpp_rel,
+                        subsystem=subsystem,
+                        status=status,
+                        mapped_rel=chosen_rel,
+                    )
+                )
+                continue
+
         stem = cpp_abs.stem.lower()
         candidates = rust_by_stem.get(stem, [])
         if not candidates:
