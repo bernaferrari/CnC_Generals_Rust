@@ -17,9 +17,11 @@ use anyhow::{Context, Result};
 use log::{info, warn};
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
 use crate::config::global_data::normalize_startup_map_path;
+use game_engine::common::global_data as runtime_global_data;
 
 /// C++ WinMain only stored the first 20 argv entries.
 pub const MAX_STARTUP_ARGS: usize = 20;
@@ -43,6 +45,8 @@ pub struct CommandLineArgs {
     pub height: Option<u32>,
     pub map_name: Option<String>,
     pub mod_name: Option<String>,
+    pub mod_dir: Option<String>,
+    pub mod_big: Option<String>,
     pub player_name: Option<String>,
     pub language: Option<String>,
     pub replay_file: Option<PathBuf>,
@@ -78,6 +82,8 @@ impl Default for CommandLineArgs {
             height: None,
             map_name: None,
             mod_name: None,
+            mod_dir: None,
+            mod_big: None,
             player_name: None,
             language: None,
             replay_file: None,
@@ -164,22 +170,22 @@ impl CommandLineArgs {
                     }
                     "width" => {
                         if let Some(v) = value {
-                            parsed.width = Some(v.parse().context("Invalid width value")?);
+                            parsed.width = Some(Self::parse_startup_dimension(&v));
                         }
                     }
                     "height" => {
                         if let Some(v) = value {
-                            parsed.height = Some(v.parse().context("Invalid height value")?);
+                            parsed.height = Some(Self::parse_startup_dimension(&v));
                         }
                     }
                     "xres" => {
                         if let Some(v) = value {
-                            parsed.width = Some(v.parse().context("Invalid xres value")?);
+                            parsed.width = Some(Self::parse_startup_dimension(&v));
                         }
                     }
                     "yres" => {
                         if let Some(v) = value {
-                            parsed.height = Some(v.parse().context("Invalid yres value")?);
+                            parsed.height = Some(Self::parse_startup_dimension(&v));
                         }
                     }
                     "file" => {
@@ -197,7 +203,21 @@ impl CommandLineArgs {
                             .options
                             .insert("map".to_string(), parsed.map_name.clone());
                     }
-                    "mod" => parsed.mod_name = value,
+                    "mod" => {
+                        if let Some(v) = value {
+                            match Self::resolve_mod_path(&v) {
+                                Some(resolved) => {
+                                    parsed.mod_name = Some(resolved.active_mod);
+                                    parsed.mod_dir = resolved.mod_dir;
+                                    parsed.mod_big = resolved.mod_big;
+                                }
+                                None => warn!(
+                                    "Mod path does not exist or could not be inspected: {}",
+                                    v
+                                ),
+                            }
+                        }
+                    }
                     "player" | "playername" => {
                         Self::store_option_aliases(
                             &mut parsed.options,
@@ -239,11 +259,23 @@ impl CommandLineArgs {
                     "quickstart" => parsed.quick_start = true,
                     "autoreplay" => parsed.auto_replay = true,
                     "benchmark" => parsed.benchmark_mode = true,
+                    "seed" | "netminplayers" | "playstats" | "forcebenchmark" | "nomusic"
+                    | "nosizzle" | "noshaders" | "particleedit" | "scriptdebug" | "noshellanim"
+                    | "wincursors" | "constantdebug" | "showteamdot" | "nomovecamera" => {}
                     "server" => parsed.server_mode = true,
                     "client" => parsed.client_mode = true,
                     "port" => {
                         if let Some(v) = value {
-                            parsed.network_port = Some(v.parse().context("Invalid port value")?);
+                            let parsed_port = Self::parse_startup_port(&v);
+                            if parsed_port == 0 {
+                                warn!(
+                                    "Ignoring invalid port value '{}'; startup will use default port behavior",
+                                    v
+                                );
+                                parsed.network_port = None;
+                            } else {
+                                parsed.network_port = Some(parsed_port);
+                            }
                         }
                     }
                     "host" => parsed.network_host = value,
@@ -340,13 +372,19 @@ impl CommandLineArgs {
         } else {
             let name = option_name.to_ascii_lowercase();
 
-            // Flags in the C++ parser never consume a following positional token.
+            // Value-taking C++ options consume the next token even if it looks like
+            // another flag; non-value flags stop here.
             if !Self::option_takes_value(&name) {
                 return Ok((name, None));
             }
 
-            // Check if next argument is the value (not starting with -)
+            // C++ parsers consume the next token for value-taking options even if it
+            // looks like another flag; that preserves signed numbers like "-1".
             if *index + 1 < args.len() && !args[*index + 1].starts_with('-') {
+                *index += 1;
+                let value = args[*index].clone();
+                Ok((name, Some(value)))
+            } else if *index + 1 < args.len() {
                 *index += 1;
                 let value = args[*index].clone();
                 Ok((name, Some(value)))
@@ -377,9 +415,30 @@ impl CommandLineArgs {
                 | "port"
                 | "host"
                 | "benchmark"
+                | "seed"
+                | "netminplayers"
+                | "playstats"
                 | "fps"
                 | "shellmap"
         )
+    }
+
+    fn parse_startup_dimension(value: &str) -> u32 {
+        value
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .map(|parsed| parsed.max(0) as u32)
+            .unwrap_or(0)
+    }
+
+    fn parse_startup_port(value: &str) -> u16 {
+        value
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .map(|parsed| parsed.clamp(0, u16::MAX as i32) as u16)
+            .unwrap_or(0)
     }
 
     fn store_option_aliases(
@@ -390,6 +449,53 @@ impl CommandLineArgs {
         for alias in aliases {
             options.insert((*alias).to_string(), value.clone());
         }
+    }
+
+    fn resolve_mod_path(candidate: &str) -> Option<ResolvedModPath> {
+        let candidate = candidate.trim().trim_matches('"');
+        if candidate.is_empty() {
+            return None;
+        }
+
+        let resolved_path = if Self::is_path_rooted(candidate) {
+            PathBuf::from(candidate)
+        } else {
+            let user_data_dir = runtime_global_data::read().get_user_data_dir().to_string();
+            if user_data_dir.is_empty() {
+                PathBuf::from(candidate)
+            } else {
+                PathBuf::from(user_data_dir).join(candidate)
+            }
+        };
+
+        let metadata = fs::metadata(&resolved_path).ok()?;
+        let resolved_string = resolved_path.to_string_lossy().into_owned();
+
+        if metadata.is_dir() {
+            let mod_dir = Self::ensure_directory_trailing_separator(resolved_string);
+            Some(ResolvedModPath {
+                mod_dir: Some(mod_dir.clone()),
+                mod_big: None,
+                active_mod: mod_dir,
+            })
+        } else {
+            Some(ResolvedModPath {
+                mod_dir: None,
+                mod_big: Some(resolved_string.clone()),
+                active_mod: resolved_string,
+            })
+        }
+    }
+
+    fn is_path_rooted(candidate: &str) -> bool {
+        candidate.contains(':') || candidate.starts_with('/') || candidate.starts_with('\\')
+    }
+
+    fn ensure_directory_trailing_separator(mut path: String) -> String {
+        if !path.ends_with('/') && !path.ends_with('\\') {
+            path.push(std::path::MAIN_SEPARATOR);
+        }
+        path
     }
 
     /// Validate command line arguments for consistency
@@ -405,26 +511,26 @@ impl CommandLineArgs {
         // Validate file paths exist if specified
         if let Some(ref replay_file) = self.replay_file {
             if !replay_file.exists() {
-                return Err(anyhow::anyhow!(
-                    "Replay file does not exist: {:?}",
+                warn!(
+                    "Replay file does not exist: {:?} (continuing; runtime will handle failure)",
                     replay_file
-                ));
+                );
             }
         }
 
         if let Some(ref config_file) = self.config_file {
             if !config_file.exists() {
-                return Err(anyhow::anyhow!(
-                    "Config file does not exist: {:?}",
+                warn!(
+                    "Config file does not exist: {:?} (continuing without config override)",
                     config_file
-                ));
+                );
             }
         }
 
         // Validate network options
         if let Some(port) = self.network_port {
             if port == 0 {
-                return Err(anyhow::anyhow!("Invalid network port: {}", port));
+                warn!("Network port resolved to 0; continuing with runtime/default port behavior");
             }
         }
 
@@ -598,9 +704,43 @@ pub fn get_command_line_option(option: &str) -> Option<String> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedModPath {
+    mod_dir: Option<String>,
+    mod_big: Option<String>,
+    active_mod: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_runtime_global_data_restored<F: FnOnce()>(f: F) {
+        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let snapshot = game_engine::common::global_data::read().clone();
+        f();
+        *game_engine::common::global_data::write() = snapshot;
+    }
+
+    fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "generals_main_{prefix}_{}_{}",
+            std::process::id(),
+            nonce
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn test_basic_parsing() {
@@ -711,6 +851,71 @@ mod tests {
     }
 
     #[test]
+    fn test_signed_value_options_consume_following_flag_style_tokens() {
+        let args = vec![
+            "generals".to_string(),
+            "-seed".to_string(),
+            "-1".to_string(),
+            "-netMinPlayers".to_string(),
+            "3".to_string(),
+            "-playStats=7".to_string(),
+            "-benchmark".to_string(),
+            "11".to_string(),
+            "-win".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(
+            parsed.get_option_value("seed").map(String::as_str),
+            Some("-1")
+        );
+        assert_eq!(
+            parsed.get_option_value("netminplayers").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            parsed.get_option_value("playstats").map(String::as_str),
+            Some("7")
+        );
+        assert_eq!(
+            parsed.get_option_value("benchmark").map(String::as_str),
+            Some("11")
+        );
+        assert!(parsed.windowed);
+    }
+
+    #[test]
+    fn test_startup_parity_flags_are_recognized_case_insensitively() {
+        let args = vec![
+            "generals".to_string(),
+            "-NoShellAnim".to_string(),
+            "-winCursors".to_string(),
+            "-constantDebug".to_string(),
+            "-showTeamDot".to_string(),
+            "-nomusic".to_string(),
+            "-nosizzle".to_string(),
+            "-noshaders".to_string(),
+            "-particleEdit".to_string(),
+            "-scriptDebug".to_string(),
+            "-forceBenchmark".to_string(),
+            "-nomovecamera".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert!(parsed.has_option("noshellanim"));
+        assert!(parsed.has_option("wincursors"));
+        assert!(parsed.has_option("constantdebug"));
+        assert!(parsed.has_option("showteamdot"));
+        assert!(parsed.has_option("nomusic"));
+        assert!(parsed.has_option("nosizzle"));
+        assert!(parsed.has_option("noshaders"));
+        assert!(parsed.has_option("particleedit"));
+        assert!(parsed.has_option("scriptdebug"));
+        assert!(parsed.has_option("forcebenchmark"));
+        assert!(parsed.has_option("nomovecamera"));
+    }
+
+    #[test]
     fn test_dx_flag_enables_stack_dump_mode() {
         let args = vec![
             "generals".to_string(),
@@ -794,5 +999,129 @@ mod tests {
         let parsed = CommandLineArgs::parse_from_args(args).unwrap();
         assert!(parsed.has_option("nologo"));
         assert!(parsed.has_option("nointro"));
+    }
+
+    #[test]
+    fn test_missing_replay_file_does_not_fail_parse() {
+        let args = vec![
+            "generals".to_string(),
+            "-replay".to_string(),
+            "__missing_replay_file__.rep".to_string(),
+        ];
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(
+            parsed.replay_file.as_deref(),
+            Some(Path::new("__missing_replay_file__.rep"))
+        );
+    }
+
+    #[test]
+    fn test_missing_config_file_does_not_fail_parse() {
+        let args = vec![
+            "generals".to_string(),
+            "-config".to_string(),
+            "__missing_override__.cfg".to_string(),
+        ];
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert_eq!(
+            parsed.config_file.as_deref(),
+            Some(Path::new("__missing_override__.cfg"))
+        );
+    }
+
+    #[test]
+    fn test_relative_mod_directory_resolves_against_user_data_dir() {
+        with_runtime_global_data_restored(|| {
+            let temp_root = create_temp_test_dir("mod_dir");
+            let user_data_dir = temp_root.join("UserData");
+            let mod_dir = user_data_dir.join("Mods").join("TestMod");
+            fs::create_dir_all(&mod_dir).unwrap();
+
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.set_user_data_dir(user_data_dir.to_string_lossy().into_owned());
+            }
+
+            let args = vec![
+                "generals".to_string(),
+                "-mod".to_string(),
+                Path::new("Mods")
+                    .join("TestMod")
+                    .to_string_lossy()
+                    .into_owned(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            let expected = CommandLineArgs::ensure_directory_trailing_separator(
+                mod_dir.to_string_lossy().into_owned(),
+            );
+
+            assert_eq!(parsed.mod_dir.as_deref(), Some(expected.as_str()));
+            assert!(parsed.mod_big.is_none());
+            assert_eq!(parsed.mod_name.as_deref(), Some(expected.as_str()));
+
+            let _ = fs::remove_dir_all(temp_root);
+        });
+    }
+
+    #[test]
+    fn test_mod_file_sets_mod_big() {
+        with_runtime_global_data_restored(|| {
+            let temp_root = create_temp_test_dir("mod_big");
+            let user_data_dir = temp_root.join("UserData");
+            let mod_file = user_data_dir.join("Mods").join("TestMod.big");
+            fs::create_dir_all(mod_file.parent().unwrap()).unwrap();
+            fs::write(&mod_file, b"mod archive").unwrap();
+
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.set_user_data_dir(user_data_dir.to_string_lossy().into_owned());
+            }
+
+            let args = vec![
+                "generals".to_string(),
+                "-mod".to_string(),
+                Path::new("Mods")
+                    .join("TestMod.big")
+                    .to_string_lossy()
+                    .into_owned(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+            let expected = mod_file.to_string_lossy().into_owned();
+
+            assert!(parsed.mod_dir.is_none());
+            assert_eq!(parsed.mod_big.as_deref(), Some(expected.as_str()));
+            assert_eq!(parsed.mod_name.as_deref(), Some(expected.as_str()));
+
+            let _ = fs::remove_dir_all(temp_root);
+        });
+    }
+
+    #[test]
+    fn test_missing_mod_path_does_not_set_mod_fields() {
+        with_runtime_global_data_restored(|| {
+            let temp_root = create_temp_test_dir("missing_mod");
+            let user_data_dir = temp_root.join("UserData");
+
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.set_user_data_dir(user_data_dir.to_string_lossy().into_owned());
+            }
+
+            let args = vec![
+                "generals".to_string(),
+                "-mod".to_string(),
+                Path::new("Mods")
+                    .join("Missing.big")
+                    .to_string_lossy()
+                    .into_owned(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+
+            assert!(parsed.mod_dir.is_none());
+            assert!(parsed.mod_big.is_none());
+            assert!(parsed.mod_name.is_none());
+
+            let _ = fs::remove_dir_all(temp_root);
+        });
     }
 }
