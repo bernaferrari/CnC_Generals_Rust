@@ -119,7 +119,7 @@ pub struct UIManager {
     ui_scale: f32,
     /// Debug mode
     debug_mode: bool,
-    /// Quick-start skips intros and jumps straight to in-game HUD
+    /// Quick-start preserves the legacy startup flow while suppressing shell-map animation.
     quick_start_enabled: bool,
 
     /// Most recent delta time passed to `update` (used by render-time animations).
@@ -207,13 +207,11 @@ impl UIManager {
                 "{}",
                 localization::localize(
                     "ui_manager.log.quick_start_skip",
-                    "UI: QuickStart enabled, skipping title/menu screens"
+                    "UI: QuickStart enabled, keeping title/menu startup flow"
                 )
             );
-            self.transition_to_screen(Screen::GameHUD);
-        } else {
-            self.transition_to_screen(Screen::Title);
         }
+        self.transition_to_screen(Screen::Title);
 
         Ok(())
     }
