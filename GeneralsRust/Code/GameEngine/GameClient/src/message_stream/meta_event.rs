@@ -268,7 +268,9 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
     let meta = lookup_meta_message_type(&name);
     let has_custom_handler =
         name.eq_ignore_ascii_case("PLACE_BEACON") || name.eq_ignore_ascii_case("DELETE_BEACON");
-    if meta.is_none() && !has_custom_handler {
+    // Temporary until the full command-table parity work lands: let debug/demo-only
+    // entries load even when GameMessageType coverage is still incomplete.
+    if meta.is_none() && !has_custom_handler && !is_unresolved_command_name_allowed(&name) {
         return Err(INIError::InvalidData);
     }
 
@@ -337,6 +339,15 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         .expect("MetaMap lock poisoned")
         .add_record(record);
     Ok(())
+}
+
+fn is_unresolved_command_name_allowed(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    upper.starts_with("DEMO_")
+        || upper.starts_with("CHEAT_")
+        || upper.starts_with("DEBUG_")
+        || upper == "HELP"
+        || upper == "TOGGLE_LOWER_DETAILS"
 }
 
 fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> {
