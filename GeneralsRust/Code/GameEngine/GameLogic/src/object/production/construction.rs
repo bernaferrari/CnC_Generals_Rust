@@ -164,25 +164,24 @@ impl FoundationValidator {
                         }
                     };
 
-                    let sample =
-                        |sample_x: f32, sample_y: f32, hi_z: &mut f32, lo_z: &mut f32| {
-                            if terrain.get_highest_layer_for_destination(&Coord3D::new(
-                                sample_x, sample_y, 0.0,
-                            )) != PathfindLayerEnum::Ground
-                            {
-                                return Err("Location on bridge".to_string());
-                            }
-                            if terrain.is_underwater(sample_x, sample_y, None, None) {
-                                return Err("Location underwater".to_string());
-                            }
-                            if terrain.is_cliff_cell(sample_x, sample_y) {
-                                return Err("Location on cliff".to_string());
-                            }
-                            let z = terrain.get_ground_height(sample_x, sample_y, None);
-                            *hi_z = hi_z.max(z);
-                            *lo_z = lo_z.min(z);
-                            Ok(())
-                        };
+                    let sample = |sample_x: f32, sample_y: f32, hi_z: &mut f32, lo_z: &mut f32| {
+                        if terrain.get_highest_layer_for_destination(&Coord3D::new(
+                            sample_x, sample_y, 0.0,
+                        )) != PathfindLayerEnum::Ground
+                        {
+                            return Err("Location on bridge".to_string());
+                        }
+                        if terrain.is_underwater(sample_x, sample_y, None, None) {
+                            return Err("Location underwater".to_string());
+                        }
+                        if terrain.is_cliff_cell(sample_x, sample_y) {
+                            return Err("Location on cliff".to_string());
+                        }
+                        let z = terrain.get_ground_height(sample_x, sample_y, None);
+                        *hi_z = hi_z.max(z);
+                        *lo_z = lo_z.min(z);
+                        Ok(())
+                    };
 
                     let allowed_variation = global_data::read_safe()
                         .map(|data| data.allowed_height_variation_for_building)

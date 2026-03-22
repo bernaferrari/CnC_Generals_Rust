@@ -573,7 +573,11 @@ async fn set_render_state_internal(
         | W3D_RENDER_STATE::W3DRS_SPECULARMATERIALSOURCE
         | W3D_RENDER_STATE::W3DRS_AMBIENTMATERIALSOURCE
         | W3D_RENDER_STATE::W3DRS_EMISSIVEMATERIALSOURCE => {
-            tracing::debug!("Tracking fixed-function lighting state {:?}: {}", state, value);
+            tracing::debug!(
+                "Tracking fixed-function lighting state {:?}: {}",
+                state,
+                value
+            );
         }
         _ => {
             tracing::trace!("Ignoring render state {:?} value {}", state, value);
@@ -1996,11 +2000,7 @@ async fn ensure_bound_material_internal(
     material.properties.diffuse_color = multiply_rgba(material.properties.diffuse_color, tint_rgba);
     material.properties.transparent =
         material.properties.transparent || material.properties.diffuse_color[3] < 0.999;
-    apply_fixed_function_lighting_to_material(
-        &mut material,
-        texture_id.is_some(),
-        lighting_state,
-    );
+    apply_fixed_function_lighting_to_material(&mut material, texture_id.is_some(), lighting_state);
     apply_fixed_function_surface_to_material(&mut material, surface_state);
 
     device_lock.add_material(material).await?;
@@ -3167,10 +3167,8 @@ fn current_fixed_function_lighting_state(device: &W3DDeviceC) -> FixedFunctionLi
         specular_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_SPECULARENABLE) != 0,
         color_vertex: render_state_value(device, W3D_RENDER_STATE::W3DRS_COLORVERTEX) != 0,
         local_viewer: render_state_value(device, W3D_RENDER_STATE::W3DRS_LOCALVIEWER) != 0,
-        normalize_normals: render_state_value(
-            device,
-            W3D_RENDER_STATE::W3DRS_NORMALIZENORMALS,
-        ) != 0,
+        normalize_normals: render_state_value(device, W3D_RENDER_STATE::W3DRS_NORMALIZENORMALS)
+            != 0,
         ambient_argb: render_state_value(device, W3D_RENDER_STATE::W3DRS_AMBIENT),
         ambient_material_source: render_state_value(
             device,
@@ -3221,7 +3219,8 @@ fn default_fixed_function_lighting_state() -> FixedFunctionLightingState {
 
 fn current_fixed_function_surface_state(device: &W3DDeviceC) -> FixedFunctionSurfaceState {
     FixedFunctionSurfaceState {
-        alpha_test_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_ALPHATESTENABLE) != 0,
+        alpha_test_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_ALPHATESTENABLE)
+            != 0,
         alpha_ref: render_state_value(device, W3D_RENDER_STATE::W3DRS_ALPHAREF) as u8,
         alpha_blend_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_ALPHABLENDENABLE)
             != 0,
@@ -3234,9 +3233,8 @@ fn default_fixed_function_surface_state() -> FixedFunctionSurfaceState {
         alpha_test_enabled: default_render_state_value(W3D_RENDER_STATE::W3DRS_ALPHATESTENABLE)
             != 0,
         alpha_ref: default_render_state_value(W3D_RENDER_STATE::W3DRS_ALPHAREF) as u8,
-        alpha_blend_enabled: default_render_state_value(
-            W3D_RENDER_STATE::W3DRS_ALPHABLENDENABLE,
-        ) != 0,
+        alpha_blend_enabled: default_render_state_value(W3D_RENDER_STATE::W3DRS_ALPHABLENDENABLE)
+            != 0,
         cull_mode: default_render_state_value(W3D_RENDER_STATE::W3DRS_CULLMODE),
     }
 }
@@ -3303,7 +3301,8 @@ fn apply_fixed_function_lighting_to_material(
         material.properties.shininess = 0.0;
 
         if !has_texture {
-            material.properties.emissive_color = add_rgb(material.properties.emissive_color, diffuse_rgb);
+            material.properties.emissive_color =
+                add_rgb(material.properties.emissive_color, diffuse_rgb);
         }
     }
 }
@@ -3330,7 +3329,12 @@ fn simple_stage_tfactor_tint_with<F>(
 where
     F: FnMut(u32, u32) -> u32,
 {
-    simple_stage_tint_from_current_with(stage_state_lookup, stage, [1.0, 1.0, 1.0, 1.0], texture_factor)
+    simple_stage_tint_from_current_with(
+        stage_state_lookup,
+        stage,
+        [1.0, 1.0, 1.0, 1.0],
+        texture_factor,
+    )
 }
 
 fn simple_stage_chain_tint_with<F>(
@@ -3422,7 +3426,9 @@ fn simple_material_tint_arg_value(
     match arg & D3DTA_SELECTMASK {
         D3DTA_TFACTOR => Some(arg_color_from_texture_factor(arg, texture_factor)),
         D3DTA_CURRENT => Some(apply_arg_modifiers_to_color(arg, current_tint)),
-        D3DTA_TEXTURE | D3DTA_DIFFUSE => Some(apply_arg_modifiers_to_color(arg, [1.0, 1.0, 1.0, 1.0])),
+        D3DTA_TEXTURE | D3DTA_DIFFUSE => {
+            Some(apply_arg_modifiers_to_color(arg, [1.0, 1.0, 1.0, 1.0]))
+        }
         _ => None,
     }
 }
@@ -3479,9 +3485,7 @@ fn simple_material_tint_color_for_op(
             simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
             simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
         )),
-        D3DTOP_BLENDDIFFUSEALPHA
-        | D3DTOP_BLENDTEXTUREALPHA
-        | D3DTOP_BLENDTEXTUREALPHAPM => {
+        D3DTOP_BLENDDIFFUSEALPHA | D3DTOP_BLENDTEXTUREALPHA | D3DTOP_BLENDTEXTUREALPHAPM => {
             // The constrained fallback evaluator treats diffuse/texture as neutral white sources,
             // so their alpha factor resolves to 1.0 in this approximation and these ops collapse to arg1.
             simple_material_tint_arg_value(arg1, current_tint, texture_factor)
@@ -3505,7 +3509,11 @@ fn simple_material_tint_color_for_op(
             let lhs = simple_material_tint_arg_value(arg1, current_tint, texture_factor)?;
             let rhs = simple_material_tint_arg_value(arg2, current_tint, texture_factor)?;
             let inv_alpha = 1.0 - lhs[3];
-            Some(scale_rgb_add_rgba(lhs, rhs, [inv_alpha, inv_alpha, inv_alpha, 1.0]))
+            Some(scale_rgb_add_rgba(
+                lhs,
+                rhs,
+                [inv_alpha, inv_alpha, inv_alpha, 1.0],
+            ))
         }
         D3DTOP_MODULATEINVCOLOR_ADDALPHA => {
             let lhs = simple_material_tint_arg_value(arg1, current_tint, texture_factor)?;
@@ -3556,7 +3564,9 @@ fn simple_material_tint_alpha_for_op(
     texture_factor: u32,
 ) -> Option<f32> {
     match op {
-        D3DTOP_PREMODULATE | D3DTOP_BUMPENVMAP | D3DTOP_BUMPENVMAPLUMINANCE => Some(current_tint[3]),
+        D3DTOP_PREMODULATE | D3DTOP_BUMPENVMAP | D3DTOP_BUMPENVMAPLUMINANCE => {
+            Some(current_tint[3])
+        }
         D3DTOP_SELECTARG1 => {
             Some(simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3])
         }
@@ -3600,12 +3610,11 @@ fn simple_material_tint_alpha_for_op(
         D3DTOP_ADDSMOOTH => Some(
             (simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3]
                 + simple_material_tint_arg_value(arg2, current_tint, texture_factor)?[3]
-                    * (1.0 - simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3]))
+                    * (1.0
+                        - simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3]))
                 .clamp(0.0, 1.0),
         ),
-        D3DTOP_BLENDDIFFUSEALPHA
-        | D3DTOP_BLENDTEXTUREALPHA
-        | D3DTOP_BLENDTEXTUREALPHAPM => {
+        D3DTOP_BLENDDIFFUSEALPHA | D3DTOP_BLENDTEXTUREALPHA | D3DTOP_BLENDTEXTUREALPHAPM => {
             Some(simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3])
         }
         D3DTOP_MODULATEALPHA_ADDCOLOR
@@ -3614,31 +3623,39 @@ fn simple_material_tint_alpha_for_op(
         | D3DTOP_MODULATEINVCOLOR_ADDALPHA => {
             Some(simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3])
         }
-        D3DTOP_BLENDFACTORALPHA => Some(lerp_rgba(
-            simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
-            simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
-            arg_color_from_texture_factor(D3DTA_TFACTOR, texture_factor)[3],
-        )[3]),
-        D3DTOP_BLENDCURRENTALPHA => Some(lerp_rgba(
-            simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
-            simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
-            current_tint[3],
-        )[3]),
+        D3DTOP_BLENDFACTORALPHA => Some(
+            lerp_rgba(
+                simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
+                simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
+                arg_color_from_texture_factor(D3DTA_TFACTOR, texture_factor)[3],
+            )[3],
+        ),
+        D3DTOP_BLENDCURRENTALPHA => Some(
+            lerp_rgba(
+                simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
+                simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
+                current_tint[3],
+            )[3],
+        ),
         D3DTOP_MULTIPLYADD => Some(
             (simple_material_tint_arg_value(arg0, current_tint, texture_factor)?[3]
                 * simple_material_tint_arg_value(arg1, current_tint, texture_factor)?[3]
                 + simple_material_tint_arg_value(arg2, current_tint, texture_factor)?[3])
                 .clamp(0.0, 1.0),
         ),
-        D3DTOP_LERP => Some(lerp_rgba_per_channel(
-            simple_material_tint_arg_value(arg0, current_tint, texture_factor)?,
-            simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
-            simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
-        )[3]),
-        D3DTOP_DOTPRODUCT3 => Some(dotproduct3_rgba(
-            simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
-            simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
-        )[3]),
+        D3DTOP_LERP => Some(
+            lerp_rgba_per_channel(
+                simple_material_tint_arg_value(arg0, current_tint, texture_factor)?,
+                simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
+                simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
+            )[3],
+        ),
+        D3DTOP_DOTPRODUCT3 => Some(
+            dotproduct3_rgba(
+                simple_material_tint_arg_value(arg1, current_tint, texture_factor)?,
+                simple_material_tint_arg_value(arg2, current_tint, texture_factor)?,
+            )[3],
+        ),
         _ => None,
     }
 }
@@ -4105,7 +4122,11 @@ fn read_position_from_decl(bytes: &[u8], offset: usize, decl_type: u8) -> Option
 
 fn read_normal_from_decl(bytes: &[u8], offset: usize, decl_type: u8) -> Option<(f32, f32, f32)> {
     match decl_type {
-        D3DDECLTYPE_FLOAT2 => Some((read_f32_at(bytes, offset)?, read_f32_at(bytes, offset + 4)?, 0.0)),
+        D3DDECLTYPE_FLOAT2 => Some((
+            read_f32_at(bytes, offset)?,
+            read_f32_at(bytes, offset + 4)?,
+            0.0,
+        )),
         D3DDECLTYPE_FLOAT3 | D3DDECLTYPE_FLOAT4 => Some((
             read_f32_at(bytes, offset)?,
             read_f32_at(bytes, offset + 4)?,
@@ -4342,8 +4363,11 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
         }
     };
 
-    let effective_texture_id =
-        effective_bound_texture_id(base_material_id.is_some(), multi_texture_chain, active_texture_id.clone());
+    let effective_texture_id = effective_bound_texture_id(
+        base_material_id.is_some(),
+        multi_texture_chain,
+        active_texture_id.clone(),
+    );
     let texture_cache_id = effective_texture_id.clone().unwrap_or_default();
     let cache_key = MaterialBindingCacheKey {
         base_material_id: base_material_id.clone(),
@@ -4425,7 +4449,10 @@ where
     (0..max_stages).find(|stage| texture_stage_enabled_with(stage_state_lookup, *stage))
 }
 
-fn enabled_texture_sampling_stage_count_with<F>(stage_state_lookup: &mut F, max_stages: u32) -> usize
+fn enabled_texture_sampling_stage_count_with<F>(
+    stage_state_lookup: &mut F,
+    max_stages: u32,
+) -> usize
 where
     F: FnMut(u32, u32) -> u32,
 {
@@ -5522,7 +5549,10 @@ mod tests {
             0x80 as f32 / 255.0,
             1.0,
         ];
-        let expected = subtract_rgba(tfactor, [1.0 - tfactor[0], 1.0 - tfactor[1], 1.0 - tfactor[2], 0.0]);
+        let expected = subtract_rgba(
+            tfactor,
+            [1.0 - tfactor[0], 1.0 - tfactor[1], 1.0 - tfactor[2], 0.0],
+        );
 
         assert!((tint[0] - expected[0]).abs() < 1e-6);
         assert!((tint[1] - expected[1]).abs() < 1e-6);
@@ -5717,7 +5747,12 @@ mod tests {
         )
         .expect("tint");
 
-        let lhs = [0x40 as f32 / 255.0, 0x60 as f32 / 255.0, 0x20 as f32 / 255.0, 0x80 as f32 / 255.0];
+        let lhs = [
+            0x40 as f32 / 255.0,
+            0x60 as f32 / 255.0,
+            0x20 as f32 / 255.0,
+            0x80 as f32 / 255.0,
+        ];
         let rhs = [1.0 - lhs[0], 1.0 - lhs[1], 1.0 - lhs[2], 1.0 - lhs[3]];
         let expected = scale_rgb_add_rgba(lhs, rhs, [lhs[3], lhs[3], lhs[3], 1.0]);
 
@@ -5754,7 +5789,12 @@ mod tests {
         )
         .expect("tint");
 
-        let lhs = [0x40 as f32 / 255.0, 0x60 as f32 / 255.0, 0x20 as f32 / 255.0, 0x80 as f32 / 255.0];
+        let lhs = [
+            0x40 as f32 / 255.0,
+            0x60 as f32 / 255.0,
+            0x20 as f32 / 255.0,
+            0x80 as f32 / 255.0,
+        ];
         let rhs = [1.0 - lhs[0], 1.0 - lhs[1], 1.0 - lhs[2], 1.0 - lhs[3]];
         let expected = [
             (lhs[0] * rhs[0] + lhs[3]).clamp(0.0, 1.0),
@@ -5796,7 +5836,12 @@ mod tests {
         )
         .expect("tint");
 
-        let lhs = [0x40 as f32 / 255.0, 0x60 as f32 / 255.0, 0x20 as f32 / 255.0, 0x80 as f32 / 255.0];
+        let lhs = [
+            0x40 as f32 / 255.0,
+            0x60 as f32 / 255.0,
+            0x20 as f32 / 255.0,
+            0x80 as f32 / 255.0,
+        ];
         let rhs = [1.0 - lhs[0], 1.0 - lhs[1], 1.0 - lhs[2], 1.0 - lhs[3]];
         let inv_alpha = 1.0 - lhs[3];
         let expected = scale_rgb_add_rgba(lhs, rhs, [inv_alpha, inv_alpha, inv_alpha, 1.0]);
@@ -5834,7 +5879,12 @@ mod tests {
         )
         .expect("tint");
 
-        let lhs = [0x40 as f32 / 255.0, 0x60 as f32 / 255.0, 0x20 as f32 / 255.0, 0x80 as f32 / 255.0];
+        let lhs = [
+            0x40 as f32 / 255.0,
+            0x60 as f32 / 255.0,
+            0x20 as f32 / 255.0,
+            0x80 as f32 / 255.0,
+        ];
         let rhs = [1.0 - lhs[0], 1.0 - lhs[1], 1.0 - lhs[2], 1.0 - lhs[3]];
         let expected = [
             ((1.0 - lhs[0]) * rhs[0] + lhs[3]).clamp(0.0, 1.0),
@@ -6120,9 +6170,15 @@ mod tests {
 
         assert_eq!(material.properties.specular_color, [0.0, 0.0, 0.0]);
         assert!(material.properties.shininess.abs() < 1e-6);
-        assert!((material.properties.emissive_color[0] - (0.5 * (0x80 as f32 / 255.0))).abs() < 1e-6);
-        assert!((material.properties.emissive_color[1] - (0.25 * (0x40 as f32 / 255.0))).abs() < 1e-6);
-        assert!((material.properties.emissive_color[2] - (0.75 * (0x20 as f32 / 255.0))).abs() < 1e-6);
+        assert!(
+            (material.properties.emissive_color[0] - (0.5 * (0x80 as f32 / 255.0))).abs() < 1e-6
+        );
+        assert!(
+            (material.properties.emissive_color[1] - (0.25 * (0x40 as f32 / 255.0))).abs() < 1e-6
+        );
+        assert!(
+            (material.properties.emissive_color[2] - (0.75 * (0x20 as f32 / 255.0))).abs() < 1e-6
+        );
     }
 
     #[test]
@@ -6355,12 +6411,7 @@ mod tests {
             color: 0xFFFF_FFFF,
         }];
 
-        apply_generated_stage_texcoords(
-            &mut vertices,
-            D3DTSS_TCI_CAMERASPACENORMAL,
-            &world,
-            &view,
-        );
+        apply_generated_stage_texcoords(&mut vertices, D3DTSS_TCI_CAMERASPACENORMAL, &world, &view);
 
         assert!(vertices[0].u.abs() < 1e-6);
         assert!((vertices[0].v - 1.0).abs() < 1e-6);
@@ -6449,8 +6500,8 @@ mod tests {
         // x=-1, y=0, z=+1 in signed 10-bit normalized format.
         let packed = (0x201_u32) | (0x000_u32 << 10) | (0x1FF_u32 << 20);
         let bytes = packed.to_le_bytes();
-        let (nx, ny, nz) = read_normal_from_decl(&bytes, 0, D3DDECLTYPE_DEC3N)
-            .expect("dec3n normal");
+        let (nx, ny, nz) =
+            read_normal_from_decl(&bytes, 0, D3DDECLTYPE_DEC3N).expect("dec3n normal");
         assert!((nx + 1.0).abs() < 0.01);
         assert!(ny.abs() < 0.01);
         assert!((nz - 1.0).abs() < 0.01);

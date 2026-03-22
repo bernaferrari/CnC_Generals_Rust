@@ -183,7 +183,8 @@ impl GeneralPersona {
         let index = (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as usize)
-            .unwrap_or(0)) % 3;
+            .unwrap_or(0))
+            % 3;
 
         match index {
             0 => &self.taunt_sound1,
@@ -232,7 +233,11 @@ impl GeneralPersona {
 // GeneralPersona field parsing functions
 // ============================================================================
 
-fn parse_starts_enabled(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_starts_enabled(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.starts_enabled = INI::parse_bool(token)?;
     Ok(())
@@ -250,13 +255,21 @@ fn parse_bio_dob(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) 
     Ok(())
 }
 
-fn parse_bio_birthplace(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_bio_birthplace(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.bio_birthplace = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_bio_strategy(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_bio_strategy(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.bio_strategy = INI::parse_ascii_string(token)?;
     Ok(())
@@ -268,26 +281,42 @@ fn parse_bio_rank(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str])
     Ok(())
 }
 
-fn parse_bio_branch(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_bio_branch(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.bio_branch = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_bio_class_number(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_bio_class_number(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.bio_class_number = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_bio_portrait_small(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_bio_portrait_small(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     // C++ uses INI::parseMappedImage which returns Image*, we store the name
     persona.bio_portrait_small = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_bio_portrait_large(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_bio_portrait_large(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.bio_portrait_large = INI::parse_ascii_string(token)?;
     Ok(())
@@ -299,67 +328,111 @@ fn parse_campaign(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str])
     Ok(())
 }
 
-fn parse_player_template(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_player_template(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.player_template_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_portrait_movie_left(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_portrait_movie_left(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.portrait_movie_left_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_portrait_movie_right(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_portrait_movie_right(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.portrait_movie_right_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_defeated_image(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_defeated_image(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.image_defeated = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_victorious_image(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_victorious_image(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.image_victorious = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_defeated_string(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_defeated_string(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.string_defeated = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_victorious_string(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_victorious_string(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.string_victorious = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_selection_sound(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_selection_sound(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.selection_sound = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_taunt_sound1(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_taunt_sound1(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.taunt_sound1 = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_taunt_sound2(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_taunt_sound2(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.taunt_sound2 = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_taunt_sound3(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_taunt_sound3(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.taunt_sound3 = INI::parse_ascii_string(token)?;
     Ok(())
@@ -371,19 +444,31 @@ fn parse_win_sound(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]
     Ok(())
 }
 
-fn parse_loss_sound(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_loss_sound(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.loss_sound = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_preview_sound(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_preview_sound(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.preview_sound = INI::parse_ascii_string(token)?;
     Ok(())
 }
 
-fn parse_name_sound(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str]) -> INIResult<()> {
+fn parse_name_sound(
+    _ini: &mut INI,
+    persona: &mut GeneralPersona,
+    tokens: &[&str],
+) -> INIResult<()> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     persona.name_sound = INI::parse_ascii_string(token)?;
     Ok(())
@@ -391,32 +476,110 @@ fn parse_name_sound(_ini: &mut INI, persona: &mut GeneralPersona, tokens: &[&str
 
 /// GeneralPersona field parse table matching C++ ChallengeGenerals::parseGeneralPersona
 const GENERAL_PERSONA_FIELD_PARSE_TABLE: &[FieldParse<GeneralPersona>] = &[
-    FieldParse { token: "StartsEnabled", parse: parse_starts_enabled },
-    FieldParse { token: "BioNameString", parse: parse_bio_name },
-    FieldParse { token: "BioDOBString", parse: parse_bio_dob },
-    FieldParse { token: "BioBirthplaceString", parse: parse_bio_birthplace },
-    FieldParse { token: "BioStrategyString", parse: parse_bio_strategy },
-    FieldParse { token: "BioRankString", parse: parse_bio_rank },
-    FieldParse { token: "BioBranchString", parse: parse_bio_branch },
-    FieldParse { token: "BioClassNumberString", parse: parse_bio_class_number },
-    FieldParse { token: "BioPortraitSmall", parse: parse_bio_portrait_small },
-    FieldParse { token: "BioPortraitLarge", parse: parse_bio_portrait_large },
-    FieldParse { token: "Campaign", parse: parse_campaign },
-    FieldParse { token: "PlayerTemplate", parse: parse_player_template },
-    FieldParse { token: "PortraitMovieLeftName", parse: parse_portrait_movie_left },
-    FieldParse { token: "PortraitMovieRightName", parse: parse_portrait_movie_right },
-    FieldParse { token: "DefeatedImage", parse: parse_defeated_image },
-    FieldParse { token: "VictoriousImage", parse: parse_victorious_image },
-    FieldParse { token: "DefeatedString", parse: parse_defeated_string },
-    FieldParse { token: "VictoriousString", parse: parse_victorious_string },
-    FieldParse { token: "SelectionSound", parse: parse_selection_sound },
-    FieldParse { token: "TauntSound1", parse: parse_taunt_sound1 },
-    FieldParse { token: "TauntSound2", parse: parse_taunt_sound2 },
-    FieldParse { token: "TauntSound3", parse: parse_taunt_sound3 },
-    FieldParse { token: "WinSound", parse: parse_win_sound },
-    FieldParse { token: "LossSound", parse: parse_loss_sound },
-    FieldParse { token: "PreviewSound", parse: parse_preview_sound },
-    FieldParse { token: "NameSound", parse: parse_name_sound },
+    FieldParse {
+        token: "StartsEnabled",
+        parse: parse_starts_enabled,
+    },
+    FieldParse {
+        token: "BioNameString",
+        parse: parse_bio_name,
+    },
+    FieldParse {
+        token: "BioDOBString",
+        parse: parse_bio_dob,
+    },
+    FieldParse {
+        token: "BioBirthplaceString",
+        parse: parse_bio_birthplace,
+    },
+    FieldParse {
+        token: "BioStrategyString",
+        parse: parse_bio_strategy,
+    },
+    FieldParse {
+        token: "BioRankString",
+        parse: parse_bio_rank,
+    },
+    FieldParse {
+        token: "BioBranchString",
+        parse: parse_bio_branch,
+    },
+    FieldParse {
+        token: "BioClassNumberString",
+        parse: parse_bio_class_number,
+    },
+    FieldParse {
+        token: "BioPortraitSmall",
+        parse: parse_bio_portrait_small,
+    },
+    FieldParse {
+        token: "BioPortraitLarge",
+        parse: parse_bio_portrait_large,
+    },
+    FieldParse {
+        token: "Campaign",
+        parse: parse_campaign,
+    },
+    FieldParse {
+        token: "PlayerTemplate",
+        parse: parse_player_template,
+    },
+    FieldParse {
+        token: "PortraitMovieLeftName",
+        parse: parse_portrait_movie_left,
+    },
+    FieldParse {
+        token: "PortraitMovieRightName",
+        parse: parse_portrait_movie_right,
+    },
+    FieldParse {
+        token: "DefeatedImage",
+        parse: parse_defeated_image,
+    },
+    FieldParse {
+        token: "VictoriousImage",
+        parse: parse_victorious_image,
+    },
+    FieldParse {
+        token: "DefeatedString",
+        parse: parse_defeated_string,
+    },
+    FieldParse {
+        token: "VictoriousString",
+        parse: parse_victorious_string,
+    },
+    FieldParse {
+        token: "SelectionSound",
+        parse: parse_selection_sound,
+    },
+    FieldParse {
+        token: "TauntSound1",
+        parse: parse_taunt_sound1,
+    },
+    FieldParse {
+        token: "TauntSound2",
+        parse: parse_taunt_sound2,
+    },
+    FieldParse {
+        token: "TauntSound3",
+        parse: parse_taunt_sound3,
+    },
+    FieldParse {
+        token: "WinSound",
+        parse: parse_win_sound,
+    },
+    FieldParse {
+        token: "LossSound",
+        parse: parse_loss_sound,
+    },
+    FieldParse {
+        token: "PreviewSound",
+        parse: parse_preview_sound,
+    },
+    FieldParse {
+        token: "NameSound",
+        parse: parse_name_sound,
+    },
 ];
 
 /// ChallengeGenerals data structure matching C++ ChallengeGenerals class
@@ -468,21 +631,27 @@ impl ChallengeGenerals {
     /// Matches C++ getPlayerGeneralByCampaignName
     pub fn get_player_general_by_campaign_name(&self, name: &str) -> Option<&GeneralPersona> {
         let name_lower = name.to_lowercase();
-        self.positions.iter().find(|p| p.campaign.to_lowercase() == name_lower)
+        self.positions
+            .iter()
+            .find(|p| p.campaign.to_lowercase() == name_lower)
     }
 
     /// Find a general by bio name (case-insensitive)
     /// Matches C++ getGeneralByGeneralName
     pub fn get_general_by_general_name(&self, name: &str) -> Option<&GeneralPersona> {
         let name_lower = name.to_lowercase();
-        self.positions.iter().find(|p| p.bio_name.to_lowercase() == name_lower)
+        self.positions
+            .iter()
+            .find(|p| p.bio_name.to_lowercase() == name_lower)
     }
 
     /// Find a general by player template name (case-insensitive)
     /// Matches C++ getGeneralByTemplateName
     pub fn get_general_by_template_name(&self, name: &str) -> Option<&GeneralPersona> {
         let name_lower = name.to_lowercase();
-        self.positions.iter().find(|p| p.player_template_name.to_lowercase() == name_lower)
+        self.positions
+            .iter()
+            .find(|p| p.player_template_name.to_lowercase() == name_lower)
     }
 
     /// Set the current player template number
@@ -518,68 +687,152 @@ fn parse_general_persona_at(index: usize, ini: &mut INI, _tokens: &[&str]) -> IN
     Ok(())
 }
 
-fn parse_general_persona0(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona0(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[0], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona1(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona1(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[1], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona2(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona2(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[2], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona3(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona3(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[3], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona4(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona4(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[4], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona5(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona5(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[5], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona6(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona6(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[6], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona7(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona7(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[7], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona8(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona8(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[8], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona9(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona9(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[9], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona10(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona10(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[10], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
-fn parse_general_persona11(ini: &mut INI, store: &mut ChallengeGenerals, _tokens: &[&str]) -> INIResult<()> {
+fn parse_general_persona11(
+    ini: &mut INI,
+    store: &mut ChallengeGenerals,
+    _tokens: &[&str],
+) -> INIResult<()> {
     ini.init_from_ini_with_fields(&mut store.positions[11], GENERAL_PERSONA_FIELD_PARSE_TABLE)
 }
 
 /// ChallengeGenerals field parse table matching C++ ChallengeGenerals::s_fieldParseTable
 const CHALLENGE_GENERALS_FIELD_PARSE_TABLE: &[FieldParse<ChallengeGenerals>] = &[
-    FieldParse { token: "GeneralPersona0", parse: parse_general_persona0 },
-    FieldParse { token: "GeneralPersona1", parse: parse_general_persona1 },
-    FieldParse { token: "GeneralPersona2", parse: parse_general_persona2 },
-    FieldParse { token: "GeneralPersona3", parse: parse_general_persona3 },
-    FieldParse { token: "GeneralPersona4", parse: parse_general_persona4 },
-    FieldParse { token: "GeneralPersona5", parse: parse_general_persona5 },
-    FieldParse { token: "GeneralPersona6", parse: parse_general_persona6 },
-    FieldParse { token: "GeneralPersona7", parse: parse_general_persona7 },
-    FieldParse { token: "GeneralPersona8", parse: parse_general_persona8 },
-    FieldParse { token: "GeneralPersona9", parse: parse_general_persona9 },
-    FieldParse { token: "GeneralPersona10", parse: parse_general_persona10 },
-    FieldParse { token: "GeneralPersona11", parse: parse_general_persona11 },
+    FieldParse {
+        token: "GeneralPersona0",
+        parse: parse_general_persona0,
+    },
+    FieldParse {
+        token: "GeneralPersona1",
+        parse: parse_general_persona1,
+    },
+    FieldParse {
+        token: "GeneralPersona2",
+        parse: parse_general_persona2,
+    },
+    FieldParse {
+        token: "GeneralPersona3",
+        parse: parse_general_persona3,
+    },
+    FieldParse {
+        token: "GeneralPersona4",
+        parse: parse_general_persona4,
+    },
+    FieldParse {
+        token: "GeneralPersona5",
+        parse: parse_general_persona5,
+    },
+    FieldParse {
+        token: "GeneralPersona6",
+        parse: parse_general_persona6,
+    },
+    FieldParse {
+        token: "GeneralPersona7",
+        parse: parse_general_persona7,
+    },
+    FieldParse {
+        token: "GeneralPersona8",
+        parse: parse_general_persona8,
+    },
+    FieldParse {
+        token: "GeneralPersona9",
+        parse: parse_general_persona9,
+    },
+    FieldParse {
+        token: "GeneralPersona10",
+        parse: parse_general_persona10,
+    },
+    FieldParse {
+        token: "GeneralPersona11",
+        parse: parse_general_persona11,
+    },
 ];
 
 // ============================================================================

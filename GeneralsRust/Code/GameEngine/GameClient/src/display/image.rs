@@ -843,7 +843,10 @@ fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
             push_unique(&mut candidates, format!("Art/W3D/{bare}"));
         }
         Some("tga") | Some("dds") => {
-            push_unique(&mut candidates, format!("Data/{language}/Art/Textures/{bare}"));
+            push_unique(
+                &mut candidates,
+                format!("Data/{language}/Art/Textures/{bare}"),
+            );
             push_unique(&mut candidates, format!("Art/Textures/{bare}"));
         }
         _ => push_unique(&mut candidates, bare.clone()),
@@ -888,19 +891,18 @@ fn try_load_image_from_engine_filesystem(resource_name: &str) -> Option<DynamicI
         let mut fs_guard = fs.lock().ok()?;
         let read_access = FileAccess::READ.combine(FileAccess::BINARY);
 
-        let from_big_first = if let Some(big_backend) =
-            fs_guard.get_backend_mut::<BigArchiveBackend>()
-        {
-            if let Some(mut file) =
-                FileSystemBackend::open_file(big_backend, resource_name, read_access)
-            {
-                file.read_entire_and_close().ok()
+        let from_big_first =
+            if let Some(big_backend) = fs_guard.get_backend_mut::<BigArchiveBackend>() {
+                if let Some(mut file) =
+                    FileSystemBackend::open_file(big_backend, resource_name, read_access)
+                {
+                    file.read_entire_and_close().ok()
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
 
         if let Some(bytes) = from_big_first {
             bytes

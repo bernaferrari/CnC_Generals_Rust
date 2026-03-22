@@ -590,8 +590,10 @@ fn behavior_production_queue_kind(
         .as_any()
         .is::<crate::object::production::ProductionUpdateComplete>()
     {
-        return behavior_downcast_mut::<crate::object::production::ProductionUpdateComplete>(behavior)
-            .map(|b| ProductionBehaviorQueueKindMut::Complete(b));
+        return behavior_downcast_mut::<crate::object::production::ProductionUpdateComplete>(
+            behavior,
+        )
+        .map(|b| ProductionBehaviorQueueKindMut::Complete(b));
     }
     if behavior
         .as_any()
@@ -666,18 +668,18 @@ fn behavior_production_rally_kind(
         .is::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior>()
     {
         return behavior_downcast_mut::<
-                crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior,
-            >(behavior)
-            .map(|b| ProductionBehaviorRallyKindMut::ParkingPlace(b));
+            crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior,
+        >(behavior)
+        .map(|b| ProductionBehaviorRallyKindMut::ParkingPlace(b));
     }
     if behavior
         .as_any()
         .is::<crate::object::behavior::flight_deck_behavior::FlightDeckBehavior>()
     {
         return behavior_downcast_mut::<
-                crate::object::behavior::flight_deck_behavior::FlightDeckBehavior,
-            >(behavior)
-            .map(|b| ProductionBehaviorRallyKindMut::FlightDeck(b));
+            crate::object::behavior::flight_deck_behavior::FlightDeckBehavior,
+        >(behavior)
+        .map(|b| ProductionBehaviorRallyKindMut::FlightDeck(b));
     }
 
     None
@@ -809,7 +811,8 @@ fn module_behavior_utility_kind(
         .is::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>()
     {
         return (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>()
+            .downcast_mut::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>(
+            )
             .map(|m| BehaviorUtilityModuleKindMut::Overcharge(m));
     }
     if module
@@ -900,7 +903,8 @@ fn module_upgrade_kind(module: &mut dyn Module) -> Option<UpgradeModuleKindMut<'
         .is::<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgrade>()
     {
         return (module as &mut dyn Any)
-            .downcast_mut::<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgrade>()
+            .downcast_mut::<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgrade>(
+            )
             .map(|m| UpgradeModuleKindMut::PassengersFire(m));
     }
     if module
@@ -972,7 +976,8 @@ fn module_upgrade_kind(module: &mut dyn Module) -> Option<UpgradeModuleKindMut<'
         .is::<crate::object::upgrade::model_condition_upgrade::ModelConditionUpgrade>()
     {
         return (module as &mut dyn Any)
-            .downcast_mut::<crate::object::upgrade::model_condition_upgrade::ModelConditionUpgrade>()
+            .downcast_mut::<crate::object::upgrade::model_condition_upgrade::ModelConditionUpgrade>(
+            )
             .map(|m| UpgradeModuleKindMut::ModelCondition(m));
     }
     if module
@@ -1044,7 +1049,8 @@ fn module_upgrade_kind(module: &mut dyn Module) -> Option<UpgradeModuleKindMut<'
         .is::<crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade>()
     {
         return (module as &mut dyn Any)
-            .downcast_mut::<crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade>()
+            .downcast_mut::<crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade>(
+            )
             .map(|m| UpgradeModuleKindMut::ObjectCreation(m));
     }
 
@@ -3342,7 +3348,11 @@ impl Object {
         // if the other player is not a playable side (i.e. they are civilian, observer, whatever)
         // we shouldn't count the kill.
         if let Some(ref victim_player) = victim_controller {
-            if !victim_player.read().map(|g| g.is_playable_side()).unwrap_or(false) {
+            if !victim_player
+                .read()
+                .map(|g| g.is_playable_side())
+                .unwrap_or(false)
+            {
                 return;
             }
         }
@@ -3368,7 +3378,9 @@ impl Object {
         }
 
         // Don't count kills that I do on my own buildings or units, cause that's just silly.
-        if let (Some(ref controller_player), Some(ref victim_player)) = (&controller, &victim_controller) {
+        if let (Some(ref controller_player), Some(ref victim_player)) =
+            (&controller, &victim_controller)
+        {
             let controller_idx = controller_player.read().ok().map(|g| g.get_player_index());
             let victim_idx = victim_player.read().ok().map(|g| g.get_player_index());
             if controller_idx.is_some() && victim_idx.is_some() && controller_idx == victim_idx {
@@ -3379,7 +3391,9 @@ impl Object {
         // Record kill for controlling player
         if let Some(ref controller_player) = controller {
             if let Ok(mut guard) = controller_player.write() {
-                guard.get_score_keeper_mut().add_object_destroyed_obj(victim);
+                guard
+                    .get_score_keeper_mut()
+                    .add_object_destroyed_obj(victim);
                 guard.add_skill_points_for_kill_obj(self, victim);
                 guard.do_bounty_for_kill_obj(self, victim);
             }
@@ -3395,10 +3409,16 @@ impl Object {
                             if let Ok(victim_guard) = victim_tracker.lock() {
                                 let victim_cost = victim.get_build_cost();
                                 let killer_is_ally = relationship != Relationship::Enemy;
-                                let experience_value = victim_guard.get_experience_value(victim_cost, killer_is_ally);
+                                let experience_value =
+                                    victim_guard.get_experience_value(victim_cost, killer_is_ally);
                                 use crate::experience::ExperienceRequirements;
-                                let requirements = ExperienceRequirements::from_build_cost(victim_cost);
-                                tracker_guard.add_experience_points(experience_value, true, requirements.as_array());
+                                let requirements =
+                                    ExperienceRequirements::from_build_cost(victim_cost);
+                                tracker_guard.add_experience_points(
+                                    experience_value,
+                                    true,
+                                    requirements.as_array(),
+                                );
                             }
                         }
                     }
@@ -3434,7 +3454,8 @@ impl Object {
         // Notify body module (C++ lines 3018-3020)
         if let Some(body) = &self.body {
             if let Ok(mut body_guard) = body.lock() {
-                let _ = body_guard.on_veterancy_level_changed(old_level, new_level, provide_feedback);
+                let _ =
+                    body_guard.on_veterancy_level_changed(old_level, new_level, provide_feedback);
             }
         }
 
@@ -4994,22 +5015,14 @@ impl Object {
                 | DisabledType::DisabledHacked
         ) {
             // Check if this was the last disabling factor (C++ lines 2213-2233)
-            let still_disabled = matches!(
-                disabled_type,
-                DisabledType::DisabledUnderpowered
-            ) && self.is_disabled_by_type(DisabledType::DisabledUnderpowered)
-                || matches!(
-                    disabled_type,
-                    DisabledType::DisabledEmp
-                ) && self.is_disabled_by_type(DisabledType::DisabledEmp)
-                || matches!(
-                    disabled_type,
-                    DisabledType::DisabledSubdued
-                ) && self.is_disabled_by_type(DisabledType::DisabledSubdued)
-                || matches!(
-                    disabled_type,
-                    DisabledType::DisabledHacked
-                ) && self.is_disabled_by_type(DisabledType::DisabledHacked);
+            let still_disabled = matches!(disabled_type, DisabledType::DisabledUnderpowered)
+                && self.is_disabled_by_type(DisabledType::DisabledUnderpowered)
+                || matches!(disabled_type, DisabledType::DisabledEmp)
+                    && self.is_disabled_by_type(DisabledType::DisabledEmp)
+                || matches!(disabled_type, DisabledType::DisabledSubdued)
+                    && self.is_disabled_by_type(DisabledType::DisabledSubdued)
+                || matches!(disabled_type, DisabledType::DisabledHacked)
+                    && self.is_disabled_by_type(DisabledType::DisabledHacked);
 
             if !still_disabled {
                 // Play appropriate audio event for re-enabled object
@@ -5049,9 +5062,7 @@ impl Object {
         if let Some(contain) = &self.contain {
             if let Ok(contain_guard) = contain.lock() {
                 if let Some(rider_id) = contain_guard.get_rider_id() {
-                    if let Some(rider) =
-                        crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-                    {
+                    if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id) {
                         if let Ok(mut rider_guard) = rider.write() {
                             // If this was a FOREVER disable, clear the rider's matching disable
                             if let Some(index) = self.get_disabled_type_index(disabled_type) {
@@ -5132,8 +5143,8 @@ impl Object {
         // Try casting to specific module types that have special power interfaces
         if let Some(sp_module) = module
             .as_any_mut()
-            .downcast_mut::<crate::object::special_power_module::SpecialPowerModule>()
-        {
+            .downcast_mut::<crate::object::special_power_module::SpecialPowerModule>(
+        ) {
             return Some(sp_module as &mut dyn SpecialPowerModuleInterface);
         }
         None
@@ -5717,7 +5728,9 @@ impl Object {
                             warn!("ModuleFactory still not initialised after retry while creating modules");
                         }
                     }
-                    Err(_) => warn!("Failed to lock ModuleFactory after retry while creating modules"),
+                    Err(_) => {
+                        warn!("Failed to lock ModuleFactory after retry while creating modules")
+                    }
                 }
             } else {
                 warn!("ModuleFactory initialisation failed while creating modules");
@@ -11745,7 +11758,10 @@ impl game_engine::common::rts::player::BountyObject for Object {
 }
 
 impl game_engine::common::rts::player::SkillPointObject for Object {
-    fn get_skill_point_value(&self, _killer: &dyn game_engine::common::rts::player::SkillPointObject) -> i32 {
+    fn get_skill_point_value(
+        &self,
+        _killer: &dyn game_engine::common::rts::player::SkillPointObject,
+    ) -> i32 {
         // Get experience value from experience tracker if available
         // Use object cost as a basis for skill point value
         if let Some(tracker) = &self.experience_tracker {

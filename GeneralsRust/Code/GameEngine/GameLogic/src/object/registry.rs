@@ -111,9 +111,7 @@ impl ObjectRegistry {
     pub fn cleanup_dead_references(&self) -> usize {
         if let Ok(mut guard) = self.store.write() {
             let before = guard.objects.len();
-            guard
-                .objects
-                .retain(|_, handle| handle.strong_count() > 0);
+            guard.objects.retain(|_, handle| handle.strong_count() > 0);
             before.saturating_sub(guard.objects.len())
         } else {
             0

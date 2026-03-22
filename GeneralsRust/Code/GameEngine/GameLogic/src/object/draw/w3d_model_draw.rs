@@ -1311,11 +1311,12 @@ impl W3DModelDraw {
             return;
         }
         let hide = !show;
-        if let Some(entry) = self
-            .sub_object_vec
-            .iter_mut()
-            .find(|entry| entry.sub_obj_name.as_str().eq_ignore_ascii_case(&normalized_name))
-        {
+        if let Some(entry) = self.sub_object_vec.iter_mut().find(|entry| {
+            entry
+                .sub_obj_name
+                .as_str()
+                .eq_ignore_ascii_case(&normalized_name)
+        }) {
             entry.hide = hide;
         } else {
             self.sub_object_vec.push(HideShowSubObjInfo {

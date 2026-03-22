@@ -551,7 +551,10 @@ impl TextureFileCache {
     }
 
     /// C++ parity: create source-sized surface shell using original dimensions.
-    pub fn load_original_texture_surface(&mut self, texturename: &str) -> Option<SrColorSurfaceIFace> {
+    pub fn load_original_texture_surface(
+        &mut self,
+        texturename: &str,
+    ) -> Option<SrColorSurfaceIFace> {
         if !self.open_texture_handle(texturename) {
             return None;
         }
@@ -645,14 +648,16 @@ impl TextureFileCache {
         let mut cursor = 0usize;
         for level in &levels {
             let size = level.bytes.len();
-            mip_layout.push(crate::rendering::texture_system::texture_base::SystemMipLevel {
-                offset: cursor,
-                size,
-                width: level.width.max(1),
-                height: level.height.max(1),
-                depth_or_layers: 1,
-                slice_stride: size,
-            });
+            mip_layout.push(
+                crate::rendering::texture_system::texture_base::SystemMipLevel {
+                    offset: cursor,
+                    size,
+                    width: level.width.max(1),
+                    height: level.height.max(1),
+                    depth_or_layers: 1,
+                    slice_stride: size,
+                },
+            );
             cursor += size;
         }
         texture.set_system_mip_levels(mip_layout);
@@ -725,17 +730,15 @@ impl TextureFileCache {
 
         let last_lod = lod.saturating_sub(1);
         let mut working_surface = if first_lod < last_lod {
-            mreq.levels
-                .get(first_lod)
-                .and_then(|s| s.as_ref())
-                .cloned()
+            mreq.levels.get(first_lod).and_then(|s| s.as_ref()).cloned()
         } else {
             None
         };
 
         if (mreq.large_lod as usize) < first_lod {
             if working_surface.is_none() {
-                working_surface = self.create_first_texture_as_surface(texturename, mreq.large_lod as usize);
+                working_surface =
+                    self.create_first_texture_as_surface(texturename, mreq.large_lod as usize);
             }
             if let Some(surface) = working_surface.clone() {
                 for target_lod in mreq.large_lod as usize..=first_lod {
@@ -748,7 +751,8 @@ impl TextureFileCache {
 
         if last_lod < mreq.small_lod as usize {
             if working_surface.is_none() {
-                working_surface = self.create_first_texture_as_surface(texturename, mreq.large_lod as usize);
+                working_surface =
+                    self.create_first_texture_as_surface(texturename, mreq.large_lod as usize);
             }
             if let Some(surface) = working_surface.clone() {
                 for target_lod in (last_lod + 1)..=mreq.small_lod as usize {

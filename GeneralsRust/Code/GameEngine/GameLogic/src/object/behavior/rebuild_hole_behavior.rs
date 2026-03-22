@@ -718,7 +718,10 @@ mod tests {
 
     #[test]
     fn parse_duration_real_frames_accepts_duration_suffixes() {
-        assert_eq!(parse_duration_real_frames(&["1500ms"]).expect("duration"), 45);
+        assert_eq!(
+            parse_duration_real_frames(&["1500ms"]).expect("duration"),
+            45
+        );
         assert_eq!(parse_duration_real_frames(&["1.5s"]).expect("duration"), 45);
     }
 

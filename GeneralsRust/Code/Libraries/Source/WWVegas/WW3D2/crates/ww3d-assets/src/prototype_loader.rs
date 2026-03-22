@@ -11,14 +11,13 @@
 use glam::{Vec2, Vec4};
 use std::{collections::HashMap, f32::consts::TAU};
 use ww3d_core::{
-    w3d_string_from_bytes,
     w3d_format::{
         W3dMaterialInfoStruct, W3dMeshHeader3Struct, W3dRGBAStruct, W3dShaderStruct,
         W3dTexCoordStruct, W3dTextureInfoStruct, W3dTextureStruct, W3dTriangleStruct,
         W3dVectorStruct, W3dVertexMaterialNameStruct, W3dVertexMaterialStruct,
     },
-    W3DChunkType, W3DError, W3D_CHUNK_ANIMATION, W3D_CHUNK_COMPRESSED_ANIMATION,
-    W3D_CHUNK_HIERARCHY, W3D_CHUNK_HMODEL, W3D_CHUNK_MESH,
+    w3d_string_from_bytes, W3DChunkType, W3DError, W3D_CHUNK_ANIMATION,
+    W3D_CHUNK_COMPRESSED_ANIMATION, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HMODEL, W3D_CHUNK_MESH,
 };
 
 use crate::assets::Prototype;
@@ -194,10 +193,30 @@ impl PrototypeLoader for MeshLoader {
                     .iter()
                     .map(|_| W3dVertexMaterialStruct {
                         attributes: 0,
-                        ambient: W3dRGBAStruct { r: 0, g: 0, b: 0, a: 0 },
-                        diffuse: W3dRGBAStruct { r: 255, g: 255, b: 255, a: 255 },
-                        specular: W3dRGBAStruct { r: 0, g: 0, b: 0, a: 0 },
-                        emissive: W3dRGBAStruct { r: 0, g: 0, b: 0, a: 0 },
+                        ambient: W3dRGBAStruct {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 0,
+                        },
+                        diffuse: W3dRGBAStruct {
+                            r: 255,
+                            g: 255,
+                            b: 255,
+                            a: 255,
+                        },
+                        specular: W3dRGBAStruct {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 0,
+                        },
+                        emissive: W3dRGBAStruct {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 0,
+                        },
                         shininess: 1.0,
                         opacity: 1.0,
                         translucency: 0.0,
@@ -208,7 +227,9 @@ impl PrototypeLoader for MeshLoader {
                 mesh.vertex_material_names = detail_mesh
                     .vertex_materials
                     .iter()
-                    .map(|_| W3dVertexMaterialNameStruct { material_name: [0; 256] })
+                    .map(|_| W3dVertexMaterialNameStruct {
+                        material_name: [0; 256],
+                    })
                     .collect();
             }
             if mesh.material_info.is_none() {
@@ -274,7 +295,9 @@ impl MeshLoader {
             .filter(|tex| !w3d_string_from_bytes(&tex.name).trim().is_empty())
             .count();
 
-        mesh_named == 0 || detail_named > mesh_named || mesh.textures.len() < detail_mesh.textures.len()
+        mesh_named == 0
+            || detail_named > mesh_named
+            || mesh.textures.len() < detail_mesh.textures.len()
     }
 
     fn chunk_error<E: std::fmt::Display>(err: E) -> W3DError {
@@ -313,8 +336,11 @@ impl MeshLoader {
         detail_mesh: &detailed_loader::W3DMesh,
         asset_name: &str,
     ) -> MeshPrototype {
-        let mesh_name =
-            Self::resolve_mesh_name(&detail_mesh.header.mesh_name, &detail_mesh.header.container_name, asset_name);
+        let mesh_name = Self::resolve_mesh_name(
+            &detail_mesh.header.mesh_name,
+            &detail_mesh.header.container_name,
+            asset_name,
+        );
         let mut mesh = MeshPrototype::new(mesh_name);
         mesh.header = Some(Self::convert_detailed_header(&detail_mesh.header));
         mesh.vertices = detail_mesh
@@ -341,8 +367,16 @@ impl MeshLoader {
             .enumerate()
             .map(|(index, tri)| W3dTriangleStruct {
                 vindex: *tri,
-                attributes: detail_mesh.triangle_attributes.get(index).copied().unwrap_or(0),
-                normal: W3dVectorStruct { x: 0.0, y: 0.0, z: 0.0 },
+                attributes: detail_mesh
+                    .triangle_attributes
+                    .get(index)
+                    .copied()
+                    .unwrap_or(0),
+                normal: W3dVectorStruct {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
                 distance: 0.0,
             })
             .collect();
@@ -379,55 +413,39 @@ impl MeshLoader {
             .map(|tex| Self::convert_detailed_texture(tex))
             .collect();
         if !detail_mesh.tex_coords.is_empty() {
-            mesh.stage_texcoords.push(convert_stage_coords(&detail_mesh.tex_coords));
+            mesh.stage_texcoords
+                .push(convert_stage_coords(&detail_mesh.tex_coords));
         }
         mesh
     }
 
     fn load_mesh_minimal(data: &[u8], asset_name: &str) -> Result<MeshPrototype, W3DError> {
         let mut reader = ChunkReader::from_slice(data);
-        if !reader
-            .open_chunk()
-            .map_err(Self::chunk_error)?
-        {
+        if !reader.open_chunk().map_err(Self::chunk_error)? {
             return Err(W3DError::IoError("missing mesh header chunk".to_string()));
         }
-        if reader
-            .current_chunk_id()
-            .map_err(Self::chunk_error)?
+        if reader.current_chunk_id().map_err(Self::chunk_error)?
             != W3DChunkType::MeshHeader3.as_u32()
         {
             return Err(W3DError::IoError("invalid mesh header chunk".to_string()));
         }
 
         let header = Self::read_minimal_mesh_header(&mut reader)?;
-        reader
-            .close_chunk()
-            .map_err(Self::chunk_error)?;
+        reader.close_chunk().map_err(Self::chunk_error)?;
 
         let mesh_name =
             Self::resolve_mesh_name(&header.mesh_name, &header.container_name, asset_name);
         let mut mesh = MeshPrototype::new(mesh_name);
         mesh.header = Some(Self::convert_detailed_header(&header));
 
-        while reader
-            .open_chunk()
-            .map_err(Self::chunk_error)?
-        {
-            let chunk_id = reader
-                .current_chunk_id()
-                .map_err(Self::chunk_error)?;
+        while reader.open_chunk().map_err(Self::chunk_error)? {
+            let chunk_id = reader.current_chunk_id().map_err(Self::chunk_error)?;
             match W3DChunkType::from_u32(chunk_id) {
                 Some(W3DChunkType::Vertices) => {
-                    let count = reader
-                        .current_chunk_length()
-                        .map_err(Self::chunk_error)?
-                        as usize
-                        / 12;
+                    let count =
+                        reader.current_chunk_length().map_err(Self::chunk_error)? as usize / 12;
                     for _ in 0..count {
-                        let v = reader
-                            .read_vec3()
-                            .map_err(Self::chunk_error)?;
+                        let v = reader.read_vec3().map_err(Self::chunk_error)?;
                         mesh.vertices.push(W3dVectorStruct {
                             x: v.x,
                             y: v.y,
@@ -436,15 +454,10 @@ impl MeshLoader {
                     }
                 }
                 Some(W3DChunkType::VertexNormals) => {
-                    let count = reader
-                        .current_chunk_length()
-                        .map_err(Self::chunk_error)?
-                        as usize
-                        / 12;
+                    let count =
+                        reader.current_chunk_length().map_err(Self::chunk_error)? as usize / 12;
                     for _ in 0..count {
-                        let v = reader
-                            .read_vec3()
-                            .map_err(Self::chunk_error)?;
+                        let v = reader.read_vec3().map_err(Self::chunk_error)?;
                         mesh.normals.push(W3dVectorStruct {
                             x: v.x,
                             y: v.y,
@@ -453,11 +466,8 @@ impl MeshLoader {
                     }
                 }
                 Some(W3DChunkType::Triangles) => {
-                    let count = reader
-                        .current_chunk_length()
-                        .map_err(Self::chunk_error)?
-                        as usize
-                        / 32;
+                    let count =
+                        reader.current_chunk_length().map_err(Self::chunk_error)? as usize / 32;
                     for _ in 0..count {
                         let a = reader.read_u32().map_err(Self::chunk_error)?;
                         let b = reader.read_u32().map_err(Self::chunk_error)?;
@@ -470,7 +480,11 @@ impl MeshLoader {
                         mesh.triangles.push(W3dTriangleStruct {
                             vindex: [a, b, c],
                             attributes: attr,
-                            normal: W3dVectorStruct { x: nx, y: ny, z: nz },
+                            normal: W3dVectorStruct {
+                                x: nx,
+                                y: ny,
+                                z: nz,
+                            },
                             distance,
                         });
                     }
@@ -489,9 +503,7 @@ impl MeshLoader {
                 _ => {}
             }
 
-            reader
-                .close_chunk()
-                .map_err(Self::chunk_error)?;
+            reader.close_chunk().map_err(Self::chunk_error)?;
         }
 
         Ok(mesh)
@@ -500,18 +512,10 @@ impl MeshLoader {
     fn read_minimal_mesh_header<R: std::io::Read + std::io::Seek>(
         reader: &mut ChunkReader<R>,
     ) -> Result<detailed_loader::W3DMeshHeader, W3DError> {
-        let version = reader
-            .read_u32()
-            .map_err(Self::chunk_error)?;
-        let attributes = reader
-            .read_u32()
-            .map_err(Self::chunk_error)?;
-        let mesh_name = reader
-            .read_fixed_string(16)
-            .map_err(Self::chunk_error)?;
-        let container_name = reader
-            .read_fixed_string(16)
-            .map_err(Self::chunk_error)?;
+        let version = reader.read_u32().map_err(Self::chunk_error)?;
+        let attributes = reader.read_u32().map_err(Self::chunk_error)?;
+        let mesh_name = reader.read_fixed_string(16).map_err(Self::chunk_error)?;
+        let container_name = reader.read_fixed_string(16).map_err(Self::chunk_error)?;
         let num_tris = reader.read_u32().map_err(Self::chunk_error)?;
         let num_vertices = reader.read_u32().map_err(Self::chunk_error)?;
         let num_materials = reader.read_u32().map_err(Self::chunk_error)?;
@@ -551,13 +555,8 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
     ) -> Result<Vec<W3dTextureStruct>, W3DError> {
         let mut textures = Vec::new();
-        while reader
-            .open_chunk()
-            .map_err(Self::chunk_error)?
-        {
-            if reader
-                .current_chunk_id()
-                .map_err(Self::chunk_error)?
+        while reader.open_chunk().map_err(Self::chunk_error)? {
+            if reader.current_chunk_id().map_err(Self::chunk_error)?
                 == W3DChunkType::Texture.as_u32()
             {
                 let mut texture = W3dTextureStruct {
@@ -569,51 +568,40 @@ impl MeshLoader {
                         frame_rate: 0.0,
                     },
                 };
-                while reader
-                    .open_chunk()
-                    .map_err(Self::chunk_error)?
-                {
+                while reader.open_chunk().map_err(Self::chunk_error)? {
                     match W3DChunkType::from_u32(
-                        reader
-                            .current_chunk_id()
-                            .map_err(Self::chunk_error)?,
+                        reader.current_chunk_id().map_err(Self::chunk_error)?,
                     ) {
                         Some(W3DChunkType::TextureName) => {
-                            let name = reader
-                                .read_fixed_string(16)
-                                .map_err(Self::chunk_error)?;
+                            let name = reader.read_fixed_string(16).map_err(Self::chunk_error)?;
                             copy_fixed_name(&name, &mut texture.name);
                         }
                         Some(W3DChunkType::TextureInfo) => {
-                            texture.texture_info.attributes = reader
-                                .read_u16()
-                                .map_err(Self::chunk_error)?;
-                            texture.texture_info.animation_type = reader
-                                .read_u16()
-                                .map_err(Self::chunk_error)?;
-                            texture.texture_info.frame_count = reader
-                                .read_u32()
-                                .map_err(Self::chunk_error)?;
-                            texture.texture_info.frame_rate = reader
-                                .read_f32()
-                                .map_err(Self::chunk_error)?;
+                            texture.texture_info.attributes =
+                                reader.read_u16().map_err(Self::chunk_error)?;
+                            texture.texture_info.animation_type =
+                                reader.read_u16().map_err(Self::chunk_error)?;
+                            texture.texture_info.frame_count =
+                                reader.read_u32().map_err(Self::chunk_error)?;
+                            texture.texture_info.frame_rate =
+                                reader.read_f32().map_err(Self::chunk_error)?;
                         }
                         _ => {}
                     }
-                    reader
-                        .close_chunk()
-                        .map_err(Self::chunk_error)?;
+                    reader.close_chunk().map_err(Self::chunk_error)?;
                 }
                 textures.push(texture);
             }
-            reader
-                .close_chunk()
-                .map_err(Self::chunk_error)?;
+            reader.close_chunk().map_err(Self::chunk_error)?;
         }
         Ok(textures)
     }
 
-    fn resolve_mesh_name_from_header(mesh_name: &[u8; 16], container_name: &[u8; 16], asset_name: &str) -> String {
+    fn resolve_mesh_name_from_header(
+        mesh_name: &[u8; 16],
+        container_name: &[u8; 16],
+        asset_name: &str,
+    ) -> String {
         let mesh = String::from_utf8_lossy(mesh_name)
             .trim_end_matches('\0')
             .to_string();
@@ -654,9 +642,21 @@ impl MeshLoader {
             future_counts: [header.future_count],
             vertex_channels: header.vertex_channels,
             face_channels: header.face_channels,
-            bbox_min: W3dVectorStruct { x: header.min.x, y: header.min.y, z: header.min.z },
-            bbox_max: W3dVectorStruct { x: header.max.x, y: header.max.y, z: header.max.z },
-            sph_center: W3dVectorStruct { x: header.sph_center.x, y: header.sph_center.y, z: header.sph_center.z },
+            bbox_min: W3dVectorStruct {
+                x: header.min.x,
+                y: header.min.y,
+                z: header.min.z,
+            },
+            bbox_max: W3dVectorStruct {
+                x: header.max.x,
+                y: header.max.y,
+                z: header.max.z,
+            },
+            sph_center: W3dVectorStruct {
+                x: header.sph_center.x,
+                y: header.sph_center.y,
+                z: header.sph_center.z,
+            },
             sph_radius: header.sph_radius,
         }
     }

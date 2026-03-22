@@ -51,8 +51,14 @@ impl RuntimeMenuPlacement {
     fn from_env() -> Option<Self> {
         let x = std::env::var("GENERALS_GPUI_MENU_X").ok()?.parse().ok()?;
         let y = std::env::var("GENERALS_GPUI_MENU_Y").ok()?.parse().ok()?;
-        let width = std::env::var("GENERALS_GPUI_MENU_WIDTH").ok()?.parse().ok()?;
-        let height = std::env::var("GENERALS_GPUI_MENU_HEIGHT").ok()?.parse().ok()?;
+        let width = std::env::var("GENERALS_GPUI_MENU_WIDTH")
+            .ok()?
+            .parse()
+            .ok()?;
+        let height = std::env::var("GENERALS_GPUI_MENU_HEIGHT")
+            .ok()?
+            .parse()
+            .ok()?;
         Some(Self {
             x,
             y,
@@ -183,15 +189,12 @@ impl Render for RuntimeMenuApp {
                                     .text_color(rgb(0xf5d28f))
                                     .child("Command & Conquer: Generals Zero Hour"),
                             )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x9fb2c5))
-                                    .child(match self.panel {
-                                        RuntimeMenuPanel::Main => "GPUI runtime menu",
-                                        RuntimeMenuPanel::Options => "Options",
-                                    }),
-                            )
+                            .child(div().text_sm().text_color(rgb(0x9fb2c5)).child(
+                                match self.panel {
+                                    RuntimeMenuPanel::Main => "GPUI runtime menu",
+                                    RuntimeMenuPanel::Options => "Options",
+                                },
+                            ))
                             .children(menu_body),
                     ),
             )

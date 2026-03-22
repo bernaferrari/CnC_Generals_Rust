@@ -859,13 +859,13 @@ mod tests {
         let unique = SAMPLE_CONFIG_COUNTER.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
         let matrix_path = temp_dir.join(format!("playability_missing_matrix_{pid}_{unique}.txt"));
-        let missing_path =
-            temp_dir.join(format!("playability_missing_missing_{pid}_{unique}.txt"));
+        let missing_path = temp_dir.join(format!("playability_missing_missing_{pid}_{unique}.txt"));
         let mismatch_path =
             temp_dir.join(format!("playability_missing_mismatch_{pid}_{unique}.txt"));
 
         let config = PlayabilityGateConfig::new(matrix_path, missing_path, mismatch_path);
-        let summary = build_playability_audit(&config).expect("audit should tolerate missing inputs");
+        let summary =
+            build_playability_audit(&config).expect("audit should tolerate missing inputs");
 
         assert!(summary.matrix_by_subsystem.is_empty());
         assert!(summary.total_missing_reports.is_empty());

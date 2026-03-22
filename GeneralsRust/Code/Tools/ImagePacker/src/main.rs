@@ -14,7 +14,9 @@ use gpui::{
     Window, WindowBounds, WindowOptions,
 };
 use image::{DynamicImage, RgbaImage};
-use image_compat::{DynamicImage as CompatDynamicImage, ImageBuffer as CompatImageBuffer, Rgba as CompatRgba};
+use image_compat::{
+    DynamicImage as CompatDynamicImage, ImageBuffer as CompatImageBuffer, Rgba as CompatRgba,
+};
 use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -26,23 +28,23 @@ use texture_packer::{Frame as PackedFrame, TexturePacker, TexturePackerConfig};
 use walkdir::WalkDir;
 
 mod atlas;
-mod formats;
-mod image_directory;
-mod image_info;
-mod image_packer;
-mod texture_page;
-mod win_main;
-mod window_proc;
 #[path = "Window Procedures/directory_select.rs"]
 mod directory_select;
+mod formats;
+mod image_directory;
 #[path = "Window Procedures/image_error_proc.rs"]
 mod image_error_proc;
+mod image_info;
+mod image_packer;
 #[path = "Window Procedures/image_packer_proc.rs"]
 mod image_packer_proc;
 #[path = "Window Procedures/page_error_proc.rs"]
 mod page_error_proc;
 #[path = "Window Procedures/preview_proc.rs"]
 mod preview_proc;
+mod texture_page;
+mod win_main;
+mod window_proc;
 
 use atlas::AtlasResult;
 use formats::{FormatHandler, OutputFormat};
@@ -405,23 +407,22 @@ impl ImagePackerGpuiApp {
             ));
         }
 
-        self.push_log(format!("Validated {} image(s) for packing", source_images.len()));
+        self.push_log(format!(
+            "Validated {} image(s) for packing",
+            source_images.len()
+        ));
         Ok(source_images)
     }
 
-    fn pack_images(&mut self, images: Vec<SourceImage>, target_size: u32) -> Result<Vec<PackedPage>> {
+    fn pack_images(
+        &mut self,
+        images: Vec<SourceImage>,
+        target_size: u32,
+    ) -> Result<Vec<PackedPage>> {
         let mut open_pages = Vec::new();
 
-        let border_padding = if self.gap_gutter {
-            self.gutter_size
-        } else {
-            0
-        };
-        let texture_padding = if self.gap_gutter {
-            self.gutter_size
-        } else {
-            0
-        };
+        let border_padding = if self.gap_gutter { self.gutter_size } else { 0 };
+        let texture_padding = if self.gap_gutter { self.gutter_size } else { 0 };
 
         for image in images {
             if open_pages.is_empty() {
@@ -705,24 +706,18 @@ impl Render for ImagePackerGpuiApp {
                     .border_b_1()
                     .border_color(rgb(0x1b2733))
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child("ImagePacker (GPUI)")
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x95a7b8))
-                                    .child("C++-faithful texture page packing tool"),
-                            ),
+                        div().flex().flex_col().child("ImagePacker (GPUI)").child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(0x95a7b8))
+                                .child("C++-faithful texture page packing tool"),
+                        ),
                     )
-                    .child(
-                        div().flex().gap_2().children([
-                            metric_box("Folders", self.input_dirs.len().to_string()),
-                            metric_box("Target", format!("{target_size}x{target_size}")),
-                            metric_box("Pages", self.atlas_results.len().to_string()),
-                        ]),
-                    ),
+                    .child(div().flex().gap_2().children([
+                        metric_box("Folders", self.input_dirs.len().to_string()),
+                        metric_box("Target", format!("{target_size}x{target_size}")),
+                        metric_box("Pages", self.atlas_results.len().to_string()),
+                    ])),
             )
             .child(
                 div()
@@ -736,102 +731,94 @@ impl Render for ImagePackerGpuiApp {
                             .flex_col()
                             .gap_3()
                             .child(section_title("Input Folders"))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .children([
-                                        action_chip("Add Folder", false).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.pick_input_directory(cx);
-                                            }),
-                                        ),
-                                        action_chip("Remove Selected", false).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.remove_selected_directory(cx);
-                                            }),
-                                        ),
-                                        action_chip(
-                                            "Use Subfolders",
-                                            self.use_sub_folders,
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            Self::toggle_bool(&mut this.use_sub_folders, cx);
-                                        })),
-                                    ]),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .children(self.input_dirs.iter().enumerate().map(
-                                        |(index, path)| {
-                                            let selected = self.selected_dir == Some(index);
-                                            let label = path.display().to_string();
-                                            div()
-                                                .id(("input-folder", index))
-                                                .p_2()
-                                                .rounded_md()
-                                                .border_1()
-                                                .border_color(if selected {
-                                                    rgb(0xd1a65d)
-                                                } else {
-                                                    rgb(0x2a3745)
-                                                })
-                                                .bg(if selected {
-                                                    rgb(0x2a2318)
-                                                } else {
-                                                    rgb(0x101821)
-                                                })
-                                                .cursor_pointer()
-                                                .child(label)
-                                                .on_click(cx.listener(move |this, _, _, cx| {
-                                                    this.selected_dir = Some(index);
-                                                    cx.notify();
-                                                }))
-                                        },
-                                    )),
-                            )
+                            .child(div().flex().gap_2().children([
+                                action_chip("Add Folder", false).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.pick_input_directory(cx);
+                                    },
+                                )),
+                                action_chip("Remove Selected", false).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.remove_selected_directory(cx);
+                                    },
+                                )),
+                                action_chip("Use Subfolders", self.use_sub_folders).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        Self::toggle_bool(&mut this.use_sub_folders, cx);
+                                    }),
+                                ),
+                            ]))
+                            .child(div().flex().flex_col().gap_1().children(
+                                self.input_dirs.iter().enumerate().map(|(index, path)| {
+                                    let selected = self.selected_dir == Some(index);
+                                    let label = path.display().to_string();
+                                    div()
+                                        .id(("input-folder", index))
+                                        .p_2()
+                                        .rounded_md()
+                                        .border_1()
+                                        .border_color(if selected {
+                                            rgb(0xd1a65d)
+                                        } else {
+                                            rgb(0x2a3745)
+                                        })
+                                        .bg(if selected {
+                                            rgb(0x2a2318)
+                                        } else {
+                                            rgb(0x101821)
+                                        })
+                                        .cursor_pointer()
+                                        .child(label)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.selected_dir = Some(index);
+                                            cx.notify();
+                                        }))
+                                }),
+                            ))
                             .child(section_title("Target Texture Size"))
                             .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .children([
-                                        action_chip(
-                                            "128x128",
-                                            self.target_mode == TargetSizeMode::Size128,
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                div().flex().gap_2().children([
+                                    action_chip(
+                                        "128x128",
+                                        self.target_mode == TargetSizeMode::Size128,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.target_mode = TargetSizeMode::Size128;
                                             cx.notify();
-                                        })),
-                                        action_chip(
-                                            "256x256",
-                                            self.target_mode == TargetSizeMode::Size256,
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                        },
+                                    )),
+                                    action_chip(
+                                        "256x256",
+                                        self.target_mode == TargetSizeMode::Size256,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.target_mode = TargetSizeMode::Size256;
                                             cx.notify();
-                                        })),
-                                        action_chip(
-                                            "512x512",
-                                            self.target_mode == TargetSizeMode::Size512,
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                        },
+                                    )),
+                                    action_chip(
+                                        "512x512",
+                                        self.target_mode == TargetSizeMode::Size512,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.target_mode = TargetSizeMode::Size512;
                                             cx.notify();
-                                        })),
-                                        action_chip(
-                                            "Custom",
-                                            self.target_mode == TargetSizeMode::Custom,
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                        },
+                                    )),
+                                    action_chip(
+                                        "Custom",
+                                        self.target_mode == TargetSizeMode::Custom,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.target_mode = TargetSizeMode::Custom;
                                             cx.notify();
-                                        })),
-                                    ]),
+                                        },
+                                    )),
+                                ]),
                             )
                             .child(
                                 div()
@@ -841,7 +828,10 @@ impl Render for ImagePackerGpuiApp {
                                     .child(action_chip("-64", false).on_click(cx.listener(
                                         |this, _, _, cx| this.nudge_custom_target(-64, cx),
                                     )))
-                                    .child(metric_box("Custom Size", self.custom_target_size.to_string()))
+                                    .child(metric_box(
+                                        "Custom Size",
+                                        self.custom_target_size.to_string(),
+                                    ))
                                     .child(action_chip("+64", false).on_click(cx.listener(
                                         |this, _, _, cx| this.nudge_custom_target(64, cx),
                                     )))
@@ -856,55 +846,46 @@ impl Render for ImagePackerGpuiApp {
                             )
                             .child(section_title("Output"))
                             .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .children([
-                                        action_chip("TGA", self.output_format == OutputFormat::TGA)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.set_output_format(OutputFormat::TGA, cx);
-                                            })),
-                                        action_chip("PNG", self.output_format == OutputFormat::PNG)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.set_output_format(OutputFormat::PNG, cx);
-                                            })),
-                                        action_chip("DDS", self.output_format == OutputFormat::DDS)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.set_output_format(OutputFormat::DDS, cx);
-                                            })),
-                                        action_chip("JPG", self.output_format == OutputFormat::JPG)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.set_output_format(OutputFormat::JPG, cx);
-                                            })),
-                                    ]),
+                                div().flex().gap_2().children([
+                                    action_chip("TGA", self.output_format == OutputFormat::TGA)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_output_format(OutputFormat::TGA, cx);
+                                        })),
+                                    action_chip("PNG", self.output_format == OutputFormat::PNG)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_output_format(OutputFormat::PNG, cx);
+                                        })),
+                                    action_chip("DDS", self.output_format == OutputFormat::DDS)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_output_format(OutputFormat::DDS, cx);
+                                        })),
+                                    action_chip("JPG", self.output_format == OutputFormat::JPG)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.set_output_format(OutputFormat::JPG, cx);
+                                        })),
+                                ]),
                             )
                             .child(metric_box("Output Base Name", self.output_file.clone()))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .children([
-                                        action_chip("Use First Folder Name", false).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                if let Some(first) = this.input_dirs.first() {
-                                                    if let Some(name) =
-                                                        first.file_name().and_then(|n| n.to_str())
-                                                    {
-                                                        this.output_file =
-                                                            sanitize_output_name(name);
-                                                    }
-                                                }
-                                                cx.notify();
-                                            }),
-                                        ),
-                                        action_chip("Reset Name", false).on_click(cx.listener(
-                                            |this, _, _, cx| {
-                                                this.output_file = "NewImage".to_string();
-                                                cx.notify();
-                                            },
-                                        )),
-                                    ]),
-                            ),
+                            .child(div().flex().gap_2().children([
+                                action_chip("Use First Folder Name", false).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        if let Some(first) = this.input_dirs.first() {
+                                            if let Some(name) =
+                                                first.file_name().and_then(|n| n.to_str())
+                                            {
+                                                this.output_file = sanitize_output_name(name);
+                                            }
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
+                                action_chip("Reset Name", false).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.output_file = "NewImage".to_string();
+                                        cx.notify();
+                                    },
+                                )),
+                            ])),
                     )
                     .child(
                         div()
@@ -914,43 +895,36 @@ impl Render for ImagePackerGpuiApp {
                             .gap_3()
                             .child(section_title("C++ Parity Options"))
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .gap_2()
-                                    .children([
-                                        action_chip("Output Alpha", self.output_alpha).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                Self::toggle_bool(&mut this.output_alpha, cx);
-                                            }),
-                                        ),
-                                        action_chip("Create INI", self.create_ini).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                Self::toggle_bool(&mut this.create_ini, cx);
-                                            }),
-                                        ),
-                                        action_chip(
-                                            "Bitmap Preview Flag",
-                                            self.use_texture_preview,
-                                        )
+                                div().flex().flex_wrap().gap_2().children([
+                                    action_chip("Output Alpha", self.output_alpha).on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            Self::toggle_bool(&mut this.output_alpha, cx);
+                                        }),
+                                    ),
+                                    action_chip("Create INI", self.create_ini).on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            Self::toggle_bool(&mut this.create_ini, cx);
+                                        }),
+                                    ),
+                                    action_chip("Bitmap Preview Flag", self.use_texture_preview)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             Self::toggle_bool(&mut this.use_texture_preview, cx);
                                         })),
-                                        action_chip("Compress Textures", self.compress_textures)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                Self::toggle_bool(&mut this.compress_textures, cx);
-                                            })),
-                                        action_chip("Gap Extend RGB", self.gap_extend_rgb).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                Self::toggle_bool(&mut this.gap_extend_rgb, cx);
-                                            }),
-                                        ),
-                                        action_chip("Gap Gutter", self.gap_gutter).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                Self::toggle_bool(&mut this.gap_gutter, cx);
-                                            }),
-                                        ),
-                                    ]),
+                                    action_chip("Compress Textures", self.compress_textures)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            Self::toggle_bool(&mut this.compress_textures, cx);
+                                        })),
+                                    action_chip("Gap Extend RGB", self.gap_extend_rgb).on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            Self::toggle_bool(&mut this.gap_extend_rgb, cx);
+                                        }),
+                                    ),
+                                    action_chip("Gap Gutter", self.gap_gutter).on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            Self::toggle_bool(&mut this.gap_gutter, cx);
+                                        }),
+                                    ),
+                                ]),
                             )
                             .child(
                                 div()
@@ -972,55 +946,43 @@ impl Render for ImagePackerGpuiApp {
                                     ))),
                             )
                             .child(section_title("Actions"))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .children([
-                                        action_chip("Start", false).on_click(cx.listener(
-                                            |this, _, _, cx| this.run_process_click(cx),
-                                        )),
-                                        action_chip("Open Output Folder", false).on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.open_output_directory(cx)
-                                            }),
-                                        ),
-                                    ]),
-                            )
+                            .child(div().flex().gap_2().children([
+                                action_chip("Start", false).on_click(
+                                    cx.listener(|this, _, _, cx| this.run_process_click(cx)),
+                                ),
+                                action_chip("Open Output Folder", false).on_click(
+                                    cx.listener(|this, _, _, cx| this.open_output_directory(cx)),
+                                ),
+                            ]))
                             .child(metric_box("Status", self.status.clone()))
                             .child(section_title("Generated Pages"))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .children(self.atlas_results.iter().map(|result| {
-                                        div()
-                                            .p_2()
-                                            .rounded_md()
-                                            .border_1()
-                                            .border_color(rgb(0x2a3745))
-                                            .bg(rgb(0x111922))
-                                            .child(format!(
-                                                "{} | {}x{} | {} sprites | {}",
-                                                result.group_name,
-                                                result.atlas_size.0,
-                                                result.atlas_size.1,
-                                                result.sprite_count,
-                                                result.atlas_path.display()
-                                            ))
-                                    })),
-                            )
+                            .child(div().flex().flex_col().gap_1().children(
+                                self.atlas_results.iter().map(|result| {
+                                    div()
+                                        .p_2()
+                                        .rounded_md()
+                                        .border_1()
+                                        .border_color(rgb(0x2a3745))
+                                        .bg(rgb(0x111922))
+                                        .child(format!(
+                                            "{} | {}x{} | {} sprites | {}",
+                                            result.group_name,
+                                            result.atlas_size.0,
+                                            result.atlas_size.1,
+                                            result.sprite_count,
+                                            result.atlas_path.display()
+                                        ))
+                                }),
+                            ))
                             .child(section_title("Log"))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .children(self.logs.iter().rev().take(18).map(|entry| {
-                                        div().text_sm().text_color(rgb(0x9eb0bf)).child(entry.clone())
-                                    })),
-                            ),
+                            .child(div().flex().flex_col().gap_1().children(
+                                self.logs.iter().rev().take(18).map(|entry| {
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(0x9eb0bf))
+                                        .child(entry.clone())
+                                }),
+                            )),
                     ),
             )
     }
@@ -1028,15 +990,17 @@ impl Render for ImagePackerGpuiApp {
 
 fn modern_rgba_to_compat(image: RgbaImage) -> Result<CompatImageBuffer<CompatRgba<u8>, Vec<u8>>> {
     let (width, height) = image.dimensions();
-    CompatImageBuffer::from_raw(width, height, image.into_raw())
-        .ok_or_else(|| anyhow::anyhow!("failed converting RGBA image to texture_packer-compatible buffer"))
+    CompatImageBuffer::from_raw(width, height, image.into_raw()).ok_or_else(|| {
+        anyhow::anyhow!("failed converting RGBA image to texture_packer-compatible buffer")
+    })
 }
 
 fn compat_dynamic_to_modern(image: CompatDynamicImage) -> Result<DynamicImage> {
     let rgba = image.to_rgba();
     let (width, height) = rgba.dimensions();
-    let modern = RgbaImage::from_raw(width, height, rgba.into_vec())
-        .ok_or_else(|| anyhow::anyhow!("failed converting packed atlas image to modern image format"))?;
+    let modern = RgbaImage::from_raw(width, height, rgba.into_vec()).ok_or_else(|| {
+        anyhow::anyhow!("failed converting packed atlas image to modern image format")
+    })?;
     Ok(DynamicImage::ImageRgba8(modern))
 }
 
@@ -1088,7 +1052,10 @@ fn metric_box(label: impl Into<SharedString>, value: impl Into<SharedString>) ->
 }
 
 fn section_title(label: impl Into<SharedString>) -> impl IntoElement {
-    div().text_sm().text_color(rgb(0xd1a65d)).child(label.into())
+    div()
+        .text_sm()
+        .text_color(rgb(0xd1a65d))
+        .child(label.into())
 }
 
 fn action_chip(label: &'static str, active: bool) -> gpui::Stateful<gpui::Div> {

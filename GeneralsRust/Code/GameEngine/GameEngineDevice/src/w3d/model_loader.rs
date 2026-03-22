@@ -9,21 +9,20 @@
 //! - Bounding volume calculation
 //! - GPU resource preparation
 
-use super::{W3DError, Result};
+use super::{Result, W3DError};
 use crate::video::{ColorFormat, Resolution};
+use bytemuck::{cast_slice, Pod, Zeroable};
+use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom, Cursor};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use bytemuck::{Pod, Zeroable, cast_slice};
-use glam::{Vec2, Vec3, Vec4, Mat4, Quat};
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    Device, Queue, Buffer, BufferDescriptor, BufferUsages,
-    Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    util::{DeviceExt, BufferInitDescriptor},
-    Extent3d, Origin3d,
+    util::{BufferInitDescriptor, DeviceExt},
+    Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Origin3d, Queue, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
 
 /// W3D file header structure (matches original C++)
@@ -402,10 +401,17 @@ impl W3DModelLoader {
         let path = path.as_ref();
         tracing::info!("Loading W3D model: {}", path.display());
 
-        let data = tokio::fs::read(path).await
+        let data = tokio::fs::read(path)
+            .await
             .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read file: {}", e)))?;
 
-        self.parse_w3d_data(&data, path.file_stem().unwrap_or_default().to_string_lossy().to_string())
+        self.parse_w3d_data(
+            &data,
+            path.file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        )
     }
 
     /// Load W3D model from memory
@@ -416,7 +422,7 @@ impl W3DModelLoader {
     /// Parse W3D binary data
     fn parse_w3d_data(&mut self, data: &[u8], name: String) -> Result<W3DModel> {
         let mut cursor = Cursor::new(data);
-        
+
         // Read and validate header
         let header = self.read_struct::<W3DFileHeader>(&mut cursor)?;
         self.validate_header(&header)?;
@@ -436,8 +442,12 @@ impl W3DModelLoader {
         while cursor.position() < data.len() as u64 && chunk_count < header.chunk_count {
             let chunk_header = self.read_struct::<W3DChunkHeader>(&mut cursor)?;
             let chunk_type = W3DChunkType::from(chunk_header.chunk_type);
-            
-            tracing::debug!("Processing chunk: {:?}, size: {}", chunk_type, chunk_header.chunk_size);
+
+            tracing::debug!(
+                "Processing chunk: {:?}, size: {}",
+                chunk_type,
+                chunk_header.chunk_size
+            );
 
             match chunk_type {
                 W3DChunkType::Mesh => {
@@ -445,21 +455,27 @@ impl W3DModelLoader {
                     model.meshes.push(mesh);
                 }
                 W3DChunkType::MaterialInfo | W3DChunkType::ShaderMaterials => {
-                    let materials = self.parse_material_chunk(&mut cursor, chunk_header.chunk_size)?;
+                    let materials =
+                        self.parse_material_chunk(&mut cursor, chunk_header.chunk_size)?;
                     model.materials.extend(materials);
                 }
                 W3DChunkType::Skeleton => {
-                    let skeleton = self.parse_skeleton_chunk(&mut cursor, chunk_header.chunk_size)?;
+                    let skeleton =
+                        self.parse_skeleton_chunk(&mut cursor, chunk_header.chunk_size)?;
                     model.skeleton = Some(skeleton);
                 }
                 W3DChunkType::Animation => {
-                    let animation = self.parse_animation_chunk(&mut cursor, chunk_header.chunk_size)?;
+                    let animation =
+                        self.parse_animation_chunk(&mut cursor, chunk_header.chunk_size)?;
                     model.animations.push(animation);
                 }
                 _ => {
                     // Skip unknown chunks
-                    cursor.seek(SeekFrom::Current(chunk_header.chunk_size as i64))
-                        .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to skip chunk: {}", e)))?;
+                    cursor
+                        .seek(SeekFrom::Current(chunk_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!("Failed to skip chunk: {}", e))
+                        })?;
                 }
             }
 
@@ -469,8 +485,12 @@ impl W3DModelLoader {
         // Calculate model bounding box
         self.calculate_model_bounds(&mut model);
 
-        tracing::info!("Loaded W3D model: {} meshes, {} materials, {} animations", 
-                      model.meshes.len(), model.materials.len(), model.animations.len());
+        tracing::info!(
+            "Loaded W3D model: {} meshes, {} materials, {} animations",
+            model.meshes.len(),
+            model.materials.len(),
+            model.animations.len()
+        );
 
         Ok(model)
     }
@@ -479,7 +499,9 @@ impl W3DModelLoader {
     fn validate_header(&self, header: &W3DFileHeader) -> Result<()> {
         // Check magic number
         if &header.magic != b"W3D\0" {
-            return Err(W3DError::ModelLoadingFailed("Invalid W3D magic number".to_string()));
+            return Err(W3DError::ModelLoadingFailed(
+                "Invalid W3D magic number".to_string(),
+            ));
         }
 
         // Check version (support multiple versions)
@@ -536,14 +558,22 @@ impl W3DModelLoader {
                     mesh.indices = self.parse_triangles(cursor, sub_header.chunk_size)?;
                 }
                 _ => {
-                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64))
-                        .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to skip mesh sub-chunk: {}", e)))?;
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip mesh sub-chunk: {}",
+                                e
+                            ))
+                        })?;
                 }
             }
         }
 
         // Calculate mesh bounding box
-        let positions: Vec<Vec3> = mesh.vertices.iter()
+        let positions: Vec<Vec3> = mesh
+            .vertices
+            .iter()
             .map(|v| Vec3::from_array(v.position))
             .collect();
         mesh.bounding_box = BoundingBox::from_points(&positions);
@@ -555,7 +585,11 @@ impl W3DModelLoader {
     }
 
     /// Parse vertex positions
-    fn parse_vertex_positions(&mut self, cursor: &mut Cursor<&[u8]>, size: u32) -> Result<Vec<[f32; 3]>> {
+    fn parse_vertex_positions(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        size: u32,
+    ) -> Result<Vec<[f32; 3]>> {
         let vertex_count = size / (3 * 4); // 3 floats per position
         let mut positions = Vec::with_capacity(vertex_count as usize);
 
@@ -570,7 +604,11 @@ impl W3DModelLoader {
     }
 
     /// Parse vertex normals
-    fn parse_vertex_normals(&mut self, cursor: &mut Cursor<&[u8]>, size: u32) -> Result<Vec<[f32; 3]>> {
+    fn parse_vertex_normals(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        size: u32,
+    ) -> Result<Vec<[f32; 3]>> {
         let normal_count = size / (3 * 4); // 3 floats per normal
         let mut normals = Vec::with_capacity(normal_count as usize);
 
@@ -614,10 +652,14 @@ impl W3DModelLoader {
     }
 
     /// Parse material chunk
-    fn parse_material_chunk(&mut self, cursor: &mut Cursor<&[u8]>, _size: u32) -> Result<Vec<W3DMaterial>> {
+    fn parse_material_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        _size: u32,
+    ) -> Result<Vec<W3DMaterial>> {
         // Simplified material parsing - in reality this would be much more complex
         let mut materials = Vec::new();
-        
+
         // Create a default material for now
         let material = W3DMaterial {
             name: "Default".to_string(),
@@ -625,16 +667,20 @@ impl W3DModelLoader {
             diffuse_texture: Some("default.tga".to_string()),
             ..Default::default()
         };
-        
+
         materials.push(material);
         Ok(materials)
     }
 
     /// Parse skeleton chunk
-    fn parse_skeleton_chunk(&mut self, cursor: &mut Cursor<&[u8]>, _size: u32) -> Result<Vec<W3DBone>> {
+    fn parse_skeleton_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        _size: u32,
+    ) -> Result<Vec<W3DBone>> {
         // Simplified skeleton parsing
         let mut bones = Vec::new();
-        
+
         // Create a default root bone
         let bone = W3DBone {
             name: "Root".to_string(),
@@ -645,13 +691,17 @@ impl W3DModelLoader {
             bind_matrix: Mat4::IDENTITY,
             inverse_bind_matrix: Mat4::IDENTITY,
         };
-        
+
         bones.push(bone);
         Ok(bones)
     }
 
     /// Parse animation chunk
-    fn parse_animation_chunk(&mut self, cursor: &mut Cursor<&[u8]>, _size: u32) -> Result<W3DAnimation> {
+    fn parse_animation_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        _size: u32,
+    ) -> Result<W3DAnimation> {
         // Simplified animation parsing
         Ok(W3DAnimation {
             name: "Default".to_string(),
@@ -705,20 +755,26 @@ impl W3DModelLoader {
             let binormal = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * r;
 
             // Accumulate tangents
-            mesh.vertices[i0].tangent = (Vec3::from_array(mesh.vertices[i0].tangent) + tangent).to_array();
-            mesh.vertices[i1].tangent = (Vec3::from_array(mesh.vertices[i1].tangent) + tangent).to_array();
-            mesh.vertices[i2].tangent = (Vec3::from_array(mesh.vertices[i2].tangent) + tangent).to_array();
+            mesh.vertices[i0].tangent =
+                (Vec3::from_array(mesh.vertices[i0].tangent) + tangent).to_array();
+            mesh.vertices[i1].tangent =
+                (Vec3::from_array(mesh.vertices[i1].tangent) + tangent).to_array();
+            mesh.vertices[i2].tangent =
+                (Vec3::from_array(mesh.vertices[i2].tangent) + tangent).to_array();
 
-            mesh.vertices[i0].binormal = (Vec3::from_array(mesh.vertices[i0].binormal) + binormal).to_array();
-            mesh.vertices[i1].binormal = (Vec3::from_array(mesh.vertices[i1].binormal) + binormal).to_array();
-            mesh.vertices[i2].binormal = (Vec3::from_array(mesh.vertices[i2].binormal) + binormal).to_array();
+            mesh.vertices[i0].binormal =
+                (Vec3::from_array(mesh.vertices[i0].binormal) + binormal).to_array();
+            mesh.vertices[i1].binormal =
+                (Vec3::from_array(mesh.vertices[i1].binormal) + binormal).to_array();
+            mesh.vertices[i2].binormal =
+                (Vec3::from_array(mesh.vertices[i2].binormal) + binormal).to_array();
         }
 
         // Normalize tangents and binormals
         for vertex in &mut mesh.vertices {
             let tangent = Vec3::from_array(vertex.tangent).normalize();
             let binormal = Vec3::from_array(vertex.binormal).normalize();
-            
+
             vertex.tangent = tangent.to_array();
             vertex.binormal = binormal.to_array();
         }
@@ -745,8 +801,9 @@ impl W3DModelLoader {
     fn read_struct<T: Pod>(&self, cursor: &mut Cursor<&[u8]>) -> Result<T> {
         let size = std::mem::size_of::<T>();
         let mut buffer = vec![0u8; size];
-        
-        cursor.read_exact(&mut buffer)
+
+        cursor
+            .read_exact(&mut buffer)
             .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read struct: {}", e)))?;
 
         Ok(*bytemuck::from_bytes(&buffer))
@@ -755,7 +812,8 @@ impl W3DModelLoader {
     /// Helper to read f32
     fn read_f32(&self, cursor: &mut Cursor<&[u8]>) -> Result<f32> {
         let mut buffer = [0u8; 4];
-        cursor.read_exact(&mut buffer)
+        cursor
+            .read_exact(&mut buffer)
             .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read f32: {}", e)))?;
         Ok(f32::from_le_bytes(buffer))
     }
@@ -763,7 +821,8 @@ impl W3DModelLoader {
     /// Helper to read u32
     fn read_u32(&self, cursor: &mut Cursor<&[u8]>) -> Result<u32> {
         let mut buffer = [0u8; 4];
-        cursor.read_exact(&mut buffer)
+        cursor
+            .read_exact(&mut buffer)
             .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read u32: {}", e)))?;
         Ok(u32::from_le_bytes(buffer))
     }

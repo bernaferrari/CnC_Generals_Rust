@@ -508,7 +508,8 @@ mod tests {
         let mut sys = SpeechSystem::new();
 
         // Simulate playing a line.
-        sys.cooldowns.mark_played("TestLine", Duration::from_secs(3));
+        sys.cooldowns
+            .mark_played("TestLine", Duration::from_secs(3));
         assert!(sys.cooldowns.is_on_cooldown("TestLine"));
 
         // After clearing cooldowns it should be available.

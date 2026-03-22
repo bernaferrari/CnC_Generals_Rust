@@ -7,8 +7,8 @@
 use std::collections::VecDeque;
 
 use super::audio_engine::{
-    AudioAffect, AudioCategory, AudioControl, AudioEventInfo, AudioHandle,
-    AudioPosition, AudioPriority, SoundType,
+    AudioAffect, AudioCategory, AudioControl, AudioEventInfo, AudioHandle, AudioPosition,
+    AudioPriority, SoundType,
 };
 
 // ---------------------------------------------------------------------------

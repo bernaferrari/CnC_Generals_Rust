@@ -1495,7 +1495,11 @@ impl BigArchiveBackend {
 
     pub fn add_search_path<P: AsRef<Path>>(&mut self, path: P) {
         let incoming = path.as_ref();
-        if !self.search_paths.iter().any(|existing| existing == incoming) {
+        if !self
+            .search_paths
+            .iter()
+            .any(|existing| existing == incoming)
+        {
             self.search_paths.push(incoming.to_path_buf());
         }
     }

@@ -1155,7 +1155,10 @@ impl AudioManager {
                         return false;
                     }
                     req.get_pending_event()
-                        .map(|e| e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle()))
+                        .map(|e| {
+                            e.get_event_name() == event_name
+                                && hook.is_playing(e.get_playing_handle())
+                        })
                         .unwrap_or(false)
                 })
                 .count() as Int
@@ -1203,7 +1206,8 @@ impl AudioManager {
                         return None;
                     }
                     req.get_pending_event().and_then(|e| {
-                        if e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle())
+                        if e.get_event_name() == event_name
+                            && hook.is_playing(e.get_playing_handle())
                         {
                             Some(())
                         } else {

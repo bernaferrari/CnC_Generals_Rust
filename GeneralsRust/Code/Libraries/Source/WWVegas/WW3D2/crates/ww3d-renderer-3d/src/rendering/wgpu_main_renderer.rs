@@ -932,24 +932,29 @@ mod tests {
             ShadowCasterSubmission::triangles(9),
             ShadowCasterSubmission::indexed_triangles(12),
             ShadowCasterSubmission {
-                primitive: crate::rendering::shadow_system::shadow_map::ShadowCasterPrimitive::Indexed {
-                    index_count: 0,
-                    first_index: 0,
-                    base_vertex: 0,
-                },
+                primitive:
+                    crate::rendering::shadow_system::shadow_map::ShadowCasterPrimitive::Indexed {
+                        index_count: 0,
+                        first_index: 0,
+                        base_vertex: 0,
+                    },
                 first_instance: 0,
                 instance_count: 1,
             },
             ShadowCasterSubmission {
-                primitive: crate::rendering::shadow_system::shadow_map::ShadowCasterPrimitive::NonIndexed {
-                    vertex_count: 12,
-                    first_vertex: 0,
-                },
+                primitive:
+                    crate::rendering::shadow_system::shadow_map::ShadowCasterPrimitive::NonIndexed {
+                        vertex_count: 12,
+                        first_vertex: 0,
+                    },
                 first_instance: 0,
                 instance_count: 0,
             },
         ];
 
-        assert_eq!(WgpuMainRenderer::renderable_submission_count(&submissions), 2);
+        assert_eq!(
+            WgpuMainRenderer::renderable_submission_count(&submissions),
+            2
+        );
     }
 }

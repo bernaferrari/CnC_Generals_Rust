@@ -10,7 +10,9 @@ use crate::W3DDevice::GameClient::wthree_d_dynamic_light::{
 };
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::SegmentedLine;
 use crate::W3DDevice::GameClient::wthree_d_shader_manager::CustomScenePassMode;
-use crate::W3DDevice::GameClient::Shadow::wthree_d_shadow::the_w3d_shadow_manager;
+use crate::W3DDevice::GameClient::Shadow::wthree_d_shadow::{
+    do_shadows, the_w3d_shadow_manager, Frustum as ShadowFrustum, RenderInfo as ShadowRenderInfo,
+};
 use cgmath::{Matrix4, Point3, SquareMatrix, Vector3, Zero};
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap};
@@ -142,6 +144,7 @@ pub struct RenderObject {
     pub kindof_flags: u32, // KINDOF_* flags
     pub collision_type: u32,
     pub controlling_player_index: Option<usize>,
+    pub is_terrain: bool,
 }
 
 impl Default for RenderObject {
@@ -165,6 +168,7 @@ impl RenderObject {
             kindof_flags: 0,
             collision_type: 0,
             controlling_player_index: None,
+            is_terrain: false,
         }
     }
 
@@ -265,6 +269,7 @@ pub struct W3DScene {
     draw_terrain_only: bool,
     custom_pass_mode: CustomScenePassMode,
     terrain_object_present: bool,
+    frame_number: u64,
 
     // Visibility and culling
     visibility_checked: bool,
@@ -312,6 +317,7 @@ impl W3DScene {
             draw_terrain_only: false,
             custom_pass_mode: CustomScenePassMode::Default,
             terrain_object_present: false,
+            frame_number: 0,
             visibility_checked: false,
             translucent_objects_count: 0,
             translucent_objects: vec![None; MAX_TRANSLUCENT_OBJECTS],
@@ -474,10 +480,21 @@ impl W3DScene {
         self.num_potential_occluders = 0;
         self.num_potential_occludees = 0;
         self.num_non_occluder_or_occludee = 0;
+        self.occluded_objects_count = 0;
+        self.terrain_object_present = false;
+        self.last_stencil_shadow_mask = 0;
+        the_w3d_shadow_manager().write().set_stencil_shadow_mask(0);
 
         for (&id, obj) in &mut self.render_objects {
-            // Reset drawable flags
+            // Preserve explicit classification bits if upstream code set them.
+            let classification_bits = obj.info.flags.0
+                & (DrawableInfoFlags::POTENTIAL_OCCLUDER
+                    | DrawableInfoFlags::POTENTIAL_OCCLUDEE
+                    | DrawableInfoFlags::IS_NON_OCCLUDER_OR_OCCLUDEE);
+
+            // Reset transient drawable flags.
             obj.info.flags.reset();
+            obj.info.flags.set(classification_bits);
 
             // Check visibility
             if obj.force_visible {
@@ -493,10 +510,44 @@ impl W3DScene {
 
             // Classify object for rendering
             if obj.visible && !obj.hidden {
+                if obj.is_terrain {
+                    self.terrain_object_present = true;
+                }
+
                 if obj.opacity < 1.0 && self.translucent_objects_count < MAX_TRANSLUCENT_OBJECTS {
                     obj.info.flags.set(DrawableInfoFlags::IS_TRANSLUCENT);
                     self.translucent_objects[self.translucent_objects_count] = Some(id);
                     self.translucent_objects_count += 1;
+                    continue;
+                }
+
+                if obj
+                    .info
+                    .flags
+                    .contains(DrawableInfoFlags::POTENTIAL_OCCLUDER)
+                    && self.num_potential_occluders < MAX_OCCLUDER_OBJECTS
+                {
+                    self.potential_occluders[self.num_potential_occluders] = Some(id);
+                    self.num_potential_occluders += 1;
+                    continue;
+                }
+
+                if obj
+                    .info
+                    .flags
+                    .contains(DrawableInfoFlags::IS_NON_OCCLUDER_OR_OCCLUDEE)
+                    && self.num_non_occluder_or_occludee < MAX_NON_OCCLUDER_OCCLUDEE_OBJECTS
+                {
+                    self.non_occluders_or_occludees[self.num_non_occluder_or_occludee] = Some(id);
+                    self.num_non_occluder_or_occludee += 1;
+                    continue;
+                }
+
+                // Default opaque path: treat as potential occludee when no explicit class exists.
+                if self.num_potential_occludees < MAX_OCCLUDEE_OBJECTS {
+                    obj.info.flags.set(DrawableInfoFlags::POTENTIAL_OCCLUDEE);
+                    self.potential_occludees[self.num_potential_occludees] = Some(id);
+                    self.num_potential_occludees += 1;
                 }
             }
         }
@@ -506,6 +557,9 @@ impl W3DScene {
 
     /// Render the scene (matching C++ Render)
     pub fn render(&mut self, rinfo: &mut RenderInfo) {
+        let frame_number = self.frame_number;
+        self.frame_number = self.frame_number.wrapping_add(1);
+
         // Update fixed light environments
         self.update_fixed_light_environments(rinfo);
 
@@ -518,13 +572,21 @@ impl W3DScene {
         self.customized_render(rinfo);
 
         // Flush render queue
-        self.flush(rinfo);
+        self.flush(rinfo, frame_number);
     }
 
     /// Custom render pass (matching C++ Customized_Render)
-    pub fn customized_render(&mut self, _rinfo: &RenderInfo) {
-        let should_queue_shadows = self.custom_pass_mode == CustomScenePassMode::Default
-            && (self.terrain_object_present || self.draw_terrain_only);
+    pub fn customized_render(&mut self, rinfo: &RenderInfo) {
+        if !self.visibility_checked {
+            self.visibility_check(&rinfo.camera);
+        }
+
+        // C++ clears the visibility flag after the per-frame render traversal so the next
+        // frame will rebuild the visible/occlusion lists.
+        self.visibility_checked = false;
+
+        let should_queue_shadows =
+            self.custom_pass_mode == CustomScenePassMode::Default && self.terrain_object_present;
 
         // C++ queues shadows only after the terrain pass is known to exist.
         // This module only emulates the queueing signal, because the actual shadow render
@@ -543,30 +605,28 @@ impl W3DScene {
     }
 
     /// Flush render queue (matching C++ Flush)
-    pub fn flush(&mut self, _rinfo: &RenderInfo) {
+    pub fn flush(&mut self, rinfo: &RenderInfo, frame_number: u64) {
         // C++ draws non-stencil shadows before the main mesh flush when the scene is in the
-        // default pass. We cannot call into the full shadow renderer from here, but keeping the
-        // queue state intact preserves the ordering contract for the later shadow system.
-        self.flush_non_stencil_shadow_sequence_hook();
+        // default pass.
+        self.flush_non_stencil_shadow_sequence_hook(rinfo, frame_number);
 
-        // Stencil/occlusion work happens before translucent flushing so any hidden units can be
-        // accounted for before we finish the frame's blended pass.
-        self.flush_occluded_objects_into_stencil();
+        // Stencil/occlusion work happens immediately after the main opaque flush in C++.
+        self.flush_occluded_objects_into_stencil(rinfo);
 
-        // Translucent objects are still flushed after the occlusion path.
+        // C++ performs the stencil-shadow pass after occlusion and before translucent flushes.
+        self.flush_stencil_shadow_sequence_hook(rinfo, frame_number);
+
+        // Translucent objects are still flushed after the occlusion and shadow paths.
         self.flush_translucent_objects();
-
-        // The actual stencil-shadow render pass is consumed later by the shadow module.
-        self.flush_stencil_shadow_sequence_hook();
     }
 
-    fn flush_non_stencil_shadow_sequence_hook(&self) {
+    fn flush_non_stencil_shadow_sequence_hook(&self, rinfo: &RenderInfo, frame_number: u64) {
         if self.custom_pass_mode != CustomScenePassMode::Default {
             return;
         }
 
-        // No direct renderer hook in this simplified module; the queue flag is set in
-        // customized_render() once terrain presence is known.
+        let mut shadow_rinfo = self.build_shadow_render_info(rinfo, frame_number);
+        do_shadows(&mut shadow_rinfo, false);
     }
 
     /// Flush translucent objects
@@ -578,15 +638,31 @@ impl W3DScene {
                 }
             }
         }
+        self.translucent_objects_count = 0;
     }
 
-    fn flush_stencil_shadow_sequence_hook(&self) {
+    fn flush_stencil_shadow_sequence_hook(&self, rinfo: &RenderInfo, frame_number: u64) {
         if self.custom_pass_mode != CustomScenePassMode::Default {
             return;
         }
 
-        // The real stencil-shadow pass is triggered later in the frame. This hook exists only
-        // to preserve the sequence and make the queueing point explicit in the Rust port.
+        let mut shadow_rinfo = self.build_shadow_render_info(rinfo, frame_number);
+        do_shadows(&mut shadow_rinfo, true);
+    }
+
+    fn build_shadow_render_info(&self, rinfo: &RenderInfo, frame_number: u64) -> ShadowRenderInfo {
+        let camera_frustum = Some(ShadowFrustum::from_camera(
+            glam::Vec3::new(rinfo.camera.position.x, rinfo.camera.position.y, rinfo.camera.position.z),
+            glam::Vec3::new(rinfo.camera.direction.x, rinfo.camera.direction.y, rinfo.camera.direction.z),
+            rinfo.camera.near_z,
+            rinfo.camera.far_z,
+            rinfo.camera.fov,
+        ));
+
+        ShadowRenderInfo {
+            camera_frustum,
+            frame_number,
+        }
     }
 
     fn player_index_to_color_index(player_index: usize) -> usize {
@@ -595,57 +671,65 @@ impl W3DScene {
         (nibble.reverse_bits() >> (8 - NUMBER_PLAYER_COLOR_BITS)) as usize
     }
 
-    fn flush_occluded_objects_into_stencil(&mut self) {
+    fn flush_occluded_objects_into_stencil(&mut self, rinfo: &RenderInfo) {
+        self.last_stencil_shadow_mask = 0;
+        the_w3d_shadow_manager().write().set_stencil_shadow_mask(0);
+
         let has_deferred_lists = self.num_potential_occludees > 0
             || self.num_potential_occluders > 0
             || self.num_non_occluder_or_occludee > 0;
 
         if !has_deferred_lists {
-            self.last_stencil_shadow_mask = 0;
-            the_w3d_shadow_manager().write().set_stencil_shadow_mask(0);
             return;
         }
 
-        // Gather potentially occluded objects by controlling player to emulate the C++ stencil
-        // bucketing sequence. Player 0 is the fallback bucket when no explicit player is set.
+        let occluder_ids =
+            self.collect_render_object_ids(&self.potential_occluders, self.num_potential_occluders);
+        let occludee_ids =
+            self.collect_render_object_ids(&self.potential_occludees, self.num_potential_occludees);
+        let non_occluder_ids = self.collect_render_object_ids(
+            &self.non_occluders_or_occludees,
+            self.num_non_occluder_or_occludee,
+        );
+
+        let mut visible_occludees = Vec::new();
         let mut buckets: BTreeMap<usize, Vec<RenderObjectId>> = BTreeMap::new();
 
-        for i in 0..self.num_potential_occludees {
-            if let Some(Some(id)) = self.potential_occludees.get(i) {
-                let player_index = self
-                    .render_objects
-                    .get(id)
-                    .and_then(|obj| obj.controlling_player_index)
+        for id in occludee_ids {
+            let Some(occludee) = self.render_objects.get(&id) else {
+                continue;
+            };
+
+            if self.is_occluded_by_any_occluder(&rinfo.camera, occludee, &occluder_ids) {
+                let player_index = occludee
+                    .controlling_player_index
                     .unwrap_or(0)
                     .min(MAX_PLAYER_COUNT.saturating_sub(1));
-                buckets.entry(player_index).or_default().push(*id);
+                buckets.entry(player_index).or_default().push(id);
+            } else {
+                visible_occludees.push(id);
             }
         }
 
-        if buckets.is_empty() {
-            self.occluded_objects_count = 0;
-            self.flush_deferred_lists_without_stencil();
-            self.last_stencil_shadow_mask = 0;
-            the_w3d_shadow_manager().write().set_stencil_shadow_mask(0);
+        self.occluded_objects_count = buckets.values().map(|ids| ids.len()).sum();
+        if self.occluded_objects_count == 0 {
+            self.flush_deferred_lists_without_stencil(&visible_occludees, &occluder_ids, &non_occluder_ids);
             return;
         }
 
-        self.occluded_objects_count = buckets.values().map(|ids| ids.len()).sum();
         let mut used_stencil_refs: u32 = 0;
-        let mut used_visible_player_count = 0usize;
-        let mut next_color_index = 1usize;
+        let mut visible_player_count = 0usize;
 
-        for (player_index, object_ids) in buckets {
-            let color_index = Self::player_index_to_color_index(next_color_index);
-            next_color_index += 1;
-            used_visible_player_count += 1;
+        for (player_index, object_ids) in &buckets {
+            let color_index = Self::player_index_to_color_index(visible_player_count + 1);
+            visible_player_count += 1;
 
             let stencil_ref = ((color_index as u32) << 3) | 0x80;
             used_stencil_refs |= stencil_ref;
 
             // Emulate the per-player color assignment. The actual draw call is omitted here, but
             // we still stamp the occluded flag and keep deterministic bucket order.
-            let _synthetic_color = Self::synthetic_player_color(player_index, color_index);
+            let _synthetic_color = Self::synthetic_player_color(*player_index, color_index);
             for id in object_ids {
                 if let Some(obj) = self.render_objects.get_mut(&id) {
                     obj.info.flags.set(DrawableInfoFlags::IS_OCCLUDED);
@@ -653,7 +737,7 @@ impl W3DScene {
             }
         }
 
-        if used_visible_player_count >= 8 {
+        if visible_player_count >= 8 {
             // C++ falls back to an MSB-only stencil mask once too many visible players are in
             // play because there are not enough low bits left for shadow volumes.
             used_stencil_refs = 0x80808080;
@@ -666,42 +750,100 @@ impl W3DScene {
 
         // Non-occluder/occludee and occluder lists are still present in the deferred queues.
         // We keep the flush ordering explicit even though the real mesh renderer is not wired in.
-        self.flush_deferred_lists_without_stencil();
+        self.flush_deferred_lists_without_stencil(&visible_occludees, &occluder_ids, &non_occluder_ids);
     }
 
-    fn flush_deferred_lists_without_stencil(&mut self) {
-        if self.num_potential_occludees == 0
-            && self.num_potential_occluders == 0
-            && self.num_non_occluder_or_occludee == 0
-        {
+    fn flush_deferred_lists_without_stencil(
+        &mut self,
+        visible_occludees: &[RenderObjectId],
+        occluders: &[RenderObjectId],
+        non_occluders_or_occludees: &[RenderObjectId],
+    ) {
+        if visible_occludees.is_empty() && occluders.is_empty() && non_occluders_or_occludees.is_empty() {
             return;
         }
 
         // Fallback path mirroring the C++ "no occluded objects" branch: render deferred
         // occludees, then occluders, then non-occluder/non-occludee objects.
-        for i in 0..self.num_potential_occludees {
-            if let Some(Some(id)) = self.potential_occludees.get(i) {
-                if let Some(obj) = self.render_objects.get(id) {
-                    let _ = obj;
-                }
+        for id in visible_occludees {
+            if let Some(obj) = self.render_objects.get(id) {
+                let _ = obj;
             }
         }
 
-        for i in 0..self.num_potential_occluders {
-            if let Some(Some(id)) = self.potential_occluders.get(i) {
-                if let Some(obj) = self.render_objects.get(id) {
-                    let _ = obj;
-                }
+        for id in occluders {
+            if let Some(obj) = self.render_objects.get(id) {
+                let _ = obj;
             }
         }
 
-        for i in 0..self.num_non_occluder_or_occludee {
-            if let Some(Some(id)) = self.non_occluders_or_occludees.get(i) {
-                if let Some(obj) = self.render_objects.get(id) {
-                    let _ = obj;
-                }
+        for id in non_occluders_or_occludees {
+            if let Some(obj) = self.render_objects.get(id) {
+                let _ = obj;
             }
         }
+    }
+
+    fn collect_render_object_ids(
+        &self,
+        list: &[Option<RenderObjectId>],
+        count: usize,
+    ) -> Vec<RenderObjectId> {
+        list.iter()
+            .take(count)
+            .filter_map(|id| *id)
+            .collect()
+    }
+
+    fn is_occluded_by_any_occluder(
+        &self,
+        camera: &CameraInfo,
+        occludee: &RenderObject,
+        occluder_ids: &[RenderObjectId],
+    ) -> bool {
+        let ray_origin = camera.position;
+        let ray_target = occludee.bounding_sphere.center;
+        let ray = ray_target - ray_origin;
+        let ray_length = ray.magnitude();
+
+        if ray_length <= f32::EPSILON {
+            return false;
+        }
+
+        let ray_dir = ray / ray_length;
+        for occluder_id in occluder_ids {
+            let Some(occluder) = self.render_objects.get(occluder_id) else {
+                continue;
+            };
+
+            if occluder.id == occludee.id {
+                continue;
+            }
+
+            if Self::ray_hits_sphere(ray_origin, ray_dir, ray_length, &occluder.bounding_sphere) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn ray_hits_sphere(
+        ray_origin: Point3<f32>,
+        ray_dir: Vector3<f32>,
+        max_distance: f32,
+        sphere: &BoundingSphere,
+    ) -> bool {
+        let to_sphere = sphere.center - ray_origin;
+        let alpha = to_sphere.dot(ray_dir);
+        let beta = sphere.radius * sphere.radius - (to_sphere.dot(to_sphere) - alpha * alpha);
+
+        if beta < 0.0 {
+            return false;
+        }
+
+        let hit_distance = alpha - beta.sqrt();
+        hit_distance >= 0.0 && hit_distance <= max_distance
     }
 
     fn synthetic_player_color(player_index: usize, color_index: usize) -> u32 {
@@ -810,6 +952,7 @@ impl W3DScene {
         self.occluded_objects_count = 0;
         self.last_stencil_shadow_mask = 0;
         self.terrain_object_present = false;
+        self.visibility_checked = false;
     }
 }
 

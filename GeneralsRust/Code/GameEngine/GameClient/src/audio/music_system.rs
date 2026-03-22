@@ -256,8 +256,7 @@ impl MusicSystem {
     pub fn next_track(&mut self, engine: &mut AudioEngine) -> AudioHandle {
         if let Some(playlist) = self.playlists.get(&self.mood).cloned() {
             if !playlist.is_empty() {
-                self.current_track_index =
-                    (self.current_track_index + 1) % playlist.len();
+                self.current_track_index = (self.current_track_index + 1) % playlist.len();
             }
         }
         self.play(engine)
@@ -367,9 +366,8 @@ impl MusicSystem {
         if self.crossfade_state == CrossfadeState::Fading {
             if let Some(start) = self.crossfade_start {
                 let elapsed = start.elapsed();
-                let progress = (elapsed.as_secs_f64()
-                    / self.crossfade_duration.as_secs_f64())
-                    .clamp(0.0, 1.0);
+                let progress =
+                    (elapsed.as_secs_f64() / self.crossfade_duration.as_secs_f64()).clamp(0.0, 1.0);
 
                 // Fade out old track.
                 if self.fading_handle != 0 {
@@ -398,11 +396,7 @@ impl MusicSystem {
     // Internal
     // -----------------------------------------------------------------------
 
-    fn pick_and_play(
-        &mut self,
-        playlist: &[usize],
-        engine: &mut AudioEngine,
-    ) -> AudioHandle {
+    fn pick_and_play(&mut self, playlist: &[usize], engine: &mut AudioEngine) -> AudioHandle {
         if playlist.is_empty() {
             return 0;
         }

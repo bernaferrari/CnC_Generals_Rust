@@ -1879,53 +1879,53 @@ pub enum KindOf {
     NoGarrison,
     Boat,
     GarrisonableUntilDestroyed,
-    Obstacle,              // KINDOF_OBSTACLE (bit 0)
-    CanAttack,             // KINDOF_CAN_ATTACK
-    StickToTerrainSlope,   // KINDOF_STICK_TO_TERRAIN_SLOPE
-    CanCastReflections,    // KINDOF_CAN_CAST_REFLECTIONS
-    HugeVehicle,           // KINDOF_HUGE_VEHICLE
-    LineBuild,             // KINDOF_LINEBUILD
-    Preload,               // KINDOF_PRELOAD
-    NoCollide,             // KINDOF_NO_COLLIDE
-    StealthGarrison,       // KINDOF_STEALTH_GARRISON
-    DrawableOnly,          // KINDOF_DRAWABLE_ONLY
-    Score,                 // KINDOF_SCORE
-    ScoreCreate,           // KINDOF_SCORE_CREATE
-    ScoreDestroy,          // KINDOF_SCORE_DESTROY
-    NoHealIcon,            // KINDOF_NO_HEAL_ICON
-    Parachutable,          // KINDOF_PARACHUTABLE
-    SmallMissile,          // KINDOF_SMALL_MISSILE
-    AlwaysVisible,         // KINDOF_ALWAYS_VISIBLE
-    Unattackable,          // KINDOF_UNATTACKABLE
-    AttackNeedsLineOfSight, // KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT
-    WalkOnTopOfWall,       // KINDOF_WALK_ON_TOP_OF_WALL
-    DefensiveWall,         // KINDOF_DEFENSIVE_WALL
-    AircraftPathAround,    // KINDOF_AIRCRAFT_PATH_AROUND
-    LowOverlappable,       // KINDOF_LOW_OVERLAPPABLE
-    ForceAttackable,       // KINDOF_FORCEATTACKABLE
-    AutoRallypoint,        // KINDOF_AUTO_RALLYPOINT
-    MoneyHacker,           // KINDOF_MONEY_HACKER
-    BallisticMissile,      // KINDOF_BALLISTIC_MISSILE
-    ClickThrough,          // KINDOF_CLICK_THROUGH
+    Obstacle,                   // KINDOF_OBSTACLE (bit 0)
+    CanAttack,                  // KINDOF_CAN_ATTACK
+    StickToTerrainSlope,        // KINDOF_STICK_TO_TERRAIN_SLOPE
+    CanCastReflections,         // KINDOF_CAN_CAST_REFLECTIONS
+    HugeVehicle,                // KINDOF_HUGE_VEHICLE
+    LineBuild,                  // KINDOF_LINEBUILD
+    Preload,                    // KINDOF_PRELOAD
+    NoCollide,                  // KINDOF_NO_COLLIDE
+    StealthGarrison,            // KINDOF_STEALTH_GARRISON
+    DrawableOnly,               // KINDOF_DRAWABLE_ONLY
+    Score,                      // KINDOF_SCORE
+    ScoreCreate,                // KINDOF_SCORE_CREATE
+    ScoreDestroy,               // KINDOF_SCORE_DESTROY
+    NoHealIcon,                 // KINDOF_NO_HEAL_ICON
+    Parachutable,               // KINDOF_PARACHUTABLE
+    SmallMissile,               // KINDOF_SMALL_MISSILE
+    AlwaysVisible,              // KINDOF_ALWAYS_VISIBLE
+    Unattackable,               // KINDOF_UNATTACKABLE
+    AttackNeedsLineOfSight,     // KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT
+    WalkOnTopOfWall,            // KINDOF_WALK_ON_TOP_OF_WALL
+    DefensiveWall,              // KINDOF_DEFENSIVE_WALL
+    AircraftPathAround,         // KINDOF_AIRCRAFT_PATH_AROUND
+    LowOverlappable,            // KINDOF_LOW_OVERLAPPABLE
+    ForceAttackable,            // KINDOF_FORCEATTACKABLE
+    AutoRallypoint,             // KINDOF_AUTO_RALLYPOINT
+    MoneyHacker,                // KINDOF_MONEY_HACKER
+    BallisticMissile,           // KINDOF_BALLISTIC_MISSILE
+    ClickThrough,               // KINDOF_CLICK_THROUGH
     ShowPortraitWhenControlled, // KINDOF_SHOW_PORTRAIT_WHEN_CONTROLLED
-    CannotBuildNearSupplies, // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES
-    RevealToAll,           // KINDOF_REVEAL_TO_ALL
-    IgnoresSelectAll,      // KINDOF_IGNORES_SELECT_ALL
-    DontAutoCrushInfantry, // KINDOF_DONT_AUTO_CRUSH_INFANTRY
-    FsBlackMarket,         // KINDOF_FS_BLACK_MARKET
-    FsAdvancedTech,        // KINDOF_FS_ADVANCED_TECH
-    RevealsEnemyPaths,     // KINDOF_REVEALS_ENEMY_PATHS
-    NoSelect,              // KINDOF_NO_SELECT
-    CannotRetaliate,       // KINDOF_CANNOT_RETALIATE
-    TechBaseDefense,       // KINDOF_TECH_BASE_DEFENSE
-    Demotrap,              // KINDOF_DEMOTRAP
-    ConservativeBuilding,  // KINDOF_CONSERVATIVE_BUILDING
-    BlastCrater,           // KINDOF_BLAST_CRATER
-    Prop,                  // KINDOF_PROP
-    OptimizedTree,         // KINDOF_OPTIMIZED_TREE
-    LandmarkBridge,        // KINDOF_LANDMARK_BRIDGE
-    WaveEffect,            // KINDOF_WAVE_EFFECT
-    ClearedByBuild,        // KINDOF_CLEARED_BY_BUILD
+    CannotBuildNearSupplies,    // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES
+    RevealToAll,                // KINDOF_REVEAL_TO_ALL
+    IgnoresSelectAll,           // KINDOF_IGNORES_SELECT_ALL
+    DontAutoCrushInfantry,      // KINDOF_DONT_AUTO_CRUSH_INFANTRY
+    FsBlackMarket,              // KINDOF_FS_BLACK_MARKET
+    FsAdvancedTech,             // KINDOF_FS_ADVANCED_TECH
+    RevealsEnemyPaths,          // KINDOF_REVEALS_ENEMY_PATHS
+    NoSelect,                   // KINDOF_NO_SELECT
+    CannotRetaliate,            // KINDOF_CANNOT_RETALIATE
+    TechBaseDefense,            // KINDOF_TECH_BASE_DEFENSE
+    Demotrap,                   // KINDOF_DEMOTRAP
+    ConservativeBuilding,       // KINDOF_CONSERVATIVE_BUILDING
+    BlastCrater,                // KINDOF_BLAST_CRATER
+    Prop,                       // KINDOF_PROP
+    OptimizedTree,              // KINDOF_OPTIMIZED_TREE
+    LandmarkBridge,             // KINDOF_LANDMARK_BRIDGE
+    WaveEffect,                 // KINDOF_WAVE_EFFECT
+    ClearedByBuild,             // KINDOF_CLEARED_BY_BUILD
 }
 
 impl KindOf {
@@ -2994,45 +2994,66 @@ impl DefaultThingTemplate {
     /// the rest to the Common-layer parsing.
     ///
     /// C++ Reference: ThingTemplate::s_objectFieldParseTable (ThingTemplate.cpp:90-229)
-    pub fn parse_object_fields_from_ini(&mut self, properties: &std::collections::HashMap<String, String>) {
+    pub fn parse_object_fields_from_ini(
+        &mut self,
+        properties: &std::collections::HashMap<String, String>,
+    ) {
         for (key, value) in properties {
             let trimmed = value.trim();
             match key.as_str() {
                 // --- Vision / shroud ---
                 "VisionRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.vision_range = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.vision_range = v;
+                    }
                 }
                 "ShroudClearingRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_clearing_range = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shroud_clearing_range = v;
+                    }
                 }
                 "ShroudRevealToAllRange" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.shroud_reveal_to_all_range = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.shroud_reveal_to_all_range = v;
+                    }
                 }
 
                 // --- Build ---
                 "BuildCost" => {
-                    if let Ok(v) = trimmed.parse::<Int>() { self.build_cost = v; }
+                    if let Ok(v) = trimmed.parse::<Int>() {
+                        self.build_cost = v;
+                    }
                 }
                 "BuildTime" => {
-                    if let Ok(v) = trimmed.parse::<Real>() { self.build_time = v; }
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.build_time = v;
+                    }
                 }
 
                 // --- Combat ---
                 "ThreatValue" => {
-                    if let Ok(v) = trimmed.parse::<UnsignedInt>() { self.threat_value = v; }
+                    if let Ok(v) = trimmed.parse::<UnsignedInt>() {
+                        self.threat_value = v;
+                    }
                 }
 
                 // --- Occlusion ---
                 "OcclusionDelay" => {
-                    if let Ok(v) = trimmed.parse::<u32>() { self.occlusion_delay = v; }
+                    if let Ok(v) = trimmed.parse::<u32>() {
+                        self.occlusion_delay = v;
+                    }
                 }
 
                 // --- Energy ---
                 "EnergyProduction" => {
-                    if let Ok(v) = trimmed.parse::<Int>() { self.energy_production = v; }
+                    if let Ok(v) = trimmed.parse::<Int>() {
+                        self.energy_production = v;
+                    }
                 }
                 "EnergyBonus" => {
-                    if let Ok(v) = trimmed.parse::<Int>() { self.energy_bonus = v; }
+                    if let Ok(v) = trimmed.parse::<Int>() {
+                        self.energy_bonus = v;
+                    }
                 }
 
                 // --- Command set ---
@@ -3047,7 +3068,9 @@ impl DefaultThingTemplate {
                     self.kind_of_flags.clear();
                     for token in trimmed.split('|') {
                         let t = token.trim();
-                        if t.is_empty() { continue; }
+                        if t.is_empty() {
+                            continue;
+                        }
                         if let Some(kind) = kindof_from_name(t) {
                             self.kind_of_flags.push(kind);
                         }

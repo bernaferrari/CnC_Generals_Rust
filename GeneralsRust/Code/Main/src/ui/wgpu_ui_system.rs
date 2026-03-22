@@ -4,11 +4,11 @@ use crate::{
     game_logic::{GameLogic, GameMode},
     localization,
 };
-use glam::Vec2;
-use glam::Vec4;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
+use glam::Vec2;
+use glam::Vec4;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -214,7 +214,11 @@ impl WgpuUISystem {
             self.loading_phase = phase.trim().to_string();
         }
 
-        let label = format!("{} {:.0}%", self.loading_phase, self.loading_progress * 100.0);
+        let label = format!(
+            "{} {:.0}%",
+            self.loading_phase,
+            self.loading_progress * 100.0
+        );
         if let Some(text_id) = self.loading_elements.get("LoadingText").copied() {
             if let Some(text) = self.layout_manager.get_element_mut(text_id) {
                 text.text = label;
@@ -753,7 +757,10 @@ impl WgpuUISystem {
                 localization::localize_with_args(
                     "wgpu_ui.log.element_clicked",
                     "Element clicked: {name} (ID: {id})",
-                    &[("name", element_name.as_str()), ("id", element_id_str.as_str())],
+                    &[
+                        ("name", element_name.as_str()),
+                        ("id", element_id_str.as_str())
+                    ],
                 )
             );
 
@@ -1306,10 +1313,13 @@ impl WgpuUISystem {
         let mid_w = (rect.width - left_w - right_w).max(0.0);
 
         if let Some(left_id) = slices.left {
-            draw_commands.push(
-                self.renderer
-                    .create_textured_rect(rect.x, rect.y, left_w.max(1.0), rect.height, left_id),
-            );
+            draw_commands.push(self.renderer.create_textured_rect(
+                rect.x,
+                rect.y,
+                left_w.max(1.0),
+                rect.height,
+                left_id,
+            ));
         }
 
         if let Some(mid_id) = slices.middle {

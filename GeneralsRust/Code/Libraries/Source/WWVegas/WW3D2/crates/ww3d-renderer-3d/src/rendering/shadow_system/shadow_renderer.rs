@@ -641,14 +641,10 @@ mod tests {
         renderer.clear_shadow_caster_submissions_for_light(3);
         assert!(renderer.shadow_caster_submissions_by_light.is_empty());
 
-        renderer.set_shadow_caster_submissions_for_light(
-            1,
-            vec![ShadowCasterSubmission::triangles(6)],
-        );
-        renderer.set_shadow_caster_submissions_for_light(
-            2,
-            vec![ShadowCasterSubmission::triangles(9)],
-        );
+        renderer
+            .set_shadow_caster_submissions_for_light(1, vec![ShadowCasterSubmission::triangles(6)]);
+        renderer
+            .set_shadow_caster_submissions_for_light(2, vec![ShadowCasterSubmission::triangles(9)]);
         renderer.clear_shadow_caster_submissions_for_all_lights();
         assert!(renderer.shadow_caster_submissions_by_light.is_empty());
     }

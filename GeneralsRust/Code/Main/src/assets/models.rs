@@ -1253,8 +1253,7 @@ impl W3DLoader {
             };
             material.shininess = f32::from_le_bytes([data[20], data[21], data[22], data[23]]);
             material.opacity = f32::from_le_bytes([data[24], data[25], data[26], data[27]]);
-            material.translucency =
-                f32::from_le_bytes([data[28], data[29], data[30], data[31]]);
+            material.translucency = f32::from_le_bytes([data[28], data[29], data[30], data[31]]);
         } else {
             material.ambient = W3dRGBAStruct {
                 r: data[4],
@@ -1282,8 +1281,7 @@ impl W3DLoader {
             };
             material.shininess = f32::from_le_bytes([data[16], data[17], data[18], data[19]]);
             material.opacity = f32::from_le_bytes([data[20], data[21], data[22], data[23]]);
-            material.translucency =
-                f32::from_le_bytes([data[24], data[25], data[26], data[27]]);
+            material.translucency = f32::from_le_bytes([data[24], data[25], data[26], data[27]]);
         }
 
         Ok(material)
@@ -1506,81 +1504,75 @@ impl W3DLoader {
                         chunk_size
                     );
                 }
-                W3D_CHUNK_SHADERS => {
-                    match self.parse_shaders_chunk(chunk_data) {
-                        Ok(shaders) => {
-                            debug!("Parsed {} shaders", shaders.len());
-                            mesh.shaders = shaders;
-                        }
-                        Err(err) => {
-                            warn!("Failed to parse W3D_CHUNK_SHADERS: {}", err);
-                        }
+                W3D_CHUNK_SHADERS => match self.parse_shaders_chunk(chunk_data) {
+                    Ok(shaders) => {
+                        debug!("Parsed {} shaders", shaders.len());
+                        mesh.shaders = shaders;
                     }
-                }
-                W3D_CHUNK_VERTEX_MATERIALS => {
-                    match self.parse_vertex_materials_chunk(chunk_data) {
-                        Ok((materials, mappers)) => {
-                            debug!(
-                                "Parsed {} vertex materials and {} mapper configs",
-                                materials.len(),
-                                mappers.len()
+                    Err(err) => {
+                        warn!("Failed to parse W3D_CHUNK_SHADERS: {}", err);
+                    }
+                },
+                W3D_CHUNK_VERTEX_MATERIALS => match self.parse_vertex_materials_chunk(chunk_data) {
+                    Ok((materials, mappers)) => {
+                        debug!(
+                            "Parsed {} vertex materials and {} mapper configs",
+                            materials.len(),
+                            mappers.len()
+                        );
+                        mesh.vertex_materials = materials;
+                        mesh.vertex_mappers = mappers;
+                    }
+                    Err(err) => {
+                        warn!("Failed to parse W3D_CHUNK_VERTEX_MATERIALS: {}", err);
+                    }
+                },
+                W3D_CHUNK_MATERIAL_PASS => match self.parse_material_pass_chunk(chunk_data) {
+                    Ok(pass_data) => {
+                        let mut stage_texture_names = Vec::new();
+                        for texture_ids in &pass_data.stage_texture_ids {
+                            let names = texture_ids
+                                .iter()
+                                .filter_map(|texture_id| {
+                                    if *texture_id == u32::MAX {
+                                        return None;
+                                    }
+                                    texture_names.get(*texture_id as usize).cloned()
+                                })
+                                .collect::<Vec<_>>();
+                            stage_texture_names.push(names);
+                        }
+
+                        mesh.passes.push(MaterialPassInfo {
+                            vm_id: pass_data.vertex_material_ids.first().copied().unwrap_or(0),
+                            shader_id: pass_data.shader_ids.first().copied().unwrap_or(0),
+                            texture_count: pass_data.stage_texture_ids.len() as u32,
+                        });
+                        mesh.per_pass_vertex_material_ids
+                            .push(pass_data.vertex_material_ids.clone());
+                        mesh.per_pass_shader_ids.push(pass_data.shader_ids.clone());
+                        mesh.per_pass_dcg_colors.push(pass_data.dcg_colors.clone());
+                        mesh.per_pass_dig_colors.push(pass_data.dig_colors.clone());
+                        mesh.per_pass_stage_texture_ids
+                            .push(pass_data.stage_texture_ids.clone());
+                        mesh.per_pass_stage_texture_names.push(stage_texture_names);
+
+                        for (stage_index, stage_uvs) in pass_data.stage_texcoords.iter().enumerate()
+                        {
+                            mesh.stage_texcoords.push(stage_uvs.clone());
+                            mesh.per_stage_face_texcoord_ids.push(
+                                pass_data
+                                    .stage_per_face_texcoord_ids
+                                    .get(stage_index)
+                                    .cloned()
+                                    .unwrap_or_default(),
                             );
-                            mesh.vertex_materials = materials;
-                            mesh.vertex_mappers = mappers;
-                        }
-                        Err(err) => {
-                            warn!("Failed to parse W3D_CHUNK_VERTEX_MATERIALS: {}", err);
                         }
                     }
-                }
-                W3D_CHUNK_MATERIAL_PASS => {
-                    match self.parse_material_pass_chunk(chunk_data) {
-                        Ok(pass_data) => {
-                            let mut stage_texture_names = Vec::new();
-                            for texture_ids in &pass_data.stage_texture_ids {
-                                let names = texture_ids
-                                    .iter()
-                                    .filter_map(|texture_id| {
-                                        if *texture_id == u32::MAX {
-                                            return None;
-                                        }
-                                        texture_names.get(*texture_id as usize).cloned()
-                                    })
-                                    .collect::<Vec<_>>();
-                                stage_texture_names.push(names);
-                            }
-
-                            mesh.passes.push(MaterialPassInfo {
-                                vm_id: pass_data.vertex_material_ids.first().copied().unwrap_or(0),
-                                shader_id: pass_data.shader_ids.first().copied().unwrap_or(0),
-                                texture_count: pass_data.stage_texture_ids.len() as u32,
-                            });
-                            mesh.per_pass_vertex_material_ids
-                                .push(pass_data.vertex_material_ids.clone());
-                            mesh.per_pass_shader_ids.push(pass_data.shader_ids.clone());
-                            mesh.per_pass_dcg_colors.push(pass_data.dcg_colors.clone());
-                            mesh.per_pass_dig_colors.push(pass_data.dig_colors.clone());
-                            mesh.per_pass_stage_texture_ids
-                                .push(pass_data.stage_texture_ids.clone());
-                            mesh.per_pass_stage_texture_names.push(stage_texture_names);
-
-                            for (stage_index, stage_uvs) in pass_data.stage_texcoords.iter().enumerate()
-                            {
-                                mesh.stage_texcoords.push(stage_uvs.clone());
-                                mesh.per_stage_face_texcoord_ids.push(
-                                    pass_data
-                                        .stage_per_face_texcoord_ids
-                                        .get(stage_index)
-                                        .cloned()
-                                        .unwrap_or_default(),
-                                );
-                            }
-                        }
-                        Err(err) => {
-                            warn!("Failed to parse W3D_CHUNK_MATERIAL_PASS: {}", err);
-                        }
+                    Err(err) => {
+                        warn!("Failed to parse W3D_CHUNK_MATERIAL_PASS: {}", err);
                     }
-                }
+                },
                 W3D_CHUNK_TEXTURES => {
                     // Parse textures container - C++ read_textures() equivalent
                     debug!(
@@ -2741,5 +2733,4 @@ mod tests {
         assert_eq!(stage1.texture_name.as_deref(), Some("detail.dds"));
         assert!(matches!(stage1.uv_source, UVSource::UV2));
     }
-
 }

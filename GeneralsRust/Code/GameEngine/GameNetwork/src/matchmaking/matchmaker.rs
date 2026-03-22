@@ -86,14 +86,9 @@ pub enum MatchmakerEvent {
     /// A discovered game is no longer reachable / has expired.
     GameExpired(SocketAddr),
     /// A direct-IP connection attempt succeeded.
-    DirectConnectSucceeded {
-        address: SocketAddr,
-    },
+    DirectConnectSucceeded { address: SocketAddr },
     /// A direct-IP connection attempt failed.
-    DirectConnectFailed {
-        address: SocketAddr,
-        reason: String,
-    },
+    DirectConnectFailed { address: SocketAddr, reason: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -249,8 +244,14 @@ impl Matchmaker {
         let shutdown_rx_listen = shutdown_rx.resubscribe();
 
         let listener = tokio::spawn(async move {
-            Self::listener_task(games_clone, event_tx_clone, port, running_clone, shutdown_rx_listen)
-                .await;
+            Self::listener_task(
+                games_clone,
+                event_tx_clone,
+                port,
+                running_clone,
+                shutdown_rx_listen,
+            )
+            .await;
         });
         *self.listener_handle.lock().await = Some(listener);
 
@@ -322,8 +323,9 @@ impl Matchmaker {
             GameListSort::Name => {
                 games.sort_by(|a, b| a.game_name.to_lowercase().cmp(&b.game_name.to_lowercase()))
             }
-            GameListSort::HostName => games
-                .sort_by(|a, b| a.host_name.to_lowercase().cmp(&b.host_name.to_lowercase())),
+            GameListSort::HostName => {
+                games.sort_by(|a, b| a.host_name.to_lowercase().cmp(&b.host_name.to_lowercase()))
+            }
             GameListSort::PlayerCount => games.sort_by_key(|g| g.player_count),
             GameListSort::Latency => games.sort_by_key(|g| g.latency_ms),
             GameListSort::MostRecent => games.sort_by(|a, b| b.last_seen.cmp(&a.last_seen)),
@@ -355,11 +357,7 @@ impl Matchmaker {
     ///
     /// Sends a ping to the given address and waits up to `timeout` for a
     /// response.  Returns `Ok(())` on success.
-    pub async fn direct_connect(
-        &self,
-        addr: SocketAddr,
-        timeout: Duration,
-    ) -> NetworkResult<()> {
+    pub async fn direct_connect(&self, addr: SocketAddr, timeout: Duration) -> NetworkResult<()> {
         info!("Attempting direct connection to {}", addr);
 
         let socket = tokio::net::UdpSocket::bind("0.0.0.0:0")
@@ -384,9 +382,9 @@ impl Matchmaker {
                 if len >= 2 {
                     let magic = u16::from_le_bytes([buf[0], buf[1]]);
                     if magic == LAN_DISCOVERY_MAGIC {
-                        let _ = self.event_tx.send(MatchmakerEvent::DirectConnectSucceeded {
-                            address: addr,
-                        });
+                        let _ = self
+                            .event_tx
+                            .send(MatchmakerEvent::DirectConnectSucceeded { address: addr });
                         info!("Direct connect to {} succeeded", addr);
                         return Ok(());
                     }
@@ -470,10 +468,7 @@ impl Matchmaker {
         buf
     }
 
-    fn parse_discovery_packet(
-        data: &[u8],
-        src_addr: SocketAddr,
-    ) -> Option<(String, u32, bool)> {
+    fn parse_discovery_packet(data: &[u8], src_addr: SocketAddr) -> Option<(String, u32, bool)> {
         if data.len() < 7 {
             return None;
         }
@@ -615,8 +610,7 @@ impl Matchmaker {
             }
         };
 
-        let broadcast_addr: SocketAddr =
-            SocketAddrV4::new(Ipv4Addr::BROADCAST, port).into();
+        let broadcast_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::BROADCAST, port).into();
         let packet = Self::build_discovery_packet(&name, protocol_version, false);
         let mut interval = time::interval(Duration::from_secs(BROADCAST_INTERVAL_SECS));
 

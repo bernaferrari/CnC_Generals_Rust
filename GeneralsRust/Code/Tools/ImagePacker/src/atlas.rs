@@ -70,26 +70,29 @@ impl AtlasMetadata {
 
         let mut frames = serde_json::Map::new();
         for (name, sprite) in &self.sprites {
-            frames.insert(name.clone(), json!({
-                "frame": {
-                    "x": sprite.x,
-                    "y": sprite.y,
-                    "w": sprite.w,
-                    "h": sprite.h
-                },
-                "rotated": sprite.rotated,
-                "trimmed": sprite.trimmed,
-                "spriteSourceSize": {
-                    "x": sprite.sprite_source_size.0,
-                    "y": sprite.sprite_source_size.1,
-                    "w": sprite.sprite_source_size.2,
-                    "h": sprite.sprite_source_size.3
-                },
-                "sourceSize": {
-                    "w": sprite.source_size.0,
-                    "h": sprite.source_size.1
-                }
-            }));
+            frames.insert(
+                name.clone(),
+                json!({
+                    "frame": {
+                        "x": sprite.x,
+                        "y": sprite.y,
+                        "w": sprite.w,
+                        "h": sprite.h
+                    },
+                    "rotated": sprite.rotated,
+                    "trimmed": sprite.trimmed,
+                    "spriteSourceSize": {
+                        "x": sprite.sprite_source_size.0,
+                        "y": sprite.sprite_source_size.1,
+                        "w": sprite.sprite_source_size.2,
+                        "h": sprite.sprite_source_size.3
+                    },
+                    "sourceSize": {
+                        "w": sprite.source_size.0,
+                        "h": sprite.source_size.1
+                    }
+                }),
+            );
         }
 
         json!({
@@ -130,7 +133,8 @@ impl AtlasStats {
     pub fn calculate(results: &[AtlasResult]) -> Self {
         let atlas_count = results.len();
         let sprite_count: usize = results.iter().map(|r| r.sprite_count).sum();
-        let total_atlas_area: u64 = results.iter()
+        let total_atlas_area: u64 = results
+            .iter()
             .map(|r| r.atlas_size.0 as u64 * r.atlas_size.1 as u64)
             .sum();
 

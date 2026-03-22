@@ -512,10 +512,7 @@ pub trait Xfer {
     fn xfer_object_id(&mut self, object_id: &mut u32) -> io::Result<()> {
         // SAFETY: object_id is a valid reference
         unsafe {
-            self.xfer_implementation(
-                object_id as *mut u32 as *mut u8,
-                std::mem::size_of::<u32>(),
-            )
+            self.xfer_implementation(object_id as *mut u32 as *mut u8, std::mem::size_of::<u32>())
         }
     }
 

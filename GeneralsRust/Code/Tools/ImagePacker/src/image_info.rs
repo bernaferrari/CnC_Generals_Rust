@@ -84,7 +84,8 @@ impl ImageInfo {
     pub fn can_process_for_target(&mut self, target_width: u32, target_height: u32) -> bool {
         let mut ok = true;
         if self.width > target_width || self.height > target_height {
-            self.status.insert(ImageStatus::TOOBIG | ImageStatus::CANTPROCESS);
+            self.status
+                .insert(ImageStatus::TOOBIG | ImageStatus::CANTPROCESS);
             ok = false;
         }
         if self.color_depth != 24 && self.color_depth != 32 {

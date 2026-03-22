@@ -346,9 +346,7 @@ impl DieModuleInterface for CreateCrateDie {
                 continue;
             }
 
-            if template.veterancy_level.is_some()
-                && !self.test_veterancy_level(template, object)
-            {
+            if template.veterancy_level.is_some() && !self.test_veterancy_level(template, object) {
                 continue;
             }
 

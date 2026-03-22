@@ -324,11 +324,26 @@ impl Snapshotable for HelicopterSlowDeathBehavior {
         xfer.xfer_real(&mut self.self_spin)
             .map_err(|e| format!("HelicopterSlowDeathBehavior xfer self_spin: {:?}", e))?;
         xfer.xfer_bool(&mut self.self_spin_towards_max)
-            .map_err(|e| format!("HelicopterSlowDeathBehavior xfer self_spin_towards_max: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "HelicopterSlowDeathBehavior xfer self_spin_towards_max: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_unsigned_int(&mut self.last_self_spin_update_frame)
-            .map_err(|e| format!("HelicopterSlowDeathBehavior xfer last_self_spin_update_frame: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "HelicopterSlowDeathBehavior xfer last_self_spin_update_frame: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_unsigned_int(&mut self.blade_fly_off_frame)
-            .map_err(|e| format!("HelicopterSlowDeathBehavior xfer blade_fly_off_frame: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "HelicopterSlowDeathBehavior xfer blade_fly_off_frame: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_unsigned_int(&mut self.hit_ground_frame)
             .map_err(|e| format!("HelicopterSlowDeathBehavior xfer hit_ground_frame: {:?}", e))?;
         xfer.xfer_bool(&mut self.active)

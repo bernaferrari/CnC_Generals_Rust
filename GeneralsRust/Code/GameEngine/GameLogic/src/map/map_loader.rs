@@ -19,8 +19,8 @@ use crate::scripting::ini_parser::parse_script_from_ini;
 use crate::scripting::{MapMetadata, MapScriptLoader};
 use crate::sides_list::get_sides_list;
 use crate::system::map_loader::{
-    BridgeData, Coord3D as MapCoord3D, ICoord2D, LoadError, MapData,
-    MapLoader as BinaryMapLoader, MapWaypoint,
+    BridgeData, Coord3D as MapCoord3D, ICoord2D, LoadError, MapData, MapLoader as BinaryMapLoader,
+    MapWaypoint,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -396,9 +396,7 @@ impl MapLoader {
         // The parsed scripts are available via data.scripts for callers that
         // need them (e.g. the game-start sequence).
         if data.scripts.is_some() {
-            log::debug!(
-                "MapLoader::apply_map: script lists available for registration"
-            );
+            log::debug!("MapLoader::apply_map: script lists available for registration");
         }
 
         Ok(())
@@ -476,9 +474,7 @@ fn extract_camera_path(data: &MapData) -> CameraPath {
 }
 
 /// Try to load embedded map scripts.  Returns `None` if no scripts are found.
-fn load_embedded_scripts(
-    path: &str,
-) -> Option<Box<crate::scripting::core::ScriptList>> {
+fn load_embedded_scripts(path: &str) -> Option<Box<crate::scripting::core::ScriptList>> {
     let map_path = Path::new(path);
     if !map_path.exists() {
         return None;
@@ -497,10 +493,9 @@ fn register_player_starts(data: &FullMapData) {
             // Store the starting position in the map system's world dict
             let key = format!("Player_{}_Start", player.slot + 1);
             if let Ok(mut system) = crate::map::get_map_system().write() {
-                system.get_world_dict_mut().insert(
-                    key,
-                    format!("{},{},{}", pos.x, pos.y, pos.z),
-                );
+                system
+                    .get_world_dict_mut()
+                    .insert(key, format!("{},{},{}", pos.x, pos.y, pos.z));
             }
         }
     }
@@ -517,10 +512,7 @@ mod tests {
     #[test]
     fn test_time_of_day_parsing() {
         assert_eq!(TimeOfDay::from_str_loose("Morning"), TimeOfDay::Morning);
-        assert_eq!(
-            TimeOfDay::from_str_loose("AFTERNOON"),
-            TimeOfDay::Afternoon
-        );
+        assert_eq!(TimeOfDay::from_str_loose("AFTERNOON"), TimeOfDay::Afternoon);
         assert_eq!(TimeOfDay::from_str_loose("Night"), TimeOfDay::Night);
         assert_eq!(TimeOfDay::from_str_loose("unknown"), TimeOfDay::Invalid);
     }

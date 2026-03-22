@@ -71,6 +71,7 @@ use crate::transport::Transport as NetTransport;
 use crate::utils::NetworkUtils;
 
 // Public modules
+pub mod bridge; // Network bridge connecting transport to GameLogic
 pub mod command_types;
 pub mod commands;
 pub mod connection;
@@ -108,15 +109,14 @@ pub mod network_util;
 pub mod observability;
 pub mod rank_point_value;
 pub mod security;
+pub mod sync;
 pub mod time;
 pub mod transport;
 pub mod transport_udp; // Raw UDP transport matching C++ exactly
 pub mod transport_unified; // Unified transport supporting both UDP and QUIC
 pub mod udp; // Legacy UDP wrapper compatibility
 pub mod utils;
-pub mod wol_browser;
-pub mod bridge; // Network bridge connecting transport to GameLogic
-pub mod sync; // Deterministic lockstep game synchronization
+pub mod wol_browser; // Deterministic lockstep game synchronization
 
 // Re-exports
 pub mod game_spy_thread;

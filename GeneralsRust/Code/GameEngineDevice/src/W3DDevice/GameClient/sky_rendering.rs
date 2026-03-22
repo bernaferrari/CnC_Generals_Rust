@@ -14,42 +14,58 @@ use wgpu::util::DeviceExt;
 /// C++ Reference: GlobalData.h line 32
 pub const MAX_GLOBAL_LIGHTS: usize = 3;
 
+/// Number of playable time-of-day slots used by terrain lighting.
+/// The C++ enum also carries invalid/count sentinels, but the lighting arrays
+/// only index the four actual periods.
+pub const TIME_OF_DAY_COUNT: usize = 4;
+
 /// Time of day enumeration matching C++ TIME_OF_DAY
 /// C++ Reference: GameType.h
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum TimeOfDay {
-    Morning = 0,
-    Afternoon = 1,
-    Evening = 2,
-    Night = 3,
+    Invalid = 0,
+    Morning = 1,
+    Afternoon = 2,
+    Evening = 3,
+    Night = 4,
+    Count = 5,
 }
 
 impl TimeOfDay {
     pub fn count() -> usize {
-        4
+        TIME_OF_DAY_COUNT
+    }
+
+    pub fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(TimeOfDay::Morning),
+            1 => Some(TimeOfDay::Afternoon),
+            2 => Some(TimeOfDay::Evening),
+            3 => Some(TimeOfDay::Night),
+            _ => None,
+        }
+    }
+
+    pub fn array_index(self) -> Option<usize> {
+        match self {
+            TimeOfDay::Morning => Some(0),
+            TimeOfDay::Afternoon => Some(1),
+            TimeOfDay::Evening => Some(2),
+            TimeOfDay::Night => Some(3),
+            _ => None,
+        }
     }
 
     /// Interpolation factor [0,1] between this time and next
     pub fn interpolation_factor(time_progress: f32) -> (TimeOfDay, TimeOfDay, f32) {
-        // Time progress is [0,1] representing time through day
-        let scaled = time_progress * 4.0; // 0-4 range
-        let index = scaled.floor() as usize % 4;
-        let t = scaled.fract();
+        // Time progress is [0,1] representing time through the day.
+        let scaled = time_progress.rem_euclid(1.0) * TIME_OF_DAY_COUNT as f32;
+        let index = scaled.floor() as usize;
+        let t = scaled - index as f32;
 
-        let current = match index {
-            0 => TimeOfDay::Morning,
-            1 => TimeOfDay::Afternoon,
-            2 => TimeOfDay::Evening,
-            _ => TimeOfDay::Night,
-        };
-
-        let next = match index {
-            0 => TimeOfDay::Afternoon,
-            1 => TimeOfDay::Evening,
-            2 => TimeOfDay::Night,
-            _ => TimeOfDay::Morning,
-        };
+        let current = Self::from_index(index).unwrap_or(TimeOfDay::Morning);
+        let next = Self::from_index((index + 1) % TIME_OF_DAY_COUNT).unwrap_or(TimeOfDay::Afternoon);
 
         (current, next, t)
     }
@@ -67,9 +83,9 @@ pub struct TerrainLighting {
 impl Default for TerrainLighting {
     fn default() -> Self {
         Self {
-            ambient: [0.5, 0.5, 0.5],
-            diffuse: [1.0, 1.0, 1.0],
-            light_pos: [0.0, -1.0, 0.0], // Default sun overhead
+            ambient: [0.0, 0.0, 0.0],
+            diffuse: [0.0, 0.0, 0.0],
+            light_pos: [0.0, 0.0, -1.0], // Matches GlobalData.cpp default
         }
     }
 }
@@ -104,7 +120,7 @@ impl TerrainLighting {
                 self.light_pos[2] / len,
             ]
         } else {
-            [0.0, -1.0, 0.0] // Default downward
+            [0.0, 0.0, -1.0] // Matches GlobalData.cpp default light direction
         }
     }
 }
@@ -114,10 +130,10 @@ impl TerrainLighting {
 #[derive(Debug, Clone)]
 pub struct GlobalLightingConfig {
     /// Terrain lighting per time of day per light
-    pub terrain_lighting: [[TerrainLighting; MAX_GLOBAL_LIGHTS]; 4],
+    pub terrain_lighting: [[TerrainLighting; MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
 
     /// Object lighting per time of day per light
-    pub terrain_objects_lighting: [[TerrainLighting; MAX_GLOBAL_LIGHTS]; 4],
+    pub terrain_objects_lighting: [[TerrainLighting; MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
 
     /// Number of active global lights (1-3)
     pub num_global_lights: usize,
@@ -128,14 +144,14 @@ pub struct GlobalLightingConfig {
 
 impl Default for GlobalLightingConfig {
     fn default() -> Self {
-        // Default lighting similar to C++ initialization
+        // Default lighting matches C++ GlobalData.cpp initialization.
         let default_light = TerrainLighting::default();
 
         Self {
-            terrain_lighting: [[default_light; MAX_GLOBAL_LIGHTS]; 4],
-            terrain_objects_lighting: [[default_light; MAX_GLOBAL_LIGHTS]; 4],
-            num_global_lights: 1,
-            infantry_light_scale: [1.0, 1.0, 1.0, 1.0],
+            terrain_lighting: [[default_light; MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
+            terrain_objects_lighting: [[default_light; MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
+            num_global_lights: MAX_GLOBAL_LIGHTS,
+            infantry_light_scale: [1.5; TIME_OF_DAY_COUNT],
         }
     }
 }
@@ -144,6 +160,7 @@ impl GlobalLightingConfig {
     /// Get interpolated lighting for current time of day
     pub fn get_lighting_for_time(&self, time_progress: f32, is_object: bool) -> Vec<TerrainLighting> {
         let (tod1, tod2, t) = TimeOfDay::interpolation_factor(time_progress);
+        let light_count = self.num_global_lights.min(MAX_GLOBAL_LIGHTS);
 
         let lighting_array = if is_object {
             &self.terrain_objects_lighting
@@ -151,10 +168,10 @@ impl GlobalLightingConfig {
             &self.terrain_lighting
         };
 
-        let lights1 = &lighting_array[tod1 as usize];
-        let lights2 = &lighting_array[tod2 as usize];
+        let lights1 = &lighting_array[tod1.array_index().unwrap_or(0)];
+        let lights2 = &lighting_array[tod2.array_index().unwrap_or(0)];
 
-        (0..self.num_global_lights)
+        (0..light_count)
             .map(|i| lights1[i].lerp(&lights2[i], t))
             .collect()
     }
@@ -220,7 +237,7 @@ pub struct SkyRenderingSystem {
     draw_sky_box: bool,        // Enable/disable skybox rendering
 
     // Day/night cycle
-    time_of_day_progress: f32, // [0,1] representing time through day (0=morning start)
+    time_of_day_progress: f32, // [0,1] representing time through day (0.25=afternoon start)
     auto_cycle_enabled: bool,  // Auto-advance time
     cycle_speed: f32,          // Seconds per full day cycle
 }
@@ -372,8 +389,8 @@ impl SkyRenderingSystem {
             lighting_config: GlobalLightingConfig::default(),
             sky_box_scale: 4.5, // C++ default from GlobalData.cpp line 657
             sky_box_position_z: 0.0,
-            draw_sky_box: true,
-            time_of_day_progress: 0.0,
+            draw_sky_box: false,
+            time_of_day_progress: 0.25,
             auto_cycle_enabled: false,
             cycle_speed: 1200.0, // 20 minutes per full cycle
         }
@@ -660,6 +677,20 @@ mod tests {
     }
 
     #[test]
+    fn test_time_of_day_enum_matches_cplusplus_order() {
+        assert_eq!(TimeOfDay::Invalid as u32, 0);
+        assert_eq!(TimeOfDay::Morning as u32, 1);
+        assert_eq!(TimeOfDay::Afternoon as u32, 2);
+        assert_eq!(TimeOfDay::Evening as u32, 3);
+        assert_eq!(TimeOfDay::Night as u32, 4);
+        assert_eq!(TimeOfDay::Count as u32, 5);
+
+        assert_eq!(TimeOfDay::Morning.array_index(), Some(0));
+        assert_eq!(TimeOfDay::Night.array_index(), Some(3));
+        assert_eq!(TimeOfDay::Count.array_index(), None);
+    }
+
+    #[test]
     fn test_terrain_lighting_lerp() {
         let morning = TerrainLighting {
             ambient: [0.5, 0.6, 0.7],
@@ -699,8 +730,12 @@ mod tests {
     #[test]
     fn test_lighting_config_default() {
         let config = GlobalLightingConfig::default();
-        assert_eq!(config.num_global_lights, 1);
+        assert_eq!(config.num_global_lights, MAX_GLOBAL_LIGHTS);
         assert_eq!(config.infantry_light_scale.len(), 4);
+        assert_eq!(config.infantry_light_scale, [1.5, 1.5, 1.5, 1.5]);
+        assert_eq!(config.terrain_lighting[0][0].ambient, [0.0, 0.0, 0.0]);
+        assert_eq!(config.terrain_lighting[0][0].diffuse, [0.0, 0.0, 0.0]);
+        assert_eq!(config.terrain_lighting[0][0].light_pos, [0.0, 0.0, -1.0]);
 
         // Verify all time-of-day entries exist
         for tod in 0..4 {

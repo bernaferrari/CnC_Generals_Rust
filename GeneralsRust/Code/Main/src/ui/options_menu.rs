@@ -10,7 +10,6 @@ use super::{
 };
 use crate::config::{IniParser, LoadMode};
 use crate::localization;
-use crate::subsystem_manager::{with_subsystem_mut, GlobalDataSubsystem};
 use log::info;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -908,11 +907,14 @@ impl OptionsMenu {
     }
 
     fn options_ini_path() -> Option<PathBuf> {
-        with_subsystem_mut::<GlobalDataSubsystem, _>(|sys| {
-            sys.get_global_data()
-                .map(|gd| gd.get_path_user_data().join("Options.ini"))
-        })
-        .flatten()
+        let user_data_dir = game_engine::common::global_data::read()
+            .get_user_data_dir()
+            .to_string();
+        if user_data_dir.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(user_data_dir).join("Options.ini"))
+        }
     }
 
     fn iter_controls(&self) -> impl Iterator<Item = &OptionControl> {

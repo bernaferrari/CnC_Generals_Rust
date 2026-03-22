@@ -14,7 +14,7 @@
 //!
 //! # C++ Field Parse Table (RankInfo.cpp lines 66-71)
 //! ```cpp
-//! static const FieldParse myFieldParse[] = 
+//! static const FieldParse myFieldParse[] =
 //! {
 //!     { "RankName", INI::parseAndTranslateLabel, NULL, offsetof( RankInfo, m_rankName ) },
 //!     { "SkillPointsNeeded", INI::parseInt, NULL, offsetof( RankInfo, m_skillPointsNeeded ) },
@@ -78,19 +78,19 @@ impl std::error::Error for RankError {}
 pub struct RankInfo {
     /// Localized rank display name (from INI label translation)
     pub rank_name: String,
-    
+
     /// Skill points required to reach this rank level
     /// Note: Rank 1 has 0 skill points needed (starting rank)
     pub skill_points_needed: i32,
-    
+
     /// Science purchase points granted when reaching this rank
     /// These are the points used to buy abilities in the Generals Points system
     pub science_purchase_points_granted: u32,
-    
+
     /// Sciences automatically granted when reaching this rank level
     /// Typically contains SCIENCE_RankN for the corresponding rank
     pub sciences_granted: Vec<ScienceType>,
-    
+
     /// Flag indicating this is an override definition
     is_override: bool,
 }
@@ -107,12 +107,12 @@ impl RankInfo {
             is_override: false,
         }
     }
-    
+
     /// Mark this RankInfo as an override
     pub fn mark_as_override(&mut self) {
         self.is_override = true;
     }
-    
+
     /// Check if this is an override
     pub fn is_override(&self) -> bool {
         self.is_override
@@ -157,13 +157,13 @@ impl RankInfoStore {
             rank_infos: Vec::new(),
         }
     }
-    
+
     /// Initialize the store (clear all existing ranks)
     /// Matches C++ RankInfoStore::init() from RankInfo.cpp lines 52-56
     pub fn init(&mut self) {
         self.rank_infos.clear();
     }
-    
+
     /// Reset the store (clear overrides, keep base definitions)
     /// Matches C++ RankInfoStore::reset() from RankInfo.cpp lines 59-77
     ///
@@ -177,13 +177,13 @@ impl RankInfoStore {
             info.is_override = false;
         }
     }
-    
+
     /// Get the number of rank levels defined
     /// Matches C++ RankInfoStore::getRankLevelCount() from RankInfo.cpp lines 81-84
     pub fn get_rank_level_count(&self) -> i32 {
         self.rank_infos.len() as i32
     }
-    
+
     /// Get rank info for a specific level
     /// Matches C++ RankInfoStore::getRankInfo() from RankInfo.cpp lines 88-101
     ///
@@ -200,41 +200,39 @@ impl RankInfoStore {
             None
         }
     }
-    
+
     /// Check if the store is empty
     pub fn is_empty(&self) -> bool {
         self.rank_infos.is_empty()
     }
-    
+
     /// Add a new rank info (must be in sequential order)
     /// Returns error if rank level doesn't match expected next level
     fn add_rank(&mut self, info: RankInfo) -> RankResult<()> {
         let expected_level = self.rank_infos.len() + 1;
         let actual_level = self.rank_infos.len() + 1; // New rank will be at this position
-        
+
         self.rank_infos.push(info);
         Ok(())
     }
-    
+
     /// Update an existing rank info (for overrides)
     fn update_rank(&mut self, level: i32, info: RankInfo) -> RankResult<()> {
         if level < 1 || level as usize > self.rank_infos.len() {
             return Err(RankError::NotFound);
         }
-        
+
         self.rank_infos[(level - 1) as usize] = info;
         Ok(())
     }
-    
+
     /// Parse a rank definition from INI
     /// Matches C++ RankInfoStore::friend_parseRankDefinition() from RankInfo.cpp lines 104-148
     pub fn parse_rank_definition(&mut self, ini: &mut INI, is_override: bool) -> INIResult<()> {
         // Read the rank level number
         let rank_token = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
-        let rank_level: i32 = rank_token
-            .parse()
-            .map_err(|_| INIError::InvalidData)?;
-        
+        let rank_level: i32 = rank_token.parse().map_err(|_| INIError::InvalidData)?;
+
         if is_override {
             // In override mode, can only override existing ranks
             // Matches C++ RankInfo.cpp lines 114-128
@@ -242,15 +240,15 @@ impl RankInfoStore {
                 // Rank not found in map.ini - this is an error in C++
                 return Err(INIError::InvalidData);
             }
-            
+
             // Get existing info and copy it
             let existing = &self.rank_infos[(rank_level - 1) as usize];
             let mut new_info = existing.clone();
             new_info.mark_as_override();
-            
+
             // Parse fields from INI
             self.parse_rank_fields(ini, &mut new_info)?;
-            
+
             // Update the existing entry
             self.rank_infos[(rank_level - 1) as usize] = new_info;
         } else {
@@ -261,16 +259,16 @@ impl RankInfoStore {
                 // C++ throws INI_INVALID_DATA for this
                 return Err(INIError::InvalidData);
             }
-            
+
             let mut info = RankInfo::new();
             self.parse_rank_fields(ini, &mut info)?;
-            
+
             self.rank_infos.push(info);
         }
-        
+
         Ok(())
     }
-    
+
     /// Parse rank fields from INI
     /// Matches C++ field parse table from RankInfo.cpp lines 66-71
     fn parse_rank_fields(&mut self, ini: &mut INI, info: &mut RankInfo) -> INIResult<()> {
@@ -279,22 +277,22 @@ impl RankInfoStore {
             if ini.is_eof() {
                 return Err(INIError::MissingEndToken);
             }
-            
+
             let tokens = ini.get_line_tokens();
             if tokens.is_empty() {
                 continue;
             }
-            
+
             let key = tokens[0];
             if key.eq_ignore_ascii_case("End") {
                 break;
             }
-            
+
             // Get the value tokens (skip key and any '=' signs)
             let mut value_tokens: Vec<&str> = tokens.iter().skip(1).copied().collect();
             value_tokens.retain(|t| *t != "=");
             let value = value_tokens.join(" ");
-            
+
             // Parse fields based on key
             // Matches C++ field parse table from RankInfo.cpp lines 66-71
             match key.to_ascii_lowercase().as_str() {
@@ -304,9 +302,7 @@ impl RankInfoStore {
                 }
                 "skillpointsneeded" => {
                     // parseInt
-                    info.skill_points_needed = value
-                        .parse()
-                        .map_err(|_| INIError::InvalidData)?;
+                    info.skill_points_needed = value.parse().map_err(|_| INIError::InvalidData)?;
                 }
                 "sciencesgranted" => {
                     // parseScienceVector - parse space-separated science names
@@ -314,9 +310,8 @@ impl RankInfoStore {
                 }
                 "sciencepurchasepointsgranted" => {
                     // parseUnsignedInt
-                    info.science_purchase_points_granted = value
-                        .parse()
-                        .map_err(|_| INIError::InvalidData)?;
+                    info.science_purchase_points_granted =
+                        value.parse().map_err(|_| INIError::InvalidData)?;
                 }
                 _ => {
                     // Unknown field - log warning but don't fail
@@ -324,20 +319,20 @@ impl RankInfoStore {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Parse a vector of sciences from a space-separated string
     /// Matches C++ INI::parseScienceVector from INI.cpp lines 674-685
     fn parse_science_vector(&self, value: &str) -> Vec<ScienceType> {
         let mut sciences = Vec::new();
-        
+
         for token in value.split_whitespace() {
             if token.is_empty() || token.eq_ignore_ascii_case("None") {
                 continue;
             }
-            
+
             // Look up science by name from the science store
             if let Some(store) = get_science_store() {
                 let science = store.get_science_from_internal_name(token);
@@ -346,15 +341,15 @@ impl RankInfoStore {
                 }
             }
         }
-        
+
         sciences
     }
-    
+
     /// Get rank level for a given skill points total
     /// Helper function to determine current rank based on accumulated skill points
     pub fn get_rank_level_for_skill_points(&self, skill_points: i32) -> i32 {
         let mut level = 1;
-        
+
         for (idx, info) in self.rank_infos.iter().enumerate() {
             if skill_points >= info.skill_points_needed {
                 level = (idx + 1) as i32;
@@ -362,29 +357,29 @@ impl RankInfoStore {
                 break;
             }
         }
-        
+
         level
     }
-    
+
     /// Get total science purchase points granted up to a given rank level
     pub fn get_total_purchase_points_up_to_level(&self, level: i32) -> u32 {
         let mut total = 0u32;
-        
+
         for i in 0..level.min(self.rank_infos.len() as i32) {
             total += self.rank_infos[i as usize].science_purchase_points_granted;
         }
-        
+
         total
     }
-    
+
     /// Get all sciences granted up to a given rank level
     pub fn get_sciences_granted_up_to_level(&self, level: i32) -> Vec<ScienceType> {
         let mut sciences = Vec::new();
-        
+
         for i in 0..level.min(self.rank_infos.len() as i32) {
             sciences.extend(self.rank_infos[i as usize].sciences_granted.iter().copied());
         }
-        
+
         sciences
     }
 }
@@ -430,7 +425,7 @@ pub fn init_rank_info_store() {
 /// Matches C++ INI::parseRankDefinition from RankInfo.cpp lines 151-154
 pub fn parse_rank_definition(ini: &mut INI) -> Result<(), String> {
     let is_override = ini.get_load_type() == crate::common::ini::INILoadType::CreateOverrides;
-    
+
     let mut store = get_rank_info_store_mut();
     store
         .parse_rank_definition(ini, is_override)
@@ -440,96 +435,96 @@ pub fn parse_rank_definition(ini: &mut INI) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_rank_info_creation() {
         let info = RankInfo::new();
-        
+
         assert!(info.rank_name.is_empty());
         assert_eq!(info.skill_points_needed, 0);
         assert_eq!(info.science_purchase_points_granted, 0);
         assert!(info.sciences_granted.is_empty());
         assert!(!info.is_override());
     }
-    
+
     #[test]
     fn test_rank_info_override() {
         let mut info = RankInfo::new();
         info.mark_as_override();
-        
+
         assert!(info.is_override());
     }
-    
+
     #[test]
     fn test_rank_info_store_creation() {
         let store = RankInfoStore::new();
-        
+
         assert!(store.is_empty());
         assert_eq!(store.get_rank_level_count(), 0);
         assert!(store.get_rank_info(1).is_none());
     }
-    
+
     #[test]
     fn test_rank_info_store_operations() {
         let mut store = RankInfoStore::new();
-        
+
         // Add first rank
         let mut info1 = RankInfo::new();
         info1.rank_name = "Rank 1".to_string();
         info1.skill_points_needed = 0;
         info1.science_purchase_points_granted = 1;
         store.add_rank(info1).unwrap();
-        
+
         assert_eq!(store.get_rank_level_count(), 1);
         assert!(store.get_rank_info(1).is_some());
         assert!(store.get_rank_info(0).is_none()); // Level 0 is invalid
         assert!(store.get_rank_info(2).is_none()); // Level 2 doesn't exist
-        
+
         // Add second rank
         let mut info2 = RankInfo::new();
         info2.rank_name = "Rank 2".to_string();
         info2.skill_points_needed = 800;
         info2.science_purchase_points_granted = 1;
         store.add_rank(info2).unwrap();
-        
+
         assert_eq!(store.get_rank_level_count(), 2);
-        
+
         // Verify rank 1 is accessible
         let rank1 = store.get_rank_info(1).unwrap();
         assert_eq!(rank1.rank_name, "Rank 1");
         assert_eq!(rank1.skill_points_needed, 0);
-        
+
         // Verify rank 2 is accessible
         let rank2 = store.get_rank_info(2).unwrap();
         assert_eq!(rank2.rank_name, "Rank 2");
         assert_eq!(rank2.skill_points_needed, 800);
     }
-    
+
     #[test]
     fn test_rank_level_for_skill_points() {
         let mut store = RankInfoStore::new();
-        
+
         // Add ranks matching the actual game data
         let mut rank1 = RankInfo::new();
         rank1.skill_points_needed = 0;
         store.add_rank(rank1).unwrap();
-        
+
         let mut rank2 = RankInfo::new();
         rank2.skill_points_needed = 800;
         store.add_rank(rank2).unwrap();
-        
+
         let mut rank3 = RankInfo::new();
         rank3.skill_points_needed = 1500;
         store.add_rank(rank3).unwrap();
-        
+
         let mut rank4 = RankInfo::new();
         rank4.skill_points_needed = 2500;
         store.add_rank(rank4).unwrap();
-        
+
         let mut rank5 = RankInfo::new();
         rank5.skill_points_needed = 5000;
         store.add_rank(rank5).unwrap();
-        
+
         // Test skill point thresholds
         assert_eq!(store.get_rank_level_for_skill_points(0), 1);
         assert_eq!(store.get_rank_level_for_skill_points(799), 1);
@@ -542,32 +537,32 @@ mod tests {
         assert_eq!(store.get_rank_level_for_skill_points(5000), 5);
         assert_eq!(store.get_rank_level_for_skill_points(10000), 5);
     }
-    
+
     #[test]
     fn test_total_purchase_points() {
         let mut store = RankInfoStore::new();
-        
+
         // Add ranks matching the actual game data
         let mut rank1 = RankInfo::new();
         rank1.science_purchase_points_granted = 1;
         store.add_rank(rank1).unwrap();
-        
+
         let mut rank2 = RankInfo::new();
         rank2.science_purchase_points_granted = 1;
         store.add_rank(rank2).unwrap();
-        
+
         let mut rank3 = RankInfo::new();
         rank3.science_purchase_points_granted = 1;
         store.add_rank(rank3).unwrap();
-        
+
         let mut rank4 = RankInfo::new();
         rank4.science_purchase_points_granted = 1;
         store.add_rank(rank4).unwrap();
-        
+
         let mut rank5 = RankInfo::new();
         rank5.science_purchase_points_granted = 3;
         store.add_rank(rank5).unwrap();
-        
+
         // Test cumulative purchase points
         assert_eq!(store.get_total_purchase_points_up_to_level(1), 1);
         assert_eq!(store.get_total_purchase_points_up_to_level(2), 2);
@@ -575,11 +570,11 @@ mod tests {
         assert_eq!(store.get_total_purchase_points_up_to_level(4), 4);
         assert_eq!(store.get_total_purchase_points_up_to_level(5), 7); // 1+1+1+1+3
     }
-    
+
     #[test]
     fn test_global_store() {
         init_rank_info_store();
-        
+
         let store = get_rank_info_store();
         assert!(store.is_empty() || store.get_rank_level_count() >= 0);
     }

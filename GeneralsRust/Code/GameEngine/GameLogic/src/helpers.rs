@@ -4147,7 +4147,10 @@ impl TheObjectCreationListStore {
     pub fn create_empty_object_creation_list(
         name: &str,
     ) -> Arc<crate::object_creation_list::store::ObjectCreationList> {
-        Self::register_object_creation_list(name, crate::object_creation_list::store::ObjectCreationList::new())
+        Self::register_object_creation_list(
+            name,
+            crate::object_creation_list::store::ObjectCreationList::new(),
+        )
     }
 }
 

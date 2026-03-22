@@ -5,6 +5,7 @@
 use super::base_power::*;
 use super::cooldown::CooldownState;
 use super::targeting::TargetingInfo;
+use super::types::OclCreateLocType;
 use super::types::*;
 use crate::common::*;
 use crate::helpers::TheAudio;
@@ -12,7 +13,6 @@ use crate::helpers::TheObjectCreationListStore;
 use crate::helpers::ThePartitionManager;
 use crate::helpers::TheTerrainLogic;
 use crate::object::registry::OBJECT_REGISTRY;
-use super::types::OclCreateLocType;
 use crate::object_creation_list::live_creation_context;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};

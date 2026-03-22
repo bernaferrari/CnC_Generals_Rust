@@ -155,7 +155,10 @@ impl TabControlState {
 }
 
 pub fn render_demo(labels: &[&str], active: &str) -> AnyElement {
-    let active_index = labels.iter().position(|label| *label == active).unwrap_or(0);
+    let active_index = labels
+        .iter()
+        .position(|label| *label == active)
+        .unwrap_or(0);
     let state = TabControlState {
         active_tab: active_index,
         tab_count: labels.len(),

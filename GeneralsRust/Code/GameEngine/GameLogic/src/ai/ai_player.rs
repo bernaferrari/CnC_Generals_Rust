@@ -2814,7 +2814,10 @@ impl AIPlayer {
         let side_info = THE_AI.read().ok().and_then(|ai_guard| {
             let ai_data = ai_guard.get_ai_data();
             let data = ai_data.read().ok()?;
-            data.side_info.iter().find(|info| info.side == player_side).cloned()
+            data.side_info
+                .iter()
+                .find(|info| info.side == player_side)
+                .cloned()
         });
 
         let Some(side_info) = side_info else {
@@ -2841,9 +2844,7 @@ impl AIPlayer {
             }
             let is_skirmish = self
                 .get_player()
-                .and_then(|p| {
-                    p.read().ok().map(|g| g.is_skirmish_ai())
-                })
+                .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai()))
                 .unwrap_or(false);
             if is_skirmish {
                 self.skillset_selector = game_logic_random_value(0, limit) as i32;

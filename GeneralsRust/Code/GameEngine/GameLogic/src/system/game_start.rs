@@ -237,9 +237,8 @@ impl MinimapGenerator {
         }
         let range_h = (max_h as i16 - min_h as i16).max(1) as f32;
 
-        let src_index = |x: usize, y: usize| -> usize {
-            y.saturating_mul(source_width).saturating_add(x)
-        };
+        let src_index =
+            |x: usize, y: usize| -> usize { y.saturating_mul(source_width).saturating_add(x) };
         let sample = |x: usize, y: usize| -> f32 {
             let clamped_x = x.min(source_width.saturating_sub(1));
             let clamped_y = y.min(source_height.saturating_sub(1));
@@ -514,9 +513,7 @@ impl GameStartSequence {
 mod tests {
     use super::super::player_init::{make_player_template, Player};
     use super::*;
-    use crate::scripting::core::{
-        Condition, ConditionType, OrCondition, Script, ScriptList,
-    };
+    use crate::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
     use crate::scripting::engine::{get_script_engine, initialize_script_engine};
 
     #[test]
@@ -707,7 +704,9 @@ mod tests {
 
         let engine_guard = engine_lock.read().unwrap();
         let engine = engine_guard.as_ref().expect("script engine should exist");
-        let stored_script = engine.find_script_clone_by_name("StartupSubroutine").unwrap();
+        let stored_script = engine
+            .find_script_clone_by_name("StartupSubroutine")
+            .unwrap();
         assert!(stored_script.is_active);
     }
 

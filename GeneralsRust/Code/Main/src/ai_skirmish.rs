@@ -477,7 +477,8 @@ impl AISkirmishPlayer {
                 self.scout_units.push(*object_id);
                 log::debug!(
                     "AI Player {} assigned {} as scout unit",
-                    self.base.player_id, object_id
+                    self.base.player_id,
+                    object_id
                 );
                 break;
             }
@@ -683,7 +684,9 @@ impl AISkirmishPlayer {
 
         log::debug!(
             "AI Player {} building {} defense at {:?}",
-            self.base.player_id, defense_name, position
+            self.base.player_id,
+            defense_name,
+            position
         );
     }
 
@@ -717,7 +720,9 @@ impl AISkirmishPlayer {
                     // In a real implementation, we would command the unit to move
                     log::debug!(
                         "AI Player {} assigning unit {} to defend position {:?}",
-                        self.base.player_id, defender_id, position.position
+                        self.base.player_id,
+                        defender_id,
+                        position.position
                     );
                 }
             }
@@ -787,7 +792,8 @@ impl AISkirmishPlayer {
             let group = self.attack_groups.remove(index);
             log::debug!(
                 "AI Player {} disbanded attack group: {}",
-                self.base.player_id, group.name
+                self.base.player_id,
+                group.name
             );
         }
     }
@@ -861,7 +867,8 @@ impl AISkirmishPlayer {
             self.attack_groups.push(attack_group);
             log::debug!(
                 "AI Player {} formed new attack group: {}",
-                self.base.player_id, group_name
+                self.base.player_id,
+                group_name
             );
         }
     }
@@ -1068,7 +1075,8 @@ impl AISkirmishPlayer {
 
                 log::debug!(
                     "AI Player {} planning expansion at {:?}",
-                    self.base.player_id, site.position
+                    self.base.player_id,
+                    site.position
                 );
             }
         }
@@ -1094,7 +1102,8 @@ impl AISkirmishPlayer {
 
                     log::debug!(
                         "AI Player {} planning expansion at {:?}",
-                        self.base.player_id, site.position
+                        self.base.player_id,
+                        site.position
                     );
                 }
             }
@@ -1191,7 +1200,8 @@ impl AISkirmishPlayer {
                     // Command unit to patrol area (in real implementation)
                     log::debug!(
                         "AI Player {} assigning unit {} to patrol supply route",
-                        self.base.player_id, unit_id
+                        self.base.player_id,
+                        unit_id
                     );
                 }
             }
@@ -1279,7 +1289,9 @@ impl AISkirmishPlayer {
 
             log::debug!(
                 "AI Player {} deploying {} at {:?}",
-                self.base.player_id, weapon, target
+                self.base.player_id,
+                weapon,
+                target
             );
 
             // In a real implementation, this would trigger the actual superweapon
@@ -1437,7 +1449,8 @@ impl AISkirmishPlayer {
 
                 log::debug!(
                     "AI Player {} ordering retreat for group {}",
-                    self.base.player_id, group.name
+                    self.base.player_id,
+                    group.name
                 );
             }
         }

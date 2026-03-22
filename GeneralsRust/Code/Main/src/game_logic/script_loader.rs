@@ -7,29 +7,29 @@
 ** rust structures under gamelogic::scripting::core.
 */
 
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::env;
 use std::sync::OnceLock;
 
 use game_engine::common::dict::Dict;
 use game_engine::common::ini::{get_terrain_roads, INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{
-    file::FileAccess,
-    file_system::get_file_system,
-    DataChunkInfo,
-    DataChunkInput,
+    file::FileAccess, file_system::get_file_system, DataChunkInfo, DataChunkInput,
 };
 use gamelogic::common::MAP_XY_FACTOR;
+use gamelogic::helpers::TheThingFactory;
 use gamelogic::scripting::core::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptGroup, ScriptList,
 };
 use gamelogic::scripting::{parse_player_scripts_list_chunk, ScriptListReadInfo};
+use gamelogic::system::map_loader::BridgeData;
+use gamelogic::system::Coord3D as SystemCoord3D;
 use gamelogic::GameLogicError;
 use log::{debug, info, trace, warn};
 
@@ -49,6 +49,18 @@ const OBJECTS_LIST_LABEL: &str = "ObjectsList";
 const OBJECT_CREATION_LIST_LABEL: &str = "ObjectCreationList";
 const OBJECT_LABEL: &str = "Object";
 const SIDES_LIST_LABEL: &str = "SidesList";
+const FLAG_ROAD_POINT1: i32 = 0x00000002;
+const FLAG_ROAD_POINT2: i32 = 0x00000004;
+const FLAG_ROAD_CORNER_ANGLED: i32 = 0x00000008;
+const FLAG_BRIDGE_POINT1: i32 = 0x00000010;
+const FLAG_BRIDGE_POINT2: i32 = 0x00000020;
+const FLAG_ROAD_CORNER_TIGHT: i32 = 0x00000040;
+const FLAG_ROAD_JOIN: i32 = 0x00000080;
+const DEFAULT_RUNTIME_ROAD_WIDTH: f32 = 8.0;
+const DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE: f32 = 1.0;
+const DEFAULT_RUNTIME_ROAD_UNIQUE_ID: u32 = 1;
+const CORNER_RADIUS: f32 = 1.5;
+const TIGHT_CORNER_RADIUS: f32 = 0.5;
 
 #[derive(Default)]
 struct SidesScriptContext {
@@ -62,10 +74,7 @@ fn normalize_virtual_path(path: &Path) -> String {
 }
 
 fn normalize_virtual_path_str(path: &str) -> String {
-    path.replace('\\', "/")
-        .trim()
-        .trim_matches('"')
-        .to_string()
+    path.replace('\\', "/").trim().trim_matches('"').to_string()
 }
 
 fn normalize_lookup_path(path: &str) -> String {
@@ -168,7 +177,10 @@ fn materialize_to_temporary(path: &str, bytes: &[u8]) -> Option<PathBuf> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("asset");
-    let extension = path_obj.extension().and_then(|ext| ext.to_str()).unwrap_or("bin");
+    let extension = path_obj
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("bin");
 
     let temp_dir = env::temp_dir().join("generals_zero_hour");
     fs::create_dir_all(&temp_dir).ok()?;
@@ -209,7 +221,10 @@ fn resolve_runtime_ini_path(requested: &Path) -> Option<PathBuf> {
     }
 
     let mut candidates = Vec::new();
-    push_unique_string(&mut candidates, normalize_lookup_path(&requested_normalized));
+    push_unique_string(
+        &mut candidates,
+        normalize_lookup_path(&requested_normalized),
+    );
     if let Some(stripped) = requested_normalized
         .strip_prefix("Data/")
         .or_else(|| requested_normalized.strip_prefix("data/"))
@@ -555,6 +570,41 @@ pub struct RuntimeWaypoint {
     pub path_label2: String,
     pub path_label3: String,
     pub bi_directional: bool,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeBridgeEndpoint {
+    template_name: String,
+    location: Coord3D,
+    is_point1: bool,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeMapObjectStub {
+    template_name: String,
+    location: Coord3D,
+    flags: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeRoadSegment {
+    pub template_name: String,
+    pub from: Coord3D,
+    pub to: Coord3D,
+    pub width: f32,
+    pub width_in_texture: f32,
+    pub road_type_id: u32,
+    pub start_is_angled: bool,
+    pub start_is_join: bool,
+    pub end_is_angled: bool,
+    pub end_is_join: bool,
+    pub curve_radius: f32,
+}
+
+#[derive(Debug, Default)]
+struct PendingRuntimeBridge {
+    from: Option<Coord3D>,
+    to: Option<Coord3D>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1032,6 +1082,85 @@ pub fn parse_runtime_waypoints_from_chunky(
     Ok((waypoints, links))
 }
 
+pub fn parse_runtime_bridges_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec<BridgeData>> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let mut bridges = Vec::new();
+    let mut pending: HashMap<String, Vec<PendingRuntimeBridge>> = HashMap::new();
+
+    if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
+        parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
+            if label != OBJECT_LABEL {
+                return Ok(());
+            }
+            if let Some(endpoint) =
+                parse_bridge_endpoint_object_chunk(data, child_version.max(version))?
+            {
+                add_runtime_bridge_point(&mut bridges, &mut pending, endpoint);
+            }
+            Ok(())
+        })?;
+    }
+
+    Ok(bridges)
+}
+
+/// Parse runtime terrain-road segments from map objects.
+///
+/// This mirrors C++ `W3DRoadBuffer::addMapObjects` pairing semantics:
+/// only `ROAD_POINT1` objects whose immediate next object is `ROAD_POINT2`
+/// produce a segment.
+pub fn parse_runtime_roads_from_chunky(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Vec<RuntimeRoadSegment>> {
+    ensure_terrain_roads_loaded();
+
+    let body = &chunky.bytes[chunky.body_offset..];
+    let mut objects = Vec::new();
+
+    if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
+        parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
+            if label != OBJECT_LABEL {
+                return Ok(());
+            }
+            if let Some(map_object) =
+                parse_runtime_map_object_stub_chunk(data, child_version.max(version))?
+            {
+                objects.push(map_object);
+            }
+            Ok(())
+        })?;
+    }
+
+    let mut roads = Vec::new();
+    let mut index = 0usize;
+    while index < objects.len() {
+        let current = &objects[index];
+        if (current.flags & FLAG_ROAD_POINT1) == 0 {
+            index += 1;
+            continue;
+        }
+
+        let Some(next) = objects.get(index + 1) else {
+            break;
+        };
+        if (next.flags & FLAG_ROAD_POINT2) == 0 {
+            index += 1;
+            continue;
+        }
+
+        roads.push(build_runtime_road_data(
+            current.template_name.as_str(),
+            current.location,
+            next.location,
+            current.flags,
+            next.flags,
+        ));
+        index += 2;
+    }
+
+    Ok(roads)
+}
+
 pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<RuntimeSidesData> {
     let body = &chunky.bytes[chunky.body_offset..];
     let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, SIDES_LIST_LABEL)? else {
@@ -1402,6 +1531,195 @@ fn parse_waypoint_object_chunk(
             })
             .unwrap_or(false),
     }))
+}
+
+fn parse_bridge_endpoint_object_chunk(
+    data: &[u8],
+    version: u16,
+) -> LoaderResult<Option<RuntimeBridgeEndpoint>> {
+    let mut reader = BinaryReader::new(data);
+    if reader.remaining() < 20 {
+        return Ok(None);
+    }
+
+    let x = reader.read_f32()?;
+    let y = reader.read_f32()?;
+    let mut z = reader.read_f32()?;
+    if version <= 2 {
+        z = 0.0;
+    }
+    let _angle = reader.read_f32()?;
+    let flags = reader.read_i32()?;
+    let template_name = reader.read_ascii_string()?;
+    if template_name.trim().is_empty() {
+        return Ok(None);
+    }
+
+    if (flags & (FLAG_BRIDGE_POINT1 | FLAG_BRIDGE_POINT2)) == 0 {
+        return Ok(None);
+    }
+
+    let point = Coord3D::new(x, y, z);
+    if (flags & FLAG_BRIDGE_POINT1) != 0 {
+        return Ok(Some(RuntimeBridgeEndpoint {
+            template_name,
+            location: point,
+            is_point1: true,
+        }));
+    }
+
+    Ok(Some(RuntimeBridgeEndpoint {
+        template_name,
+        location: point,
+        is_point1: false,
+    }))
+}
+
+fn parse_runtime_map_object_stub_chunk(
+    data: &[u8],
+    version: u16,
+) -> LoaderResult<Option<RuntimeMapObjectStub>> {
+    let mut reader = BinaryReader::new(data);
+    if reader.remaining() < 20 {
+        return Ok(None);
+    }
+
+    let x = reader.read_f32()?;
+    let y = reader.read_f32()?;
+    let mut z = reader.read_f32()?;
+    if version <= 2 {
+        z = 0.0;
+    }
+    let _angle = reader.read_f32()?;
+    let flags = reader.read_i32()?;
+    let template_name = reader.read_ascii_string()?;
+
+    Ok(Some(RuntimeMapObjectStub {
+        template_name,
+        location: Coord3D::new(x, y, z),
+        flags,
+    }))
+}
+
+fn add_runtime_bridge_point(
+    bridges: &mut Vec<BridgeData>,
+    pending: &mut HashMap<String, Vec<PendingRuntimeBridge>>,
+    endpoint: RuntimeBridgeEndpoint,
+) {
+    let entry = pending.entry(endpoint.template_name.clone()).or_default();
+
+    if endpoint.is_point1 {
+        for index in 0..entry.len() {
+            if entry[index].from.is_none() && entry[index].to.is_some() {
+                let to = entry[index].to.take().unwrap_or(endpoint.location);
+                let from = endpoint.location;
+                entry.swap_remove(index);
+                bridges.push(build_runtime_bridge_data(
+                    endpoint.template_name.as_str(),
+                    from,
+                    to,
+                ));
+                return;
+            }
+        }
+        entry.push(PendingRuntimeBridge {
+            from: Some(endpoint.location),
+            to: None,
+        });
+    } else {
+        for index in 0..entry.len() {
+            if entry[index].to.is_none() && entry[index].from.is_some() {
+                let from = entry[index].from.take().unwrap_or(endpoint.location);
+                let to = endpoint.location;
+                entry.swap_remove(index);
+                bridges.push(build_runtime_bridge_data(
+                    endpoint.template_name.as_str(),
+                    from,
+                    to,
+                ));
+                return;
+            }
+        }
+        entry.push(PendingRuntimeBridge {
+            from: None,
+            to: Some(endpoint.location),
+        });
+    }
+}
+
+fn build_runtime_bridge_data(template_name: &str, from: Coord3D, to: Coord3D) -> BridgeData {
+    let width = runtime_bridge_width_from_template(template_name).unwrap_or(MAP_XY_FACTOR * 2.0);
+    BridgeData::new(
+        SystemCoord3D::new(from.x, from.y, from.z),
+        SystemCoord3D::new(to.x, to.y, to.z),
+        width,
+        template_name.to_string(),
+    )
+}
+
+fn runtime_bridge_width_from_template(template_name: &str) -> Option<f32> {
+    let template = TheThingFactory::find_template(template_name)?;
+    let geometry = template.get_template_geometry_info();
+    let width = (geometry.get_minor_radius() * 2.0).max(0.0);
+    if width > 0.0 {
+        Some(width)
+    } else {
+        None
+    }
+}
+
+fn build_runtime_road_data(
+    template_name: &str,
+    from: Coord3D,
+    mut to: Coord3D,
+    from_flags: i32,
+    to_flags: i32,
+) -> RuntimeRoadSegment {
+    if (from.x - to.x).abs() <= f32::EPSILON && (from.y - to.y).abs() <= f32::EPSILON {
+        to.x += 0.25;
+    }
+
+    let (width, width_in_texture, road_type_id) = runtime_road_style_for_template(template_name);
+    RuntimeRoadSegment {
+        template_name: template_name.to_string(),
+        from,
+        to,
+        width,
+        width_in_texture,
+        road_type_id,
+        start_is_angled: (from_flags & FLAG_ROAD_CORNER_ANGLED) != 0,
+        start_is_join: (from_flags & FLAG_ROAD_JOIN) != 0,
+        end_is_angled: (to_flags & FLAG_ROAD_CORNER_ANGLED) != 0,
+        end_is_join: (to_flags & FLAG_ROAD_JOIN) != 0,
+        curve_radius: if (from_flags & FLAG_ROAD_CORNER_TIGHT) != 0 {
+            TIGHT_CORNER_RADIUS
+        } else {
+            CORNER_RADIUS
+        },
+    }
+}
+
+fn runtime_road_style_for_template(template_name: &str) -> (f32, f32, u32) {
+    let roads = get_terrain_roads();
+    if let Some(road) = roads.find_road(template_name) {
+        let width = if road.road_width > 0.0 {
+            road.road_width
+        } else {
+            DEFAULT_RUNTIME_ROAD_WIDTH
+        };
+        let width_in_texture = if road.road_width_in_texture > 0.0 {
+            road.road_width_in_texture
+        } else {
+            DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE
+        };
+        return (width, width_in_texture, road.id);
+    }
+
+    (
+        DEFAULT_RUNTIME_ROAD_WIDTH,
+        DEFAULT_RUNTIME_ROAD_WIDTH_IN_TEXTURE,
+        DEFAULT_RUNTIME_ROAD_UNIQUE_ID,
+    )
 }
 
 fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Option<PlacedObject>> {

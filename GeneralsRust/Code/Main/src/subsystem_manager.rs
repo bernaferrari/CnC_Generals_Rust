@@ -1,17 +1,17 @@
 use crate::config::GlobalData;
 use crate::input_system::InputSystem;
 use anyhow::{anyhow, Result};
-use game_engine::common::system::{
-    big_file_system::BigArchiveBackend, file_system::get_file_system,
-    local_file_system::LocalFileSystem,
-    subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
-};
 use game_engine::common::ini::{
     ini_control_bar_scheme::initialize_control_bar_scheme_manager,
     ini_shell_menu_scheme::init_shell_menu_scheme_manager,
 };
 use game_engine::common::message_stream::{
     get_message_stream, GameMessageType as MessageStreamGameMessageType,
+};
+use game_engine::common::system::{
+    big_file_system::BigArchiveBackend, file_system::get_file_system,
+    local_file_system::LocalFileSystem,
+    subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
 };
 use log::{debug, error, info, warn};
 use std::any::{Any, TypeId};
@@ -110,7 +110,10 @@ impl SubsystemInterface for FileSystemSubsystem {
         let mut deduped = Vec::new();
         let mut seen = HashSet::new();
         for path in search_paths {
-            let key = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+            let key = path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .to_ascii_lowercase();
             if seen.insert(key) {
                 deduped.push(path);
             }
@@ -185,24 +188,12 @@ impl SubsystemInterface for FileSystemSubsystem {
 
 /// Global Data subsystem - manages game configuration and data
 pub struct GlobalDataSubsystem {
-    global_data: Option<GlobalData>,
     ini_crc: u32,
 }
 
 impl GlobalDataSubsystem {
     pub fn new() -> Self {
-        Self {
-            global_data: None,
-            ini_crc: 0,
-        }
-    }
-
-    pub fn get_global_data(&self) -> Option<&GlobalData> {
-        self.global_data.as_ref()
-    }
-
-    pub fn get_global_data_mut(&mut self) -> Option<&mut GlobalData> {
-        self.global_data.as_mut()
+        Self { ini_crc: 0 }
     }
 }
 
@@ -235,8 +226,6 @@ impl SubsystemInterface for GlobalDataSubsystem {
         initialize_control_bar_scheme_manager();
         init_shell_menu_scheme_manager();
 
-        self.global_data = Some(global_data);
-
         info!(
             "GlobalData subsystem initialized (INI CRC: {:08X})",
             self.ini_crc
@@ -257,7 +246,6 @@ impl SubsystemInterface for GlobalDataSubsystem {
 
     fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down GlobalData subsystem");
-        self.global_data = None;
         Ok(())
     }
 }
@@ -461,9 +449,8 @@ impl GameClientSubsystem {
         let mut stream_guard = stream
             .write()
             .map_err(|e| anyhow!("Failed to lock MessageStream: {}", e))?;
-        let frame_msg = stream_guard.append_message(MessageStreamGameMessageType::FrameTick(
-            self.frame,
-        ));
+        let frame_msg =
+            stream_guard.append_message(MessageStreamGameMessageType::FrameTick(self.frame));
         frame_msg.append_timestamp_argument(self.frame);
         Ok(())
     }
@@ -473,8 +460,8 @@ impl GameClientSubsystem {
         use game_client::core::script_action_handler::apply_pending_script_display_state;
         use game_client::eva::update_eva_system;
         use game_client::gui::{
-            get_display_string_manager, get_shell, with_window_manager,
-            window_video_manager::with_window_video_manager,
+            get_display_string_manager, get_shell, window_video_manager::with_window_video_manager,
+            with_window_manager,
         };
         use game_client::system::SubsystemInterface as GameClientSubsystemInterface;
         use game_client::video_player::{get_video_player, VideoPlayerInterface as _};

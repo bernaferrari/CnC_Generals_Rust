@@ -214,7 +214,9 @@ impl PlayerMoney {
         if let Ok(list) = player_list().read() {
             if let Some(player) = list.get_player(self.player_index) {
                 if let Ok(mut player_guard) = player.write() {
-                    player_guard.get_academy_stats_mut().record_income(amount as Int);
+                    player_guard
+                        .get_academy_stats_mut()
+                        .record_income(amount as Int);
                 }
             }
         }
@@ -746,7 +748,10 @@ impl ScoreKeeper {
     /// Add an object that was lost by this player.
     /// Convenience method that extracts information from the object.
     /// C++ Reference: ScoreKeeper::addObjectLost(const Object* o)
-    pub fn add_object_lost_obj(&mut self, object: &dyn game_engine::common::rts::score_keeper::ScoreableObject) {
+    pub fn add_object_lost_obj(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+    ) {
         // Check if under construction - under construction objects don't count
         if object.is_score_under_construction() {
             return;
@@ -766,7 +771,10 @@ impl ScoreKeeper {
     /// Add an object that was destroyed by this player.
     /// Convenience method that extracts information from the object.
     /// C++ Reference: ScoreKeeper::addObjectDestroyed(const Object* o)
-    pub fn add_object_destroyed_obj(&mut self, object: &dyn game_engine::common::rts::score_keeper::ScoreableObject) {
+    pub fn add_object_destroyed_obj(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+    ) {
         // Check if under construction - under construction objects don't count
         if object.is_score_under_construction() {
             return;
@@ -1620,7 +1628,11 @@ impl Player {
         // INI yet (Money::count_money() == 0) we fall back to the standard
         // skirmish default of $10,000 so that players always start with money.
         let starting = template.starting_money.count_money();
-        let amount = if starting > 0 { starting as i32 } else { 10_000 };
+        let amount = if starting > 0 {
+            starting as i32
+        } else {
+            10_000
+        };
         self.money.set_money(amount);
 
         self.reset_rank_impl();

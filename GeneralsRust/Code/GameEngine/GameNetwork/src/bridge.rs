@@ -44,10 +44,7 @@ pub enum BridgeEvent {
         reason: PlayerLeaveReason,
     },
     /// A player disconnected unexpectedly.
-    PlayerDisconnected {
-        player_id: u8,
-        last_frame: u32,
-    },
+    PlayerDisconnected { player_id: u8, last_frame: u32 },
     /// A chat message was received.
     ChatReceived {
         player_id: u8,
@@ -65,9 +62,7 @@ pub enum BridgeEvent {
     /// The game should begin (all players loaded).
     GameStart,
     /// A network error occurred.
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
 /// Reason for a player leaving.
@@ -195,9 +190,7 @@ impl NetworkBridge {
     }
 
     /// Take the outgoing command receiver (called by the pump loop).
-    pub async fn take_outgoing_receiver(
-        &self,
-    ) -> Option<mpsc::UnboundedReceiver<GameNetCommand>> {
+    pub async fn take_outgoing_receiver(&self) -> Option<mpsc::UnboundedReceiver<GameNetCommand>> {
         self.outgoing_rx.lock().await.take()
     }
 
@@ -256,9 +249,9 @@ impl NetworkBridge {
     /// Notify that a player has finished loading.
     pub async fn set_player_loaded(&self, slot: u8) -> NetworkResult<()> {
         let mut players = self.players.write().await;
-        let player = players.get_mut(&slot).ok_or_else(|| {
-            NetworkError::player(format!("slot {} not connected", slot))
-        })?;
+        let player = players
+            .get_mut(&slot)
+            .ok_or_else(|| NetworkError::player(format!("slot {} not connected", slot)))?;
         player.loaded = true;
         Ok(())
     }
@@ -266,9 +259,9 @@ impl NetworkBridge {
     /// Set a player's ready state.
     pub async fn set_player_ready(&self, slot: u8, ready: bool) -> NetworkResult<()> {
         let mut players = self.players.write().await;
-        let player = players.get_mut(&slot).ok_or_else(|| {
-            NetworkError::player(format!("slot {} not connected", slot))
-        })?;
+        let player = players
+            .get_mut(&slot)
+            .ok_or_else(|| NetworkError::player(format!("slot {} not connected", slot)))?;
         player.ready = ready;
         Ok(())
     }
@@ -330,10 +323,7 @@ impl NetworkBridge {
     ///
     /// Parses the raw bytes into a typed command.  Returns `None` if the
     /// message cannot be parsed (e.g. malformed or unknown command type).
-    pub fn deserialize_message(
-        &self,
-        msg: &TransportMessage,
-    ) -> Option<GameNetCommand> {
+    pub fn deserialize_message(&self, msg: &TransportMessage) -> Option<GameNetCommand> {
         if msg.data.len() < 4 {
             return None;
         }
@@ -447,11 +437,7 @@ impl NetworkBridge {
     }
 
     /// Send a command to a specific player.
-    pub async fn send_command_to(
-        &self,
-        cmd: &GameNetCommand,
-        slot: u8,
-    ) -> NetworkResult<()> {
+    pub async fn send_command_to(&self, cmd: &GameNetCommand, slot: u8) -> NetworkResult<()> {
         let address = {
             let players = self.players.read().await;
             players
@@ -506,18 +492,13 @@ impl NetworkBridge {
                 }
                 NetCommandType::PlayerLeave => {
                     if let CommandPayload::PlayerLeave(data) = &cmd.payload {
-                        self.disconnect_player(
-                            data.leaving_player_id,
-                            PlayerLeaveReason::Quit,
-                        )
-                        .await;
+                        self.disconnect_player(data.leaving_player_id, PlayerLeaveReason::Quit)
+                            .await;
                     }
                 }
                 NetCommandType::KeepAlive => {
                     // Update last seen frame for the player.
-                    if let Some(player) =
-                        self.players.write().await.get_mut(&cmd.player_id)
-                    {
+                    if let Some(player) = self.players.write().await.get_mut(&cmd.player_id) {
                         player.last_received_frame = cmd.execution_frame;
                     }
                 }

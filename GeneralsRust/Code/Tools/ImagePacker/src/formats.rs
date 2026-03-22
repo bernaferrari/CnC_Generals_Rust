@@ -49,7 +49,10 @@ impl OutputFormat {
     }
 
     pub fn supports_transparency(&self) -> bool {
-        matches!(self, OutputFormat::PNG | OutputFormat::TGA | OutputFormat::DDS)
+        matches!(
+            self,
+            OutputFormat::PNG | OutputFormat::TGA | OutputFormat::DDS
+        )
     }
 }
 
@@ -107,10 +110,7 @@ impl FormatHandler {
     }
 
     /// Optimize image for specific format
-    pub fn optimize_for_format(
-        image: &mut DynamicImage,
-        format: OutputFormat,
-    ) -> Result<()> {
+    pub fn optimize_for_format(image: &mut DynamicImage, format: OutputFormat) -> Result<()> {
         match format {
             OutputFormat::JPG => {
                 // Convert to RGB (remove alpha channel)
@@ -122,11 +122,17 @@ impl FormatHandler {
                 if !width.is_power_of_two() || !height.is_power_of_two() {
                     let new_width = width.next_power_of_two();
                     let new_height = height.next_power_of_two();
-                    log::info!("Resizing for DDS: {}x{} -> {}x{}", width, height, new_width, new_height);
+                    log::info!(
+                        "Resizing for DDS: {}x{} -> {}x{}",
+                        width,
+                        height,
+                        new_width,
+                        new_height
+                    );
                     *image = image.resize_exact(
-                        new_width, 
-                        new_height, 
-                        image::imageops::FilterType::Lanczos3
+                        new_width,
+                        new_height,
+                        image::imageops::FilterType::Lanczos3,
                     );
                 }
             }
@@ -134,22 +140,19 @@ impl FormatHandler {
                 // No specific optimization needed
             }
         }
-        
+
         Ok(())
     }
 
     /// Validate format compatibility
-    pub fn validate_format_settings(
-        format: OutputFormat,
-        has_transparency: bool,
-    ) -> Result<()> {
+    pub fn validate_format_settings(format: OutputFormat, has_transparency: bool) -> Result<()> {
         if !format.supports_transparency() && has_transparency {
             log::warn!(
                 "Format {:?} does not support transparency, alpha channel will be lost",
                 format
             );
         }
-        
+
         Ok(())
     }
 }
