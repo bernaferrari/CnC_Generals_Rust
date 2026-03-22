@@ -94,9 +94,39 @@ impl MetaMap {
 
 static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
+static LOWER_DETAIL_TOGGLE_STATE: OnceLock<RwLock<LowerDetailToggleState>> = OnceLock::new();
+
+const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
+
+#[derive(Debug, Clone)]
+struct LowerDetailToggleState {
+    is_low_details: bool,
+    old_use_shadow_volumes: bool,
+    old_use_light_map: bool,
+    old_use_cloud_map: bool,
+    old_show_behind_building_markers: bool,
+    old_max_particle_count: i32,
+}
+
+impl Default for LowerDetailToggleState {
+    fn default() -> Self {
+        Self {
+            is_low_details: false,
+            old_use_shadow_volumes: true,
+            old_use_light_map: true,
+            old_use_cloud_map: true,
+            old_show_behind_building_markers: true,
+            old_max_particle_count: 5000,
+        }
+    }
+}
 
 fn get_meta_map() -> &'static RwLock<MetaMap> {
     META_MAP.get_or_init(|| RwLock::new(MetaMap::default()))
+}
+
+fn get_lower_detail_toggle_state() -> &'static RwLock<LowerDetailToggleState> {
+    LOWER_DETAIL_TOGGLE_STATE.get_or_init(|| RwLock::new(LowerDetailToggleState::default()))
 }
 
 fn ensure_meta_map_loaded() {
@@ -632,6 +662,45 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     if record.name.eq_ignore_ascii_case("DELETE_BEACON") {
         if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_replay_game() {
             emit_message(GameMessage::new(GameMessageType::RemoveBeacon(Coord3D::default())));
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            if let Ok(mut state) = get_lower_detail_toggle_state().write() {
+                if state.is_low_details {
+                    global.use_shadow_volumes = state.old_use_shadow_volumes;
+                    global.use_light_map = state.old_use_light_map;
+                    global.use_cloud_map = state.old_use_cloud_map;
+                    global.max_particle_count = state.old_max_particle_count;
+                    TheGameLogic::set_show_behind_building_markers(
+                        state.old_show_behind_building_markers,
+                    );
+                    TheInGameUI::message("GUI:ReturnGraphicsToPreviousSettings");
+                } else {
+                    state.old_use_shadow_volumes = global.use_shadow_volumes;
+                    global.use_shadow_volumes = false;
+
+                    state.old_use_light_map = global.use_light_map;
+                    global.use_light_map = false;
+
+                    state.old_use_cloud_map = global.use_cloud_map;
+                    global.use_cloud_map = false;
+
+                    state.old_show_behind_building_markers =
+                        TheGameLogic::get_show_behind_building_markers();
+                    TheGameLogic::set_show_behind_building_markers(false);
+
+                    state.old_max_particle_count = global.max_particle_count;
+                    global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+
+                    TheInGameUI::message("GUI:DetailsSetToLowest");
+                }
+
+                state.is_low_details = !state.is_low_details;
+            }
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
