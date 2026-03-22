@@ -16,10 +16,14 @@ use crate::assets::{
 use crate::localization;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
+use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
@@ -57,6 +61,59 @@ pub struct ModelPrewarmStats {
     pub cache_hits: usize,
     pub resolved: usize,
     pub missing: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TextureUpdateEntry {
+    tga_path: PathBuf,
+    dds_path: PathBuf,
+    tga_modified: SystemTime,
+    dds_modified: Option<SystemTime>,
+}
+
+fn texture_update_should_skip(path: &Path) -> bool {
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    lower.contains("caust") || lower.contains("zhca")
+}
+
+fn texture_update_entry_needs_rebuild(entry: &TextureUpdateEntry) -> bool {
+    match entry.dds_modified {
+        None => true,
+        Some(dds_modified) => matches!(
+            entry.tga_modified.partial_cmp(&dds_modified),
+            Some(CmpOrdering::Greater)
+        ),
+    }
+}
+
+fn select_tga_to_dds_entries(entries: Vec<TextureUpdateEntry>) -> Vec<TextureUpdateEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| {
+            !texture_update_should_skip(&entry.tga_path)
+                && texture_update_entry_needs_rebuild(entry)
+        })
+        .collect()
+}
+
+fn texture_dds_path(tga_path: &Path) -> PathBuf {
+    tga_path.with_extension("dds")
+}
+
+fn normalize_archive_filename(value: &str) -> String {
+    value
+        .replace('\\', "/")
+        .rsplit('/')
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn archive_filename_matches(actual: Option<&str>, expected: &str) -> bool {
+    actual
+        .map(|actual| normalize_archive_filename(actual) == normalize_archive_filename(expected))
+        .unwrap_or(false)
 }
 
 impl AssetManager {
@@ -148,6 +205,7 @@ impl AssetManager {
             .map_err(|e| anyhow!("Failed to initialize archive system: {}", e))?;
 
         self.load_manual_archives().await?;
+        self.run_startup_maintenance()?;
 
         // Initialize texture manager with MAGENTA fallback for missing textures
         self.texture_manager
@@ -209,6 +267,254 @@ impl AssetManager {
         info!("  Models cached: {}", stats.models_cached);
 
         Ok(())
+    }
+
+    fn run_startup_maintenance(&self) -> Result<()> {
+        self.maybe_update_tga_to_dds();
+        self.verify_release_fingerprints()
+    }
+
+    fn maybe_update_tga_to_dds(&self) {
+        let update_requested = {
+            let global = game_engine::common::global_data::read();
+            global.writable.should_update_tga_to_dds
+        };
+
+        if !update_requested {
+            return;
+        }
+
+        match self.prepare_tga_to_dds_update() {
+            Ok(0) => info!("TGA-to-DDS update requested, but no stale textures were found"),
+            Ok(count) => info!("Prepared TGA-to-DDS update for {} textures", count),
+            Err(err) => warn!(
+                "TGA-to-DDS update requested but could not be prepared: {}",
+                err
+            ),
+        }
+    }
+
+    fn prepare_tga_to_dds_update(&self) -> Result<usize> {
+        let roots = self.tga_texture_roots();
+        let mut entries = Vec::new();
+
+        for root in roots {
+            if !root.exists() {
+                continue;
+            }
+            self.collect_tga_update_entries(&root, &mut entries)?;
+        }
+
+        let mut seen = HashSet::new();
+        let stale_entries = select_tga_to_dds_entries(entries)
+            .into_iter()
+            .filter(|entry| seen.insert(entry.tga_path.to_string_lossy().to_ascii_lowercase()))
+            .collect::<Vec<_>>();
+        if stale_entries.is_empty() {
+            return Ok(0);
+        }
+
+        self.write_build_dds_list(&stale_entries)?;
+        self.trigger_tga_to_dds_converter()?;
+        Ok(stale_entries.len())
+    }
+
+    fn tga_texture_roots(&self) -> Vec<PathBuf> {
+        let mut roots = vec![PathBuf::from("Art").join("Textures")];
+
+        if let Ok(cwd) = env::current_dir() {
+            roots.push(cwd.join("Art").join("Textures"));
+        }
+
+        if let Ok(exe) = env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                roots.push(parent.join("Art").join("Textures"));
+                roots.push(parent.join("../Art/Textures"));
+            }
+        }
+
+        roots.push(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("Art")
+                .join("Textures"),
+        );
+
+        let mut deduped = Vec::new();
+        let mut seen = HashSet::new();
+        for root in roots {
+            let key = root.to_string_lossy().to_ascii_lowercase();
+            if seen.insert(key) {
+                deduped.push(root);
+            }
+        }
+        deduped
+    }
+
+    fn collect_tga_update_entries(
+        &self,
+        root: &Path,
+        entries: &mut Vec<TextureUpdateEntry>,
+    ) -> Result<()> {
+        for dir_entry in fs::read_dir(root).map_err(|e| {
+            anyhow!(
+                "Failed to scan texture directory '{}': {}",
+                root.display(),
+                e
+            )
+        })? {
+            let dir_entry =
+                dir_entry.map_err(|e| anyhow!("Failed to read texture directory entry: {}", e))?;
+            let path = dir_entry.path();
+            if path.is_dir() {
+                self.collect_tga_update_entries(&path, entries)?;
+                continue;
+            }
+
+            if texture_update_should_skip(&path) {
+                continue;
+            }
+
+            let is_tga = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("tga"));
+            if !is_tga {
+                continue;
+            }
+
+            let metadata = match fs::metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(err) => {
+                    warn!(
+                        "Skipping texture '{}' during update scan: {}",
+                        path.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
+            let tga_modified = match metadata.modified() {
+                Ok(modified) => modified,
+                Err(err) => {
+                    warn!(
+                        "Skipping texture '{}' during update scan: {}",
+                        path.display(),
+                        err
+                    );
+                    continue;
+                }
+            };
+            let dds_path = texture_dds_path(&path);
+            let dds_modified = fs::metadata(&dds_path)
+                .and_then(|metadata| metadata.modified())
+                .ok();
+
+            entries.push(TextureUpdateEntry {
+                tga_path: path,
+                dds_path,
+                tga_modified,
+                dds_modified,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn write_build_dds_list(&self, entries: &[TextureUpdateEntry]) -> Result<()> {
+        let mut file = File::create("buildDDS.txt")
+            .map_err(|e| anyhow!("Failed to create buildDDS.txt: {}", e))?;
+        for entry in entries {
+            let line = entry.tga_path.to_string_lossy().replace('/', "\\");
+            writeln!(file, "{line}").map_err(|e| anyhow!("Failed to write buildDDS.txt: {}", e))?;
+        }
+        Ok(())
+    }
+
+    fn trigger_tga_to_dds_converter(&self) -> Result<()> {
+        let mut candidates = Vec::new();
+        let converter_name = if cfg!(windows) { "nvdxt.exe" } else { "nvdxt" };
+
+        candidates.push(PathBuf::from("Build").join(converter_name));
+        candidates.push(PathBuf::from("..").join("Build").join(converter_name));
+        candidates.push(PathBuf::from(converter_name));
+        if cfg!(windows) {
+            candidates.push(PathBuf::from("nvdxt"));
+        }
+
+        let stdout_file = File::create("buildDDS.out")
+            .map_err(|e| anyhow!("Failed to create buildDDS.out: {}", e))
+            .ok();
+
+        for candidate in candidates {
+            let mut command = Command::new(&candidate);
+            command
+                .arg("-list")
+                .arg("buildDDS.txt")
+                .arg("-dxt5")
+                .arg("-full")
+                .arg("-outdir")
+                .arg("Art/Textures");
+            if let Some(file) = stdout_file.as_ref() {
+                command.stdout(Stdio::from(file.try_clone().map_err(|e| {
+                    anyhow!("Failed to duplicate buildDDS.out handle: {}", e)
+                })?));
+            }
+            match command.status() {
+                Ok(status) if status.success() => {
+                    info!("TGA-to-DDS converter completed successfully");
+                    return Ok(());
+                }
+                Ok(status) => {
+                    warn!(
+                        "TGA-to-DDS converter '{}' exited with status {}",
+                        candidate.display(),
+                        status
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        "TGA-to-DDS converter '{}' could not be started: {}",
+                        candidate.display(),
+                        err
+                    );
+                }
+            }
+        }
+
+        Err(anyhow!("no TGA-to-DDS converter executable was available"))
+    }
+
+    fn verify_release_fingerprints(&self) -> Result<()> {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            Ok(())
+        }
+
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        {
+            self.verify_release_fingerprint("generalsbzh.sec", "genseczh.big")?;
+            self.verify_release_fingerprint("generalsazh.sec", "musiczh.big")?;
+            Ok(())
+        }
+    }
+
+    fn verify_release_fingerprint(&self, sec_file: &str, expected_archive: &str) -> Result<()> {
+        let archive_name = self.get_archive_filename_for_file(sec_file);
+        if archive_filename_matches(archive_name.as_deref(), expected_archive) {
+            return Ok(());
+        }
+
+        let found = archive_name.as_deref().unwrap_or("<not found>");
+        warn!(
+            "Release fingerprint mismatch: '{}' resolved to '{}' instead of '{}'",
+            sec_file, found, expected_archive
+        );
+        Err(anyhow!(
+            "release fingerprint mismatch for '{}': expected '{}', found '{}'",
+            sec_file,
+            expected_archive,
+            found
+        ))
     }
 
     fn runtime_overrides() -> (String, Option<PathBuf>) {
@@ -579,6 +885,11 @@ impl AssetManager {
             return false;
         }
         self.archive_system.does_file_exist(filename)
+    }
+
+    /// Resolve the archive that currently owns the provided file.
+    pub fn get_archive_filename_for_file(&self, filename: &str) -> Option<String> {
+        self.archive_system.get_archive_filename_for_file(filename)
     }
 
     /// Check if a virtual archive path can be opened with the active mount set.
@@ -1018,7 +1329,7 @@ pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> R
     let manager_create_start = SystemTime::now();
     info!("📂 Creating asset manager and loading BIG archives...");
 
-    let mut manager = AssetManager::new().expect("Failed to create asset manager");
+    let mut manager = AssetManager::new()?;
     let manager_create_duration = manager_create_start.elapsed().unwrap_or_default();
     info!(
         "📂 BIG archives loaded in {:.2}s",
@@ -1027,10 +1338,7 @@ pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> R
 
     let wgpu_init_start = SystemTime::now();
     info!("🖥️ Initializing WGPU asset resources...");
-    manager
-        .init(device, queue)
-        .await
-        .expect("Failed to initialize asset manager");
+    manager.init(device, queue).await?;
     let wgpu_init_duration = wgpu_init_start.elapsed().unwrap_or_default();
     info!(
         "🖥️ WGPU asset resources initialized in {:.2}s",
@@ -1177,6 +1485,8 @@ pub fn toggle_cnc_music() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn test_asset_statistics() {
@@ -1208,5 +1518,56 @@ mod tests {
         assert_eq!(results.models.len(), 1);
         assert_eq!(results.textures.len(), 1);
         assert_eq!(results.audio.len(), 1);
+    }
+
+    #[test]
+    fn tga_update_selection_skips_caustic_and_prefers_stale_files() {
+        let base = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        let stale = TextureUpdateEntry {
+            tga_path: PathBuf::from("Art/Textures/Units/tank.tga"),
+            dds_path: PathBuf::from("Art/Textures/Units/tank.dds"),
+            tga_modified: base,
+            dds_modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(90)),
+        };
+        let fresh = TextureUpdateEntry {
+            tga_path: PathBuf::from("Art/Textures/Units/jeep.tga"),
+            dds_path: PathBuf::from("Art/Textures/Units/jeep.dds"),
+            tga_modified: base,
+            dds_modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(110)),
+        };
+        let missing_dds = TextureUpdateEntry {
+            tga_path: PathBuf::from("Art/Textures/Units/apc.tga"),
+            dds_path: PathBuf::from("Art/Textures/Units/apc.dds"),
+            tga_modified: base,
+            dds_modified: None,
+        };
+        let skipped = TextureUpdateEntry {
+            tga_path: PathBuf::from("Art/Textures/Water/caustic_sheet.tga"),
+            dds_path: PathBuf::from("Art/Textures/Water/caustic_sheet.dds"),
+            tga_modified: base,
+            dds_modified: None,
+        };
+
+        let selected =
+            select_tga_to_dds_entries(vec![stale.clone(), fresh, missing_dds.clone(), skipped]);
+
+        assert_eq!(selected, vec![stale, missing_dds]);
+    }
+
+    #[test]
+    fn archive_fingerprint_matching_is_case_insensitive_and_path_agnostic() {
+        assert!(archive_filename_matches(
+            Some(r"C:\Games\Generals\genseczh.big"),
+            "genseczh.big"
+        ));
+        assert!(archive_filename_matches(
+            Some("/opt/generals/MUSICZH.BIG"),
+            r"C:\Temp\musiczh.big"
+        ));
+        assert!(!archive_filename_matches(
+            Some(r"C:\Games\Generals\other.big"),
+            "genseczh.big"
+        ));
+        assert!(!archive_filename_matches(None, "musiczh.big"));
     }
 }
