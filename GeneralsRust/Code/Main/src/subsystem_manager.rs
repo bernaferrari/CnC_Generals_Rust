@@ -1,10 +1,6 @@
 use crate::config::GlobalData;
 use crate::input_system::InputSystem;
 use anyhow::{anyhow, Result};
-use game_engine::common::ini::{
-    ini_control_bar_scheme::initialize_control_bar_scheme_manager,
-    ini_shell_menu_scheme::init_shell_menu_scheme_manager,
-};
 use game_engine::common::message_stream::{
     get_message_stream, GameMessageType as MessageStreamGameMessageType,
 };
@@ -48,6 +44,16 @@ pub trait SubsystemInterface: Send + Sync + Any {
     fn post_process_load(&mut self) -> Result<()> {
         Ok(())
     }
+}
+
+/// Initialize shell/menu-facing INI scheme managers at the UI handoff point.
+///
+/// This matches the C++ flow more closely than doing it during `GlobalData`
+/// loading: the shell scheme files are read when the shell/UI layer comes up,
+/// not while the core data subsystem is still being initialized.
+pub fn initialize_shell_ui_schemes() {
+    game_engine::common::ini::ini_control_bar_scheme::initialize_control_bar_scheme_manager();
+    game_engine::common::ini::ini_shell_menu_scheme::init_shell_menu_scheme_manager();
 }
 
 /// File System subsystem - manages BIG files and local files
@@ -221,11 +227,6 @@ impl SubsystemInterface for GlobalDataSubsystem {
         self.ini_crc = global_data.calculate_crc();
         global_data.ini_crc = self.ini_crc;
         global_data.sync_runtime_view();
-
-        // C++ parity: shell/control-bar schemes are loaded during startup from
-        // default + override INIs before shell/menu use.
-        initialize_control_bar_scheme_manager();
-        init_shell_menu_scheme_manager();
 
         info!(
             "GlobalData subsystem initialized (INI CRC: {:08X})",
@@ -1467,6 +1468,10 @@ pub fn shutdown_subsystem_manager() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::ini::{
+        ini_control_bar_scheme::get_control_bar_scheme_manager,
+        ini_shell_menu_scheme::get_shell_menu_scheme_manager,
+    };
 
     struct TestSubsystem {
         initialized: bool,
@@ -1515,5 +1520,14 @@ mod tests {
 
         assert!(manager.shutdown_all().is_ok());
         assert!(!manager.is_initialized());
+    }
+
+    #[test]
+    fn test_initialize_shell_ui_schemes_is_idempotent() {
+        initialize_shell_ui_schemes();
+        initialize_shell_ui_schemes();
+
+        assert!(get_control_bar_scheme_manager().is_some());
+        assert!(get_shell_menu_scheme_manager().read().is_ok());
     }
 }
