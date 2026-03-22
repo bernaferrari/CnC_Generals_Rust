@@ -13,7 +13,7 @@
 //! - CloudMapTerrainTextureClass: Animated cloud shadows
 //! - ScorchTextureClass: Scorch marks and damage
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use wgpu::{Device, Queue, Texture, TextureView, Sampler};
 
 // =============================================================================
@@ -85,6 +85,7 @@ impl ICoord2D {
 }
 
 /// Tile data structure (simplified from C++ TileData)
+#[derive(Debug, Clone)]
 pub struct TileData {
     /// Location of this tile in the texture atlas
     pub tile_location_in_texture: ICoord2D,
@@ -95,6 +96,15 @@ pub struct TileData {
 }
 
 impl TileData {
+    /// Construct tile data from raw bytes.
+    pub fn new(width: u32, tile_location_in_texture: ICoord2D, rgb_data: Vec<u8>) -> Self {
+        Self {
+            tile_location_in_texture,
+            rgb_data,
+            width,
+        }
+    }
+
     /// Get pointer to RGB data for a specific width
     /// Matches C++ TileData::getRGBDataForWidth()
     pub fn get_rgb_data_for_width(&self, _width: u32) -> &[u8] {
@@ -108,11 +118,21 @@ impl TileData {
 }
 
 /// Texture class data (simplified from C++ TextureClass)
+#[derive(Debug, Clone, Copy)]
 pub struct TextureClassData {
     /// Width in tiles
     pub width: u32,
     /// Position in texture atlas
     pub position_in_texture: ICoord2D,
+}
+
+impl TextureClassData {
+    pub fn new(width: u32, position_in_texture: ICoord2D) -> Self {
+        Self {
+            width,
+            position_in_texture,
+        }
+    }
 }
 
 /// World height map (simplified from C++ WorldHeightMap)
@@ -132,6 +152,42 @@ pub struct WorldHeightMap {
 }
 
 impl WorldHeightMap {
+    /// Create a height map container with pre-sized tile arrays.
+    pub fn new(num_bitmap_tiles: usize, num_edge_tiles: usize, num_texture_classes: usize) -> Self {
+        Self {
+            num_bitmap_tiles,
+            num_edge_tiles,
+            num_texture_classes,
+            source_tiles: vec![None; num_bitmap_tiles],
+            edge_tiles: vec![None; num_edge_tiles],
+            texture_classes: Vec::with_capacity(num_texture_classes),
+        }
+    }
+
+    /// Store a source tile at a fixed index.
+    pub fn set_source_tile(&mut self, index: usize, tile: TileData) {
+        if index >= self.source_tiles.len() {
+            self.source_tiles.resize_with(index + 1, || None);
+        }
+        self.source_tiles[index] = Some(tile);
+        self.num_bitmap_tiles = self.source_tiles.len();
+    }
+
+    /// Store an edge tile at a fixed index.
+    pub fn set_edge_tile(&mut self, index: usize, tile: TileData) {
+        if index >= self.edge_tiles.len() {
+            self.edge_tiles.resize_with(index + 1, || None);
+        }
+        self.edge_tiles[index] = Some(tile);
+        self.num_edge_tiles = self.edge_tiles.len();
+    }
+
+    /// Add texture-class metadata.
+    pub fn add_texture_class(&mut self, class: TextureClassData) {
+        self.texture_classes.push(class);
+        self.num_texture_classes = self.texture_classes.len();
+    }
+
     /// Get source tile by index (C++ line 100)
     pub fn get_source_tile(&self, index: usize) -> Option<&TileData> {
         self.source_tiles.get(index).and_then(|t| t.as_ref())
@@ -142,10 +198,98 @@ impl WorldHeightMap {
         self.edge_tiles.get(index).and_then(|t| t.as_ref())
     }
 
+    fn find_tile_data_for_cell(
+        &self,
+        x_cell: i32,
+        y_cell: i32,
+        pixels_per_cell: u32,
+    ) -> Option<&TileData> {
+        if x_cell < 0 || y_cell < 0 || pixels_per_cell == 0 {
+            return None;
+        }
+
+        let pixels_per_cell = pixels_per_cell as i32;
+        let requested_pixel_x = x_cell.saturating_mul(pixels_per_cell);
+        let requested_pixel_y = y_cell.saturating_mul(pixels_per_cell);
+
+        let mut fallback: Option<&TileData> = None;
+        let mut seen_tiles = 0usize;
+
+        for tile in self.source_tiles.iter().flatten() {
+            seen_tiles += 1;
+            let pos = tile.tile_location_in_texture;
+            let tile_pixel_extent = tile.width as i32;
+            if tile_pixel_extent <= 0 {
+                continue;
+            }
+
+            let tile_cell_extent = (tile_pixel_extent / pixels_per_cell).max(1);
+            let tile_cell_x = pos.x / pixels_per_cell;
+            let tile_cell_y = pos.y / pixels_per_cell;
+
+            if (pos.x == requested_pixel_x && pos.y == requested_pixel_y)
+                || (x_cell >= tile_cell_x
+                    && x_cell < tile_cell_x + tile_cell_extent
+                    && y_cell >= tile_cell_y
+                    && y_cell < tile_cell_y + tile_cell_extent)
+            {
+                return Some(tile);
+            }
+
+            if fallback.is_none() {
+                fallback = Some(tile);
+            }
+        }
+
+        if seen_tiles == 1 {
+            fallback
+        } else {
+            None
+        }
+    }
+
+    fn tile_data_for_width(tile: &TileData, width: u32) -> Vec<u8> {
+        let src_width = tile.width.max(1);
+        let src_len = (src_width * src_width * TILE_BYTES_PER_PIXEL) as usize;
+        let src_data = if tile.rgb_data.len() >= src_len {
+            &tile.rgb_data[..src_len]
+        } else {
+            tile.rgb_data.as_slice()
+        };
+
+        if width == 0 {
+            return Vec::new();
+        }
+
+        if src_width == width {
+            return src_data.to_vec();
+        }
+
+        let mut out = vec![0u8; (width * width * TILE_BYTES_PER_PIXEL) as usize];
+        for y in 0..width {
+            let src_y = ((y as u64 * src_width as u64) / width as u64) as u32;
+            for x in 0..width {
+                let src_x = ((x as u64 * src_width as u64) / width as u64) as u32;
+                let src_idx = ((src_y * src_width + src_x) * TILE_BYTES_PER_PIXEL) as usize;
+                let dst_idx = ((y * width + x) * TILE_BYTES_PER_PIXEL) as usize;
+                if src_idx + 3 < src_data.len() {
+                    out[dst_idx..dst_idx + 4].copy_from_slice(&src_data[src_idx..src_idx + 4]);
+                }
+            }
+        }
+
+        out
+    }
+
     /// Get pointer to tile data at cell coordinates (C++ line 377)
-    pub fn get_pointer_to_tile_data(&self, x_cell: i32, y_cell: i32, pixels_per_cell: u32) -> Option<&[u8]> {
-        // Simplified implementation - would need full terrain system
-        None
+    pub fn get_pointer_to_tile_data(
+        &self,
+        x_cell: i32,
+        y_cell: i32,
+        pixels_per_cell: u32,
+    ) -> Option<&[u8]> {
+        self.find_tile_data_for_cell(x_cell, y_cell, pixels_per_cell)
+            .map(|tile| tile.get_rgb_data_for_width(pixels_per_cell))
     }
 }
 
@@ -192,6 +336,8 @@ pub struct TextureClass {
     current_lod: u32,
     /// Texture name
     name: String,
+    /// Last state requested by `apply()`.
+    apply_state: Mutex<TextureApplyState>,
 }
 
 impl TextureClass {
@@ -207,6 +353,7 @@ impl TextureClass {
             mip_levels,
             current_lod: 0,
             name: String::new(),
+            apply_state: Mutex::new(TextureApplyState::default()),
         }
     }
 
@@ -222,6 +369,7 @@ impl TextureClass {
             mip_levels,
             current_lod: 0,
             name: name.to_string(),
+            apply_state: Mutex::new(TextureApplyState::default()),
         }
     }
 
@@ -238,8 +386,9 @@ impl TextureClass {
     /// Apply texture to rendering pipeline (virtual function in C++)
     /// To be overridden by subclasses
     pub fn apply(&self, stage: u32) {
-        // Base implementation - sets the texture
-        // Actual D3D/WGPU state setup would go here
+        let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
+        state.stage = stage;
+        state.filter = TextureFilter::default();
     }
 
     /// Set LOD level (C++ line 332)
@@ -250,12 +399,21 @@ impl TextureClass {
 
     /// Get filter settings (simplified)
     pub fn get_filter(&self) -> TextureFilter {
-        TextureFilter::default()
+        self.apply_state
+            .lock()
+            .map(|state| state.filter)
+            .unwrap_or_default()
+    }
+
+    fn set_apply_state(&self, stage: u32, filter: TextureFilter) {
+        let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
+        state.stage = stage;
+        state.filter = filter;
     }
 }
 
 /// Texture filter settings (simplified from C++ TextureFilterClass)
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TextureFilter {
     min_filter: FilterType,
     mag_filter: FilterType,
@@ -264,7 +422,7 @@ pub struct TextureFilter {
     v_addr_mode: AddressMode,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterType {
     Point,
     Linear,
@@ -277,7 +435,7 @@ impl Default for FilterType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressMode {
     Wrap,
     Clamp,
@@ -310,6 +468,12 @@ impl TextureFilter {
     pub fn set_v_addr_mode(&mut self, mode: AddressMode) {
         self.v_addr_mode = mode;
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct TextureApplyState {
+    stage: u32,
+    filter: TextureFilter,
 }
 
 // =============================================================================
@@ -532,8 +696,13 @@ impl TerrainTextureClass {
     ) -> bool {
         let surface_width = self.base.width;
         let surface_height = self.base.height;
+        let expected_extent = cell_width.max(0) as u32 * pixels_per_cell;
 
-        if surface_width != (cell_width as u32 * pixels_per_cell) {
+        if surface_width != expected_extent || surface_height != expected_extent {
+            return false;
+        }
+
+        if self.base.format != WW3D_FORMAT_A1R5G5B5 || cell_width <= 0 || pixels_per_cell == 0 {
             return false;
         }
 
@@ -544,11 +713,16 @@ impl TerrainTextureClass {
         // Copy cell data (C++ lines 374-389)
         for cell_x in 0..cell_width {
             for cell_y in 0..cell_width {
-                if let Some(bgr) = ht_map.get_pointer_to_tile_data(
+                if let Some(tile) = ht_map.find_tile_data_for_cell(
                     x_cell + cell_x,
                     y_cell + cell_y,
                     pixels_per_cell,
                 ) {
+                    let bgr_data = WorldHeightMap::tile_data_for_width(tile, pixels_per_cell);
+                    if bgr_data.len() < (pixels_per_cell * pixels_per_cell * TILE_BYTES_PER_PIXEL) as usize {
+                        continue;
+                    }
+
                     // Convert and copy pixels
                     for k in (0..pixels_per_cell as i32).rev() {
                         let dst_row = (pixels_per_cell as i32 * (cell_width - cell_y - 1) + k) as usize;
@@ -560,10 +734,10 @@ impl TerrainTextureClass {
                                 * pixels_per_cell as usize + l) * TILE_BYTES_PER_PIXEL as usize;
                             let dst_idx = dst_row_offset + dst_col_offset + l * pixel_bytes as usize;
 
-                            if src_idx + 2 < bgr.len() && dst_idx + 1 < pixel_data.len() {
-                                let b = bgr[src_idx + 2];
-                                let g = bgr[src_idx + 1];
-                                let r = bgr[src_idx + 0];
+                            if src_idx + 2 < bgr_data.len() && dst_idx + 1 < pixel_data.len() {
+                                let b = bgr_data[src_idx + 2];
+                                let g = bgr_data[src_idx + 1];
+                                let r = bgr_data[src_idx + 0];
 
                                 // BGR24 to A1R5G5B5 (C++ line 384)
                                 let pixel_16bit: u16 = 0x8000
@@ -615,23 +789,21 @@ impl TerrainTextureClass {
     /// Sets up D3D texture stage states for terrain rendering
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
+        let global_data = get_global_data();
+        let use_linear = global_data
+            .map(|data| data.bilinear_terrain_tex || data.trilinear_terrain_tex)
+            .unwrap_or(false);
+        let use_trilinear = global_data
+            .map(|data| data.trilinear_terrain_tex)
+            .unwrap_or(false);
 
-        // C++ lines 410-421 - Setup filtering based on global settings
-        // These would map to WGPU sampler settings:
-        // - bilinear_terrain_tex -> LINEAR min/mag filter
-        // - trilinear_terrain_tex -> LINEAR mipmap filter
-        // - Otherwise -> POINT filter
-
-        // C++ lines 423-436 - Texture pipeline setup
-        // Stage 0 setup:
-        // - ADDRESSU/V: CLAMP
-        // - COLORARG1: TEXTURE
-        // - COLORARG2: DIFFUSE
-        // - COLOROP: MODULATE
-        // - ALPHAOP: DISABLE
-        // - Disable stage 1
-        // - TEXCOORDINDEX: 0
-        // - Disable alpha blending
+        let mut filter = TextureFilter::default();
+        filter.set_min_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
+        filter.set_mag_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
+        filter.set_mip_mapping(if use_trilinear { FilterType::Linear } else { FilterType::Point });
+        filter.set_u_addr_mode(AddressMode::Clamp);
+        filter.set_v_addr_mode(AddressMode::Clamp);
+        self.base.set_apply_state(stage, filter);
     }
 }
 
