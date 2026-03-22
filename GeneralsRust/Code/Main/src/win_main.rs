@@ -79,6 +79,10 @@ pub unsafe fn win_main(
 
     // Convert WinMain arguments to simple main argc and argv - exactly like C++
     let args = command_line::CommandLineArgs::startup_args();
+    if command_line::CommandLineArgs::wants_dx_stack_dump_from_args(&args) {
+        command_line::CommandLineArgs::emit_dx_stack_dump_from_args(&args);
+        return 0;
+    }
     let _argc = args.len() as c_int;
 
     // Create C-style argv (kept for parity/debug logging)
@@ -336,11 +340,6 @@ fn launch_rts_runtime() -> Result<c_int> {
     let exit_code = rt.block_on(async {
         let cmd_args = command_line::initialize_command_line()
             .map_err(|e| anyhow::anyhow!("Failed to parse command line: {e}"))?;
-
-        if cmd_args.wants_dx_stack_dump() {
-            cmd_args.emit_dx_stack_dump();
-            return Ok::<c_int, anyhow::Error>(0);
-        }
 
         if let Some(lang) = cmd_args.language.as_ref() {
             crate::localization::init(lang);

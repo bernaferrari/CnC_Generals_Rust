@@ -203,6 +203,12 @@ async fn main() {
     // =========================================================================
     // PHASE 1: COMMAND LINE PARSING (matches WinMain.cpp:893-906)
     // =========================================================================
+    let startup_args = command_line::CommandLineArgs::startup_args();
+    if command_line::CommandLineArgs::wants_dx_stack_dump_from_args(&startup_args) {
+        command_line::CommandLineArgs::emit_dx_stack_dump_from_args(&startup_args);
+        return;
+    }
+
     let cmd_args = match command_line::initialize_command_line() {
         Ok(args) => args,
         Err(err) => {
@@ -210,11 +216,6 @@ async fn main() {
             std::process::exit(1);
         }
     };
-
-    if cmd_args.wants_dx_stack_dump() {
-        cmd_args.emit_dx_stack_dump();
-        return;
-    }
 
     // Check for help flag
     if cmd_args.wants_help() {
@@ -284,7 +285,7 @@ async fn main() {
     {
         unsafe {
             let is_dev_mode = cfg!(debug_assertions) || cmd_args.developer_mode;
-            let is_enabled = !command_line::CommandLineArgs::startup_args()
+            let is_enabled = !startup_args
                 .iter()
                 .any(|arg| arg == "--disable-copy-protection");
 
