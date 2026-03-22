@@ -281,6 +281,17 @@ impl AudioManagerSubsystem {
     fn drain_events(&mut self) -> Vec<crate::game_logic::AudioEventRequest> {
         self.queued_events.drain(..).collect()
     }
+
+    /// C++ parity: after returning from iconic/minimized mode, pulse audio volume to wake backend.
+    pub fn wake_after_iconic_return(&mut self) {
+        let Some(audio_manager) = self.audio_manager.as_mut() else {
+            return;
+        };
+
+        let current_master = audio_manager.get_master_volume();
+        audio_manager.set_master_volume(current_master);
+        debug!("Audio wake pulse applied after iconic/minimized return");
+    }
 }
 
 impl SubsystemInterface for AudioManagerSubsystem {
