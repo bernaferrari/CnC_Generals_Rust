@@ -13,22 +13,22 @@
 //! - Cliff texturing based on slope
 //! - Shoreline blending with water
 
+use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
-use cgmath::{Vector2, Vector3, Vector4, InnerSpace, Matrix4, Point3};
+use cgmath::{InnerSpace, Matrix4, Point3, Vector2, Vector3, Vector4};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{
-    Device, Queue, Buffer, BindGroup, BindGroupLayout, RenderPipeline,
-    BufferUsages, TextureFormat, VertexBufferLayout, VertexAttribute,
-    VertexFormat, VertexStepMode, BufferAddress, ShaderStages,
-    BindGroupLayoutEntry, BindingType, TextureSampleType, SamplerBindingType,
-    BufferBindingType, IndexFormat, RenderPass, CommandEncoder,
-    Texture, TextureView, Sampler, TextureDescriptor, TextureUsages,
-    TextureDimension, Extent3d, SamplerDescriptor, AddressMode, FilterMode,
-    TextureViewDescriptor, ImageCopyTexture, ImageDataLayout, Origin3d,
+    AddressMode, BindGroup, BindGroupLayout, BindGroupLayoutEntry, BindingType, Buffer,
+    BufferAddress, BufferBindingType, BufferUsages, CommandEncoder, Device, Extent3d, FilterMode,
+    ImageCopyTexture, ImageDataLayout, IndexFormat, Origin3d, Queue, RenderPass, RenderPipeline,
+    Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
 };
-use std::sync::Arc;
-use parking_lot::RwLock;
-use anyhow::{Result, Context};
+
+const TERRAIN_PLACEHOLDER_RGBA: [u8; 4] = [0, 0, 0, 0];
 
 // Constants from C++ HeightMap.h and BaseHeightMap.h
 pub const VERTEX_BUFFER_TILE_LENGTH: usize = 32; // C++ line 20: 32x32 vertex tiles
@@ -70,7 +70,9 @@ impl TerrainVertex {
             format: VertexFormat::Float32x2,
         },
         VertexAttribute {
-            offset: (std::mem::size_of::<[f32; 3]>() + std::mem::size_of::<u32>() + std::mem::size_of::<[f32; 2]>()) as BufferAddress,
+            offset: (std::mem::size_of::<[f32; 3]>()
+                + std::mem::size_of::<u32>()
+                + std::mem::size_of::<[f32; 2]>()) as BufferAddress,
             shader_location: 3,
             format: VertexFormat::Float32x2,
         },
@@ -227,20 +229,15 @@ impl HeightMapMesh {
         let mut chunks = Vec::with_capacity(num_chunks_x * num_chunks_y);
         for chunk_y in 0..num_chunks_y {
             for chunk_x in 0..num_chunks_x {
-                let chunk = Self::create_chunk(
-                    &device,
-                    chunk_x,
-                    chunk_y,
-                    width,
-                    height,
-                    &height_data,
-                )?;
+                let chunk =
+                    Self::create_chunk(&device, chunk_x, chunk_y, width, height, &height_data)?;
                 chunks.push(chunk);
             }
         }
 
         // Create dummy bind group (will be properly initialized with textures later)
-        let bind_group = Self::create_dummy_bind_group(&device, &queue, bind_group_layout, &uniform_buffer);
+        let bind_group =
+            Self::create_dummy_bind_group(&device, &queue, bind_group_layout, &uniform_buffer);
 
         // Create render pipeline
         let pipeline = Self::create_pipeline(&device, bind_group_layout)?;
@@ -273,7 +270,8 @@ impl HeightMapMesh {
     /// Create the shared index buffer for terrain chunks
     /// Corresponds to C++ HeightMap.cpp:1301-1321
     fn create_index_buffer(device: &Device) -> Result<Buffer> {
-        let mut indices = Vec::with_capacity(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 2 * 3);
+        let mut indices =
+            Vec::with_capacity(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 2 * 3);
 
         // Generate index buffer for triangle list exactly like C++ HeightMap.cpp:1307-1320.
         let row_stride = VERTEX_BUFFER_TILE_LENGTH * 4;
@@ -314,10 +312,15 @@ impl HeightMapMesh {
         let origin_y = chunk_y * VERTEX_BUFFER_TILE_LENGTH;
         let max_sample_x = map_width.saturating_sub(1);
         let max_sample_y = map_height.saturating_sub(1);
-        let cell_width = max_sample_x.saturating_sub(origin_x).min(VERTEX_BUFFER_TILE_LENGTH);
-        let cell_height = max_sample_y.saturating_sub(origin_y).min(VERTEX_BUFFER_TILE_LENGTH);
+        let cell_width = max_sample_x
+            .saturating_sub(origin_x)
+            .min(VERTEX_BUFFER_TILE_LENGTH);
+        let cell_height = max_sample_y
+            .saturating_sub(origin_y)
+            .min(VERTEX_BUFFER_TILE_LENGTH);
 
-        let mut vertices = Vec::with_capacity(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 4);
+        let mut vertices =
+            Vec::with_capacity(VERTEX_BUFFER_TILE_LENGTH * VERTEX_BUFFER_TILE_LENGTH * 4);
 
         // Generate vertices for this chunk in row-major order, matching the C++ tile layout.
         for local_y in 0..VERTEX_BUFFER_TILE_LENGTH {
@@ -414,35 +417,77 @@ impl HeightMapMesh {
         let x1 = cell_x.saturating_add(1).min(max_x);
         let y1 = cell_y.saturating_add(1).min(max_y);
 
-        let pos0 = [x0 as f32 * MAP_XY_FACTOR, y0 as f32 * MAP_XY_FACTOR, get_height(x0, y0)];
+        let pos0 = [
+            x0 as f32 * MAP_XY_FACTOR,
+            y0 as f32 * MAP_XY_FACTOR,
+            get_height(x0, y0),
+        ];
         let normal0 = calc_normal(x0, y0);
         let diffuse0 = calc_diffuse(normal0);
         let uv00 = [x0 as f32 * uv_scale, y0 as f32 * uv_scale];
 
         // Top-right vertex (C++ HeightMap.cpp:382-402)
-        let pos1 = [x1 as f32 * MAP_XY_FACTOR, y0 as f32 * MAP_XY_FACTOR, get_height(x1, y0)];
+        let pos1 = [
+            x1 as f32 * MAP_XY_FACTOR,
+            y0 as f32 * MAP_XY_FACTOR,
+            get_height(x1, y0),
+        ];
         let normal1 = calc_normal(x1, y0);
         let diffuse1 = calc_diffuse(normal1);
         let uv01 = [x1 as f32 * uv_scale, y0 as f32 * uv_scale];
 
         // Bottom-right vertex (C++ HeightMap.cpp:404-428)
-        let pos2 = [x1 as f32 * MAP_XY_FACTOR, y1 as f32 * MAP_XY_FACTOR, get_height(x1, y1)];
+        let pos2 = [
+            x1 as f32 * MAP_XY_FACTOR,
+            y1 as f32 * MAP_XY_FACTOR,
+            get_height(x1, y1),
+        ];
         let normal2 = calc_normal(x1, y1);
         let diffuse2 = calc_diffuse(normal2);
         let uv02 = [x1 as f32 * uv_scale, y1 as f32 * uv_scale];
 
         // Bottom-left vertex (C++ HeightMap.cpp:430-458)
-        let pos3 = [x0 as f32 * MAP_XY_FACTOR, y1 as f32 * MAP_XY_FACTOR, get_height(x0, y1)];
+        let pos3 = [
+            x0 as f32 * MAP_XY_FACTOR,
+            y1 as f32 * MAP_XY_FACTOR,
+            get_height(x0, y1),
+        ];
         let normal3 = calc_normal(x0, y1);
         let diffuse3 = calc_diffuse(normal3);
         let uv03 = [x0 as f32 * uv_scale, y1 as f32 * uv_scale];
 
-        [
-            TerrainVertex { position: pos0, diffuse: diffuse0, uv0: uv00, uv1: uv00 },
-            TerrainVertex { position: pos1, diffuse: diffuse1, uv0: uv01, uv1: uv01 },
-            TerrainVertex { position: pos2, diffuse: diffuse2, uv0: uv02, uv1: uv02 },
-            TerrainVertex { position: pos3, diffuse: diffuse3, uv0: uv03, uv1: uv03 },
-        ]
+        let mut vertices = [
+            TerrainVertex {
+                position: pos0,
+                diffuse: diffuse0,
+                uv0: uv00,
+                uv1: uv00,
+            },
+            TerrainVertex {
+                position: pos1,
+                diffuse: diffuse1,
+                uv0: uv01,
+                uv1: uv01,
+            },
+            TerrainVertex {
+                position: pos2,
+                diffuse: diffuse2,
+                uv0: uv02,
+                uv1: uv02,
+            },
+            TerrainVertex {
+                position: pos3,
+                diffuse: diffuse3,
+                uv0: uv03,
+                uv1: uv03,
+            },
+        ];
+
+        if Self::should_flip_conforming_tessellation(pos0, pos1, pos2, pos3) {
+            Self::rotate_quad_vertices_for_flip(&mut vertices);
+        }
+
+        vertices
     }
 
     /// Calculate height bounds from heightmap data
@@ -461,6 +506,38 @@ impl HeightMapMesh {
         }
 
         (min_h, max_h)
+    }
+
+    /// Match the C++ `flipForBlend` decision for cliff/stretched cells.
+    /// C++ only flips once a cell is already treated as stretched enough to
+    /// need special blending, so ordinary quads should not all flip.
+    fn should_flip_conforming_tessellation(
+        pos0: [f32; 3],
+        pos1: [f32; 3],
+        pos2: [f32; 3],
+        pos3: [f32; 3],
+    ) -> bool {
+        let heights = [pos0[2], pos1[2], pos2[2], pos3[2]];
+        let min_h = heights.iter().copied().fold(f32::INFINITY, f32::min);
+        let max_h = heights.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let stretch_ratio = (max_h - min_h) / MAP_XY_FACTOR;
+        const STRETCH_LIMIT: f32 = 1.5;
+
+        if stretch_ratio < STRETCH_LIMIT {
+            return false;
+        }
+
+        let diag_a = (pos0[2] - pos2[2]).abs();
+        let diag_b = (pos1[2] - pos3[2]).abs();
+        diag_a > diag_b
+    }
+
+    fn rotate_quad_vertices_for_flip(vertices: &mut [TerrainVertex; 4]) {
+        let first = vertices[0];
+        vertices[0] = vertices[1];
+        vertices[1] = vertices[2];
+        vertices[2] = vertices[3];
+        vertices[3] = first;
     }
 
     fn create_placeholder_texture(
@@ -490,7 +567,7 @@ impl HeightMapMesh {
                 origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[255, 255, 255, 255],
+            &TERRAIN_PLACEHOLDER_RGBA,
             ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
@@ -523,19 +600,17 @@ impl HeightMapMesh {
         })
     }
 
-    /// Create dummy bind group (placeholder until textures are loaded)
+    /// Create a neutral placeholder bind group until terrain textures are loaded.
     fn create_dummy_bind_group(
         device: &Device,
         queue: &Queue,
         layout: &BindGroupLayout,
         uniform_buffer: &Buffer,
     ) -> BindGroup {
-        let (_, base_view) = Self::create_placeholder_texture(device, queue, "Terrain Base Placeholder");
-        let base_sampler = Self::create_placeholder_sampler(device, "Terrain Base Sampler");
-        let (_, detail_view) = Self::create_placeholder_texture(device, queue, "Terrain Detail Placeholder");
-        let detail_sampler = Self::create_placeholder_sampler(device, "Terrain Detail Sampler");
-        let (_, blend_view) = Self::create_placeholder_texture(device, queue, "Terrain Blend Placeholder");
-        let blend_sampler = Self::create_placeholder_sampler(device, "Terrain Blend Sampler");
+        let (_, neutral_view) =
+            Self::create_placeholder_texture(device, queue, "Terrain Placeholder Texture");
+        let neutral_sampler =
+            Self::create_placeholder_sampler(device, "Terrain Placeholder Sampler");
 
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Terrain Bind Group"),
@@ -547,34 +622,37 @@ impl HeightMapMesh {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&base_view),
+                    resource: wgpu::BindingResource::TextureView(&neutral_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&base_sampler),
+                    resource: wgpu::BindingResource::Sampler(&neutral_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&detail_view),
+                    resource: wgpu::BindingResource::TextureView(&neutral_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&detail_sampler),
+                    resource: wgpu::BindingResource::Sampler(&neutral_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&blend_view),
+                    resource: wgpu::BindingResource::TextureView(&neutral_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&blend_sampler),
+                    resource: wgpu::BindingResource::Sampler(&neutral_sampler),
                 },
             ],
         })
     }
 
     /// Create the terrain rendering pipeline
-    fn create_pipeline(device: &Device, bind_group_layout: &BindGroupLayout) -> Result<RenderPipeline> {
+    fn create_pipeline(
+        device: &Device,
+        bind_group_layout: &BindGroupLayout,
+    ) -> Result<RenderPipeline> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Terrain Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("terrain_shader.wgsl").into()),
@@ -709,7 +787,9 @@ impl HeightMapMesh {
             chunk.visible = true;
             for plane in frustum_planes {
                 let dist = plane.x * center.x + plane.y * center.y + plane.z * center.z + plane.w;
-                let radius = extents.x * plane.x.abs() + extents.y * plane.y.abs() + extents.z * plane.z.abs();
+                let radius = extents.x * plane.x.abs()
+                    + extents.y * plane.y.abs()
+                    + extents.z * plane.z.abs();
 
                 if dist + radius < 0.0 {
                     chunk.visible = false;
@@ -752,7 +832,8 @@ impl HeightMapMesh {
             _padding3: [0.0; 3],
         };
 
-        self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
     /// Get height at world position
@@ -815,11 +896,34 @@ mod tests {
     fn test_chunk_calculation() {
         let width = 129;
         let height = 129;
-        let num_chunks_x = (width.saturating_sub(1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
-        let num_chunks_y = (height.saturating_sub(1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
+        let num_chunks_x =
+            (width.saturating_sub(1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
+        let num_chunks_y =
+            (height.saturating_sub(1) + VERTEX_BUFFER_TILE_LENGTH - 1) / VERTEX_BUFFER_TILE_LENGTH;
 
         // C++ rounds terrain cells, not sampled vertices. 129 sampled vertices -> 128 cells -> 4 tiles.
         assert_eq!(num_chunks_x, 4);
         assert_eq!(num_chunks_y, 4);
+    }
+
+    #[test]
+    fn test_conforming_tessellation_flips_steeper_diagonal() {
+        let vertices = HeightMapMesh::create_quad_vertices(0, 0, 2, 2, &[0, 0, 40, 0]);
+
+        assert_eq!(vertices[0].position, [MAP_XY_FACTOR, 0.0, 0.0]);
+        assert_eq!(vertices[3].position, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_conforming_tessellation_does_not_flip_mild_slopes() {
+        let vertices = HeightMapMesh::create_quad_vertices(0, 0, 2, 2, &[0, 0, 0, 20]);
+
+        assert_eq!(vertices[0].position, [0.0, 0.0, 0.0]);
+        assert_eq!(vertices[1].position, [MAP_XY_FACTOR, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_terrain_placeholder_texture_is_neutral() {
+        assert_eq!(TERRAIN_PLACEHOLDER_RGBA, [0, 0, 0, 0]);
     }
 }

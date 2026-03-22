@@ -23,6 +23,7 @@ use crate::gui::{toggle_control_bar, toggle_diplomacy};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::system::beacon_display;
+use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::attack::{AbleToAttackType, CanAttackResult};
 use gamelogic::commands::command::CommandType;
@@ -48,6 +49,28 @@ fn screen_to_terrain(pos: &ICoord2D) -> Option<Coord3D> {
             .ok()
             .map(|point| Coord3D::new(point.x, point.y, point.z))
     })
+}
+
+fn is_alternate_mouse_enabled() -> bool {
+    get_global_data()
+        .map(|data| data.read().use_alternate_mouse)
+        .unwrap_or(false)
+}
+
+fn point_click_is_actionable(
+    right_click: bool,
+    alternate_mouse: bool,
+    pending_command_active: bool,
+) -> bool {
+    if right_click {
+        // C++ only processes right-click point commands in alternate mouse mode,
+        // except when a pending GUI command is active and the click is used to cancel it.
+        alternate_mouse || pending_command_active
+    } else {
+        // C++ only processes left-click point commands in alternate mouse mode when
+        // a GUI command is actively firing.
+        !alternate_mouse || pending_command_active
+    }
 }
 
 const CMD_NEED_TARGET_ENEMY_OBJECT: u32 = 0x0000_0001;
@@ -209,11 +232,8 @@ fn pending_command_hint_for_object(
         _ => {
             if selection_can_capture_building_target(local_player_u32, selection, target) {
                 Some(GameMessageType::CaptureBuildingHint(target))
-            } else if selection_can_disable_vehicle_hack_target(
-                local_player_u32,
-                selection,
-                target,
-            ) || selection_can_steal_cash_hack_target(local_player_u32, selection, target)
+            } else if selection_can_disable_vehicle_hack_target(local_player_u32, selection, target)
+                || selection_can_steal_cash_hack_target(local_player_u32, selection, target)
                 || selection_can_disable_building_hack_target(local_player_u32, selection, target)
             {
                 Some(GameMessageType::HackHint(target))
@@ -234,7 +254,9 @@ fn pending_command_hint_for_position(
         CommandType::DoGuardPosition => None,
         CommandType::DoGuardObject => None,
         CommandType::PlaceBeacon | CommandType::RemoveBeacon => None,
-        _ if pending_command_accepts_position(pending.options) => Some(GameMessageType::DoMoveToHint(position)),
+        _ if pending_command_accepts_position(pending.options) => {
+            Some(GameMessageType::DoMoveToHint(position))
+        }
         _ => None,
     }
 }
@@ -687,12 +709,14 @@ impl CommandTranslator {
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
                 return Some(GameMessageType::DoAttackObject(target_id));
             }
-            CanAttackResult::InvalidShot => return None,
-            CanAttackResult::NotPossible => {}
+            CanAttackResult::InvalidShot | CanAttackResult::NotPossible => {}
         }
 
-        if selection_can_capture_building_target(local_player_u32, &self.current_selection, target_id)
-        {
+        if selection_can_capture_building_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
             return Some(GameMessageType::CaptureBuilding(
                 selection_source_object_id(&self.current_selection, local_player_u32),
                 target_id,
@@ -710,8 +734,11 @@ impl CommandTranslator {
             ));
         }
 
-        if selection_can_steal_cash_hack_target(local_player_u32, &self.current_selection, target_id)
-        {
+        if selection_can_steal_cash_hack_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
             return Some(GameMessageType::StealCashHack(
                 selection_source_object_id(&self.current_selection, local_player_u32),
                 target_id,
@@ -729,6 +756,12 @@ impl CommandTranslator {
             ));
         }
 
+        if let Some(dest) =
+            selection_can_pickup_crate_target(local_player_u32, &self.current_selection, target_id)
+        {
+            return Some(GameMessageType::DoMoveTo(dest));
+        }
+
         None
     }
 
@@ -739,6 +772,9 @@ impl CommandTranslator {
         target_id: ObjectID,
         world: Coord3D,
     ) -> Option<GameMessageType> {
+        let attack_result =
+            selection_attack_result(local_player_u32, &self.current_selection, target_id);
+
         if selection_can_resume_construction_target(
             local_player_u32,
             &self.current_selection,
@@ -795,17 +831,21 @@ impl CommandTranslator {
             return Some(GameMessageType::EnterHint(target_id));
         }
 
-        match selection_attack_result(local_player_u32, &self.current_selection, target_id) {
-            CanAttackResult::Possible => return Some(GameMessageType::DoAttackObjectHint(target_id)),
+        match attack_result {
+            CanAttackResult::Possible => {
+                return Some(GameMessageType::DoAttackObjectHint(target_id))
+            }
             CanAttackResult::PossibleAfterMoving => {
                 return Some(GameMessageType::DoAttackObjectAfterMovingHint(target_id));
             }
-            CanAttackResult::InvalidShot => return Some(GameMessageType::ImpossibleAttackHint),
-            CanAttackResult::NotPossible => {}
+            CanAttackResult::InvalidShot | CanAttackResult::NotPossible => {}
         }
 
-        if selection_can_capture_building_target(local_player_u32, &self.current_selection, target_id)
-        {
+        if selection_can_capture_building_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
             return Some(GameMessageType::CaptureBuildingHint(target_id));
         }
 
@@ -813,14 +853,20 @@ impl CommandTranslator {
             local_player_u32,
             &self.current_selection,
             target_id,
-        ) || selection_can_steal_cash_hack_target(local_player_u32, &self.current_selection, target_id)
-            || selection_can_disable_building_hack_target(
-                local_player_u32,
-                &self.current_selection,
-                target_id,
-            )
-        {
+        ) || selection_can_steal_cash_hack_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) || selection_can_disable_building_hack_target(
+            local_player_u32,
+            &self.current_selection,
+            target_id,
+        ) {
             return Some(GameMessageType::HackHint(target_id));
+        }
+
+        if attack_result == CanAttackResult::InvalidShot {
+            return Some(GameMessageType::ImpossibleAttackHint);
         }
 
         None
@@ -848,12 +894,18 @@ impl CommandTranslator {
         } else {
             None
         };
+        let alternate_mouse = is_alternate_mouse_enabled();
+        let pending_command_active = TheInGameUI::get_pending_command().is_some();
         let target = self.pick_context_target(region, local_player_u32);
 
         // Right click cancels active targeted command modes.
-        if right_click && TheInGameUI::get_pending_command().is_some() {
+        if right_click && pending_command_active {
             self.clear_targeting_modes();
             TheInGameUI::clear_attack_move_to_mode();
+            return Vec::new();
+        }
+
+        if !point_click_is_actionable(right_click, alternate_mouse, pending_command_active) {
             return Vec::new();
         }
 
@@ -864,7 +916,7 @@ impl CommandTranslator {
                 TheInGameUI::clear_attack_move_to_mode();
                 return vec![message];
             }
-            if TheInGameUI::get_pending_command().is_some() {
+            if pending_command_active {
                 // Targeting mode stays active until fulfilled/cancelled.
                 return Vec::new();
             }
@@ -3097,5 +3149,35 @@ mod tests {
             pending_command_for_position(&remove, position),
             Some(GameMessageType::RemoveBeacon(_))
         ));
+    }
+
+    #[test]
+    fn test_pending_command_helper_masks_and_object_mapping() {
+        assert!(pending_command_accepts_object(CMD_NEED_TARGET_ENEMY_OBJECT));
+        assert!(pending_command_accepts_position(CMD_NEED_TARGET_POS));
+        assert!(!pending_command_accepts_object(CMD_NEED_TARGET_POS));
+        assert!(!pending_command_accepts_position(
+            CMD_NEED_TARGET_ENEMY_OBJECT
+        ));
+
+        let pending = PendingCommand {
+            command_type: CommandType::Dock,
+            options: 0,
+            source_object_id: 99,
+        };
+        assert!(matches!(
+            pending_command_for_object(&pending, 321),
+            Some(GameMessageType::Dock(321))
+        ));
+    }
+
+    #[test]
+    fn test_point_click_is_actionable_matches_cpp_gating() {
+        assert!(point_click_is_actionable(false, false, false));
+        assert!(!point_click_is_actionable(false, true, false));
+        assert!(point_click_is_actionable(false, true, true));
+        assert!(!point_click_is_actionable(true, false, false));
+        assert!(point_click_is_actionable(true, true, false));
+        assert!(point_click_is_actionable(true, false, true));
     }
 }
