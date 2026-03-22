@@ -12,10 +12,10 @@ use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use super::command_xlat::CommandTranslator;
 use super::game_message::*;
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator, MessageStream};
 use super::selection_xlat::SelectionTranslator;
+use super::translators::CommandTranslator;
 use crate::helpers::TheInGameUI;
 use crate::input::{KeyCode, KeyModifiers, KeyboardState, MouseButton, MouseState};
 
@@ -116,7 +116,7 @@ impl Default for InputProcessorConfig {
 }
 
 /// Complete input processing pipeline
-/// Integrates C++ InGameUI, SelectionTranslator, and CommandTranslator
+/// Integrates C++ InGameUI, SelectionTranslator, and the canonical command translator.
 pub struct InputProcessor {
     // Configuration
     config: InputProcessorConfig,
@@ -171,7 +171,9 @@ impl InputProcessor {
         // Convert input event to game messages
         let raw_messages = self.convert_input_to_messages(event);
 
-        // Process through translator pipeline
+        // Process through translator pipeline.
+        // Selection translation remains separate, but command semantics come from the active
+        // translator implementation instead of the legacy `command_xlat` copy.
         let mut processed_messages = Vec::new();
 
         for msg in raw_messages {
