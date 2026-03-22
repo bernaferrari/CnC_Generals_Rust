@@ -121,6 +121,11 @@ impl CommandLineArgs {
         args
     }
 
+    /// C++ WinMain only triggers the DX bootstrap path when `-DX` is the second token.
+    pub fn wants_dx_stack_dump_from_args(args: &[String]) -> bool {
+        args.len() > 2 && args[1].eq_ignore_ascii_case("-dx")
+    }
+
     /// Parse command line arguments from a vector of strings
     pub fn parse_from_args(args: Vec<String>) -> Result<Self> {
         let mut parsed = Self {
@@ -476,8 +481,13 @@ impl CommandLineArgs {
 
     /// Emit the C++-style DX stack dump and return immediately.
     pub fn emit_dx_stack_dump(&self) {
+        Self::emit_dx_stack_dump_from_args(&self.raw_args);
+    }
+
+    /// Emit the C++-style DX stack dump from a raw argv slice.
+    pub fn emit_dx_stack_dump_from_args(args: &[String]) {
         eprintln!("\n--- DX STACK DUMP");
-        for token in &self.positional_args {
+        for token in args.iter().skip(2) {
             let trimmed = token.trim();
             let trimmed = trimmed
                 .strip_prefix("0x")
@@ -716,6 +726,15 @@ mod tests {
             parsed.positional_args,
             vec!["0x1000".to_string(), "2000".to_string()]
         );
+        assert!(!CommandLineArgs::wants_dx_stack_dump_from_args(&[
+            "generals".to_string(),
+            "-DX".to_string(),
+        ]));
+        assert!(CommandLineArgs::wants_dx_stack_dump_from_args(&[
+            "generals".to_string(),
+            "-DX".to_string(),
+            "0x1000".to_string(),
+        ]));
     }
 
     #[test]
