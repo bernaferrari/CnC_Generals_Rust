@@ -18,6 +18,7 @@ pub mod cnc_game_engine;
 pub mod fow_rendering;
 pub mod game_engine;
 pub mod game_logic;
+pub mod game_results_queue;
 pub mod graphics;
 #[cfg(feature = "integration-diagnostics")]
 pub mod integration_bridge;

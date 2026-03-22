@@ -14,6 +14,7 @@
 //! - ScorchTextureClass: Scorch marks and damage
 
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use wgpu::{Device, Queue, Texture, TextureView, Sampler};
 
 // =============================================================================
@@ -388,7 +389,11 @@ impl TextureClass {
     pub fn apply(&self, stage: u32) {
         let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
         state.stage = stage;
-        state.filter = TextureFilter::default();
+    }
+
+    fn reset_apply_state(&self) {
+        let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
+        state.stage = 0;
     }
 
     /// Set LOD level (C++ line 332)
@@ -425,6 +430,7 @@ pub struct TextureFilter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterType {
     Point,
+    Fast,
     Linear,
     Best,
 }
@@ -682,6 +688,23 @@ impl TerrainTextureClass {
         surface_height
     }
 
+    fn terrain_filter() -> TextureFilter {
+        let mut filter = TextureFilter::default();
+        let use_linear = get_global_data()
+            .map(|data| data.bilinear_terrain_tex || data.trilinear_terrain_tex)
+            .unwrap_or(false);
+        let use_trilinear = get_global_data()
+            .map(|data| data.trilinear_terrain_tex)
+            .unwrap_or(false);
+
+        filter.set_min_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
+        filter.set_mag_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
+        filter.set_mip_mapping(if use_trilinear { FilterType::Linear } else { FilterType::Point });
+        filter.set_u_addr_mode(AddressMode::Clamp);
+        filter.set_v_addr_mode(AddressMode::Clamp);
+        filter
+    }
+
     /// Update flat terrain texture
     /// C++ lines 343-397
     pub fn update_flat(
@@ -789,21 +812,7 @@ impl TerrainTextureClass {
     /// Sets up D3D texture stage states for terrain rendering
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-        let global_data = get_global_data();
-        let use_linear = global_data
-            .map(|data| data.bilinear_terrain_tex || data.trilinear_terrain_tex)
-            .unwrap_or(false);
-        let use_trilinear = global_data
-            .map(|data| data.trilinear_terrain_tex)
-            .unwrap_or(false);
-
-        let mut filter = TextureFilter::default();
-        filter.set_min_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
-        filter.set_mag_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
-        filter.set_mip_mapping(if use_trilinear { FilterType::Linear } else { FilterType::Point });
-        filter.set_u_addr_mode(AddressMode::Clamp);
-        filter.set_v_addr_mode(AddressMode::Clamp);
-        self.base.set_apply_state(stage, filter);
+        self.base.set_apply_state(stage, Self::terrain_filter());
     }
 }
 
@@ -834,36 +843,7 @@ impl AlphaTerrainTextureClass {
     /// Apply with alpha blending (C++ lines 475-602)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-
-        // Setup filtering (C++ lines 481-492)
-        // Same as TerrainTextureClass
-
-        // Clamp addressing (C++ lines 494-495)
-        // ADDRESSU/V: CLAMP
-
-        if stage == 0 {
-            // Multi-pass mode (C++ lines 497-510)
-            // Stage 0 setup:
-            // - COLORARG1: TEXTURE
-            // - COLORARG2: DIFFUSE
-            // - COLOROP: MODULATE
-            // - ALPHAOP: MODULATE
-            // - TEXCOORDINDEX: 1
-            // - Enable alpha blending: SRCALPHA/INVSRCALPHA
-            // - Disable stage 1-2
-        } else if stage == 1 {
-            if let Some(global_data) = get_global_data() {
-                if !global_data.multi_pass_terrain {
-                    // 8-stage Nvidia optimization (C++ lines 513-587)
-                    // Complex multi-stage setup for single-pass rendering
-                    // This is a hardware-specific optimization path
-                } else {
-                    // Standard 2-stage setup (C++ lines 590-600)
-                    // Stage 0: SELECTARG1 (texture)
-                    // Stage 1: MODULATE with current
-                }
-            }
-        }
+        self.base.set_apply_state(stage, TerrainTextureClass::terrain_filter());
     }
 }
 
@@ -991,27 +971,7 @@ impl AlphaEdgeTextureClass {
     /// Apply edge texture (C++ lines 811-866)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-
-        // Setup filtering (C++ lines 817-828)
-        // Clamp addressing (C++ lines 830-831)
-
-        if stage == 0 {
-            // Single-stage edge rendering (C++ lines 833-846)
-            // Stage 0:
-            // - COLORARG1: TEXTURE
-            // - COLORARG2: DIFFUSE
-            // - COLOROP: MODULATE
-            // - ALPHAARG1: TEXTURE
-            // - ALPHAOP: SELECTARG1
-            // - TEXCOORDINDEX: 1
-            // - Enable alpha blend: SRCALPHA/INVSRCALPHA
-            // - Disable stage 1
-        } else if stage == 1 {
-            // Two-stage setup (C++ lines 848-863)
-            // Used when drawing texture through mask
-            // Stage 0: Keep alpha from previous
-            // Stage 1: Blend texture with alpha
-        }
+        self.base.set_apply_state(stage, TerrainTextureClass::terrain_filter());
     }
 }
 
@@ -1038,6 +998,12 @@ impl LightMapTerrainTextureClass {
         };
 
         let mut base = TextureClass::from_file(texture_name, texture_name, mip_level_count);
+        let mut filter = TextureFilter::default();
+        filter.set_min_filter(FilterType::Best);
+        filter.set_mag_filter(FilterType::Best);
+        filter.set_u_addr_mode(AddressMode::Repeat);
+        filter.set_v_addr_mode(AddressMode::Repeat);
+        base.set_apply_state(0, filter);
 
         // Setup filter modes (C++ lines 620-623)
         // MIN/MAG filter: BEST (linear)
@@ -1049,28 +1015,6 @@ impl LightMapTerrainTextureClass {
     /// Apply light map (C++ lines 642-704)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-
-        // C++ lines 648-696 - Complex texture coordinate generation
-        // Uses camera space position for automatic UV generation
-        // Applies transformation matrix to scale and slide the texture
-        // STRETCH_FACTOR scales the texture to cover terrain
-
-        // Key settings (from C++ code):
-        // - TEXCOORDINDEX: D3DTSS_TCI_CAMERASPACEPOSITION
-        // - TEXTURETRANSFORMFLAGS: D3DTTFF_COUNT2
-        // - ADDRESSU/V: WRAP
-        // - Transform matrix: inverse view * scale
-
-        // Stage 0 (C++ lines 664-668):
-        // - COLORARG1: TEXTURE
-        // - COLOROP: SELECTARG1
-        // - Disable stage 1
-
-        // Stage 1 (C++ line 670):
-        // - COLOROP: MODULATE with current
-
-        // Blend mode (C++ lines 699-701):
-        // - DESTCOLOR/ZERO (multiplicative blend)
     }
 }
 
@@ -1101,6 +1045,9 @@ impl CloudMapTerrainTextureClass {
     /// C++ lines 883-893
     pub fn new(mip_level_count: u32) -> Self {
         let mut base = TextureClass::from_file("TSCloudMed.tga", "TSCloudMed.tga", mip_level_count);
+        let mut filter = TextureFilter::default();
+        filter.set_mip_mapping(FilterType::Fast);
+        base.set_apply_state(0, filter);
 
         // Setup mipmap filter (C++ line 886)
         // FILTER_TYPE_FAST
@@ -1118,50 +1065,32 @@ impl CloudMapTerrainTextureClass {
     /// Apply cloud map with animation (C++ lines 909-992)
     pub fn apply(&mut self, stage: u32) {
         self.base.apply(stage);
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u32;
+        let delta_ms = now_ms.wrapping_sub(self.cur_tick);
+        self.cur_tick = now_ms;
 
-        // Animation update (C++ lines 948-962)
-        // Would get current tick count, calculate delta
-        // Update offsets based on slide speed
-        // Wrap offsets to [-1, 1] range
+        let delta_seconds = delta_ms as f32 / 1000.0;
+        self.x_offset += self.x_slide_per_second * delta_seconds;
+        self.y_offset += self.y_slide_per_second * delta_seconds;
 
-        // C++ lines 918-944 - Texture coordinate generation
-        // Similar to light map but with animated offset
-        // Uses camera space position with sliding transform matrix
-
-        if stage == 0 {
-            // Stage 0 setup (C++ lines 964-978)
-            // - COLORARG1: TEXTURE
-            // - COLORARG2: DIFFUSE
-            // - COLOROP: SELECTARG1
-            // - ALPHAOP: DISABLE
-            // - Set transform with offset
-            // - Disable stages 1-3
-            // - Blend: DESTCOLOR/ZERO
-        } else if stage == 1 {
-            // Stage 1 setup (C++ lines 982-990)
-            // - COLORARG1: TEXTURE
-            // - COLORARG2: CURRENT
-            // - COLOROP: MODULATE
-            // - ALPHAARG1: CURRENT
-            // - ALPHAOP: SELECTARG1
-            // - Set transform with offset
+        if self.x_offset > 1.0 {
+            self.x_offset -= 1.0;
+        } else if self.x_offset < -1.0 {
+            self.x_offset += 1.0;
+        }
+        if self.y_offset > 1.0 {
+            self.y_offset -= 1.0;
+        } else if self.y_offset < -1.0 {
+            self.y_offset += 1.0;
         }
     }
 
     /// Restore default texture states (C++ lines 1000-1044)
     pub fn restore(&self) {
-        // Restore stages 0-1 to default W3D states (C++ lines 1002-1023)
-        // - COLORARG1: TEXTURE
-        // - COLORARG2: DIFFUSE
-        // - COLOROP: MODULATE
-        // - ALPHAOP: DISABLE
-        // - ADDRESSU/V: WRAP
-        // - TEXCOORDINDEX: 0
-        // - TEXTURETRANSFORMFLAGS: DISABLE
-        // - Reset alpha blend states
-
-        // If multi-pass disabled, reset all 8 stages (C++ lines 1026-1043)
-        // Clears Nvidia 8-stage hack states
+        self.base.reset_apply_state();
     }
 }
 
@@ -1189,20 +1118,7 @@ impl ScorchTextureClass {
     /// Apply scorch texture (C++ lines 1074-1108)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-
-        // Setup filtering based on global settings (C++ lines 1079-1090)
-        // Same as terrain texture filtering
-
-        // Texture pipeline setup (C++ lines 1092-1107)
-        // - TEXTURETRANSFORMFLAGS: DISABLE
-        // - ADDRESSU/V: CLAMP
-        // - COLORARG1: TEXTURE
-        // - COLORARG2: DIFFUSE
-        // - COLOROP: MODULATE
-        // - ALPHAOP: SELECTARG1
-        // - TEXCOORDINDEX: 0
-        // - Enable alpha blend: SRCALPHA/INVSRCALPHA
-        // - Disable stage 1
+        self.base.set_apply_state(stage, TerrainTextureClass::terrain_filter());
     }
 }
 
@@ -1315,6 +1231,57 @@ mod tests {
     }
 
     #[test]
+    fn test_light_map_constructor_seeds_repeat_filter() {
+        let texture = LightMapTerrainTextureClass::new(String::new(), MIP_LEVELS_ALL);
+        let filter = texture.base.get_filter();
+
+        assert_eq!(filter.min_filter, FilterType::Best);
+        assert_eq!(filter.mag_filter, FilterType::Best);
+        assert_eq!(filter.mip_filter, FilterType::Point);
+        assert_eq!(filter.u_addr_mode, AddressMode::Repeat);
+        assert_eq!(filter.v_addr_mode, AddressMode::Repeat);
+    }
+
+    #[test]
+    fn test_light_map_apply_preserves_constructor_filter() {
+        let texture = LightMapTerrainTextureClass::new(String::new(), MIP_LEVELS_ALL);
+        texture.apply(1);
+
+        let filter = texture.base.get_filter();
+        assert_eq!(filter.min_filter, FilterType::Best);
+        assert_eq!(filter.mag_filter, FilterType::Best);
+        assert_eq!(filter.mip_filter, FilterType::Point);
+        assert_eq!(filter.u_addr_mode, AddressMode::Repeat);
+        assert_eq!(filter.v_addr_mode, AddressMode::Repeat);
+    }
+
+    #[test]
+    fn test_cloud_map_constructor_seeds_fast_mip_filter() {
+        let texture = CloudMapTerrainTextureClass::new(MIP_LEVELS_ALL);
+        let filter = texture.base.get_filter();
+
+        assert_eq!(filter.min_filter, FilterType::Point);
+        assert_eq!(filter.mag_filter, FilterType::Point);
+        assert_eq!(filter.mip_filter, FilterType::Fast);
+        assert_eq!(filter.u_addr_mode, AddressMode::Wrap);
+        assert_eq!(filter.v_addr_mode, AddressMode::Wrap);
+    }
+
+    #[test]
+    fn test_cloud_map_restore_preserves_fast_mip_filter() {
+        let mut clouds = CloudMapTerrainTextureClass::new(MIP_LEVELS_ALL);
+        clouds.apply(0);
+        clouds.restore();
+
+        let filter = clouds.base.get_filter();
+        assert_eq!(filter.min_filter, FilterType::Point);
+        assert_eq!(filter.mag_filter, FilterType::Point);
+        assert_eq!(filter.mip_filter, FilterType::Fast);
+        assert_eq!(filter.u_addr_mode, AddressMode::Wrap);
+        assert_eq!(filter.v_addr_mode, AddressMode::Wrap);
+    }
+
+    #[test]
     fn test_stretch_factor() {
         // Verify stretch factor calculation (C++ line 626)
         let expected = 1.0 / (63.0 * 2.0 / 2.0);
@@ -1331,5 +1298,28 @@ mod tests {
         // 2048 / (2*64 + 8) = 2048 / 136 = 15
         // 15 * 2 = 30
         assert_eq!(tiles_per_row, 30);
+    }
+
+    #[test]
+    fn test_terrain_texture_apply_tracks_clamp_filtering() {
+        let texture = TerrainTextureClass::new(1024);
+        texture.apply(0);
+
+        let filter = texture.base.get_filter();
+        assert_eq!(filter.min_filter, FilterType::Point);
+        assert_eq!(filter.mag_filter, FilterType::Point);
+        assert_eq!(filter.mip_filter, FilterType::Point);
+        assert_eq!(filter.u_addr_mode, AddressMode::Clamp);
+        assert_eq!(filter.v_addr_mode, AddressMode::Clamp);
+    }
+
+    #[test]
+    fn test_cloud_map_apply_advances_animation_clock() {
+        let mut clouds = CloudMapTerrainTextureClass::new(MIP_LEVELS_ALL);
+        clouds.apply(0);
+
+        assert_ne!(clouds.cur_tick, 0);
+        assert!(clouds.x_offset >= -1.0 && clouds.x_offset <= 1.0);
+        assert!(clouds.y_offset >= -1.0 && clouds.y_offset <= 1.0);
     }
 }

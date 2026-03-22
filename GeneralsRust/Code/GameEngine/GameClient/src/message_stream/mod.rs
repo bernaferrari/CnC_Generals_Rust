@@ -61,9 +61,7 @@ pub use translators::*;
 pub use window_xlat::*;
 
 // Re-export input processing types
-pub use command_xlat::{
-    CanAttackResult, CommandEvaluateType, CommandableObject,
-};
+pub use command_xlat::{CanAttackResult, CommandEvaluateType, CommandableObject};
 pub use input_processor::{
     InputEvent, InputProcessor, InputProcessorConfig, InputProcessorStatistics,
 };

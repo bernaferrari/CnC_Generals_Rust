@@ -1,93 +1,25 @@
-//! WthreeDGuiCallbacks Module
-//! 
-//! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DGUICallbacks.h
-//! 
-//! This module provides graphical user interface components.
+//! C++-compatible GUI callback exports for W3D.
+//!
+//! This module mirrors `W3DGUICallbacks.h` by exposing the device-specific
+//! callback entry points as thin wrappers around the already ported GameClient
+//! rendering and shell code.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
+pub use crate::w3d_device::gui::gui_callbacks::wthree_d_main_menu::W3DMainMenuInit;
+pub use game_client_rust::gui::w3d_gadget_draw::{
+    w3d_cameo_movie_draw as W3DCameoMovieDraw,
+    w3d_clock_draw as W3DClockDraw,
+    w3d_credits_menu_draw as W3DCreditsMenuDraw,
+    w3d_draw_map_preview as W3DDrawMapPreview,
+    w3d_left_hud_draw as W3DLeftHUDDraw,
+    w3d_main_menu_button_drop_shadow_draw as W3DMainMenuButtonDropShadowDraw,
+    w3d_main_menu_draw as W3DMainMenuDraw,
+    w3d_main_menu_four_draw as W3DMainMenuFourDraw,
+    w3d_main_menu_map_border as W3DMainMenuMapBorder,
+    w3d_main_menu_random_text_draw as W3DMainMenuRandomTextDraw,
+    w3d_metal_bar_menu_draw as W3DMetalBarMenuDraw,
+    w3d_no_draw as W3DNoDraw,
+    w3d_power_draw as W3DPowerDraw,
+    w3d_right_hud_draw as W3DRightHUDDraw,
+    w3d_shell_menu_scheme_draw as W3DShellMenuSchemeDraw,
+    w3d_thin_border_draw as W3DThinBorderDraw,
 };
-
-/// WthreeDGuiCallbacks for user interface functionality
-pub struct WthreeDGuiCallbacks {
-    /// UI state
-    visible: bool,
-    /// Position
-    position: (i32, i32),
-    /// Size
-    size: (u32, u32),
-}
-
-impl WthreeDGuiCallbacks {
-    /// Create new UI element
-    pub fn new() -> Self {
-        Self {
-            visible: true,
-            position: (0, 0),
-            size: (100, 100),
-        }
-    }
-
-    /// Set position
-    pub fn set_position(&mut self, x: i32, y: i32) {
-        self.position = (x, y);
-    }
-
-    /// Get position
-    pub fn get_position(&self) -> (i32, i32) {
-        self.position
-    }
-
-    /// Set size
-    pub fn set_size(&mut self, width: u32, height: u32) {
-        self.size = (width, height);
-    }
-
-    /// Get size
-    pub fn get_size(&self) -> (u32, u32) {
-        self.size
-    }
-
-    /// Set visibility
-    pub fn set_visible(&mut self, visible: bool) {
-        self.visible = visible;
-    }
-
-    /// Check if visible
-    pub fn is_visible(&self) -> bool {
-        self.visible
-    }
-
-    /// Handle input event
-    pub fn handle_input(&mut self, _event: &InputEvent) {
-        // TODO: Handle input
-    }
-
-    /// Render UI element
-    pub fn render(&self) {
-        if !self.visible {
-            return;
-        }
-        // TODO: Render UI
-    }
-}
-
-/// Input event for UI
-#[derive(Debug, Clone)]
-pub struct InputEvent {
-    /// Event type placeholder
-    pub event_type: u32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_wthree_d_gui_callbacks_basic() {
-        // TODO: Implement tests for wthree_d_gui_callbacks
-        assert!(true, "Placeholder test for wthree_d_gui_callbacks");
-    }
-}

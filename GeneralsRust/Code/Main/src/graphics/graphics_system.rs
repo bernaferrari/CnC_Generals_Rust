@@ -5,6 +5,9 @@ use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+const FALLBACK_CUBE_DIFFUSE: [f32; 4] = [0.58, 0.58, 0.58, 1.0];
+const FALLBACK_CUBE_SHADOW_DIFFUSE: [f32; 4] = [0.46, 0.46, 0.46, 1.0];
+
 /// Material properties uniform - matches shader's MaterialProperties struct
 /// Note: WGSL has strict alignment rules. Vec4 = 16 bytes, vec2 needs 8-byte alignment
 /// Total must be 80 bytes due to alignment padding in WGSL
@@ -224,12 +227,12 @@ impl GraphicsSystem {
 
         let mut loaded_models = HashMap::new();
 
-        // Cache a fallback cube model for objects whose W3D assets fail to load.
-        // This ensures every game object produces at least one visible render item.
+        // Cache a neutral fallback cube for objects whose W3D assets fail to load.
+        // This keeps broken assets visible without the bright magenta debug look.
         {
             let fallback = Self::create_fallback_cube_model();
             loaded_models.insert("__fallback_cube__".to_string(), Arc::new(fallback));
-            info!("GraphicsSystem: fallback cube model cached for missing W3D assets");
+            info!("GraphicsSystem: neutral fallback cube model cached for missing W3D assets");
         }
 
         info!("GraphicsSystem initialized successfully and ready for first frame");
@@ -522,8 +525,8 @@ impl GraphicsSystem {
     }
 
     /// Create a simple unit cube W3D model for use as a fallback placeholder.
-    /// The cube is centered at the origin, extends +/-0.5 on each axis, and uses
-    /// a bright magenta diffuse color so missing assets are immediately visible.
+    /// The cube is centered at the origin, extends +/-5.0 on each axis, and uses
+    /// neutral gray shading so missing assets remain visible without startup glare.
     fn create_fallback_cube_model() -> W3DModel {
         // 8 corners of a unit cube centered at origin
         let s = 5.0; // half-extent in world units (visible from gameplay camera)
@@ -533,150 +536,150 @@ impl GraphicsSystem {
                 position: [-s, -s, s],
                 normal: [0.0, 0.0, 1.0],
                 uv: [0.0, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, -s, s],
                 normal: [0.0, 0.0, 1.0],
                 uv: [1.0, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, s, s],
                 normal: [0.0, 0.0, 1.0],
                 uv: [1.0, 1.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, s, s],
                 normal: [0.0, 0.0, 1.0],
                 uv: [0.0, 1.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             // Back face (z = -s)
             W3DVertex {
                 position: [s, -s, -s],
                 normal: [0.0, 0.0, -1.0],
                 uv: [0.0, 0.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, -s, -s],
                 normal: [0.0, 0.0, -1.0],
                 uv: [1.0, 0.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, s, -s],
                 normal: [0.0, 0.0, -1.0],
                 uv: [1.0, 1.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [s, s, -s],
                 normal: [0.0, 0.0, -1.0],
                 uv: [0.0, 1.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             // Top face (y = +s)
             W3DVertex {
                 position: [-s, s, s],
                 normal: [0.0, 1.0, 0.0],
                 uv: [0.0, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, s, s],
                 normal: [0.0, 1.0, 0.0],
                 uv: [1.0, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, s, -s],
                 normal: [0.0, 1.0, 0.0],
                 uv: [1.0, 1.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, s, -s],
                 normal: [0.0, 1.0, 0.0],
                 uv: [0.0, 1.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             // Bottom face (y = -s)
             W3DVertex {
                 position: [-s, -s, -s],
                 normal: [0.0, -1.0, 0.0],
                 uv: [0.0, 0.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [s, -s, -s],
                 normal: [0.0, -1.0, 0.0],
                 uv: [1.0, 0.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [s, -s, s],
                 normal: [0.0, -1.0, 0.0],
                 uv: [1.0, 1.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, -s, s],
                 normal: [0.0, -1.0, 0.0],
                 uv: [0.0, 1.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             // Right face (x = +s)
             W3DVertex {
                 position: [s, -s, s],
                 normal: [1.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, -s, -s],
                 normal: [1.0, 0.0, 0.0],
                 uv: [1.0, 0.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, s, -s],
                 normal: [1.0, 0.0, 0.0],
                 uv: [1.0, 1.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             W3DVertex {
                 position: [s, s, s],
                 normal: [1.0, 0.0, 0.0],
                 uv: [0.0, 1.0],
-                color: [1.0, 0.0, 1.0, 1.0],
+                color: FALLBACK_CUBE_DIFFUSE,
             },
             // Left face (x = -s)
             W3DVertex {
                 position: [-s, -s, -s],
                 normal: [-1.0, 0.0, 0.0],
                 uv: [0.0, 0.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, -s, s],
                 normal: [-1.0, 0.0, 0.0],
                 uv: [1.0, 0.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, s, s],
                 normal: [-1.0, 0.0, 0.0],
                 uv: [1.0, 1.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
             W3DVertex {
                 position: [-s, s, -s],
                 normal: [-1.0, 0.0, 0.0],
                 uv: [0.0, 1.0],
-                color: [0.8, 0.0, 0.8, 1.0],
+                color: FALLBACK_CUBE_SHADOW_DIFFUSE,
             },
         ];
 
@@ -692,8 +695,8 @@ impl GraphicsSystem {
 
         let mut material = W3DMaterial::default();
         material.name = "__fallback_material__".to_string();
-        material.diffuse_color = Vec3::new(1.0, 0.0, 1.0); // bright magenta
-        material.emissive_color = Vec3::new(0.3, 0.0, 0.3); // slight self-illum for visibility
+        material.diffuse_color = Vec3::new(0.58, 0.58, 0.58);
+        material.emissive_color = Vec3::ZERO;
 
         let mesh = W3DMesh {
             name: "__fallback_cube_mesh__".to_string(),
@@ -829,4 +832,24 @@ pub struct GraphicsStatistics {
     pub draw_calls: u64,
     pub models_cached: usize,
     pub materials_cached: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fallback_cube_is_neutral_not_magenta() {
+        let fallback = GraphicsSystem::create_fallback_cube_model();
+        let material = &fallback.meshes[0].material;
+
+        assert_eq!(material.diffuse_color, Vec3::new(0.58, 0.58, 0.58));
+        assert_eq!(material.emissive_color, Vec3::ZERO);
+    }
+
+    #[test]
+    fn test_fallback_model_name_marker_stays_stable() {
+        assert!(GraphicsSystem::is_fallback_model("__fallback_cube__"));
+        assert!(!GraphicsSystem::is_fallback_model("unit_tank"));
+    }
 }

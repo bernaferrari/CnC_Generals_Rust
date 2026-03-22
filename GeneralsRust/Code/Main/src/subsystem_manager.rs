@@ -1,4 +1,5 @@
 use crate::config::GlobalData;
+use crate::game_results_queue;
 use crate::input_system::InputSystem;
 use anyhow::{anyhow, Result};
 use game_engine::common::message_stream::{
@@ -9,6 +10,7 @@ use game_engine::common::system::{
     local_file_system::LocalFileSystem,
     subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
 };
+use game_engine::get_game_state;
 use log::{debug, error, info, warn};
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
@@ -54,6 +56,23 @@ pub trait SubsystemInterface: Send + Sync + Any {
 pub fn initialize_shell_ui_schemes() {
     game_engine::common::ini::ini_control_bar_scheme::initialize_control_bar_scheme_manager();
     game_engine::common::ini::ini_shell_menu_scheme::init_shell_menu_scheme_manager();
+}
+
+fn resolve_save_directory() -> PathBuf {
+    let user_data = game_engine::common::ini::ini_game_data::get_global_data()
+        .map(|global| global.read().get_path_user_data().trim().to_string());
+
+    resolve_save_directory_from(user_data.as_deref())
+}
+
+fn resolve_save_directory_from(user_data: Option<&str>) -> PathBuf {
+    let base = if user_data.unwrap_or("").trim().is_empty() {
+        "UserData".to_string()
+    } else {
+        user_data.unwrap().trim().to_string()
+    };
+
+    PathBuf::from(base).join("Save")
 }
 
 macro_rules! impl_bootstrap_subsystem {
@@ -778,12 +797,79 @@ impl_bootstrap_subsystem!(ActionManagerSubsystem, "ActionManager", {
     Ok(())
 });
 
-impl_bootstrap_subsystem!(GameStateMapSubsystem, "GameStateMap", {
-    drop(game_engine::get_game_state());
-    Ok(())
-});
+impl_bootstrap_subsystem!(GameStateMapSubsystem, "GameStateMap", { Ok(()) });
 
-impl_bootstrap_subsystem!(GameResultsQueueSubsystem, "GameResultsQueue", { Ok(()) });
+pub struct GameStateSubsystem;
+
+impl GameStateSubsystem {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl SubsystemInterface for GameStateSubsystem {
+    fn name(&self) -> &'static str {
+        "GameState"
+    }
+
+    fn init(&mut self) -> Result<()> {
+        info!("Initializing GameState subsystem");
+        game_engine::init_game_state(resolve_save_directory());
+        Ok(())
+    }
+
+    fn reset(&mut self) -> Result<()> {
+        info!("Resetting GameState subsystem");
+        let mut state = get_game_state();
+        state.reset();
+        Ok(())
+    }
+
+    fn update(&mut self, _dt: f32) -> Result<()> {
+        Ok(())
+    }
+
+    fn shutdown(&mut self) -> Result<()> {
+        info!("Shutting down GameState subsystem");
+        let mut state = get_game_state();
+        state.reset();
+        Ok(())
+    }
+}
+
+pub struct GameResultsQueueSubsystem;
+
+impl GameResultsQueueSubsystem {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl SubsystemInterface for GameResultsQueueSubsystem {
+    fn name(&self) -> &'static str {
+        "GameResultsQueue"
+    }
+
+    fn init(&mut self) -> Result<()> {
+        info!("Initializing GameResultsQueue subsystem");
+        game_results_queue::init_game_results_queue()?;
+        Ok(())
+    }
+
+    fn reset(&mut self) -> Result<()> {
+        info!("Resetting GameResultsQueue subsystem");
+        game_results_queue::reset_game_results_queue()
+    }
+
+    fn update(&mut self, _dt: f32) -> Result<()> {
+        Ok(())
+    }
+
+    fn shutdown(&mut self) -> Result<()> {
+        info!("Shutting down GameResultsQueue subsystem");
+        game_results_queue::shutdown_game_results_queue()
+    }
+}
 
 /// Network subsystem - network communication (matches C++ TheNetwork)
 pub struct NetworkSubsystem {
@@ -1218,6 +1304,7 @@ impl SubsystemManager {
             "MetaMap",                 // Command map / hotkey bootstrap
             "ActionManager",           // Gameplay action validation helper
             "GameStateMap",            // Save-game map bootstrap
+            "GameState",               // Save-game singleton state
             "GameResultsQueue",        // Post-game results queue stub
         ];
 
@@ -1359,7 +1446,9 @@ impl SubsystemManager {
     pub fn reset_all(&mut self) -> Result<()> {
         info!("Resetting all subsystems");
 
-        for slot in &mut self.subsystems {
+        // C++ parity: reset in reverse registration order so teardown-sensitive
+        // subsystems unwind in the opposite order they were brought up.
+        for slot in self.subsystems.iter_mut().rev() {
             let name = slot.name();
             if let Err(e) = slot.reset() {
                 error!("Failed to reset subsystem {}: {}", name, e);
@@ -1569,6 +1658,7 @@ pub fn init_subsystem_manager() -> Result<()> {
         let _ = manager.add_subsystem(MetaMapSubsystem::new());
         let _ = manager.add_subsystem(ActionManagerSubsystem::new());
         let _ = manager.add_subsystem(GameStateMapSubsystem::new());
+        let _ = manager.add_subsystem(GameStateSubsystem::new());
         let _ = manager.add_subsystem(GameResultsQueueSubsystem::new());
         // Network is registered lazily when multiplayer startup actually needs it.
     }
@@ -1664,6 +1754,7 @@ mod tests {
             "MetaMap",
             "ActionManager",
             "GameStateMap",
+            "GameState",
             "GameResultsQueue",
         ];
 
@@ -1706,7 +1797,11 @@ mod tests {
         assert!(manager
             .initialization_order
             .windows(2)
-            .any(|pair| pair == ["GameStateMap", "GameResultsQueue"].as_slice()));
+            .any(|pair| pair == ["GameStateMap", "GameState"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["GameState", "GameResultsQueue"].as_slice()));
     }
 
     #[test]
@@ -1724,6 +1819,7 @@ mod tests {
         let mut meta_map = MetaMapSubsystem::new();
         let mut action_manager = ActionManagerSubsystem::new();
         let mut game_state_map = GameStateMapSubsystem::new();
+        let mut game_state = GameStateSubsystem::new();
         let mut game_results_queue = GameResultsQueueSubsystem::new();
 
         assert!(terrain_types.init().is_ok());
@@ -1739,7 +1835,196 @@ mod tests {
         assert!(meta_map.init().is_ok());
         assert!(action_manager.init().is_ok());
         assert!(game_state_map.init().is_ok());
+        assert!(game_state.init().is_ok());
         assert!(game_results_queue.init().is_ok());
+    }
+
+    #[test]
+    fn test_resolve_save_directory_from_user_data_path() {
+        let resolved = resolve_save_directory_from(Some("/tmp/custom-data"));
+        assert_eq!(resolved, PathBuf::from("/tmp/custom-data").join("Save"));
+
+        let fallback = resolve_save_directory_from(None);
+        assert_eq!(fallback, PathBuf::from("UserData").join("Save"));
+    }
+
+    #[test]
+    fn test_game_state_subsystem_init_and_reset_follow_cplusplus_lifecycle() {
+        let mut subsystem = GameStateSubsystem::new();
+        assert!(subsystem.init().is_ok());
+
+        {
+            let state = get_game_state();
+            assert_eq!(state.get_save_game_info().mission_number, 0);
+        }
+
+        {
+            let mut state = get_game_state();
+            state.get_save_game_info_mut().mission_number = 7;
+        }
+
+        assert!(subsystem.reset().is_ok());
+        {
+            let state = get_game_state();
+            assert_eq!(state.get_save_game_info().mission_number, 7);
+        }
+
+        assert!(subsystem.init().is_ok());
+        {
+            let state = get_game_state();
+            assert_eq!(state.get_save_game_info().mission_number, 0);
+        }
+    }
+
+    #[test]
+    fn test_game_results_queue_subsystem_lifecycle() {
+        use crate::game_results_queue::{
+            dequeue_victory_summary, get_game_results_queue, init_game_results_queue,
+        };
+
+        let mut subsystem = GameResultsQueueSubsystem::new();
+        assert!(subsystem.init().is_ok());
+
+        let _ = init_game_results_queue().unwrap();
+        let queue = get_game_results_queue().unwrap();
+
+        {
+            let mut guard = queue.lock().unwrap();
+            let mut victory = crate::game_logic::victory::VictorySummary::new();
+            victory.mission_name = Some("Lifecycle".to_string());
+            guard.enqueue(victory.clone()).unwrap();
+            assert_eq!(guard.len(), 1);
+        }
+
+        assert!(subsystem.reset().is_ok());
+        {
+            let guard = queue.lock().unwrap();
+            assert_eq!(guard.len(), 1);
+            assert!(!guard.is_empty());
+        }
+
+        {
+            let mut guard = queue.lock().unwrap();
+            let mut victory = crate::game_logic::victory::VictorySummary::new();
+            victory.mission_name = Some("Shutdown".to_string());
+            guard.enqueue(victory).unwrap();
+        }
+
+        assert!(subsystem.shutdown().is_ok());
+        assert!(dequeue_victory_summary().is_err());
+
+        assert!(subsystem.init().is_ok());
+        {
+            let mut guard = queue.lock().unwrap();
+            let mut victory = crate::game_logic::victory::VictorySummary::new();
+            victory.mission_name = Some("Reinit".to_string());
+            guard.enqueue(victory).unwrap();
+            assert_eq!(guard.len(), 1);
+        }
+    }
+
+    #[test]
+    fn test_reset_all_runs_in_reverse_order() {
+        use std::sync::{Arc, Mutex};
+
+        struct ResetOrderSubsystem {
+            name: &'static str,
+            log: Arc<Mutex<Vec<&'static str>>>,
+        }
+
+        impl SubsystemInterface for ResetOrderSubsystem {
+            fn name(&self) -> &'static str {
+                self.name
+            }
+
+            fn init(&mut self) -> Result<()> {
+                Ok(())
+            }
+
+            fn reset(&mut self) -> Result<()> {
+                self.log.lock().unwrap().push(self.name);
+                Ok(())
+            }
+
+            fn update(&mut self, _dt: f32) -> Result<()> {
+                Ok(())
+            }
+
+            fn shutdown(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut manager = SubsystemManager::new();
+        let _ = manager.add_subsystem(ResetOrderSubsystem {
+            name: "First",
+            log: log.clone(),
+        });
+        let _ = manager.add_subsystem(ResetOrderSubsystem {
+            name: "Second",
+            log: log.clone(),
+        });
+        let _ = manager.add_subsystem(ResetOrderSubsystem {
+            name: "Third",
+            log: log.clone(),
+        });
+
+        manager.reset_all().unwrap();
+
+        assert_eq!(&*log.lock().unwrap(), &["Third", "Second", "First"]);
+    }
+
+    #[test]
+    fn test_shutdown_all_runs_in_reverse_order() {
+        use std::sync::{Arc, Mutex};
+
+        struct ShutdownOrderSubsystem {
+            name: &'static str,
+            log: Arc<Mutex<Vec<&'static str>>>,
+        }
+
+        impl SubsystemInterface for ShutdownOrderSubsystem {
+            fn name(&self) -> &'static str {
+                self.name
+            }
+
+            fn init(&mut self) -> Result<()> {
+                Ok(())
+            }
+
+            fn reset(&mut self) -> Result<()> {
+                Ok(())
+            }
+
+            fn update(&mut self, _dt: f32) -> Result<()> {
+                Ok(())
+            }
+
+            fn shutdown(&mut self) -> Result<()> {
+                self.log.lock().unwrap().push(self.name);
+                Ok(())
+            }
+        }
+
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut manager = SubsystemManager::new();
+        let _ = manager.add_subsystem(ShutdownOrderSubsystem {
+            name: "First",
+            log: log.clone(),
+        });
+        let _ = manager.add_subsystem(ShutdownOrderSubsystem {
+            name: "Second",
+            log: log.clone(),
+        });
+        let _ = manager.add_subsystem(ShutdownOrderSubsystem {
+            name: "Third",
+            log: log.clone(),
+        });
+
+        manager.shutdown_all().unwrap();
+
+        assert_eq!(&*log.lock().unwrap(), &["Third", "Second", "First"]);
     }
 
     #[test]

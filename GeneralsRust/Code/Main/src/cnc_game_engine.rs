@@ -132,7 +132,8 @@ mod tests {
 
     #[test]
     fn startup_deferred_budget_is_enabled_for_visible_menu_frames() {
-        let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(12), 12);
+        let budget =
+            CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(12), 12);
         assert_eq!(budget, 4);
     }
 
@@ -1843,12 +1844,10 @@ impl CnCGameEngine {
         replay_to_load: Option<String>,
         replay_requested_from_cli: bool,
         player_name: Option<String>,
-        graphics_device: Arc<wgpu::Device>,
-        graphics_queue: Arc<wgpu::Queue>,
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
-            Self::emit_startup_load_progress(&sender, 0.03, "Initializing asset manager");
+            Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupLoadResult, String> {
                     let mut start_in_menu = start_in_menu;
@@ -1858,16 +1857,9 @@ impl CnCGameEngine {
                         .enable_all()
                         .build()
                         .map_err(|err| {
-                            format!("failed to create startup tokio runtime for asset init: {err}")
+                            format!("failed to create startup tokio runtime for archive access: {err}")
                         })?;
-                    runtime
-                        .block_on(crate::assets::manager::init_asset_manager(
-                            graphics_device.as_ref(),
-                            graphics_queue.as_ref(),
-                        ))
-                        .map_err(|err| format!("asset manager init failed: {err}"))?;
-
-                    Self::emit_startup_load_progress(&sender, 0.14, "Asset manager ready");
+                    Self::emit_startup_load_progress(&sender, 0.14, "Startup archives ready");
 
                     let extract_ini_text_from_archives = |virtual_path: &str| {
                         runtime.block_on(async {
@@ -2478,10 +2470,17 @@ impl CnCGameEngine {
         let mut render_pipeline = RenderPipeline::initialize(&graphics_system)?;
         pipeline_timer.finish();
 
-        // Keep event-loop bootstrap responsive: defer heavy asset-manager setup to the startup
-        // loading worker, which reports incremental progress milestones.
-        info!("🎨 Deferring C&C Asset Manager initialization to startup loading worker...");
-        let asset_duration = Duration::ZERO;
+        // C++ parity: initialize the asset manager during engine setup so startup loading
+        // can reuse the live archive/definition caches immediately.
+        info!("🎨 Initializing C&C Asset Manager during engine setup...");
+        let asset_timer = Instant::now();
+        crate::assets::manager::init_asset_manager(
+            graphics_system.device_arc().as_ref(),
+            graphics_system.queue_arc().as_ref(),
+        )
+        .await
+        .map_err(|err| anyhow::anyhow!("Asset manager init failed: {err}"))?;
+        let asset_duration = asset_timer.elapsed();
 
         // Model preloading will be done after graphics system is ready
         // This is handled in the run loop after engine creation
@@ -2633,8 +2632,6 @@ impl CnCGameEngine {
                 startup_requested_replay.clone(),
                 startup_replay_requested_from_initial_file,
                 command_line.player_name.clone(),
-                graphics_system.device_arc(),
-                graphics_system.queue_arc(),
             )
         };
 
@@ -2835,7 +2832,7 @@ impl CnCGameEngine {
         if asset_duration > Duration::ZERO {
             info!("   Asset Manager: {:.2}s", asset_duration.as_secs_f32());
         } else {
-            info!("   Asset Manager: deferred to startup loading worker");
+            info!("   Asset Manager: initialized during engine setup");
         }
         info!("🎮 Controls:");
         info!("  WASD - Move camera");
@@ -3987,13 +3984,19 @@ impl CnCGameEngine {
     /// Request state transition - will be applied at next update cycle
     /// Matches C++ GameEngine::setQuitting() pattern for deferred state changes
     pub fn request_state_change(&mut self, new_state: GameState) {
-        if new_state != self.current_state {
-            info!(
-                "State transition requested: {:?} -> {:?}",
-                self.current_state, new_state
-            );
-            self.pending_state = Some(new_state);
+        if new_state == self.current_state || self.pending_state == Some(new_state) {
+            return;
         }
+
+        info!(
+            "State transition requested: {:?} -> {:?}",
+            self.current_state, new_state
+        );
+        self.pending_state = Some(new_state);
+    }
+
+    pub fn is_state_change_pending(&self, state: GameState) -> bool {
+        self.pending_state == Some(state)
     }
 
     /// Process pending state transitions
@@ -4713,9 +4716,7 @@ impl CnCGameEngine {
                 }
                 UIEvent::ExitToMenu => {
                     info!("UI requested exit to menu");
-                    self.game_paused = false;
-                    self.ui_manager.transition_to_screen(Screen::MainMenu);
-                    self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+                    self.return_to_main_menu_after_match();
                 }
                 UIEvent::ExitGame => {
                     info!("UI requested exit");
@@ -5015,11 +5016,11 @@ impl CnCGameEngine {
                     &self.game_logic,
                 );
 
-                self.ui_manager.transition_to_screen(Screen::GameHUD);
+                self.transition_to_state(GameState::Playing);
             }
             Err(err) => {
                 warn!("Load failed for '{}': {}", slot, err);
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
+                self.return_to_main_menu_after_match();
             }
         }
     }
@@ -5114,8 +5115,7 @@ impl CnCGameEngine {
                 startup_camera_defaults,
             );
         self.sync_orbit_from_camera_transform();
-        self.ui_manager.transition_to_screen(Screen::GameHUD);
-        self.set_runtime_ui_state_projection(UISystemState::InGame);
+        self.transition_to_state(GameState::Playing);
     }
 
     fn apply_map_lighting(
@@ -5727,7 +5727,11 @@ impl CnCGameEngine {
 
     fn show_victory_screen(&mut self, winner: Option<u32>) {
         let summary = self.game_logic.build_victory_summary(winner);
+        let queued_summary = summary.clone();
         self.victory_summary = Some(summary.clone());
+        if let Err(err) = crate::game_results_queue::queue_victory_summary(queued_summary) {
+            warn!("Failed to enqueue victory summary: {err}");
+        }
         self.game_paused = true;
         self.match_over = true;
         match winner {
@@ -5764,7 +5768,6 @@ impl CnCGameEngine {
         self.selection_start = None;
         self.rmb_scroll_anchor = None;
         self.is_rmb_scrolling = false;
-        self.current_player_id = 1;
 
         for sink in &self.sound_effects {
             sink.stop();
@@ -5817,10 +5820,13 @@ impl CnCGameEngine {
         );
     }
 
-    fn exit_to_main_menu_from_victory(&mut self) {
+    fn return_to_main_menu_after_match(&mut self) {
         self.reset_match_state();
-        self.ui_manager.transition_to_screen(Screen::MainMenu);
-        self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+        self.transition_to_state(GameState::Menu);
+    }
+
+    fn exit_to_main_menu_from_victory(&mut self) {
+        self.return_to_main_menu_after_match();
     }
 
     fn handle_key_press(&mut self, key: &Key) {
@@ -7815,8 +7821,10 @@ pub async fn run_cnc_game(
         }
 
         if engine.is_quit_requested() {
-            info!("Platform requested quit");
-            engine.request_state_change(GameState::Exiting);
+            if !engine.is_quitting() && !engine.is_state_change_pending(GameState::Exiting) {
+                info!("Platform requested quit");
+                engine.request_state_change(GameState::Exiting);
+            }
             return;
         }
 
