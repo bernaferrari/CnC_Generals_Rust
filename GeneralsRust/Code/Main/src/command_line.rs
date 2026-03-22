@@ -110,7 +110,7 @@ impl CommandLineArgs {
 
     /// Collect the startup argv snapshot using the same practical limit as C++ WinMain.
     pub fn startup_args() -> Vec<String> {
-        Self::limit_startup_args(env::args().collect())
+        env::args().take(MAX_STARTUP_ARGS).collect()
     }
 
     /// Apply the C++ WinMain argv cap to an argument vector.
