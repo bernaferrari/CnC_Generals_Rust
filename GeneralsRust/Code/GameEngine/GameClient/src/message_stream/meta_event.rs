@@ -7,7 +7,7 @@ use std::sync::{OnceLock, RwLock};
 use game_engine::common::ini::{
     get_global_data, register_block_parser, INIError, INILoadType, INIResult, INI,
 };
-use log::warn;
+use log::debug;
 
 use super::game_message::{
     build_region, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, IRegion2D,
@@ -39,7 +39,7 @@ enum Transition {
 
 #[derive(Debug, Clone)]
 struct MetaMapRec {
-    meta: GameMessageType,
+    meta: Option<GameMessageType>,
     key: u32,
     transition: Transition,
     mod_state: u32,
@@ -246,14 +246,15 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         .ok_or(INIError::InvalidData)?
         .to_string();
 
-    let Some(meta) = lookup_meta_message_type(&name) else {
-        warn!(
-            "CommandMap entry '{}' has no matching GameMessageType",
+    let meta = lookup_meta_message_type(&name);
+    if meta.is_none() {
+        // Keep unknown command-map rows for keyboard-options parity and future behavior porting.
+        // They are skipped at emit-time until a concrete GameMessageType mapping is implemented.
+        debug!(
+            "CommandMap entry '{}' has no matching GameMessageType (kept as unresolved keybind)",
             name
         );
-        consume_block(ini)?;
-        return Ok(());
-    };
+    }
 
     let mut record = MetaMapRec {
         meta,
@@ -318,22 +319,6 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         .write()
         .expect("MetaMap lock poisoned")
         .add_record(record);
-    Ok(())
-}
-
-fn consume_block(ini: &mut INI) -> INIResult<()> {
-    loop {
-        ini.read_line()?;
-        if ini.is_eof() {
-            return Err(INIError::EndOfFile);
-        }
-        let tokens = ini.get_line_tokens();
-        if let Some(token) = tokens.first() {
-            if token.eq_ignore_ascii_case("End") {
-                break;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -643,9 +628,11 @@ impl GameMessageTranslator for MetaEventTranslator {
                     && ((map.transition == Transition::Up && map.mod_state == self.last_mod_state)
                         || (map.transition == Transition::Down && map.mod_state == new_mod_state))
                 {
-                    emit_message(GameMessage::new(map.meta.clone()));
-                    disp = GameMessageDisposition::DestroyMessage;
-                    break;
+                    if let Some(meta) = &map.meta {
+                        emit_message(GameMessage::new(meta.clone()));
+                        disp = GameMessageDisposition::DestroyMessage;
+                        break;
+                    }
                 }
 
                 let transition_matches = match map.transition {
@@ -657,12 +644,14 @@ impl GameMessageTranslator for MetaEventTranslator {
                 };
 
                 if map.key == key && map.mod_state == new_mod_state && transition_matches {
-                    emit_message(GameMessage::new(map.meta.clone()));
-                    disp = GameMessageDisposition::DestroyMessage;
-                    if matches!(map.meta, GameMessageType::MetaToggleFastForwardReplay) {
-                        disp = GameMessageDisposition::KeepMessage;
+                    if let Some(meta) = &map.meta {
+                        emit_message(GameMessage::new(meta.clone()));
+                        disp = GameMessageDisposition::DestroyMessage;
+                        if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
+                            disp = GameMessageDisposition::KeepMessage;
+                        }
+                        break;
                     }
-                    break;
                 }
             }
 
