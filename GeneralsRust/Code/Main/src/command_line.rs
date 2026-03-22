@@ -21,6 +21,9 @@ use std::path::PathBuf;
 
 use crate::config::global_data::normalize_startup_map_path;
 
+/// C++ WinMain only stored the first 20 argv entries.
+pub const MAX_STARTUP_ARGS: usize = 20;
+
 /// Command line arguments parsed from the application startup
 #[derive(Debug, Clone)]
 pub struct CommandLineArgs {
@@ -57,6 +60,7 @@ pub struct CommandLineArgs {
     pub network_host: Option<String>,
     pub display_debug_overlay: bool,
     pub integration_diagnostics: bool,
+    pub dx_stack_dump: bool,
     /// Last explicit startup window mode flag from command line order.
     /// `Some(true)` => windowed, `Some(false)` => fullscreen.
     window_mode_override: Option<bool>,
@@ -91,6 +95,7 @@ impl Default for CommandLineArgs {
             network_host: None,
             display_debug_overlay: false,
             integration_diagnostics: false,
+            dx_stack_dump: false,
             window_mode_override: None,
         }
     }
@@ -99,8 +104,21 @@ impl Default for CommandLineArgs {
 impl CommandLineArgs {
     /// Parse command line arguments from environment
     pub fn parse() -> Result<Self> {
-        let args: Vec<String> = env::args().collect();
+        let args = Self::startup_args();
         Self::parse_from_args(args)
+    }
+
+    /// Collect the startup argv snapshot using the same practical limit as C++ WinMain.
+    pub fn startup_args() -> Vec<String> {
+        Self::limit_startup_args(env::args().collect())
+    }
+
+    /// Apply the C++ WinMain argv cap to an argument vector.
+    pub fn limit_startup_args(mut args: Vec<String>) -> Vec<String> {
+        if args.len() > MAX_STARTUP_ARGS {
+            args.truncate(MAX_STARTUP_ARGS);
+        }
+        args
     }
 
     /// Parse command line arguments from a vector of strings
@@ -165,9 +183,7 @@ impl CommandLineArgs {
                             if normalized.to_ascii_lowercase().ends_with(".map") {
                                 parsed.map_name = Some(normalized.clone());
                             }
-                            parsed
-                                .options
-                                .insert("file".to_string(), Some(normalized));
+                            parsed.options.insert("file".to_string(), Some(normalized));
                         }
                     }
                     "map" => {
@@ -253,6 +269,10 @@ impl CommandLineArgs {
                             ],
                             &value,
                         );
+                    }
+                    "dx" => {
+                        parsed.dx_stack_dump = true;
+                        Self::store_option_aliases(&mut parsed.options, &["dx"], &value);
                     }
                     "buildmapcache" | "buildcache" => {
                         Self::store_option_aliases(
@@ -447,6 +467,33 @@ impl CommandLineArgs {
     /// Whether the integration diagnostics bridge should be enabled.
     pub fn wants_integration_diagnostics(&self) -> bool {
         self.integration_diagnostics
+    }
+
+    /// Whether the early DX bootstrap path should run.
+    pub fn wants_dx_stack_dump(&self) -> bool {
+        self.dx_stack_dump
+    }
+
+    /// Emit the C++-style DX stack dump and return immediately.
+    pub fn emit_dx_stack_dump(&self) {
+        eprintln!("\n--- DX STACK DUMP");
+        for token in &self.positional_args {
+            let trimmed = token.trim();
+            let trimmed = trimmed
+                .strip_prefix("0x")
+                .or_else(|| trimmed.strip_prefix("0X"))
+                .unwrap_or(trimmed);
+
+            match u64::from_str_radix(trimmed, 16) {
+                Ok(pc) => {
+                    eprintln!("0x{pc:x} - {token}");
+                }
+                Err(_) => {
+                    eprintln!("{token}");
+                }
+            }
+        }
+        eprintln!("\n--- END OF DX STACK DUMP");
     }
 
     /// Get the effective log level
@@ -651,6 +698,36 @@ mod tests {
         let parsed = CommandLineArgs::parse_from_args(args).unwrap();
         assert_eq!(parsed.width, Some(1024));
         assert_eq!(parsed.height, Some(768));
+    }
+
+    #[test]
+    fn test_dx_flag_enables_stack_dump_mode() {
+        let args = vec![
+            "generals".to_string(),
+            "-DX".to_string(),
+            "0x1000".to_string(),
+            "2000".to_string(),
+        ];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert!(parsed.wants_dx_stack_dump());
+        assert!(parsed.has_option("dx"));
+        assert_eq!(
+            parsed.positional_args,
+            vec!["0x1000".to_string(), "2000".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_startup_args_are_capped_to_twenty_entries() {
+        let mut args = vec!["generals".to_string()];
+        for index in 1..25 {
+            args.push(format!("arg{index}"));
+        }
+
+        let capped = CommandLineArgs::limit_startup_args(args);
+        assert_eq!(capped.len(), MAX_STARTUP_ARGS);
+        assert_eq!(capped.last().map(String::as_str), Some("arg19"));
     }
 
     #[test]

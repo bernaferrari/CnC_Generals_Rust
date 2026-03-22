@@ -799,10 +799,7 @@ mod tests {
 
         global_data.parse_command_line(&args[1..]).unwrap();
 
-        assert_eq!(
-            global_data.initial_file,
-            "Maps\\ShellMap1\\ShellMap1.map"
-        );
+        assert_eq!(global_data.initial_file, "Maps\\ShellMap1\\ShellMap1.map");
         assert!(!global_data.shell_map_on);
         assert_eq!(global_data.shell_map_name, "Maps\\ShellMap1\\ShellMap1.map");
         #[cfg(any(debug_assertions, feature = "internal"))]
