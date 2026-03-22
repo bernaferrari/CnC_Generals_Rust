@@ -609,12 +609,39 @@ fn effective_batch_transparency(
         .unwrap_or_else(|| material.map(|m| m.properties.transparent).unwrap_or(false))
 }
 
-pub(crate) fn batch_material_params(material: Option<&Material>) -> [f32; 4] {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaterialBatchSpecialization {
+    Null,
+    Unlit,
+    ForceMultiplyLike,
+    Lit,
+}
+
+fn material_batch_specialization(material: Option<&Material>) -> MaterialBatchSpecialization {
     let Some(material) = material else {
-        return [0.0, 0.5, 1.0, 0.0];
+        return MaterialBatchSpecialization::Null;
     };
 
-    let metallic = material
+    if material.properties.unlit {
+        return MaterialBatchSpecialization::Unlit;
+    }
+
+    if material.diffuse_texture.is_some()
+        && !material.properties.transparent
+        && !is_neutral_diffuse_color(material.properties.diffuse_color)
+    {
+        return MaterialBatchSpecialization::ForceMultiplyLike;
+    }
+
+    MaterialBatchSpecialization::Lit
+}
+
+pub(crate) fn batch_material_params(material: Option<&Material>) -> [f32; 4] {
+    let Some(material) = material else {
+        return legacy_null_material_params();
+    };
+
+    let specular_intensity = material
         .properties
         .specular_color
         .iter()
@@ -622,27 +649,39 @@ pub(crate) fn batch_material_params(material: Option<&Material>) -> [f32; 4] {
         .fold(0.0_f32, f32::max)
         .clamp(0.0, 1.0);
     let roughness = (1.0 - (material.properties.shininess / 128.0)).clamp(0.0, 1.0);
-    let ao = 1.0;
+    let diffuse_alpha = material.properties.diffuse_color[3].clamp(0.0, 1.0);
     let unlit = if material.properties.unlit { 1.0 } else { 0.0 };
-    [metallic, roughness, ao, unlit]
+    [diffuse_alpha, specular_intensity, roughness, unlit]
 }
 
 pub(crate) fn batch_priority(material: Option<&Material>) -> u32 {
-    let Some(material) = material else {
-        return 10;
+    let mut priority = match material_batch_specialization(material) {
+        MaterialBatchSpecialization::Null => 5,
+        MaterialBatchSpecialization::Unlit => 5,
+        MaterialBatchSpecialization::ForceMultiplyLike => 9,
+        MaterialBatchSpecialization::Lit => 10,
     };
 
-    let mut priority: u32 = 10;
-    if material.properties.unlit {
-        priority = priority.saturating_sub(5);
-    }
-    if material.properties.alpha_test {
-        priority = priority.saturating_add(1);
-    }
-    if material.properties.double_sided {
-        priority = priority.saturating_add(1);
+    if let Some(material) = material {
+        if material.properties.alpha_test {
+            priority = priority.saturating_add(1);
+        }
+        if material.properties.double_sided {
+            priority = priority.saturating_add(1);
+        }
     }
     priority
+}
+
+fn legacy_null_material_params() -> [f32; 4] {
+    [1.0, 0.0, 1.0 - (1.0 / 128.0), 1.0]
+}
+
+fn is_neutral_diffuse_color(color: [f32; 4]) -> bool {
+    color[0].to_bits() == 1.0f32.to_bits()
+        && color[1].to_bits() == 1.0f32.to_bits()
+        && color[2].to_bits() == 1.0f32.to_bits()
+        && color[3].to_bits() == 1.0f32.to_bits()
 }
 
 #[cfg(test)]
@@ -806,6 +845,15 @@ mod tests {
     }
 
     #[test]
+    fn batch_material_params_for_missing_material_matches_cpp_null_defaults() {
+        let params = batch_material_params(None);
+        assert_eq!(params[0], 1.0);
+        assert_eq!(params[1], 0.0);
+        assert!((params[2] - (1.0 - (1.0 / 128.0))).abs() < 1.0e-6);
+        assert_eq!(params[3], 1.0);
+    }
+
+    #[test]
     fn batch_priority_specializes_unlit_alpha_test_and_double_sided_materials() {
         let mut material = Material {
             id: "mat".to_string(),
@@ -823,5 +871,26 @@ mod tests {
         material.properties.alpha_test = true;
         material.properties.double_sided = true;
         assert_eq!(batch_priority(Some(&material)), 7);
+        assert_eq!(batch_priority(None), 5);
+    }
+
+    #[test]
+    fn batch_priority_specializes_force_multiply_like_textured_materials() {
+        let mut material = Material {
+            id: "mat".to_string(),
+            name: "mat".to_string(),
+            shader_id: "default".to_string(),
+            diffuse_texture: Some("tex".to_string()),
+            normal_texture: None,
+            specular_texture: None,
+            emissive_texture: None,
+            properties: super::super::MaterialProperties::default(),
+        };
+        material.properties.diffuse_color = [0.75, 0.8, 0.9, 1.0];
+
+        assert_eq!(batch_priority(Some(&material)), 9);
+
+        material.properties.unlit = true;
+        assert_eq!(batch_priority(Some(&material)), 5);
     }
 }

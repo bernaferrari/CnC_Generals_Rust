@@ -14,8 +14,8 @@ use super::game_message::{
     IRegion2D,
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
-use crate::helpers::TheInGameUI;
 use crate::gui::shell::get_shell;
+use crate::helpers::TheInGameUI;
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use gamelogic::commands::command::CommandType;
 use gamelogic::helpers::TheGameLogic;
@@ -296,10 +296,10 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         .to_string();
 
     let meta = lookup_meta_message_type(&name);
-    let has_custom_handler =
-        name.eq_ignore_ascii_case("PLACE_BEACON") || name.eq_ignore_ascii_case("DELETE_BEACON");
-    // Temporary until the full command-table parity work lands: let debug/demo-only
-    // entries load even when GameMessageType coverage is still incomplete.
+    let has_custom_handler = name.eq_ignore_ascii_case("PLACE_BEACON")
+        || name.eq_ignore_ascii_case("DELETE_BEACON")
+        || name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS");
+    // Keep debug/demo-only entries loadable when the Rust message enum still lacks coverage.
     if meta.is_none() && !has_custom_handler && !is_unresolved_command_name_allowed(&name) {
         return Err(INIError::InvalidData);
     }
@@ -377,7 +377,6 @@ fn is_unresolved_command_name_allowed(name: &str) -> bool {
         || upper.starts_with("CHEAT_")
         || upper.starts_with("DEBUG_")
         || upper == "HELP"
-        || upper == "TOGGLE_LOWER_DETAILS"
 }
 
 fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> {
@@ -593,6 +592,7 @@ fn lookup_meta_message_type(name: &str) -> Option<GameMessageType> {
         "CHAT_EVERYONE" => Some(GameMessageType::MetaChatEveryone),
         "DIPLOMACY" => Some(GameMessageType::MetaDiplomacy),
         "OPTIONS" => Some(GameMessageType::MetaOptions),
+        "TOGGLE_ATTACKMOVE" => Some(GameMessageType::MetaToggleAttackMove),
         "TOGGLE_CONTROL_BAR" => Some(GameMessageType::MetaToggleControlBar),
         "BEGIN_PATH_BUILD" => Some(GameMessageType::MetaBeginPathBuild),
         "END_PATH_BUILD" => Some(GameMessageType::MetaEndPathBuild),
@@ -632,11 +632,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                         guard.tivo_fast_mode = !guard.tivo_fast_mode;
                         guard.tivo_fast_mode
                     };
-                    TheInGameUI::message(if enabled {
-                        "GUI:FF_ON"
-                    } else {
-                        "GUI:FF_OFF"
-                    });
+                    TheInGameUI::message(if enabled { "GUI:FF_ON" } else { "GUI:FF_OFF" });
                 }
             }
             return Some(GameMessageDisposition::KeepMessage);
@@ -661,7 +657,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DELETE_BEACON") {
         if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_replay_game() {
-            emit_message(GameMessage::new(GameMessageType::RemoveBeacon(Coord3D::default())));
+            emit_message(GameMessage::new(GameMessageType::RemoveBeacon(
+                Coord3D::default(),
+            )));
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -880,5 +878,20 @@ impl GameMessageTranslator for MetaEventTranslator {
         }
 
         disp
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lookup_meta_message_type_uses_cpp_attack_move_spelling() {
+        assert_eq!(
+            lookup_meta_message_type("TOGGLE_ATTACKMOVE"),
+            Some(GameMessageType::MetaToggleAttackMove)
+        );
+        assert_eq!(lookup_meta_message_type("TOGGLE_ATTACK_MOVE"), None);
+        assert_eq!(lookup_meta_message_type("HELP"), None);
     }
 }

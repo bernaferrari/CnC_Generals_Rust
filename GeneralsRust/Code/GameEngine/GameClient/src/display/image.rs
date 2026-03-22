@@ -39,6 +39,13 @@ fn is_startup_shell_image(name: &str) -> bool {
     )
 }
 
+const STARTUP_SHELL_IMAGE_NAMES: [&str; 4] = [
+    "MainMenuBackdrop",
+    "MainMenuPulse",
+    "GeneralsLogo",
+    "MainMenuRuler",
+];
+
 fn log_startup_shell_image_once(name: &str, message: String) {
     static REPORTED: OnceCell<Mutex<HashSet<String>>> = OnceCell::new();
     let reported = REPORTED.get_or_init(|| Mutex::new(HashSet::new()));
@@ -1053,7 +1060,19 @@ pub fn sync_mapped_images_from_common() -> usize {
         imported += 1;
     }
 
+    // C++ materializes the shell backdrop set before the first menu frame.
+    let _ = materialize_startup_shell_images();
+
     imported
+}
+
+/// Ensure the startup shell image set exists in the client-side mapped image
+/// collection before menu/window creation.
+pub fn materialize_startup_shell_images() -> usize {
+    STARTUP_SHELL_IMAGE_NAMES
+        .iter()
+        .filter(|name| ensure_client_mapped_image(name))
+        .count()
 }
 
 fn import_common_mapped_image_into_client(name: &str) -> bool {
@@ -1229,6 +1248,30 @@ mod tests {
             assert!(
                 client.find_image_by_name(name).is_some(),
                 "{name} missing after mapped image sync; imported={imported} total={}",
+                client.count()
+            );
+        }
+    }
+
+    #[test]
+    fn materialize_startup_shell_images_keeps_shell_assets_available() {
+        game_engine::common::ini::ini_mapped_image::init_global_mapped_image_collection();
+        CommonImageCollection::load_global(512);
+
+        let client = ensure_mapped_image_collection();
+        client.write().clear();
+
+        let materialized = materialize_startup_shell_images();
+        assert!(
+            materialized > 0,
+            "expected startup shell images to materialize"
+        );
+
+        let client = client.read();
+        for name in STARTUP_SHELL_IMAGE_NAMES {
+            assert!(
+                client.find_image_by_name(name).is_some(),
+                "{name} missing after materialization; total={}",
                 client.count()
             );
         }

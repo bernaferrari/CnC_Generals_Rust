@@ -279,6 +279,7 @@ struct MaterialBindingCacheKey {
     base_material_id: Option<String>,
     texture_id: String,
     tint_rgba: [u8; 4],
+    combiner_signature: MaterialCombinerSignature,
     lighting_state: FixedFunctionLightingState,
     surface_state: FixedFunctionSurfaceState,
 }
@@ -303,6 +304,12 @@ struct FixedFunctionSurfaceState {
     alpha_ref: u8,
     alpha_blend_enabled: bool,
     cull_mode: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct MaterialCombinerSignature {
+    sampling_stage_count: u8,
+    force_multiply_like: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -4312,10 +4319,11 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
     };
     let lighting_state = current_fixed_function_lighting_state(device);
     let surface_state = current_fixed_function_surface_state(device);
-    let multi_texture_chain = enabled_texture_sampling_stage_count_with(
+    let combiner_signature = material_combiner_signature_with(
         &mut |stage, state| stage_texture_state_value(device, stage, state),
         8,
-    ) > 1;
+    );
+    let multi_texture_chain = combiner_signature.sampling_stage_count > 1;
 
     let texture_factor = render_state_value(device, W3D_RENDER_STATE::W3DRS_TEXTUREFACTOR);
     let tint_rgba = if active_texture_id.is_some() {
@@ -4373,6 +4381,7 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
         base_material_id: base_material_id.clone(),
         texture_id: texture_cache_id.clone(),
         tint_rgba: pack_rgba8(tint_rgba),
+        combiner_signature,
         lighting_state,
         surface_state,
     };
@@ -4386,6 +4395,7 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
         base_material_id.as_deref(),
         &texture_cache_id,
         cache_key.tint_rgba,
+        combiner_signature,
         lighting_state,
         surface_state,
     );
@@ -4430,6 +4440,7 @@ fn material_binding_id(
     base_material_id: Option<&str>,
     texture_id: &str,
     tint_rgba: [u8; 4],
+    combiner_signature: MaterialCombinerSignature,
     lighting_state: FixedFunctionLightingState,
     surface_state: FixedFunctionSurfaceState,
 ) -> String {
@@ -4437,9 +4448,63 @@ fn material_binding_id(
     base_material_id.hash(&mut hasher);
     texture_id.hash(&mut hasher);
     tint_rgba.hash(&mut hasher);
+    combiner_signature.hash(&mut hasher);
     lighting_state.hash(&mut hasher);
     surface_state.hash(&mut hasher);
     format!("__w3d_c_api_bound_material_{:016x}", hasher.finish())
+}
+
+fn material_combiner_signature_with<F>(
+    stage_state_lookup: &mut F,
+    max_stages: u32,
+) -> MaterialCombinerSignature
+where
+    F: FnMut(u32, u32) -> u32,
+{
+    let mut sampling_stage_count = 0u8;
+    let mut force_multiply_like = false;
+
+    for stage in 0..max_stages {
+        if !texture_stage_enabled_with(stage_state_lookup, stage) {
+            continue;
+        }
+
+        if !texture_stage_uses_texture_input_with(stage_state_lookup, stage) {
+            continue;
+        }
+
+        sampling_stage_count = sampling_stage_count.saturating_add(1);
+
+        let color_op = stage_state_lookup(stage, D3DTSS_COLOROP);
+        let alpha_op = stage_state_lookup(stage, D3DTSS_ALPHAOP);
+        if combiner_op_is_force_multiply_like(color_op)
+            || combiner_op_is_force_multiply_like(alpha_op)
+        {
+            force_multiply_like = true;
+        }
+    }
+
+    MaterialCombinerSignature {
+        sampling_stage_count,
+        force_multiply_like,
+    }
+}
+
+fn combiner_op_is_force_multiply_like(op: u32) -> bool {
+    matches!(
+        op,
+        D3DTOP_MODULATE
+            | D3DTOP_MODULATE2X
+            | D3DTOP_MODULATE4X
+            | D3DTOP_MULTIPLYADD
+            | D3DTOP_MODULATEALPHA_ADDCOLOR
+            | D3DTOP_MODULATECOLOR_ADDALPHA
+            | D3DTOP_MODULATEINVALPHA_ADDCOLOR
+            | D3DTOP_MODULATEINVCOLOR_ADDALPHA
+            | D3DTOP_PREMODULATE
+            | D3DTOP_BUMPENVMAP
+            | D3DTOP_BUMPENVMAPLUMINANCE
+    )
 }
 
 fn first_enabled_texture_stage_with<F>(stage_state_lookup: &mut F, max_stages: u32) -> Option<u32>
@@ -4542,7 +4607,17 @@ fn default_material(id: &str) -> Material {
         normal_texture: None,
         specular_texture: None,
         emissive_texture: None,
-        properties: super::MaterialProperties::default(),
+        properties: super::MaterialProperties {
+            diffuse_color: [1.0, 1.0, 1.0, 1.0],
+            specular_color: [0.0, 0.0, 0.0],
+            emissive_color: [0.0, 0.0, 0.0],
+            shininess: 1.0,
+            alpha_cutoff: 0.0,
+            alpha_test: false,
+            transparent: false,
+            double_sided: false,
+            unlit: true,
+        },
     }
 }
 
@@ -6267,6 +6342,20 @@ mod tests {
     }
 
     #[test]
+    fn default_material_matches_cpp_apply_null_defaults() {
+        let material = default_material("null");
+
+        assert_eq!(material.properties.diffuse_color, [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(material.properties.specular_color, [0.0, 0.0, 0.0]);
+        assert_eq!(material.properties.emissive_color, [0.0, 0.0, 0.0]);
+        assert!((material.properties.shininess - 1.0).abs() < 1.0e-6);
+        assert!(!material.properties.alpha_test);
+        assert!(!material.properties.transparent);
+        assert!(!material.properties.double_sided);
+        assert!(material.properties.unlit);
+    }
+
+    #[test]
     fn enabled_texture_sampling_stage_count_detects_multitexture_chains() {
         let mut states = HashMap::new();
         states.insert((0, D3DTSS_COLOROP), D3DTOP_MODULATE);
@@ -6299,11 +6388,23 @@ mod tests {
         let tint = [255, 255, 255, 255];
         let lighting_default = default_fixed_function_lighting_state();
         let surface_default = default_fixed_function_surface_state();
-        let lit_id = material_binding_id(base, texture, tint, lighting_default, surface_default);
+        let identity_signature = MaterialCombinerSignature {
+            sampling_stage_count: 1,
+            force_multiply_like: false,
+        };
+        let lit_id = material_binding_id(
+            base,
+            texture,
+            tint,
+            identity_signature,
+            lighting_default,
+            surface_default,
+        );
         let alpha_test_id = material_binding_id(
             base,
             texture,
             tint,
+            identity_signature,
             lighting_default,
             FixedFunctionSurfaceState {
                 alpha_test_enabled: true,
@@ -6313,6 +6414,81 @@ mod tests {
         );
 
         assert_ne!(lit_id, alpha_test_id);
+    }
+
+    #[test]
+    fn material_binding_id_distinguishes_force_multiply_like_combiner_paths() {
+        let base = Some("base");
+        let texture = "tex";
+        let tint = [255, 255, 255, 255];
+        let lighting_default = default_fixed_function_lighting_state();
+        let surface_default = default_fixed_function_surface_state();
+
+        let select_arg1 = MaterialCombinerSignature {
+            sampling_stage_count: 1,
+            force_multiply_like: false,
+        };
+        let modulate = MaterialCombinerSignature {
+            sampling_stage_count: 1,
+            force_multiply_like: true,
+        };
+
+        let select_id = material_binding_id(
+            base,
+            texture,
+            tint,
+            select_arg1,
+            lighting_default,
+            surface_default,
+        );
+        let modulate_id = material_binding_id(
+            base,
+            texture,
+            tint,
+            modulate,
+            lighting_default,
+            surface_default,
+        );
+
+        assert_ne!(select_id, modulate_id);
+    }
+
+    #[test]
+    fn material_combiner_signature_detects_force_multiply_like_paths() {
+        let mut select_arg1_states = HashMap::new();
+        select_arg1_states.insert((0, D3DTSS_COLOROP), D3DTOP_SELECTARG1);
+        select_arg1_states.insert((0, D3DTSS_COLORARG1), D3DTA_TEXTURE);
+        select_arg1_states.insert((0, D3DTSS_ALPHAOP), D3DTOP_DISABLE);
+
+        let mut modulate_states = HashMap::new();
+        modulate_states.insert((0, D3DTSS_COLOROP), D3DTOP_MODULATE);
+        modulate_states.insert((0, D3DTSS_COLORARG1), D3DTA_TEXTURE);
+        modulate_states.insert((0, D3DTSS_COLORARG2), D3DTA_CURRENT);
+        modulate_states.insert((0, D3DTSS_ALPHAOP), D3DTOP_DISABLE);
+
+        let select_signature = material_combiner_signature_with(
+            &mut |stage, state| {
+                select_arg1_states
+                    .get(&(stage, state))
+                    .copied()
+                    .unwrap_or_else(|| default_texture_stage_state(stage, state))
+            },
+            8,
+        );
+        let modulate_signature = material_combiner_signature_with(
+            &mut |stage, state| {
+                modulate_states
+                    .get(&(stage, state))
+                    .copied()
+                    .unwrap_or_else(|| default_texture_stage_state(stage, state))
+            },
+            8,
+        );
+
+        assert_eq!(select_signature.sampling_stage_count, 1);
+        assert_eq!(modulate_signature.sampling_stage_count, 1);
+        assert!(!select_signature.force_multiply_like);
+        assert!(modulate_signature.force_multiply_like);
     }
 
     #[test]
