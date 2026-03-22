@@ -261,7 +261,8 @@ impl CommandLineArgs {
                     "benchmark" => parsed.benchmark_mode = true,
                     "seed" | "netminplayers" | "playstats" | "forcebenchmark" | "nomusic"
                     | "nosizzle" | "noshaders" | "particleedit" | "scriptdebug" | "noshellanim"
-                    | "wincursors" | "constantdebug" | "showteamdot" | "nomovecamera" => {}
+                    | "wincursors" | "constantdebug" | "showteamdot" | "nomovecamera"
+                    | "nodraw" | "jumptoframe" => {}
                     "server" => parsed.server_mode = true,
                     "client" => parsed.client_mode = true,
                     "port" => {
@@ -420,6 +421,7 @@ impl CommandLineArgs {
                 | "playstats"
                 | "fps"
                 | "shellmap"
+                | "jumptoframe"
         )
     }
 

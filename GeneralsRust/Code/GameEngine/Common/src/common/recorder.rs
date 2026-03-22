@@ -6,12 +6,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::{Datelike, Local, TimeZone, Timelike};
+
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::message_stream::{
     is_network_command_message, GameMessage, GameMessageArgumentDataType, GameMessageArgumentType,
     GameMessageType, MessageSerializer,
 };
-use crate::common::random_value::{get_game_logic_random_seed, init_game_logic_random};
+use crate::common::random_value::{
+    get_game_logic_random_seed, init_game_logic_random, init_random_with_seed,
+};
 use crate::common::version::get_version;
 use crate::game_network::{
     game_info::{
@@ -94,6 +98,15 @@ pub struct Recorder {
 const GAME_SINGLE_PLAYER: i32 = 0;
 const GAME_SHELL: i32 = 4;
 const GAME_NONE: i32 = 6;
+const REPLAY_TIME_T_BYTES: u64 = 4;
+const REPLAY_SYSTEM_TIME_BYTES: usize = 16;
+const REPLAY_STATS_OFFSET: u64 = 6;
+const REPLAY_END_TIME_OFFSET: u64 = REPLAY_STATS_OFFSET + REPLAY_TIME_T_BYTES;
+const REPLAY_FRAME_DURATION_OFFSET: u64 = REPLAY_END_TIME_OFFSET + REPLAY_TIME_T_BYTES;
+const REPLAY_DESYNC_OFFSET: u64 = REPLAY_FRAME_DURATION_OFFSET + 4;
+const REPLAY_QUIT_EARLY_OFFSET: u64 = REPLAY_DESYNC_OFFSET + 1;
+const REPLAY_PLAYER_DISCONNECTS_OFFSET: u64 = REPLAY_QUIT_EARLY_OFFSET + 1;
+const REPLAY_FIXED_HEADER_SIZE: usize = REPLAY_PLAYER_DISCONNECTS_OFFSET as usize + 8;
 
 /// CRC information for sync validation
 /// Matches C++ CRCInfo from Recorder.cpp:903-956
@@ -395,6 +408,89 @@ impl Default for ReplayHeader {
     }
 }
 
+fn write_fixed_width_time_t(file: &mut File, value: u32) -> Result<(), std::io::Error> {
+    file.write_all(&value.to_le_bytes())
+}
+
+fn read_fixed_width_time_t(file: &mut File) -> Result<u32, std::io::Error> {
+    let mut buf = [0u8; REPLAY_TIME_T_BYTES as usize];
+    file.read_exact(&mut buf)?;
+    Ok(u32::from_le_bytes(buf))
+}
+
+fn encode_system_time_from_local(now: chrono::DateTime<Local>) -> [u8; REPLAY_SYSTEM_TIME_BYTES] {
+    let fields = [
+        now.year() as u16,
+        now.month() as u16,
+        now.weekday().num_days_from_sunday() as u16,
+        now.day() as u16,
+        now.hour() as u16,
+        now.minute() as u16,
+        now.second() as u16,
+        now.timestamp_subsec_millis() as u16,
+    ];
+
+    let mut bytes = [0u8; REPLAY_SYSTEM_TIME_BYTES];
+    for (index, field) in fields.iter().enumerate() {
+        let offset = index * 2;
+        bytes[offset..offset + 2].copy_from_slice(&field.to_le_bytes());
+    }
+    bytes
+}
+
+fn system_time_from_replay_bytes(bytes: [u8; REPLAY_SYSTEM_TIME_BYTES]) -> SystemTime {
+    let year = u16::from_le_bytes([bytes[0], bytes[1]]) as i32;
+    let month = u16::from_le_bytes([bytes[2], bytes[3]]) as u32;
+    let day = u16::from_le_bytes([bytes[6], bytes[7]]) as u32;
+    let hour = u16::from_le_bytes([bytes[8], bytes[9]]) as u32;
+    let minute = u16::from_le_bytes([bytes[10], bytes[11]]) as u32;
+    let second = u16::from_le_bytes([bytes[12], bytes[13]]) as u32;
+    let milliseconds = u16::from_le_bytes([bytes[14], bytes[15]]) as u32;
+
+    let Some(local_time) = Local
+        .with_ymd_and_hms(year, month, day, hour, minute, second)
+        .earliest()
+    else {
+        return UNIX_EPOCH;
+    };
+
+    let utc_time = (local_time + chrono::Duration::milliseconds(milliseconds as i64))
+        .with_timezone(&chrono::Utc);
+    let seconds = utc_time.timestamp();
+    let nanos = utc_time.timestamp_subsec_nanos();
+
+    if seconds >= 0 {
+        UNIX_EPOCH + std::time::Duration::new(seconds as u64, nanos)
+    } else {
+        UNIX_EPOCH - std::time::Duration::new((-seconds) as u64, nanos)
+    }
+}
+
+fn read_system_time_from_file(file: &mut File) -> Result<SystemTime, std::io::Error> {
+    let mut buf = [0u8; REPLAY_SYSTEM_TIME_BYTES];
+    file.read_exact(&mut buf)?;
+    Ok(system_time_from_replay_bytes(buf))
+}
+
+fn write_system_time_to_file(
+    file: &mut File,
+    local_time: chrono::DateTime<Local>,
+) -> Result<(), std::io::Error> {
+    file.write_all(&encode_system_time_from_local(local_time))
+}
+
+fn send_clear_game_data(
+    command_sink: &Option<Arc<dyn Fn(GameMessage) + Send + Sync>>,
+    pending_commands: &mut Vec<GameMessage>,
+) {
+    let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
+    if let Some(sink) = command_sink {
+        sink.as_ref()(clear_msg);
+    } else {
+        pending_commands.push(clear_msg);
+    }
+}
+
 impl Default for Recorder {
     fn default() -> Self {
         Self::new()
@@ -444,10 +540,10 @@ impl Recorder {
 
         if let Some(data) = get_global_data() {
             let data = data.read();
-            let map = if !data.map_name.is_empty() {
-                data.map_name.clone()
-            } else {
+            let map = if !data.pending_file.is_empty() {
                 data.pending_file.clone()
+            } else {
+                data.map_name.clone()
             };
             self.game_info.set_map(map);
         } else {
@@ -524,6 +620,16 @@ impl Recorder {
 
     fn is_network_message(&self, msg: &GameMessage) -> bool {
         is_network_command_message(msg.get_type())
+    }
+
+    fn is_current_game_in_game(&self) -> bool {
+        self.game_mode_provider
+            .as_ref()
+            .map(|provider| {
+                let mode = provider();
+                mode != GAME_SHELL && mode != GAME_NONE
+            })
+            .unwrap_or(false)
     }
 
     /// Reset the recorder to initialized state
@@ -828,9 +934,9 @@ impl Recorder {
 
         // Reserve space for stats (Recorder.cpp:531-549)
         // Start time
-        file.write_all(&0u64.to_le_bytes())?;
+        write_fixed_width_time_t(&mut file, 0)?;
         // End time
-        file.write_all(&0u64.to_le_bytes())?;
+        write_fixed_width_time_t(&mut file, 0)?;
         // Frame duration
         file.write_all(&0u32.to_le_bytes())?;
         // Desync flag
@@ -847,11 +953,7 @@ impl Recorder {
         self.write_unicode_string(&mut file, replay_name)?;
 
         // Write system time (Recorder.cpp:557-560)
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        file.write_all(&now.to_le_bytes())?;
+        write_system_time_to_file(&mut file, Local::now())?;
 
         // Write version info (Recorder.cpp:562-572)
         let version = get_version();
@@ -893,6 +995,7 @@ impl Recorder {
 
         file.flush()?;
         self.file = Some(file);
+        self.log_game_start(slot_list);
         self.original_game_mode = original_game_mode;
 
         log::info!("Started recording to {}", filepath.display());
@@ -1161,14 +1264,9 @@ impl Recorder {
         // Adapter parity: stale queued commands must not survive a new playback session.
         self.pending_commands.clear();
 
-        if !self.doing_analysis {
-            // C++ clears live game data before playback starts.
-            let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
-            if let Some(sink) = &self.command_sink {
-                sink(clear_msg);
-            } else {
-                self.pending_commands.push(clear_msg);
-            }
+        if !self.doing_analysis && self.is_current_game_in_game() {
+            // C++ clears live game data only when playback starts from an active game.
+            send_clear_game_data(&self.command_sink, &mut self.pending_commands);
         }
 
         self.mode = RecorderMode::Playback;
@@ -1217,6 +1315,9 @@ impl Recorder {
         // Read next frame
         self.read_next_frame();
 
+        // C++ parity: playback header controls replay CRC cadence.
+        crate::common::crc_debug::set_replay_crc_interval(self.game_info.get_crc_interval() as i32);
+
         // Send MSG_NEW_GAME message
         if !self.doing_analysis {
             const GAME_REPLAY: i32 = 3;
@@ -1235,6 +1336,7 @@ impl Recorder {
             }
 
             init_game_logic_random(self.game_info.get_seed());
+            init_random_with_seed(self.game_info.get_seed());
         }
 
         self.current_replay_filename = filename;
@@ -1283,15 +1385,11 @@ impl Recorder {
         }
 
         // Read stats (Recorder.cpp:814-825)
-        let mut buf8 = [0u8; 8];
         let mut buf4 = [0u8; 4];
         let mut buf1 = [0u8; 1];
 
-        file.read_exact(&mut buf8)?;
-        header.start_time = u64::from_le_bytes(buf8);
-
-        file.read_exact(&mut buf8)?;
-        header.end_time = u64::from_le_bytes(buf8);
+        header.start_time = read_fixed_width_time_t(&mut file)? as u64;
+        header.end_time = read_fixed_width_time_t(&mut file)? as u64;
 
         file.read_exact(&mut buf4)?;
         header.frame_duration = u32::from_le_bytes(buf4);
@@ -1311,8 +1409,7 @@ impl Recorder {
         header.replay_name = self.read_unicode_string(&mut file)?;
 
         // Read date/time (Recorder.cpp:831)
-        file.read_exact(&mut buf8)?;
-        header.time_val = UNIX_EPOCH + std::time::Duration::from_secs(u64::from_le_bytes(buf8));
+        header.time_val = read_system_time_from_file(&mut file)?;
 
         // Read version info (Recorder.cpp:833-838)
         header.version_string = self.read_unicode_string(&mut file)?;
@@ -1381,12 +1478,7 @@ impl Recorder {
         self.filename.clear();
 
         if !self.doing_analysis {
-            let clear_msg = GameMessage::new(GameMessageType::ClearGameData);
-            if let Some(sink) = &self.command_sink {
-                sink(clear_msg);
-            } else {
-                self.pending_commands.push(clear_msg);
-            }
+            send_clear_game_data(&self.command_sink, &mut self.pending_commands);
         }
     }
 
@@ -1431,13 +1523,14 @@ impl Recorder {
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
+            .as_secs()
+            .min(u32::MAX as u64) as u32;
 
         // Seek to start time offset (Recorder.cpp:49-55)
         // const startTimeOffset = 6
         if let Some(ref mut file) = self.file {
-            let _ = file.seek(SeekFrom::Start(6));
-            let _ = file.write_all(&start_time.to_le_bytes());
+            let _ = file.seek(SeekFrom::Start(REPLAY_STATS_OFFSET));
+            let _ = write_fixed_width_time_t(file, start_time);
             // Seek back to end
             let _ = file.seek(SeekFrom::End(0));
             let _ = file.flush();
@@ -1456,17 +1549,18 @@ impl Recorder {
         let end_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
+            .as_secs()
+            .min(u32::MAX as u64) as u32;
 
         let duration: u32 = self.get_current_frame();
 
-        // Seek and write end time (offset 6 + 8 = 14)
+        // Seek and write end time (offset 6 + 4 = 10)
         if let Some(ref mut file) = self.file {
-            let _ = file.seek(SeekFrom::Start(14));
-            let _ = file.write_all(&end_time.to_le_bytes());
+            let _ = file.seek(SeekFrom::Start(REPLAY_END_TIME_OFFSET));
+            let _ = write_fixed_width_time_t(file, end_time);
 
-            // Write frame duration (offset 14 + 8 = 22)
-            let _ = file.seek(SeekFrom::Start(22));
+            // Write frame duration (offset 10 + 4 = 14)
+            let _ = file.seek(SeekFrom::Start(REPLAY_FRAME_DURATION_OFFSET));
             let _ = file.write_all(&duration.to_le_bytes());
 
             // Seek back to end
@@ -1489,8 +1583,8 @@ impl Recorder {
             return;
         }
 
-        // Seek to disconnect offset (6 + 8 + 8 + 4 + 1 + 1 = 28, then + slot)
-        let offset = 28 + slot as u64;
+        // Seek to disconnect offset (6 + 4 + 4 + 4 + 1 + 1 = 20, then + slot)
+        let offset = REPLAY_PLAYER_DISCONNECTS_OFFSET + slot as u64;
         if let Some(ref mut file) = self.file {
             let _ = file.seek(SeekFrom::Start(offset));
             let _ = file.write_all(&[1u8]); // true
@@ -1506,9 +1600,9 @@ impl Recorder {
             return;
         }
 
-        // Seek to desync offset (6 + 8 + 8 + 4 = 26)
+        // Seek to desync offset (6 + 4 + 4 + 4 = 18)
         if let Some(ref mut file) = self.file {
-            let _ = file.seek(SeekFrom::Start(26));
+            let _ = file.seek(SeekFrom::Start(REPLAY_DESYNC_OFFSET));
             let _ = file.write_all(&[1u8]); // true
             let _ = file.seek(SeekFrom::End(0));
             let _ = file.flush();
@@ -1825,11 +1919,11 @@ mod tests {
 
     fn replay_version_offsets(bytes: &[u8]) -> (usize, usize, usize, usize, usize) {
         // Magic + fixed replay stats block
-        let mut offset = 6 + 8 + 8 + 4 + 1 + 1 + 8;
+        let mut offset = REPLAY_FIXED_HEADER_SIZE;
         // Replay name
         offset = read_utf16_z_end(bytes, offset);
         // Timestamp
-        offset += 8;
+        offset += REPLAY_SYSTEM_TIME_BYTES;
         let version_string_start = offset;
         let version_string_end = read_utf16_z_end(bytes, offset);
         let version_time_start = version_string_end;
@@ -2000,6 +2094,7 @@ mod tests {
         }
 
         let mut reader = Recorder::new();
+        reader.set_game_mode_provider(Some(Arc::new(|| 2)));
         let sink_types = captured_types.clone();
         reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
             sink_types.lock().unwrap().push(msg.get_type().clone());
@@ -2025,6 +2120,151 @@ mod tests {
                 GameMessageType::ClearGameData,
             ]
         );
+    }
+
+    #[test]
+    fn test_playback_file_skips_clear_game_data_when_not_in_game() {
+        let temp = tempfile::tempdir().unwrap();
+
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = "Maps/PlaybackNoClear.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 3, 60).unwrap();
+        writer.set_current_frame(2);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
+            .unwrap();
+        writer.stop_recording();
+
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+
+        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut reader = Recorder::new();
+        reader.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
+        let sink_types = captured_types.clone();
+        reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+            sink_types.lock().unwrap().push(msg.get_type().clone());
+        })));
+
+        assert!(reader.playback_file(replay_name).unwrap());
+        assert_eq!(
+            captured_types.lock().unwrap().as_slice(),
+            &[GameMessageType::NewGame,]
+        );
+    }
+
+    #[test]
+    fn test_replay_header_round_trips_fixed_width_time_layout() {
+        let temp = tempfile::tempdir().unwrap();
+        let map_name = "Maps/HeaderParity.map".to_string();
+
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = map_name.clone();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 3, 60).unwrap();
+        writer.set_current_frame(11);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x1234_5678)))
+            .unwrap();
+        writer.stop_recording();
+
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+        let bytes = std::fs::read(temp.path().join("Replays").join(&replay_name))
+            .expect("replay should be readable");
+
+        assert_eq!(&bytes[..6], b"GENREP");
+
+        let start_time = u32::from_le_bytes(
+            bytes[6..10]
+                .try_into()
+                .expect("start time should be 4 bytes"),
+        );
+        let end_time = u32::from_le_bytes(
+            bytes[10..14]
+                .try_into()
+                .expect("end time should be 4 bytes"),
+        );
+        let frame_duration = u32::from_le_bytes(
+            bytes[14..18]
+                .try_into()
+                .expect("frame duration should be 4 bytes"),
+        );
+        assert!(start_time > 0);
+        assert!(end_time >= start_time);
+        assert_eq!(frame_duration, 11);
+
+        let mut name_offset = REPLAY_FIXED_HEADER_SIZE;
+        name_offset = read_utf16_z_end(&bytes, name_offset);
+        let time_bytes = &bytes[name_offset..name_offset + REPLAY_SYSTEM_TIME_BYTES];
+        let year = u16::from_le_bytes([time_bytes[0], time_bytes[1]]);
+        let month = u16::from_le_bytes([time_bytes[2], time_bytes[3]]);
+        let day_of_week = u16::from_le_bytes([time_bytes[4], time_bytes[5]]);
+        let day = u16::from_le_bytes([time_bytes[6], time_bytes[7]]);
+        let hour = u16::from_le_bytes([time_bytes[8], time_bytes[9]]);
+        let minute = u16::from_le_bytes([time_bytes[10], time_bytes[11]]);
+        let second = u16::from_le_bytes([time_bytes[12], time_bytes[13]]);
+        let milliseconds = u16::from_le_bytes([time_bytes[14], time_bytes[15]]);
+
+        assert!((1980..=2100).contains(&year));
+        assert!((1..=12).contains(&month));
+        assert!((0..=6).contains(&day_of_week));
+        assert!((1..=31).contains(&day));
+        assert!(hour <= 23);
+        assert!(minute <= 59);
+        assert!(second <= 59);
+        assert!(milliseconds <= 999);
+
+        let mut reader = Recorder::new();
+        let header = reader
+            .load_replay_header(replay_name)
+            .expect("header should parse");
+        let version = get_version();
+        assert_eq!(header.replay_name, "LastReplay");
+        assert_eq!(header.start_time, start_time as u64);
+        assert_eq!(header.end_time, end_time as u64);
+        assert_eq!(header.version_string, version.get_unicode_version());
+        assert_eq!(header.version_time_string, version.get_unicode_build_time());
+        assert!(header.time_val > UNIX_EPOCH);
+    }
+
+    #[test]
+    fn test_recorder_init_prefers_pending_file_over_map_name() {
+        let snapshot = get_global_data().map(|global| global.read().clone());
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.pending_file = "Maps/PendingOverride.map".to_string();
+            data.map_name = "Maps/MapNameFallback.map".to_string();
+        }
+
+        let mut recorder = Recorder::new();
+        recorder.init();
+
+        assert_eq!(
+            recorder.get_game_info().get_map(),
+            "Maps/PendingOverride.map"
+        );
+
+        if let (Some(global), Some(snapshot)) = (get_global_data(), snapshot) {
+            *global.write() = snapshot;
+        }
     }
 
     #[test]
