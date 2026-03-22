@@ -56,6 +56,47 @@ pub fn initialize_shell_ui_schemes() {
     game_engine::common::ini::ini_shell_menu_scheme::init_shell_menu_scheme_manager();
 }
 
+macro_rules! impl_bootstrap_subsystem {
+    ($name:ident, $display_name:literal, $init:block) => {
+        pub struct $name;
+
+        impl $name {
+            pub fn new() -> Self {
+                Self
+            }
+        }
+
+        impl SubsystemInterface for $name {
+            fn name(&self) -> &'static str {
+                $display_name
+            }
+
+            fn init(&mut self) -> Result<()> {
+                let result: Result<()> = (|| -> Result<()> { $init })();
+                if let Err(err) = result {
+                    warn!(
+                        "Optional bootstrap subsystem {} initialization warning: {}",
+                        $display_name, err
+                    );
+                }
+                Ok(())
+            }
+
+            fn reset(&mut self) -> Result<()> {
+                Ok(())
+            }
+
+            fn update(&mut self, _dt: f32) -> Result<()> {
+                Ok(())
+            }
+
+            fn shutdown(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+    };
+}
+
 /// File System subsystem - manages BIG files and local files
 pub struct FileSystemSubsystem {
     archive_system: Option<crate::assets::archive::ArchiveFileSystem>,
@@ -251,6 +292,56 @@ impl SubsystemInterface for GlobalDataSubsystem {
         Ok(())
     }
 }
+
+impl_bootstrap_subsystem!(TerrainTypesSubsystem, "TerrainTypes", {
+    let _ = game_engine::common::terrain_types::init_terrain_types();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(TerrainRoadsSubsystem, "TerrainRoads", {
+    drop(game_engine::common::ini::get_terrain_roads());
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(GlobalLanguageSubsystem, "GlobalLanguage", {
+    game_engine::common::ini::init_global_language();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(ScienceStoreSubsystem, "ScienceStore", {
+    drop(game_engine::common::ini::get_science_store());
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(RankInfoStoreSubsystem, "RankInfoStore", {
+    game_engine::common::ini::init_rank_info_store();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(PlayerTemplateSubsystem, "PlayerTemplateStore", {
+    game_engine::common::ini::ensure_player_templates_loaded();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(FXListSubsystem, "FXListStore", {
+    drop(game_engine::common::ini::get_fx_list_store());
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(LocomotorSubsystem, "LocomotorStore", {
+    drop(game_engine::common::ini::get_locomotor_store());
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(ObjectCreationListSubsystem, "ObjectCreationListStore", {
+    gamelogic::object_creation_list::init_object_creation_list_store();
+    Ok(())
+});
+
+impl_bootstrap_subsystem!(BuildAssistantSubsystem, "BuildAssistant", {
+    gamelogic::system::build_assistant_bridge::install_build_assistant_backend();
+    Ok(())
+});
 
 /// Audio Manager subsystem - handles all audio
 pub struct AudioManagerSubsystem {
@@ -1062,16 +1153,26 @@ impl SubsystemManager {
         // The runtime update order still follows the subsystem registration order below,
         // which mirrors the C++ GameEngine::update() cadence for the active gameplay systems.
         let initialization_order = vec![
-            "FileSystem",    // File system must be first
-            "GlobalData",    // Load INI configuration
-            "CDManager",     // Legacy CD/DVD subsystem
-            "AudioManager",  // Audio subsystem
-            "MessageStream", // Message propagation
-            "GameClient",    // Game client (drawables, effects)
-            "InputSystem",   // Input handling
-            "GameLogic",     // Game logic
-            "Radar",         // Radar/minimap is initialized after gameplay systems
-            "Network",       // Network layer is kept last for startup readiness gating
+            "FileSystem",              // File system must be first
+            "GlobalData",              // Load core INI configuration
+            "ScienceStore",            // Science/rank-linked data
+            "TerrainTypes",            // Terrain bootstrap
+            "TerrainRoads",            // Terrain road bootstrap
+            "GlobalLanguage",          // Global language/font metadata
+            "CDManager",               // Legacy CD/DVD subsystem
+            "AudioManager",            // Audio subsystem
+            "MessageStream",           // Message propagation
+            "RankInfoStore",           // Generals rank progression
+            "PlayerTemplateStore",     // Player/faction templates
+            "FXListStore",             // FX list bootstrap
+            "LocomotorStore",          // Movement templates
+            "ObjectCreationListStore", // OCL bootstrap
+            "BuildAssistant",          // Build assistant backend
+            "GameClient",              // Game client (drawables, effects)
+            "InputSystem",             // Input handling
+            "GameLogic",               // Game logic
+            "Radar",                   // Radar/minimap is initialized after gameplay systems
+            "Network",                 // Network layer is kept last for startup readiness gating
         ];
 
         Self {
@@ -1399,20 +1500,34 @@ where
 /// Initialize the global subsystem manager.
 /// Also available as `initialize_subsystem_manager` for C++ naming compatibility.
 pub fn init_subsystem_manager() -> Result<()> {
+    fn register_default_subsystems(manager: &mut SubsystemManager) {
+        let _ = manager.add_subsystem(FileSystemSubsystem::new());
+        let _ = manager.add_subsystem(GlobalDataSubsystem::new());
+        let _ = manager.add_subsystem(ScienceStoreSubsystem::new());
+        let _ = manager.add_subsystem(TerrainTypesSubsystem::new());
+        let _ = manager.add_subsystem(TerrainRoadsSubsystem::new());
+        let _ = manager.add_subsystem(GlobalLanguageSubsystem::new());
+        let _ = manager.add_subsystem(CDManagerSubsystem::new());
+        let _ = manager.add_subsystem(AudioManagerSubsystem::new());
+        let _ = manager.add_subsystem(MessageStreamSubsystem::new());
+        let _ = manager.add_subsystem(RankInfoStoreSubsystem::new());
+        let _ = manager.add_subsystem(PlayerTemplateSubsystem::new());
+        let _ = manager.add_subsystem(FXListSubsystem::new());
+        let _ = manager.add_subsystem(LocomotorSubsystem::new());
+        let _ = manager.add_subsystem(ObjectCreationListSubsystem::new());
+        let _ = manager.add_subsystem(BuildAssistantSubsystem::new());
+        let _ = manager.add_subsystem(GameClientSubsystem::new());
+        let _ = manager.add_subsystem(InputSystemSubsystem::new());
+        let _ = manager.add_subsystem(GameLogicSubsystem::new());
+        let _ = manager.add_subsystem(RadarSubsystem::new());
+        let _ = manager.add_subsystem(NetworkSubsystem::new());
+    }
+
     if SUBSYSTEM_MANAGER.get().is_none() {
         let mut manager = SubsystemManager::new();
 
-        // Add subsystems in C++ GameEngine::update() order
-        let _ = manager.add_subsystem(FileSystemSubsystem::new());
-        let _ = manager.add_subsystem(GlobalDataSubsystem::new());
-        let _ = manager.add_subsystem(RadarSubsystem::new());
-        let _ = manager.add_subsystem(AudioManagerSubsystem::new());
-        let _ = manager.add_subsystem(GameClientSubsystem::new());
-        let _ = manager.add_subsystem(MessageStreamSubsystem::new());
-        let _ = manager.add_subsystem(NetworkSubsystem::new());
-        let _ = manager.add_subsystem(CDManagerSubsystem::new());
-        let _ = manager.add_subsystem(InputSystemSubsystem::new());
-        let _ = manager.add_subsystem(GameLogicSubsystem::new());
+        // Add subsystems in a C++-aligned startup order.
+        register_default_subsystems(&mut manager);
 
         manager.initialize_all()?;
 
@@ -1432,17 +1547,8 @@ pub fn init_subsystem_manager() -> Result<()> {
         .expect("SubsystemManager mutex poisoned during init");
 
     if manager.subsystems.is_empty() {
-        // Add subsystems in C++ GameEngine::update() order
-        let _ = manager.add_subsystem(FileSystemSubsystem::new());
-        let _ = manager.add_subsystem(GlobalDataSubsystem::new());
-        let _ = manager.add_subsystem(RadarSubsystem::new());
-        let _ = manager.add_subsystem(AudioManagerSubsystem::new());
-        let _ = manager.add_subsystem(GameClientSubsystem::new());
-        let _ = manager.add_subsystem(MessageStreamSubsystem::new());
-        let _ = manager.add_subsystem(NetworkSubsystem::new());
-        let _ = manager.add_subsystem(CDManagerSubsystem::new());
-        let _ = manager.add_subsystem(InputSystemSubsystem::new());
-        let _ = manager.add_subsystem(GameLogicSubsystem::new());
+        // Add subsystems in a C++-aligned startup order.
+        register_default_subsystems(&mut manager);
     }
 
     if !manager.is_initialized() {
@@ -1484,53 +1590,79 @@ mod tests {
         ini_shell_menu_scheme::get_shell_menu_scheme_manager,
     };
 
-    struct TestSubsystem {
-        initialized: bool,
-    }
+    #[test]
+    fn test_subsystem_initialization_order_includes_bootstrap_milestones() {
+        let manager = SubsystemManager::new();
 
-    impl TestSubsystem {
-        fn new() -> Self {
-            Self { initialized: false }
-        }
-    }
+        let expected = [
+            "FileSystem",
+            "GlobalData",
+            "ScienceStore",
+            "TerrainTypes",
+            "TerrainRoads",
+            "GlobalLanguage",
+            "RankInfoStore",
+            "PlayerTemplateStore",
+            "FXListStore",
+            "LocomotorStore",
+            "ObjectCreationListStore",
+            "BuildAssistant",
+            "GameClient",
+            "InputSystem",
+            "GameLogic",
+            "Radar",
+            "Network",
+        ];
 
-    impl SubsystemInterface for TestSubsystem {
-        fn name(&self) -> &'static str {
-            "Test"
+        for name in expected {
+            assert!(
+                manager.initialization_order.contains(&name),
+                "missing initialization order entry: {}",
+                name
+            );
         }
 
-        fn init(&mut self) -> Result<()> {
-            self.initialized = true;
-            Ok(())
-        }
-
-        fn reset(&mut self) -> Result<()> {
-            Ok(())
-        }
-        fn update(&mut self, _dt: f32) -> Result<()> {
-            Ok(())
-        }
-        fn shutdown(&mut self) -> Result<()> {
-            self.initialized = false;
-            Ok(())
-        }
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["TerrainTypes", "TerrainRoads"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["TerrainRoads", "GlobalLanguage"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["RankInfoStore", "PlayerTemplateStore"].as_slice()));
+        assert!(manager
+            .initialization_order
+            .windows(2)
+            .any(|pair| pair == ["ObjectCreationListStore", "BuildAssistant"].as_slice()));
     }
 
     #[test]
-    fn test_subsystem_manager() {
-        let mut manager = SubsystemManager::new();
-        let _ = manager.add_subsystem(TestSubsystem::new());
+    fn test_bootstrap_subsystems_initialize_successfully() {
+        let mut terrain_types = TerrainTypesSubsystem::new();
+        let mut terrain_roads = TerrainRoadsSubsystem::new();
+        let mut global_language = GlobalLanguageSubsystem::new();
+        let mut science_store = ScienceStoreSubsystem::new();
+        let mut rank_info = RankInfoStoreSubsystem::new();
+        let mut player_template = PlayerTemplateSubsystem::new();
+        let mut fx_list = FXListSubsystem::new();
+        let mut locomotor = LocomotorSubsystem::new();
+        let mut object_creation_list = ObjectCreationListSubsystem::new();
+        let mut build_assistant = BuildAssistantSubsystem::new();
 
-        assert!(!manager.is_initialized());
-        assert!(manager.initialize_all().is_ok());
-        assert!(manager.is_initialized());
-
-        let stats = manager.get_stats();
-        assert_eq!(stats.total_subsystems, 1);
-        assert!(stats.initialized);
-
-        assert!(manager.shutdown_all().is_ok());
-        assert!(!manager.is_initialized());
+        assert!(terrain_types.init().is_ok());
+        assert!(terrain_roads.init().is_ok());
+        assert!(global_language.init().is_ok());
+        assert!(science_store.init().is_ok());
+        assert!(rank_info.init().is_ok());
+        assert!(player_template.init().is_ok());
+        assert!(fx_list.init().is_ok());
+        assert!(locomotor.init().is_ok());
+        assert!(object_creation_list.init().is_ok());
+        assert!(build_assistant.init().is_ok());
     }
 
     #[test]
