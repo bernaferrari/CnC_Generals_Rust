@@ -30,7 +30,7 @@ use winit::{
     self,
     dpi::{LogicalSize, PhysicalPosition},
     event_loop::EventLoop,
-    window::{Fullscreen, Window, WindowAttributes},
+    window::{Fullscreen, Window, WindowAttributes, WindowLevel},
 };
 
 // Import the GameMain function from our game engine
@@ -63,6 +63,7 @@ static LAUNCHER_SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 const GENERALS_GUID: &str = "685EAFF2-3216-4265-B047-251C5F4B82F3";
 const DEFAULT_XRESOLUTION: i32 = 800;
 const DEFAULT_YRESOLUTION: i32 = 600;
+const STARTUP_WINDOW_TITLE: &str = "Command and Conquer Generals";
 
 /// Windows main entry point - exact equivalent of C++ WinMain
 pub unsafe fn win_main(
@@ -119,15 +120,15 @@ pub unsafe fn win_main(
         return 0;
     }
 
-    // Initialize copy protection system (must be before version and mutex)
+    // Initialize version info with copy protection integration
+    init_version();
+
+    // Initialize copy protection system after version info, matching C++ WinMain.
     if let Err(e) = init_copy_protection() {
         error!("Failed to initialize copy protection: {}", e);
         cleanup_and_exit();
         return 0;
     }
-
-    // Initialize version info with copy protection integration
-    init_version();
 
     // Check if launcher is running (matching C++ CopyProtect::isLauncherRunning)
     if !check_launcher_status() {
@@ -170,8 +171,9 @@ pub unsafe fn win_main(
 unsafe fn initialize_app_windows(
     _h_instance: *mut c_void,
     _n_cmd_show: c_int,
-    _run_windowed: bool,
+    run_windowed: bool,
 ) -> bool {
+    APPLICATION_IS_WINDOWED.store(run_windowed, Ordering::Relaxed);
     true
 }
 
@@ -366,26 +368,18 @@ fn build_window_attributes(
     let event_loop = EventLoop::new().context("Failed to create event loop")?;
     let (width, height) = resolve_startup_resolution(cmd_args);
     let (is_windowed, is_fullscreen) = resolve_window_mode(cmd_args);
+    let startup_position = centered_startup_position(&event_loop, width, height);
 
-    let mut attributes = Window::default_attributes()
-        .with_title("C&C Generals - Rust")
-        .with_inner_size(LogicalSize::new(width as f64, height as f64))
-        .with_resizable(true)
-        .with_maximized(false)
-        .with_decorations(true)
-        .with_visible(true);
-
-    if is_fullscreen {
-        attributes = attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
-    } else {
-        attributes = attributes.with_position(PhysicalPosition::new(100, 100));
-    }
-
-    if is_windowed {
-        attributes = attributes.with_fullscreen(None);
-    }
-
-    Ok((event_loop, attributes))
+    Ok((
+        event_loop,
+        startup_window_attributes(
+            width,
+            height,
+            is_windowed,
+            is_fullscreen,
+            startup_position,
+        ),
+    ))
 }
 
 fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool) {
@@ -400,9 +394,63 @@ fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool)
     }
 }
 
+fn centered_startup_position(
+    _event_loop: &EventLoop<()>,
+    _width: u32,
+    _height: u32,
+) -> Option<PhysicalPosition<i32>> {
+    // winit does not expose the monitor geometry we need at this bootstrap point here, so we
+    // preserve the visible startup offset while keeping the C++ centering math in a pure helper.
+    Some(PhysicalPosition::new(100, 100))
+}
+
+fn startup_window_attributes(
+    width: u32,
+    height: u32,
+    is_windowed: bool,
+    is_fullscreen: bool,
+    startup_position: Option<PhysicalPosition<i32>>,
+) -> WindowAttributes {
+    let mut attributes = Window::default_attributes()
+        .with_title(STARTUP_WINDOW_TITLE)
+        .with_inner_size(LogicalSize::new(width as f64, height as f64))
+        .with_resizable(true)
+        .with_maximized(false)
+        .with_decorations(true)
+        .with_visible(true)
+        .with_window_level(if is_fullscreen {
+            WindowLevel::AlwaysOnTop
+        } else {
+            WindowLevel::Normal
+        });
+
+    if let Some(position) = startup_position {
+        attributes = attributes.with_position(position);
+    }
+
+    if is_fullscreen {
+        attributes = attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
+    }
+
+    if is_windowed {
+        attributes = attributes.with_fullscreen(None);
+    }
+
+    attributes
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{command_line, resolve_window_mode};
+    use super::{
+        centered_startup_position_from_monitor, command_line, initialize_app_windows,
+        resolve_window_mode, startup_window_attributes, APPLICATION_IS_WINDOWED,
+        DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
+    };
+    use std::sync::atomic::Ordering;
+    use winit::{
+        dpi::{PhysicalPosition, PhysicalSize},
+        window::{Fullscreen, WindowLevel},
+    };
 
     #[test]
     fn last_explicit_window_mode_wins_for_winmain_startup_mode() {
@@ -435,6 +483,91 @@ mod tests {
         assert_eq!(capped.len(), command_line::MAX_STARTUP_ARGS);
         assert_eq!(capped.last().map(String::as_str), Some("arg19"));
     }
+
+    #[test]
+    fn initialize_app_windows_tracks_startup_window_mode_flag() {
+        APPLICATION_IS_WINDOWED.store(false, Ordering::Relaxed);
+
+        unsafe {
+            assert!(initialize_app_windows(
+                std::ptr::null_mut(),
+                1,
+                true
+            ));
+        }
+        assert!(APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
+
+        unsafe {
+            assert!(initialize_app_windows(
+                std::ptr::null_mut(),
+                1,
+                false
+            ));
+        }
+        assert!(!APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn centered_startup_position_matches_cpp_centering_math() {
+        let centered = PhysicalPosition::new(570, 260);
+        let helper_centered = centered_startup_position_from_monitor(
+            PhysicalPosition::new(10, 20),
+            PhysicalSize::new(1920, 1080),
+            DEFAULT_XRESOLUTION as u32,
+            DEFAULT_YRESOLUTION as u32,
+        );
+        assert_eq!(helper_centered, centered);
+    }
+
+    #[test]
+    fn startup_window_attributes_match_cpp_semantics() {
+        let attributes = startup_window_attributes(
+            DEFAULT_XRESOLUTION as u32,
+            DEFAULT_YRESOLUTION as u32,
+            true,
+            false,
+            Some(PhysicalPosition::new(570, 260)),
+        );
+
+        assert_eq!(attributes.title, STARTUP_WINDOW_TITLE);
+        assert_eq!(attributes.window_level, WindowLevel::Normal);
+        assert_eq!(
+            attributes.position,
+            Some(PhysicalPosition::new(570, 260).into())
+        );
+        assert!(attributes.fullscreen.is_none());
+        assert!(attributes.visible);
+        assert!(attributes.decorations);
+        assert!(attributes.resizable);
+        assert!(!attributes.maximized);
+
+        let fullscreen_attributes = startup_window_attributes(
+            DEFAULT_XRESOLUTION as u32,
+            DEFAULT_YRESOLUTION as u32,
+            false,
+            true,
+            Some(PhysicalPosition::new(570, 260)),
+        );
+
+        assert_eq!(fullscreen_attributes.title, STARTUP_WINDOW_TITLE);
+        assert_eq!(fullscreen_attributes.window_level, WindowLevel::AlwaysOnTop);
+        assert!(matches!(
+            fullscreen_attributes.fullscreen,
+            Some(Fullscreen::Borderless(None))
+        ));
+    }
+}
+
+fn centered_startup_position_from_monitor(
+    monitor_position: PhysicalPosition<i32>,
+    monitor_size: winit::dpi::PhysicalSize<u32>,
+    width: u32,
+    height: u32,
+) -> PhysicalPosition<i32> {
+    PhysicalPosition::new(
+        monitor_position.x + ((monitor_size.width as i32 - width as i32) / 2),
+        monitor_position.y + ((monitor_size.height as i32 - height as i32) / 2),
+    )
 }
 
 fn parse_u32_option(cmd_args: &command_line::CommandLineArgs, option: &str) -> Option<u32> {

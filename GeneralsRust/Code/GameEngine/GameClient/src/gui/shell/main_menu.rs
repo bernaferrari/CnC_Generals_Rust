@@ -44,6 +44,7 @@ use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
 use crate::helpers::set_mouse_cursor_visibility;
+use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::game_engine::get_game_engine;
@@ -55,10 +56,10 @@ use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::tear_down_gamespy;
 use game_network::gamespy::peer_thread::get_peer_message_queue;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+use crate::system::SubsystemInterface;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[cfg(feature = "network")]
@@ -83,13 +84,9 @@ fn http_cleanup() {}
 
 fn stop_async_dns_check() {}
 
-fn http_think_wrapper() {}
-
 fn set_main_menu_cursor_visibility(visible: bool) {
     set_mouse_cursor_visibility(visible);
 }
-
-fn cancel_patch_check_callback() {}
 
 // ================================================================================================
 // CONSTANTS
@@ -362,6 +359,11 @@ pub struct MainMenuState {
     pub just_entered: bool,
     pub launch_challenge_menu: bool,
     pub dont_allow_transitions: bool,
+    pub checking_for_patch_before_gamespy: bool,
+    pub cant_connect_before_online: bool,
+    pub checks_left_before_online: i32,
+    pub time_through_online: u32,
+    pub online_cancel_window_open: bool,
 
     // Dropdown state
     pub drop_down: DropdownType,
@@ -415,6 +417,11 @@ impl Default for MainMenuState {
             just_entered: false,
             launch_challenge_menu: false,
             dont_allow_transitions: false,
+            checking_for_patch_before_gamespy: false,
+            cant_connect_before_online: false,
+            checks_left_before_online: 0,
+            time_through_online: 0,
+            online_cancel_window_open: false,
             drop_down: DropdownType::None,
             pending_drop_down: DropdownType::None,
             show_frames: 0,
@@ -520,19 +527,9 @@ impl MainMenu {
     }
 
     fn sync_cpp_startup_visibility(&self, state: &MainMenuState) {
-        self.hide_window_by_id(
-            state,
-            state.window_ids.get_update_id,
-            Some("MainMenu.wnd:ButtonGetUpdate"),
-            true,
-        );
-        self.hide_window_by_name(state, "MainMenu.wnd:ButtonGetMapPack", true);
-        self.hide_window_by_id(
-            state,
-            state.window_ids.motd_id,
-            Some("MainMenu.wnd:ButtonMOTD"),
-            true,
-        );
+        // The C++ init block that hid these controls is commented out, so keep the
+        // runtime visibility untouched here as well.
+        let _ = state;
     }
 
     /// Create a new MainMenu instance
@@ -688,7 +685,7 @@ impl MainMenu {
         }
 
         // Cancel patch check callback - matches C++ line 663
-        cancel_patch_check_callback();
+        Self::cancel_patch_check_callback_state(&mut state);
 
         // Check if we are doing an immediate pop - matches C++ line 666
         let pop_immediate = user_data
@@ -804,7 +801,7 @@ impl MainMenu {
         }
 
         // HTTP and GameSpy updates - matches C++ lines 907-908
-        http_think_wrapper();
+        self.http_think_wrapper(&mut state);
         update_gamespy_overlays();
 
         // Check if we should start the game - matches C++ lines 933-936
@@ -927,10 +924,7 @@ impl MainMenu {
                 if window != build_window_ids().main_menu_id {
                     return false;
                 }
-                if data1 == 1 {
-                    // *(Bool *)data2 = TRUE; - we want keyboard focus
-                }
-                return true;
+                return Self::write_input_focus_response(data1, data2 as usize);
             }
 
             // GBM_MOUSE_ENTERING - matches C++ lines 1060-1176
@@ -1040,7 +1034,7 @@ impl MainMenu {
     }
 
     fn perform_quit_now() {
-        TheScriptEngine::signal_ui_interact("ShellMainMenuExitPushed");
+        TheScriptEngine::signal_ui_interact("ShellMainMenuExitSelected");
         if let Err(err) = get_shell().pop() {
             log::warn!("Main menu quit pop failed: {}", err);
         }
@@ -1055,11 +1049,13 @@ impl MainMenu {
     }
 
     fn start_patch_check(&self) {
-        // C++ starts async patch discovery here. Keep behavior hook even when backend is absent.
-        TheScriptEngine::signal_ui_interact("ShellMainMenuOnlinePushed");
-        // Non-network Rust builds do not yet run the real patch-check/http flow.
-        // Without the C++ callbacks, the main menu would remain transition-locked.
-        get_main_menu().handle_canceled_download(true);
+        let mut state = self.state.write().unwrap();
+        state.checking_for_patch_before_gamespy = true;
+        state.cant_connect_before_online = false;
+        state.checks_left_before_online = 4;
+        state.time_through_online = state.time_through_online.wrapping_add(1);
+        state.online_cancel_window_open = true;
+
         log::info!("StartPatchCheck requested");
     }
 
@@ -1470,7 +1466,7 @@ impl MainMenu {
             );
             Self::queue_action(
                 state,
-                PendingMainMenuAction::SignalUiInteract("ShellMainMenuSkirmishPushed"),
+                PendingMainMenuAction::SignalUiInteract("ShellMainMenuSkirmishSelected"),
             );
             log::info!("Skirmish button selected");
         } else if control_id == state.window_ids.online_id {
@@ -1502,7 +1498,7 @@ impl MainMenu {
             );
             Self::queue_action(
                 state,
-                PendingMainMenuAction::SignalUiInteract("ShellMainMenuNetworkPushed"),
+                PendingMainMenuAction::SignalUiInteract("ShellMainMenuNetworkSelected"),
             );
             log::info!("Network button selected");
         } else if control_id == state.window_ids.options_id {
@@ -1513,7 +1509,7 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             Self::queue_action(
                 state,
-                PendingMainMenuAction::SignalUiInteract("ShellMainMenuOptionsPushed"),
+                PendingMainMenuAction::SignalUiInteract("ShellMainMenuOptionsSelected"),
             );
             Self::queue_action(state, PendingMainMenuAction::ShowOptionsLayout);
             log::info!("Options button selected");
@@ -1881,48 +1877,49 @@ impl MainMenu {
     /// Decline resolution change
     /// Port of DeclineResolution() - C++ lines 715-752
     pub fn decline_resolution(&mut self) -> MainMenuResult<()> {
+        let new_disp_settings = self.rollback_resolution_state();
+
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.x_resolution = new_disp_settings.x_res;
+            global.y_resolution = new_disp_settings.y_res;
+        }
+        get_header_template_manager().header_notify_resolution_change();
+
+        let mut prefs = UserPreferences::new();
+        let _ = prefs.load("Options.ini");
+        prefs.set_string(
+            "Resolution",
+            format!("{} {}", new_disp_settings.x_res, new_disp_settings.y_res),
+        );
+        let _ = prefs.write();
+
+        {
+            let mut shell = get_shell();
+            let _ = shell.reset();
+            let _ = shell.show_shell(true);
+        }
+
+        TheControlBar::hide_purchase_science();
+        TheInGameUI::place_build_available(None, None);
+        TheInGameUI::clear_pending_special_power();
+
+        log::info!(
+            "Resolution change declined - reverted to: {}x{}",
+            new_disp_settings.x_res,
+            new_disp_settings.y_res
+        );
+        Ok(())
+    }
+
+    fn rollback_resolution_state(&self) -> DisplaySettings {
         let mut state = self.state.write().unwrap();
 
         // Revert to old resolution
         // if (TheDisplay->setDisplayMode(...))
-        {
-            state.disp_changed = false;
-            state.new_disp_settings = state.old_disp_settings;
-
-            if let Some(global) = get_global_data() {
-                let mut global = global.write();
-                global.x_resolution = state.new_disp_settings.x_res;
-                global.y_resolution = state.new_disp_settings.y_res;
-            }
-            get_header_template_manager().header_notify_resolution_change();
-            // TheMouse->mouseNotifyResolutionChange();
-
-            let mut prefs = UserPreferences::new();
-            let _ = prefs.load("Options.ini");
-            prefs.set_string(
-                "Resolution",
-                format!(
-                    "{} {}",
-                    state.new_disp_settings.x_res, state.new_disp_settings.y_res
-                ),
-            );
-            let _ = prefs.write();
-
-            // Recreate shell
-            // delete TheShell;
-            // TheShell = NEW Shell;
-            // TheShell->init();
-            // TheInGameUI->recreateControlBar();
-            // TheShell->push("Menus/MainMenu.wnd");
-
-            log::info!(
-                "Resolution change declined - reverted to: {}x{}",
-                state.old_disp_settings.x_res,
-                state.old_disp_settings.y_res
-            );
-        }
-
-        Ok(())
+        state.disp_changed = false;
+        state.new_disp_settings = state.old_disp_settings;
+        state.new_disp_settings
     }
 
     pub fn set_pending_resolution_change(
@@ -1958,16 +1955,71 @@ impl MainMenu {
 
     /// Handle canceled download
     /// Port of HandleCanceledDownload() - C++ lines 203-211
-    pub fn handle_canceled_download(&mut self, reset_dropdown: bool) {
-        let mut state = self.state.write().unwrap();
+    fn handle_canceled_download_state(&self, state: &mut MainMenuState, reset_dropdown: bool) {
         state.button_pushed = false;
 
         if reset_dropdown {
-            self.set_dropdown_hidden(&state, DropdownType::Main, false);
-            state.drop_down = DropdownType::Main;
+            self.set_dropdown_hidden(state, DropdownType::Main, false);
             self.transition_set_group("MainMenuDefaultMenuLogoFade", false);
             log::info!("Download canceled - resetting dropdown");
         }
+    }
+
+    fn cancel_patch_check_callback_state(state: &mut MainMenuState) {
+        state.button_pushed = false;
+        state.checking_for_patch_before_gamespy = false;
+        state.cant_connect_before_online = false;
+        state.checks_left_before_online = 0;
+        state.online_cancel_window_open = false;
+    }
+
+    fn finish_online_handoff_state(state: &mut MainMenuState) {
+        if !state.checking_for_patch_before_gamespy {
+            return;
+        }
+
+        state.checking_for_patch_before_gamespy = false;
+        state.cant_connect_before_online = false;
+        state.checks_left_before_online = 0;
+        state.online_cancel_window_open = false;
+        TheScriptEngine::signal_ui_interact("ShellMainMenuOnlineSelected");
+        log::info!("Patch check completed - entering online handoff");
+    }
+
+    fn write_input_focus_response(data1: u32, data2: usize) -> bool {
+        if data1 == 1 && data2 != 0 {
+            // SAFETY: this mirrors the legacy callback contract where mData2 is a Bool*.
+            unsafe {
+                *(data2 as *mut bool) = true;
+            }
+        }
+        true
+    }
+
+    fn http_think_wrapper(&self, state: &mut MainMenuState) {
+        if !state.checking_for_patch_before_gamespy {
+            return;
+        }
+
+        if state.cant_connect_before_online {
+            Self::cancel_patch_check_callback_state(state);
+            log::info!("Patch check ended because servserv was unreachable");
+            return;
+        }
+
+        if state.checks_left_before_online > 0 {
+            state.checks_left_before_online -= 1;
+            if state.checks_left_before_online == 0 {
+                Self::finish_online_handoff_state(state);
+            }
+        } else {
+            Self::finish_online_handoff_state(state);
+        }
+    }
+
+    pub fn handle_canceled_download(&mut self, reset_dropdown: bool) {
+        let mut state = self.state.write().unwrap();
+        self.handle_canceled_download_state(&mut state, reset_dropdown);
     }
 }
 
@@ -2043,7 +2095,7 @@ mod tests {
 
     #[test]
     fn test_main_menu_creation() {
-        let menu = MainMenu::new();
+        let mut menu = MainMenu::new();
         let state = menu.state.read().unwrap();
 
         assert!(state.raise_message_boxes);
@@ -2053,6 +2105,11 @@ mod tests {
         assert!(!state.start_game);
         assert_eq!(state.drop_down, DropdownType::None);
         assert_eq!(state.show_side, ShowSide::None);
+        assert!(!state.checking_for_patch_before_gamespy);
+        assert!(!state.cant_connect_before_online);
+        assert_eq!(state.checks_left_before_online, 0);
+        assert_eq!(state.time_through_online, 0);
+        assert!(!state.online_cancel_window_open);
     }
 
     #[test]
@@ -2106,23 +2163,93 @@ mod tests {
     }
 
     #[test]
+    fn test_resolution_rollback_state_restores_old_settings() {
+        let mut menu = MainMenu::new();
+
+        {
+            let mut state = menu.state.write().unwrap();
+            state.old_disp_settings = DisplaySettings {
+                x_res: 1280,
+                y_res: 720,
+                bit_depth: 32,
+                windowed: true,
+            };
+            state.new_disp_settings = DisplaySettings {
+                x_res: 1920,
+                y_res: 1080,
+                bit_depth: 32,
+                windowed: false,
+            };
+            state.disp_changed = true;
+        }
+
+        let reverted = menu.rollback_resolution_state();
+
+        assert_eq!(reverted.x_res, 1280);
+        assert_eq!(reverted.y_res, 720);
+
+        let state = menu.state.read().unwrap();
+        assert_eq!(state.new_disp_settings.x_res, 1280);
+        assert_eq!(state.new_disp_settings.y_res, 720);
+        assert!(!state.disp_changed);
+    }
+
+    #[test]
     fn test_handle_canceled_download() {
         let mut menu = MainMenu::new();
 
         {
             let mut state = menu.state.write().unwrap();
             state.button_pushed = true;
+            state.drop_down = DropdownType::Difficulty;
+            state.checking_for_patch_before_gamespy = true;
+            state.cant_connect_before_online = true;
+            state.checks_left_before_online = 4;
+            state.online_cancel_window_open = true;
         }
 
         menu.handle_canceled_download(true);
 
         let state = menu.state.read().unwrap();
         assert!(!state.button_pushed);
+        assert_eq!(state.drop_down, DropdownType::Difficulty);
+        assert!(state.checking_for_patch_before_gamespy);
+        assert!(state.cant_connect_before_online);
+        assert_eq!(state.checks_left_before_online, 4);
+        assert!(state.online_cancel_window_open);
+    }
+
+    #[test]
+    fn test_cancel_patch_check_callback_clears_patch_state_and_window() {
+        let mut menu = MainMenu::new();
+
+        {
+            let mut state = menu.state.write().unwrap();
+            state.button_pushed = true;
+            state.drop_down = DropdownType::Difficulty;
+            state.checking_for_patch_before_gamespy = true;
+            state.cant_connect_before_online = true;
+            state.checks_left_before_online = 4;
+            state.online_cancel_window_open = true;
+        }
+
+        {
+            let mut state = menu.state.write().unwrap();
+            MainMenu::cancel_patch_check_callback_state(&mut state);
+        }
+
+        let state = menu.state.read().unwrap();
+        assert!(!state.button_pushed);
+        assert_eq!(state.drop_down, DropdownType::Difficulty);
+        assert!(!state.checking_for_patch_before_gamespy);
+        assert!(!state.cant_connect_before_online);
+        assert_eq!(state.checks_left_before_online, 0);
+        assert!(!state.online_cancel_window_open);
     }
 
     #[test]
     fn test_initial_state() {
-        let menu = MainMenu::new();
+        let mut menu = MainMenu::new();
         let state = menu.state.read().unwrap();
 
         assert_eq!(state.initial_gadget_delay, INITIAL_GADGET_DELAY_DEFAULT);
@@ -2130,11 +2257,78 @@ mod tests {
         assert!(state.first_time_running_the_game);
         assert!(!state.show_logo);
         assert!(!state.logo_is_shown);
+        assert!(!state.checking_for_patch_before_gamespy);
+        assert!(!state.cant_connect_before_online);
+        assert_eq!(state.checks_left_before_online, 0);
+        assert_eq!(state.time_through_online, 0);
+        assert!(!state.online_cancel_window_open);
+    }
+
+    #[test]
+    fn test_start_patch_check_sets_patch_state_without_cancelling_menu() {
+        let mut menu = MainMenu::new();
+
+        {
+            let mut state = menu.state.write().unwrap();
+            state.button_pushed = true;
+            state.dont_allow_transitions = true;
+        }
+
+        menu.start_patch_check();
+
+        let state = menu.state.read().unwrap();
+        assert!(state.button_pushed);
+        assert!(state.dont_allow_transitions);
+        assert!(state.checking_for_patch_before_gamespy);
+        assert!(!state.cant_connect_before_online);
+        assert_eq!(state.checks_left_before_online, 4);
+        assert_eq!(state.time_through_online, 1);
+        assert!(state.online_cancel_window_open);
+    }
+
+    #[test]
+    fn test_input_focus_writeback_sets_keyboard_focus() {
+        let mut focus = false;
+
+        assert!(MainMenu::write_input_focus_response(
+            1,
+            (&mut focus as *mut bool) as usize
+        ));
+        assert!(focus);
+
+        focus = false;
+        assert!(MainMenu::write_input_focus_response(0, (&mut focus as *mut bool) as usize));
+        assert!(!focus);
+    }
+
+    #[test]
+    fn test_patch_check_http_think_completes_handoff_after_four_ticks() {
+        let mut menu = MainMenu::new();
+
+        {
+            let mut state = menu.state.write().unwrap();
+            state.checking_for_patch_before_gamespy = true;
+            state.checks_left_before_online = 4;
+            state.online_cancel_window_open = true;
+        }
+
+        {
+            let mut state = menu.state.write().unwrap();
+            menu.http_think_wrapper(&mut state);
+            menu.http_think_wrapper(&mut state);
+            menu.http_think_wrapper(&mut state);
+            menu.http_think_wrapper(&mut state);
+        }
+
+        let state = menu.state.read().unwrap();
+        assert!(!state.checking_for_patch_before_gamespy);
+        assert_eq!(state.checks_left_before_online, 0);
+        assert!(!state.online_cancel_window_open);
     }
 
     #[test]
     fn test_reveal_hidden_main_menu_sets_cpp_startup_state() {
-        let menu = MainMenu::new();
+        let mut menu = MainMenu::new();
         let mut state = MainMenuState::default();
 
         menu.reveal_hidden_main_menu(&mut state);
@@ -2142,6 +2336,54 @@ mod tests {
         assert_eq!(state.initial_gadget_delay, 1);
         assert_eq!(state.drop_down, DropdownType::Main);
         assert!(!state.not_shown);
+    }
+
+    #[test]
+    fn test_main_menu_init_does_not_force_hide_startup_controls() {
+        game_engine::common::ini::ini_game_data::init_global_data();
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.initial_file.clear();
+            global.shell_map_on = false;
+        }
+
+        let previous_first_time = FIRST_TIME_RUNNING_GAME.swap(false, std::sync::atomic::Ordering::SeqCst);
+
+        let mut menu = MainMenu::new();
+        let (layout, _info) = with_window_manager(|manager| {
+            manager
+                .create_layout_with_windows("Menus/MainMenu.wnd")
+                .expect("expected MainMenu.wnd to load")
+        });
+
+        let ids = build_window_ids();
+        let get_update_id = ids.get_update_id as i32;
+        let motd_id = ids.motd_id as i32;
+        let map_pack_id = NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonGetMapPack") as i32;
+
+        let capture_hidden = |id: i32| {
+            with_window_manager(|manager| {
+                manager
+                    .get_window_by_id(id)
+                    .map(|window| window.borrow().is_hidden())
+            })
+        };
+
+        let before_get_update = capture_hidden(get_update_id);
+        let before_motd = capture_hidden(motd_id);
+        let before_map_pack = capture_hidden(map_pack_id);
+
+        menu.init(&*layout.borrow(), None).unwrap();
+
+        let after_get_update = capture_hidden(get_update_id);
+        let after_motd = capture_hidden(motd_id);
+        let after_map_pack = capture_hidden(map_pack_id);
+
+        assert_eq!(after_get_update, before_get_update);
+        assert_eq!(after_motd, before_motd);
+        assert_eq!(after_map_pack, before_map_pack);
+
+        FIRST_TIME_RUNNING_GAME.store(previous_first_time, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[test]
@@ -2193,5 +2435,75 @@ mod tests {
                 "ShellMainMenuExitUnhighlighted",
             ]
         );
+    }
+
+    #[test]
+    fn test_mouse_hover_transient_logo_state_matches_cpp() {
+        let menu = MainMenu::new();
+        let mut state = MainMenuState::default();
+        state.window_ids = build_window_ids();
+        state.dont_allow_transitions = true;
+        state.campaign_selected = false;
+        let usa_id = state.window_ids.button_usa_id;
+
+        menu.handle_mouse_entering(&mut state, usa_id);
+        assert!(state.show_logo);
+        assert_eq!(state.show_side, ShowSide::USA);
+
+        menu.handle_mouse_leaving(&mut state, usa_id);
+        assert!(!state.show_logo);
+        assert_eq!(state.show_side, ShowSide::None);
+    }
+
+    #[test]
+    fn test_selected_actions_queue_cpp_selected_hooks() {
+        let menu = MainMenu::new();
+        let ids = build_window_ids();
+
+        let mut skirmish_state = MainMenuState::default();
+        skirmish_state.window_ids = ids.clone();
+        menu
+            .handle_button_selected(&mut skirmish_state, ids.skirmish_id)
+            .unwrap();
+        let skirmish_hooks = skirmish_state
+            .pending_actions
+            .iter()
+            .filter_map(|action| match action {
+                PendingMainMenuAction::SignalUiInteract(hook) => Some(*hook),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(skirmish_hooks, vec!["ShellMainMenuSkirmishSelected"]);
+
+        let mut network_state = MainMenuState::default();
+        network_state.window_ids = ids.clone();
+        menu
+            .handle_button_selected(&mut network_state, ids.network_id)
+            .unwrap();
+        let network_hooks = network_state
+            .pending_actions
+            .iter()
+            .filter_map(|action| match action {
+                PendingMainMenuAction::SignalUiInteract(hook) => Some(*hook),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(network_hooks, vec!["ShellMainMenuNetworkSelected"]);
+
+        let mut options_state = MainMenuState::default();
+        options_state.window_ids = ids;
+        let options_id = options_state.window_ids.options_id;
+        menu
+            .handle_button_selected(&mut options_state, options_id)
+            .unwrap();
+        let options_hooks = options_state
+            .pending_actions
+            .iter()
+            .filter_map(|action| match action {
+                PendingMainMenuAction::SignalUiInteract(hook) => Some(*hook),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(options_hooks, vec!["ShellMainMenuOptionsSelected"]);
     }
 }

@@ -90,7 +90,7 @@ mod tests {
         let mut engine = AudioEngine::new().expect("AudioEngine::new");
         engine.init().expect("AudioEngine::init");
         // Playing a non-existent event should not panic.
-        let result = engine.play_event("NonExistentEvent", None);
-        assert!(result.is_ok());
+        let handle = engine.play_event("NonExistentEvent", None);
+        assert_eq!(handle, 0);
     }
 }
