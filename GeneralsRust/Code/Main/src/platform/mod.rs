@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crate::command_line;
 use std::sync::Arc;
 use winit;
 use winit::event::{Event, WindowEvent};
@@ -105,8 +106,8 @@ impl WindowMessageProcessor {
         Self {
             handler,
             is_fullscreen: false,
-            is_active: true,
-            focus_state: ApplicationFocusState::Active,
+            is_active: false,
+            focus_state: ApplicationFocusState::Inactive,
         }
     }
 
@@ -167,6 +168,10 @@ impl WindowMessageProcessor {
         self.is_fullscreen = fullscreen;
     }
 
+    pub fn is_fullscreen(&self) -> bool {
+        self.is_fullscreen
+    }
+
     pub fn is_active(&self) -> bool {
         self.is_active
     }
@@ -179,8 +184,73 @@ impl WindowMessageProcessor {
         self.handler.attach_window(window);
     }
 
+    pub fn handle_system_command(&mut self, command: SystemCommand) -> Result<bool> {
+        self.handler
+            .handle_system_command(command, self.is_fullscreen)
+    }
+
+    /// C++ `WM_NCHITTEST` parity: fullscreen windows should consume the hit-test so the
+    /// client area cannot be dragged or used for the system menu.
+    pub fn should_block_non_client_hit_test(&self) -> bool {
+        self.is_fullscreen
+    }
+
     pub fn is_quit_requested(&self) -> bool {
         self.handler.is_quit_requested()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        create_platform_message_handler, startup_windowed_mode, ApplicationFocusState,
+        SystemCommand,
+        WindowMessageProcessor,
+    };
+    use crate::command_line;
+
+    #[test]
+    fn window_message_processor_starts_inactive_until_focus_is_received() {
+        let processor = WindowMessageProcessor::new(create_platform_message_handler());
+        assert!(!processor.is_active());
+        assert_eq!(processor.get_focus_state(), ApplicationFocusState::Inactive);
+    }
+
+    #[test]
+    fn fullscreen_system_commands_match_cpp_guard_behavior() {
+        let mut processor = WindowMessageProcessor::new(create_platform_message_handler());
+
+        for command in [
+            SystemCommand::Move,
+            SystemCommand::Size,
+            SystemCommand::Maximize,
+            SystemCommand::KeyMenu,
+            SystemCommand::MonitorPower,
+        ] {
+            processor.set_fullscreen(true);
+            assert!(processor.should_block_non_client_hit_test());
+            assert!(processor.handle_system_command(command).unwrap());
+
+            processor.set_fullscreen(false);
+            assert!(!processor.should_block_non_client_hit_test());
+            assert!(!processor.handle_system_command(command).unwrap());
+        }
+    }
+
+    #[test]
+    fn startup_window_mode_defaults_to_cpp_fullscreen_and_honors_win_flag() {
+        let fullscreen_default = command_line::CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+        ])
+        .unwrap();
+        assert!(!startup_windowed_mode(&fullscreen_default));
+
+        let windowed = command_line::CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+            "-win".to_string(),
+        ])
+        .unwrap();
+        assert!(startup_windowed_mode(&windowed));
     }
 }
 
@@ -199,7 +269,17 @@ pub mod linux;
 
 /// Create a platform-specific message handler
 pub fn create_platform_message_handler() -> Box<dyn WindowMessageHandler + Send + Sync> {
-    Box::new(GameMessageHandler::new())
+    let mut handler = GameMessageHandler::new();
+    let windowed = command_line::CommandLineArgs::parse()
+        .ok()
+        .map(|cmd_args| startup_windowed_mode(&cmd_args))
+        .unwrap_or(false);
+    handler.set_windowed_mode(windowed);
+    Box::new(handler)
+}
+
+fn startup_windowed_mode(cmd_args: &command_line::CommandLineArgs) -> bool {
+    cmd_args.last_window_mode_override().unwrap_or(false)
 }
 
 /// Initialize platform-specific subsystems

@@ -227,6 +227,36 @@ mod tests {
     }
 
     #[test]
+    fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation() {
+        with_global_and_startup_state_snapshot_restored(|| {
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.map_name = "Maps\\Unexpected\\Unexpected.map".to_string();
+                global.pending_file.clear();
+            }
+
+            let dispatch = StartupNewGameDispatch {
+                game_mode_code: 0,
+                game_mode: GameMode::SinglePlayer,
+                difficulty_code: 1,
+                difficulty: super::GameDifficulty::Medium,
+                rank_points: 0,
+                max_fps: None,
+            };
+
+            let prepared_map = CnCGameEngine::apply_startup_new_game_dispatch(dispatch);
+            assert!(prepared_map.is_none());
+
+            let global = game_engine::common::global_data::read();
+            assert_eq!(
+                global.writable.map_name,
+                "Maps\\Unexpected\\Unexpected.map"
+            );
+            assert!(global.pending_file.is_empty());
+        });
+    }
+
+    #[test]
     fn startup_new_game_dispatch_ignores_unrelated_messages() {
         use game_engine::common::message_stream::{GameMessage, GameMessageType};
 
@@ -236,6 +266,48 @@ mod tests {
         ]);
 
         assert!(dispatch.is_none());
+    }
+
+    #[test]
+    fn startup_camera_focus_prefers_shell_metadata_before_default_seed() {
+        let focus = CnCGameEngine::select_startup_camera_focus(
+            true,
+            Some(glam::Vec2::new(12.0, 34.0)),
+            Some(glam::Vec2::new(56.0, 78.0)),
+            glam::Vec2::new(90.0, 91.0),
+        );
+
+        assert_eq!(focus, glam::Vec2::new(12.0, 34.0));
+    }
+
+    #[test]
+    fn startup_camera_focus_falls_back_to_shell_seed_without_metadata() {
+        let focus = CnCGameEngine::select_startup_camera_focus(
+            true,
+            None,
+            Some(glam::Vec2::new(56.0, 78.0)),
+            glam::Vec2::new(90.0, 91.0),
+        );
+
+        assert_eq!(
+            focus,
+            glam::Vec2::new(
+                87.0 * gamelogic::common::MAP_XY_FACTOR,
+                77.0 * gamelogic::common::MAP_XY_FACTOR,
+            )
+        );
+    }
+
+    #[test]
+    fn startup_camera_focus_keeps_non_shell_fallback_order() {
+        let focus = CnCGameEngine::select_startup_camera_focus(
+            false,
+            None,
+            Some(glam::Vec2::new(56.0, 78.0)),
+            glam::Vec2::new(90.0, 91.0),
+        );
+
+        assert_eq!(focus, glam::Vec2::new(56.0, 78.0));
     }
 
     #[test]
@@ -257,31 +329,75 @@ mod tests {
 
     #[test]
     fn startup_initial_file_helper_matches_cpp_table_and_gating() {
-        let replay_args = vec![
-            "generals".to_string(),
-            "-file".to_string(),
-            "Replays\\demo.rep".to_string(),
-        ];
-        let replay_parsed = CommandLineArgs::parse_from_args(replay_args).unwrap();
-        assert_eq!(
-            CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, true),
-            Some("Replays\\demo.rep".to_string())
-        );
-        assert_eq!(
-            CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, false),
-            None
-        );
+        with_global_data_snapshot_restored(|| {
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.initial_file.clear();
+            }
 
-        let replay_alias_args = vec![
-            "generals".to_string(),
-            "-replay".to_string(),
+            let replay_args = vec![
+                "generals".to_string(),
+                "-file".to_string(),
+                "Replays\\demo.rep".to_string(),
+            ];
+            let replay_parsed = CommandLineArgs::parse_from_args(replay_args).unwrap();
+            assert_eq!(
+                CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, true),
+                Some("Replays\\demo.rep".to_string())
+            );
+            assert_eq!(
+                CnCGameEngine::startup_initial_file_from_command_line(&replay_parsed, false),
+                None
+            );
+
+            let replay_alias_args = vec![
+                "generals".to_string(),
+                "-replay".to_string(),
+                "Replays\\demo.rep".to_string(),
+            ];
+            let replay_alias_parsed = CommandLineArgs::parse_from_args(replay_alias_args).unwrap();
+            assert_eq!(
+                CnCGameEngine::startup_initial_file_from_command_line(&replay_alias_parsed, true),
+                None
+            );
+        });
+    }
+
+    #[test]
+    fn startup_initial_file_helper_prefers_runtime_initial_file_state() {
+        with_global_data_snapshot_restored(|| {
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.initial_file = "Replays\\runtime.rep".to_string();
+            }
+
+            let cli_args = vec![
+                "generals".to_string(),
+                "-file".to_string(),
+                "Maps\\cli\\cli.map".to_string(),
+            ];
+            let parsed = CommandLineArgs::parse_from_args(cli_args).unwrap();
+
+            assert_eq!(
+                CnCGameEngine::startup_initial_file_from_command_line(&parsed, true),
+                Some("Replays\\runtime.rep".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn startup_initial_file_split_matches_cpp_suffix_rules() {
+        let (map_file, replay_file) = CnCGameEngine::split_startup_initial_file(Some(
+            "Maps\\Test\\Test.map".to_string(),
+        ));
+        assert_eq!(map_file, Some("Maps\\Test\\Test.map".to_string()));
+        assert!(replay_file.is_none());
+
+        let (map_file, replay_file) = CnCGameEngine::split_startup_initial_file(Some(
             "Replays\\demo.rep".to_string(),
-        ];
-        let replay_alias_parsed = CommandLineArgs::parse_from_args(replay_alias_args).unwrap();
-        assert_eq!(
-            CnCGameEngine::startup_initial_file_from_command_line(&replay_alias_parsed, true),
-            None
-        );
+        ));
+        assert!(map_file.is_none());
+        assert_eq!(replay_file, Some("Replays\\demo.rep".to_string()));
     }
 
     #[test]
@@ -301,6 +417,23 @@ mod tests {
             assert!(global.writable.shell_map_on);
             assert!(global.writable.play_intro);
             assert!(!global.writable.after_intro);
+        });
+    }
+
+    #[test]
+    fn sync_after_intro_when_intro_disabled_marks_after_intro() {
+        with_global_data_snapshot_restored(|| {
+            {
+                let mut global = game_engine::common::global_data::write();
+                global.writable.play_intro = false;
+                global.writable.after_intro = false;
+            }
+
+            CnCGameEngine::sync_after_intro_when_intro_disabled();
+
+            let global = game_engine::common::global_data::read();
+            assert!(!global.writable.play_intro);
+            assert!(global.writable.after_intro);
         });
     }
 
@@ -1272,8 +1405,6 @@ impl CnCGameEngine {
             global.writable.map_name = pending_file.clone();
             global.pending_file.clear();
             prepared_map_name = Some(pending_file);
-        } else if !global.writable.map_name.trim().is_empty() {
-            prepared_map_name = Some(global.writable.map_name.clone());
         }
 
         prepared_map_name
@@ -1831,6 +1962,24 @@ impl CnCGameEngine {
         }
     }
 
+    fn select_startup_camera_focus(
+        is_shell_game: bool,
+        metadata_target: Option<Vec2>,
+        team_target: Option<Vec2>,
+        world_center: Vec2,
+    ) -> Vec2 {
+        if is_shell_game {
+            // C++ shell startup prefers InitialCameraPosition and only falls back to the
+            // legacy W3DView seed when the waypoint is absent.
+            metadata_target.unwrap_or(Vec2::new(
+                87.0 * gamelogic::common::MAP_XY_FACTOR,
+                77.0 * gamelogic::common::MAP_XY_FACTOR,
+            ))
+        } else {
+            metadata_target.or(team_target).unwrap_or(world_center)
+        }
+    }
+
     fn bootstrap_camera_for_loaded_map(
         game_logic: &GameLogic,
         current_player_id: u32,
@@ -1856,24 +2005,17 @@ impl CnCGameEngine {
                 focus.y.clamp(world_min.z, world_max.z),
             )
         };
-        let focus_2d = if game_logic.isInShellGame() {
-            // Match C++ W3DView::init() shell startup seed before script-driven camera motion.
-            let default_shell_focus = Vec2::new(
-                87.0 * gamelogic::common::MAP_XY_FACTOR,
-                77.0 * gamelogic::common::MAP_XY_FACTOR,
-            );
-            clamp_focus_to_world(default_shell_focus)
-        } else {
-            let team_target = game_logic
-                .get_player(current_player_id)
-                .map(|player| player.team)
-                .and_then(|team| game_logic.team_base_position(team));
-
-            let fallback_focus = metadata_target
-                .or(team_target.map(|pos| Vec2::new(pos.x, pos.z)))
-                .unwrap_or(Vec2::new(world_center.x, world_center.z));
-            clamp_focus_to_world(fallback_focus)
-        };
+        let team_target = game_logic
+            .get_player(current_player_id)
+            .map(|player| player.team)
+            .and_then(|team| game_logic.team_base_position(team))
+            .map(|pos| Vec2::new(pos.x, pos.z));
+        let focus_2d = clamp_focus_to_world(Self::select_startup_camera_focus(
+            game_logic.isInShellGame(),
+            metadata_target,
+            team_target,
+            Vec2::new(world_center.x, world_center.z),
+        ));
 
         // Match C++ W3DView::lookAt(): unlike the old 2D View::lookAt(), the W3D path writes the
         // requested world coordinate directly into m_pos and builds the camera transform from that.
@@ -2766,20 +2908,13 @@ impl CnCGameEngine {
             Self::allow_debug_startup_flags(),
         );
 
-        let startup_initial_map = startup_initial_file
-            .as_ref()
-            .filter(|value| value.to_ascii_lowercase().ends_with(".map"))
-            .cloned();
-        let startup_initial_replay = startup_initial_file
-            .as_ref()
-            .filter(|value| value.to_ascii_lowercase().ends_with(".rep"))
-            .cloned();
+        let (startup_initial_map, startup_initial_replay) =
+            Self::split_startup_initial_file(startup_initial_file);
 
         if let Some(initial_map) = startup_initial_map.as_ref() {
             let mut global = game_engine::common::global_data::write();
             global.writable.shell_map_on = false;
             global.writable.play_intro = false;
-            global.writable.after_intro = true;
             global.pending_file = initial_map.clone();
         }
 
@@ -2787,15 +2922,6 @@ impl CnCGameEngine {
             // C++ parity: `.rep` startup is delegated to the recorder path and does not
             // force shell/intro flags or clear `pending_file` here.
             info!("Replay startup override requested: {}", initial_replay);
-        }
-
-        {
-            // C++ parity (GameEngine.cpp): if intro is disabled by INI/flags, startup must
-            // enter the post-intro state.
-            let mut global = game_engine::common::global_data::write();
-            if !global.writable.play_intro {
-                global.writable.after_intro = true;
-            }
         }
 
         // C++ treats `-file` as the startup initial file, not as a direct `-map` request.
@@ -2811,6 +2937,11 @@ impl CnCGameEngine {
         } else {
             startup_requested_map
         };
+
+        // C++ parity (GameEngine.cpp): if intro is disabled by INI/flags, startup enters
+        // the post-intro state after shell-map validation.
+        Self::sync_after_intro_when_intro_disabled();
+
         let startup_load_state = if build_map_cache || audio_startup_requires_quit {
             StartupLoadState::Complete
         } else {
@@ -3537,9 +3668,41 @@ impl CnCGameEngine {
             return None;
         }
 
+        let runtime_initial_file = {
+            let global = game_engine::common::global_data::read();
+            global.writable.initial_file.trim().to_string()
+        };
+        if !runtime_initial_file.is_empty() {
+            return Some(runtime_initial_file);
+        }
+
         Self::command_line_option_value_case_insensitive(command_line, "file")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
+    }
+
+    fn split_startup_initial_file(
+        initial_file: Option<String>,
+    ) -> (Option<String>, Option<String>) {
+        let Some(initial_file) = initial_file else {
+            return (None, None);
+        };
+
+        let lower = initial_file.to_ascii_lowercase();
+        if lower.ends_with(".map") {
+            (Some(initial_file), None)
+        } else if lower.ends_with(".rep") {
+            (None, Some(initial_file))
+        } else {
+            (None, None)
+        }
+    }
+
+    fn sync_after_intro_when_intro_disabled() {
+        let mut global = game_engine::common::global_data::write();
+        if !global.writable.play_intro {
+            global.writable.after_intro = true;
+        }
     }
 
     /// Pre-load all unit models into the graphics system

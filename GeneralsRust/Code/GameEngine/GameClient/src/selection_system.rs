@@ -552,9 +552,9 @@ mod tests {
             _bottom: i32,
         ) -> Vec<u32> {
             // Objects at x positions: obj 1 at x=10, obj 2 at x=20, ... obj 10 at x=100.
-            (1..=10)
+            (1u32..=10)
                 .filter(|&id| {
-                    let obj_x = id * 10;
+                    let obj_x = (id as i32) * 10;
                     obj_x >= left && obj_x <= right
                 })
                 .collect()

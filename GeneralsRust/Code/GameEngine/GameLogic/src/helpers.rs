@@ -862,11 +862,10 @@ impl TheGameLogic {
         Self::get_game_mode() == crate::system::game_logic::GAME_REPLAY
     }
 
-    /// Return whether the game is currently active (not shell/none).
+    /// Return whether the game has entered any mode (matches C++ GameLogic::isInGame()).
     pub fn is_in_game() -> Bool {
         let mode = Self::get_game_mode();
-        mode != crate::system::game_logic::GAME_SHELL
-            && mode != crate::system::game_logic::GAME_NONE
+        mode != crate::system::game_logic::GAME_NONE
     }
 
     /// Get the current game mode.
@@ -4905,5 +4904,29 @@ impl TheVictoryConditions {
 
     pub fn is_local_allied_victory() -> Bool {
         LOCAL_ALLIED_VICTORY.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TheGameLogic;
+    use crate::system::game_logic::{get_game_logic, GAME_NONE, GAME_SHELL};
+
+    #[test]
+    fn is_in_game_matches_cpp_for_shell_mode() {
+        let mut logic = get_game_logic().lock().unwrap();
+        let previous_mode = logic.get_game_mode();
+
+        logic.set_game_mode(GAME_NONE);
+        drop(logic);
+        assert!(!TheGameLogic::is_in_game());
+
+        let mut logic = get_game_logic().lock().unwrap();
+        logic.set_game_mode(GAME_SHELL);
+        drop(logic);
+        assert!(TheGameLogic::is_in_game());
+
+        let mut logic = get_game_logic().lock().unwrap();
+        logic.set_game_mode(previous_mode);
     }
 }

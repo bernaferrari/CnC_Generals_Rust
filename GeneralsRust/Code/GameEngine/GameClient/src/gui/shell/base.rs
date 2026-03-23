@@ -48,7 +48,7 @@ use crate::system::SubsystemInterface;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;
 use gamelogic::helpers::TheGameLogic;
-use gamelogic::system::game_logic::GAME_SHELL;
+use gamelogic::system::game_logic::{GAME_NONE, GAME_SHELL};
 use std::cell::{RefCell, UnsafeCell};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
@@ -173,6 +173,9 @@ pub trait WindowLayout {
     /// Destroy all windows in this layout
     fn destroy_windows(&mut self);
 
+    /// Mark the first window as an image-backed shell background when applicable.
+    fn set_first_window_image(&mut self) {}
+
     /// Get the current state of the layout
     fn get_state(&self) -> LayoutState;
 
@@ -282,6 +285,14 @@ impl WindowLayout for BasicWindowLayout {
         log::debug!("Bringing layout to front: {}", self.filename);
         if let Some(layout) = &self.layout {
             layout.borrow_mut().bring_forward();
+        }
+    }
+
+    fn set_first_window_image(&mut self) {
+        if let Some(layout) = &self.layout {
+            if let Some(first_window) = layout.borrow().get_first_window() {
+                first_window.borrow_mut().set_status(WindowStatus::IMAGE);
+            }
         }
     }
 
@@ -2537,9 +2548,6 @@ impl Shell {
         self.animate_window_manager.reset();
 
         if self.pending_push {
-            if let Some(current_top) = self.screen_stack.last_mut() {
-                current_top.hide(true);
-            }
             // Do the push
             self.do_push(&self.pending_push_name.clone())?;
             self.pending_push = false;
@@ -2553,8 +2561,8 @@ impl Shell {
         if self.clear_background {
             if let Some(mut background) = self.background.take() {
                 background.destroy_windows();
+                self.clear_background = false;
             }
-            self.clear_background = false;
         }
 
         Ok(())
@@ -2698,16 +2706,12 @@ impl Shell {
                 return;
             }
             if self.background.is_none() {
-                let mut background_layout =
-                    BasicWindowLayout::new("Menus/BlankWindow.wnd".to_string());
-                if let Ok(manager_layout) = background_layout.ensure_layout() {
-                    if let Some(first_window) = manager_layout.borrow().get_first_window() {
-                        first_window.borrow_mut().set_status(WindowStatus::IMAGE);
-                    }
-                }
-                self.background = Some(Box::new(background_layout));
+                self.background = Some(Box::new(BasicWindowLayout::new(
+                    "Menus/BlankWindow.wnd".to_string(),
+                )));
             }
             if let Some(ref mut bg) = self.background {
+                bg.set_first_window_image();
                 bg.hide(false);
                 if let Some(top) = self.screen_stack.last_mut() {
                     top.bring_forward();
@@ -2729,14 +2733,14 @@ impl Shell {
         // Add to stack
         self.screen_stack.push(new_screen);
 
+        if let Ok(mut ime_manager) = get_ime_manager().lock() {
+            ime_manager.detach();
+        }
+
         // Initialize the new screen
         if let Some(screen) = self.screen_stack.last_mut() {
             screen.run_init(None)?;
             screen.bring_forward();
-        }
-
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
         }
 
         Ok(())
@@ -2787,38 +2791,18 @@ impl SubsystemInterface for Shell {
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Resetting shell system");
 
-        // Pop all screens
+        if let Ok(mut ime_manager) = get_ime_manager().lock() {
+            ime_manager.detach();
+        }
+
+        // Pop all screens. The local test layouts don't model the C++ callback chain,
+        // so we use the immediate pop path to keep the stack teardown deterministic here.
         while !self.screen_stack.is_empty() {
             self.pop_immediate()?;
         }
 
         // Reset animation manager
         self.animate_window_manager.reset();
-
-        // Clear special layouts
-        if let Some(mut layout) = self.save_load_menu_layout.take() {
-            layout.destroy_windows();
-        }
-        if let Some(mut layout) = self.popup_replay_layout.take() {
-            layout.destroy_windows();
-        }
-        if let Some(mut layout) = self.options_layout.take() {
-            layout.destroy_windows();
-        }
-        if let Some(mut background) = self.background.take() {
-            background.destroy_windows();
-        }
-
-        // Reset state
-        self.pending_push = false;
-        self.pending_pop = false;
-        self.pending_push_name.clear();
-        self.clear_background = false;
-        self.last_update = Instant::now();
-
-        if let Ok(mut ime_manager) = get_ime_manager().lock() {
-            ime_manager.detach();
-        }
 
         log::info!("Shell system reset completed");
         Ok(())
@@ -2906,6 +2890,12 @@ mod tests {
     use super::*;
     use std::cell::RefCell as StdRefCell;
     use std::rc::Rc as StdRc;
+    use std::sync::{Mutex, OnceLock};
+
+    fn shell_global_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[derive(Clone)]
     struct TestLayout {
@@ -2970,6 +2960,12 @@ mod tests {
                 .push(format!("bring_forward:{}", self.filename));
         }
 
+        fn set_first_window_image(&mut self) {
+            self.events
+                .borrow_mut()
+                .push(format!("set_first_window_image:{}", self.filename));
+        }
+
         fn destroy_windows(&mut self) {
             self.state = LayoutState::Destroying;
             self.events
@@ -3032,13 +3028,15 @@ mod tests {
         assert!(layout.is_hidden());
         assert_eq!(layout.get_state(), LayoutState::Initializing);
 
-        layout.run_init(None).unwrap();
-        assert!(!layout.is_hidden());
-        assert_eq!(layout.get_state(), LayoutState::Active);
+        // Missing .wnd files should fail to initialize instead of silently succeeding.
+        assert!(matches!(layout.run_init(None), Err(ShellError::LayoutError(_))));
+        assert!(layout.is_hidden());
+        assert_eq!(layout.get_state(), LayoutState::Initializing);
 
         let mut immediate = false;
         layout.run_shutdown(&mut immediate).unwrap();
         assert!(layout.is_hidden());
+        assert_eq!(layout.get_state(), LayoutState::ShuttingDown);
     }
 
     #[test]
@@ -3189,6 +3187,17 @@ mod tests {
 
     #[test]
     fn test_shell_show_hide() {
+        let _guard = shell_global_test_lock().lock().unwrap();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.initial_file.clear();
+            global.shell_map_on = true;
+        }
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+
         let mut shell = Shell::new();
         shell.init().unwrap();
 
@@ -3206,11 +3215,121 @@ mod tests {
 
     #[test]
     fn test_show_shell_does_not_push_main_menu_when_shell_map_is_on() {
+        let _guard = shell_global_test_lock().lock().unwrap();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.initial_file.clear();
+            global.shell_map_on = true;
+        }
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+
         let mut shell = Shell::new();
         shell.init().unwrap();
         shell.show_shell_map(true);
         shell.show_shell(false).unwrap();
         assert_eq!(shell.get_screen_count(), 0);
+    }
+
+    #[test]
+    fn test_show_shell_map_reapplies_background_image_status() {
+        let _guard = shell_global_test_lock().lock().unwrap();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.initial_file.clear();
+            global.shell_map_on = false;
+        }
+
+        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        let mut shell = Shell::new();
+        shell.init().unwrap();
+        shell.background = Some(Box::new(TestLayout::new(
+            "background.wnd",
+            false,
+            events.clone(),
+        )));
+
+        shell.show_shell_map(false);
+
+        let event_log = events.borrow();
+        let image_index = event_log
+            .iter()
+            .position(|event| event == "set_first_window_image:background.wnd")
+            .expect("expected background image status to be reapplied");
+        let hide_index = event_log
+            .iter()
+            .position(|event| event == "hide:background.wnd:false")
+            .expect("expected background to be shown");
+        assert!(image_index < hide_index);
+    }
+
+    #[test]
+    fn test_shutdown_complete_keeps_clear_background_when_no_background_exists() {
+        let mut shell = Shell::new();
+        shell.clear_background = true;
+
+        shell.shutdown_complete(None, false).unwrap();
+
+        assert!(shell.clear_background);
+    }
+
+    #[test]
+    fn test_reset_keeps_special_layouts_like_cpp() {
+        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        let mut shell = Shell::new();
+        shell.init().unwrap();
+        shell.screen_stack.push(Box::new(TestLayout::new(
+            "stack.wnd",
+            false,
+            events.clone(),
+        )));
+        shell.save_load_menu_layout = Some(Box::new(TestLayout::new(
+            "save_load.wnd",
+            false,
+            events.clone(),
+        )));
+        shell.popup_replay_layout = Some(Box::new(TestLayout::new(
+            "popup_replay.wnd",
+            false,
+            events.clone(),
+        )));
+        shell.options_layout = Some(Box::new(TestLayout::new(
+            "options.wnd",
+            false,
+            events.clone(),
+        )));
+        shell.background = Some(Box::new(TestLayout::new(
+            "background.wnd",
+            false,
+            events.clone(),
+        )));
+        shell.clear_background = true;
+        shell.pending_push = true;
+        shell.pending_pop = true;
+        shell.pending_push_name = "Menus/MainMenu.wnd".to_string();
+        shell.last_update = Instant::now() - shell.update_interval;
+
+        shell.reset().unwrap();
+
+        assert_eq!(shell.get_screen_count(), 0);
+        assert!(shell.save_load_menu_layout.is_some());
+        assert!(shell.popup_replay_layout.is_some());
+        assert!(shell.options_layout.is_some());
+        assert!(shell.background.is_some());
+        assert!(shell.clear_background);
+        assert!(shell.pending_push);
+        assert!(!shell.pending_pop);
+        assert_eq!(shell.pending_push_name, "Menus/MainMenu.wnd");
+
+        let event_log = events.borrow();
+        assert!(event_log.iter().any(|event| event == "destroy:stack.wnd"));
+        assert!(!event_log.iter().any(|event| event == "destroy:save_load.wnd"));
+        assert!(!event_log.iter().any(|event| event == "destroy:popup_replay.wnd"));
+        assert!(!event_log.iter().any(|event| event == "destroy:options.wnd"));
+        assert!(!event_log.iter().any(|event| event == "destroy:background.wnd"));
     }
 
     #[test]
@@ -3235,6 +3354,12 @@ mod tests {
                 .iter()
                 .any(|event| event == "shutdown:hidden_top.wnd"),
             "hidden top should not run shutdown before immediate push completion"
+        );
+        assert!(
+            !event_log
+                .iter()
+                .any(|event| event == "hide:hidden_top.wnd:true"),
+            "C++ Shell::shutdownComplete() does not re-hide the current top during a pending push"
         );
     }
 

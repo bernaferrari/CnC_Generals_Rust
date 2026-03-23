@@ -782,7 +782,8 @@ pub fn create_default_game_scene() -> Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glam::{Mat4, Vec3};
+    use glam::{Mat4 as GameMat4, Vec3 as GameVec3};
+    use ww3d_core::glam::{Mat4 as WwMat4, Vec3 as WwVec3};
 
     #[test]
     fn test_render_condition_flags_from_empty() {
@@ -850,15 +851,15 @@ mod tests {
     #[test]
     fn test_bridge_submit_and_flush() {
         let mut bridge = RenderBridge::new();
-        let camera = Camera::perspective(
+        let mut camera = Camera::perspective(
             "test".to_string(),
             60.0_f32.to_radians(),
             16.0 / 9.0,
             0.1,
             1000.0,
         );
-        camera.set_position(Vec3::new(0.0, 50.0, -100.0));
-        camera.look_at(Vec3::ZERO, Vec3::Y);
+        camera.set_position(WwVec3::new(0.0, 50.0, -100.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
 
         bridge.begin_frame(&camera, 0.016);
 
@@ -866,11 +867,14 @@ mod tests {
         let submission = DrawSubmission {
             drawable_id: DrawableId(1),
             model_name: "AVComanche".to_string(),
-            world_transform: Mat4::IDENTITY,
+            world_transform: GameMat4::IDENTITY,
             condition_flags: RenderConditionFlags::PRISTINE,
             render_state: RenderStateOverrides::default(),
-            bounding_sphere: BoundingSphere::new(Vec3::ZERO, 10.0),
-            bounding_box: AABox::new(Vec3::new(-5.0, 0.0, -5.0), Vec3::new(5.0, 10.0, 5.0)),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            bounding_box: AABox::new(
+                WwVec3::new(-5.0, 0.0, -5.0),
+                WwVec3::new(5.0, 10.0, 5.0),
+            ),
             opaque: true,
             transparent: false,
             cast_shadow: true,
@@ -903,22 +907,22 @@ mod tests {
     #[test]
     fn test_bridge_frustum_culling() {
         let mut bridge = RenderBridge::new();
-        let camera = Camera::perspective(
+        let mut camera = Camera::perspective(
             "test".to_string(),
             60.0_f32.to_radians(),
             16.0 / 9.0,
             0.1,
             100.0, // far plane = 100
         );
-        camera.set_position(Vec3::new(0.0, 10.0, 0.0));
-        camera.look_at(Vec3::new(0.0, 10.0, 1.0), Vec3::Y);
+        camera.set_position(WwVec3::new(0.0, 10.0, 0.0));
+        camera.look_at(WwVec3::new(0.0, 10.0, 1.0), WwVec3::Y);
 
         bridge.begin_frame(&camera, 0.016);
 
         // Object inside frustum.
         let near = DrawSubmission {
             drawable_id: DrawableId(1),
-            bounding_sphere: BoundingSphere::new(Vec3::ZERO, 1.0),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 1.0),
             opaque: true,
             ..Default::default()
         };
@@ -927,8 +931,8 @@ mod tests {
         // Object beyond far plane.
         let far = DrawSubmission {
             drawable_id: DrawableId(2),
-            bounding_sphere: BoundingSphere::new(Vec3::ZERO, 1.0),
-            world_transform: Mat4::from_translation(Vec3::new(0.0, 10.0, 500.0)),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 1.0),
+            world_transform: GameMat4::from_translation(GameVec3::new(0.0, 10.0, 500.0)),
             opaque: true,
             ..Default::default()
         };
@@ -970,13 +974,13 @@ mod tests {
 
     #[test]
     fn test_game_logic_to_wwvegas_transform_identity() {
-        let m = Mat4::IDENTITY;
-        assert_eq!(game_logic_to_wwvegas_transform(m), Mat4::IDENTITY);
+        let m = GameMat4::IDENTITY;
+        assert_eq!(game_logic_to_wwvegas_transform(m), GameMat4::IDENTITY);
     }
 
     #[test]
     fn test_game_logic_to_wwvegas_vec3() {
-        let v = Vec3::new(1.0, 2.0, 3.0);
+        let v = GameVec3::new(1.0, 2.0, 3.0);
         let converted = game_logic_to_wwvegas_vec3(v);
         assert!((converted.x - 1.0).abs() < f32::EPSILON);
         assert!((converted.y - 2.0).abs() < f32::EPSILON);
