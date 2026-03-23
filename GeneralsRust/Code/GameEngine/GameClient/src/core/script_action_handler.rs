@@ -1466,7 +1466,7 @@ mod tests {
             .unwrap()
             .insert("intro".to_string());
 
-        let handler = ScriptActionHandlerImpl;
+        let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("intro", true));
         assert!(!TheGameLogic::is_intro_movie_playing());
         assert!(!fullscreen_movie_wait_slot()
@@ -1484,7 +1484,7 @@ mod tests {
             .unwrap()
             .insert("radar".to_string());
 
-        let handler = ScriptActionHandlerImpl;
+        let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("radar", true));
         assert!(TheGameLogic::is_intro_movie_playing());
         assert!(!radar_movie_wait_slot().lock().unwrap().contains("radar"));

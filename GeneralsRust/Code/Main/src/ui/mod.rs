@@ -101,10 +101,19 @@ pub enum Screen {
 
 impl Screen {
     /// Screen used while the engine is booting before the first menu-ready handoff.
-    pub const fn startup_entry_screen(_quick_start: bool) -> Self {
-        // C++ startup always begins from the title/menu shell path unless a real
-        // map or replay launch overrides the flow elsewhere.
-        Self::Title
+    pub fn startup_entry_screen(quick_start: bool) -> Self {
+        // C++ `-quickstart` suppresses the intro/title path and lands directly
+        // in the shell menu flow after the startup shell-map checks are applied.
+        if quick_start {
+            Self::MainMenu
+        } else {
+            let global = game_engine::global_data::read();
+            if !global.writable.play_intro || global.writable.after_intro {
+                Self::MainMenu
+            } else {
+                Self::Title
+            }
+        }
     }
 
     /// Screen used once startup has completed and the interactive menu is ready.
@@ -524,7 +533,18 @@ pub struct TextureData {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{utils, Screen, *};
+    use game_engine::global_data;
+    use std::sync::Mutex;
+
+    static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_global_data_snapshot_restored<F: FnOnce()>(f: F) {
+        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let snapshot = global_data::read().clone();
+        f();
+        *global_data::write() = snapshot;
+    }
 
     #[test]
     fn test_coordinate_conversion() {
@@ -551,6 +571,33 @@ mod tests {
         let color2 = (255, 255, 255);
         let mid = utils::lerp_color(color1, color2, 0.5);
         assert_eq!(mid, (127, 127, 127));
+    }
+
+    #[test]
+    fn quick_start_enters_main_menu_immediately() {
+        with_global_data_snapshot_restored(|| {
+            {
+                let mut global = global_data::write();
+                global.writable.play_intro = true;
+                global.writable.after_intro = false;
+            }
+
+            assert_eq!(Screen::startup_entry_screen(true), Screen::MainMenu);
+            assert_eq!(Screen::startup_entry_screen(false), Screen::Title);
+        });
+    }
+
+    #[test]
+    fn intro_disabled_startup_enters_main_menu_immediately() {
+        with_global_data_snapshot_restored(|| {
+            {
+                let mut global = global_data::write();
+                global.writable.play_intro = false;
+                global.writable.after_intro = true;
+            }
+
+            assert_eq!(Screen::startup_entry_screen(false), Screen::MainMenu);
+        });
     }
 }
 
