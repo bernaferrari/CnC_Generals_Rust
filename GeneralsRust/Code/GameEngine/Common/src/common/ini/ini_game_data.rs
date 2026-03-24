@@ -202,8 +202,8 @@ pub const TIME_OF_DAY_COUNT: usize = 5;
 pub const TIME_OF_DAY_FIRST: usize = 1;
 pub const MAX_GLOBAL_LIGHTS: usize = 3;
 pub const PLAYERTYPE_COUNT: usize = 3;
-pub const DIFFICULTY_COUNT: usize = 4;
-pub const LEVEL_COUNT: usize = 3;
+pub const DIFFICULTY_COUNT: usize = 3;
+pub const LEVEL_COUNT: usize = 8;
 pub const MAX_WATER_GRID_SETTINGS: usize = 4;
 
 /// Weapon bonus entry parsed from GameData.ini
@@ -934,7 +934,7 @@ impl GlobalData {
             max_particle_count: 5000,
             max_field_particle_count: 1000,
 
-            health_bonus: [0.0, 0.25, 1.0],
+            health_bonus: [0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0], // C++ has 8 levels (LEVEL_COUNT=8)
             default_structure_rubble_height: 8.0,
 
             shell_map_name: String::new(),
