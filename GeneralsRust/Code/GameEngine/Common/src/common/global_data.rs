@@ -400,116 +400,116 @@ impl Default for GlobalData {
             debug: DebugSettings::default(),
             overrides: HashMap::new(),
 
-            // Map and rendering settings
+            // Map and rendering settings (parity: GeneralsMD/Source/Common/GlobalData.cpp constructor)
             move_hint_name: String::new(),
-            use_trees: true,
-            use_tree_sway: true,
-            use_draw_module_lod: true,
-            use_heat_effects: true,
-            max_shell_screens: 8,
-            use_cloud_map: true,
+            use_trees: false,                  // C++ line 578: false
+            use_tree_sway: true,               // C++ line 579: true
+            use_draw_module_lod: false,        // C++ line 580: false
+            use_heat_effects: true,            // C++ line 581: true
+            max_shell_screens: 0,              // C++ line 589: 0
+            use_cloud_map: false,              // C++ line 590: false
             use_3way_terrain_blends: 1,
-            use_light_map: true,
-            bilinear_terrain_tex: true,
-            trilinear_terrain_tex: false,
-            multi_pass_terrain: false,
-            adjust_cliff_textures: true,
+            use_light_map: false,              // C++ line 592: false
+            bilinear_terrain_tex: false,       // C++ line 593: false
+            trilinear_terrain_tex: false,      // C++ line 594: false
+            multi_pass_terrain: false,         // C++ line 595: false
+            adjust_cliff_textures: false,      // C++ line 596: false
             stretch_terrain: false,
             use_half_height_map: false,
             draw_entire_terrain: false,
-            terrain_lod_target_time_ms: 30,
+            terrain_lod_target_time_ms: 0,     // C++ line 600: 0
 
-            // Camera and mouse settings
+            // Camera and mouse settings (parity: GlobalData.cpp constructor)
             use_alternate_mouse: false,
-            client_retaliation_mode_enabled: false,
+            client_retaliation_mode_enabled: true,  // C++ line 1060: true
             double_click_attack_move: false,
             right_mouse_always_scrolls: false,
             camera_pitch: std::f32::consts::FRAC_PI_4,
             camera_yaw: 0.0,
-            camera_height: 150.0,
+            camera_height: 0.0,                // C++ line 801: 0.0
             max_camera_height: 300.0,
-            min_camera_height: 75.0,
+            min_camera_height: 100.0,          // C++ line 802: 100.0
             horizontal_scroll_speed_factor: 1.0,
             vertical_scroll_speed_factor: 1.0,
-            scroll_amount_cutoff: 0.1,
-            camera_adjust_speed: 2.0,
+            scroll_amount_cutoff: 10.0,        // C++ line 956: 10.0
+            camera_adjust_speed: 0.1,          // C++ line 957: 0.1
             enforce_max_camera_height: true,
-            keyboard_scroll_factor: 1.0,
+            keyboard_scroll_factor: 0.5,       // C++ line 955: 0.5
             keyboard_default_scroll_factor: 1.0,
             keyboard_camera_rotate_speed: 0.1,
-            play_stats: 0,
-            camera_audible_radius: 1000.0,
+            play_stats: -1,                    // C++ line 574: -1
+            camera_audible_radius: 500.0,      // C++ line 848: 500.0
             save_camera_in_replay: false,
             use_camera_in_replay: false,
 
-            // Water and sky settings
-            use_water_plane: true,
-            use_cloud_plane: true,
+            // Water and sky settings (parity: GlobalData.cpp constructor)
+            use_water_plane: false,            // C++ line 604: false
+            use_cloud_plane: false,            // C++ line 605: false
             water_position_x: 0.0,
             water_position_y: 0.0,
             water_position_z: 0.0,
-            water_extent_x: 1000.0,
-            water_extent_y: 1000.0,
+            water_extent_x: 0.0,              // C++ line 624: 0.0
+            water_extent_y: 0.0,              // C++ line 625: 0.0
             water_type: 0,
             show_soft_water_edge: true,
             feather_water: 0,
-            downwind_angle: 0.0,
+            downwind_angle: -0.785,            // C++ line 606: -0.785 (northeast)
             sky_box_position_z: 0.0,
             draw_sky_box: true,
-            sky_box_scale: 1.0,
+            sky_box_scale: 4.5,               // C++ line 657: 4.5
 
-            // Vertex water settings
+            // Vertex water settings (parity: GlobalData.cpp constructor)
             vertex_water_available_maps: Default::default(),
             vertex_water_height_clamp_low: [0.0; MAX_WATER_GRID_SETTINGS],
-            vertex_water_height_clamp_hi: [10.0; MAX_WATER_GRID_SETTINGS],
+            vertex_water_height_clamp_hi: [0.0; MAX_WATER_GRID_SETTINGS],  // C++ line 638: 0.0
             vertex_water_angle: [0.0; MAX_WATER_GRID_SETTINGS],
             vertex_water_x_position: [0.0; MAX_WATER_GRID_SETTINGS],
             vertex_water_y_position: [0.0; MAX_WATER_GRID_SETTINGS],
             vertex_water_z_position: [0.0; MAX_WATER_GRID_SETTINGS],
-            vertex_water_x_grid_cells: [32; MAX_WATER_GRID_SETTINGS],
-            vertex_water_y_grid_cells: [32; MAX_WATER_GRID_SETTINGS],
-            vertex_water_grid_size: [10.0; MAX_WATER_GRID_SETTINGS],
-            vertex_water_attenuation_a: [1.0; MAX_WATER_GRID_SETTINGS],
+            vertex_water_x_grid_cells: [0; MAX_WATER_GRID_SETTINGS],       // C++ line 643: 0
+            vertex_water_y_grid_cells: [0; MAX_WATER_GRID_SETTINGS],       // C++ line 644: 0
+            vertex_water_grid_size: [0.0; MAX_WATER_GRID_SETTINGS],        // C++ line 645: 0.0
+            vertex_water_attenuation_a: [0.0; MAX_WATER_GRID_SETTINGS],    // C++ line 646: 0.0
             vertex_water_attenuation_b: [0.0; MAX_WATER_GRID_SETTINGS],
             vertex_water_attenuation_c: [0.0; MAX_WATER_GRID_SETTINGS],
             vertex_water_attenuation_range: [100.0; MAX_WATER_GRID_SETTINGS],
 
-            // Lighting
+            // Lighting (parity: GlobalData.cpp constructor)
             terrain_lighting: [[TerrainLighting::default(); MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
             terrain_objects_lighting: [[TerrainLighting::default(); MAX_GLOBAL_LIGHTS];
                 TIME_OF_DAY_COUNT],
             terrain_ambient: [[1.0, 1.0, 1.0]; MAX_GLOBAL_LIGHTS],
             terrain_diffuse: [[1.0, 1.0, 1.0]; MAX_GLOBAL_LIGHTS],
             terrain_light_pos: [[0.0, 0.0, 1000.0]; MAX_GLOBAL_LIGHTS],
-            infantry_light_scale: [1.0; TIME_OF_DAY_COUNT],
+            infantry_light_scale: [1.5; TIME_OF_DAY_COUNT], // C++ line 723: 1.5
             script_override_infantry_light_scale: -1.0,
             num_global_lights: 3,
 
-            // Physics and gameplay
+            // Physics and gameplay (parity: GlobalData.cpp constructor)
             terrain_height_at_edge_of_map: 0.0,
             unit_damaged_thresh: 0.5,
-            unit_really_damaged_thresh: 0.25,
-            ground_stiffness: 0.8,
-            structure_stiffness: 0.3,
+            unit_really_damaged_thresh: 0.1,   // C++ line 807: 0.1
+            ground_stiffness: 0.5,             // C++ line 808: 0.5
+            structure_stiffness: 0.5,          // C++ line 809: 0.5
             gravity: -1.0,
             stealth_friendly_opacity: 0.5,
-            default_occlusion_delay: 30,
-            partition_cell_size: 100.0,
+            default_occlusion_delay: 90,       // C++ line 812: LOGICFRAMES_PER_SECOND * 3 = 90
+            partition_cell_size: 0.0,          // C++ line 679: 0.0
 
-            // Ammo and container pips
-            ammo_pip_world_offset: [0.0, 0.0, 5.0],
-            container_pip_world_offset: [0.0, 0.0, 5.0],
+            // Ammo and container pips (parity: GlobalData.cpp constructor)
+            ammo_pip_world_offset: [0.0, 0.0, 0.0],      // C++ line 682: zero()
+            container_pip_world_offset: [0.0, 0.0, 0.0],  // C++ line 683: zero()
             ammo_pip_screen_offset: [0.0, 0.0],
             container_pip_screen_offset: [0.0, 0.0],
             ammo_pip_scale_factor: 1.0,
             container_pip_scale_factor: 1.0,
             historic_damage_limit: 0,
 
-            // Terrain tracks
+            // Terrain tracks (parity: GlobalData.cpp constructor)
             max_terrain_tracks: 100,
-            max_tank_track_edges: 100,
+            max_tank_track_edges: 100,         // C++ line 668: 100
             max_tank_track_opaque_edges: 25,
-            max_tank_track_fade_delay: 300,
+            max_tank_track_fade_delay: 300000, // C++ line 670: 300000
 
             // Animations
             level_gain_animation_name: String::from("FX_LevelGainFX"),
@@ -519,24 +519,24 @@ impl Default for GlobalData {
             get_healed_animation_display_time_seconds: 1.5,
             get_healed_animation_z_rise_per_second: 3.0,
 
-            // Time and weather
+            // Time and weather (parity: GlobalData.cpp constructor)
             time_of_day: TimeOfDay::Afternoon,
             weather: 0,
-            make_track_marks: true,
+            make_track_marks: false,           // C++ line 674: false
             hide_garrison_flags: false,
-            force_models_to_follow_time_of_day: false,
-            force_models_to_follow_weather: false,
+            force_models_to_follow_time_of_day: true,  // C++ line 676: true
+            force_models_to_follow_weather: true,      // C++ line 677: true
 
             // Player bonuses
             solo_player_health_bonus_for_difficulty: [[1.0; DIFFICULTY_COUNT]; PLAYERTYPE_COUNT],
 
-            // Visibility and rendering limits
-            max_visible_translucent_objects: 200,
-            max_visible_occluder_objects: 200,
-            max_visible_occludee_objects: 400,
+            // Visibility and rendering limits (parity: GlobalData.cpp constructor)
+            max_visible_translucent_objects: 512,  // C++ line 742: 512
+            max_visible_occluder_objects: 512,      // C++ line 743: 512
+            max_visible_occludee_objects: 512,      // C++ line 744: 512
             max_visible_non_occluder_or_occludee_objects: 400,
             occluded_luminance_scale: 0.5,
-            texture_reduction_factor: 0,
+            texture_reduction_factor: -1,            // C++ line 609: -1
             enable_behind_building_markers: true,
 
             // Roads
@@ -576,24 +576,24 @@ impl Default for GlobalData {
             auto_aflame_particle_system: String::new(),
             auto_aflame_particle_max: 5,
 
-            // Network settings
+            // Network settings (parity: GlobalData.cpp constructor)
             default_ip: 0,
             firewall_behavior: 0,
             firewall_send_delay: false,
             firewall_port_override: 0,
             firewall_port_allocation_delta: 0,
-            network_fps_history_length: 60,
-            network_latency_history_length: 60,
-            network_cushion_history_length: 60,
-            network_run_ahead_metrics_time: 1000,
-            network_keep_alive_delay: 5,
+            network_fps_history_length: 30,        // C++ line 910: 30
+            network_latency_history_length: 200,   // C++ line 911: 200
+            network_cushion_history_length: 10,    // C++ line 913: 10
+            network_run_ahead_metrics_time: 500,   // C++ line 912: 500
+            network_keep_alive_delay: 20,          // C++ line 915: 20
             network_run_ahead_slack: 10,
-            network_disconnect_time: 30000,
+            network_disconnect_time: 5000,         // C++ line 916: 5000
             network_player_timeout_time: 60000,
-            network_disconnect_screen_notify_time: 5000,
+            network_disconnect_screen_notify_time: 15000,  // C++ line 918: 15000
 
-            // Economy and building
-            base_value_per_supply_box: 200,
+            // Economy and building (parity: GlobalData.cpp constructor)
+            base_value_per_supply_box: 100,       // C++ line 733: 100
             build_speed: 1.0,
             min_dist_from_edge_of_map_for_build: 10.0,
             supply_build_border: 40.0,
@@ -602,7 +602,7 @@ impl Default for GlobalData {
             max_low_energy_production_speed: 1.0,
             low_energy_penalty_modifier: 0.5,
             multiple_factory: 1.0,
-            refund_percent: 0.5,
+            refund_percent: 0.0,                   // C++ line 830: 0.0
             command_center_heal_range: 200.0,
             command_center_heal_amount: 5.0,
             max_line_build_objects: 10,
@@ -612,22 +612,22 @@ impl Default for GlobalData {
             health_bonus: [0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0],
             default_structure_rubble_height: 4.0,
 
-            // Special settings
+            // Special settings (parity: GlobalData.cpp constructor)
             pending_file: String::new(),
             special_power_view_object_name: String::new(),
             standard_public_bones: Vec::new(),
-            standard_minefield_density: 1.0,
-            standard_minefield_distance: 10.0,
+            standard_minefield_density: 0.01,     // C++ line 837: 0.01
+            standard_minefield_distance: 40.0,    // C++ line 838: 40.0
             show_metrics: false,
             default_starting_cash: 10000,
             debug_show_graphical_framerate: false,
 
-            // Power bar
-            power_bar_base: 2,
-            power_bar_intervals: 10.0,
+            // Power bar (parity: GlobalData.cpp constructor)
+            power_bar_base: 7,                     // C++ line 879: 7
+            power_bar_intervals: 3.0,              // C++ line 880: 3
             power_bar_yellow_range: 5,
             display_gamma: 1.0,
-            unlook_persist_duration: 1000,
+            unlook_persist_duration: 30,           // C++ line 905: 30
 
             // Timing
             double_click_time_ms: 250,
@@ -638,33 +638,33 @@ impl Default for GlobalData {
             fog_alpha: 127,
             shroud_alpha: 0,
 
-            // Selection and audio
-            group_select_min_select_size: 3,
-            group_select_volume_base: 0.7,
+            // Selection and audio (parity: GlobalData.cpp constructor)
+            group_select_min_select_size: 5,       // C++ line 840: 5
+            group_select_volume_base: 0.5,         // C++ line 841: 0.5
             group_select_volume_increment: 0.05,
             max_unit_select_sounds: 10,
-            selection_flash_saturation_factor: 1.5,
-            selection_flash_house_color: true,
+            selection_flash_saturation_factor: 0.5,  // C++ line 845: 0.5
+            selection_flash_house_color: false,      // C++ line 846: false
             group_move_click_to_gather_factor: 1.0,
 
             // Graphics options
             anti_alias_box_value: 0,
-            language_filter_pref: false,
+            language_filter_pref: true,            // C++ line 889: true
             load_screen_render: true,
             disable_render: false,
 
-            // Camera shake
+            // Camera shake (parity: GlobalData.cpp constructor)
             shake_subtle_intensity: 0.5,
             shake_normal_intensity: 1.0,
             shake_strong_intensity: 2.0,
-            shake_severe_intensity: 3.0,
-            shake_cine_extreme_intensity: 5.0,
-            shake_cine_insane_intensity: 10.0,
-            max_shake_intensity: 1.5,
-            max_shake_range: 200.0,
+            shake_severe_intensity: 5.0,          // C++ line 854: 5.0
+            shake_cine_extreme_intensity: 8.0,    // C++ line 855: 8.0
+            shake_cine_insane_intensity: 12.0,    // C++ line 856: 12.0
+            max_shake_intensity: 10.0,            // C++ line 857: 10.0
+            max_shake_range: 150.0,              // C++ line 858: 150.0
 
-            // Base regeneration
-            sell_percentage: 0.25,
+            // Base regeneration (parity: GlobalData.cpp constructor)
+            sell_percentage: 1.0,                  // C++ line 860: 1.0
             base_regen_health_percent_per_second: 0.0,
             base_regen_delay: 0,
             prison_bounty_multiplier: 1.0,
@@ -673,10 +673,10 @@ impl Default for GlobalData {
             // Colors
             hot_key_text_color: [1.0, 1.0, 0.0, 1.0],
 
-            // Volume settings
-            music_volume_factor: 0.8,
-            sfx_volume_factor: 1.0,
-            voice_volume_factor: 1.0,
+            // Volume settings (parity: GlobalData.cpp constructor)
+            music_volume_factor: 0.5,              // C++ line 950: 0.5
+            sfx_volume_factor: 0.5,               // C++ line 951: 0.5
+            voice_volume_factor: 0.5,             // C++ line 952: 0.5
             sound_3d_pref: true,
 
             // Movement penalties
