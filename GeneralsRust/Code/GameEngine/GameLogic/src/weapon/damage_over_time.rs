@@ -205,8 +205,7 @@ impl DotEffect {
     pub fn create_damage_info(&self) -> DamageInfo {
         let mut damage_info = DamageInfo::new();
         damage_info.input.source_id = self.source_id;
-        damage_info.input.damage_type = DamageType::Unresistable; // DoT bypasses armor
-        damage_info.input.damage_fx_override = self.effect_type.fx_damage_type(); // But shows correct FX
+        damage_info.input.damage_type = self.effect_type.fx_damage_type(); // C++: DoT uses actual damage type (Poison/Flame), goes through armor
         damage_info.input.death_type = self.effect_type.death_type();
         damage_info.input.amount = self.damage_per_tick;
         damage_info.sync_from_input();

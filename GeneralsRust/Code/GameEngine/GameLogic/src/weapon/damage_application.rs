@@ -10,7 +10,7 @@ use crate::damage::{DamageType, DeathType};
 use crate::weapon::armor_system::{ArmorType, DamageCalculationEngine};
 
 /// Huge damage amount for instant kill effects (matches C++ HUGE_DAMAGE_AMOUNT)
-pub const HUGE_DAMAGE_AMOUNT: f32 = 10000000.0;
+pub const HUGE_DAMAGE_AMOUNT: f32 = 999999.0; // C++ Damage.h:282
 
 /// Damage information input (what we want to apply)
 ///
@@ -51,7 +51,7 @@ pub struct DamageInfoInput {
 impl Default for DamageInfoInput {
     fn default() -> Self {
         Self {
-            damage_type: DamageType::Unresistable,
+            damage_type: DamageType::Explosion,  // C++ Damage.h:243 default
             death_type: DeathType::Normal,
             source_id: 0,
             source_player_mask: PlayerMaskType::empty(),
@@ -60,7 +60,7 @@ impl Default for DamageInfoInput {
             shockwave_amount: 0.0,
             shockwave_vector: Coord3D::new(0.0, 0.0, 0.0),
             shockwave_radius: 0.0,
-            shockwave_taper_off: 1.0,
+            shockwave_taper_off: 0.0,  // C++ Damage.h:253 default
         }
     }
 }
