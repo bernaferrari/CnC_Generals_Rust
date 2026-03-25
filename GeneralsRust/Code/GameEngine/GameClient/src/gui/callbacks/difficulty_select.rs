@@ -7,14 +7,12 @@ use crate::gui::{
 };
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+use game_engine::common::user_preferences::UserPreferences;
+use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
 
 struct DifficultySelectMenuState {
     parent_id: i32,
@@ -61,6 +59,38 @@ fn difficulty_to_logic(diff: GameDifficulty) -> i32 {
         GameDifficulty::Normal => 1,
         GameDifficulty::Hard => 2,
     }
+}
+
+fn difficulty_from_logic(diff: i32) -> GameDifficulty {
+    match diff {
+        0 => GameDifficulty::Easy,
+        2 => GameDifficulty::Hard,
+        _ => GameDifficulty::Normal,
+    }
+}
+
+fn script_engine_available() -> bool {
+    gamelogic::scripting::engine::get_script_engine()
+        .read()
+        .map(|engine| engine.is_some())
+        .unwrap_or(false)
+}
+
+fn load_campaign_difficulty() -> GameDifficulty {
+    if !script_engine_available() {
+        return GameDifficulty::Normal;
+    }
+
+    let mut prefs = UserPreferences::new();
+    let _ = prefs.load("Options.ini");
+    difficulty_from_logic(prefs.get_int_or("CampaignDifficulty", 1))
+}
+
+fn save_campaign_difficulty(difficulty: GameDifficulty) {
+    let mut prefs = UserPreferences::new();
+    let _ = prefs.load("Options.ini");
+    prefs.set_int("CampaignDifficulty", difficulty_to_logic(difficulty));
+    let _ = prefs.write();
 }
 
 fn set_radio_selected(window: &Rc<RefCell<GameWindow>>, selected: bool) {
@@ -118,8 +148,7 @@ fn cancel_difficulty_select(window: &GameWindow) {
 
 fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
     let (current_map, rank_points) = {
-        let mut campaign_manager = get_campaign_manager();
-        campaign_manager.set_game_difficulty(difficulty);
+        let campaign_manager = get_campaign_manager();
         (
             campaign_manager.get_current_map().unwrap_or_default(),
             campaign_manager.get_rank_points(),
@@ -134,7 +163,7 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
     if let Some(data) = get_global_data() {
         data.write().pending_file = current_map;
     }
-    TheScriptEngine::set_global_difficulty(difficulty_to_logic(difficulty));
+    save_campaign_difficulty(difficulty);
 
     let state_handle = difficulty_select_state();
     let state = state_handle
@@ -169,7 +198,7 @@ pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.radio_easy_id = name_to_id("DifficultySelect.wnd:RadioButtonEasy");
     state.radio_medium_id = name_to_id("DifficultySelect.wnd:RadioButtonMedium");
     state.radio_hard_id = name_to_id("DifficultySelect.wnd:RadioButtonHard");
-    state.selected_difficulty = get_campaign_manager().get_game_difficulty();
+    state.selected_difficulty = load_campaign_difficulty();
 
     with_window_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
@@ -196,7 +225,9 @@ pub fn difficulty_select_system(
         .expect("difficulty select state lock poisoned");
 
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create | WindowMessage::Destroy | WindowMessage::InputFocus => {
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {
@@ -227,58 +258,15 @@ pub fn difficulty_select_system(
             }
             WindowMsgHandled::Handled
         }
-        WindowMessage::GadgetValueChanged => {
-            let control_id = data1 as i32;
-            if control_id == state.radio_easy_id {
-                state.selected_difficulty = GameDifficulty::Easy;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_medium_id {
-                state.selected_difficulty = GameDifficulty::Normal;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_hard_id {
-                state.selected_difficulty = GameDifficulty::Hard;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            WindowMsgHandled::Ignored
-        }
-        WindowMessage::User(0x8000) => {
-            let control_id = data1 as i32;
-            if control_id == state.radio_easy_id {
-                state.selected_difficulty = GameDifficulty::Easy;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_medium_id {
-                state.selected_difficulty = GameDifficulty::Normal;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_hard_id {
-                state.selected_difficulty = GameDifficulty::Hard;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            WindowMsgHandled::Ignored
-        }
         _ => WindowMsgHandled::Ignored,
     }
 }
 
 pub fn difficulty_select_input(
-    window: &GameWindow,
-    msg: WindowMessage,
-    data1: WindowMsgData,
-    data2: WindowMsgData,
+    _window: &GameWindow,
+    _msg: WindowMessage,
+    _data1: WindowMsgData,
+    _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
-        cancel_difficulty_select(window);
-        return WindowMsgHandled::Handled;
-    }
-
     WindowMsgHandled::Ignored
 }
