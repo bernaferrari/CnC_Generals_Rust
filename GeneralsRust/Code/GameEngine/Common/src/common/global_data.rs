@@ -738,6 +738,12 @@ impl GlobalData {
             return false;
         }
         self.time_of_day = tod;
+        let tod_index = tod as usize;
+        for i in 0..MAX_GLOBAL_LIGHTS {
+            self.terrain_ambient[i] = self.terrain_lighting[tod_index][i].ambient;
+            self.terrain_diffuse[i] = self.terrain_lighting[tod_index][i].diffuse;
+            self.terrain_light_pos[i] = self.terrain_lighting[tod_index][i].light_pos;
+        }
         true
     }
 
