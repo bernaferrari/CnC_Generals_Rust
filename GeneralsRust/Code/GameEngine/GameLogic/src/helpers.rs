@@ -41,6 +41,7 @@ use game_engine::common::audio::{
     AudioAffect as EngineAudioAffect, AudioEventRts as EngineAudioEventRts,
     Coord3D as EngineCoord3D, TimeOfDay as EngineTimeOfDay,
 };
+use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_game_data::ensure_global_data as ensure_engine_global_data;
 use game_engine::common::ini::{
     get_global_data as get_engine_global_data, TimeOfDay as IniTimeOfDay,
@@ -915,13 +916,26 @@ impl TheGameLogic {
     }
 
     /// Start a prepared game (C++ parity: GameLogic::startNewGame(FALSE)).
-    pub fn start_new_game(_is_load_game: Bool) -> Result<(), String> {
+    pub fn start_new_game(is_load_game: Bool) -> Result<(), String> {
         let map_path = get_engine_global_data()
             .map(|data| data.read().map_name.clone())
             .unwrap_or_default();
 
         if map_path.is_empty() {
             return Err("Cannot start game: global map_name is empty".to_string());
+        }
+
+        // C++ parity: GameLogic::startNewGame(FALSE) records pristine map name before
+        // map INI/sidecar resolution so save-directory maps can remap to original path.
+        if !is_load_game {
+            let mut state = game_engine::System::get_game_state();
+            state.set_pristine_map_name(map_path.clone());
+            if state.is_in_save_directory(std::path::Path::new(&map_path)) {
+                log::error!(
+                    "Pristine map name points to save directory map '{}'; sidecar lookup may diverge from C++ expected source-map semantics",
+                    map_path
+                );
+            }
         }
 
         let params = crate::system::game_initialization::GameInitParams {
@@ -998,7 +1012,33 @@ impl TheGameLogic {
 
     /// Reset game logic state (matches C++ TheGameLogic::clearGameData).
     pub fn clear_game_data() -> Result<(), String> {
-        crate::system::game_logic::reset_game_logic()
+        if !Self::is_in_game() {
+            return Err("clear_game_data called while not in game".to_string());
+        }
+
+        // C++ parity: GameLogic::clearGameData() performs an engine reset, then forces
+        // GAME_NONE and conditionally marks the engine quitting for initial-file startup.
+        if let Some(engine) = get_game_engine() {
+            let mut guard = engine.lock();
+            let _ = futures::executor::block_on(guard.reset());
+        }
+
+        crate::system::game_logic::reset_game_logic()?;
+
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.set_game_mode(crate::system::game_logic::GAME_NONE);
+        }
+
+        let has_initial_file = get_engine_global_data()
+            .map(|data| !data.read().initial_file.is_empty())
+            .unwrap_or(false);
+        if has_initial_file {
+            if let Some(engine) = get_game_engine() {
+                engine.lock().set_quitting(true);
+            }
+        }
+
+        Ok(())
     }
 
     /// Set rank points used at game start.

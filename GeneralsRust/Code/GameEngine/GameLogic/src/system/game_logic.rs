@@ -822,6 +822,9 @@ impl GameLogic {
         self.event_queue.clear();
         self.command_queue.clear();
         self.radar_updates.clear();
+        self.game_mode = GAME_NONE;
+        self.loading_map = false;
+        self.loading_save = false;
         self.is_scoring_enabled = true;
         self.show_behind_building_markers = true;
         self.draw_icon_ui = true;
