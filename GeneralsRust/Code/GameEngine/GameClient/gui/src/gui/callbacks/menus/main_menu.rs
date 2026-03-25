@@ -66,6 +66,93 @@ impl CampaignSidePort {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MainMenuAction {
+    PushScreen {
+        window: String,
+        reverse: &'static str,
+        show_dropdown: Option<MainMenuDropdownPort>,
+    },
+    Transition {
+        remove: &'static str,
+        reverse: &'static str,
+        set_group: &'static str,
+        show_dropdown: Option<MainMenuDropdownPort>,
+    },
+    ShowOptions,
+    StartGame {
+        fade: &'static str,
+    },
+    QuitImmediate,
+    ShowQuitDialog,
+    LaunchWorldBuilder,
+    StartPatchCheck,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum MainMenuButtonId {
+    SinglePlayer,
+    MultiPlayer,
+    Skirmish,
+    Online,
+    Network,
+    Options,
+    Credits,
+    Replay,
+    LoadReplay,
+    LoadGame,
+    Challenge,
+    Usa,
+    Gla,
+    China,
+    Easy,
+    Medium,
+    Hard,
+    DiffBack,
+    MultiBack,
+    SingleBack,
+    LoadReplayBack,
+    Exit,
+    WorldBuilder,
+    GetUpdate,
+}
+
+impl MainMenuButtonId {
+    pub const WND_PREFIX: &'static str = "MainMenu.wnd:";
+
+    pub fn from_name_key(key: &str) -> Option<Self> {
+        let name = key.strip_prefix(Self::WND_PREFIX)?;
+        let button = name.strip_prefix("Button")?;
+        match button {
+            "SinglePlayer" => Some(Self::SinglePlayer),
+            "Multiplayer" => Some(Self::MultiPlayer),
+            "Skirmish" => Some(Self::Skirmish),
+            "Online" => Some(Self::Online),
+            "Network" => Some(Self::Network),
+            "Options" => Some(Self::Options),
+            "Credits" => Some(Self::Credits),
+            "Replay" => Some(Self::Replay),
+            "LoadReplay" => Some(Self::LoadReplay),
+            "LoadGame" => Some(Self::LoadGame),
+            "Challenge" => Some(Self::Challenge),
+            "USA" => Some(Self::Usa),
+            "GLA" => Some(Self::Gla),
+            "China" => Some(Self::China),
+            "Easy" => Some(Self::Easy),
+            "Medium" => Some(Self::Medium),
+            "Hard" => Some(Self::Hard),
+            "DiffBack" => Some(Self::DiffBack),
+            "MultiBack" => Some(Self::MultiBack),
+            "SingleBack" => Some(Self::SingleBack),
+            "LoadReplayBack" => Some(Self::LoadReplayBack),
+            "Exit" => Some(Self::Exit),
+            "WorldBuilder" => Some(Self::WorldBuilder),
+            "GetUpdate" => Some(Self::GetUpdate),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GameDifficultyPort {
     Easy,
@@ -370,6 +457,281 @@ impl MainMenuPort {
         true
     }
 
+    pub fn handle_button(
+        &mut self,
+        button: MainMenuButtonId,
+        windowed: bool,
+    ) -> Option<MainMenuAction> {
+        if self.button_pushed
+            && button != MainMenuButtonId::Easy
+            && button != MainMenuButtonId::Medium
+            && button != MainMenuButtonId::Hard
+        {
+            return None;
+        }
+
+        match button {
+            MainMenuButtonId::SinglePlayer => {
+                if self.enter_single_player() {
+                    Some(MainMenuAction::Transition {
+                        remove: "MainMenuDefaultMenu",
+                        reverse: "MainMenuDefaultMenuBack",
+                        set_group: "MainMenuSinglePlayerMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::Single),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::SingleBack => {
+                if self.back_from_single_player() {
+                    Some(MainMenuAction::Transition {
+                        remove: "MainMenuSinglePlayerMenu",
+                        reverse: "MainMenuSinglePlayerMenuBack",
+                        set_group: "MainMenuDefaultMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::None),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::MultiPlayer => {
+                if self.enter_multiplayer() {
+                    Some(MainMenuAction::Transition {
+                        remove: "MainMenuDefaultMenu",
+                        reverse: "MainMenuDefaultMenuBack",
+                        set_group: "MainMenuMultiPlayerMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::Multiplayer),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::MultiBack => {
+                if self.back_from_multiplayer() {
+                    Some(MainMenuAction::Transition {
+                        remove: "MainMenuMultiPlayerMenu",
+                        reverse: "MainMenuMultiPlayerMenuReverse",
+                        set_group: "MainMenuDefaultMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::None),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::LoadReplay => {
+                if self.enter_load_replay() {
+                    Some(MainMenuAction::Transition {
+                        remove: "MainMenuDefaultMenu",
+                        reverse: "MainMenuDefaultMenuBack",
+                        set_group: "MainMenuLoadReplayMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::LoadReplay),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::LoadReplayBack => {
+                if self.back_from_load_replay() {
+                    Some(MainMenuAction::Transition {
+                        remove: "MainMenuLoadReplayMenu",
+                        reverse: "MainMenuLoadReplayMenuBack",
+                        set_group: "MainMenuDefaultMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::None),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Credits => {
+                if self.open_credits() {
+                    Some(MainMenuAction::PushScreen {
+                        window: "Menus/CreditsMenu.wnd".to_string(),
+                        reverse: "MainMenuDefaultMenu",
+                        show_dropdown: Some(MainMenuDropdownPort::None),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Skirmish => {
+                if self.open_skirmish() {
+                    Some(MainMenuAction::PushScreen {
+                        window: "Menus/SkirmishGameOptionsMenu.wnd".to_string(),
+                        reverse: "MainMenuSinglePlayerMenuBackSkirmish",
+                        show_dropdown: Some(MainMenuDropdownPort::Single),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Online => {
+                if self.dont_allow_transitions {
+                    return None;
+                }
+                self.dont_allow_transitions = true;
+                self.button_pushed = true;
+                Some(MainMenuAction::PushScreen {
+                    window: "Menus/WOLLoginMenu.wnd".to_string(),
+                    reverse: "MainMenuMultiPlayerMenuTransitionToNext",
+                    show_dropdown: Some(MainMenuDropdownPort::Multiplayer),
+                })
+            }
+            MainMenuButtonId::Network => {
+                if self.open_network_lobby() {
+                    Some(MainMenuAction::PushScreen {
+                        window: "Menus/LanLobbyMenu.wnd".to_string(),
+                        reverse: "MainMenuMultiPlayerMenuTransitionToNext",
+                        show_dropdown: Some(MainMenuDropdownPort::Multiplayer),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Options => {
+                if self.open_options() {
+                    Some(MainMenuAction::ShowOptions)
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Replay => {
+                if self.open_replay_menu() {
+                    Some(MainMenuAction::PushScreen {
+                        window: "Menus/ReplayMenu.wnd".to_string(),
+                        reverse: "MainMenuLoadReplayMenuBackTransition",
+                        show_dropdown: Some(MainMenuDropdownPort::LoadReplay),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::LoadGame => {
+                if self.open_save_load() {
+                    Some(MainMenuAction::PushScreen {
+                        window: "Menus/SaveLoad.wnd".to_string(),
+                        reverse: "MainMenuLoadReplayMenuBackTransition",
+                        show_dropdown: Some(MainMenuDropdownPort::LoadReplay),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Challenge => {
+                if self.select_challenge() {
+                    Some(MainMenuAction::Transition {
+                        remove: "",
+                        reverse: "MainMenuSinglePlayerMenuBackTraining",
+                        set_group: "MainMenuDifficultyMenuTraining",
+                        show_dropdown: Some(MainMenuDropdownPort::Difficulty),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Usa => {
+                if self.select_campaign_side(CampaignSidePort::Usa) {
+                    Some(MainMenuAction::Transition {
+                        remove: "",
+                        reverse: "MainMenuSinglePlayerMenuBackUS",
+                        set_group: "MainMenuDifficultyMenuUS",
+                        show_dropdown: Some(MainMenuDropdownPort::Difficulty),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Gla => {
+                if self.select_campaign_side(CampaignSidePort::Gla) {
+                    Some(MainMenuAction::Transition {
+                        remove: "",
+                        reverse: "MainMenuSinglePlayerMenuBackGLA",
+                        set_group: "MainMenuDifficultyMenuGLA",
+                        show_dropdown: Some(MainMenuDropdownPort::Difficulty),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::China => {
+                if self.select_campaign_side(CampaignSidePort::China) {
+                    Some(MainMenuAction::Transition {
+                        remove: "",
+                        reverse: "MainMenuSinglePlayerMenuBackChina",
+                        set_group: "MainMenuDifficultyMenuChina",
+                        show_dropdown: Some(MainMenuDropdownPort::Difficulty),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Easy => {
+                if self.select_difficulty(GameDifficultyPort::Easy) {
+                    Some(self.difficulty_action())
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Medium => {
+                if self.select_difficulty(GameDifficultyPort::Normal) {
+                    Some(self.difficulty_action())
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Hard => {
+                if self.select_difficulty(GameDifficultyPort::Hard) {
+                    Some(self.difficulty_action())
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::DiffBack => {
+                if self.back_from_difficulty() {
+                    let reverse = match self.show_side {
+                        Some(CampaignSidePort::Training) => "MainMenuDifficultyMenuTrainingBack",
+                        Some(CampaignSidePort::Usa) => "MainMenuDifficultyMenuUSBack",
+                        Some(CampaignSidePort::Gla) => "MainMenuDifficultyMenuGLABack",
+                        Some(CampaignSidePort::China) => "MainMenuDifficultyMenuChinaBack",
+                        _ => "",
+                    };
+                    Some(MainMenuAction::Transition {
+                        remove: "",
+                        reverse,
+                        set_group: "",
+                        show_dropdown: Some(MainMenuDropdownPort::Single),
+                    })
+                } else {
+                    None
+                }
+            }
+            MainMenuButtonId::Exit => {
+                self.quit(windowed);
+                if windowed {
+                    Some(MainMenuAction::QuitImmediate)
+                } else {
+                    Some(MainMenuAction::ShowQuitDialog)
+                }
+            }
+            MainMenuButtonId::WorldBuilder => Some(MainMenuAction::LaunchWorldBuilder),
+            MainMenuButtonId::GetUpdate => Some(MainMenuAction::StartPatchCheck),
+        }
+    }
+
+    fn difficulty_action(&self) -> MainMenuAction {
+        if self.launch_challenge_menu {
+            MainMenuAction::PushScreen {
+                window: "Menus/ChallengeMenu.wnd".to_string(),
+                reverse: "MainMenuDifficultyMenuTraining",
+                show_dropdown: None,
+            }
+        } else {
+            MainMenuAction::StartGame {
+                fade: "FadeWholeScreen",
+            }
+        }
+    }
+
     pub fn quit(&mut self, windowed: bool) {
         self.button_pushed = true;
         self.quit_requested = true;
@@ -458,5 +820,171 @@ mod tests {
         assert!(menu.update(true, true));
         assert!(menu.is_shutting_down);
         assert!(!menu.start_game);
+    }
+
+    #[test]
+    fn dispatch_single_player_pushes_transition() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::SinglePlayer, false);
+        assert_eq!(
+            action,
+            Some(MainMenuAction::Transition {
+                remove: "MainMenuDefaultMenu",
+                reverse: "MainMenuDefaultMenuBack",
+                set_group: "MainMenuSinglePlayerMenu",
+                show_dropdown: Some(MainMenuDropdownPort::Single),
+            })
+        );
+        assert!(menu.dont_allow_transitions);
+    }
+
+    #[test]
+    fn dispatch_credits_pushes_credits_menu() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Credits, false);
+        assert_eq!(
+            action,
+            Some(MainMenuAction::PushScreen {
+                window: "Menus/CreditsMenu.wnd".to_string(),
+                reverse: "MainMenuDefaultMenu",
+                show_dropdown: Some(MainMenuDropdownPort::None),
+            })
+        );
+        assert_eq!(
+            menu.last_shell_push.as_deref(),
+            Some("Menus/CreditsMenu.wnd")
+        );
+    }
+
+    #[test]
+    fn dispatch_skirmish_pushes_skirmish_options() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Skirmish, false);
+        assert_eq!(
+            action,
+            Some(MainMenuAction::PushScreen {
+                window: "Menus/SkirmishGameOptionsMenu.wnd".to_string(),
+                reverse: "MainMenuSinglePlayerMenuBackSkirmish",
+                show_dropdown: Some(MainMenuDropdownPort::Single),
+            })
+        );
+        assert!(menu.campaign_selected);
+    }
+
+    #[test]
+    fn dispatch_network_pushes_lan_lobby() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Network, false);
+        assert_eq!(
+            action,
+            Some(MainMenuAction::PushScreen {
+                window: "Menus/LanLobbyMenu.wnd".to_string(),
+                reverse: "MainMenuMultiPlayerMenuTransitionToNext",
+                show_dropdown: Some(MainMenuDropdownPort::Multiplayer),
+            })
+        );
+    }
+
+    #[test]
+    fn dispatch_online_pushes_wol_login() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Online, false);
+        assert_eq!(
+            action,
+            Some(MainMenuAction::PushScreen {
+                window: "Menus/WOLLoginMenu.wnd".to_string(),
+                reverse: "MainMenuMultiPlayerMenuTransitionToNext",
+                show_dropdown: Some(MainMenuDropdownPort::Multiplayer),
+            })
+        );
+    }
+
+    #[test]
+    fn dispatch_replay_pushes_replay_menu() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Replay, false);
+        assert_eq!(
+            action,
+            Some(MainMenuAction::PushScreen {
+                window: "Menus/ReplayMenu.wnd".to_string(),
+                reverse: "MainMenuLoadReplayMenuBackTransition",
+                show_dropdown: Some(MainMenuDropdownPort::LoadReplay),
+            })
+        );
+    }
+
+    #[test]
+    fn dispatch_exit_windowed_quits_immediately() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Exit, true);
+        assert_eq!(action, Some(MainMenuAction::QuitImmediate));
+        assert!(menu.quit_requested);
+        assert!(menu.is_shutting_down);
+    }
+
+    #[test]
+    fn dispatch_exit_fullscreen_shows_dialog() {
+        let mut menu = MainMenuPort::init();
+        let action = menu.handle_button(MainMenuButtonId::Exit, false);
+        assert_eq!(action, Some(MainMenuAction::ShowQuitDialog));
+        assert!(menu.quit_requested);
+        assert!(!menu.is_shutting_down);
+    }
+
+    #[test]
+    fn dispatch_blocked_when_dont_allow_transitions() {
+        let mut menu = MainMenuPort::init();
+        menu.dont_allow_transitions = true;
+        assert!(menu
+            .handle_button(MainMenuButtonId::Credits, false)
+            .is_none());
+        assert!(menu
+            .handle_button(MainMenuButtonId::Skirmish, false)
+            .is_none());
+        assert!(menu
+            .handle_button(MainMenuButtonId::Network, false)
+            .is_none());
+        assert!(menu
+            .handle_button(MainMenuButtonId::Options, false)
+            .is_none());
+    }
+
+    #[test]
+    fn dispatch_blocked_when_button_already_pushed() {
+        let mut menu = MainMenuPort::init();
+        menu.button_pushed = true;
+        assert!(menu
+            .handle_button(MainMenuButtonId::Credits, false)
+            .is_none());
+    }
+
+    #[test]
+    fn difficulty_buttons_bypass_button_pushed_guard() {
+        let mut menu = MainMenuPort::init();
+        let _ = menu.enter_single_player();
+        menu.dont_allow_transitions = false;
+        let _ = menu.select_campaign_side(CampaignSidePort::Usa);
+        menu.button_pushed = true;
+        assert!(menu.handle_button(MainMenuButtonId::Easy, false).is_some());
+    }
+
+    #[test]
+    fn from_name_key_parses_button_ids() {
+        assert_eq!(
+            MainMenuButtonId::from_name_key("MainMenu.wnd:ButtonCredits"),
+            Some(MainMenuButtonId::Credits)
+        );
+        assert_eq!(
+            MainMenuButtonId::from_name_key("MainMenu.wnd:ButtonSkirmish"),
+            Some(MainMenuButtonId::Skirmish)
+        );
+        assert_eq!(
+            MainMenuButtonId::from_name_key("MainMenu.wnd:ButtonExit"),
+            Some(MainMenuButtonId::Exit)
+        );
+        assert_eq!(
+            MainMenuButtonId::from_name_key("Other.wnd:ButtonCredits"),
+            None
+        );
     }
 }

@@ -7354,12 +7354,19 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
     }
 
-    fn notify_fired(&mut self) {
-        // Placeholder: attack state machine in C++ uses this to track firing cadence.
-    }
+    fn notify_fired(&mut self) {}
 
-    fn notify_new_victim_chosen(&mut self, _victim: ObjectID) {
-        // Placeholder: attack state machine in C++ uses this to update target bookkeeping.
+    fn notify_new_victim_chosen(&mut self, victim: ObjectID) {
+        if let Some(machine) = self.ai_state_machine.as_ref() {
+            if let Ok(mut guard) = machine.lock() {
+                guard.set_goal_object(victim);
+            }
+        }
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut unit_guard) = unit.write() {
+                unit_guard.attack_target = Some(victim);
+            }
+        }
     }
 
     fn is_weapon_slot_ok_to_fire(&self, _wslot: WeaponSlotType) -> Bool {

@@ -75,6 +75,20 @@ pub trait AudioLocalityResolver: Send + Sync {
 
 static AUDIO_LOCALITY_RESOLVER: OnceLock<Arc<dyn AudioLocalityResolver>> = OnceLock::new();
 
+/// Resolver for C++ TheTacticalView and TheTerrainLogic access needed by AudioManager::update().
+pub trait AudioViewResolver: Send + Sync {
+    fn get_tactical_view_position(&self) -> Coord3D;
+    fn get_tactical_view_angle(&self) -> Real;
+    fn get_3d_camera_position(&self) -> Coord3D;
+    fn get_ground_height(&self, x: Real, y: Real) -> Real;
+}
+
+static AUDIO_VIEW_RESOLVER: OnceLock<Arc<dyn AudioViewResolver>> = OnceLock::new();
+
+pub fn register_audio_view_resolver(resolver: Arc<dyn AudioViewResolver>) -> bool {
+    AUDIO_VIEW_RESOLVER.set(resolver).is_ok()
+}
+
 pub fn register_sound_playback_hook(hook: Arc<dyn SoundPlaybackHook>) -> bool {
     SOUND_PLAYBACK_HOOK.set(hook).is_ok()
 }
@@ -424,12 +438,81 @@ impl AudioManager {
     }
 
     pub fn update(&mut self) {
-        // Complex update logic for listener position, zoom volume, etc.
-        // This would require access to tactical view and terrain logic
-
         self.process_request_list();
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.update();
+        }
+
+        if let Some(resolver) = AUDIO_VIEW_RESOLVER.get() {
+            let ground_pos = resolver.get_tactical_view_position();
+            let angle = resolver.get_tactical_view_angle();
+            let camera_pos = resolver.get_3d_camera_position();
+            let ground_height = resolver.get_ground_height(ground_pos.x, ground_pos.y);
+
+            let forward_x = -angle.sin();
+            let forward_y = angle.cos();
+            let forward_z = 0.0;
+
+            let look_to = Coord3D {
+                x: forward_x,
+                y: forward_y,
+                z: forward_z,
+            };
+
+            let desired_height = self.audio_settings.microphone_desired_height_above_terrain;
+            let max_percentage = self
+                .audio_settings
+                .microphone_max_percentage_between_ground_and_camera;
+
+            let mut ground_to_camera = Coord3D {
+                x: camera_pos.x - ground_pos.x,
+                y: camera_pos.y - ground_pos.y,
+                z: camera_pos.z - ground_pos.z,
+            };
+
+            let best_scale_factor = if camera_pos.z <= desired_height || ground_to_camera.z <= 0.0 {
+                max_percentage
+            } else {
+                let z_scale = desired_height / ground_to_camera.z;
+                max_percentage.min(z_scale)
+            };
+
+            ground_to_camera.x *= best_scale_factor;
+            ground_to_camera.y *= best_scale_factor;
+            ground_to_camera.z *= best_scale_factor;
+
+            let mut microphone_pos = Coord3D {
+                x: ground_pos.x,
+                y: ground_pos.y,
+                z: ground_height,
+            };
+            microphone_pos.x += ground_to_camera.x;
+            microphone_pos.y += ground_to_camera.y;
+            microphone_pos.z += ground_to_camera.z;
+
+            self.set_listener_position(&microphone_pos, &look_to);
+
+            let max_boost_scalar = self.audio_settings.zoom_sound_volume_percentage_amount;
+            let min_dist = self.audio_settings.zoom_min_distance;
+            let max_dist = self.audio_settings.zoom_max_distance;
+
+            self.zoom_volume = 1.0 - max_boost_scalar;
+
+            if max_boost_scalar > 0.0 {
+                let dx = camera_pos.x - microphone_pos.x;
+                let dy = camera_pos.y - microphone_pos.y;
+                let dz = camera_pos.z - microphone_pos.z;
+                let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+
+                if dist < min_dist {
+                    self.zoom_volume = 1.0;
+                } else if dist < max_dist {
+                    let scalar = (dist - min_dist) / (max_dist - min_dist);
+                    self.zoom_volume = 1.0 - scalar * max_boost_scalar;
+                }
+            }
+
+            self.set_3d_volume_adjustment(self.zoom_volume);
         }
     }
 
@@ -1023,6 +1106,15 @@ impl AudioManager {
             self.set_volume(saved[1], AudioAffect::Sound);
             self.set_volume(saved[2], AudioAffect::Sound3D);
             self.set_volume(saved[3], AudioAffect::Speech);
+        }
+    }
+
+    pub fn resume_audio(&mut self, which: AudioAffect) {
+        if affect_has(which, AudioAffect::SoundEffects) || affect_has(which, AudioAffect::All) {
+            if let Some(sound_mgr) = &mut self.sound_manager {
+                sound_mgr.reset();
+                sound_mgr.update();
+            }
         }
     }
 

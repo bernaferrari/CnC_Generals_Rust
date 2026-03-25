@@ -1,19 +1,22 @@
 //! Control Bar Implementation
 //!
-//! Rust conversion of ControlBar.cpp - the main control bar system that provides
-//! context-sensitive command interface for the game.
+//! Rust conversion of ControlBar.cpp + ControlBarCommand.cpp - the main control bar system
+//! that provides context-sensitive command interface for the game.
 //!
-//! Original C++ file: GameClient/GUI/ControlBar/ControlBar.cpp
+//! Original C++ files:
+//!   GameClient/GUI/ControlBar/ControlBar.cpp
+//!   GameClient/GUI/ControlBar/ControlBarCommand.cpp
 //! Original Author: Colin Day, March 2002
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use super::{
-    CommandButton, CommandOption, CommandSourceType, ControlBarContext, ControlBarState,
-    ProductionItem, ProductionType,
+    BuildQueueEntry, CommandAvailability, CommandButton, CommandOption, CommandSourceType,
+    ControlBarContext, ControlBarState, ProductionItem, ProductionType, QueueProductionType,
+    MAX_BUILD_QUEUE_BUTTONS,
 };
 use crate::gui::{GameWindow, WindowManager};
 use crate::helpers::TheInGameUI;
@@ -25,8 +28,9 @@ use game_engine::common::ini::ini_command_button::{
 };
 use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
 use gamelogic::command_button::map_gui_command_to_command_type;
+use gamelogic::commands::command::CommandType;
 use gamelogic::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
-use gamelogic::common::types::{ControlBarInterface, OBJECT_STATUS_UNDER_CONSTRUCTION};
+use gamelogic::common::types::OBJECT_STATUS_UNDER_CONSTRUCTION;
 use gamelogic::common::GameError;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
@@ -34,39 +38,25 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list as logic_player_list, PlayerIndex};
 use gamelogic::upgrade::center::with_upgrade_center;
 
-/// Main Control Bar class - equivalent to C++ ControlBar
 pub struct ControlBar {
-    /// Current control bar context
     context: Arc<RwLock<ControlBarContext>>,
-
-    /// Game window manager reference
     window_manager: Option<Arc<WindowManager>>,
-
-    /// Control bar scheme manager
     scheme_manager: Option<Arc<dyn ControlBarSchemeManager>>,
-
-    /// Control bar resizer
     resizer: Option<Arc<dyn ControlBarResizer>>,
-
-    /// Current game window
     current_window: Option<Arc<GameWindow>>,
-
-    /// Animation state
     is_animating: bool,
     animation_start_time: Instant,
     animation_duration: Duration,
-
-    /// Button state tracking
     button_states: HashMap<String, ButtonState>,
-
-    /// Observer mode flag
     observer_mode: bool,
-
-    /// Multi-select mode flag
     multi_select_mode: bool,
+    ui_dirty: bool,
+    build_queue_data: Vec<BuildQueueEntry>,
+    displayed_queue_count: usize,
+    current_frame: u32,
+    flash_active: bool,
 }
 
-/// Button state information
 #[derive(Debug, Clone)]
 struct ButtonState {
     enabled: bool,
@@ -74,22 +64,21 @@ struct ButtonState {
     pressed: bool,
     progress: f32,
     flash_time: Option<Instant>,
+    availability: CommandAvailability,
+    check_like_active: bool,
 }
 
-/// Control Bar Scheme Manager trait
 pub trait ControlBarSchemeManager: Send + Sync {
     fn load_scheme(&self, scheme_name: &str) -> Result<(), Box<dyn std::error::Error>>;
     fn get_scheme(&self) -> Option<Arc<ControlBarScheme>>;
     fn set_scheme(&mut self, scheme: Arc<ControlBarScheme>);
 }
 
-/// Control Bar Resizer trait
 pub trait ControlBarResizer: Send + Sync {
     fn resize(&self, width: u32, height: u32) -> Result<(), Box<dyn std::error::Error>>;
     fn get_optimal_size(&self) -> (u32, u32);
 }
 
-/// Control Bar Scheme data
 #[derive(Debug, Clone)]
 pub struct ControlBarScheme {
     pub name: String,
@@ -98,7 +87,6 @@ pub struct ControlBarScheme {
     pub layout: ControlBarLayout,
 }
 
-/// Control Bar Animation
 #[derive(Debug, Clone)]
 pub struct ControlBarAnimation {
     pub frames: Vec<String>,
@@ -106,7 +94,6 @@ pub struct ControlBarAnimation {
     pub loop_animation: bool,
 }
 
-/// Control Bar Layout
 #[derive(Debug, Clone)]
 pub struct ControlBarLayout {
     pub command_buttons: Vec<ButtonLayout>,
@@ -114,7 +101,6 @@ pub struct ControlBarLayout {
     pub construction_queue: QueueLayout,
 }
 
-/// Button layout information
 #[derive(Debug, Clone)]
 pub struct ButtonLayout {
     pub x: i32,
@@ -124,7 +110,6 @@ pub struct ButtonLayout {
     pub command_name: String,
 }
 
-/// Panel layout information  
 #[derive(Debug, Clone)]
 pub struct PanelLayout {
     pub x: i32,
@@ -134,7 +119,6 @@ pub struct PanelLayout {
     pub panel_type: String,
 }
 
-/// Queue layout information
 #[derive(Debug, Clone)]
 pub struct QueueLayout {
     pub x: i32,
@@ -145,7 +129,6 @@ pub struct QueueLayout {
 }
 
 impl ControlBar {
-    /// Create new ControlBar instance
     pub fn new() -> Self {
         Self {
             context: Arc::new(RwLock::new(ControlBarContext::default())),
@@ -159,175 +142,474 @@ impl ControlBar {
             button_states: HashMap::new(),
             observer_mode: false,
             multi_select_mode: false,
+            ui_dirty: false,
+            build_queue_data: Vec::new(),
+            displayed_queue_count: 0,
+            current_frame: 0,
+            flash_active: false,
         }
     }
 
-    /// Set window manager
     pub fn set_window_manager(&mut self, manager: Arc<WindowManager>) {
         self.window_manager = Some(manager);
     }
 
-    /// Set scheme manager
     pub fn set_scheme_manager(&mut self, manager: Arc<dyn ControlBarSchemeManager>) {
         self.scheme_manager = Some(manager);
     }
 
-    /// Set resizer
     pub fn set_resizer(&mut self, resizer: Arc<dyn ControlBarResizer>) {
         self.resizer = Some(resizer);
     }
 
-    /// Update control bar based on current selection
-    pub fn update_for_selection(
-        &mut self,
-        selected_objects: Vec<u32>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut state_changed = false;
-        {
-            let mut context = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
+    // ---------------------------------------------------------------------------
+    // markUIDirty / onDrawableSelected / onDrawableDeselected
+    // C++ ControlBar.cpp:114-1617
+    // ---------------------------------------------------------------------------
 
-            context.selected_objects = selected_objects;
-            let new_state = if self.observer_mode {
-                ControlBarState::Observer
-            } else if context.selected_objects.is_empty() {
-                ControlBarState::Default
-            } else if context.selected_objects.len() > 1 {
-                ControlBarState::MultiSelect
-            } else {
-                let selected = context.selected_objects[0];
-                let under_construction = OBJECT_REGISTRY
-                    .get_object(selected)
-                    .and_then(|obj| {
-                        obj.read()
-                            .ok()
-                            .map(|guard| guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION))
-                    })
-                    .unwrap_or(false);
-                if under_construction {
-                    ControlBarState::UnderConstruction
-                } else {
-                    ControlBarState::Command
+    /// Mark the UI dirty so context is re-evaluated on next update.
+    /// C++: ControlBar::markUIDirty()
+    pub fn mark_ui_dirty(&mut self) {
+        self.ui_dirty = true;
+    }
+
+    /// Called when a drawable is selected. Cancels pending GUI commands.
+    /// C++: ControlBar::onDrawableSelected()
+    pub fn on_drawable_selected(&mut self) {
+        self.mark_ui_dirty();
+        TheInGameUI::clear_pending_special_power();
+    }
+
+    /// Called when a drawable is deselected.
+    /// C++: ControlBar::onDrawableDeselected()
+    pub fn on_drawable_deselected(&mut self, select_count: usize) {
+        self.mark_ui_dirty();
+        if select_count == 0 {
+            TheInGameUI::clear_pending_special_power();
+        }
+        TheInGameUI::place_build_available(None, None);
+    }
+
+    // ---------------------------------------------------------------------------
+    // update - main per-frame update
+    // C++ ControlBar.cpp:1359-1580
+    // ---------------------------------------------------------------------------
+
+    /// Main update loop. Mirrors C++ ControlBar::update().
+    pub fn update(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
+        if self.is_animating {
+            let elapsed = self.animation_start_time.elapsed();
+            if elapsed >= self.animation_duration {
+                self.is_animating = false;
+            }
+        }
+
+        let current_time = Instant::now();
+        for (_, state) in self.button_states.iter_mut() {
+            if let Some(flash_time) = state.flash_time {
+                if current_time.duration_since(flash_time) > Duration::from_millis(500) {
+                    state.flash_time = None;
                 }
-            };
-            state_changed = context.current_state != new_state;
-            context.current_state = new_state;
+            }
         }
 
-        if state_changed {
-            self.rebuild_command_buttons_for_current_context()?;
+        if self.observer_mode {
+            return Ok(());
         }
 
-        Ok(())
-    }
-
-    /// Set observer mode
-    pub fn set_observer_mode(&mut self, observer: bool) {
-        self.observer_mode = observer;
-        if let Ok(mut context) = self.context.write() {
-            context.current_state = if observer {
-                ControlBarState::Observer
-            } else {
-                ControlBarState::Default
-            };
+        if self.ui_dirty {
+            self.evaluate_context_ui()?;
+            self.ui_dirty = false;
         }
-        let _ = self.rebuild_command_buttons_for_current_context();
-    }
-
-    /// Process command button click
-    pub fn process_command(
-        &mut self,
-        command_name: &str,
-        source: CommandSourceType,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        log::info!("Processing command: {} from {:?}", command_name, source);
 
         let context = self
             .context
             .read()
             .map_err(|_| "Failed to acquire context read lock")?;
+        let current_state = context.current_state;
+        let selected_objects = context.selected_objects.clone();
+        let player_id = context.player_id;
+        drop(context);
 
-        // Find the command button
-        if let Some(button) = context
-            .available_commands
-            .iter()
-            .find(|b| b.command_name == command_name)
-        {
-            // Check if command is enabled
-            if !self.is_command_enabled(&button, &context) {
-                log::warn!("Command {} is not enabled", command_name);
-                return Ok(false);
-            }
-
-            // Process based on command type
-            self.execute_command(button, source, &context)?;
-            Ok(true)
-        } else {
-            log::warn!("Command {} not found in available commands", command_name);
-            Ok(false)
+        if current_state == ControlBarState::MultiSelect {
+            self.update_context_multi_select()?;
+            return Ok(());
         }
+
+        if selected_objects.is_empty() {
+            return Ok(());
+        }
+
+        let Some(&first_id) = selected_objects.first() else {
+            return Ok(());
+        };
+        let obj_exists = OBJECT_REGISTRY
+            .get_object(first_id)
+            .map(|arc| arc.read().is_ok())
+            .unwrap_or(false);
+        if !obj_exists {
+            self.switch_to_context(ControlBarState::None, None)?;
+            return Ok(());
+        }
+
+        match current_state {
+            ControlBarState::None => {}
+            ControlBarState::Command => {
+                self.update_context_command()?;
+            }
+            ControlBarState::StructureInventory => {
+                self.update_context_structure_inventory()?;
+            }
+            ControlBarState::Beacon => {}
+            ControlBarState::UnderConstruction => {
+                self.update_context_under_construction(delta_time)?;
+            }
+            ControlBarState::OclTimer => {
+                self.update_context_ocl_timer(delta_time)?;
+            }
+            ControlBarState::Observer => {}
+            ControlBarState::MultiSelect => {}
+        }
+
+        if let Ok(mut context) = self.context.write() {
+            for item in context.construction_queue.iter_mut() {
+                if item.progress < 1.0 && item.build_time > 0.0 {
+                    item.progress += delta_time.as_secs_f32() / item.build_time;
+                    item.progress = item.progress.min(1.0);
+                }
+            }
+        }
+
+        let context_snapshot = self.context.read().ok().map(|c| c.clone());
+        if let Some(context) = context_snapshot {
+            self.refresh_button_states(&context, player_id);
+        }
+
+        Ok(())
     }
 
-    /// Check if command is enabled
-    fn is_command_enabled(&self, button: &CommandButton, context: &ControlBarContext) -> bool {
-        // Check if we're in observer mode
-        if self.observer_mode && (button.options & CommandOption::ScriptOnly as u32) == 0 {
-            return false;
-        }
+    // ---------------------------------------------------------------------------
+    // evaluateContextUI - determine what context to show
+    // C++ ControlBar.cpp:1689-1888
+    // ---------------------------------------------------------------------------
 
-        // Check multi-select compatibility
-        if context.selected_objects.len() > 1
-            && (button.options & CommandOption::OkForMultiSelect as u32) == 0
-        {
-            return false;
-        }
+    fn evaluate_context_ui(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.ui_dirty = false;
 
-        let sciences_to_check: Option<Vec<ScienceType>> = if !button.sciences_ids.is_empty() {
-            Some(button.sciences_ids.clone())
-        } else if !button.sciences.is_empty() {
-            get_science_store().map(|store| {
-                button
-                    .sciences
-                    .iter()
-                    .map(|name| store.get_science_from_internal_name(name))
-                    .collect()
-            })
-        } else {
-            None
+        let mut context = {
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            std::mem::take(&mut *guard)
         };
 
-        if let Some(sciences) = sciences_to_check {
-            if let Some(store) = get_science_store() {
-                if let Ok(player_list_guard) = logic_player_list().read() {
-                    let player_index: PlayerIndex = context.player_id as PlayerIndex;
-                    if let Some(player_arc) = player_list_guard.get_player(player_index) {
-                        if let Ok(player) = player_arc.read() {
-                            for science in sciences {
-                                if science == SCIENCE_INVALID {
-                                    continue;
+        if context.selected_objects.is_empty() {
+            context.current_state = ControlBarState::None;
+            context.available_commands.clear();
+            context.construction_queue.clear();
+            self.build_queue_data.clear();
+            self.displayed_queue_count = 0;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        }
+
+        let multi_select = context.selected_objects.len() > 1;
+        let single_drawable_id = if multi_select {
+            None
+        } else {
+            context.selected_objects.first().copied()
+        };
+
+        if multi_select {
+            context.current_state = ControlBarState::MultiSelect;
+            self.rebuild_command_buttons(&mut context)?;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        }
+
+        let Some(obj_id) = single_drawable_id else {
+            context.current_state = ControlBarState::None;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        };
+
+        let under_construction = OBJECT_REGISTRY
+            .get_object(obj_id)
+            .and_then(|arc| {
+                arc.read()
+                    .ok()
+                    .map(|guard| guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION))
+            })
+            .unwrap_or(false);
+
+        if under_construction {
+            context.current_state = ControlBarState::UnderConstruction;
+        } else {
+            let has_command_set = OBJECT_REGISTRY
+                .get_object(obj_id)
+                .map(|arc| {
+                    arc.read()
+                        .map(|guard| guard.get_command_set_string().is_empty())
+                        .map(|empty| !empty)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+
+            let has_garrisonable_contain = OBJECT_REGISTRY
+                .get_object(obj_id)
+                .and_then(|arc| {
+                    arc.read().ok().and_then(|guard| {
+                        guard.get_contain().and_then(|contain| {
+                            contain.lock().ok().map(|c| c.is_displayed_on_control_bar())
+                        })
+                    })
+                })
+                .unwrap_or(false);
+
+            if has_garrisonable_contain && !has_command_set {
+                context.current_state = ControlBarState::StructureInventory;
+            } else if has_command_set {
+                context.current_state = ControlBarState::Command;
+            } else {
+                context.current_state = ControlBarState::None;
+            }
+        }
+
+        self.build_queue_data.clear();
+        self.displayed_queue_count = 0;
+
+        self.rebuild_command_buttons(&mut context)?;
+
+        if context.current_state == ControlBarState::Command {
+            self.populate_build_queue(&mut context, obj_id)?;
+        }
+
+        let mut guard = self
+            .context
+            .write()
+            .map_err(|_| "Failed to acquire context write lock")?;
+        *guard = context;
+
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // switchToContext - change the active context
+    // C++ ControlBar.cpp:2098-2359
+    // ---------------------------------------------------------------------------
+
+    fn switch_to_context(
+        &mut self,
+        new_state: ControlBarState,
+        _draw_id: Option<u32>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut context = {
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            guard.current_state = new_state;
+            std::mem::take(&mut *guard)
+        };
+
+        context.available_commands.clear();
+        context.construction_queue.clear();
+        self.build_queue_data.clear();
+        self.displayed_queue_count = 0;
+
+        let mut guard = self
+            .context
+            .write()
+            .map_err(|_| "Failed to acquire context write lock")?;
+        *guard = context;
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // updateContextCommand - per-frame command context update
+    // C++ ControlBarCommand.cpp:678-891
+    // ---------------------------------------------------------------------------
+
+    fn get_object_production_info(obj_id: u32) -> (usize, bool) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return (0, false);
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return (0, false);
+        };
+        for module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.lock() {
+                if guard.get_production_update_interface().is_some() {
+                    return (0, true);
+                }
+            }
+        }
+        (0, false)
+    }
+
+    fn get_first_production_progress(obj_id: u32) -> Option<f32> {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return None;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return None;
+        };
+        for module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.lock() {
+                if let Some(pu) = guard.get_production_update_interface() {
+                    let progress = pu.get_production_progress();
+                    if progress > 0.0 {
+                        return Some(progress);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn get_object_has_production(obj_id: u32) -> bool {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return false;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return false;
+        };
+        for module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.lock() {
+                if guard.get_production_update_interface().is_some() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn set_object_production_paused(_obj_id: u32, _paused: bool) {
+        // Placeholder: production pause requires mutable access to behavior modules
+        // which will be wired when ProductionUpdateInterface is fully ported
+    }
+
+    fn cancel_production_by_id(_obj_id: u32, _production_id: u32) {
+        // Placeholder: cancel production requires mutable access to behavior modules
+        // which will be wired when ProductionUpdateInterface is fully ported
+    }
+
+    fn update_context_command(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let obj_id = {
+            let context = self
+                .context
+                .read()
+                .map_err(|_| "Failed to acquire context read lock")?;
+            context.selected_objects.first().copied()
+        };
+
+        let Some(obj_id) = obj_id else {
+            return Ok(());
+        };
+
+        let has_production = Self::get_object_has_production(obj_id);
+
+        if has_production {
+            let mut context = {
+                let mut guard = self
+                    .context
+                    .write()
+                    .map_err(|_| "Failed to acquire context write lock")?;
+                std::mem::take(&mut *guard)
+            };
+            self.populate_build_queue(&mut context, obj_id)?;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+        } else if !self.build_queue_data.is_empty() {
+            self.build_queue_data.clear();
+            self.displayed_queue_count = 0;
+            if let Ok(mut context) = self.context.write() {
+                context.construction_queue.clear();
+            }
+        }
+
+        let first_progress = Self::get_first_production_progress(obj_id);
+
+        if let Some(percent) = first_progress {
+            if let Ok(mut context) = self.context.write() {
+                if let Some(first_item) = context.construction_queue.first_mut() {
+                    first_item.progress = percent;
+                }
+            }
+        }
+
+        let context = self
+            .context
+            .read()
+            .map_err(|_| "Failed to acquire context read lock")?;
+        let player_id = context.player_id;
+        let buttons_snapshot: Vec<CommandButton> = context.available_commands.clone();
+        drop(context);
+
+        for button in &buttons_snapshot {
+            let availability = self.get_command_availability(button, obj_id, player_id)?;
+            let name = button.command_name.clone();
+            if let Ok(mut context) = self.context.write() {
+                if let Some(state) = context
+                    .available_commands
+                    .iter_mut()
+                    .find(|b| b.command_name == name)
+                {
+                    match availability {
+                        CommandAvailability::Hidden => {
+                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                                bs.visible = false;
+                            }
+                        }
+                        CommandAvailability::Restricted => {
+                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                                bs.enabled = false;
+                                bs.availability = CommandAvailability::Restricted;
+                            }
+                        }
+                        CommandAvailability::NotReady => {
+                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                                bs.enabled = false;
+                                bs.availability = CommandAvailability::NotReady;
+                            }
+                        }
+                        CommandAvailability::CantAfford => {
+                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                                bs.enabled = false;
+                                bs.availability = CommandAvailability::CantAfford;
+                            }
+                        }
+                        CommandAvailability::Active => {
+                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                                bs.enabled = true;
+                                bs.availability = CommandAvailability::Active;
+                                if (button.options & CommandOption::CheckLike as u32) != 0 {
+                                    bs.check_like_active = true;
                                 }
-
-                                if player.is_science_hidden(science)
-                                    || !store.player_has_root_prereqs_for_science(&*player, science)
-                                {
-                                    return false;
-                                }
-
-                                if player.is_science_disabled(science) {
-                                    return false;
-                                }
-
-                                if !player.has_science(science) {
-                                    if !store.player_has_prereqs_for_science(&*player, science) {
-                                        return false;
-                                    }
-
-                                    let cost = store.get_science_purchase_cost(science);
-                                    if cost > 0 && cost > player.get_science_purchase_points() {
-                                        return false;
-                                    }
+                            }
+                        }
+                        CommandAvailability::Available => {
+                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                                bs.enabled = true;
+                                bs.availability = CommandAvailability::Available;
+                                if (button.options & CommandOption::CheckLike as u32) != 0 {
+                                    bs.check_like_active = false;
                                 }
                             }
                         }
@@ -336,126 +618,272 @@ impl ControlBar {
             }
         }
 
-        let player_arc = if let Ok(player_list_guard) = logic_player_list().read() {
-            let player_index: PlayerIndex = context.player_id as PlayerIndex;
-            player_list_guard.get_player(player_index).cloned()
-        } else {
-            None
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // getCommandAvailability - per-button availability check
+    // C++ ControlBarCommand.cpp:993-1516
+    // ---------------------------------------------------------------------------
+
+    fn get_command_availability(
+        &self,
+        command: &CommandButton,
+        obj_id: u32,
+        player_id: u32,
+    ) -> Result<CommandAvailability, Box<dyn std::error::Error>> {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return Ok(CommandAvailability::Hidden);
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return Ok(CommandAvailability::Hidden);
         };
 
-        if !button.upgrade.is_empty() {
-            let Some(player_arc) = player_arc.as_ref() else {
-                return false;
-            };
-            let Ok(player) = player_arc.read() else {
-                return false;
-            };
-            let upgrade =
-                with_upgrade_center(|center| center.find_upgrade(button.upgrade.as_str()));
-            if let Some(template) = upgrade {
-                if player.has_upgrade_complete(&template)
-                    || player.has_upgrade_in_production(&template)
-                {
-                    return false;
-                }
-                if !with_upgrade_center(|center| {
-                    center.can_afford_upgrade(&*player, &template, false)
-                }) {
-                    return false;
-                }
-            } else {
-                return false;
+        if obj.is_disabled() && !self.force_disabled_evaluation(command) {
+            let cmd_type = command.command_type;
+            if cmd_type != CommandType::Sell
+                && cmd_type != CommandType::Evacuate
+                && cmd_type != CommandType::DoStop
+            {
+                return Ok(CommandAvailability::Restricted);
             }
         }
 
-        if !button.purchase_cost.is_empty() {
-            let Some(player_arc) = player_arc.as_ref() else {
-                return false;
-            };
-            let Ok(player) = player_arc.read() else {
-                return false;
-            };
-            for (resource, cost) in &button.purchase_cost {
-                if *cost <= 0 {
-                    continue;
-                }
-                if resource.eq_ignore_ascii_case("cash")
-                    || resource.eq_ignore_ascii_case("money")
-                    || resource.eq_ignore_ascii_case("supplies")
-                {
-                    if !player.get_money().can_afford(*cost) {
-                        return false;
+        if (command.options & CommandOption::NeedUpgrade as u32) != 0 {
+            if !command.upgrade.is_empty() {
+                let player_arc = logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                if let Some(player_arc) = player_arc {
+                    if let Ok(player) = player_arc.read() {
+                        let upgrade =
+                            with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
+                        if let Some(template) = upgrade {
+                            if !player.has_upgrade_complete(&template) {
+                                return Ok(CommandAvailability::Restricted);
+                            }
+                        }
                     }
                 }
             }
         }
 
-        if !button.special_power.is_empty() {
-            if context.selected_objects.is_empty() {
-                return false;
-            }
+        let queue_count = self.build_queue_data.len();
+        let queue_maxed = queue_count >= MAX_BUILD_QUEUE_BUTTONS;
 
-            let mut any_ready = false;
-            for object_id in &context.selected_objects {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                let Some(sp_behavior) =
-                    obj_guard.get_special_power_module_by_name(button.special_power.as_str())
-                else {
-                    continue;
-                };
-                let behavior_guard = sp_behavior.lock().unwrap();
-                let Some(sp_module) = behavior_guard.get_special_power_module_interface_const()
-                else {
-                    continue;
-                };
-                if sp_module.is_ready() {
-                    any_ready = true;
+        if queue_maxed && (command.options & CommandOption::NotQueueable as u32) != 0 {
+            return Ok(CommandAvailability::Restricted);
+        }
+
+        match command.command_type {
+            CommandType::DozerConstruct => {
+                if queue_maxed {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                let player_arc = logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                if let Some(player_arc) = player_arc {
+                    if let Ok(player) = player_arc.read() {
+                        if !command.purchase_cost.is_empty() {
+                            for (resource, cost) in &command.purchase_cost {
+                                if *cost > 0
+                                    && (resource.eq_ignore_ascii_case("cash")
+                                        || resource.eq_ignore_ascii_case("money"))
+                                    && !player.get_money().can_afford(*cost)
+                                {
+                                    return Ok(CommandAvailability::Restricted);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::DozerConstruct => {
+                let player_arc = logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                if let Some(player_arc) = player_arc {
+                    if let Ok(player) = player_arc.read() {
+                        if !command.purchase_cost.is_empty() {
+                            for (resource, cost) in &command.purchase_cost {
+                                if *cost > 0
+                                    && (resource.eq_ignore_ascii_case("cash")
+                                        || resource.eq_ignore_ascii_case("money"))
+                                    && !player.get_money().can_afford(*cost)
+                                {
+                                    return Ok(CommandAvailability::Restricted);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::QueueUpgrade => {
+                if queue_maxed {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                let player_arc = logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                if let Some(player_arc) = player_arc {
+                    if let Ok(player) = player_arc.read() {
+                        let upgrade =
+                            with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
+                        if let Some(template) = upgrade {
+                            if player.has_upgrade_complete(&template)
+                                || player.has_upgrade_in_production(&template)
+                            {
+                                return Ok(CommandAvailability::CantAfford);
+                            }
+                            if !with_upgrade_center(|c| {
+                                c.can_afford_upgrade(&*player, &template, false)
+                            }) {
+                                return Ok(CommandAvailability::Restricted);
+                            }
+                        } else {
+                            return Ok(CommandAvailability::Restricted);
+                        }
+                    }
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::DoStop => Ok(CommandAvailability::Available),
+            CommandType::DoGuardPosition | CommandType::DoGuardObject => {
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::Sell => Ok(CommandAvailability::Available),
+            CommandType::Evacuate => Ok(CommandAvailability::Available),
+            CommandType::SpecialPower => Ok(CommandAvailability::Available),
+            CommandType::MetaSelectMatchingUnits => Ok(CommandAvailability::Available),
+            CommandType::PurchaseScience => Ok(CommandAvailability::Available),
+            _ => Ok(CommandAvailability::Available),
+        }
+    }
+
+    fn force_disabled_evaluation(&self, _command: &CommandButton) -> bool {
+        false
+    }
+
+    // ---------------------------------------------------------------------------
+    // populateBuildQueue - fill build queue from producer object
+    // C++ ControlBarCommand.cpp:531-674
+    // ---------------------------------------------------------------------------
+
+    fn populate_build_queue(
+        &mut self,
+        context: &mut ControlBarContext,
+        producer_id: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.build_queue_data.clear();
+        context.construction_queue.clear();
+
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(producer_id) else {
+            self.displayed_queue_count = 0;
+            return Ok(());
+        };
+        let Ok(obj) = obj_arc.read() else {
+            self.displayed_queue_count = 0;
+            return Ok(());
+        };
+
+        let mut found_pu = false;
+        for module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.lock() {
+                if let Some(pu) = guard.get_production_update_interface() {
+                    found_pu = true;
+                    let progress = pu.get_production_progress();
+                    if progress > 0.0 {
+                        context.construction_queue.push(ProductionItem {
+                            template_name: format!("production_{}", producer_id),
+                            production_type: ProductionType::Unit,
+                            progress,
+                            cost: HashMap::new(),
+                            build_time: 1.0,
+                        });
+                        self.build_queue_data.push(BuildQueueEntry {
+                            production_type: QueueProductionType::Unit,
+                            production_id: producer_id,
+                            upgrade_name: String::new(),
+                        });
+                    }
                     break;
                 }
             }
-
-            if !any_ready {
-                return false;
-            }
         }
 
-        true
+        if !found_pu {
+            self.displayed_queue_count = 0;
+        } else {
+            self.displayed_queue_count = context.construction_queue.len();
+        }
+        Ok(())
     }
 
-    /// Execute command
+    // ---------------------------------------------------------------------------
+    // Command processing (click dispatch)
+    // C++ ControlBar.cpp:2071-2090
+    // ---------------------------------------------------------------------------
+
+    pub fn process_command(
+        &mut self,
+        command_name: &str,
+        source: CommandSourceType,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let context = self
+            .context
+            .read()
+            .map_err(|_| "Failed to acquire context read lock")?;
+
+        if let Some(button) = context
+            .available_commands
+            .iter()
+            .find(|b| b.command_name == command_name)
+        {
+            let enabled = self
+                .button_states
+                .get(&button.command_name)
+                .map(|s| s.enabled)
+                .unwrap_or(false);
+
+            if !enabled {
+                return Ok(false);
+            }
+
+            self.execute_command(button, source, &context)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     fn execute_command(
         &self,
         button: &CommandButton,
         source: CommandSourceType,
         context: &ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!(
-            "Executing command: {} (options: 0x{:08X})",
-            button.command_name,
-            button.options
-        );
-
         if Self::command_needs_target(button.options) {
             self.enter_targeting_mode(button, context)?;
             return Ok(());
         }
 
-        if button.command_type == gamelogic::commands::CommandType::PurchaseScience {
+        if button.command_type == CommandType::PurchaseScience {
             self.execute_purchase_science(button, context)?;
             return Ok(());
         }
 
-        if button.command_type == gamelogic::commands::CommandType::MetaSelectMatchingUnits {
+        if button.command_type == CommandType::MetaSelectMatchingUnits {
             self.select_all_units_of_type(button, context)?;
             return Ok(());
         }
 
-        // Handle upgrade commands
         if !button.upgrade.is_empty() {
             self.execute_upgrade_command(button, context, source)?;
             return Ok(());
@@ -503,9 +931,7 @@ impl ControlBar {
             }
         }
 
-        if button.command_type == gamelogic::commands::CommandType::DozerConstruct
-            && !button.object.is_empty()
-        {
+        if button.command_type == CommandType::DozerConstruct && !button.object.is_empty() {
             TheInGameUI::place_build_available(Some(button.object.clone()), Some(source_id));
         }
 
@@ -588,7 +1014,7 @@ impl ControlBar {
             return Ok(());
         }
 
-        let mut command = Command::new(gamelogic::commands::CommandType::PurchaseScience);
+        let mut command = Command::new(CommandType::PurchaseScience);
         command.set_player_index(context.player_id as i32);
         command.append_integer_argument(selected_science as i32);
         self.queue_command(context.player_id as i32, command)?;
@@ -643,29 +1069,20 @@ impl ControlBar {
         Ok(())
     }
 
-    /// Execute upgrade command (player or object upgrade)
     fn execute_upgrade_command(
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
         _source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Executing upgrade command for: {}", button.upgrade);
-
         let upgrade_name = button.upgrade.as_str();
-
-        // Get the player's upgrade center and find the template
         let upgrade_template = with_upgrade_center(|center| center.find_upgrade(upgrade_name));
         let Some(template) = upgrade_template else {
-            log::warn!("Upgrade template '{}' not found", upgrade_name);
             return Ok(());
         };
 
-        // Get the first selected object for object upgrades
         let source_obj_id = context.selected_objects.first().copied();
-
-        // Create the upgrade command
-        let mut command = Command::new(gamelogic::commands::CommandType::QueueUpgrade);
+        let mut command = Command::new(CommandType::QueueUpgrade);
         command.set_player_index(context.player_id as i32);
 
         if let Some(obj_id) = source_obj_id {
@@ -673,20 +1090,16 @@ impl ControlBar {
         }
 
         command.append_integer_argument(template.get_name_key() as i32);
-
         self.queue_command(context.player_id as i32, command)?;
         Ok(())
     }
 
-    /// Execute production command (build units/structures)
     fn execute_production_command(
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
         source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Executing production command for: {}", button.object);
-
         let button_id = self.resolve_command_button_id(button)?;
         let cmd_source = Self::map_command_source(source);
         for object_id in &context.selected_objects {
@@ -698,19 +1111,15 @@ impl ControlBar {
             };
             let _ = obj_guard.do_command_button(button_id, cmd_source);
         }
-
         Ok(())
     }
 
-    /// Execute special power command
     fn execute_special_power_command(
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
         source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Executing special power: {}", button.special_power);
-
         let button_id = self.resolve_command_button_id(button)?;
         let cmd_source = Self::map_command_source(source);
         for object_id in &context.selected_objects {
@@ -722,26 +1131,19 @@ impl ControlBar {
             };
             let _ = obj_guard.do_command_button(button_id, cmd_source);
         }
-
         Ok(())
     }
 
-    /// Execute direct command (no targeting required)
     fn execute_direct_command(
         &self,
         button: &CommandButton,
         context: &ControlBarContext,
         source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Executing direct command: {}", button.command_name);
-
-        // Implementation would send command directly to selected objects
-        // Examples: Stop, Guard, Aggressive stance, etc.
-        let player_id = context.player_id as i32;
         if context.selected_objects.is_empty() {
             return Ok(());
         }
-        if button.command_type == gamelogic::commands::CommandType::Invalid {
+        if button.command_type == CommandType::Invalid {
             return Ok(());
         }
 
@@ -760,16 +1162,55 @@ impl ControlBar {
         }
 
         let mut command = Command::new(button.command_type);
-        command.set_player_index(player_id);
+        command.set_player_index(context.player_id as i32);
         for object_id in &context.selected_objects {
             command.append_object_id_argument(*object_id);
         }
-
-        self.queue_command(player_id, command)?;
+        self.queue_command(context.player_id as i32, command)?;
         Ok(())
     }
 
-    /// Rebuild available command buttons based on current context
+    // ---------------------------------------------------------------------------
+    // Build queue cancel
+    // ---------------------------------------------------------------------------
+
+    /// Cancel a build queue item by index. Mirrors C++ CancelUnitCreate/CancelUpgradeCreate.
+    pub fn cancel_build_queue_item(
+        &self,
+        queue_index: usize,
+        context: &ControlBarContext,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        if queue_index >= self.build_queue_data.len() {
+            return Ok(false);
+        }
+
+        let entry = &self.build_queue_data[queue_index];
+        let Some(&producer_id) = context.selected_objects.first() else {
+            return Ok(false);
+        };
+
+        Self::cancel_production_by_id(producer_id, entry.production_id);
+        Ok(true)
+    }
+
+    /// Pause/resume the build queue for the selected producer.
+    pub fn set_build_queue_paused(
+        &self,
+        paused: bool,
+        context: &ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(&producer_id) = context.selected_objects.first() else {
+            return Ok(());
+        };
+
+        Self::set_object_production_paused(producer_id, paused);
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // Command button rebuild helpers
+    // ---------------------------------------------------------------------------
+
     fn rebuild_command_buttons(
         &mut self,
         context: &mut ControlBarContext,
@@ -777,62 +1218,37 @@ impl ControlBar {
         context.available_commands.clear();
 
         match context.current_state {
-            ControlBarState::Default => {
-                // Add default commands (general powers, etc.)
+            ControlBarState::None => {
                 self.add_default_commands(context)?;
             }
             ControlBarState::Command => {
-                // Add commands for selected object(s)
                 self.add_object_commands(context)?;
             }
             ControlBarState::MultiSelect => {
-                // Add multi-select compatible commands
                 self.add_multi_select_commands(context)?;
             }
             ControlBarState::Observer => {
-                // Add observer-only commands
                 self.add_observer_commands(context)?;
             }
             ControlBarState::UnderConstruction => {
-                // Add construction commands
                 self.add_construction_commands(context)?;
             }
+            ControlBarState::StructureInventory => {
+                self.add_structure_inventory_commands(context)?;
+            }
+            ControlBarState::Beacon => {
+                self.add_beacon_commands(context)?;
+            }
+            ControlBarState::OclTimer => {}
         }
 
-        log::debug!(
-            "Rebuilt command buttons: {} available",
-            context.available_commands.len()
-        );
-        self.refresh_button_states(context);
         Ok(())
     }
 
-    fn rebuild_command_buttons_for_current_context(
-        &mut self,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut context = {
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            std::mem::take(&mut *guard)
-        };
-        self.rebuild_command_buttons(&mut context)?;
-        let mut guard = self
-            .context
-            .write()
-            .map_err(|_| "Failed to acquire context write lock")?;
-        *guard = context;
-        Ok(())
-    }
-
-    /// Add default commands
     fn add_default_commands(
         &self,
         context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::debug!("Adding default commands for player {}", context.player_id);
-
         if let Some(control_bar) = get_ini_control_bar() {
             for (_name, definition) in control_bar.iter_buttons().take(12) {
                 let button = Self::command_from_definition(definition);
@@ -841,6 +1257,120 @@ impl ControlBar {
         }
         Ok(())
     }
+
+    fn add_object_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if context.selected_objects.is_empty() {
+            return Ok(());
+        }
+
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return Ok(());
+        };
+        let Some(common_bar) = get_ini_control_bar() else {
+            return Ok(());
+        };
+
+        let Some(first_id) = context.selected_objects.first().copied() else {
+            return Ok(());
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(first_id) else {
+            return Ok(());
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return Ok(());
+        };
+
+        let command_set_name = obj_guard.get_command_set_string();
+        if command_set_name.is_empty() {
+            return Ok(());
+        }
+
+        let command_set = control_bar
+            .find_command_set_by_name(command_set_name)
+            .or_else(|| {
+                control_bar.find_command_set_by_name(&command_set_name.to_ascii_uppercase())
+            });
+
+        let Some(command_set) = command_set else {
+            return Ok(());
+        };
+
+        for button_opt in &command_set.buttons {
+            let Some(button) = button_opt.as_ref() else {
+                continue;
+            };
+            if (button.get_options_bits() & CommandOption::ScriptOnly as u32) != 0 {
+                continue;
+            }
+            if button.get_command_type() == CommandType::Evacuate {
+                continue;
+            }
+            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
+            {
+                context
+                    .available_commands
+                    .push(Self::command_from_definition(common_button));
+            } else {
+                context
+                    .available_commands
+                    .push(Self::command_from_logic_button(button));
+            }
+        }
+
+        super::control_bar_structure_inventory::append_structure_inventory_commands(context)?;
+        super::control_bar_beacon::append_beacon_commands(context)?;
+        Ok(())
+    }
+
+    fn add_multi_select_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        super::control_bar_multi_select::populate_multi_select_commands(context)?;
+        if context.available_commands.is_empty() {
+            self.add_object_commands(context)?;
+        }
+        Ok(())
+    }
+
+    fn add_observer_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        super::control_bar_observer::populate_observer_commands(context)?;
+        Ok(())
+    }
+
+    fn add_construction_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        super::control_bar_under_construction::populate_under_construction_commands(context)?;
+        Ok(())
+    }
+
+    fn add_structure_inventory_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        super::control_bar_structure_inventory::append_structure_inventory_commands(context)?;
+        Ok(())
+    }
+
+    fn add_beacon_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        super::control_bar_beacon::append_beacon_commands(context)?;
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // Utility / conversion helpers
+    // ---------------------------------------------------------------------------
 
     pub(super) fn command_from_definition(definition: &IniCommandButton) -> CommandButton {
         let mut button = CommandButton::default();
@@ -976,145 +1506,117 @@ impl ControlBar {
         Ok(())
     }
 
-    /// Add object-specific commands
-    fn add_object_commands(
-        &self,
-        context: &mut ControlBarContext,
+    // ---------------------------------------------------------------------------
+    // Context update helpers
+    // ---------------------------------------------------------------------------
+
+    fn update_context_multi_select(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    fn update_context_structure_inventory(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    fn update_context_under_construction(
+        &mut self,
+        _delta_time: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::debug!(
-            "Adding object commands for {} selected objects",
-            context.selected_objects.len()
-        );
-        if context.selected_objects.is_empty() {
-            return Ok(());
+        Ok(())
+    }
+
+    fn update_context_ocl_timer(
+        &mut self,
+        _delta_time: Duration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // Selection update (external entry point)
+    // ---------------------------------------------------------------------------
+
+    pub fn update_for_selection(
+        &mut self,
+        selected_objects: Vec<u32>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        {
+            let mut context = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            context.selected_objects = selected_objects;
+        }
+        self.mark_ui_dirty();
+        Ok(())
+    }
+
+    pub fn set_observer_mode(&mut self, observer: bool) {
+        self.observer_mode = observer;
+        self.mark_ui_dirty();
+    }
+
+    fn refresh_button_states(&mut self, context: &ControlBarContext, player_id: u32) {
+        let mut refreshed = HashMap::new();
+        for button in &context.available_commands {
+            let mut state = self
+                .button_states
+                .get(&button.command_name)
+                .cloned()
+                .unwrap_or_default();
+            state.visible = true;
+            refreshed.insert(button.command_name.clone(), state);
         }
 
-        let Some(control_bar) = get_control_bar_bridge() else {
-            return Ok(());
-        };
-        let Some(common_bar) = get_ini_control_bar() else {
-            return Ok(());
-        };
-
-        let Some(first_id) = context.selected_objects.first().copied() else {
-            return Ok(());
-        };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(first_id) else {
-            return Ok(());
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(());
-        };
-        let command_set_name = obj_guard.get_command_set_string();
-        let command_set = control_bar
-            .find_command_set_by_name(command_set_name)
-            .or_else(|| {
-                control_bar.find_command_set_by_name(&command_set_name.to_ascii_uppercase())
-            });
-
-        let Some(command_set) = command_set else {
-            return Ok(());
-        };
-
-        for button_opt in &command_set.buttons {
-            let Some(button) = button_opt.as_ref() else {
-                continue;
-            };
-            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
+        for (name, state) in refreshed.iter_mut() {
+            if let Some(button) = context
+                .available_commands
+                .iter()
+                .find(|b| &b.command_name == name)
             {
-                context
-                    .available_commands
-                    .push(Self::command_from_definition(common_button));
-            } else {
-                context
-                    .available_commands
-                    .push(Self::command_from_logic_button(button));
-            }
-        }
-
-        super::control_bar_structure_inventory::append_structure_inventory_commands(context)?;
-        super::control_bar_beacon::append_beacon_commands(context)?;
-        Ok(())
-    }
-
-    /// Add multi-select commands
-    fn add_multi_select_commands(
-        &self,
-        context: &mut ControlBarContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log::debug!(
-            "Adding multi-select commands for {} objects",
-            context.selected_objects.len()
-        );
-        super::control_bar_multi_select::populate_multi_select_commands(context)?;
-
-        if context.available_commands.is_empty() {
-            self.add_object_commands(context)?;
-        }
-        Ok(())
-    }
-
-    /// Add observer commands
-    fn add_observer_commands(
-        &self,
-        context: &mut ControlBarContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log::debug!("Adding observer commands");
-        super::control_bar_observer::populate_observer_commands(context)?;
-        Ok(())
-    }
-
-    /// Add construction commands
-    fn add_construction_commands(
-        &self,
-        context: &mut ControlBarContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log::debug!("Adding construction commands");
-        super::control_bar_under_construction::populate_under_construction_commands(context)?;
-        Ok(())
-    }
-
-    /// Update control bar animations and state
-    pub fn update(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
-        // Update animation state
-        if self.is_animating {
-            let elapsed = self.animation_start_time.elapsed();
-            if elapsed >= self.animation_duration {
-                self.is_animating = false;
-            }
-        }
-
-        // Update button states (flashing, progress bars, etc.)
-        let current_time = Instant::now();
-        for (_, state) in self.button_states.iter_mut() {
-            if let Some(flash_time) = state.flash_time {
-                if current_time.duration_since(flash_time) > Duration::from_millis(500) {
-                    state.flash_time = None;
+                if let Some(&first_id) = context.selected_objects.first() {
+                    match self.get_command_availability(button, first_id, player_id) {
+                        Ok(availability) => {
+                            state.availability = availability;
+                            state.enabled = matches!(
+                                availability,
+                                CommandAvailability::Available | CommandAvailability::Active
+                            );
+                            state.check_like_active = availability == CommandAvailability::Active;
+                        }
+                        Err(_) => {
+                            state.enabled = false;
+                            state.availability = CommandAvailability::Restricted;
+                        }
+                    }
                 }
             }
         }
 
-        // Update construction queue progress
-        if let Ok(mut context) = self.context.write() {
-            for item in context.construction_queue.iter_mut() {
-                if item.progress < 1.0 {
-                    item.progress += delta_time.as_secs_f32() / item.build_time;
-                    item.progress = item.progress.min(1.0);
-                }
-            }
-        }
-
-        let context_snapshot = self.context.read().ok().map(|context| context.clone());
-        if let Some(context) = context_snapshot {
-            self.refresh_button_states(&context);
-        }
-
-        Ok(())
+        self.button_states = refreshed;
     }
 
-    /// Get current context (read-only)
     pub fn get_context(&self) -> Arc<RwLock<ControlBarContext>> {
         self.context.clone()
+    }
+
+    pub fn get_build_queue_data(&self) -> &[BuildQueueEntry] {
+        &self.build_queue_data
+    }
+
+    pub fn get_button_state(&self, command_name: &str) -> Option<&ButtonState> {
+        self.button_states.get(command_name)
+    }
+
+    pub fn is_ui_dirty(&self) -> bool {
+        self.ui_dirty
+    }
+
+    pub fn get_current_state(&self) -> ControlBarState {
+        self.context
+            .read()
+            .map(|c| c.current_state)
+            .unwrap_or(ControlBarState::None)
     }
 }
 
@@ -1131,7 +1633,7 @@ impl SubsystemInterface for ControlBar {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn Error>> {
-        let delta_time = Duration::from_millis(16); // ~60 FPS
+        let delta_time = Duration::from_millis(33);
         self.update(delta_time)?;
         Ok(())
     }
@@ -1145,6 +1647,10 @@ impl SubsystemInterface for ControlBar {
 
         self.button_states.clear();
         self.is_animating = false;
+        self.build_queue_data.clear();
+        self.displayed_queue_count = 0;
+        self.ui_dirty = false;
+        self.flash_active = false;
 
         Ok(())
     }
@@ -1164,23 +1670,8 @@ impl Default for ButtonState {
             pressed: false,
             progress: 0.0,
             flash_time: None,
+            availability: CommandAvailability::Available,
+            check_like_active: false,
         }
-    }
-}
-
-impl ControlBar {
-    fn refresh_button_states(&mut self, context: &ControlBarContext) {
-        let mut refreshed = HashMap::new();
-        for button in &context.available_commands {
-            let mut state = self
-                .button_states
-                .get(&button.command_name)
-                .cloned()
-                .unwrap_or_default();
-            state.enabled = self.is_command_enabled(button, context);
-            state.visible = true;
-            refreshed.insert(button.command_name.clone(), state);
-        }
-        self.button_states = refreshed;
     }
 }

@@ -3627,15 +3627,15 @@ impl Object {
                 )
                 .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
-            self.set_status(
-                ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon),
-                true,
-            );
-
-            self.notify_firing_tracker_shot_fired(weapon, INVALID_ID);
+            // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
+            // that is done in AIUpdate, not in fireCurrentWeapon.
 
             let name = weapon.get_name().to_string();
-            weapon_set.release_weapon_lock(WeaponLockType::LockedTemporarily);
+
+            // Note: C++ Object.cpp only releases temporary weapon lock if
+            // weapon->fireWeapon() returns reloaded=true. The Rust fire_weapon()
+            // does not currently return reloaded, so we do NOT release the lock
+            // here unconditionally (matching C++ conditional behavior).
             Ok(name)
         })();
         self.weapon_set = weapon_set;
@@ -5150,62 +5150,70 @@ impl Object {
         None
     }
 
-    /// Friend access to get a typed module by NameKeyType.
-    /// Matches C++ friend_getModule pattern for inter-module communication.
+    /// Friend access to a typed module by NameKeyType.
+    /// Mirrors C++ `Object::findModule(key)` followed by a static_cast to the
+    /// requested type. Searches behaviors first (matching C++ order), then the
+    /// module entries list.
+    ///
+    /// Uses a closure because the underlying module is behind a `Mutex<Box<dyn Module>>`
+    /// and a direct reference cannot outlive the guard.
     ///
     /// # Type Parameters
     /// * `T` - The concrete module type to retrieve
-    ///
-    /// # Arguments
-    /// * `key` - The NameKeyType of the module class
-    ///
-    /// # Returns
-    /// A mutable reference to the module if found and type matches
     ///
     /// # Example
     /// ```ignore
-    /// // C++: ToppleUpdate* topple = (ToppleUpdate*)findModule(key_ToppleUpdate);
-    /// let topple = obj.friend_get_module::<ToppleUpdateModule>(key_ToppleUpdate);
+    /// // C++: auto* topple = (ToppleUpdate*)findModule(key_ToppleUpdate);
+    /// obj.with_friend_module::<ToppleUpdateModule, _, _>(key_ToppleUpdate, |t| {
+    ///     t.apply_toppling_force(...);
+    /// });
     /// ```
-    pub fn friend_get_module<T: 'static>(&self, _key: NameKeyType) -> Option<&T> {
-        // Note: This is a placeholder implementation due to lifetime constraints
-        // with the ModuleEntry::with_module closure pattern.
-        // Use the module iterators or direct access methods instead.
+    pub fn with_friend_module<T: 'static, F, R>(&self, key: NameKeyType, func: F) -> Option<R>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        let mut func = Some(func);
+
+        for behavior_arc in &self.behaviors {
+            let Ok(mut guard) = behavior_arc.lock() else {
+                continue;
+            };
+            if guard.get_module_name_key() == key {
+                if let Some(f) = func.take() {
+                    return (&mut *guard as &mut dyn std::any::Any).downcast_mut::<T>().map(f);
+                }
+            }
+        }
+
+        for entry in &self.modules {
+            let result = entry.with_module(|module| {
+                if module.get_module_name_key() == key {
+                    if let Some(f) = func.take() {
+                        return (module as &mut dyn std::any::Any).downcast_mut::<T>().map(f);
+                    }
+                }
+                None
+            });
+            if result.is_some() {
+                return result;
+            }
+        }
+
         None
     }
 
-    /// Friend access to get a typed module by name string.
-    /// Convenience wrapper that generates the NameKeyType internally.
-    ///
-    /// # Type Parameters
-    /// * `T` - The concrete module type to retrieve
-    ///
-    /// # Arguments
-    /// * `module_name` - The module class name string
-    ///
-    /// # Returns
-    /// A reference to the module if found and type matches
-    pub fn friend_get_module_by_name<T: 'static>(&self, module_name: &str) -> Option<&T> {
+    /// Friend access to a typed module by name string.
+    /// Convenience wrapper that resolves the NameKeyType internally.
+    pub fn with_friend_module_by_name<T: 'static, F, R>(
+        &self,
+        module_name: &str,
+        func: F,
+    ) -> Option<R>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
         let key = crate::common::name_key_generate(module_name);
-        self.friend_get_module(key)
-    }
-
-    /// Get mutable access to a typed module by NameKeyType.
-    /// This is the mutable variant of friend_get_module.
-    ///
-    /// # Type Parameters
-    /// * `T` - The concrete module type to retrieve
-    ///
-    /// # Arguments
-    /// * `key` - The NameKeyType of the module class
-    ///
-    /// # Returns
-    /// A mutable reference to the module if found and type matches
-    pub fn friend_get_module_mut<T: 'static>(&mut self, _key: NameKeyType) -> Option<&mut T> {
-        // Note: This is a placeholder implementation due to lifetime constraints
-        // with the ModuleEntry::with_module_mut closure pattern.
-        // Use the module iterators or direct access methods instead.
-        None
+        self.with_friend_module(key, func)
     }
 
     /// Get the spawn behavior interface if this object has one.
@@ -6668,18 +6676,16 @@ impl Object {
                 )
                 .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
-            self.set_status(
-                ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon),
-                true,
-            );
-
             // Notify firing tracker for statistics
-            self.notify_firing_tracker_shot_fired(weapon, target.get_id());
+            // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
+            // that is done in AIUpdate, not in fireCurrentWeapon.
 
             let name = weapon.get_name().to_string();
 
-            // Release temporary weapon locks if weapon reloaded
-            weapon_set.release_weapon_lock(WeaponLockType::LockedTemporarily);
+            // Note: C++ Object.cpp only releases temporary weapon lock if
+            // weapon->fireWeapon() returns reloaded=true. The Rust fire_weapon()
+            // does not currently return reloaded, so we do NOT release the lock
+            // here unconditionally (matching C++ conditional behavior).
 
             Ok(name)
         })();

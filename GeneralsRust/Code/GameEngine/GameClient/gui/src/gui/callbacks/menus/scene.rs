@@ -8,7 +8,7 @@ use crate::gui::callbacks::menus::download_menu::DownloadMenuPort;
 use crate::gui::callbacks::menus::establish_connections_window::EstablishConnectionsWindowPort;
 use crate::gui::callbacks::menus::game_info_window::GameInfoWindowPort;
 use crate::gui::callbacks::menus::keyboard_options_menu::{
-    KeyboardCategoryPort, KeyboardOptionsMenuPort,
+    KeyboardOptionsMenuPort, MappableKeyCategory, ModifierKind,
 };
 use crate::gui::callbacks::menus::lan_game_options_menu::LanGameOptionsMenuPort;
 use crate::gui::callbacks::menus::lan_lobby_menu::LanLobbyMenuPort;
@@ -31,7 +31,7 @@ use crate::gui::callbacks::menus::replay_menu::{ReplayMenuPort, ReplayPromptPort
 use crate::gui::callbacks::menus::score_screen::ScoreScreenPort;
 use crate::gui::callbacks::menus::single_player_menu::SinglePlayerMenuPort;
 use crate::gui::callbacks::menus::skirmish_game_options_menu::SkirmishGameOptionsMenuPort;
-use crate::gui::callbacks::menus::skirmish_map_select_menu::SkirmishMapSelectMenuPort;
+use crate::gui::callbacks::menus::skirmish_map_select_menu::SkirmishMapSelectPort;
 use crate::gui::callbacks::menus::wol_buddy_overlay::WolBuddyOverlayPort;
 use crate::gui::callbacks::menus::wol_custom_score_screen::WolCustomScoreScreenPort;
 use crate::gui::callbacks::menus::wol_game_setup_menu::WolGameSetupMenuPort;
@@ -165,9 +165,9 @@ fn render_main_menu_screen(screen: MenuScreenPort) -> AnyElement {
 
 fn render_keyboard_options_screen(screen: MenuScreenPort) -> AnyElement {
     let mut state = KeyboardOptionsMenuPort::sample();
-    state.select_category(KeyboardCategoryPort::Control);
-    state.press_modifier("Ctrl");
-    state.assign_key("F");
+    state.select_category(MappableKeyCategory::Control);
+    state.do_key_down(ModifierKind::Ctrl);
+    state.assign_key('F');
 
     let selected = state.selected_command();
 
@@ -181,20 +181,17 @@ fn render_keyboard_options_screen(screen: MenuScreenPort) -> AnyElement {
                 .children([
                     menu_button(
                         "Control",
-                        state.selected_category == KeyboardCategoryPort::Control,
+                        state.selected_category == MappableKeyCategory::Control,
                     ),
                     menu_button(
-                        "Unit",
-                        state.selected_category == KeyboardCategoryPort::Unit,
+                        "Selection",
+                        state.selected_category == MappableKeyCategory::Selection,
                     ),
                     menu_button(
                         "Interface",
-                        state.selected_category == KeyboardCategoryPort::Interface,
+                        state.selected_category == MappableKeyCategory::Interface,
                     ),
-                    menu_button(
-                        "Camera",
-                        state.selected_category == KeyboardCategoryPort::Camera,
-                    ),
+                    menu_button("Team", state.selected_category == MappableKeyCategory::Team),
                 ])
                 .into_any_element(),
             command_list(
@@ -203,13 +200,19 @@ fn render_keyboard_options_screen(screen: MenuScreenPort) -> AnyElement {
                     .commands
                     .iter()
                     .filter(|command| command.category == state.selected_category)
-                    .map(|command| format!("{} [{}]", command.command_name, command.current_hotkey))
+                    .map(|command| {
+                        format!(
+                            "{} [{}]",
+                            command.display_name,
+                            command.current_hotkey_display()
+                        )
+                    })
                     .collect(),
             ),
             static_text(
                 "Selected Command",
                 selected
-                    .map(|command| command.command_name.clone())
+                    .map(|command| command.display_name.clone())
                     .unwrap_or_else(|| "None".to_string()),
             ),
             static_text(
@@ -292,6 +295,7 @@ fn render_single_player_screen(screen: MenuScreenPort) -> AnyElement {
 
 fn render_challenge_screen(screen: MenuScreenPort) -> AnyElement {
     let mut state = ChallengeMenuPort::sample();
+    state.select_general(0);
     state.update_bio(4, 2);
 
     screen_frame(
@@ -307,7 +311,7 @@ fn render_challenge_screen(screen: MenuScreenPort) -> AnyElement {
                     .map(|(index, general)| {
                         format!(
                             "{}{}{}",
-                            if index == state.selected_general {
+                            if Some(index) == state.selected_general {
                                 "* "
                             } else {
                                 ""
@@ -320,7 +324,11 @@ fn render_challenge_screen(screen: MenuScreenPort) -> AnyElement {
             ),
             static_text(
                 "Campaign",
-                state.generals[state.selected_general].campaign.clone(),
+                state
+                    .selected_general
+                    .and_then(|i| state.generals.get(i))
+                    .map(|g| g.campaign.clone())
+                    .unwrap_or_default(),
             ),
             static_text("Bio Readout", state.current_readout()),
             static_text("Play Enabled", if state.can_play { "Yes" } else { "No" }),
@@ -621,7 +629,7 @@ fn render_replay_menu_screen(screen: MenuScreenPort) -> AnyElement {
 fn render_map_select_screen(screen: MenuScreenPort) -> AnyElement {
     let (mut state, selection_type, extra_lines) = match screen.key {
         "SkirmishMapSelectMenu" => {
-            let state = SkirmishMapSelectMenuPort::sample();
+            let state = SkirmishMapSelectPort::sample();
             (
                 state.map_select,
                 "Skirmish".to_string(),

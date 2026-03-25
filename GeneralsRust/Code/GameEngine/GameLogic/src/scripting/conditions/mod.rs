@@ -6278,23 +6278,85 @@ impl ScriptCondition for MissionAttemptsCondition {
 //-------------------------------------------------------------------------------------------------
 struct UnitEmptiedCondition;
 
+struct TransportStatus {
+    obj_id: u32,
+    frame_number: u32,
+    unit_count: i32,
+}
+
+static TRANSPORT_STATUSES: std::sync::Mutex<Vec<TransportStatus>> = std::sync::Mutex::new(Vec::new());
+
 #[async_trait]
 impl ScriptCondition for UnitEmptiedCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: Requires transport status tracking (s_transportStatuses linked list in C++)
-        // This needs a global tracker to compare frame-to-frame contain counts
-        Ok(false)
+        let unit_name = get_str_param(parameters, "unit_name")?;
+        let object_id = match lookup_named_object_id(&unit_name)? {
+            Some(id) => id,
+            None => return Ok(false),
+        };
+
+        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
+            Some(arc) => arc,
+            None => return Ok(false),
+        };
+
+        let obj = obj_arc
+            .read()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
+
+        let obj_id = obj.get_id();
+        let num_peeps = if let Some(contain_arc) = obj.get_contain() {
+            if let Ok(contain_guard) = contain_arc.lock() {
+                contain_guard.get_contained_count() as i32
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let frame_num = TheGameLogic::get_frame();
+
+        let mut statuses = TRANSPORT_STATUSES
+            .lock()
+            .map_err(|e| GameLogicError::Threading(format!("Failed to lock transport statuses: {}", e)))?;
+
+        let existing_idx = statuses.iter().position(|s| s.obj_id == obj_id);
+
+        match existing_idx {
+            None => {
+                statuses.push(TransportStatus {
+                    obj_id,
+                    frame_number: frame_num,
+                    unit_count: num_peeps,
+                });
+                Ok(false)
+            }
+            Some(idx) => {
+                let stats = &statuses[idx];
+                if stats.frame_number == frame_num.saturating_sub(1)
+                    && stats.unit_count > 0
+                    && num_peeps == 0
+                {
+                    Ok(true)
+                } else {
+                    statuses[idx].frame_number = frame_num;
+                    statuses[idx].unit_count = num_peeps;
+                    Ok(false)
+                }
+            }
+        }
     }
 
     fn name(&self) -> &str {
         "unit_emptied"
     }
     fn description(&self) -> &str {
-        "Checks if transport was just emptied (C++ UNIT_EMPTIED) - STUB"
+        "Checks if transport was just emptied (C++ UNIT_EMPTIED)"
     }
     fn required_parameters(&self) -> Vec<String> {
         vec!["unit_name".to_string()]
@@ -6305,7 +6367,7 @@ impl ScriptCondition for UnitEmptiedCondition {
 }
 
 //-------------------------------------------------------------------------------------------------
-// PLAYER_LOST_OBJECT_TYPE - stub (needs ScriptEngine object count caching)
+// PLAYER_LOST_OBJECT_TYPE - evaluatePlayerLostObjectType
 //-------------------------------------------------------------------------------------------------
 struct PlayerLostObjectTypeCondition;
 
@@ -6313,18 +6375,86 @@ struct PlayerLostObjectTypeCondition;
 impl ScriptCondition for PlayerLostObjectTypeCondition {
     async fn evaluate(
         &self,
-        _parameters: &HashMap<String, ScriptValue>,
+        parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // TODO: Requires ScriptEngine::getObjectCount/setObjectCount caching
-        Ok(false)
+        let player_arc = get_player_arc(parameters, "player")?;
+        let player = match player_arc {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        let player_index = {
+            let p_guard = player
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+            p_guard.get_player_index()
+        };
+
+        let object_type = get_str_param(parameters, "object_type")?;
+
+        let current_count = get_script_engine()
+            .read()
+            .ok()
+            .and_then(|engine| {
+                engine
+                    .as_ref()
+                    .map(|engine| engine.get_object_count(player_index, &object_type))
+            })
+            .unwrap_or(0);
+
+        let object_manager = get_object_manager();
+        let sum_of_objs = object_manager
+            .read()
+            .ok()
+            .map(|manager| {
+                manager
+                    .all_object_ids()
+                    .into_iter()
+                    .filter(|object_id| {
+                        let Some(obj_arc) = manager.get_object(*object_id) else {
+                            return false;
+                        };
+                        let Ok(obj_guard) = obj_arc.read() else {
+                            return false;
+                        };
+                        if obj_guard.is_destroyed() {
+                            return false;
+                        }
+                        let owner = obj_guard
+                            .player
+                            .as_ref()
+                            .and_then(|p| p.read().ok())
+                            .map(|p| p.get_player_index())
+                            .unwrap_or(-1);
+                        if owner != player_index {
+                            return false;
+                        }
+                        obj_guard
+                            .template
+                            .as_ref()
+                            .map(|template| template.get_name() == object_type.as_str())
+                            .unwrap_or(false)
+                    })
+                    .count() as i32
+            })
+            .unwrap_or(0);
+
+        if sum_of_objs != current_count {
+            if let Ok(mut engine_guard) = get_script_engine().write() {
+                if let Some(ref mut engine) = *engine_guard {
+                    engine.set_object_count(player_index, &object_type, sum_of_objs);
+                }
+            }
+        }
+
+        Ok(sum_of_objs < current_count)
     }
 
     fn name(&self) -> &str {
         "player_lost_object_type"
     }
     fn description(&self) -> &str {
-        "Checks if player lost an object type (C++ PLAYER_LOST_OBJECT_TYPE) - STUB"
+        "Checks if player lost an object type (C++ PLAYER_LOST_OBJECT_TYPE)"
     }
     fn required_parameters(&self) -> Vec<String> {
         vec!["player".to_string(), "object_type".to_string()]

@@ -104,20 +104,54 @@ pub enum ProductionType {
     SpecialPower,
 }
 
-/// Control bar state
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Maximum number of build queue buttons displayed in the UI.
+/// C++: MAX_BUILD_QUEUE_BUTTONS
+pub const MAX_BUILD_QUEUE_BUTTONS: usize = 9;
+
+/// Control bar state - mirrors C++ ControlBarContext enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlBarState {
-    Default,
+    None,
     Command,
     MultiSelect,
     Observer,
     UnderConstruction,
+    StructureInventory,
+    Beacon,
+    OclTimer,
+}
+
+/// Command availability result - mirrors C++ CommandAvailability
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandAvailability {
+    Available,
+    Restricted,
+    Active,
+    Hidden,
+    NotReady,
+    CantAfford,
+}
+
+/// Production type in the build queue - mirrors C++ ProductionType
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueProductionType {
+    Invalid,
+    Unit,
+    Upgrade,
+}
+
+/// Build queue entry data - mirrors C++ ControlBar::QueueEntry
+#[derive(Debug, Clone)]
+pub struct BuildQueueEntry {
+    pub production_type: QueueProductionType,
+    pub production_id: u32,
+    pub upgrade_name: String,
 }
 
 /// Control bar context data
 #[derive(Debug, Clone)]
 pub struct ControlBarContext {
-    pub selected_objects: Vec<u32>, // Object IDs
+    pub selected_objects: Vec<u32>,
     pub player_id: u32,
     pub current_state: ControlBarState,
     pub available_commands: Vec<CommandButton>,
@@ -159,12 +193,18 @@ pub struct ProductionItem {
     pub build_time: f32,
 }
 
+impl Default for ControlBarState {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 impl Default for ControlBarContext {
     fn default() -> Self {
         Self {
             selected_objects: Vec::new(),
             player_id: 0,
-            current_state: ControlBarState::Default,
+            current_state: ControlBarState::None,
             available_commands: Vec::new(),
             construction_queue: Vec::new(),
         }
