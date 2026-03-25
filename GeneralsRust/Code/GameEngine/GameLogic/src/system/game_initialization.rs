@@ -224,6 +224,7 @@ impl GameInitializer {
             ai.init();
         }
         if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+            terrain.set_source_filename(AsciiString::from(map_path));
             terrain.load_map_data(map_data);
             terrain.new_map(false);
         }

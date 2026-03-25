@@ -893,6 +893,14 @@ impl TerrainLogic {
         None
     }
 
+    /// Set source map filename used by `get_source_filename()`.
+    ///
+    /// C++ parity: `TerrainLogic::loadMap()` stores `m_filenameString` before
+    /// finalization and client notification paths consume that value.
+    pub fn set_source_filename(&mut self, filename: AsciiString) {
+        self.filename_string = filename;
+    }
+
     /// Initialize for new map
     ///
     /// C++ parity: this is a post-load finalize step, not a full terrain reset.
@@ -1672,6 +1680,47 @@ impl TerrainLogic {
     /// Enable/disable water grid
     pub fn enable_water_grid(&mut self, enable: bool) {
         self.water_grid_enabled = enable;
+        if !enable {
+            return;
+        }
+
+        // C++ parity: enabling water grid also validates map-specific vertex-water
+        // settings against GlobalData::vertexWaterAvailableMaps (with stripped-name
+        // fallback for save/load map paths). The visual-side configuration calls are
+        // not fully ported yet, but we keep parity checks and diagnostics here.
+        let Some(global) = game_engine::common::ini::get_global_data() else {
+            return;
+        };
+        let global = global.read();
+        let map_name = global.map_name.trim();
+        if map_name.is_empty() {
+            return;
+        }
+
+        let map_leaf = map_name.rsplit(['\\', '/']).next().unwrap_or(map_name);
+        let mut matched = false;
+        for configured in &global.vertex_water_available_maps {
+            let configured = configured.trim();
+            if configured.is_empty() {
+                continue;
+            }
+            if configured.eq_ignore_ascii_case(map_name) {
+                matched = true;
+                break;
+            }
+            let configured_leaf = configured.rsplit(['\\', '/']).next().unwrap_or(configured);
+            if configured_leaf.eq_ignore_ascii_case(map_leaf) {
+                matched = true;
+                break;
+            }
+        }
+
+        if !matched {
+            log::error!(
+                "Water grid enabled for map '{}' but no matching vertex-water setting exists in GlobalData::vertex_water_available_maps",
+                map_name
+            );
+        }
     }
 
     /// Get active boundary

@@ -51,6 +51,7 @@ use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
+use game_engine::common::system::copy_protection::{get_protection_manager, ProtectionStatus};
 use game_engine::common::user_preferences::UserPreferences;
 use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::tear_down_gamespy;
@@ -1767,19 +1768,44 @@ impl MainMenu {
         log::info!("Preparing campaign game with difficulty: {:?}", diff);
     }
 
+    fn run_campaign_start_after_cd_check(&mut self, diff: GameDifficulty) {
+        let mut state = self.state.write().unwrap();
+        self.prepare_campaign_game(&mut state, diff);
+    }
+
+    fn cancel_campaign_start_after_cd_check(&mut self) {
+        let mut state = self.state.write().unwrap();
+        state.button_pushed = false;
+    }
+
+    fn is_first_cd_present() -> bool {
+        get_protection_manager()
+            .map(|mut manager| manager.comprehensive_validation().status == ProtectionStatus::Valid)
+            .unwrap_or(true)
+    }
+
     /// Check CD before starting campaign
     /// Port of checkCDBeforeCampaign() - C++ lines 323-335
     fn check_cd_before_campaign(&self, state: &mut MainMenuState, diff: GameDifficulty) {
-        // if (!IsFirstCDPresent())
-        // {
-        //     ExMessageBoxOkCancel(...);
-        // }
-        // else
-        // {
-        //     prepareCampaignGame(diff);
-        // }
+        if !Self::is_first_cd_present() {
+            state.button_pushed = false;
+            let ok: MessageBoxFunc = Box::new(move || {
+                let mut menu = get_main_menu();
+                menu.run_campaign_start_after_cd_check(diff);
+            });
+            let cancel: MessageBoxFunc = Box::new(|| {
+                let mut menu = get_main_menu();
+                menu.cancel_campaign_start_after_cd_check();
+            });
+            let _ = message_box_ok_cancel(
+                &crate::game_text::GameText::fetch("GUI:InsertCDPrompt"),
+                &crate::game_text::GameText::fetch("GUI:InsertCDMessage"),
+                Some(ok),
+                Some(cancel),
+            );
+            return;
+        }
 
-        // For now, just prepare the game directly
         self.prepare_campaign_game(state, diff);
         log::info!("Checking CD before campaign start");
     }

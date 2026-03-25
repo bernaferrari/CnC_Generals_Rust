@@ -7,13 +7,15 @@ use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, message_box_ok, with_window_manager, GameWindow,
+    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, with_window_manager, GameWindow,
     SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     WindowStatus,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
+use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_engine::common::skirmish_battle_honors::{
     SkirmishBattleHonors, BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK,
@@ -22,13 +24,14 @@ use game_engine::common::skirmish_battle_honors::{
     BATTLE_HONOR_DOMINATION, BATTLE_HONOR_ENDURANCE, BATTLE_HONOR_OFFICERSCLUB,
     BATTLE_HONOR_STREAK, BATTLE_HONOR_ULTIMATE,
 };
+use game_engine::common::system::copy_protection::{get_protection_manager, ProtectionStatus};
 use game_network::matchmaking::slots::PlayerColor;
 use game_network::{
     game_info_to_ascii_string, parse_ascii_string_to_game_info, Money, SlotState,
     PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM,
 };
 use gamelogic::helpers::TheGameLogic;
-use gamelogic::system::game_logic::GAME_SKIRMISH;
+use gamelogic::system::game_logic::{GAME_SINGLE_PLAYER, GAME_SKIRMISH};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -42,6 +45,9 @@ use super::{
 const KEY_ESC: u32 = 0x1B;
 const KEY_STATE_UP: u32 = 0x0001;
 const MAX_SLOTS: usize = 8;
+const DIFFICULTY_NORMAL: i32 = 1;
+const MAX_FPS_SLIDER_VALUE: i32 = 60;
+const GREATER_NO_FPS_LIMIT: i32 = 1000;
 
 /// Window state stored in thread-local RefCell (single-threaded GUI)
 #[derive(Default)]
@@ -1145,21 +1151,78 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         let _ = message_box_ok(&GameText::fetch("GUI:ErrorStartingGame"), &body, None);
         return;
     }
+    if !check_for_cd_at_game_start(state) {
+        return;
+    }
+
+    let mut max_fps = with_window_manager(|manager| manager.get_window_by_id(state.slider_game_speed_id))
+        .and_then(|slider_window| {
+            let mut slider_guard = slider_window.borrow_mut();
+            slider_guard.horizontal_slider_mut().map(|slider| slider.value())
+        })
+        .unwrap_or(MAX_FPS_SLIDER_VALUE);
+    if max_fps > MAX_FPS_SLIDER_VALUE {
+        max_fps = GREATER_NO_FPS_LIMIT;
+    }
+    if max_fps < 15 {
+        max_fps = 15;
+    }
+
+    let mut is_skirmish = true;
+    if !meta.is_multiplayer {
+        is_skirmish = false;
+    }
+
+    if TheGameLogic::is_in_game() {
+        let _ = TheGameLogic::clear_game_data();
+    }
 
     sync_map_to_game_info(state);
-    write_skirmish_preferences(state);
-    {
+    let seed = {
         let mut setup = get_skirmish_setup();
-        setup.game_info_mut().game_info_mut().start_game(0);
-    }
+        let info = setup.game_info_mut().game_info_mut();
+        info.start_game(0);
+        info.get_seed() as u32
+    };
+    init_random_with_seed(seed);
+    write_skirmish_preferences(state);
+
     if let Some(data) = game_engine::common::ini::get_global_data() {
         let mut data = data.write();
         data.pending_file = map_name;
     }
-    let mut shell = get_shell();
-    let _ = shell.pop();
-    let _ = shell.hide_shell();
-    TheGameLogic::prepare_new_game(GAME_SKIRMISH, 1, 0);
+
+    let message_stream = get_message_stream();
+    let mut stream = message_stream.write().unwrap();
+    let msg = stream.append_message(GameMessageType::NewGame);
+    msg.append_integer_argument(if is_skirmish {
+        GAME_SKIRMISH
+    } else {
+        GAME_SINGLE_PLAYER
+    });
+    msg.append_integer_argument(DIFFICULTY_NORMAL);
+    msg.append_integer_argument(0);
+    msg.append_integer_argument(max_fps);
+}
+
+fn is_first_cd_present() -> bool {
+    get_protection_manager()
+        .map(|mut manager| manager.comprehensive_validation().status == ProtectionStatus::Valid)
+        .unwrap_or(true)
+}
+
+fn check_for_cd_at_game_start(state: &mut SkirmishGameOptionsState) -> bool {
+    if is_first_cd_present() {
+        return true;
+    }
+    state.button_pushed = false;
+    let _ = message_box_ok_cancel(
+        &GameText::fetch("GUI:InsertCDPrompt"),
+        &GameText::fetch("GUI:InsertCDMessage"),
+        None,
+        Some(Box::new(|| {})),
+    );
+    false
 }
 
 pub fn skirmish_game_options_menu_init(
@@ -1384,6 +1447,10 @@ pub fn skirmish_game_options_menu_system(
                 write_skirmish_preferences(state);
                 destroy_skirmish_map_select_overlay();
                 let _ = get_shell().pop();
+                {
+                    let mut setup = get_skirmish_setup();
+                    *setup = Default::default();
+                }
                 handled = true;
                 return;
             }
