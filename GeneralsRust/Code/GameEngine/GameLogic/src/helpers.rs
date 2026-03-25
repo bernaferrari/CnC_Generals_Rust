@@ -369,6 +369,18 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.get_build_cost() as crate::common::Int
     }
 
+    fn get_experience_value(&self, level: usize) -> crate::common::Int {
+        self.inner.get_experience_value(level)
+    }
+
+    fn get_experience_required(&self, level: usize) -> crate::common::Int {
+        self.inner.get_experience_required(level)
+    }
+
+    fn is_trainable(&self) -> bool {
+        self.inner.is_trainable()
+    }
+
     fn get_build_time(&self) -> crate::common::Real {
         self.inner.get_build_time()
     }

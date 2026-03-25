@@ -3411,13 +3411,10 @@ impl Object {
                                 let killer_is_ally = relationship != Relationship::Enemy;
                                 let experience_value =
                                     victim_guard.get_experience_value(victim_cost, killer_is_ally);
-                                use crate::experience::ExperienceRequirements;
-                                let requirements =
-                                    ExperienceRequirements::from_build_cost(victim_cost);
                                 tracker_guard.add_experience_points(
                                     experience_value,
                                     true,
-                                    requirements.as_array(),
+                                    &[],
                                 );
                             }
                         }
@@ -6479,17 +6476,6 @@ impl Object {
         // Get actual damage dealt for return value
         let actual_damage = damage_info.output.actual_damage_dealt;
 
-        // Award experience for damage dealt (C++ Object.cpp lines 1850-1865)
-        // Experience is awarded before death check, so attacker gets XP even if target dies
-        if actual_damage > 0.0
-            && damage_info.input.damage_type != DamageType::Penalty
-            && damage_info.input.damage_type != DamageType::Healing
-            && damage_info.input.damage_type != DamageType::Status
-            && damage_info.input.source_id != INVALID_ID
-        {
-            self.award_damage_experience(damage_info);
-        }
-
         // Fire radar event if we took damage (C++ lines 1871-1878)
         if actual_damage > 0.0
             && damage_info.input.damage_type != DamageType::Penalty
@@ -8168,11 +8154,6 @@ impl Object {
             .filter(|&id| id != INVALID_ID);
         self.fire_destroyed_event(killer_id);
 
-        // Award experience to killer if applicable
-        if let Some(damage) = damage_info {
-            self.award_kill_experience(damage);
-        }
-
         // Call the main on_die method which handles all object-level death logic
         // If we have damage_info, call on_die; otherwise create a default one
         if let Some(damage) = damage_info {
@@ -8225,276 +8206,6 @@ impl Object {
         }
     }
 
-    /// Award experience for damage dealt (not kill)
-    /// C++ Reference: Object.cpp lines 1850-1865 (damage-based XP)
-    ///
-    /// This awards experience to the attacker based on damage dealt.
-    /// Formula: XP = damage * 0.1
-    ///
-    /// # Arguments
-    /// * `damage_info` - Damage information containing actual damage dealt
-    ///
-    /// # Implementation Notes
-    /// - Only awards XP if attacker exists and is not INVALID_ID
-    /// - XP scales with damage dealt (10% of damage dealt = XP gained)
-    /// - No XP for team damage (friendly fire)
-    /// - Called from attempt_damage_with_return before death check
-    fn award_damage_experience(&self, damage_info: &DamageInfo) {
-        // Get the attacker ID from damage info
-        let attacker_id = damage_info.input.source_id;
-        if attacker_id == INVALID_ID {
-            return;
-        }
-
-        // Look up attacker object
-        let attacker_arc = match OBJECT_REGISTRY.get_object(attacker_id) {
-            Some(obj) => obj,
-            None => {
-                log::trace!("Attacker {} not found for damage XP award", attacker_id);
-                return;
-            }
-        };
-
-        // Check if this is team damage (no XP for friendly fire)
-        let is_team_damage = {
-            let attacker_guard = match attacker_arc.read() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            };
-
-            // Check if both objects are on the same team
-            if let (Some(victim_team), Some(attacker_team)) = (&self.team, &attacker_guard.team) {
-                if let (Ok(v_guard), Ok(a_guard)) = (victim_team.read(), attacker_team.read()) {
-                    v_guard.get_id() == a_guard.get_id()
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-
-        if is_team_damage {
-            log::trace!(
-                "No damage XP awarded: attacker {} damaged teammate {}",
-                attacker_id,
-                self.id
-            );
-            return;
-        }
-
-        // Award experience to attacker
-        let attacker_guard = match attacker_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::warn!(
-                    "Failed to acquire lock on attacker {} for damage XP award",
-                    attacker_id
-                );
-                return;
-            }
-        };
-
-        if let Some(exp_tracker) = &attacker_guard.experience_tracker {
-            let mut tracker_guard = match exp_tracker.lock() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            };
-
-            // Calculate experience from damage (damage * 0.1)
-            let actual_damage = damage_info.output.actual_damage_dealt;
-            let damage_xp = ExperienceTracker::calculate_damage_experience(actual_damage);
-
-            if damage_xp <= 0 {
-                return;
-            }
-
-            // Award the experience
-            use crate::experience::ExperienceRequirements;
-            let attacker_cost = attacker_guard.thing_template.get_build_cost();
-            let requirements = ExperienceRequirements::from_build_cost(attacker_cost);
-
-            let old_level = tracker_guard.get_veterancy_level();
-            let promotion = tracker_guard.add_experience_points(
-                damage_xp,
-                true, // can_scale - allows experience scalar bonuses
-                requirements.as_array(),
-            );
-
-            if let Some(prev_level) = promotion {
-                let new_level = tracker_guard.get_veterancy_level();
-                log::info!(
-                    "Object {} promoted from {:?} to {:?} (from damage XP)",
-                    attacker_id,
-                    prev_level,
-                    new_level
-                );
-
-                // Drop the guard before calling promotion callback
-                drop(tracker_guard);
-                drop(attacker_guard);
-
-                // Trigger promotion callback on attacker
-                if let Ok(mut attacker_guard) = attacker_arc.write() {
-                    attacker_guard.on_veterancy_level_changed(old_level, new_level, true);
-                }
-            } else {
-                log::trace!(
-                    "Object {} gained {} damage XP (dealt {} damage to object {})",
-                    attacker_id,
-                    damage_xp,
-                    actual_damage,
-                    self.id
-                );
-            }
-        }
-    }
-
-    /// Award experience to the killer
-    /// C++ Reference: Object.cpp lines 1893-1940 (onKill callback path)
-    ///
-    /// This awards experience to the attacker when this object dies.
-    /// The experience amount is based on this object's build cost and veterancy level.
-    ///
-    /// # Arguments
-    /// * `damage_info` - Damage information containing attacker ID
-    ///
-    /// # Implementation Notes
-    /// - Only awards XP if attacker exists and is not INVALID_ID
-    /// - Uses victim's build cost to calculate XP value (cost * 0.5)
-    /// - Bonus XP for killing veteran/elite units
-    /// - No XP for team kills (friendly fire)
-    /// - Experience is tracked in ExperienceTracker
-    /// - Promotions trigger visual/audio effects
-    fn award_kill_experience(&self, damage_info: &DamageInfo) {
-        // Get the attacker ID from damage info
-        let attacker_id = damage_info.input.source_id;
-        if attacker_id == INVALID_ID {
-            return;
-        }
-
-        // Look up attacker object
-        let attacker_arc = match OBJECT_REGISTRY.get_object(attacker_id) {
-            Some(obj) => obj,
-            None => {
-                log::trace!("Attacker {} not found for experience award", attacker_id);
-                return;
-            }
-        };
-
-        // Get victim's value for experience calculation
-        let victim_cost = self.thing_template.get_build_cost();
-        let victim_level = self.get_veterancy_level();
-
-        // Check if this is a team kill (no XP for friendly fire)
-        let is_team_kill = {
-            let attacker_guard = match attacker_arc.read() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            };
-
-            // Check if both objects are on the same team
-            if let (Some(victim_team), Some(attacker_team)) = (&self.team, &attacker_guard.team) {
-                if let (Ok(v_guard), Ok(a_guard)) = (victim_team.read(), attacker_team.read()) {
-                    v_guard.get_id() == a_guard.get_id()
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-
-        if is_team_kill {
-            log::trace!(
-                "No experience awarded: attacker {} killed teammate {}",
-                attacker_id,
-                self.id
-            );
-            return;
-        }
-
-        // Award experience to attacker
-        let attacker_guard = match attacker_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::warn!(
-                    "Failed to acquire lock on attacker {} for XP award",
-                    attacker_id
-                );
-                return;
-            }
-        };
-
-        if let Some(exp_tracker) = &attacker_guard.experience_tracker {
-            let mut tracker_guard = match exp_tracker.lock() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            };
-
-            // Calculate experience value (victim_cost * 0.5 + veterancy bonus)
-            let base_xp = (victim_cost as f32 * 0.5) as i32;
-            let veterancy_bonus = match victim_level {
-                VeterancyLevel::Regular => 0,
-                VeterancyLevel::Veteran => base_xp / 4, // +25%
-                VeterancyLevel::Elite => base_xp / 2,   // +50%
-                VeterancyLevel::Heroic => base_xp,      // +100%
-            };
-
-            let total_xp = base_xp + veterancy_bonus;
-
-            // Award the experience
-            use crate::experience::ExperienceRequirements;
-            let attacker_cost = attacker_guard.thing_template.get_build_cost();
-            let requirements = ExperienceRequirements::from_build_cost(attacker_cost);
-
-            let old_level = tracker_guard.get_veterancy_level();
-            let promotion = tracker_guard.add_experience_points(
-                total_xp,
-                true, // can_scale - allows experience scalar bonuses
-                requirements.as_array(),
-            );
-
-            // Capture any promotion info before releasing locks to avoid move-after-borrow issues
-            let promotion_result = promotion.map(|prev_level| {
-                let new_level = tracker_guard.get_veterancy_level();
-                (prev_level, new_level)
-            });
-
-            if let Some((prev_level, new_level)) = promotion_result {
-                log::info!(
-                    "Object {} promoted from {:?} to {:?} (killed object {})",
-                    attacker_id,
-                    prev_level,
-                    new_level,
-                    self.id
-                );
-
-                // Release tracker_guard and attacker_guard before callback
-                drop(tracker_guard);
-                drop(attacker_guard);
-
-                // Trigger promotion callback on attacker
-                // This will fire veterancy event, play sounds, apply bonuses, etc.
-                if let Ok(mut attacker_guard) = attacker_arc.write() {
-                    attacker_guard.on_veterancy_level_changed(old_level, new_level, true);
-                }
-            } else {
-                log::debug!(
-                    "Object {} gained {} XP from killing object {} (total: {})",
-                    attacker_id,
-                    total_xp,
-                    self.id,
-                    tracker_guard.get_current_experience()
-                );
-
-                // Release tracker_guard and attacker_guard after debug log
-                drop(tracker_guard);
-                drop(attacker_guard);
-            }
-        }
-    }
-
     /// Check health and trigger death if needed
     /// Returns true if the object died
     ///
@@ -8520,11 +8231,6 @@ impl Object {
         let current_health = self.get_health();
 
         if current_health <= 0.0 {
-            // Award experience before death processing
-            if let Some(ref info) = damage_info {
-                self.award_kill_experience(info);
-            }
-
             // Process death
             self.handle_death(damage_info.as_deref());
 
