@@ -283,6 +283,23 @@ fn parse_hex_byte(s: &str) -> i32 {
     i32::from_str_radix(s, 16).unwrap_or(0)
 }
 
+fn max_multiplayer_colors() -> i32 {
+    lookup_multiplayer_settings()
+        .map(|settings| settings.color_values.len() as i32)
+        .filter(|count| *count > 0)
+        .unwrap_or(16)
+}
+
+fn is_valid_player_template_index(index: i32) -> bool {
+    if index < PLAYERTEMPLATE_MIN {
+        return false;
+    }
+    if index < 0 {
+        return true;
+    }
+    lookup_player_template_display_name(index).is_some() || index < 32
+}
+
 /// Parse slot list (matches C++ parsing logic exactly)
 fn parse_slot_list(slot_data: &str, slots: &mut [GameSlot]) -> bool {
     // Split by ':' and filter out trailing empty entry (slots end with ':')
@@ -382,11 +399,11 @@ fn parse_human_slot(data: &str, slot: &mut GameSlot) -> bool {
     };
 
     // Validate ranges
-    if color < -1 || color >= 16 {
+    if color < -1 || color >= max_multiplayer_colors() {
         return false;
     }
 
-    if player_template < PLAYERTEMPLATE_MIN || player_template >= 32 {
+    if !is_valid_player_template_index(player_template) {
         return false;
     }
 
@@ -469,11 +486,11 @@ fn parse_ai_slot(data: &str, slot: &mut GameSlot) -> bool {
     };
 
     // Validate ranges
-    if color < -1 || color >= 16 {
+    if color < -1 || color >= max_multiplayer_colors() {
         return false;
     }
 
-    if player_template < PLAYERTEMPLATE_MIN || player_template >= 32 {
+    if !is_valid_player_template_index(player_template) {
         return false;
     }
 
