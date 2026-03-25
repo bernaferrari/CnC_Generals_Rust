@@ -330,10 +330,6 @@ impl CampaignManager {
     /// Set the current campaign and advance to its first mission.
     /// Matches C++ CampaignManager::setCampaign() - resets state if campaign not found.
     pub fn set_campaign(&mut self, campaign_name: &str) {
-        if campaign_name.is_empty() {
-            return;
-        }
-
         let name_lower = campaign_name.to_lowercase();
 
         for (idx, campaign) in self.campaign_list.iter().enumerate() {
@@ -661,6 +657,26 @@ mod tests {
         manager.set_campaign("NonExistent");
 
         assert!(manager.get_current_campaign().is_none());
+        assert_eq!(manager.get_rank_points(), 0);
+        assert_eq!(manager.get_game_difficulty(), GameDifficulty::Normal);
+    }
+
+    #[test]
+    fn test_set_campaign_resets_on_empty() {
+        let mut manager = CampaignManager::new();
+
+        let campaign = manager.new_campaign("Test".to_string());
+        campaign.first_mission = "mission1".to_string();
+        campaign.new_mission("Mission1".to_string());
+        manager.set_campaign("Test");
+        assert!(manager.get_current_campaign().is_some());
+
+        manager.set_rank_points(200);
+        manager.set_difficulty(GameDifficulty::Hard);
+        manager.set_campaign("");
+
+        assert!(manager.get_current_campaign().is_none());
+        assert!(manager.get_current_mission().is_none());
         assert_eq!(manager.get_rank_points(), 0);
         assert_eq!(manager.get_game_difficulty(), GameDifficulty::Normal);
     }
