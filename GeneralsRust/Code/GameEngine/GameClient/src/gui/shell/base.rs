@@ -255,7 +255,7 @@ impl WindowLayout for BasicWindowLayout {
 
         if let Some(layout) = &self.layout {
             let layout_ref = layout.borrow();
-            layout_ref.run_shutdown(Some(&*immediate_pop as &dyn std::any::Any));
+            layout_ref.run_shutdown(Some(immediate_pop as &mut dyn std::any::Any));
         }
 
         if *immediate_pop {
@@ -522,8 +522,9 @@ impl ShellMenuSchemeManager {
 
     pub fn new_shell_menu_scheme(&mut self, name: String) -> &mut ShellMenuScheme {
         let key = name.to_ascii_lowercase();
-        let scheme = ShellMenuScheme::new(name);
-        self.schemes.insert(key.clone(), scheme);
+        self.schemes
+            .entry(key.clone())
+            .or_insert_with(|| ShellMenuScheme::new(name));
         self.schemes.get_mut(&key).unwrap()
     }
 
@@ -2595,7 +2596,18 @@ impl Shell {
 
     /// Check if animations are finished
     pub fn is_anim_finished(&self) -> bool {
-        self.animate_window_manager.is_finished()
+        if !with_window_manager_ref(|manager| manager.transitions_finished()) {
+            return false;
+        }
+
+        let animate_windows = get_global_data()
+            .map(|data| data.read().animate_windows)
+            .unwrap_or(true);
+        if animate_windows {
+            self.animate_window_manager.is_finished()
+        } else {
+            true
+        }
     }
 
     /// Reverse window animations
@@ -2711,6 +2723,9 @@ impl Shell {
                 )));
             }
             if let Some(ref mut bg) = self.background {
+                if let Err(err) = bg.run_init(None) {
+                    log::warn!("Failed to initialize shell background layout: {}", err);
+                }
                 bg.set_first_window_image();
                 bg.hide(false);
                 if let Some(top) = self.screen_stack.last_mut() {

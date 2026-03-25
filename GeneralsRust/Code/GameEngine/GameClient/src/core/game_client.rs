@@ -2220,7 +2220,7 @@ impl GameClient {
             return true;
         };
         let global = global_data.read();
-        global.pending_file.is_empty()
+        global.initial_file.is_empty()
     }
 
     fn activate_shell_after_startup(&self) -> GameClientResult<()> {
@@ -2230,20 +2230,37 @@ impl GameClient {
 
         log::info!("Activating shell after startup movie flow");
         let mut shell = get_shell();
+        shell.show_shell_map(true);
         shell.show_shell(true).map_err(|err| {
             GameClientError::SubsystemError(format!(
                 "Failed to activate shell after startup movies: {}",
                 err
             ))
         })?;
-        if shell.get_screen_count() == 0 {
-            shell.push("Menus/MainMenu.wnd", false).map_err(|err| {
-                GameClientError::SubsystemError(format!(
-                    "Failed to push MainMenu.wnd after startup movies: {}",
-                    err
-                ))
-            })?;
+        Ok(())
+    }
+
+    fn show_low_memory_legal_page(&self, display: &mut GraphicsDisplay) -> GameClientResult<()> {
+        let Some((layout, _info)) =
+            with_window_manager(|manager| manager.create_layout_with_windows("Menus/LegalPage.wnd").ok())
+        else {
+            return Ok(());
+        };
+
+        {
+            let mut layout_mut = layout.borrow_mut();
+            layout_mut.hide(false);
+            layout_mut.bring_forward();
         }
+
+        let begin = Instant::now();
+        while begin.elapsed() < Duration::from_millis(4000) {
+            with_window_manager(|manager| manager.update());
+            display.draw()?;
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        with_window_manager(|manager| manager.destroy_layout(&layout));
         Ok(())
     }
 
@@ -2263,12 +2280,13 @@ impl GameClient {
         }
 
         let mut global = global_data.write();
+        let low_res_movies = prefers_low_res_movies();
         let Some(action) = startup_movie_action(
             global.play_intro,
             global.after_intro,
             global.play_sizzle,
             self.startup_sizzle_pending,
-            prefers_low_res_movies(),
+            low_res_movies,
         ) else {
             return Ok(());
         };
@@ -2297,6 +2315,9 @@ impl GameClient {
                 global.allow_exit_out_of_movies = true;
                 global.after_intro = false;
                 drop(global);
+                if low_res_movies {
+                    self.show_low_memory_legal_page(&mut display)?;
+                }
                 self.activate_shell_after_startup()?;
             }
         }
@@ -2315,17 +2336,10 @@ impl GameClient {
                 shell.get_screen_count(),
                 shell.is_shell_active()
             );
+            shell.show_shell_map(true);
             shell.show_shell(true).map_err(|err| {
                 GameClientError::SubsystemError(format!(
                     "Failed to ensure shell visibility: {}",
-                    err
-                ))
-            })?;
-        }
-        if shell.get_screen_count() == 0 {
-            shell.push("Menus/MainMenu.wnd", false).map_err(|err| {
-                GameClientError::SubsystemError(format!(
-                    "Failed to restore MainMenu.wnd for shell visibility: {}",
                     err
                 ))
             })?;

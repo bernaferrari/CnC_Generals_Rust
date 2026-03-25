@@ -423,6 +423,7 @@ impl SelectionTranslator {
             if delta_x > DRAG_TOLERANCE || delta_y > DRAG_TOLERANCE {
                 if !self.drag_selecting {
                     self.drag_selecting = true;
+                    TheInGameUI::set_selecting(true);
                     debug!(
                         "Started drag selection at {:?}",
                         self.select_feedback_anchor
@@ -459,6 +460,7 @@ impl SelectionTranslator {
             // Stop drag selecting
             // Matches C++ SelectionXlat.cpp:909-915
             self.drag_selecting = false;
+            TheInGameUI::set_selecting(false);
             debug!("Ended drag selection");
 
             let region = self.build_region(&self.select_feedback_anchor, &position);
@@ -494,6 +496,7 @@ impl SelectionTranslator {
                 ));
             }
         } else {
+            TheInGameUI::set_selecting(false);
             // Raw left-up only resolves selection on the higher-level click path now.
             // Preserve the C++ alternate-mouse blank-click deselect behavior here, and
             // otherwise forward a click message so selection and context-command guards

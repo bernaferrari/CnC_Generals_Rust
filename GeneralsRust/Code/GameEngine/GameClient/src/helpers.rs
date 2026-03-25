@@ -344,6 +344,28 @@ fn popup_message_state() -> Arc<Mutex<PopupMessageState>> {
 #[derive(Debug, Clone, Copy)]
 enum CursorType {
     Arrow,
+    Cross,
+    Selecting,
+    MoveTo,
+    AttackMoveTo,
+    Waypoint,
+    AttackObject,
+    OutRange,
+    ForceAttackObject,
+    ForceAttackGround,
+    GetRepaired,
+    Dock,
+    GetHealed,
+    DoRepair,
+    ResumeConstruction,
+    EnterFriendly,
+    EnterAggressively,
+    Defector,
+    CaptureBuilding,
+    Hack,
+    GenericInvalid,
+    SetRallyPoint,
+    ParticleUplinkCannon,
 }
 
 #[derive(Debug)]
@@ -351,6 +373,10 @@ struct InGameUIStatusState {
     quit_menu_visible: bool,
     input_enabled: bool,
     client_quiet: bool,
+    selecting: bool,
+    scrolling: bool,
+    scroll_amount_x: f32,
+    scroll_amount_y: f32,
     cursor: CursorType,
 }
 
@@ -360,6 +386,10 @@ impl Default for InGameUIStatusState {
             quit_menu_visible: false,
             input_enabled: true,
             client_quiet: false,
+            selecting: false,
+            scrolling: false,
+            scroll_amount_x: 0.0,
+            scroll_amount_y: 0.0,
             cursor: CursorType::Arrow,
         }
     }
@@ -414,6 +444,70 @@ fn map_cant_build_message_key(message: &str) -> String {
 pub struct TheInGameUI;
 
 impl TheInGameUI {
+    fn set_cursor(cursor: CursorType) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.cursor = cursor;
+    }
+
+    fn cursor_from_name(name: &str) -> CursorType {
+        match name {
+            "ARROW" => CursorType::Arrow,
+            "CROSS" => CursorType::Cross,
+            "SELECTING" => CursorType::Selecting,
+            "MOVETO" => CursorType::MoveTo,
+            "ATTACKMOVETO" => CursorType::AttackMoveTo,
+            "WAYPOINT" => CursorType::Waypoint,
+            "ATTACK_OBJECT" => CursorType::AttackObject,
+            "OUTRANGE" => CursorType::OutRange,
+            "FORCE_ATTACK_OBJECT" => CursorType::ForceAttackObject,
+            "FORCE_ATTACK_GROUND" => CursorType::ForceAttackGround,
+            "GET_REPAIRED" => CursorType::GetRepaired,
+            "DOCK" => CursorType::Dock,
+            "GET_HEALED" => CursorType::GetHealed,
+            "DO_REPAIR" => CursorType::DoRepair,
+            "RESUME_CONSTRUCTION" => CursorType::ResumeConstruction,
+            "ENTER_FRIENDLY" => CursorType::EnterFriendly,
+            "ENTER_AGGRESSIVELY" => CursorType::EnterAggressively,
+            "DEFECTOR" => CursorType::Defector,
+            "CAPTUREBUILDING" => CursorType::CaptureBuilding,
+            "HACK" => CursorType::Hack,
+            "GENERIC_INVALID" => CursorType::GenericInvalid,
+            "SET_RALLY_POINT" => CursorType::SetRallyPoint,
+            "PARTICLE_UPLINK_CANNON" => CursorType::ParticleUplinkCannon,
+            _ => CursorType::Arrow,
+        }
+    }
+
+    fn cursor_name(cursor: CursorType) -> &'static str {
+        match cursor {
+            CursorType::Arrow => "ARROW",
+            CursorType::Cross => "CROSS",
+            CursorType::Selecting => "SELECTING",
+            CursorType::MoveTo => "MOVETO",
+            CursorType::AttackMoveTo => "ATTACKMOVETO",
+            CursorType::Waypoint => "WAYPOINT",
+            CursorType::AttackObject => "ATTACK_OBJECT",
+            CursorType::OutRange => "OUTRANGE",
+            CursorType::ForceAttackObject => "FORCE_ATTACK_OBJECT",
+            CursorType::ForceAttackGround => "FORCE_ATTACK_GROUND",
+            CursorType::GetRepaired => "GET_REPAIRED",
+            CursorType::Dock => "DOCK",
+            CursorType::GetHealed => "GET_HEALED",
+            CursorType::DoRepair => "DO_REPAIR",
+            CursorType::ResumeConstruction => "RESUME_CONSTRUCTION",
+            CursorType::EnterFriendly => "ENTER_FRIENDLY",
+            CursorType::EnterAggressively => "ENTER_AGGRESSIVELY",
+            CursorType::Defector => "DEFECTOR",
+            CursorType::CaptureBuilding => "CAPTUREBUILDING",
+            CursorType::Hack => "HACK",
+            CursorType::GenericInvalid => "GENERIC_INVALID",
+            CursorType::SetRallyPoint => "SET_RALLY_POINT",
+            CursorType::ParticleUplinkCannon => "PARTICLE_UPLINK_CANNON",
+        }
+    }
+
     pub fn select_area(upper_left: ICoord2D, lower_right: ICoord2D) {
         if !with_backend(|backend| backend.select_area(upper_left.clone(), lower_right.clone())) {
             info!(
@@ -488,7 +582,59 @@ impl TheInGameUI {
             .lock()
             .expect("In-game UI status lock poisoned");
         guard.input_enabled = enabled;
+        if !enabled {
+            guard.scrolling = false;
+            guard.scroll_amount_x = 0.0;
+            guard.scroll_amount_y = 0.0;
+        }
         gamelogic::helpers::TheGameLogic::set_input_enabled(enabled);
+    }
+
+    pub fn is_selecting() -> bool {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.selecting
+    }
+
+    pub fn set_selecting(selecting: bool) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.selecting = selecting;
+    }
+
+    pub fn set_scrolling(scrolling: bool) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.scrolling = scrolling;
+        if !scrolling {
+            guard.scroll_amount_x = 0.0;
+            guard.scroll_amount_y = 0.0;
+        }
+    }
+
+    pub fn is_scrolling() -> bool {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.scrolling
+    }
+
+    pub fn set_scroll_amount(x: f32, y: f32) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.scroll_amount_x = x;
+        guard.scroll_amount_y = y;
+    }
+
+    pub fn get_scroll_amount() -> (f32, f32) {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        (guard.scroll_amount_x, guard.scroll_amount_y)
     }
 
     pub fn set_client_quiet(quiet: bool) {
@@ -506,10 +652,25 @@ impl TheInGameUI {
     }
 
     pub fn set_cursor_arrow() {
-        let mut guard = in_game_ui_status_state()
+        Self::set_cursor(CursorType::Arrow);
+    }
+
+    pub fn set_cursor_by_name(cursor: &str) {
+        Self::set_cursor(Self::cursor_from_name(cursor));
+    }
+
+    pub fn get_cursor_name() -> &'static str {
+        let guard = in_game_ui_status_state()
             .lock()
             .expect("In-game UI status lock poisoned");
-        guard.cursor = CursorType::Arrow;
+        Self::cursor_name(guard.cursor)
+    }
+
+    pub fn set_radius_cursor_active() {
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.radius_cursor_active = true;
     }
 
     pub fn get_pending_place_template() -> Option<String> {

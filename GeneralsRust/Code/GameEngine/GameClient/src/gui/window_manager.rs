@@ -197,6 +197,10 @@ fn with_arc_write<T, R>(lock: &Arc<std::sync::RwLock<T>>, f: impl FnOnce(&mut T)
     f(&mut *guard)
 }
 
+fn as_any_ref(user_data: Option<&mut dyn std::any::Any>) -> Option<&dyn std::any::Any> {
+    user_data.map(|data| data as &dyn std::any::Any)
+}
+
 /// Tab navigation direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TabDirection {
@@ -246,7 +250,7 @@ pub struct WindowLayout {
     // Layout callbacks would be function pointers in the original
     init_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
     update_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
-    shutdown_callback: Option<Box<dyn Fn(&WindowLayout, Option<&dyn std::any::Any>)>>,
+    shutdown_callback: Option<Box<dyn Fn(&WindowLayout, Option<&mut dyn std::any::Any>)>>,
 }
 
 impl std::fmt::Debug for WindowLayout {
@@ -339,7 +343,7 @@ impl WindowLayout {
     }
 
     /// Run shutdown callback
-    pub fn run_shutdown(&self, user_data: Option<&dyn std::any::Any>) {
+    pub fn run_shutdown(&self, user_data: Option<&mut dyn std::any::Any>) {
         if let Some(ref callback) = self.shutdown_callback {
             callback(self, user_data);
         }
@@ -1721,13 +1725,13 @@ impl WindowManager {
 
         if !layout_def.shutdown_callback.is_empty() {
             layout.shutdown_callback = match layout_def.shutdown_callback.as_str() {
-                "MainMenuShutdown" => Some(Box::new(|layout, _| {
+                "MainMenuShutdown" => Some(Box::new(|layout, data| {
                     let mut menu = get_main_menu();
-                    if let Err(err) = menu.shutdown(layout, None) {
+                    if let Err(err) = menu.shutdown(layout, as_any_ref(data)) {
                         warn!("Main menu shutdown failed: {}", err);
                     }
                 })),
-                "SinglePlayerMenuShutdown" => Some(Box::new(|layout, _| {
+                "SinglePlayerMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
                     let manager = manager.read().unwrap();
                     let menu = manager.get_single_player_menu();
@@ -1735,7 +1739,7 @@ impl WindowManager {
                         warn!("Single player menu shutdown failed: {}", err);
                     }
                 })),
-                "OptionsMenuShutdown" => Some(Box::new(|layout, _| {
+                "OptionsMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
                     let manager = manager.read().unwrap();
                     let menu = manager.get_options_menu();
@@ -1743,7 +1747,7 @@ impl WindowManager {
                         warn!("Options menu shutdown failed: {}", err);
                     }
                 })),
-                "MapSelectMenuShutdown" => Some(Box::new(|layout, _| {
+                "MapSelectMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
                     let manager = manager.read().unwrap();
                     let menu = manager.get_map_select_menu();
@@ -1751,7 +1755,7 @@ impl WindowManager {
                         warn!("Map select menu shutdown failed: {}", err);
                     }
                 })),
-                "CreditsMenuShutdown" => Some(Box::new(|layout, _| {
+                "CreditsMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
                     let manager = manager.read().unwrap();
                     let menu = manager.get_credits_menu();
@@ -1759,7 +1763,7 @@ impl WindowManager {
                         warn!("Credits menu shutdown failed: {}", err);
                     }
                 })),
-                "LanLobbyMenuShutdown" => Some(Box::new(|layout, _| {
+                "LanLobbyMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
                     let manager = manager.read().unwrap();
                     let menu = manager.get_lan_lobby_menu();
@@ -1767,89 +1771,89 @@ impl WindowManager {
                         warn!("LAN lobby menu shutdown failed: {}", err);
                     }
                 })),
-                "PopupCommunicatorShutdown" => Some(Box::new(|layout, _| {
-                    popup_communicator_shutdown(layout, None);
+                "PopupCommunicatorShutdown" => Some(Box::new(|layout, data| {
+                    popup_communicator_shutdown(layout, as_any_ref(data));
                 })),
                 "SaveLoadMenuShutdown" => Some(Box::new(|layout, data| {
-                    save_load_menu_shutdown(layout, data);
+                    save_load_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "PopupReplayShutdown" => Some(Box::new(|layout, data| {
-                    popup_replay_shutdown(layout, data);
+                    popup_replay_shutdown(layout, as_any_ref(data));
                 })),
                 "ReplayMenuShutdown" => Some(Box::new(|layout, data| {
-                    replay_menu_shutdown(layout, data);
+                    replay_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "ChallengeMenuShutdown" => Some(Box::new(|layout, data| {
-                    challenge_menu_shutdown(layout, data);
+                    challenge_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "KeyboardOptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    keyboard_options_menu_shutdown(layout, data);
+                    keyboard_options_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "PopupLadderSelectShutdown" => Some(Box::new(|layout, data| {
-                    popup_ladder_select_shutdown(layout, data);
+                    popup_ladder_select_shutdown(layout, as_any_ref(data));
                 })),
                 "GameSpyPlayerInfoOverlayShutdown" => Some(Box::new(|layout, data| {
-                    popup_player_info_shutdown(layout, data);
+                    popup_player_info_shutdown(layout, as_any_ref(data));
                 })),
                 "DownloadMenuShutdown" => Some(Box::new(|layout, data| {
-                    download_menu_shutdown(layout, None);
+                    download_menu_shutdown(layout, data);
                 })),
                 "ScoreScreenShutdown" => Some(Box::new(|layout, data| {
-                    score_screen_shutdown(layout, None);
+                    score_screen_shutdown(layout, data);
                 })),
                 "SkirmishMapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    skirmish_map_select_menu_shutdown(layout, None);
+                    skirmish_map_select_menu_shutdown(layout, data);
                 })),
                 "SkirmishGameOptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    skirmish_game_options_menu_shutdown(layout, None);
+                    skirmish_game_options_menu_shutdown(layout, data);
                 })),
                 "LanMapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    lan_map_select_menu_shutdown(layout, None);
+                    lan_map_select_menu_shutdown(layout, data);
                 })),
                 "LanGameOptionsMenuShutdown" => Some(Box::new(|layout, data| {
-                    lan_game_options_menu_shutdown(layout, None);
+                    lan_game_options_menu_shutdown(layout, data);
                 })),
                 "NetworkDirectConnectShutdown" => Some(Box::new(|layout, data| {
-                    network_direct_connect_shutdown(layout, data);
+                    network_direct_connect_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLLoginMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_login_menu_shutdown(layout, data);
+                    wol_login_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLLocaleSelectShutdown" => Some(Box::new(|layout, data| {
-                    wol_locale_select_shutdown(layout, data);
+                    wol_locale_select_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLMessageWindowShutdown" => Some(Box::new(|layout, data| {
-                    wol_message_window_shutdown(layout, data);
+                    wol_message_window_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLBuddyOverlayShutdown" => Some(Box::new(|layout, data| {
-                    wol_buddy_overlay_shutdown(layout, data);
+                    wol_buddy_overlay_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLStatusMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_status_menu_shutdown(layout, data);
+                    wol_status_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLWelcomeMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_welcome_menu_shutdown(layout, data);
+                    wol_welcome_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLLobbyMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_lobby_menu_shutdown(layout, data);
+                    wol_lobby_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLLadderScreenShutdown" => Some(Box::new(|layout, data| {
-                    wol_ladder_screen_shutdown(layout, data);
+                    wol_ladder_screen_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLMapSelectMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_map_select_menu_shutdown(layout, data);
+                    wol_map_select_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLGameSetupMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_game_setup_menu_shutdown(layout, data);
+                    wol_game_setup_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLQuickMatchMenuShutdown" => Some(Box::new(|layout, data| {
-                    wol_quick_match_menu_shutdown(layout, data);
+                    wol_quick_match_menu_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLQMScoreScreenShutdown" => Some(Box::new(|layout, data| {
-                    wol_qm_score_screen_shutdown(layout, data);
+                    wol_qm_score_screen_shutdown(layout, as_any_ref(data));
                 })),
                 "WOLCustomScoreScreenShutdown" => Some(Box::new(|layout, data| {
-                    wol_custom_score_screen_shutdown(layout, data);
+                    wol_custom_score_screen_shutdown(layout, as_any_ref(data));
                 })),
                 "ChallengeLoadScreenShutdown"
                 | "MarketingScreenShutdown"

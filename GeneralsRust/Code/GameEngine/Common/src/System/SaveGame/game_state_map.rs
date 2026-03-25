@@ -6,7 +6,9 @@ use super::super::xfer::*;
 use super::game_state::SaveCode;
 use super::{
     get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
-    set_runtime_drawable_id_counter, set_runtime_object_id_counter,
+    notify_begin_load, notify_end_load, notify_post_load_refresh, notify_set_game_mode,
+    notify_set_loading_save, notify_start_new_game_from_save, set_runtime_drawable_id_counter,
+    set_runtime_object_id_counter,
 };
 use crate::common::ini::ini_game_data::get_global_data;
 use std::fs::File;
@@ -191,132 +193,149 @@ impl Snapshot for GameStateMap {
             SaveCode::UnableToOpenFile => XferStatus::FileNotOpen,
             _ => XferStatus::ErrorUnknown,
         };
+        let is_load = xfer.get_xfer_mode() == XferMode::Load;
+        if is_load {
+            let _ = self.clear_scratch_pad_maps();
+            notify_begin_load();
+            notify_set_loading_save(true);
+        }
 
-        // Version
-        let current_version: XferVersion = 2;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)?;
+        let transfer_result = (|| {
+            // Version
+            let current_version: XferVersion = 2;
+            let mut version = current_version;
+            xfer.xfer_version(&mut version, current_version)?;
 
-        let mut first_save = false;
-        match xfer.get_xfer_mode() {
-            XferMode::Save => {
-                let mut state = get_game_state();
-                let global = get_global_data()
-                    .map(|data| data.read().map_name.clone())
-                    .unwrap_or_default();
-
-                let map_leaf = state.get_map_leaf_name(&global);
-                let save_game_map_name = state
-                    .get_file_path_in_save_directory(&map_leaf)
-                    .to_string_lossy()
-                    .to_string();
-                let mut portable = state.real_map_path_to_portable_map_path(&save_game_map_name);
-                xfer.xfer_ascii_string(&mut portable)?;
-
-                let mut pristine_map_name = String::new();
-                if !state.is_in_save_directory(Path::new(&global)) && !global.is_empty() {
-                    pristine_map_name = global.clone();
-                    first_save = true;
-                }
-                let mut pristine_portable =
-                    state.real_map_path_to_portable_map_path(&pristine_map_name);
-                xfer.xfer_ascii_string(&mut pristine_portable)?;
-
-                {
-                    let save_info = state.get_save_game_info_mut();
-                    save_info.save_game_map_name = save_game_map_name.clone();
-                    save_info.pristine_map_name = pristine_map_name.clone();
-                }
-
-                if version >= 2 {
-                    // Game mode
-                    let mut game_mode: i32 = 0;
-                    xfer.xfer_int(&mut game_mode)?;
-                }
-
-                if first_save {
-                    self.embed_pristine_map(&pristine_map_name, xfer)
-                        .map_err(save_code_to_xfer)?;
-                } else {
-                    self.embed_in_use_map(&save_game_map_name, xfer)
-                        .map_err(save_code_to_xfer)?;
-                }
-            }
-            XferMode::Load => {
-                // Read save game map name
-                let mut save_game_map_name = String::new();
-                xfer.xfer_ascii_string(&mut save_game_map_name)?;
-
-                // Read pristine map filename
-                let mut pristine_map_name = String::new();
-                xfer.xfer_ascii_string(&mut pristine_map_name)?;
-
-                {
+            let mut first_save = false;
+            match xfer.get_xfer_mode() {
+                XferMode::Save => {
                     let mut state = get_game_state();
-                    let real_save = state.portable_map_path_to_real_map_path(&save_game_map_name);
-                    let real_pristine =
-                        state.portable_map_path_to_real_map_path(&pristine_map_name);
-                    let save_game_map_name = real_save.clone();
+                    let global = get_global_data()
+                        .map(|data| data.read().map_name.clone())
+                        .unwrap_or_default();
+
+                    let map_leaf = state.get_map_leaf_name(&global);
+                    let save_game_map_name = state
+                        .get_file_path_in_save_directory(&map_leaf)
+                        .to_string_lossy()
+                        .to_string();
+                    let mut portable = state.real_map_path_to_portable_map_path(&save_game_map_name);
+                    xfer.xfer_ascii_string(&mut portable)?;
+
+                    let mut pristine_map_name = String::new();
+                    if !state.is_in_save_directory(Path::new(&global)) && !global.is_empty() {
+                        pristine_map_name = global.clone();
+                        first_save = true;
+                    }
+                    let mut pristine_portable =
+                        state.real_map_path_to_portable_map_path(&pristine_map_name);
+                    xfer.xfer_ascii_string(&mut pristine_portable)?;
+
                     {
                         let save_info = state.get_save_game_info_mut();
                         save_info.save_game_map_name = save_game_map_name.clone();
-                        save_info.pristine_map_name = real_pristine;
+                        save_info.pristine_map_name = pristine_map_name.clone();
                     }
 
-                    if !state.is_in_save_directory(Path::new(&save_game_map_name)) {
-                        eprintln!(
-                            "GameStateMap::xfer - The map filename read from the file '{}' is not in the SAVE directory, but should be",
-                            save_game_map_name
-                        );
-                        return Err(XferStatus::InvalidData);
+                    if version >= 2 {
+                        // Game mode
+                        let mut game_mode: i32 = 0;
+                        xfer.xfer_int(&mut game_mode)?;
                     }
 
-                    if let Some(global) = get_global_data() {
-                        global.write().map_name = save_game_map_name.clone();
+                    if first_save {
+                        self.embed_pristine_map(&pristine_map_name, xfer)
+                            .map_err(save_code_to_xfer)?;
+                    } else {
+                        self.embed_in_use_map(&save_game_map_name, xfer)
+                            .map_err(save_code_to_xfer)?;
                     }
                 }
+                XferMode::Load => {
+                    // Read save game map name
+                    let mut save_game_map_name = String::new();
+                    xfer.xfer_ascii_string(&mut save_game_map_name)?;
 
-                if version >= 2 {
-                    // Game mode
-                    let mut game_mode: i32 = 0;
-                    xfer.xfer_int(&mut game_mode)?;
+                    // Read pristine map filename
+                    let mut pristine_map_name = String::new();
+                    xfer.xfer_ascii_string(&mut pristine_map_name)?;
+
+                    {
+                        let mut state = get_game_state();
+                        let real_save = state.portable_map_path_to_real_map_path(&save_game_map_name);
+                        let real_pristine =
+                            state.portable_map_path_to_real_map_path(&pristine_map_name);
+                        let save_game_map_name = real_save.clone();
+                        {
+                            let save_info = state.get_save_game_info_mut();
+                            save_info.save_game_map_name = save_game_map_name.clone();
+                            save_info.pristine_map_name = real_pristine;
+                        }
+
+                        if !state.is_in_save_directory(Path::new(&save_game_map_name)) {
+                            eprintln!(
+                                "GameStateMap::xfer - The map filename read from the file '{}' is not in the SAVE directory, but should be",
+                                save_game_map_name
+                            );
+                            return Err(XferStatus::InvalidData);
+                        }
+
+                        if let Some(global) = get_global_data() {
+                            global.write().map_name = save_game_map_name.clone();
+                        }
+                    }
+
+                    if version >= 2 {
+                        // Game mode
+                        let mut game_mode: i32 = 0;
+                        xfer.xfer_int(&mut game_mode)?;
+                        notify_set_game_mode(game_mode);
+                    }
+
+                    let save_map_path = {
+                        let state = get_game_state();
+                        state.get_save_game_info().save_game_map_name.clone()
+                    };
+                    self.extract_and_save_map(&save_map_path, xfer)
+                        .map_err(save_code_to_xfer)?;
                 }
-
-                let save_map_path = {
-                    let state = get_game_state();
-                    state.get_save_game_info().save_game_map_name.clone()
-                };
-                self.extract_and_save_map(&save_map_path, xfer)
-                    .map_err(save_code_to_xfer)?;
+                _ => {
+                    return Err(XferStatus::ModeUnknown);
+                }
             }
-            _ => {
-                return Err(XferStatus::ModeUnknown);
+
+            // Object ID counter
+            let mut high_object_id: ObjectID = if xfer.get_xfer_mode() == XferMode::Save {
+                get_runtime_object_id_counter().unwrap_or(1)
+            } else {
+                1
+            };
+            xfer.xfer_object_id(&mut high_object_id)?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                set_runtime_object_id_counter(high_object_id);
             }
+
+            // Drawable ID counter
+            let mut high_drawable_id: DrawableID = if xfer.get_xfer_mode() == XferMode::Save {
+                get_runtime_drawable_id_counter().unwrap_or(1)
+            } else {
+                1
+            };
+            xfer.xfer_drawable_id(&mut high_drawable_id)?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                set_runtime_drawable_id_counter(high_drawable_id);
+                notify_start_new_game_from_save();
+                notify_post_load_refresh();
+            }
+            Ok(())
+        })();
+
+        if is_load {
+            notify_set_loading_save(false);
+            notify_end_load();
         }
 
-        // Object ID counter
-        let mut high_object_id: ObjectID = if xfer.get_xfer_mode() == XferMode::Save {
-            get_runtime_object_id_counter().unwrap_or(1)
-        } else {
-            1
-        };
-        xfer.xfer_object_id(&mut high_object_id)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            set_runtime_object_id_counter(high_object_id);
-        }
-
-        // Drawable ID counter
-        let mut high_drawable_id: DrawableID = if xfer.get_xfer_mode() == XferMode::Save {
-            get_runtime_drawable_id_counter().unwrap_or(1)
-        } else {
-            1
-        };
-        xfer.xfer_drawable_id(&mut high_drawable_id)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            set_runtime_drawable_id_counter(high_drawable_id);
-        }
-
-        Ok(())
+        transfer_result
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
