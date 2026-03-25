@@ -259,6 +259,23 @@ impl CommandLineParser {
         }
     }
 
+    /// Build a parser seeded from current runtime global-data values.
+    ///
+    /// This preserves INI/runtime settings and applies only command-line deltas.
+    pub fn from_runtime_global_data() -> Self {
+        let (writable, debug_settings) = {
+            let data = global_data::read();
+            (data.writable.clone(), data.debug)
+        };
+
+        Self {
+            global_data: writable,
+            debug_settings,
+            #[cfg(feature = "debug_crc")]
+            crc_debug_settings: CrcDebugSettings::default(),
+        }
+    }
+
     /// Convert short map path to long map path
     ///
     /// Matches C++ CommandLine.cpp map path conversion logic.
@@ -614,7 +631,7 @@ impl CommandLineParser {
 /// Parse command-line parameters
 pub fn parse_command_line() -> CommandLineParser {
     let args: Vec<String> = env::args().collect();
-    let mut parser = CommandLineParser::new();
+    let mut parser = CommandLineParser::from_runtime_global_data();
     parser.parse_command_line(args);
     parser
 }

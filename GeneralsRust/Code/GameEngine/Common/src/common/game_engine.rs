@@ -25,7 +25,7 @@ use std::sync::OnceLock;
 use crate::common::audio::game_audio::{
     initialize_global_audio_manager, AudioAffect, AudioManager,
 };
-use crate::common::ini::get_global_data;
+use crate::common::ini::{get_global_data, INILoadType, INI};
 use crate::common::message_stream::{get_message_stream, GameMessageType};
 use crate::common::random_value::init_random_with_seed;
 use crate::common::recorder::init_recorder;
@@ -355,10 +355,11 @@ impl GameEngine {
         info!("================================================================================");
 
         self.command_args = args;
-        self.parse_command_line()?;
 
         // Align with legacy startup: seed the global name-key generator before subsystems request keys.
         NameKeyGenerator::init();
+        self.bootstrap_global_data_from_ini();
+        self.parse_command_line()?;
 
         // Initialize asset system
         info!("Initializing asset system");
@@ -369,8 +370,8 @@ impl GameEngine {
         self.init_audio_system().await?;
         init_cd_manager();
         self.init_network_system().await?;
-        self.init_game_logic().await?;
         self.init_game_client().await?;
+        self.init_game_logic().await?;
 
         // Initialize subsystem manager (GameLogic/GameClient will be registered by callers)
         self.subsystem_manager.init_all_async().await?;
@@ -778,7 +779,7 @@ impl GameEngine {
     fn parse_command_line(&mut self) -> SubsystemResult<()> {
         debug!("Parsing command line arguments: {:?}", self.command_args);
 
-        let mut parser = CommandLineParser::new();
+        let mut parser = CommandLineParser::from_runtime_global_data();
         parser.parse_command_line(self.command_args.clone());
 
         let writable = parser.get_global_data().clone();
@@ -854,6 +855,40 @@ impl GameEngine {
         }
 
         Ok(())
+    }
+
+    fn bootstrap_global_data_from_ini(&self) {
+        // C++ parity: load GameData INI before applying command-line overrides.
+        let mut ini = INI::new();
+        let mut loaded_any = false;
+
+        for (index, source) in ["Data/INI/Default/GameData.ini", "Data/INI/GameData.ini"]
+            .iter()
+            .enumerate()
+        {
+            let load_type = if index == 0 {
+                INILoadType::Overwrite
+            } else {
+                INILoadType::MultiFile
+            };
+            match ini.load(source, load_type) {
+                Ok(()) => loaded_any = true,
+                Err(err) => warn!("Bootstrap GameData source '{}' not loaded: {}", source, err),
+            }
+        }
+
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            if let Err(err) = ini.load("Data/INI/GameDataDebug.ini", INILoadType::MultiFile) {
+                debug!("Optional GameDataDebug.ini not loaded: {}", err);
+            }
+        }
+
+        if loaded_any {
+            debug!("Bootstrap GameData INI loaded before command-line override pass");
+        } else {
+            warn!("No GameData INI sources loaded during bootstrap; using runtime defaults");
+        }
     }
 
     async fn init_asset_system(&mut self) -> SubsystemResult<()> {
