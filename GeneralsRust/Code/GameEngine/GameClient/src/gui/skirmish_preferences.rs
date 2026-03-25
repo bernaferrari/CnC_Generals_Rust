@@ -1,8 +1,9 @@
 //! Skirmish preference storage (Skirmish.ini).
 
 use crate::map_util::{get_default_map, is_valid_map};
+use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::player_template::get_player_template_store;
-use game_network::{Money, PLAYERTEMPLATE_RANDOM};
+use game_network::{Money, PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM};
 use std::collections::HashMap;
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader, Write};
@@ -86,11 +87,16 @@ impl SkirmishPreferences {
     }
 
     pub fn get_preferred_color(&self) -> i32 {
-        self.data
+        let mut value = self
+            .data
             .get(COLOR_KEY)
             .and_then(|value| value.parse::<i32>().ok())
-            .filter(|value| *value >= -1)
-            .unwrap_or(-1)
+            .unwrap_or(-1);
+        let max_colors = with_multiplayer_settings(|settings| settings.get_num_colors());
+        if value < -1 || value >= max_colors {
+            value = -1;
+        }
+        value
     }
 
     pub fn set_preferred_color(&mut self, value: i32) {
@@ -103,19 +109,20 @@ impl SkirmishPreferences {
             .get(PLAYER_TEMPLATE_KEY)
             .and_then(|value| value.parse::<i32>().ok())
             .unwrap_or(PLAYERTEMPLATE_RANDOM);
-        if parsed <= PLAYERTEMPLATE_RANDOM {
+        if parsed < PLAYERTEMPLATE_MIN {
             return PLAYERTEMPLATE_RANDOM;
         }
         let store = get_player_template_store();
-        let index = parsed as usize;
-        if store
-            .get_nth_player_template(index)
-            .map(|template| template.playable)
-            == Some(true)
-        {
-            parsed
-        } else {
+        if parsed >= store.len() as i32 {
             PLAYERTEMPLATE_RANDOM
+        } else if parsed >= 0 {
+            store
+                .get_nth_player_template(parsed as usize)
+                .filter(|template| !template.starting_building.is_empty())
+                .map(|_| parsed)
+                .unwrap_or(PLAYERTEMPLATE_RANDOM)
+        } else {
+            parsed
         }
     }
 
@@ -176,7 +183,7 @@ impl SkirmishPreferences {
             .data
             .get(STARTING_CASH_KEY)
             .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(10000);
+            .unwrap_or_else(default_starting_cash);
         Money::new(value)
     }
 
@@ -197,6 +204,22 @@ impl SkirmishPreferences {
     pub fn set_int(&mut self, key: &str, value: i32) {
         self.data.insert(key.to_string(), value.to_string());
     }
+}
+
+fn default_starting_cash() -> u32 {
+    with_multiplayer_settings(|settings| {
+        if let Some(choice) = settings
+            .starting_money_choices
+            .iter()
+            .find(|choice| choice.is_default)
+        {
+            return choice.money.count_money();
+        }
+        if let Some(choice) = settings.starting_money_choices.first() {
+            return choice.money.count_money();
+        }
+        10000
+    })
 }
 
 fn preferences_file() -> PathBuf {

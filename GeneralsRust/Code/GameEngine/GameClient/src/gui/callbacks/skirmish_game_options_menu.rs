@@ -47,6 +47,7 @@ const KEY_STATE_UP: u32 = 0x0001;
 const MAX_SLOTS: usize = 8;
 const DIFFICULTY_NORMAL: i32 = 1;
 const MAX_FPS_SLIDER_VALUE: i32 = 60;
+const NO_FPS_LIMIT_SLIDER_VALUE: i32 = 61;
 const GREATER_NO_FPS_LIMIT: i32 = 1000;
 
 /// Window state stored in thread-local RefCell (single-threaded GUI)
@@ -1051,6 +1052,9 @@ fn apply_skirmish_preferences(state: &mut SkirmishGameOptionsState) {
     let uses_system_maps = prefs.uses_system_map_dir();
     let starting_cash = prefs.get_starting_cash();
     let superweapon_restricted = prefs.get_superweapon_restricted();
+    let user_name = prefs.get_user_name();
+    let preferred_color = prefs.get_preferred_color();
+    let preferred_faction = prefs.get_preferred_faction();
     {
         let mut setup = get_skirmish_setup();
         {
@@ -1064,10 +1068,9 @@ fn apply_skirmish_preferences(state: &mut SkirmishGameOptionsState) {
             info.enter_game();
 
             if let Some(slot) = info.get_slot_mut(0) {
-                let user_name = prefs.get_user_name();
                 slot.set_state(SlotState::Player, user_name.clone(), local_ip);
-                slot.set_color(prefs.get_preferred_color());
-                slot.set_player_template(prefs.get_preferred_faction());
+                slot.set_color(preferred_color);
+                slot.set_player_template(preferred_faction);
             }
 
             let honors = SkirmishBattleHonors::new();
@@ -1079,13 +1082,14 @@ fn apply_skirmish_preferences(state: &mut SkirmishGameOptionsState) {
                 SlotState::EasyAI
             };
             if let Some(slot) = info.get_slot_mut(1) {
-                slot.set_state(ai_state, String::new(), 0);
+                // C++ copies slot0 base values into slot1, then mutates state to AI.
+                slot.set_state(ai_state, user_name.clone(), 0);
+                slot.set_color(preferred_color);
+                slot.set_player_template(preferred_faction);
             }
 
             let slot_list = prefs.get_slot_list();
-            if !slot_list.is_empty() {
-                let _ = parse_ascii_string_to_game_info(info, &slot_list);
-            }
+            let _ = parse_ascii_string_to_game_info(info, &slot_list);
 
             let seed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1132,15 +1136,27 @@ fn write_skirmish_preferences(state: &SkirmishGameOptionsState) {
 }
 
 fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
-    let Some(map_name) = state.selected_map.clone() else {
-        state.button_pushed = false;
-        return;
+    let map_name = {
+        let mut setup = get_skirmish_setup();
+        let info = setup.game_info_mut().game_info_mut();
+        if info.get_map().is_empty() {
+            if let Some(selected) = state.selected_map.as_ref() {
+                info.set_map(selected.clone());
+            }
+        }
+        info.get_map().to_string()
     };
+    if map_name.is_empty() {
+        state.button_pushed = false;
+        set_skirmish_button_pushed(false);
+        return;
+    }
 
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap();
     let Some(meta) = cache_guard.find_map(&map_name) else {
         state.button_pushed = false;
+        set_skirmish_button_pushed(false);
         let _ = message_box_ok(
             &GameText::fetch("GUI:ErrorStartingGame"),
             &GameText::fetch("GUI:CantFindMap"),
@@ -1155,6 +1171,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     };
     if player_count > meta.num_players.max(0) as usize {
         state.button_pushed = false;
+        set_skirmish_button_pushed(false);
         let body = format!(
             "{} {}",
             GameText::fetch("GUI:TooManyPlayers"),
@@ -1189,7 +1206,6 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         let _ = TheGameLogic::clear_game_data();
     }
 
-    sync_map_to_game_info(state);
     let seed = {
         let mut setup = get_skirmish_setup();
         let info = setup.game_info_mut().game_info_mut();
@@ -1228,6 +1244,7 @@ fn check_for_cd_at_game_start(state: &mut SkirmishGameOptionsState) -> bool {
         return true;
     }
     state.button_pushed = false;
+    set_skirmish_button_pushed(false);
     let _ = message_box_ok_cancel(
         &GameText::fetch("GUI:InsertCDPrompt"),
         &GameText::fetch("GUI:InsertCDMessage"),
@@ -1241,6 +1258,11 @@ pub fn skirmish_game_options_menu_init(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
+    set_skirmish_button_pushed(false);
+    set_skirmish_is_shutting_down(false);
+    set_skirmish_is_initing(true);
+    set_skirmish_slot_updates_enabled(false);
+
     with_state(|state| {
         state.parent_id = name_to_id("SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent");
         state.button_start_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
@@ -1323,7 +1345,9 @@ pub fn skirmish_game_options_menu_init(
                     .map(|data| data.read().frames_per_second_limit)
                     .unwrap_or(30);
                 let prefs = SkirmishPreferences::new();
-                let slider_pos = prefs.get_int("FPS", default_limit);
+                let slider_pos = prefs
+                    .get_int("FPS", default_limit)
+                    .clamp(15, NO_FPS_LIMIT_SLIDER_VALUE);
                 slider.set_value(slider_pos);
                 let id = state.static_text_game_speed_id;
                 slider.set_change_callback(move |_, value| {
@@ -1351,12 +1375,21 @@ pub fn skirmish_game_options_menu_init(
             }
         }
 
+        if let Some(start_button) =
+            with_window_manager(|manager| manager.get_window_by_id(state.button_start_id))
+        {
+            let _ = start_button.borrow_mut().set_text(&GameText::fetch("GUI:Start"));
+        }
+
         state.is_shutting_down = false;
         state.just_entered = true;
         state.initial_gadget_delay = 2;
         state.still_needs_to_set_options = false;
         state.button_pushed = false;
     });
+    set_skirmish_slot_updates_enabled(true);
+    set_skirmish_is_initing(false);
+
     get_shell().show_shell_map(true);
     layout.hide(false);
 }
@@ -1402,6 +1435,7 @@ pub fn skirmish_game_options_menu_update(
             && with_window_manager(|manager| manager.transitions_finished())
         {
             state.is_shutting_down = false;
+            set_skirmish_is_shutting_down(false);
             layout.hide(true);
             let _ = get_shell().shutdown_complete(None, false);
         }
@@ -1420,6 +1454,7 @@ pub fn skirmish_game_options_menu_shutdown(
     if pop_immediate {
         destroy_skirmish_map_select_overlay();
         layout.hide(true);
+        set_skirmish_is_shutting_down(false);
         let _ = get_shell().shutdown_complete(None, false);
         return;
     }
@@ -1428,6 +1463,7 @@ pub fn skirmish_game_options_menu_shutdown(
     with_window_manager(|manager| manager.transition_reverse("SkirmishGameOptionsMenuFade"));
 
     with_state(|state| state.is_shutting_down = true);
+    set_skirmish_is_shutting_down(true);
 }
 
 pub fn skirmish_game_options_menu_system(
@@ -1441,21 +1477,23 @@ pub fn skirmish_game_options_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_start_id {
-                if state.button_pushed {
+                if state.button_pushed || skirmish_button_pushed() {
                     handled = true;
                     return;
                 }
                 state.button_pushed = true;
+                set_skirmish_button_pushed(true);
                 start_skirmish_game(state);
                 handled = true;
                 return;
             }
             if control_id == state.button_back_id {
-                if state.button_pushed {
+                if state.button_pushed || skirmish_button_pushed() {
                     handled = true;
                     return;
                 }
                 state.button_pushed = true;
+                set_skirmish_button_pushed(true);
                 write_skirmish_preferences(state);
                 destroy_skirmish_map_select_overlay();
                 let _ = get_shell().pop();
