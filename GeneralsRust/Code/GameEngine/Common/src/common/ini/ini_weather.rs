@@ -346,6 +346,20 @@ pub fn get_weather_setting_lock(
     WEATHER_SETTING.get().and_then(|lock| lock.read().ok())
 }
 
+/// Clear any map-generated weather overrides.
+///
+/// Matches C++ GameLogic::reset() lines 469-470:
+///   WeatherSetting *ws = TheWeatherSetting.getNonOverloadedPointer();
+///   TheWeatherSetting = ws->deleteOverrides();
+pub fn clear_weather_setting_overrides() {
+    let lock = WEATHER_SETTING.get_or_init(|| RwLock::new(None));
+    if let Ok(mut guard) = lock.write() {
+        if let Some(ref mut setting) = *guard {
+            setting.next_override = None;
+        }
+    }
+}
+
 /// Initialize the weather settings system
 pub fn init_weather_setting() {
     let _ = WEATHER_SETTING.get_or_init(|| RwLock::new(None));

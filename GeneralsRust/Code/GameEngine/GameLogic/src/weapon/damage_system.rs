@@ -275,30 +275,37 @@ impl Default for DamageInfo {
     }
 }
 
-/// Armor template for damage resistance calculations
+/// Armor template for damage resistance calculations.
+///
+/// PARITY_NOTE: The `veterancy_multipliers` field [1.0, 0.9, 0.8, 0.7] and
+/// `get_veterancy_multiplier()` / `calculate_final_damage()` methods have been
+/// removed. In C++, veterancy bonuses are applied to WEAPON damage OUTPUT only
+/// (via WeaponBonusSet VETERAN/ELITE/HERO conditions in Weapon.cpp), never to
+/// armor coefficients. The C++ ArmorTemplate only stores a flat damage
+/// coefficient per DamageType.
 #[derive(Debug, Clone)]
 pub struct ArmorTemplate {
-    /// Armor percentages for each damage type (0.0 = immune, 1.0 = full damage)
+    /// Armor coefficients for each damage type (0.0 = immune, 1.0 = full damage).
+    /// This is the only data ArmorTemplate stores in C++.
     damage_multipliers: HashMap<DamageType, f32>,
-    /// Veterancy multipliers for armor effectiveness
-    veterancy_multipliers: [f32; 4], // Regular, Veteran, Elite, Heroic
 }
 
 impl ArmorTemplate {
     pub fn new() -> Self {
         Self {
             damage_multipliers: HashMap::new(),
-            veterancy_multipliers: [1.0, 0.9, 0.8, 0.7], // Default: better armor at higher levels
         }
     }
 
-    /// Set damage multiplier for a specific damage type
+    /// Set damage coefficient for a specific damage type.
+    /// PARITY_NOTE: Matches C++ ArmorTemplate::setConditionCoeff().
     pub fn set_damage_multiplier(&mut self, damage_type: DamageType, multiplier: f32) {
         self.damage_multipliers
             .insert(damage_type, multiplier.clamp(0.0, 1.0));
     }
 
-    /// Get damage multiplier for a damage type
+    /// Get damage coefficient for a damage type.
+    /// PARITY_NOTE: Matches C++ ArmorTemplate::getConditionCoeff().
     pub fn get_damage_multiplier(&self, damage_type: DamageType) -> f32 {
         self.damage_multipliers
             .get(&damage_type)
@@ -306,25 +313,19 @@ impl ArmorTemplate {
             .unwrap_or(1.0)
     }
 
-    /// Get veterancy multiplier
-    pub fn get_veterancy_multiplier(&self, veterancy: VeterancyLevel) -> f32 {
-        self.veterancy_multipliers
-            .get(veterancy as usize)
-            .copied()
-            .unwrap_or(1.0)
-    }
-
-    /// Calculate final damage after armor and veterancy
+    /// Calculate final damage after armor coefficient only.
+    ///
+    /// PARITY_NOTE: The `veterancy` parameter is accepted for API compatibility
+    /// but is IGNORED. C++ does not apply veterancy to armor coefficients.
+    /// Veterancy modifies weapon damage output, not armor resistance.
     pub fn calculate_final_damage(
         &self,
         base_damage: f32,
         damage_type: DamageType,
-        veterancy: VeterancyLevel,
+        _veterancy: VeterancyLevel,
     ) -> f32 {
         let type_multiplier = self.get_damage_multiplier(damage_type);
-        let vet_multiplier = self.get_veterancy_multiplier(veterancy);
-
-        base_damage * type_multiplier * vet_multiplier
+        base_damage * type_multiplier
     }
 }
 
@@ -785,8 +786,10 @@ mod tests {
             VeterancyLevel::Veteran,
         );
 
-        // Should be 100 * 0.5 (armor) * 0.9 (veteran bonus) = 45
-        assert_eq!(final_damage, 45.0);
+        // PARITY_NOTE: Veterancy no longer affects armor coefficients.
+        // C++ applies veterancy to weapon damage output only.
+        // Should be 100 * 0.5 (armor coefficient) = 50
+        assert_eq!(final_damage, 50.0);
     }
 
     #[test]

@@ -422,6 +422,16 @@ impl WeaponSet {
         let old_set = self.current_weapon_template_set.clone();
         self.current_weapon_template_set = Some(Arc::clone(&new_set));
 
+        // C++ WeaponSet.cpp:281-286: If weapon lock is NOT shared across sets,
+        // release ALL locks and reset curWeapon to PRIMARY.
+        if !new_set.is_weapon_lock_shared_across_sets {
+            if self.current_weapon_locked_status != WeaponLockType::NotLocked {
+                log::debug!("changing WeaponSet while Weapon is Locked... implicit unlock occurring!");
+            }
+            self.current_weapon_locked_status = WeaponLockType::NotLocked;
+            self.current_weapon = WeaponSlotType::Primary;
+        }
+
         // Create new weapons based on template set
         for slot in [
             WeaponSlotType::Primary,
@@ -432,7 +442,10 @@ impl WeaponSet {
 
             if let Some(template) = new_set.get_weapon_template(slot) {
                 // Create new weapon
-                let new_weapon = Weapon::new(Arc::clone(template), slot);
+                let mut new_weapon = Weapon::new(Arc::clone(template), slot);
+
+                // C++ WeaponSet.cpp:303: loadAmmoNow - start with full clips
+                new_weapon.load_ammo_now(object_id).ok();
 
                 // Transfer state from old weapon if it exists and conditions allow
                 if let Some(old_weapon) = &self.weapons[slot_index] {
@@ -757,9 +770,24 @@ impl WeaponSet {
     }
 
     /// Release weapon lock
+    /// C++ Reference: WeaponSet.cpp:1070-1090
+    ///
+    /// - LOCKED_PERMANENTLY: releases ALL locks regardless of current lock type
+    /// - LOCKED_TEMPORARILY: only releases if current lock is temporary
     pub fn release_weapon_lock(&mut self, lock_type: WeaponLockType) {
-        if self.current_weapon_locked_status == lock_type {
+        if self.current_weapon_locked_status == WeaponLockType::NotLocked {
+            return; // Nothing to do
+        }
+
+        if lock_type == WeaponLockType::LockedPermanently {
+            // All locks released (matches C++ WeaponSet.cpp:1075-1078)
             self.current_weapon_locked_status = WeaponLockType::NotLocked;
+        } else if lock_type == WeaponLockType::LockedTemporarily {
+            // Only unlocked if the current lock is temporary
+            // (matches C++ WeaponSet.cpp:1080-1084)
+            if self.current_weapon_locked_status == WeaponLockType::LockedTemporarily {
+                self.current_weapon_locked_status = WeaponLockType::NotLocked;
+            }
         }
     }
 

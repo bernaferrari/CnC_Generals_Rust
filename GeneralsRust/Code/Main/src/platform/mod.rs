@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::command_line;
+use anyhow::Result;
 use std::sync::Arc;
 use winit;
 use winit::event::{Event, WindowEvent};
@@ -65,7 +65,19 @@ pub trait WindowMessageHandler {
     fn handle_paint_request(&mut self) -> Result<()>;
 
     /// Handle keyboard/mouse focus (WM_SETFOCUS, WM_KILLFOCUS equivalent)
-    fn handle_input_focus(&mut self, gained: bool) -> Result<()>;
+    fn handle_input_focus(&mut self, _gained: bool) -> Result<()> {
+        Ok(())
+    }
+
+    /// Handle session ending (WM_QUERYENDSESSION equivalent)
+    fn handle_session_ending(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Handle window destroyed (WM_DESTROY equivalent)
+    fn handle_destroyed(&mut self) -> Result<()> {
+        Ok(())
+    }
 
     /// Query whether the platform layer has requested application shutdown.
     fn is_quit_requested(&self) -> bool {
@@ -91,6 +103,8 @@ pub enum WindowMessage {
     InputFocus {
         gained: bool,
     },
+    SessionEnding,
+    Destroyed,
 }
 
 /// Cross-platform window message processor
@@ -99,6 +113,7 @@ pub struct WindowMessageProcessor {
     is_fullscreen: bool,
     is_active: bool,
     focus_state: ApplicationFocusState,
+    pending_session_ending: bool,
 }
 
 impl WindowMessageProcessor {
@@ -108,10 +123,19 @@ impl WindowMessageProcessor {
             is_fullscreen: false,
             is_active: false,
             focus_state: ApplicationFocusState::Inactive,
+            pending_session_ending: false,
         }
     }
 
-    /// Process winit events and translate to our message system
+    /// Process winit events and translate to our message system.
+    ///
+    /// Maps winit events to their C++ WndProc equivalents:
+    /// - `WindowEvent::Focused(true)`  -> WM_SETFOCUS + WM_ACTIVATEAPP + WM_ACTIVATE (active)
+    /// - `WindowEvent::Focused(false)` -> WM_KILLFOCUS + WM_ACTIVATEAPP + WM_ACTIVATE (inactive)
+    /// - `Event::Suspended`           -> WM_POWERBROADCAST (PBT_APMQUERYSUSPEND)
+    /// - `Event::Resumed`             -> WM_POWERBROADCAST (PBT_APMRESUMESUSPEND)
+    /// - `WindowEvent::CloseRequested` -> WM_CLOSE
+    /// - `WindowEvent::Destroyed`      -> WM_DESTROY
     pub fn process_event(&mut self, event: &Event<()>) -> Result<bool> {
         match event {
             Event::WindowEvent { event, .. } => self.process_window_event(event),
@@ -123,8 +147,25 @@ impl WindowMessageProcessor {
                 self.handler.handle_power_event(PowerEvent::ResumeSuspend)?;
                 Ok(false)
             }
+            Event::AboutToWait => {
+                // Periodically check for session-ending signals (equivalent to
+                // WM_QUERYENDSESSION which has no direct winit counterpart on all platforms).
+                if self.pending_session_ending {
+                    self.pending_session_ending = false;
+                    self.handler.handle_session_ending()?;
+                }
+                Ok(false)
+            }
             _ => Ok(false),
         }
+    }
+
+    /// Request that the next AboutToWait tick delivers a session-ending message.
+    /// This bridges the gap between platform-specific shutdown signals (e.g. macOS
+    /// `NSApplicationShouldTerminate`, Windows `WM_QUERYENDSESSION`) and the winit
+    /// event loop.
+    pub fn request_session_ending(&mut self) {
+        self.pending_session_ending = true;
     }
 
     fn process_window_event(&mut self, event: &WindowEvent) -> Result<bool> {
@@ -136,24 +177,33 @@ impl WindowMessageProcessor {
                     ApplicationFocusState::Inactive
                 };
 
+                // WM_SETFOCUS / WM_KILLFOCUS: reset keyboard keys and mouse focus.
+                // C++ resets TheKeyboard->resetKeys() on both SETFOCUS and KILLFOCUS.
+                self.handler.handle_input_focus(*focused)?;
+
+                // WM_ACTIVATEAPP: set engine isActive flag.
+                // C++ only acts when the state actually changes.
                 if new_state != self.focus_state {
                     self.focus_state = new_state;
                     self.is_active = *focused;
                     self.handler.handle_focus_change(new_state, *focused)?;
                 }
+
                 Ok(false)
             }
-            WindowEvent::CloseRequested => Ok(self.handler.handle_close_request(false)?),
+            WindowEvent::CloseRequested => {
+                // WM_CLOSE: queue instant quit (equivalent to MSG_META_DEMO_INSTANT_QUIT).
+                // The C++ WM_CLOSE handler checks TheGameEngine->getQuitting() and sends
+                // MSG_META_DEMO_INSTANT_QUIT if not already quitting.
+                Ok(self.handler.handle_close_request(false)?)
+            }
+            WindowEvent::Destroyed => {
+                // WM_DESTROY: perform cleanup.
+                self.handler.handle_destroyed()?;
+                Ok(false)
+            }
             WindowEvent::Resized(size) => {
                 self.handler.handle_resize(*size)?;
-                Ok(false)
-            }
-            WindowEvent::CursorEntered { .. } => {
-                self.handler.handle_input_focus(true)?;
-                Ok(false)
-            }
-            WindowEvent::CursorLeft { .. } => {
-                self.handler.handle_input_focus(false)?;
                 Ok(false)
             }
             WindowEvent::RedrawRequested => {
@@ -204,8 +254,7 @@ impl WindowMessageProcessor {
 mod tests {
     use super::{
         create_platform_message_handler, startup_windowed_mode, ApplicationFocusState,
-        SystemCommand,
-        WindowMessageProcessor,
+        SystemCommand, WindowMessageProcessor,
     };
     use crate::command_line;
 
@@ -239,10 +288,8 @@ mod tests {
 
     #[test]
     fn startup_window_mode_defaults_to_cpp_fullscreen_and_honors_win_flag() {
-        let fullscreen_default = command_line::CommandLineArgs::parse_from_args(vec![
-            "generals".to_string(),
-        ])
-        .unwrap();
+        let fullscreen_default =
+            command_line::CommandLineArgs::parse_from_args(vec!["generals".to_string()]).unwrap();
         assert!(!startup_windowed_mode(&fullscreen_default));
 
         let windowed = command_line::CommandLineArgs::parse_from_args(vec![
