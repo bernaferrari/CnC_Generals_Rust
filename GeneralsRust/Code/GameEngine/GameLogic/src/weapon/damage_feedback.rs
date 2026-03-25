@@ -15,12 +15,9 @@
 //! via FXList on damage events, though the actual sound IDs would come from
 //! INI data, not hardcoded here.
 
-use std::collections::VecDeque;
-use std::sync::RwLock;
-
 use crate::common::Coord3D;
 use crate::weapon::{DamageType, DeathType};
-use crate::{GameLogicError, GameLogicResult};
+use crate::GameLogicResult;
 
 // ---------------------------------------------------------------------------
 // Stub types for removed fabricated systems
@@ -93,36 +90,23 @@ pub struct DamageSoundEffect {
 
 impl DamageSoundEffect {
     /// Get sound for damage type
-    pub fn for_damage_type(damage_type: DamageType, position: Coord3D) -> Self {
-        let sound_id = match damage_type {
-            DamageType::Explosion => "explosion_large",
-            DamageType::SmallArms => "gunfire_small",
-            DamageType::Flame => "fire_whoosh",
-            DamageType::Laser => "laser_beam",
-            _ => "impact_generic",
-        };
-
+    pub fn for_damage_type(_damage_type: DamageType, position: Coord3D) -> Self {
         Self {
-            sound_id: sound_id.to_string(),
+            // C++ parity: this is data-driven through FXList/INI. Keep empty in stub mode.
+            sound_id: String::new(),
             position,
-            volume: 0.5,
+            volume: 1.0,
             looping: false,
         }
     }
 
     /// Get sound for death type
-    pub fn for_death_type(death_type: DeathType, position: Coord3D) -> Self {
-        let sound_id = match death_type {
-            DeathType::Exploded => "death_explosion",
-            DeathType::Burned => "death_burning",
-            DeathType::Crushed => "death_crushed",
-            _ => "death_generic",
-        };
-
+    pub fn for_death_type(_death_type: DeathType, position: Coord3D) -> Self {
         Self {
-            sound_id: sound_id.to_string(),
+            // C++ parity: this is data-driven through FXList/INI. Keep empty in stub mode.
+            sound_id: String::new(),
             position,
-            volume: 0.6,
+            volume: 1.0,
             looping: false,
         }
     }
@@ -138,35 +122,24 @@ impl DamageSoundEffect {
 /// via FXList::doFXPos() at the damage location. This manager now only queues
 /// sound effects, matching the C++ approach of delegating visuals to the FX system.
 #[derive(Debug)]
-pub struct DamageFeedbackManager {
-    /// Pending sound effects to play
-    sound_effects: RwLock<VecDeque<DamageSoundEffect>>,
-}
+pub struct DamageFeedbackManager {}
 
 impl DamageFeedbackManager {
     /// Create new feedback manager
     pub fn new() -> Self {
-        Self {
-            sound_effects: RwLock::new(VecDeque::new()),
-        }
+        Self {}
     }
 
     /// Queue sound effect
-    pub fn queue_sound(&self, sound: DamageSoundEffect) -> GameLogicResult<()> {
-        let mut sounds = self.sound_effects.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire sounds lock: {}", e))
-        })?;
-        sounds.push_back(sound);
+    pub fn queue_sound(&self, _sound: DamageSoundEffect) -> GameLogicResult<()> {
+        // Stub mode: FXList integration not wired yet.
         Ok(())
     }
 
     /// Get and clear pending sound effects
     pub fn consume_sound_effects(&self) -> GameLogicResult<Vec<DamageSoundEffect>> {
-        let mut sounds = self.sound_effects.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire sounds lock: {}", e))
-        })?;
-        let effects: Vec<_> = sounds.drain(..).collect();
-        Ok(effects)
+        // Stub mode: no internal queue.
+        Ok(Vec::new())
     }
 
     /// Add feedback for damage event.
@@ -175,14 +148,13 @@ impl DamageFeedbackManager {
     /// Only queues a sound effect, matching C++ FXList behavior.
     pub fn add_damage_feedback(
         &self,
-        damage_type: DamageType,
-        position: Coord3D,
+        _damage_type: DamageType,
+        _position: Coord3D,
         _damage_amount: f32,
         _is_critical: bool,
         _is_kill: bool,
     ) -> GameLogicResult<()> {
-        let sound = DamageSoundEffect::for_damage_type(damage_type, position);
-        self.queue_sound(sound)?;
+        // Stub mode: use no hardcoded sound mapping; runtime should route through FXList.
         Ok(())
     }
 
@@ -219,10 +191,6 @@ impl DamageFeedbackManager {
 
     /// Clear all feedback
     pub fn clear_all(&self) -> GameLogicResult<()> {
-        let mut sounds = self.sound_effects.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire sounds lock: {}", e))
-        })?;
-        sounds.clear();
         Ok(())
     }
 }
@@ -255,13 +223,9 @@ mod tests {
             )
             .unwrap();
 
+        // Stub mode should not emit hardcoded sound effects.
         let sounds = manager.consume_sound_effects().unwrap();
-        assert_eq!(sounds.len(), 1);
-        assert_eq!(sounds[0].sound_id, "explosion_large");
-
-        // Should be empty after consume
-        let sounds2 = manager.consume_sound_effects().unwrap();
-        assert_eq!(sounds2.len(), 0);
+        assert!(sounds.is_empty());
     }
 
     #[test]
