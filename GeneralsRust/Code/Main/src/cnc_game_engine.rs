@@ -2738,6 +2738,10 @@ impl CnCGameEngine {
 
         init_subsystem_manager()
             .map_err(|err| anyhow::anyhow!("Subsystem manager initialization failed: {err}"))?;
+        // C++ parity: GameEngine::init() line 679 — HideControlBar() after init completes.
+        {
+            let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
+        }
         Self::apply_command_line_overrides(&command_line);
         Self::apply_startup_audio_channel_flags();
         // C++ parity: initialize startup RNG stream during engine init.
@@ -8183,6 +8187,10 @@ pub async fn run_cnc_game(
                     match event {
                         WindowEvent::CloseRequested => {
                             info!("Close requested by window");
+                            engine.request_state_change(GameState::Exiting);
+                        }
+                        WindowEvent::Destroyed => {
+                            info!("Window destroyed - forcing exit");
                             engine.request_state_change(GameState::Exiting);
                         }
                         WindowEvent::KeyboardInput {

@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic, TheThingFactory,
+    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule;
@@ -75,8 +75,7 @@ pub use damage_application::{
 };
 pub use damage_calculator::{
     ArmorProperties, ArmorSet, ArmorType as DamageCalculatorArmorType, DamageCalculator,
-    DamageResult, EnvironmentalFactors, PenetrationResult, StatusEffect, TerrainType,
-    WeatherCondition,
+    DamageResult,
 };
 pub use damage_feedback::*;
 pub use damage_modifiers::*;
@@ -1261,17 +1260,18 @@ impl WeaponTemplate {
     }
 
     /// Get delay between shots with bonus applied
+    /// C++ Weapon.cpp line 475: WeaponTemplate::getDelayBetweenShots
+    /// Uses GameLogicRandomValue for replay-deterministic randomization.
     pub fn get_delay_between_shots(&self, bonus: &WeaponBonus) -> i32 {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
+        // C++ Weapon.cpp line 480-483: Random number thing doesn't like min==max case
         let delay = if self.min_delay_between_shots == self.max_delay_between_shots {
             self.min_delay_between_shots
         } else {
-            rng.gen_range(self.min_delay_between_shots..=self.max_delay_between_shots)
+            get_game_logic_random_value(self.min_delay_between_shots, self.max_delay_between_shots)
         };
 
         let bonus_rof = bonus.get_field(WeaponBonusField::RateOfFire);
+        // C++ Weapon.cpp line 489: REAL_TO_INT_FLOOR(delayToUse / bonusROF)
         ((delay as f32) / bonus_rof).floor() as i32
     }
 
@@ -1949,62 +1949,62 @@ impl WeaponTemplate {
         }
     }
 
-    /// Estimate weapon damage against target
+    /// C++ Weapon.cpp estimateWeaponTemplateDamage: returns estimated damage to
+    /// a victim, taking bonuses and armor into account. Does NOT consider range.
     pub fn estimate_weapon_template_damage(
         &self,
-        source_obj: ObjectId,
-        victim_obj: Option<ObjectId>,
+        source_obj: ObjectID,
+        victim_obj: Option<ObjectID>,
         victim_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
     ) -> f32 {
-        use crate::weapon::{
-            ArmorProperties, ArmorSet, DamageCalculator, DamageCalculatorArmorType,
-            EnvironmentalFactors, TerrainType, WeatherCondition,
+        let _ = victim_pos; // C++ ignores victim position once victim object is known.
+        let primary_damage = self.get_primary_damage(bonus);
+        let Some(victim_id) = victim_obj else {
+            return primary_damage;
         };
 
-        let source_pos = TheGameLogic::find_object_by_id(source_obj)
-            .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
-            .unwrap_or(Coord3D::ZERO);
-        let impact_pos = match (victim_obj, victim_pos) {
-            (Some(target_id), _) => TheGameLogic::find_object_by_id(target_id)
-                .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
-                .unwrap_or(source_pos),
-            (None, Some(pos)) => *pos,
-            (None, None) => source_pos,
+        let source_id =
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj) {
+                if let Ok(source_guard) = source_arc.read() {
+                    source_guard.get_id()
+                } else {
+                    source_obj
+                }
+            } else {
+                source_obj
+            };
+
+        let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) else {
+            return primary_damage;
+        };
+        let Ok(victim_guard) = victim_arc.read() else {
+            return primary_damage;
         };
 
-        let range = source_pos.distance(impact_pos);
-        let env = EnvironmentalFactors {
-            weather: WeatherCondition::Clear,
-            terrain: TerrainType::Open,
-            cover_level: 0.0,
-            range,
-            elevation_difference: impact_pos.z - source_pos.z,
+        let damage_info = DamageInfoInput {
+            damage_type: crate::damage::DamageType::from_u32(self.damage_type as u32),
+            death_type: crate::damage::DeathType::from_u32(self.death_type as u32),
+            source_id,
+            amount: primary_damage,
+            ..Default::default()
         };
-
-        let armor = ArmorSet {
-            primary_armor: DamageCalculatorArmorType::Light,
-            armor_value: 1.0,
-            resistances: HashMap::new(),
-            special_properties: ArmorProperties {
-                condition: 1.0,
-                ..ArmorProperties::default()
-            },
-        };
-
-        DamageCalculator::calculate_damage(
-            self,
-            bonus,
-            &armor,
-            &impact_pos,
-            &source_pos,
-            &env,
-            false,
-        )
-        .map(|result| result.final_damage)
-        .unwrap_or_else(|_| self.get_primary_damage(bonus))
+        victim_guard.estimate_damage(&damage_info)
     }
 
+    // ==========================================================================
+    // PARITY NOTE: The methods below are FABRICATED — they do not exist in the
+    // C++ WeaponTemplate class. They were added as interface scaffolding for a
+    // Rust-only ProjectileState abstraction in object/projectile.rs. The C++
+    // projectile system uses Object behaviors (MissileAIUpdate, etc.) instead
+    // of querying weapon template properties for these values.
+    //
+    // These stubs should be removed once ProjectileState is replaced with
+    // C++-faithful projectile creation logic.
+    // ==========================================================================
+
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_guidance_type(&self) -> GuidanceType {
         if self.is_guided() {
             GuidanceType::RadarGuided
@@ -2017,7 +2017,11 @@ impl WeaponTemplate {
         self.weapon_speed.max(self.min_weapon_speed)
     }
 
+    /// PARITY_NOTE: Fabricated method. C++ WeaponTemplate has no turning_rate.
+    /// The turning rate comes from the projectile's MissileAIUpdate module, not the weapon.
+    /// Kept for compatibility with fabricated ProjectileState system (object/projectile.rs).
     pub fn get_projectile_turning_rate(&self) -> crate::common::Real {
+        // TODO: Remove when ProjectileState is replaced with C++ projectile logic
         self.max_target_pitch
     }
 
@@ -2037,14 +2041,20 @@ impl WeaponTemplate {
             .unwrap_or_else(|| self.weapon_speed.max(self.min_weapon_speed))
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_gravity_scale(&self) -> crate::common::Real {
         1.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_air_resistance_scale(&self) -> crate::common::Real {
         1.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_damage(&self) -> crate::common::Real {
         self.primary_damage
     }
@@ -2053,49 +2063,71 @@ impl WeaponTemplate {
         self.damage_type
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_damage_radius(&self) -> crate::common::Real {
         self.primary_damage_radius
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_armor_penetration(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_damage_falloff(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn allows_friendly_fire(&self) -> bool {
         self.affects_mask.contains(WeaponAffectsMask::ALLIES)
             || self.affects_mask.contains(WeaponAffectsMask::SELF)
             || self.affects_mask.contains(WeaponAffectsMask::KILLS_SELF)
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_lock_on_range(&self) -> crate::common::Real {
         self.continue_attack_range
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_guidance_accuracy(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_max_guidance_time(&self) -> crate::common::Real {
         self.projectile_missile_fuel_lifetime_seconds()
             .unwrap_or(crate::common::Real::INFINITY)
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_trail_length(&self) -> crate::common::Real {
         self.projectile_trail_interval_seconds().unwrap_or(0.0)
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_trail_color(&self) -> crate::common::Color {
         crate::common::Color::white()
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn has_muzzle_flash(&self) -> bool {
         !self.projectile_name.is_empty() || !self.projectile_stream_name.is_empty()
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_impact_effects(&self) -> Vec<String> {
         let fx = self.get_projectile_detonate_fx(crate::common::VeterancyLevel::Regular);
         if let Some(fx) = fx {
@@ -2106,12 +2138,16 @@ impl WeaponTemplate {
         Vec::new()
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_trail_effects(&self) -> Vec<String> {
         self.projectile_trail_particle_name()
             .map(|name| vec![name])
             .unwrap_or_default()
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_launch_sound(&self) -> Option<String> {
         if self.fire_sound.is_empty() {
             None
@@ -2120,26 +2156,38 @@ impl WeaponTemplate {
         }
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_flight_sound(&self) -> Option<String> {
         None
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_impact_sound(&self) -> Option<String> {
         None
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_proximity_fuse(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn has_impact_fuse(&self) -> bool {
         true
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_timer_fuse(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_altitude_fuse(&self) -> crate::common::Real {
         0.0
     }
@@ -2184,46 +2232,68 @@ impl WeaponTemplate {
             .and_then(|tmpl| tmpl.as_ref())
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_submunition_count(&self) -> u32 {
         0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_submunition_type(&self) -> Option<String> {
         None
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_submunition_spread(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn is_piercing(&self) -> bool {
         false
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_bounce_count(&self) -> u32 {
         0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_bounce_angle_loss(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn can_be_intercepted(&self) -> bool {
         true
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn penetrates_stealth(&self) -> bool {
         false
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_flare_vulnerability(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_chaff_vulnerability(&self) -> crate::common::Real {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_ecm_vulnerability(&self) -> crate::common::Real {
         0.0
     }
@@ -2243,6 +2313,8 @@ impl WeaponTemplate {
         }
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_prediction_time(&self) -> crate::common::Real {
         if self.is_guided() {
             0.25
@@ -2251,6 +2323,8 @@ impl WeaponTemplate {
         }
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_collision_radius(&self) -> crate::common::Real {
         if let Some(template) = self.projectile_template() {
             let geom = template.get_template_geometry_info();
@@ -2259,6 +2333,8 @@ impl WeaponTemplate {
         0.0
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn get_collision_height(&self) -> crate::common::Real {
         if let Some(template) = self.projectile_template() {
             let geom = template.get_template_geometry_info();
@@ -2277,6 +2353,8 @@ impl WeaponTemplate {
         self.projectile_has_behavior("DumbProjectileBehavior")
     }
 
+    /// PARITY_NOTE: Fabricated. C++ WeaponTemplate has no such method/field.
+    /// Exists only for compatibility with fabricated ProjectileState (object/projectile.rs).
     pub fn is_beam_weapon(&self) -> bool {
         !self.laser_name.is_empty()
     }
@@ -2547,7 +2625,12 @@ impl Weapon {
     ) -> f32 {
         let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
         self.template
-            .estimate_weapon_template_damage(source_obj, target_obj, target_pos, &bonus)
+            .estimate_weapon_template_damage(
+                source_obj as crate::common::ObjectID,
+                target_obj.map(|id| id as crate::common::ObjectID),
+                target_pos,
+                &bonus,
+            )
     }
 
     /// Check if target is within attack range

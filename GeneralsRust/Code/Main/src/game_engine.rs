@@ -57,7 +57,7 @@ pub struct CrossPlatformGameEngine {
 impl CrossPlatformGameEngine {
     /// Create a new cross-platform game engine
     pub fn new() -> Self {
-        let target_fps = 60.0;
+        let target_fps = 45.0; // DEFAULT_MAX_FPS from C++ GameEngine.h:13
         let target_frame_time = Duration::from_secs_f64(1.0 / target_fps);
 
         Self {

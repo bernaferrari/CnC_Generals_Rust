@@ -163,6 +163,22 @@ impl StatsCollector {
         }
     }
 
+    /// Reset the collector to a fresh state.
+    ///
+    /// Matches C++ GameLogic::reset() lines 447-451:
+    ///   if (TheStatsCollector) { delete TheStatsCollector; TheStatsCollector = NULL; }
+    pub fn reset(&mut self) {
+        let now = Instant::now();
+        self.stats.clear();
+        self.player_stats.clear();
+        self.start_time = now;
+        self.last_update = now;
+        self.frame_count = 0;
+        self.frame_times = RollingAverage::new(60);
+        self.update_times = RollingAverage::new(60);
+        self.session_id = format!("{:?}", now);
+    }
+
     // Global stats methods
     pub fn increment_stat(&mut self, stat_type: StatType, amount: u64) {
         *self.stats.entry(stat_type).or_insert(0) += amount;

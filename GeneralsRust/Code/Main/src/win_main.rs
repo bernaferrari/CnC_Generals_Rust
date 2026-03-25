@@ -399,8 +399,8 @@ fn centered_startup_position(
     _width: u32,
     _height: u32,
 ) -> Option<PhysicalPosition<i32>> {
-    // winit does not expose the monitor geometry we need at this bootstrap point here, so we
-    // preserve the visible startup offset while keeping the C++ centering math in a pure helper.
+    // winit 0.30 does not expose monitor geometry from EventLoop at bootstrap time.
+    // Window centering is handled after creation via Window::primary_monitor().
     Some(PhysicalPosition::new(100, 100))
 }
 

@@ -97,7 +97,7 @@ impl StandaloneGuiApp {
     }
 
     fn pop_screen(&mut self, cx: &mut Context<Self>) {
-        self.shell.pop_immediate();
+        self.shell.pop_immediate(&mut self.window_manager);
         self.sync_selected_screen_from_stack();
         cx.notify();
     }
@@ -137,31 +137,24 @@ impl StandaloneGuiApp {
                         action_chip("Pop Screen", false)
                             .on_click(cx.listener(|this, _, _, cx| this.pop_screen(cx))),
                     )
-                    .child(metric_box("Depth", self.shell.stack.len().to_string())),
+                    .child(metric_box("Depth", self.shell.screen_count().to_string())),
             )
-            .child(
-                div().flex().flex_col().gap_2().children(
-                    self.shell
-                        .stack
-                        .iter()
-                        .rev()
-                        .enumerate()
-                        .map(|(ix, screen)| {
-                            div()
-                                .id(("shell-stack", ix))
-                                .p_2()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(rgb(0x273645))
-                                .bg(if ix == 0 {
-                                    rgb(0x18232f)
-                                } else {
-                                    rgb(0x111922)
-                                })
-                                .child(screen.filename.clone())
-                        }),
-                ),
-            )
+            .child(div().flex().flex_col().gap_2().children(
+                self.shell.stack_iter().enumerate().map(|(ix, screen)| {
+                    div()
+                        .id(("shell-stack", ix))
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0x273645))
+                        .bg(if ix == 0 {
+                            rgb(0x18232f)
+                        } else {
+                            rgb(0x111922)
+                        })
+                        .child(screen.filename.clone())
+                }),
+            ))
             .child(section_title("Menu Groups"))
             .child(
                 div()
@@ -357,7 +350,7 @@ impl Render for StandaloneGuiApp {
                     .child(div().flex().gap_2().children([
                         metric_box("Menus", menus::ports().len().to_string()),
                         metric_box("Gadgets", gadget::ports().len().to_string()),
-                        metric_box("Shell Depth", self.shell.stack.len().to_string()),
+                        metric_box("Shell Depth", self.shell.screen_count().to_string()),
                     ])),
             )
             .child(

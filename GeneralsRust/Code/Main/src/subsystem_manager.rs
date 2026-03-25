@@ -1272,6 +1272,9 @@ pub struct SubsystemManager {
     indices_by_type: HashMap<TypeId, usize>,
     indices_by_name: HashMap<&'static str, usize>,
     initialization_order: Vec<&'static str>,
+    /// Per-frame update order matching C++ GameEngine::update() (GameEngine.cpp:722-756).
+    /// Subsystems not listed here are updated after all ordered subsystems.
+    update_order: Vec<&'static str>,
     initialized: bool,
     start_time: Option<SystemTime>,
 }
@@ -1279,8 +1282,8 @@ pub struct SubsystemManager {
 impl SubsystemManager {
     pub fn new() -> Self {
         // Define startup initialization order matching the C++ GameEngine::init() sequence.
-        // The runtime update order still follows the subsystem registration order below,
-        // which mirrors the C++ GameEngine::update() cadence for the active gameplay systems.
+        // The per-frame update order is defined separately in `update_order` to match
+        // C++ GameEngine::update() (GameEngine.cpp:722-756).
         let initialization_order = vec![
             "FileSystem",              // File system must be first
             "GlobalData",              // Load core INI configuration
@@ -1308,11 +1311,22 @@ impl SubsystemManager {
             "GameResultsQueue",        // Post-game results queue stub
         ];
 
+        let update_order = vec![
+            "Radar",         // C++: TheRadar->UPDATE()
+            "AudioManager",  // C++: TheAudio->UPDATE()
+            "GameClient",    // C++: TheGameClient->UPDATE()
+            "MessageStream", // C++: TheMessageStream->propagateMessages()
+            "Network",       // C++: TheNetwork->UPDATE() (conditional on active session)
+            "CDManager",     // C++: TheCDManager->UPDATE()
+            "GameLogic",     // C++: TheGameLogic->UPDATE() (conditional on network frame ready)
+        ];
+
         Self {
             subsystems: Vec::new(),
             indices_by_type: HashMap::new(),
             indices_by_name: HashMap::new(),
             initialization_order,
+            update_order,
             initialized: false,
             start_time: None,
         }
@@ -1460,21 +1474,50 @@ impl SubsystemManager {
         Ok(())
     }
 
-    /// Update all subsystems
+    /// Update all subsystems in C++ GameEngine::update() order.
     pub fn update_all(&mut self, dt: f32) -> Result<()> {
-        for slot in &mut self.subsystems {
+        let mut updated = HashSet::new();
+        for &target_name in &self.update_order {
+            if let Some(&index) = self.indices_by_name.get(target_name) {
+                if let Some(slot) = self.subsystems.get_mut(index) {
+                    let name = slot.name();
+                    if let Err(e) = slot.update(dt) {
+                        error!("Error updating subsystem {}: {}", name, e);
+                    }
+                    updated.insert(index);
+                }
+            }
+        }
+        for (index, slot) in self.subsystems.iter_mut().enumerate() {
+            if updated.contains(&index) {
+                continue;
+            }
             let name = slot.name();
             if let Err(e) = slot.update(dt) {
                 error!("Error updating subsystem {}: {}", name, e);
-                // Continue updating other subsystems
             }
         }
         Ok(())
     }
 
-    /// Update all subsystems with full frame timing information.
+    /// Update all subsystems with full frame timing in C++ GameEngine::update() order.
     pub fn update_all_with_timing(&mut self, timing: &FrameTiming) -> Result<()> {
-        for slot in &mut self.subsystems {
+        let mut updated = HashSet::new();
+        for &target_name in &self.update_order {
+            if let Some(&index) = self.indices_by_name.get(target_name) {
+                if let Some(slot) = self.subsystems.get_mut(index) {
+                    let name = slot.name();
+                    if let Err(e) = slot.update_with_timing(timing) {
+                        error!("Error updating subsystem {}: {}", name, e);
+                    }
+                    updated.insert(index);
+                }
+            }
+        }
+        for (index, slot) in self.subsystems.iter_mut().enumerate() {
+            if updated.contains(&index) {
+                continue;
+            }
             let name = slot.name();
             if let Err(e) = slot.update_with_timing(timing) {
                 error!("Error updating subsystem {}: {}", name, e);
@@ -1670,6 +1713,12 @@ pub fn init_subsystem_manager() -> Result<()> {
         register_default_subsystems(&mut manager);
 
         manager.initialize_all()?;
+
+        // C++ parity: GameEngine::init() lines 674-676. These must run after all
+        // subsystems are initialized but before the first reset/game start.
+        game_engine::common::system::kind_of::init_kind_of_masks();
+        game_engine::common::system::disabled_types::init_disabled_masks();
+        gamelogic::damage::init_damage_type_flags();
 
         let arc = Arc::new(Mutex::new(manager));
         SUBSYSTEM_MANAGER

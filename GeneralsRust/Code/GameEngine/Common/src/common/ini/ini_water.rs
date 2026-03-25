@@ -447,6 +447,19 @@ pub fn get_water_transparency() -> Option<Arc<RwLock<WaterTransparencySetting>>>
     WATER_TRANSPARENCY.get().cloned()
 }
 
+/// Clear any map-generated water transparency overrides.
+///
+/// Matches C++ GameLogic::reset() lines 465-466:
+///   WaterTransparencySetting *wt = TheWaterTransparency.getNonOverloadedPointer();
+///   TheWaterTransparency = wt->deleteOverrides();
+pub fn clear_water_transparency_overrides() {
+    if let Some(transparency) = WATER_TRANSPARENCY.get() {
+        if let Ok(mut guard) = transparency.write() {
+            guard.next_override = None;
+        }
+    }
+}
+
 /// Parse RGBA color from string (format: R G B A or R,G,B,A)
 pub fn parse_color_rgba(value: &str) -> Result<(f32, f32, f32, f32), String> {
     let parts: Vec<&str> = if value.contains(',') {

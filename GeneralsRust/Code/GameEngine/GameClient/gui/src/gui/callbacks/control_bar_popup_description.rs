@@ -14,6 +14,99 @@ pub const PORT: CallbackPort = CallbackPort::new(
 );
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanMakeStatus {
+    Ok,
+    NoPrereq,
+    NoMoney,
+    FactoryDisabled,
+    QueueFull,
+    ParkingPlacesFull,
+    MaxedOutForPlayer,
+}
+
+impl CanMakeStatus {
+    fn status_message(&self, is_structure: bool) -> Option<&'static str> {
+        match self {
+            CanMakeStatus::Ok => None,
+            CanMakeStatus::NoMoney => Some("Not enough money to build"),
+            CanMakeStatus::QueueFull => Some("Cannot purchase because build queue is full"),
+            CanMakeStatus::ParkingPlacesFull => Some("Cannot build unit because parking is full"),
+            CanMakeStatus::MaxedOutForPlayer => {
+                if is_structure {
+                    Some("Cannot build building because maximum number reached")
+                } else {
+                    Some("Cannot build unit because maximum number reached")
+                }
+            }
+            CanMakeStatus::NoPrereq | CanMakeStatus::FactoryDisabled => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScienceGateInfo {
+    pub science_valid: bool,
+    pub fire_science_button: bool,
+    pub missing_science: bool,
+    pub science_name: Option<String>,
+    pub science_description: Option<String>,
+    pub science_cost: u32,
+}
+
+impl Default for ScienceGateInfo {
+    fn default() -> Self {
+        Self {
+            science_valid: false,
+            fire_science_button: false,
+            missing_science: false,
+            science_name: None,
+            science_description: None,
+            science_cost: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ThingTemplateTooltipInput {
+    pub name: String,
+    pub description: String,
+    pub cost_to_build: u32,
+    pub unsatisfied_prerequisites: Vec<String>,
+    pub can_make_status: CanMakeStatus,
+    pub is_structure: bool,
+    pub science_gate: ScienceGateInfo,
+}
+
+#[derive(Clone, Debug)]
+pub struct UpgradeTooltipInput {
+    pub name: String,
+    pub description: String,
+    pub cost_to_build: u32,
+    pub already_has_upgrade: bool,
+    pub has_conflicting_upgrade: bool,
+    pub missing_science: bool,
+    pub purchased_label: Option<String>,
+    pub conflicting_label: Option<String>,
+    pub queue_full: bool,
+    pub cannot_afford: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct SciencePurchaseTooltipInput {
+    pub name: String,
+    pub description: String,
+    pub cost_to_build: u32,
+    pub unsatisfied_prerequisites: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum BuildTooltipInput {
+    ThingTemplate(ThingTemplateTooltipInput),
+    Upgrade(UpgradeTooltipInput),
+    SciencePurchase(SciencePurchaseTooltipInput),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TooltipSubjectPort {
     CommandButton,
     MoneyDisplay,
@@ -54,9 +147,9 @@ impl Default for ControlBarPopupDescriptionPort {
             deleted: false,
             use_animation: true,
             content: TooltipContentPort {
-                name: "Scorpion Tank".to_string(),
-                cost: Some("$600".to_string()),
-                description: "Fast anti-armor unit.\nRequires Arms Dealer.".to_string(),
+                name: String::new(),
+                cost: None,
+                description: String::new(),
             },
             panel_height: 102,
         }
@@ -100,6 +193,49 @@ impl ControlBarPopupDescriptionPort {
         true
     }
 
+    pub fn populate_build_tooltip(&mut self, input: BuildTooltipInput) {
+        match input {
+            BuildTooltipInput::ThingTemplate(ref tt) => self.populate_thing_template_tooltip(tt),
+            BuildTooltipInput::Upgrade(ref upg) => self.populate_upgrade_tooltip(upg),
+            BuildTooltipInput::SciencePurchase(ref sci) => {
+                self.populate_science_purchase_tooltip(sci)
+            }
+        }
+        self.recalculate_panel_height();
+    }
+
+    pub fn populate_power_tooltip(&mut self, production: i32, consumption: i32) {
+        let description = if production != 0 || consumption != 0 {
+            format!("Production: {production}\nConsumption: {consumption}")
+        } else {
+            "Production: 0\nConsumption: 0".to_string()
+        };
+        self.content = TooltipContentPort {
+            name: "Power".to_string(),
+            cost: None,
+            description,
+        };
+        self.recalculate_panel_height();
+    }
+
+    pub fn populate_generals_exp_tooltip(&mut self) {
+        self.content = TooltipContentPort {
+            name: "General's Experience".to_string(),
+            cost: None,
+            description: "Tracks promotion progress and unlockable science points.".to_string(),
+        };
+        self.recalculate_panel_height();
+    }
+
+    pub fn populate_money_tooltip(&mut self) {
+        self.content = TooltipContentPort {
+            name: "Money".to_string(),
+            cost: None,
+            description: "Displays your current credits and spending capacity.".to_string(),
+        };
+        self.recalculate_panel_height();
+    }
+
     pub fn populate_command_tooltip(
         &mut self,
         name: impl Into<String>,
@@ -137,28 +273,14 @@ impl ControlBarPopupDescriptionPort {
         power_production: i32,
         power_consumption: i32,
     ) {
-        self.content = match subject {
-            TooltipSubjectPort::MoneyDisplay => TooltipContentPort {
-                name: "Money".to_string(),
-                cost: None,
-                description: "Displays your current credits and spending capacity.".to_string(),
-            },
-            TooltipSubjectPort::PowerWindow => TooltipContentPort {
-                name: "Power".to_string(),
-                cost: None,
-                description: format!(
-                    "Current power balance.\nProduction: {power_production}\nConsumption: {power_consumption}"
-                ),
-            },
-            TooltipSubjectPort::GeneralsExp => TooltipContentPort {
-                name: "General's Experience".to_string(),
-                cost: None,
-                description: "Tracks promotion progress and unlockable science points."
-                    .to_string(),
-            },
-            TooltipSubjectPort::CommandButton => self.content.clone(),
-        };
-        self.recalculate_panel_height();
+        match subject {
+            TooltipSubjectPort::MoneyDisplay => self.populate_money_tooltip(),
+            TooltipSubjectPort::PowerWindow => {
+                self.populate_power_tooltip(power_production, power_consumption)
+            }
+            TooltipSubjectPort::GeneralsExp => self.populate_generals_exp_tooltip(),
+            TooltipSubjectPort::CommandButton => {}
+        }
     }
 
     pub fn update(&mut self, game_ending: bool, animate_windows_enabled: bool) {
@@ -194,6 +316,112 @@ impl ControlBarPopupDescriptionPort {
         self.wait_started_at_ms = None;
         self.animation_reversed = false;
         self.deleted = true;
+    }
+
+    fn populate_thing_template_tooltip(&mut self, tt: &ThingTemplateTooltipInput) {
+        let mut description = tt.description.clone();
+
+        if let Some(status_msg) = tt.can_make_status.status_message(tt.is_structure) {
+            if !description.is_empty() {
+                description.push_str("\n\n");
+            }
+            description.push_str(status_msg);
+        }
+
+        let cost = if tt.cost_to_build > 0 {
+            Some(format!("${}", tt.cost_to_build))
+        } else {
+            None
+        };
+
+        if !tt.unsatisfied_prerequisites.is_empty() {
+            if !description.is_empty() {
+                description.push('\n');
+            }
+            description.push_str("Requirements: ");
+            description.push_str(&tt.unsatisfied_prerequisites.join(", "));
+        }
+
+        self.content = TooltipContentPort {
+            name: tt.name.clone(),
+            cost,
+            description,
+        };
+    }
+
+    fn populate_upgrade_tooltip(&mut self, upg: &UpgradeTooltipInput) {
+        let mut description;
+        let cost;
+
+        if upg.has_conflicting_upgrade && !upg.already_has_upgrade {
+            description = upg
+                .conflicting_label
+                .clone()
+                .unwrap_or_else(|| "Has conflicting upgrade".to_string());
+            cost = None;
+        } else if upg.already_has_upgrade {
+            description = upg
+                .purchased_label
+                .clone()
+                .unwrap_or_else(|| "Already upgraded".to_string());
+            cost = None;
+        } else {
+            description = upg.description.clone();
+            cost = if upg.cost_to_build > 0 {
+                Some(format!("${}", upg.cost_to_build))
+            } else {
+                None
+            };
+
+            if upg.queue_full {
+                if !description.is_empty() {
+                    description.push_str("\n\n");
+                }
+                description.push_str("Cannot purchase because build queue is full");
+            } else if upg.cannot_afford {
+                if !description.is_empty() {
+                    description.push_str("\n\n");
+                }
+                description.push_str("Not enough money to build");
+            }
+
+            if upg.missing_science {
+                if !description.is_empty() {
+                    description.push('\n');
+                }
+                description.push_str("Requirements: General's Promotion");
+            }
+        }
+
+        self.content = TooltipContentPort {
+            name: upg.name.clone(),
+            cost,
+            description,
+        };
+    }
+
+    fn populate_science_purchase_tooltip(&mut self, sci: &SciencePurchaseTooltipInput) {
+        let mut description = sci.description.clone();
+
+        let cost = if sci.cost_to_build > 0 {
+            Some(format!("${}", sci.cost_to_build))
+        } else {
+            None
+        };
+
+        if !sci.unsatisfied_prerequisites.is_empty() {
+            if !description.is_empty() {
+                description.push('\n');
+            }
+            description.push_str("Requirements: ");
+            description.push_str(&sci.unsatisfied_prerequisites.join(", "));
+        }
+
+        self.content = TooltipContentPort {
+            name: sci.name.clone(),
+            cost,
+            description,
+        };
     }
 
     fn recalculate_panel_height(&mut self) {
@@ -248,5 +476,389 @@ mod tests {
 
         assert!(tooltip.deleted);
         assert!(!tooltip.visible);
+    }
+
+    #[test]
+    fn thing_template_tooltip_with_no_money_status() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::ThingTemplate(
+            ThingTemplateTooltipInput {
+                name: "Scorpion Tank".to_string(),
+                description: "Fast anti-armor unit.".to_string(),
+                cost_to_build: 600,
+                unsatisfied_prerequisites: vec!["Arms Dealer".to_string()],
+                can_make_status: CanMakeStatus::NoMoney,
+                is_structure: false,
+                science_gate: ScienceGateInfo::default(),
+            },
+        ));
+
+        assert_eq!(tooltip.content.name, "Scorpion Tank");
+        assert_eq!(tooltip.content.cost.as_deref(), Some("$600"));
+        assert!(tooltip
+            .content
+            .description
+            .contains("Not enough money to build"));
+        assert!(tooltip
+            .content
+            .description
+            .contains("Requirements: Arms Dealer"));
+    }
+
+    #[test]
+    fn thing_template_tooltip_with_maxed_structure() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::ThingTemplate(
+            ThingTemplateTooltipInput {
+                name: "Supply Center".to_string(),
+                description: "Generates supply dropzone.".to_string(),
+                cost_to_build: 2000,
+                unsatisfied_prerequisites: vec![],
+                can_make_status: CanMakeStatus::MaxedOutForPlayer,
+                is_structure: true,
+                science_gate: ScienceGateInfo::default(),
+            },
+        ));
+
+        assert!(tooltip
+            .content
+            .description
+            .contains("Cannot build building because maximum number reached"));
+    }
+
+    #[test]
+    fn thing_template_tooltip_ok_no_status_appended() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::ThingTemplate(
+            ThingTemplateTooltipInput {
+                name: "Ranger".to_string(),
+                description: "Basic infantry unit.".to_string(),
+                cost_to_build: 200,
+                unsatisfied_prerequisites: vec![],
+                can_make_status: CanMakeStatus::Ok,
+                is_structure: false,
+                science_gate: ScienceGateInfo::default(),
+            },
+        ));
+
+        assert!(!tooltip.content.description.contains("Not enough"));
+        assert!(!tooltip.content.description.contains("Requirements:"));
+    }
+
+    #[test]
+    fn thing_template_tooltip_queue_full() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::ThingTemplate(
+            ThingTemplateTooltipInput {
+                name: "Humvee".to_string(),
+                description: "Fast recon vehicle.".to_string(),
+                cost_to_build: 700,
+                unsatisfied_prerequisites: vec![],
+                can_make_status: CanMakeStatus::QueueFull,
+                is_structure: false,
+                science_gate: ScienceGateInfo::default(),
+            },
+        ));
+
+        assert!(tooltip
+            .content
+            .description
+            .contains("Cannot purchase because build queue is full"));
+    }
+
+    #[test]
+    fn thing_template_tooltip_parking_full() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::ThingTemplate(
+            ThingTemplateTooltipInput {
+                name: "Comanche".to_string(),
+                description: "Attack helicopter.".to_string(),
+                cost_to_build: 1500,
+                unsatisfied_prerequisites: vec![],
+                can_make_status: CanMakeStatus::ParkingPlacesFull,
+                is_structure: false,
+                science_gate: ScienceGateInfo::default(),
+            },
+        ));
+
+        assert!(tooltip
+            .content
+            .description
+            .contains("Cannot build unit because parking is full"));
+    }
+
+    #[test]
+    fn upgrade_tooltip_already_purchased() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Composite Armor".to_string(),
+            description: "Improved armor plating.".to_string(),
+            cost_to_build: 2000,
+            already_has_upgrade: true,
+            has_conflicting_upgrade: false,
+            missing_science: false,
+            purchased_label: Some("Composite Armor already applied".to_string()),
+            conflicting_label: None,
+            queue_full: false,
+            cannot_afford: false,
+        }));
+
+        assert_eq!(
+            tooltip.content.description,
+            "Composite Armor already applied"
+        );
+        assert!(tooltip.content.cost.is_none());
+    }
+
+    #[test]
+    fn upgrade_tooltip_already_purchased_default_label() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Composite Armor".to_string(),
+            description: "Improved armor plating.".to_string(),
+            cost_to_build: 2000,
+            already_has_upgrade: true,
+            has_conflicting_upgrade: false,
+            missing_science: false,
+            purchased_label: None,
+            conflicting_label: None,
+            queue_full: false,
+            cannot_afford: false,
+        }));
+
+        assert_eq!(tooltip.content.description, "Already upgraded");
+    }
+
+    #[test]
+    fn upgrade_tooltip_conflicting() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Drone Armor".to_string(),
+            description: "Upgrades drone defenses.".to_string(),
+            cost_to_build: 1500,
+            already_has_upgrade: false,
+            has_conflicting_upgrade: true,
+            missing_science: false,
+            purchased_label: None,
+            conflicting_label: Some("Conflicts with active Buggy Armor upgrade.".to_string()),
+            queue_full: false,
+            cannot_afford: false,
+        }));
+
+        assert!(tooltip.content.cost.is_none());
+        assert!(tooltip
+            .content
+            .description
+            .contains("Conflicts with active Buggy Armor upgrade"));
+    }
+
+    #[test]
+    fn upgrade_tooltip_conflicting_default_label() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Drone Armor".to_string(),
+            description: "Upgrades drone defenses.".to_string(),
+            cost_to_build: 1500,
+            already_has_upgrade: false,
+            has_conflicting_upgrade: true,
+            missing_science: false,
+            purchased_label: None,
+            conflicting_label: None,
+            queue_full: false,
+            cannot_afford: false,
+        }));
+
+        assert_eq!(tooltip.content.description, "Has conflicting upgrade");
+    }
+
+    #[test]
+    fn upgrade_tooltip_missing_science_shows_requirement() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Satellite Hack".to_string(),
+            description: "Reveals enemy positions.".to_string(),
+            cost_to_build: 3000,
+            already_has_upgrade: false,
+            has_conflicting_upgrade: false,
+            missing_science: true,
+            purchased_label: None,
+            conflicting_label: None,
+            queue_full: false,
+            cannot_afford: false,
+        }));
+
+        assert_eq!(tooltip.content.cost.as_deref(), Some("$3000"));
+        assert!(tooltip
+            .content
+            .description
+            .contains("Requirements: General's Promotion"));
+    }
+
+    #[test]
+    fn upgrade_tooltip_queue_full() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Mines".to_string(),
+            description: "Lays minefield.".to_string(),
+            cost_to_build: 800,
+            already_has_upgrade: false,
+            has_conflicting_upgrade: false,
+            missing_science: false,
+            purchased_label: None,
+            conflicting_label: None,
+            queue_full: true,
+            cannot_afford: false,
+        }));
+
+        assert!(tooltip
+            .content
+            .description
+            .contains("Cannot purchase because build queue is full"));
+    }
+
+    #[test]
+    fn upgrade_tooltip_cannot_afford() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Advanced Training".to_string(),
+            description: "Veterancy upgrade.".to_string(),
+            cost_to_build: 5000,
+            already_has_upgrade: false,
+            has_conflicting_upgrade: false,
+            missing_science: false,
+            purchased_label: None,
+            conflicting_label: None,
+            queue_full: false,
+            cannot_afford: true,
+        }));
+
+        assert!(tooltip
+            .content
+            .description
+            .contains("Not enough money to build"));
+    }
+
+    #[test]
+    fn upgrade_tooltip_queue_full_takes_precedence_over_cannot_afford() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::Upgrade(UpgradeTooltipInput {
+            name: "Mines".to_string(),
+            description: "Lays minefield.".to_string(),
+            cost_to_build: 800,
+            already_has_upgrade: false,
+            has_conflicting_upgrade: false,
+            missing_science: false,
+            purchased_label: None,
+            conflicting_label: None,
+            queue_full: true,
+            cannot_afford: true,
+        }));
+
+        assert!(tooltip
+            .content
+            .description
+            .contains("Cannot purchase because build queue is full"));
+        assert!(!tooltip.content.description.contains("Not enough money"));
+    }
+
+    #[test]
+    fn science_purchase_tooltip_with_prerequisites() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::SciencePurchase(
+            SciencePurchaseTooltipInput {
+                name: "Anti-Aircraft Missiles".to_string(),
+                description: "Unlocks avenger missile upgrade.".to_string(),
+                cost_to_build: 1,
+                unsatisfied_prerequisites: vec!["Rank 3".to_string()],
+            },
+        ));
+
+        assert_eq!(tooltip.content.name, "Anti-Aircraft Missiles");
+        assert_eq!(tooltip.content.cost.as_deref(), Some("$1"));
+        assert!(tooltip.content.description.contains("Requirements: Rank 3"));
+    }
+
+    #[test]
+    fn science_purchase_tooltip_no_cost() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_build_tooltip(BuildTooltipInput::SciencePurchase(
+            SciencePurchaseTooltipInput {
+                name: "Free Science".to_string(),
+                description: "A free science.".to_string(),
+                cost_to_build: 0,
+                unsatisfied_prerequisites: vec![],
+            },
+        ));
+
+        assert!(tooltip.content.cost.is_none());
+    }
+
+    #[test]
+    fn power_tooltip_formats_production_and_consumption() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_power_tooltip(15, 12);
+
+        assert_eq!(tooltip.content.name, "Power");
+        assert!(tooltip.content.cost.is_none());
+        assert!(tooltip.content.description.contains("Production: 15"));
+        assert!(tooltip.content.description.contains("Consumption: 12"));
+    }
+
+    #[test]
+    fn power_tooltip_shows_zero_when_no_energy() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_power_tooltip(0, 0);
+
+        assert!(tooltip.content.description.contains("Production: 0"));
+        assert!(tooltip.content.description.contains("Consumption: 0"));
+    }
+
+    #[test]
+    fn generals_exp_tooltip() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_generals_exp_tooltip();
+
+        assert_eq!(tooltip.content.name, "General's Experience");
+        assert!(tooltip.content.cost.is_none());
+        assert!(!tooltip.content.description.is_empty());
+    }
+
+    #[test]
+    fn money_tooltip() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+        tooltip.populate_money_tooltip();
+
+        assert_eq!(tooltip.content.name, "Money");
+        assert!(tooltip.content.cost.is_none());
+    }
+
+    #[test]
+    fn generic_tooltip_delegates_to_specialized() {
+        let mut tooltip = ControlBarPopupDescriptionPort::default();
+
+        tooltip.populate_generic_tooltip(TooltipSubjectPort::PowerWindow, 20, 18);
+        assert_eq!(tooltip.content.name, "Power");
+
+        tooltip.populate_generic_tooltip(TooltipSubjectPort::GeneralsExp, 0, 0);
+        assert_eq!(tooltip.content.name, "General's Experience");
+
+        tooltip.populate_generic_tooltip(TooltipSubjectPort::MoneyDisplay, 0, 0);
+        assert_eq!(tooltip.content.name, "Money");
+    }
+
+    #[test]
+    fn can_make_status_no_prereq_produces_no_message() {
+        assert!(CanMakeStatus::NoPrereq.status_message(false).is_none());
+        assert!(CanMakeStatus::FactoryDisabled
+            .status_message(false)
+            .is_none());
+    }
+
+    #[test]
+    fn default_content_is_empty() {
+        let tooltip = ControlBarPopupDescriptionPort::default();
+        assert!(tooltip.content.name.is_empty());
+        assert!(tooltip.content.cost.is_none());
+        assert!(tooltip.content.description.is_empty());
     }
 }

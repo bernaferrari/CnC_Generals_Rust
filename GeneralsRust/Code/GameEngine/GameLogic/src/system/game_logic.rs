@@ -614,6 +614,9 @@ pub struct GameLogic {
     normal_updates: Vec<NormalUpdateEntry>,
     module_lookup: HashMap<ObjectID, Vec<UpdateModulePtr>>,
     global_weapon_bonus_set: WeaponBonusSet,
+
+    // Control bar button overrides (C++ GameLogic.h line 266: ControlBarOverrideMap)
+    control_bar_overrides: HashMap<String, ()>,
 }
 
 /// Entry for sleepy update queue (priority queue by wake frame)
@@ -688,6 +691,7 @@ impl Default for GameLogic {
             normal_updates: Vec::new(),
             module_lookup: HashMap::new(),
             global_weapon_bonus_set: WeaponBonusSet::new(),
+            control_bar_overrides: HashMap::new(),
         }
     }
 }
@@ -858,6 +862,26 @@ impl GameLogic {
                 engine.reset();
             }
         }
+
+        // C++ line 413: m_controlBarOverrides.clear()
+        self.control_bar_overrides.clear();
+
+        // C++ lines 447-451: delete TheStatsCollector; TheStatsCollector = NULL;
+        game_engine::common::stats_collector::with_stats_collector_mut(|collector| {
+            collector.reset();
+        });
+
+        // C++ line 462: m_scriptHulkMaxLifetimeOverride = -1
+        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+
+        // C++ line 472: m_rankPointsToAddAtGameStart = 0
+        crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
+
+        // C++ lines 465-466: clean up water transparency overrides
+        game_engine::common::ini::ini_water::clear_water_transparency_overrides();
+
+        // C++ lines 469-470: clean up weather overrides
+        game_engine::common::ini::ini_weather::clear_weather_setting_overrides();
     }
 
     /// **THE MAIN GAME LOOP** - Execute one simulation frame

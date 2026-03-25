@@ -11,3 +11,6 @@ gpui = "0.2.2"
 
 [build-dependencies]
 walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
