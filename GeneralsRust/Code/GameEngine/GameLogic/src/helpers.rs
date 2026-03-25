@@ -5125,6 +5125,14 @@ impl TheScriptEngine {
             .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen_script()))
             .unwrap_or(false)
     }
+
+    pub fn is_time_frozen() -> Bool {
+        crate::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen()))
+            .unwrap_or(false)
+    }
 }
 
 /// TheVictoryConditions singleton facade for minimal victory state.

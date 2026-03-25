@@ -31,6 +31,8 @@ type StartNewGameFromSaveHook = Arc<dyn Fn() + Send + Sync>;
 type PostLoadRefreshHook = Arc<dyn Fn() + Send + Sync>;
 type GetSkirmishPayloadHook = Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>;
 type SetSkirmishPayloadHook = Arc<dyn Fn(Option<Vec<u8>>) + Send + Sync>;
+type ClearGameDataHook = Arc<dyn Fn() + Send + Sync>;
+type MissionStartArgsHook = Arc<dyn Fn() -> (i32, i32) + Send + Sync>;
 
 #[derive(Default)]
 struct RuntimeIdCounterHooks {
@@ -53,6 +55,8 @@ struct SaveLoadLifecycleHooks {
     post_load_refresh: Option<PostLoadRefreshHook>,
     get_skirmish_payload: Option<GetSkirmishPayloadHook>,
     set_skirmish_payload: Option<SetSkirmishPayloadHook>,
+    clear_game_data: Option<ClearGameDataHook>,
+    mission_start_args: Option<MissionStartArgsHook>,
 }
 
 static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
@@ -137,6 +141,16 @@ pub fn register_save_load_lifecycle_hooks(
     }
 }
 
+pub fn register_save_load_mission_hooks(
+    clear_game_data: Option<ClearGameDataHook>,
+    mission_start_args: Option<MissionStartArgsHook>,
+) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.clear_game_data = clear_game_data;
+        hooks.mission_start_args = mission_start_args;
+    }
+}
+
 pub fn register_save_load_skirmish_hooks(
     get_skirmish_payload: Option<GetSkirmishPayloadHook>,
     set_skirmish_payload: Option<SetSkirmishPayloadHook>,
@@ -198,6 +212,22 @@ pub(crate) fn notify_post_load_refresh() {
             callback();
         }
     }
+}
+
+pub(crate) fn notify_clear_game_data() {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.clear_game_data.as_ref() {
+            callback();
+        }
+    }
+}
+
+pub(crate) fn notify_get_mission_start_args() -> Option<(i32, i32)> {
+    let hooks = save_load_hooks().lock().ok()?;
+    hooks
+        .mission_start_args
+        .as_ref()
+        .map(|callback| callback())
 }
 
 pub(crate) fn notify_get_skirmish_payload() -> Option<Vec<u8>> {
