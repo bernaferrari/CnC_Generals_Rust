@@ -194,6 +194,7 @@ pub enum MessageBoxReturnType {
 #[derive(Debug, Clone)]
 enum PendingMainMenuAction {
     PushShellScreen(&'static str),
+    ReverseTransitionGroup(&'static str),
     ShowOptionsLayout,
     SignalUiInteract(&'static str),
     ReverseAnimateWindow,
@@ -990,6 +991,9 @@ impl MainMenu {
                         log::warn!("Main menu push failed for {}: {}", screen, err);
                     }
                 }
+                PendingMainMenuAction::ReverseTransitionGroup(group) => {
+                    self.transition_reverse(group);
+                }
                 PendingMainMenuAction::ShowOptionsLayout => {
                     let mut shell = get_shell();
                     if let Some(layout) = shell.get_options_layout(true) {
@@ -1728,7 +1732,10 @@ impl MainMenu {
                 state,
                 PendingMainMenuAction::PushShellScreen("Menus/ChallengeMenu.wnd"),
             );
-            self.transition_reverse("MainMenuDifficultyMenuTraining");
+            Self::queue_action(
+                state,
+                PendingMainMenuAction::ReverseTransitionGroup("MainMenuDifficultyMenuTraining"),
+            );
             log::info!("Launching challenge menu with difficulty: {:?}", diff);
         } else {
             state.start_game = true;
