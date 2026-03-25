@@ -1345,6 +1345,24 @@ impl GameLogic {
             self.command_queue.len()
         );
 
+        // C++ parity: consume routed command-list messages before object updates.
+        // Route target is the shared CommandQueueManager fed by GameClient translators.
+        if let Ok(mut processor) = crate::commands::get_command_processor().lock() {
+            let mut context = crate::commands::CommandExecutionContext {
+                current_frame: self.frame,
+                player_id: 0,
+                object_manager: None,
+                player_manager: None,
+                ai_manager: None,
+                execution_start_time: Instant::now(),
+                is_network_command: false,
+                is_replay_command: false,
+            };
+            if let Err(err) = processor.process_frame(self.frame, &mut context) {
+                warn!("Command processor frame execution failed: {}", err);
+            }
+        }
+
         // Process all pending commands
         while let Some(command) = self.command_queue.pop_front() {
             if let Err(e) = self.execute_command(command) {
