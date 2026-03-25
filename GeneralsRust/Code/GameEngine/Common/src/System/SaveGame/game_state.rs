@@ -208,6 +208,23 @@ struct SnapshotBlock {
     block_name: String,
 }
 
+#[derive(Default)]
+struct NullSnapshot;
+
+impl Snapshot for NullSnapshot {
+    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 // GameState - Main save/load management structure
 // ------------------------------------------------------------------------------------------------
@@ -222,6 +239,33 @@ pub struct GameState {
 }
 
 impl GameState {
+    fn ensure_snapshot_block_order(&mut self, which: SnapshotType) {
+        let index = which as usize;
+        let ordered_names = known_block_names(which);
+        if ordered_names.is_empty() {
+            return;
+        }
+
+        for name in ordered_names {
+            let exists = self.snapshot_block_lists[index]
+                .iter()
+                .any(|block| block.block_name.eq_ignore_ascii_case(name));
+            if !exists {
+                self.snapshot_block_lists[index].push(SnapshotBlock {
+                    snapshot: Box::<NullSnapshot>::default(),
+                    block_name: (*name).to_string(),
+                });
+            }
+        }
+
+        self.snapshot_block_lists[index].sort_by_key(|block| {
+            ordered_names
+                .iter()
+                .position(|name| block.block_name.eq_ignore_ascii_case(name))
+                .unwrap_or(usize::MAX)
+        });
+    }
+
     /// Create a new GameState instance
     pub fn new(save_directory: PathBuf) -> Self {
         Self {
@@ -237,7 +281,9 @@ impl GameState {
 
     /// Initialize the game state system
     pub fn init(&mut self) {
-        // Snapshot blocks are registered externally via add_snapshot_block.
+        // C++ parity: register and keep canonical snapshot block ordering at init time.
+        self.ensure_snapshot_block_order(SnapshotType::SaveLoad);
+        self.ensure_snapshot_block_order(SnapshotType::DeepCrcLogicOnly);
         self.is_in_load_game = false;
     }
 
@@ -295,13 +341,22 @@ impl GameState {
             return;
         }
 
-        let block_info = SnapshotBlock {
+        let index = which as usize;
+        if let Some(existing) = self.snapshot_block_lists[index]
+            .iter_mut()
+            .find(|block| block.block_name.eq_ignore_ascii_case(&block_name))
+        {
+            existing.snapshot = snapshot;
+            existing.block_name = block_name;
+            self.ensure_snapshot_block_order(which);
+            return;
+        }
+
+        self.snapshot_block_lists[index].push(SnapshotBlock {
             snapshot,
             block_name,
-        };
-
-        let index = which as usize;
-        self.snapshot_block_lists[index].push(block_info);
+        });
+        self.ensure_snapshot_block_order(which);
     }
 
     /// Find a snapshot block by token
@@ -591,8 +646,11 @@ impl GameState {
             XferMode::Save => {
                 // Save all blocks
                 let index = which as usize;
-                for block_info in &mut self.snapshot_block_lists[index] {
-                    let mut block_name = block_info.block_name.clone();
+                let block_count = self.snapshot_block_lists[index].len();
+                for block_pos in 0..block_count {
+                    let mut block_name = self.snapshot_block_lists[index][block_pos]
+                        .block_name
+                        .clone();
 
                     if self.game_info.save_file_type == SaveFileType::Mission {
                         if block_name != GAME_STATE_BLOCK_STRING
@@ -609,7 +667,12 @@ impl GameState {
                     xfer.begin_block()?;
 
                     // Transfer block data
-                    xfer.xfer_snapshot(block_info.snapshot.as_mut())?;
+                    if block_name.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
+                        self.xfer(xfer)?;
+                    } else {
+                        let snapshot = self.snapshot_block_lists[index][block_pos].snapshot.as_mut();
+                        xfer.xfer_snapshot(snapshot)?;
+                    }
 
                     // End block
                     xfer.end_block()?;
@@ -629,6 +692,13 @@ impl GameState {
                     // Check for EOF
                     if token.eq_ignore_ascii_case(SAVE_FILE_EOF) {
                         break;
+                    }
+
+                    if token.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
+                        let _block_size = xfer.begin_block()?;
+                        self.xfer(xfer)?;
+                        xfer.end_block()?;
+                        continue;
                     }
 
                     // Find matching block
