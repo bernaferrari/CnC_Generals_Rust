@@ -2384,6 +2384,15 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_build_cost(&self) -> Int {
         0
     }
+    fn get_experience_value(&self, _level: usize) -> Int {
+        0
+    }
+    fn get_experience_required(&self, _level: usize) -> Int {
+        0
+    }
+    fn is_trainable(&self) -> bool {
+        false
+    }
     /// Base build time in seconds (matches ThingTemplate::getBuildTime).
     fn get_build_time(&self) -> Real {
         0.0
@@ -3430,6 +3439,18 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
         (**self).get_build_cost()
     }
 
+    fn get_experience_value(&self, level: usize) -> Int {
+        (**self).get_experience_value(level)
+    }
+
+    fn get_experience_required(&self, level: usize) -> Int {
+        (**self).get_experience_required(level)
+    }
+
+    fn is_trainable(&self) -> bool {
+        (**self).is_trainable()
+    }
+
     fn calc_cost_to_build(&self, player: Option<&dyn std::any::Any>) -> Int {
         (**self).calc_cost_to_build(player)
     }
@@ -3639,6 +3660,18 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_build_cost(&self) -> Int {
         (**self).get_build_cost()
+    }
+
+    fn get_experience_value(&self, level: usize) -> Int {
+        (**self).get_experience_value(level)
+    }
+
+    fn get_experience_required(&self, level: usize) -> Int {
+        (**self).get_experience_required(level)
+    }
+
+    fn is_trainable(&self) -> bool {
+        (**self).is_trainable()
     }
 
     fn calc_cost_to_build(&self, player: Option<&dyn std::any::Any>) -> Int {
