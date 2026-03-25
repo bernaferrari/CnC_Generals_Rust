@@ -5,6 +5,12 @@
 use super::super::xfer::*;
 use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
+use super::game_state_map::GameStateMap;
+use super::{notify_clear_game_data, notify_get_mission_start_args};
+use crate::common::game_engine::get_game_engine;
+use crate::common::ini::ini_game_data::get_global_data;
+use crate::common::message_stream::{get_message_stream, GameMessageType};
+use crate::common::random_value::init_random_with_seed;
 use chrono::{Datelike, Local, Timelike};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +25,8 @@ const MAX_SAVE_FILE_NUMBER: i32 = 99999999;
 
 const GAME_STATE_BLOCK_STRING: &str = "CHUNK_GameState";
 const CAMPAIGN_BLOCK_STRING: &str = "CHUNK_Campaign";
+const GAME_SINGLE_PLAYER: i32 = 0;
+const DIFFICULTY_NORMAL: i32 = 1;
 
 const SAVELOAD_BLOCK_NAMES: &[&str] = &[
     GAME_STATE_BLOCK_STRING,
@@ -551,10 +559,31 @@ impl GameState {
 
     /// Load a game
     pub fn load_game(&mut self, game_info: AvailableGameInfo) -> Result<SaveCode, XferStatus> {
+        let requested_mission_save = game_info.save_game_info.save_file_type == SaveFileType::Mission;
+
         // Check if file exists
         let filepath = self.get_file_path_in_save_directory(&game_info.filename);
         if !filepath.exists() {
             return Ok(SaveCode::FileNotFound);
+        }
+
+        // C++ parity: mission-save loads clear active gameplay state before load.
+        if requested_mission_save {
+            notify_clear_game_data();
+        }
+
+        // C++ parity: always clear extracted scratch-pad maps before loading.
+        let game_state_map = GameStateMap::new(self.save_directory.clone());
+        if let Err(err) = game_state_map.clear_scratch_pad_maps() {
+            eprintln!("Error clearing scratch-pad maps before load: {}", err);
+        }
+
+        // C++ parity: reset the runtime engine before deserializing save data.
+        if let Some(engine) = get_game_engine() {
+            let mut engine = engine.lock();
+            if let Err(err) = futures::executor::block_on(engine.reset()) {
+                eprintln!("Error resetting game engine before load: {}", err);
+            }
         }
 
         // Open load file
@@ -599,6 +628,35 @@ impl GameState {
                     eprintln!("Error post-processing loaded game: {:?}", post_process_err);
                     return Ok(SaveCode::InvalidData);
                 }
+
+                if self.game_info.save_file_type == SaveFileType::Mission {
+                    init_random_with_seed(0);
+
+                    let mission_map_name = if self.game_info.mission_map_name.is_empty() {
+                        game_info.save_game_info.mission_map_name.clone()
+                    } else {
+                        self.game_info.mission_map_name.clone()
+                    };
+
+                    if let Some(global_data) = get_global_data() {
+                        global_data.write().pending_file = mission_map_name;
+                    }
+
+                    let (difficulty, rank_points) =
+                        notify_get_mission_start_args().unwrap_or((DIFFICULTY_NORMAL, 0));
+                    let stream_arc = get_message_stream();
+                    if let Ok(mut stream) = stream_arc.write() {
+                        let msg = stream.append_message(GameMessageType::NewGame);
+                        msg.append_integer_argument(GAME_SINGLE_PLAYER);
+                        msg.append_integer_argument(difficulty);
+                        msg.append_integer_argument(rank_points);
+                    }
+
+                    // C++ parity: once mission-load starts, clear mission-only metadata.
+                    self.game_info.save_file_type = SaveFileType::Normal;
+                    self.game_info.mission_map_name.clear();
+                }
+
                 self.pending_post_process_snapshot = None;
                 Ok(SaveCode::Ok)
             }

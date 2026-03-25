@@ -68,6 +68,7 @@ use crate::gui::{
     get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer,
     WindowStatus,
 };
+use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::ime_manager::get_ime_manager;
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
@@ -94,7 +95,10 @@ use game_engine::common::recorder::{init_recorder, with_recorder_mut};
 use game_engine::common::system::{geometry::Matrix3D, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::{get_thing_factory, ThingTemplate};
 use game_engine::common::user_preferences::UserPreferences;
-use game_engine::System::{register_drawable_id_counter_hooks, register_save_load_skirmish_hooks};
+use game_engine::System::{
+    register_drawable_id_counter_hooks, register_save_load_mission_hooks,
+    register_save_load_skirmish_hooks,
+};
 use nalgebra::Point3;
 
 // GameLogic integration for object iteration
@@ -493,6 +497,7 @@ pub const TRANSLATOR_ID_INVALID: TranslatorId = 0;
 pub struct GameClient {
     // Core state
     frame: u32,
+    last_visual_time_frame: u32,
     next_drawable_id: DrawableId,
     local_player_id: i32,
 
@@ -615,6 +620,7 @@ impl GameClient {
     pub fn new() -> GameClientResult<Self> {
         let mut client = Self {
             frame: 0,
+            last_visual_time_frame: u32::MAX,
             next_drawable_id: DrawableId(1),
             local_player_id: 0,
             drawable_map: std::collections::HashMap::with_capacity(super::DRAWABLE_HASH_SIZE),
@@ -1106,6 +1112,7 @@ impl GameClient {
     /// Sets the current frame number
     pub fn set_frame(&mut self, frame: u32) {
         self.frame = frame;
+        self.last_visual_time_frame = u32::MAX;
     }
 
     /// Sets the local player identifier used for command routing.
@@ -1584,6 +1591,16 @@ impl GameClient {
         register_drawable_id_counter_hooks(
             Some(Arc::new(Self::global_drawable_id_counter)),
             Some(Arc::new(Self::set_global_drawable_id_counter)),
+        );
+        register_save_load_mission_hooks(
+            None,
+            Some(Arc::new(|| {
+                let campaign_manager = get_campaign_manager();
+                (
+                    campaign_manager.get_game_difficulty() as i32,
+                    campaign_manager.get_rank_points(),
+                )
+            })),
         );
         register_save_load_skirmish_hooks(
             Some(Arc::new(|| {
@@ -2168,11 +2185,15 @@ impl GameClient {
         Ok(())
     }
 
-    fn should_freeze_visual_time(&self) -> bool {
+    fn should_freeze_visual_time(&mut self) -> bool {
         let camera_frozen = with_tactical_view_ref(|view| {
             view.is_time_frozen() && !view.is_camera_movement_finished()
         });
-        camera_frozen || TheScriptEngine::is_time_frozen_script() || TheGameLogic::is_game_paused()
+        let mut freeze_time =
+            camera_frozen || TheScriptEngine::is_time_frozen() || TheGameLogic::is_game_paused();
+        freeze_time = freeze_time || (self.last_visual_time_frame == self.frame);
+        self.last_visual_time_frame = self.frame;
+        freeze_time
     }
 
     fn preload_template_assets_from_factory(
