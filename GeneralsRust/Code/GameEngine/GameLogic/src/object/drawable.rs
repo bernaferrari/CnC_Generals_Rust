@@ -250,6 +250,153 @@ impl DrawModuleEntry {
     }
 }
 
+#[derive(Debug, Clone)]
+struct LegacyTintEnvelope {
+    attack_rate: Coord3D,
+    decay_rate: Coord3D,
+    peak_color: Coord3D,
+    current_color: Coord3D,
+    sustain_counter: u32,
+    affect: bool,
+    env_state: i8,
+}
+
+impl Default for LegacyTintEnvelope {
+    fn default() -> Self {
+        Self {
+            attack_rate: Coord3D::new(0.0, 0.0, 0.0),
+            decay_rate: Coord3D::new(0.0, 0.0, 0.0),
+            peak_color: Coord3D::new(0.0, 0.0, 0.0),
+            current_color: Coord3D::new(0.0, 0.0, 0.0),
+            sustain_counter: 0,
+            affect: false,
+            env_state: 0,
+        }
+    }
+}
+
+impl LegacyTintEnvelope {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        let _ = xfer.xfer_version(&mut version, current_version);
+        xfer.xfer_coord3d(&mut self.attack_rate);
+        xfer.xfer_coord3d(&mut self.decay_rate);
+        xfer.xfer_coord3d(&mut self.peak_color);
+        xfer.xfer_coord3d(&mut self.current_color);
+        let _ = xfer.xfer_unsigned_int(&mut self.sustain_counter);
+        let _ = xfer.xfer_bool(&mut self.affect);
+        let _ = xfer.xfer_byte(&mut self.env_state);
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LegacyDrawableLocoInfo {
+    pitch: Real,
+    pitch_rate: Real,
+    roll: Real,
+    roll_rate: Real,
+    yaw: Real,
+    acceleration_pitch: Real,
+    acceleration_pitch_rate: Real,
+    acceleration_roll: Real,
+    acceleration_roll_rate: Real,
+    overlap_z_vel: Real,
+    overlap_z: Real,
+    wobble: Real,
+    wheel_front_left_height_offset: Real,
+    wheel_front_right_height_offset: Real,
+    wheel_rear_left_height_offset: Real,
+    wheel_rear_right_height_offset: Real,
+    wheel_angle: Real,
+    wheel_frames_airborne_counter: i32,
+    wheel_frames_airborne: i32,
+}
+
+impl Default for LegacyDrawableLocoInfo {
+    fn default() -> Self {
+        Self {
+            pitch: 0.0,
+            pitch_rate: 0.0,
+            roll: 0.0,
+            roll_rate: 0.0,
+            yaw: 0.0,
+            acceleration_pitch: 0.0,
+            acceleration_pitch_rate: 0.0,
+            acceleration_roll: 0.0,
+            acceleration_roll_rate: 0.0,
+            overlap_z_vel: 0.0,
+            overlap_z: 0.0,
+            wobble: 0.0,
+            wheel_front_left_height_offset: 0.0,
+            wheel_front_right_height_offset: 0.0,
+            wheel_rear_left_height_offset: 0.0,
+            wheel_rear_right_height_offset: 0.0,
+            wheel_angle: 0.0,
+            wheel_frames_airborne_counter: 0,
+            wheel_frames_airborne: 0,
+        }
+    }
+}
+
+impl LegacyDrawableLocoInfo {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let _ = xfer.xfer_real(&mut self.pitch);
+        let _ = xfer.xfer_real(&mut self.pitch_rate);
+        let _ = xfer.xfer_real(&mut self.roll);
+        let _ = xfer.xfer_real(&mut self.roll_rate);
+        let _ = xfer.xfer_real(&mut self.yaw);
+        let _ = xfer.xfer_real(&mut self.acceleration_pitch);
+        let _ = xfer.xfer_real(&mut self.acceleration_pitch_rate);
+        let _ = xfer.xfer_real(&mut self.acceleration_roll);
+        let _ = xfer.xfer_real(&mut self.acceleration_roll_rate);
+        let _ = xfer.xfer_real(&mut self.overlap_z_vel);
+        let _ = xfer.xfer_real(&mut self.overlap_z);
+        let _ = xfer.xfer_real(&mut self.wobble);
+        let _ = xfer.xfer_real(&mut self.wheel_front_left_height_offset);
+        let _ = xfer.xfer_real(&mut self.wheel_front_right_height_offset);
+        let _ = xfer.xfer_real(&mut self.wheel_rear_left_height_offset);
+        let _ = xfer.xfer_real(&mut self.wheel_rear_right_height_offset);
+        let _ = xfer.xfer_real(&mut self.wheel_angle);
+        let _ = xfer.xfer_int(&mut self.wheel_frames_airborne_counter);
+        let _ = xfer.xfer_int(&mut self.wheel_frames_airborne);
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct LegacyAnim2DState {
+    current_frame: u16,
+    last_update_frame: u32,
+    status_bits: u8,
+    min_frame: u16,
+    max_frame: u16,
+    frames_between_updates: u32,
+    alpha: Real,
+}
+
+impl LegacyAnim2DState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        let _ = xfer.xfer_version(&mut version, current_version);
+        let _ = xfer.xfer_unsigned_short(&mut self.current_frame);
+        let _ = xfer.xfer_unsigned_int(&mut self.last_update_frame);
+        let _ = xfer.xfer_unsigned_byte(&mut self.status_bits);
+        let _ = xfer.xfer_unsigned_short(&mut self.min_frame);
+        let _ = xfer.xfer_unsigned_short(&mut self.max_frame);
+        let _ = xfer.xfer_unsigned_int(&mut self.frames_between_updates);
+        let _ = xfer.xfer_real(&mut self.alpha);
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct LegacyDrawableIcon {
+    icon_index_name: String,
+    keep_till_frame: u32,
+    icon_template_name: String,
+    icon_state: LegacyAnim2DState,
+}
+
 enum DrawModuleKindMut<'a> {
     Model(&'a mut crate::object::draw::W3DModelDraw),
     Tank(&'a mut crate::object::draw::W3DTankDraw),
@@ -539,6 +686,15 @@ fn xfer_u128_bits(xfer: &mut dyn Xfer, value: &mut u128) {
     *value = ((hi as u128) << 64) | (lo as u128);
 }
 
+fn color_from_argb_u32(packed: u32) -> Color {
+    Color::new(
+        (packed & 0xFF) as u8,
+        ((packed >> 8) & 0xFF) as u8,
+        ((packed >> 16) & 0xFF) as u8,
+        ((packed >> 24) & 0xFF) as u8,
+    )
+}
+
 fn terrain_decal_type_to_u32(decal: TerrainDecalType) -> u32 {
     match decal {
         TerrainDecalType::Demoralized => 0,
@@ -658,8 +814,20 @@ pub struct Drawable {
     alpha: Real,        // Overall transparency
     color_tint: Color,  // Color tinting
     indicator_color: Color,
+    selection_flash_envelope: Option<LegacyTintEnvelope>,
+    color_tint_envelope: Option<LegacyTintEnvelope>,
+    drawable_status_bits: u32,
     tint_status: TintStatus,
     prev_tint_status: TintStatus,
+    fade_mode: u32,
+    time_elapsed_fade: u32,
+    time_to_fade: u32,
+    loco_info: Option<LegacyDrawableLocoInfo>,
+    flash_count: i32,
+    flash_color: Color,
+    shroud_status_object_id: ObjectID,
+    expiration_date: u32,
+    legacy_icons: Vec<LegacyDrawableIcon>,
 
     /// Lighting
     receives_lighting: bool,
@@ -923,8 +1091,20 @@ impl Drawable {
             alpha: 1.0,
             color_tint: Color::white(),
             indicator_color: Color::black(),
+            selection_flash_envelope: None,
+            color_tint_envelope: None,
+            drawable_status_bits: 0x00000002, // DRAWABLE_STATUS_SHADOWS
             tint_status: TintStatus::NONE,
             prev_tint_status: TintStatus::NONE,
+            fade_mode: 0,
+            time_elapsed_fade: 0,
+            time_to_fade: 0,
+            loco_info: None,
+            flash_count: 0,
+            flash_color: Color::white(),
+            shroud_status_object_id: object_id,
+            expiration_date: 0,
+            legacy_icons: Vec::new(),
 
             receives_lighting: true,
             casts_shadows: true,
@@ -1154,6 +1334,10 @@ impl Drawable {
             };
 
             if interface == ModuleInterfaceType::NONE {
+                warn!(
+                    "Drawable::xfer_drawable_modules encountered unsupported module type bucket {} on drawable {}",
+                    module_type, self.drawable_id
+                );
                 let mut unknown_count = 0u16;
                 let _ = xfer.xfer_unsigned_short(&mut unknown_count);
                 for _ in 0..unknown_count {
@@ -1180,20 +1364,25 @@ impl Drawable {
 
                 for entry in modules_for_type.into_iter().take(module_count as usize) {
                     let mut module_identifier = entry
-                        .with_module(|module| {
-                            NameKeyGenerator::key_to_name(module.get_module_tag_name_key())
-                        })
-                        .unwrap_or_else(|| entry.tag().to_string());
+                        .with_module(|module| NameKeyGenerator::key_to_name(module.get_module_tag_name_key()))
+                        .unwrap_or_default();
+                    if module_identifier.is_empty() {
+                        panic!(
+                            "Drawable::xfer_drawable_modules unresolved module identifier for tag '{}' on drawable {}",
+                            entry.tag(),
+                            self.drawable_id
+                        );
+                    }
                     let _ = xfer.xfer_ascii_string(&mut module_identifier);
 
                     let _ = xfer.begin_block();
                     entry.with_module(|module| {
                         if let Err(err) = module.xfer(xfer) {
-                            warn!(
+                            panic!(
                                 "Drawable::xfer_drawable_modules failed for '{}' on drawable {}: {}",
                                 module_identifier, self.drawable_id, err
                             );
-                        }
+                        };
                     });
                     let _ = xfer.end_block();
                 }
@@ -1218,18 +1407,17 @@ impl Drawable {
                         let entry = &self.modules[index];
                         entry.with_module(|module| {
                             if let Err(err) = module.xfer(xfer) {
-                                warn!(
+                                panic!(
                                     "Drawable::xfer_drawable_modules load failed for '{}' on drawable {}: {}",
                                     module_identifier, self.drawable_id, err
                                 );
                             }
                         });
                     } else if data_size > 0 {
-                        warn!(
+                        panic!(
                             "Drawable::xfer_drawable_modules skipping missing module '{}' on drawable {}",
                             module_identifier, self.drawable_id
                         );
-                        let _ = xfer.skip(data_size);
                     }
                     let _ = xfer.end_block();
                 }
@@ -1989,6 +2177,11 @@ impl Drawable {
     }
 
     pub fn set_shadows_enabled(&mut self, enabled: bool) {
+        if enabled {
+            self.drawable_status_bits |= 0x00000002; // DRAWABLE_STATUS_SHADOWS
+        } else {
+            self.drawable_status_bits &= !0x00000002;
+        }
         for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
             module_handle.with_module(|module| {
                 with_draw_module_mut(module, |draw| draw.set_shadows_enabled(enabled))
@@ -2731,16 +2924,69 @@ impl Snapshot for Drawable {
         let _ = xfer.xfer_unsigned_int(&mut drawable_id);
         self.set_drawable_id(drawable_id);
 
-        let mut condition_state_bits = self.model_conditions.bits();
-        xfer_u128_bits(xfer, &mut condition_state_bits);
-        self.model_conditions = ModelConditionFlags::from_bits_retain(condition_state_bits);
-        if is_loading {
-            self.update_conditional_model();
+        if version >= 2 {
+            let mut condition_state_bits = self.model_conditions.bits();
+            xfer_u128_bits(xfer, &mut condition_state_bits);
+            self.model_conditions = ModelConditionFlags::from_bits_retain(condition_state_bits);
+            if is_loading {
+                self.update_conditional_model();
+            }
         }
 
-        let mut transform = self.transform;
-        xfer_matrix3d(xfer, &mut transform);
-        self.set_transform(transform);
+        if version >= 3 {
+            if version >= 5 {
+                let mut transform = self.transform;
+                xfer_matrix3d(xfer, &mut transform);
+                self.set_transform(transform);
+            } else {
+                let mut position = self.get_position();
+                xfer.xfer_coord3d(&mut position);
+
+                let mut orientation = self.world_rotation.y;
+                let _ = xfer.xfer_real(&mut orientation);
+
+                if is_loading {
+                    let rotation = Quat::from_euler(
+                        EulerRot::XYZ,
+                        self.world_rotation.x,
+                        orientation,
+                        self.world_rotation.z,
+                    );
+                    let transform = Matrix3D::from_scale_rotation_translation(
+                        self.world_scale,
+                        rotation,
+                        position,
+                    );
+                    self.set_transform(transform);
+                }
+            }
+        }
+
+        let mut has_selection_flash = self.selection_flash_envelope.is_some();
+        let _ = xfer.xfer_bool(&mut has_selection_flash);
+        if has_selection_flash {
+            if self.selection_flash_envelope.is_none() {
+                self.selection_flash_envelope = Some(LegacyTintEnvelope::default());
+            }
+            if let Some(envelope) = self.selection_flash_envelope.as_mut() {
+                envelope.xfer(xfer);
+            }
+        } else if is_loading {
+            self.selection_flash_envelope = None;
+        }
+
+        let mut has_color_tint = self.color_tint_envelope.is_some();
+        let _ = xfer.xfer_bool(&mut has_color_tint);
+        if has_color_tint {
+            if self.color_tint_envelope.is_none() {
+                self.color_tint_envelope = Some(LegacyTintEnvelope::default());
+            }
+            if let Some(envelope) = self.color_tint_envelope.as_mut() {
+                envelope.xfer(xfer);
+            }
+        } else if is_loading {
+            self.color_tint_envelope = None;
+        }
 
         let mut decal_type = terrain_decal_type_to_u32(self.terrain_decal);
         let _ = xfer.xfer_unsigned_int(&mut decal_type);
@@ -2790,6 +3036,10 @@ impl Snapshot for Drawable {
             }
         }
 
+        let mut status_bits = self.drawable_status_bits;
+        let _ = xfer.xfer_unsigned_int(&mut status_bits);
+        self.drawable_status_bits = status_bits;
+
         let mut tint_status = self.tint_status.0;
         let _ = xfer.xfer_unsigned_int(&mut tint_status);
         self.tint_status = TintStatus(tint_status);
@@ -2797,6 +3047,23 @@ impl Snapshot for Drawable {
         let mut prev_tint_status = self.prev_tint_status.0;
         let _ = xfer.xfer_unsigned_int(&mut prev_tint_status);
         self.prev_tint_status = TintStatus(prev_tint_status);
+
+        let _ = xfer.xfer_unsigned_int(&mut self.fade_mode);
+        let _ = xfer.xfer_unsigned_int(&mut self.time_elapsed_fade);
+        let _ = xfer.xfer_unsigned_int(&mut self.time_to_fade);
+
+        let mut has_loco_info = self.loco_info.is_some();
+        let _ = xfer.xfer_bool(&mut has_loco_info);
+        if has_loco_info {
+            if self.loco_info.is_none() {
+                self.loco_info = Some(LegacyDrawableLocoInfo::default());
+            }
+            if let Some(loco) = self.loco_info.as_mut() {
+                loco.xfer(xfer);
+            }
+        } else if is_loading {
+            self.loco_info = None;
+        }
 
         self.xfer_drawable_modules(xfer);
 
@@ -2806,11 +3073,17 @@ impl Snapshot for Drawable {
             self.stealth_look = stealth_look_from_u32(stealth_look);
         }
 
+        let _ = xfer.xfer_int(&mut self.flash_count);
+        let mut flash_color = self.flash_color.to_argb_u32() as i32;
+        let _ = xfer.xfer_color(&mut flash_color);
+        if is_loading {
+            self.flash_color = color_from_argb_u32(flash_color as u32);
+        }
+
         let _ = xfer.xfer_bool(&mut self.hidden);
         let _ = xfer.xfer_bool(&mut self.hidden_by_stealth);
 
         let _ = xfer.xfer_real(&mut self.second_material_pass_opacity);
-        let _ = xfer.xfer_real(&mut self.distortion_amount);
 
         let mut instance_is_identity = self.instance_matrix.is_none();
         let _ = xfer.xfer_bool(&mut instance_is_identity);
@@ -2830,13 +3103,38 @@ impl Snapshot for Drawable {
             self.instance_scale = instance_scale;
         }
 
-        let mut shroud_status_object_id = self.object_id;
-        let _ = xfer.xfer_object_id(&mut shroud_status_object_id);
+        let _ = xfer.xfer_object_id(&mut self.shroud_status_object_id);
 
-        let mut expiration_date = self.last_update_frame;
-        let _ = xfer.xfer_unsigned_int(&mut expiration_date);
-        if is_loading {
-            self.last_update_frame = expiration_date;
+        if version < 2 {
+            let mut condition_state_bits = self.model_conditions.bits();
+            xfer_u128_bits(xfer, &mut condition_state_bits);
+            self.model_conditions = ModelConditionFlags::from_bits_retain(condition_state_bits);
+            if is_loading {
+                self.update_conditional_model();
+            }
+        }
+
+        let _ = xfer.xfer_unsigned_int(&mut self.expiration_date);
+
+        let mut icon_count = self.legacy_icons.len().min(u8::MAX as usize) as u8;
+        let _ = xfer.xfer_unsigned_byte(&mut icon_count);
+        if xfer_mode == game_engine::system::XferMode::Load {
+            self.legacy_icons.clear();
+            for _ in 0..icon_count {
+                let mut icon = LegacyDrawableIcon::default();
+                let _ = xfer.xfer_ascii_string(&mut icon.icon_index_name);
+                let _ = xfer.xfer_unsigned_int(&mut icon.keep_till_frame);
+                let _ = xfer.xfer_ascii_string(&mut icon.icon_template_name);
+                icon.icon_state.xfer(xfer);
+                self.legacy_icons.push(icon);
+            }
+        } else {
+            for icon in self.legacy_icons.iter_mut().take(icon_count as usize) {
+                let _ = xfer.xfer_ascii_string(&mut icon.icon_index_name);
+                let _ = xfer.xfer_unsigned_int(&mut icon.keep_till_frame);
+                let _ = xfer.xfer_ascii_string(&mut icon.icon_template_name);
+                icon.icon_state.xfer(xfer);
+            }
         }
 
         if version >= 4 {
@@ -2936,29 +3234,11 @@ impl Snapshot for Drawable {
     }
 
     fn load_post_process(&mut self) {
-        if self.object_ref.is_none() && self.object_id != INVALID_ID {
-            self.object_ref = TheGameLogic::find_object_by_id(self.object_id)
-                .map(|object| Arc::downgrade(&object));
-        }
-
         if let Some(object) = self.object_ref.as_ref().and_then(|weak| weak.upgrade()) {
             if let Ok(object_guard) = object.read() {
                 self.object_id = object_guard.get_id();
                 self.set_transform(object_guard.get_transform_matrix());
             }
-        }
-
-        for entry in &self.modules {
-            entry.with_module(|module| {
-                if let Err(err) = module.load_post_process() {
-                    warn!(
-                        "Drawable::load_post_process module '{}' on drawable {} failed: {}",
-                        entry.name(),
-                        self.drawable_id,
-                        err
-                    );
-                }
-            });
         }
 
         if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
@@ -2976,10 +3256,6 @@ impl Snapshot for Drawable {
             }
         } else {
             self.stop_ambient_sound();
-        }
-
-        if self.hidden || self.hidden_by_stealth {
-            self.update_hidden_status();
         }
     }
 }

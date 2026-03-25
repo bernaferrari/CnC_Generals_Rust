@@ -64,7 +64,10 @@ use crate::effects::weather_complete::{get_weather_system_mut, initialize_weathe
 use crate::effects::{DecalManager, DecalSettings, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
-use crate::gui::{get_shell, set_ui_renderer, with_window_manager, UIRenderer, WindowStatus};
+use crate::gui::{
+    get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer,
+    WindowStatus,
+};
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -90,7 +93,7 @@ use game_engine::common::recorder::{init_recorder, with_recorder_mut};
 use game_engine::common::system::{geometry::Matrix3D, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::{get_thing_factory, ThingTemplate};
 use game_engine::common::user_preferences::UserPreferences;
-use game_engine::System::register_drawable_id_counter_hooks;
+use game_engine::System::{register_drawable_id_counter_hooks, register_save_load_skirmish_hooks};
 use nalgebra::Point3;
 
 // GameLogic integration for object iteration
@@ -1579,6 +1582,22 @@ impl GameClient {
         register_drawable_id_counter_hooks(
             Some(Arc::new(Self::global_drawable_id_counter)),
             Some(Arc::new(Self::set_global_drawable_id_counter)),
+        );
+        register_save_load_skirmish_hooks(
+            Some(Arc::new(|| {
+                let setup = get_skirmish_setup();
+                setup.game_info().to_bytes().ok()
+            })),
+            Some(Arc::new(|payload| {
+                let mut setup = get_skirmish_setup();
+                if let Some(bytes) = payload {
+                    if let Ok(info) = game_network::SkirmishGameInfo::from_bytes(&bytes) {
+                        *setup.game_info_mut() = info;
+                    }
+                } else {
+                    *setup.game_info_mut() = game_network::SkirmishGameInfo::default();
+                }
+            })),
         );
     }
 

@@ -2825,6 +2825,12 @@ fn install_save_game_counter_integration() {
                 logic.set_loading_save(loading);
             }
         })),
+        Some(Arc::new(|| {
+            game_logic_mutex()
+                .lock()
+                .map(|logic| logic.get_game_mode())
+                .unwrap_or(GAME_NONE)
+        })),
         Some(Arc::new(|game_mode| {
             if let Ok(mut logic) = game_logic_mutex().lock() {
                 logic.set_game_mode(game_mode);
