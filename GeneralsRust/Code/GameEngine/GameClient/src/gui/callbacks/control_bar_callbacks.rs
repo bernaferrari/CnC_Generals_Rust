@@ -17,10 +17,13 @@ use game_engine::common::system::radar::{
     get_radar_system, ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
 };
 use gamelogic::commands::selection::get_selection_manager;
-use gamelogic::helpers::TheGameLogic;
+use gamelogic::commands::command::CommandType;
+use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use gamelogic::player::ThePlayerList;
-use log::info;
 use std::sync::{Arc, RwLock};
+
+const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
+const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
 
 /// Control bar system state
 #[derive(Debug, Clone)]
@@ -100,6 +103,47 @@ fn selection_is_empty() -> bool {
         .unwrap_or(true)
 }
 
+fn has_pending_radar_targeting_mode() -> bool {
+    if let Some(pending_power) = TheInGameUI::get_pending_special_power() {
+        if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION)) != 0 {
+            return true;
+        }
+    }
+
+    if let Some(pending_command) = TheInGameUI::get_pending_command() {
+        if (pending_command.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION)) != 0 {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn refresh_radar_cursor(msg: WindowMessage) {
+    if msg == WindowMessage::MouseLeaving {
+        TheInGameUI::set_cursor_arrow();
+        return;
+    }
+
+    if has_pending_radar_targeting_mode() {
+        // C++ parity fallback: when targeted command cursor metadata is unavailable,
+        // use CROSS while targeting over radar.
+        TheInGameUI::set_cursor_by_name("CROSS");
+        return;
+    }
+
+    if selection_is_empty() {
+        TheInGameUI::set_cursor_arrow();
+        return;
+    }
+
+    if TheInGameUI::is_in_attack_move_to_mode() {
+        TheInGameUI::set_cursor_by_name("ATTACKMOVETO");
+    } else {
+        TheInGameUI::set_cursor_by_name("MOVETO");
+    }
+}
+
 /// Control bar callback handler
 pub struct ControlBarCallbacks {
     state: ControlBarState,
@@ -124,6 +168,10 @@ impl ControlBarCallbacks {
         data1: WindowMsgData,
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        if TheScriptEngine::is_game_ending() {
+            return WindowMsgHandled::Ignored;
+        }
+
         match msg {
             WindowMessage::Create => {
                 self.button_communicator =
@@ -182,7 +230,11 @@ impl ControlBarCallbacks {
                     .and_then(|player| player.read().ok().map(|p| p.is_player_active()))
                     .unwrap_or(false)
             {
-                info!("Beacon placement requested");
+                TheInGameUI::clear_pending_special_power();
+                TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
+                TheInGameUI::set_force_attack_mode(false);
+                TheInGameUI::set_force_move_to_mode(false);
+                TheInGameUI::set_prefer_selection_mode(false);
             }
             return;
         }
@@ -228,7 +280,9 @@ impl ControlBarCallbacks {
 
         if control_id == button_idle_worker_id {
             hide_quit_menu();
-            info!("Idle worker selection requested");
+            let message_stream = get_message_stream();
+            let mut stream = message_stream.write().unwrap();
+            stream.append_message(GameMessageType::MetaSelectNextWorker);
             return;
         }
 
@@ -381,7 +435,9 @@ impl LeftHUDCallbacks {
         }
 
         match msg {
+            WindowMessage::MiddleDown => WindowMsgHandled::Ignored,
             WindowMessage::None | WindowMessage::MouseEntering | WindowMessage::MouseLeaving => {
+                refresh_radar_cursor(msg);
                 WindowMsgHandled::Handled
             }
             WindowMessage::MousePos => {
@@ -403,7 +459,9 @@ impl LeftHUDCallbacks {
         let (width, height) = window.get_size();
         let local_x = mouse_x - screen_x;
         let local_y = mouse_y - screen_y;
-        let _ = local_pixel_to_radar(local_x, local_y, width, height);
+        if local_pixel_to_radar(local_x, local_y, width, height).is_some() {
+            refresh_radar_cursor(WindowMessage::MousePos);
+        }
     }
 
     fn handle_mouse_down(&self, window: &GameWindow, msg: WindowMessage, data1: WindowMsgData) {
@@ -435,9 +493,64 @@ impl LeftHUDCallbacks {
         } else {
             let message_stream = get_message_stream();
             let mut stream = message_stream.write().unwrap();
-            stream.append_message(GameMessageType::DoMoveTo(
-                crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z),
-            ));
+            let world_pos = crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
+
+            if let Some(pending_power) = TheInGameUI::get_pending_special_power() {
+                if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
+                    != 0
+                {
+                    stream.append_message(GameMessageType::DoSpecialPowerAtLocation(
+                        pending_power.power_id,
+                        world_pos,
+                        0.0,
+                        0,
+                        pending_power.options,
+                        pending_power.source_object_id,
+                    ));
+                    TheInGameUI::clear_pending_special_power();
+                    TheInGameUI::clear_attack_move_to_mode();
+                    return;
+                }
+            }
+
+            if let Some(pending_command) = TheInGameUI::get_pending_command() {
+                if (pending_command.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))
+                    != 0
+                {
+                    let pending_message = match pending_command.command_type {
+                        CommandType::DoAttackMoveTo => {
+                            Some(GameMessageType::DoAttackMoveTo(world_pos.clone()))
+                        }
+                        CommandType::DoGuardPosition => {
+                            Some(GameMessageType::DoGuardPosition(world_pos.clone(), 0))
+                        }
+                        CommandType::PlaceBeacon => {
+                            Some(GameMessageType::PlaceBeacon(world_pos.clone()))
+                        }
+                        CommandType::RemoveBeacon => {
+                            Some(GameMessageType::RemoveBeacon(world_pos.clone()))
+                        }
+                        CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPoint(
+                            pending_command.source_object_id,
+                            world_pos.clone(),
+                        )),
+                        _ => None,
+                    };
+
+                    if let Some(message) = pending_message {
+                        stream.append_message(message);
+                        TheInGameUI::clear_pending_command();
+                        TheInGameUI::clear_attack_move_to_mode();
+                        return;
+                    }
+                }
+            }
+
+            if TheInGameUI::is_in_attack_move_to_mode() {
+                stream.append_message(GameMessageType::DoAttackMoveTo(world_pos.clone()));
+            } else {
+                stream.append_message(GameMessageType::DoMoveTo(world_pos));
+            }
         }
 
         TheInGameUI::clear_attack_move_to_mode();
