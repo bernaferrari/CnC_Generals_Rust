@@ -607,15 +607,27 @@ pub(crate) fn destroy_skirmish_map_select_overlay() {
 
 pub(crate) fn refresh_skirmish_game_options_from_setup() {
     with_state(|state| {
-        let selected_map = {
+        let (selected_map, game_info_map) = {
             let setup = get_skirmish_setup();
-            setup.selected_map().to_string()
+            (
+                setup.selected_map().to_string(),
+                setup.game_info().game_info().get_map().to_string(),
+            )
         };
 
         if !selected_map.is_empty() {
             state.selected_map = Some(selected_map);
             update_map_preview(state);
             sync_map_to_game_info(state);
+            skirmish_update_slot_list(state);
+            return;
+        }
+
+        if !game_info_map.is_empty() {
+            // C++ parity: map-select back/restore still repaints start spots and map label
+            // from the active skirmish game info map, even without an explicit setup selection.
+            state.selected_map = Some(game_info_map);
+            update_map_preview(state);
             skirmish_update_slot_list(state);
         }
     });

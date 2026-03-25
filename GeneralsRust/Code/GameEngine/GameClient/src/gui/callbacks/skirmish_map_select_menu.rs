@@ -325,13 +325,28 @@ pub fn skirmish_map_select_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {
-                if let Some(map_name) = state.selected_map.clone() {
-                    let mut setup = get_skirmish_setup();
-                    setup.set_selected_map(map_name);
-                    setup.set_use_system_maps(state.use_system_maps);
-                    let info = setup.game_info_mut().game_info_mut();
-                    info.reset_start_spots();
+                let Some(map_name) = state.selected_map.clone() else {
+                    // C++ parity: with no selected row, ignore OK and keep overlay open.
+                    return WindowMsgHandled::Handled;
+                };
+
+                let cache = get_map_cache_manager();
+                let mut setup = get_skirmish_setup();
+                setup.set_selected_map(map_name.clone());
+                setup.set_use_system_maps(state.use_system_maps);
+                let info = setup.game_info_mut().game_info_mut();
+                info.set_map(map_name.clone());
+                if let Ok(cache_guard) = cache.lock() {
+                    if let Some(meta) = cache_guard.find_map(&map_name) {
+                        info.set_map_crc(meta.crc);
+                        info.set_map_size(meta.filesize);
+                    } else {
+                        info.set_map_crc(0);
+                        info.set_map_size(0);
+                    }
                 }
+                info.reset_start_spots();
+
                 show_skirmish_game_options_underlying_gui_elements(true);
                 refresh_skirmish_game_options_from_setup();
                 destroy_skirmish_map_select_overlay();

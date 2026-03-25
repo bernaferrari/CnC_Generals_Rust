@@ -702,28 +702,6 @@ impl ControlBar {
                 }
                 Ok(CommandAvailability::Available)
             }
-            CommandType::DozerConstruct => {
-                let player_arc = logic_player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
-                if let Some(player_arc) = player_arc {
-                    if let Ok(player) = player_arc.read() {
-                        if !command.purchase_cost.is_empty() {
-                            for (resource, cost) in &command.purchase_cost {
-                                if *cost > 0
-                                    && (resource.eq_ignore_ascii_case("cash")
-                                        || resource.eq_ignore_ascii_case("money"))
-                                    && !player.get_money().can_afford(*cost)
-                                {
-                                    return Ok(CommandAvailability::Restricted);
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(CommandAvailability::Available)
-            }
             CommandType::QueueUpgrade => {
                 if queue_maxed {
                     return Ok(CommandAvailability::Restricted);
