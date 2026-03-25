@@ -69,6 +69,9 @@ pub type ConstFXListPtr = Option<String>;
 pub trait Object {
     fn get_name(&self) -> &str;
     fn get_id(&self) -> u32;
+    fn get_veterancy_level(&self) -> usize {
+        0
+    }
 }
 
 /// Individual damage FX configuration for a specific damage type and level
@@ -208,8 +211,11 @@ impl DamageFX {
     ) -> u32 {
         let type_index = self.damage_type_to_index(damage_type);
         if type_index < DAMAGE_NUM_TYPES {
-            // Use level 0 for base throttle time
-            self.dfx[type_index][0].damage_fx_throttle_time
+            let level_index = source
+                .map(|obj| obj.get_veterancy_level())
+                .unwrap_or(0)
+                .min(LEVEL_COUNT.saturating_sub(1));
+            self.dfx[type_index][level_index].damage_fx_throttle_time
         } else {
             0
         }
@@ -220,15 +226,18 @@ impl DamageFX {
         &self,
         damage_type: DamageType,
         damage_amount: f32,
-        _source: Option<&dyn Object>,
+        source: Option<&dyn Object>,
     ) -> ConstFXListPtr {
         let type_index = self.damage_type_to_index(damage_type);
         if type_index >= DAMAGE_NUM_TYPES {
             return None;
         }
 
-        // Use level 0 for base FX selection
-        let entry = &self.dfx[type_index][0];
+        let level_index = source
+            .map(|obj| obj.get_veterancy_level())
+            .unwrap_or(0)
+            .min(LEVEL_COUNT.saturating_sub(1));
+        let entry = &self.dfx[type_index][level_index];
 
         // Choose major or minor FX based on damage amount
         if damage_amount >= entry.amount_for_major_fx {
