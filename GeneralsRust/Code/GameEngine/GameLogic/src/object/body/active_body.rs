@@ -1294,6 +1294,20 @@ impl BodyModuleInterface for ActiveBody {
 
             // Check if we died
             if current_health <= 0.0 && previous_health > 0.0 {
+                // C++ parity: credit the killer on health-crossing inside ActiveBody.
+                if damage_info.input.source_id != INVALID_ID {
+                    if let (Some(damager), Some(owner)) = (
+                        OBJECT_REGISTRY.get_object(damage_info.input.source_id),
+                        self.get_owner(),
+                    ) {
+                        if let (Ok(mut damager_guard), Ok(owner_guard)) =
+                            (damager.write(), owner.read())
+                        {
+                            damager_guard.score_the_kill(&owner_guard);
+                        }
+                    }
+                }
+
                 // Object has died - death will be handled by the Object after this returns
                 // The ActiveBody just tracks that death occurred
                 log::debug!("ActiveBody: Health reached 0, death should be processed by Object");

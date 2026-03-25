@@ -35,11 +35,6 @@ impl ExperienceTracker {
     /// Invalid object ID constant
     pub const INVALID_ID: ObjectID = 0;
 
-    /// Experience gain from damage formula: damage * 0.1
-    pub const DAMAGE_TO_XP_RATIO: f32 = 0.1;
-
-    /// Experience gain from kill formula: target_cost * 0.5
-    pub const KILL_XP_RATIO: f32 = 0.5;
     /// Default experience thresholds for each veterancy level.
     pub const DEFAULT_EXPERIENCE_REQUIRED: [i32; 4] = [0, 100, 300, 600];
 
@@ -97,6 +92,46 @@ impl ExperienceTracker {
         self.experience_sink != Self::INVALID_ID
     }
 
+    fn level_from_index(level_index: usize) -> VeterancyLevel {
+        match level_index {
+            1 => VeterancyLevel::Veteran,
+            2 => VeterancyLevel::Elite,
+            3 => VeterancyLevel::Heroic,
+            _ => VeterancyLevel::Regular,
+        }
+    }
+
+    fn get_owner_template_experience_required(&self, level_index: usize) -> Option<i32> {
+        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
+        let owner_guard = owner.read().ok()?;
+        Some(owner_guard.get_template().get_experience_required(level_index))
+    }
+
+    fn get_owner_template_experience_value(&self, level_index: usize) -> Option<i32> {
+        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
+        let owner_guard = owner.read().ok()?;
+        Some(owner_guard.get_template().get_experience_value(level_index))
+    }
+
+    fn owner_is_trainable(&self) -> Option<bool> {
+        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
+        let owner_guard = owner.read().ok()?;
+        Some(owner_guard.get_template().is_trainable())
+    }
+
+    fn fallback_experience_required(experience_required: &[i32], level_index: usize) -> i32 {
+        experience_required
+            .get(level_index)
+            .copied()
+            .or_else(|| Self::DEFAULT_EXPERIENCE_REQUIRED.get(level_index).copied())
+            .unwrap_or(0)
+    }
+
+    fn experience_required_for_level(&self, level_index: usize, experience_required: &[i32]) -> i32 {
+        self.get_owner_template_experience_required(level_index)
+            .unwrap_or_else(|| Self::fallback_experience_required(experience_required, level_index))
+    }
+
     /// Set veterancy level using default experience requirements
     ///
     /// Convenience method that uses DEFAULT_EXPERIENCE_REQUIRED.
@@ -120,7 +155,8 @@ impl ExperienceTracker {
             self.current_level = new_level;
 
             // Set experience to minimum for this level
-            self.current_experience = experience_required[new_level as usize];
+            self.current_experience =
+                self.experience_required_for_level(new_level as usize, experience_required);
 
             Some(old_level)
         } else {
@@ -142,7 +178,8 @@ impl ExperienceTracker {
             self.current_level = new_level;
 
             // Set experience to minimum for this level
-            self.current_experience = experience_required[new_level as usize];
+            self.current_experience =
+                self.experience_required_for_level(new_level as usize, experience_required);
 
             Some(old_level)
         } else {
@@ -170,8 +207,10 @@ impl ExperienceTracker {
                 if let Ok(sink_guard) = sink.read() {
                     if let Some(tracker) = sink_guard.get_experience_tracker() {
                         if let Ok(mut tracker_guard) = tracker.lock() {
+                            let forwarded_experience_gain =
+                                (experience_gain as f32 * self.experience_scalar) as i32;
                             return tracker_guard.add_experience_points(
-                                experience_gain,
+                                forwarded_experience_gain,
                                 can_scale_for_bonus,
                                 experience_required,
                             );
@@ -179,6 +218,10 @@ impl ExperienceTracker {
                     }
                 }
             }
+        }
+
+        if !self.is_trainable() {
+            return None;
         }
 
         let old_level = self.current_level;
@@ -216,14 +259,16 @@ impl ExperienceTracker {
             return false;
         }
 
-        let new_level = (self.current_level as i32) + levels_to_gain;
-        if new_level > VeterancyLevel::Heroic as i32 {
-            return false;
+        let max_level = VeterancyLevel::Heroic as i32;
+        let mut new_level = (self.current_level as i32) + levels_to_gain;
+        if new_level > max_level {
+            new_level = max_level;
         }
 
         if new_level > self.current_level as i32 {
             let experience_needed =
-                experience_required[new_level as usize] - self.current_experience;
+                self.experience_required_for_level(new_level as usize, experience_required)
+                    - self.current_experience;
             self.add_experience_points(experience_needed, can_scale_for_bonus, experience_required);
             true
         } else {
@@ -237,9 +282,10 @@ impl ExperienceTracker {
             return false;
         }
 
-        let new_level = (self.current_level as i32) + levels_to_gain;
-        if new_level > VeterancyLevel::Heroic as i32 {
-            return false;
+        let max_level = VeterancyLevel::Heroic as i32;
+        let mut new_level = (self.current_level as i32) + levels_to_gain;
+        if new_level > max_level {
+            new_level = max_level;
         }
 
         new_level > self.current_level as i32
@@ -250,7 +296,8 @@ impl ExperienceTracker {
     /// This is a convenience method that checks if the object can gain one level.
     /// Returns true if the object is not yet at max veterancy level.
     pub fn is_trainable(&self) -> bool {
-        self.can_gain_exp_for_level(1)
+        self.owner_is_trainable()
+            .unwrap_or_else(|| self.can_gain_exp_for_level(1))
     }
 
     /// Set experience and recalculate level (matches C++ setExperienceAndLevel)
@@ -294,31 +341,17 @@ impl ExperienceTracker {
 
     /// Update level based on current experience (internal helper)
     fn update_level_from_experience(&mut self, experience_required: &[i32]) {
-        // Find the highest level we qualify for
-        let mut level_index = 0;
+        let mut level_index: usize = 0;
+        let max_level = VeterancyLevel::Heroic as usize;
 
-        // Check if we qualify for Veteran
-        if self.current_experience >= experience_required[VeterancyLevel::Veteran as usize] {
-            level_index = VeterancyLevel::Veteran as usize;
+        while (level_index + 1) <= max_level
+            && self.current_experience
+                >= self.experience_required_for_level(level_index + 1, experience_required)
+        {
+            level_index += 1;
         }
 
-        // Check if we qualify for Elite
-        if self.current_experience >= experience_required[VeterancyLevel::Elite as usize] {
-            level_index = VeterancyLevel::Elite as usize;
-        }
-
-        // Check if we qualify for Heroic
-        if self.current_experience >= experience_required[VeterancyLevel::Heroic as usize] {
-            level_index = VeterancyLevel::Heroic as usize;
-        }
-
-        self.current_level = match level_index {
-            0 => VeterancyLevel::Regular,
-            1 => VeterancyLevel::Veteran,
-            2 => VeterancyLevel::Elite,
-            3 => VeterancyLevel::Heroic,
-            _ => VeterancyLevel::Regular,
-        };
+        self.current_level = Self::level_from_index(level_index);
     }
 
     /// Calculate experience value for killing this object (matches C++ getExperienceValue)
@@ -335,11 +368,14 @@ impl ExperienceTracker {
             return 0;
         }
 
-        // Experience scales with veterancy level and object cost
-        // Base formula: object_cost * 0.5 * (1.0 + level * 0.25)
-        let level_multiplier = 1.0 + (self.current_level as i32 as f32) * 0.25;
-        let base_value = (object_cost as f32 * Self::KILL_XP_RATIO) as i32;
-        (base_value as f32 * level_multiplier) as i32
+        // Runtime parity path: use owner's template XP table at current veterancy.
+        self.get_owner_template_experience_value(self.current_level as usize)
+            // Fallback for tests with no registered owner object.
+            .unwrap_or_else(|| {
+                let level_multiplier = 1.0 + (self.current_level as i32 as f32) * 0.25;
+                let base_value = (object_cost as f32 * 0.5) as i32;
+                (base_value as f32 * level_multiplier) as i32
+            })
     }
 
     /// Calculate experience from damage dealt (matches C++ formula)
@@ -350,7 +386,7 @@ impl ExperienceTracker {
     /// # Returns
     /// Experience points to award
     pub fn calculate_damage_experience(damage_dealt: f32) -> i32 {
-        (damage_dealt * Self::DAMAGE_TO_XP_RATIO) as i32
+        (damage_dealt * 0.1) as i32
     }
 
     /// Serialize tracker state for save/load parity with C++ ExperienceTracker::xfer.
