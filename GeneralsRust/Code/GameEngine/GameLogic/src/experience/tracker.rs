@@ -4,6 +4,7 @@
 //! points and veterancy level. It matches the C++ implementation exactly.
 
 use crate::common::types::{ObjectID, VeterancyLevel};
+use crate::common::{Xfer, XferMode, XferVersion};
 use crate::helpers::TheGameLogic;
 
 /// Core experience tracker (matches C++ ExperienceTracker class)
@@ -350,6 +351,34 @@ impl ExperienceTracker {
     /// Experience points to award
     pub fn calculate_damage_experience(damage_dealt: f32) -> i32 {
         (damage_dealt * Self::DAMAGE_TO_XP_RATIO) as i32
+    }
+
+    /// Serialize tracker state for save/load parity with C++ ExperienceTracker::xfer.
+    pub fn xfer_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let mut current_level = self.current_level as i32;
+        xfer.xfer_int(&mut current_level).map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.current_level = match current_level {
+                1 => VeterancyLevel::Veteran,
+                2 => VeterancyLevel::Elite,
+                3 => VeterancyLevel::Heroic,
+                _ => VeterancyLevel::Regular,
+            };
+        }
+
+        xfer.xfer_int(&mut self.current_experience)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut self.experience_sink)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.experience_scalar)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 }
 

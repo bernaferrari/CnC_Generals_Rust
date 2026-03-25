@@ -2506,12 +2506,33 @@ impl Weapon {
         source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
     ) -> Result<(), WeaponError> {
+        self.fire_weapon_at_position_with_bonus_and_reload_flag(
+            source,
+            position,
+            source_bonus_flags,
+            container_bonus_flags,
+        )?;
+        Ok(())
+    }
+
+    /// Fire weapon at position with bonus integration and report whether the clip completed.
+    pub fn fire_weapon_at_position_with_bonus_and_reload_flag(
+        &mut self,
+        source: ObjectId,
+        position: &Coord3D,
+        source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
+    ) -> Result<bool, WeaponError> {
+        let current_frame = TheGameLogic::get_frame();
+        self.check_can_fire(source, None, Some(position), current_frame)?;
+
         let mut combined_flags = source_bonus_flags;
         if let Some(container_flags) = container_bonus_flags {
             combined_flags |= container_flags;
         }
         let bonus = self.compute_bonus(source, map_common_bonus_flags(combined_flags));
-        self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)
+        self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)?;
+        Ok(self.apply_post_fire_state(current_frame, &bonus))
     }
 
     /// Fire projectile detonation weapon
@@ -2552,10 +2573,31 @@ impl Weapon {
         &mut self,
         source_id: ObjectId,
         target_id: ObjectId,
-        _current_frame: u32,
+        current_frame: u32,
         source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
     ) -> Result<(), WeaponError> {
+        self.fire_weapon_with_bonus_and_reload_flag(
+            source_id,
+            target_id,
+            current_frame,
+            source_bonus_flags,
+            container_bonus_flags,
+        )?;
+        Ok(())
+    }
+
+    /// Fire weapon with full bonus integration and report whether the clip completed.
+    pub fn fire_weapon_with_bonus_and_reload_flag(
+        &mut self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        current_frame: u32,
+        source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
+    ) -> Result<bool, WeaponError> {
+        self.check_can_fire(source_id, Some(target_id), None, current_frame)?;
+
         // Combine source and container bonus flags
         let mut combined_flags = source_bonus_flags;
         if let Some(container_flags) = container_bonus_flags {
@@ -2566,7 +2608,32 @@ impl Weapon {
         let internal_flags = map_common_bonus_flags(combined_flags);
 
         let bonus = self.compute_bonus(source_id, internal_flags);
-        self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)
+        self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)?;
+        Ok(self.apply_post_fire_state(current_frame, &bonus))
+    }
+
+    fn apply_post_fire_state(&mut self, current_frame: u32, bonus: &WeaponBonus) -> bool {
+        let delay = self.template.get_delay_between_shots(bonus);
+        self.when_we_can_fire_again = current_frame + (delay as u32);
+        self.last_fire_frame = current_frame;
+        self.status = WeaponStatus::BetweenFiringShots;
+
+        if self.ammo_in_clip > 0 {
+            self.ammo_in_clip -= 1;
+        }
+
+        if self.ammo_in_clip == 0 {
+            if self.template.get_auto_reloads_clip() {
+                let reload_time = self.template.get_clip_reload_time(bonus);
+                self.when_we_can_fire_again = current_frame + (reload_time as u32);
+                self.status = WeaponStatus::ReloadingClip;
+            } else {
+                self.status = WeaponStatus::OutOfAmmo;
+            }
+            return true;
+        }
+
+        false
     }
 
     /// Pre-fire weapon (for weapons with pre-attack delay)
