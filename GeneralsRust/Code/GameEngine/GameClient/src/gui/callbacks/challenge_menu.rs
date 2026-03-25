@@ -4,6 +4,7 @@ use crate::display::image::get_mapped_image_collection;
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
 use crate::gui::game_window::Image as WindowImage;
+use crate::gui::get_skirmish_setup;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
     get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
@@ -11,9 +12,11 @@ use crate::gui::{
 };
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
-use game_engine::common::ini::get_global_data;
+use game_engine::common::ini::{ensure_player_templates_loaded, get_global_data};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
+use game_engine::common::rts::player_template::get_player_template_store;
+use game_network::{GameSlot, SlotState};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
@@ -236,32 +239,80 @@ fn update_bio(state: &mut ChallengeMenuState, frames: usize) {
     sync_bio_text(state);
 }
 
-fn start_challenge_game() {
-    let Some(generals) = get_challenge_generals_mut() else {
-        return;
+fn set_general_campaign(button_index: usize) -> Option<String> {
+    if button_index >= NUM_GENERALS {
+        return None;
+    }
+
+    let (campaign_name, player_template_name) = {
+        let generals = get_challenge_generals_mut()?;
+        let general = &generals.challenge_generals()[button_index];
+        (
+            general.campaign().to_string(),
+            general.player_template_name().to_string(),
+        )
     };
-    let (selected_index, difficulty) = {
+
+    ensure_player_templates_loaded();
+    let (template_num, player_display_name) = {
+        let store = get_player_template_store();
+        let template_num = store.find_template_index(&player_template_name)? as i32;
+        let player_display_name = store
+            .get_nth_player_template(template_num as usize)
+            .map(|template| template.get_display_name().to_string())
+            .unwrap_or_default();
+        (template_num, player_display_name)
+    };
+
+    if let Some(generals) = get_challenge_generals_mut() {
+        generals.set_current_player_template_num(template_num);
+    }
+
+    let current_map = {
+        let mut campaign_manager = get_campaign_manager();
+        campaign_manager.set_campaign(&campaign_name);
+        campaign_manager.get_current_map().unwrap_or_default()
+    };
+
+    if !current_map.is_empty() {
+        let mut setup = get_skirmish_setup();
+        let info = setup.game_info_mut().game_info_mut();
+        let mut slot = GameSlot::new();
+        slot.set_state(SlotState::Player, player_display_name, 0);
+        slot.set_player_template(template_num);
+        info.set_slot(0, slot);
+        info.set_map(current_map.clone());
+    }
+
+    Some(current_map)
+}
+
+fn start_challenge_game() {
+    let selected_index = {
         let state_handle = challenge_menu_state();
         let state = state_handle
             .lock()
             .expect("challenge menu state lock poisoned");
-        let Some(selected_index) = state.last_button_index else {
-            return;
-        };
-        (selected_index, generals.current_difficulty())
+        match state.last_button_index {
+            Some(index) => index,
+            None => return,
+        }
     };
 
-    let general = &generals.challenge_generals()[selected_index];
-    let campaign_name = general.campaign().to_string();
+    let difficulty = {
+        let Some(generals) = get_challenge_generals_mut() else {
+            return;
+        };
+        generals.current_difficulty()
+    };
 
-    let (current_map, rank_points) = {
+    let Some(current_map) = set_general_campaign(selected_index) else {
+        return;
+    };
+    let rank_points = {
         let mut campaign_manager = get_campaign_manager();
-        campaign_manager.set_campaign(&campaign_name);
         campaign_manager.set_game_difficulty(challenge_to_campaign_difficulty(difficulty));
-        (
-            campaign_manager.get_current_map().unwrap_or_default(),
-            campaign_manager.get_rank_points(),
-        )
+        campaign_manager.get_rank_points()
     };
 
     if current_map.is_empty() {
@@ -304,6 +355,15 @@ fn start_challenge_game() {
 }
 
 pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
+    {
+        let mut setup = get_skirmish_setup();
+        let info = setup.game_info_mut().game_info_mut();
+        info.init();
+        info.clear_slot_list();
+        info.reset();
+        info.enter_game();
+    }
+
     let state_handle = challenge_menu_state();
     let mut state = state_handle
         .lock()
