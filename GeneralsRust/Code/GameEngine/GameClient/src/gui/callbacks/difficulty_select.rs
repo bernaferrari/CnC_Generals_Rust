@@ -1,15 +1,13 @@
 //! DifficultySelect.cpp callback port.
 
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty};
+use crate::gui::shell::main_menu::{get_main_menu, GameDifficulty as MainMenuDifficulty};
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowWidget,
+    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowWidget,
 };
-use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::user_preferences::UserPreferences;
-use gamelogic::helpers::TheGameLogic;
-use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -66,6 +64,14 @@ fn difficulty_from_logic(diff: i32) -> GameDifficulty {
         0 => GameDifficulty::Easy,
         2 => GameDifficulty::Hard,
         _ => GameDifficulty::Normal,
+    }
+}
+
+fn difficulty_to_main_menu(diff: GameDifficulty) -> MainMenuDifficulty {
+    match diff {
+        GameDifficulty::Easy => MainMenuDifficulty::Easy,
+        GameDifficulty::Normal => MainMenuDifficulty::Normal,
+        GameDifficulty::Hard => MainMenuDifficulty::Hard,
     }
 }
 
@@ -147,12 +153,9 @@ fn cancel_difficulty_select(window: &GameWindow) {
 }
 
 fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
-    let (current_map, rank_points) = {
+    let current_map = {
         let campaign_manager = get_campaign_manager();
-        (
-            campaign_manager.get_current_map().unwrap_or_default(),
-            campaign_manager.get_rank_points(),
-        )
+        campaign_manager.get_current_map().unwrap_or_default()
     };
 
     if current_map.is_empty() {
@@ -160,9 +163,6 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
         return;
     }
 
-    if let Some(data) = get_global_data() {
-        data.write().pending_file = current_map;
-    }
     save_campaign_difficulty(difficulty);
 
     let state_handle = difficulty_select_state();
@@ -178,12 +178,10 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
 
     destroy_current_layout(window);
 
-    let _ = get_shell().hide_shell();
-    TheGameLogic::prepare_new_game(
-        GAME_SINGLE_PLAYER,
-        difficulty_to_logic(difficulty),
-        rank_points,
-    );
+    // C++ DifficultySelect calls MainMenu::setupGameStart() instead of
+    // preparing gameplay directly, so route through the same startup pipeline.
+    let mut main_menu = get_main_menu();
+    main_menu.setup_game_start_from_callback(&current_map, difficulty_to_main_menu(difficulty));
 }
 
 pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {

@@ -1741,6 +1741,13 @@ impl MainMenu {
         }
     }
 
+    /// Public wrapper used by external menu callbacks that must follow
+    /// MainMenu::setupGameStart behavior (for example DifficultySelect popup flow).
+    pub fn setup_game_start_from_callback(&mut self, map_name: &str, diff: GameDifficulty) {
+        let mut state = self.state.write().unwrap();
+        self.setup_game_start(&mut state, map_name, diff);
+    }
+
     /// Prepare campaign game
     /// Port of prepareCampaignGame() - C++ lines 275-286
     fn prepare_campaign_game(&self, state: &mut MainMenuState, diff: GameDifficulty) {
