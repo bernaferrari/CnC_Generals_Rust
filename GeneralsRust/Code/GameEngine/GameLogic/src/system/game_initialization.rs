@@ -215,6 +215,7 @@ impl GameInitializer {
         }
         if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
             terrain.load_map_data(map_data);
+            terrain.new_map(false);
         }
 
         let heightmap = game_state.map_loader.get_heightmap();

@@ -894,10 +894,27 @@ impl TerrainLogic {
     }
 
     /// Initialize for new map
+    ///
+    /// C++ parity: this is a post-load finalize step, not a full terrain reset.
+    /// It aligns waypoint Z with loaded ground height and enables water grid only
+    /// when the map defines the legacy `WaveGuide1` marker.
     pub fn new_map(&mut self, _save_game: bool) {
-        self.reset();
-        // Initialize defaults for new map
-        self.water_grid_enabled = true;
+        let mut waypoint_heights = Vec::new();
+        let mut current = self.waypoint_list_head.as_deref();
+        while let Some(waypoint) = current {
+            let loc = waypoint.get_location();
+            waypoint_heights.push((waypoint.get_id(), self.get_ground_height(loc.x, loc.y, None)));
+            current = waypoint.get_next();
+        }
+
+        for (id, z) in waypoint_heights {
+            if let Some(waypoint) = self.get_waypoint_by_id_mut(id) {
+                waypoint.set_location_z(z);
+            }
+        }
+
+        let wave_guide = AsciiString::from("WaveGuide1");
+        self.enable_water_grid(self.get_waypoint_by_name(&wave_guide).is_some());
     }
 
     /// Get ground height at position

@@ -19,7 +19,7 @@ use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator as SelectionTranslatorXlat;
 use super::window_xlat::WindowTranslator;
 use crate::display::view::{with_tactical_view_ref, IPoint2};
-use crate::gui::{toggle_control_bar, toggle_diplomacy};
+use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::system::beacon_display;
@@ -385,6 +385,66 @@ fn pending_command_selection_valid(
         CommandType::Dock => selection_can_dock_at_target(local_player, selection, target_id),
         _ => true,
     }
+}
+
+fn current_local_selection(local_player: i32) -> HashSet<ObjectID> {
+    let mut selection_ids = HashSet::new();
+    if local_player < 0 {
+        return selection_ids;
+    }
+
+    let selection_manager = get_selection_manager();
+    let Ok(manager) = selection_manager.read() else {
+        return selection_ids;
+    };
+    let Some(selection) = manager.get_player_selection_ref(local_player) else {
+        return selection_ids;
+    };
+
+    selection_ids.extend(selection.get_selected_objects());
+    selection_ids
+}
+
+fn pick_context_target_for_click(region: &IRegion2D, local_player: Option<u32>) -> Option<ObjectID> {
+    const PICK_RADIUS_WORLD: f32 = 10.0;
+
+    let (mut mine, mut other) = collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player);
+    let mine_pick = pick_closest(&mut mine);
+    let other_pick = pick_closest(&mut other);
+
+    match (mine_pick, other_pick) {
+        (Some(mine_id), Some(other_id)) => {
+            let mine_dist = mine
+                .iter()
+                .find(|(id, _)| *id == mine_id)
+                .map(|(_, d)| *d)
+                .unwrap_or(f32::MAX);
+            let other_dist = other
+                .iter()
+                .find(|(id, _)| *id == other_id)
+                .map(|(_, d)| *d)
+                .unwrap_or(f32::MAX);
+            if mine_dist <= other_dist {
+                Some(mine_id)
+            } else {
+                Some(other_id)
+            }
+        }
+        (Some(id), None) | (None, Some(id)) => Some(id),
+        (None, None) => None,
+    }
+}
+
+fn is_pending_gui_non_context_command(command_type: CommandType) -> bool {
+    matches!(
+        command_type,
+        CommandType::DoAttackMoveTo
+            | CommandType::DoGuardPosition
+            | CommandType::DoGuardObject
+            | CommandType::SetRallyPoint
+            | CommandType::PlaceBeacon
+            | CommandType::RemoveBeacon
+    )
 }
 
 /// Command Translator - converts raw input into game commands
@@ -2714,6 +2774,80 @@ impl GUICommandTranslator {
         }
         vec![]
     }
+
+    fn clear_pending_gui_command_mode(&self) {
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_attack_move_to_mode();
+    }
+
+    fn handle_pending_non_context_gui_click(&mut self, region: &IRegion2D) -> GameMessageDisposition {
+        let Some(pending) = TheInGameUI::get_pending_command() else {
+            return GameMessageDisposition::KeepMessage;
+        };
+        if !is_pending_gui_non_context_command(pending.command_type) {
+            return GameMessageDisposition::KeepMessage;
+        }
+
+        // C++ GUICommandTranslator uses pixelRegion.hi as click location.
+        let click_pos = ICoord2D::new(region.x + region.width, region.y + region.height);
+        let click_region = IRegion2D {
+            x: click_pos.x,
+            y: click_pos.y,
+            width: 0,
+            height: 0,
+        };
+
+        let world = screen_to_terrain(&click_pos).unwrap_or(Coord3D {
+            x: click_pos.x as f32,
+            y: click_pos.y as f32,
+            z: 0.0,
+        });
+
+        let local_player = get_local_player_id();
+        let local_player_u32 = if local_player >= 0 {
+            Some(local_player as u32)
+        } else {
+            None
+        };
+        let selection_ids = current_local_selection(local_player);
+        let target = pick_context_target_for_click(&click_region, local_player_u32);
+
+        let mut translated: Option<GameMessageType> = None;
+        if let Some(target_id) = target {
+            if pending_command_accepts_object(pending.options)
+                && pending_command_target_allowed(pending.options, local_player, target_id)
+                && pending_command_selection_valid(
+                    &pending,
+                    local_player_u32,
+                    &selection_ids,
+                    target_id,
+                )
+            {
+                translated = pending_command_for_object(&pending, target_id);
+            }
+
+            if translated.is_none() && pending_command_accepts_position(pending.options) {
+                if let Some(obj) = OBJECT_REGISTRY.get_object(target_id) {
+                    if let Ok(obj_guard) = obj.read() {
+                        translated = pending_command_for_position(
+                            &pending,
+                            logic_to_message_coord(obj_guard.get_position()),
+                        );
+                    }
+                }
+            }
+        } else if pending_command_accepts_position(pending.options) {
+            translated = pending_command_for_position(&pending, world);
+        }
+
+        if let Some(message) = translated.as_ref() {
+            dispatch_translated_message(message);
+        }
+
+        // Non-context GUI command clicks complete this mode even when target validation fails.
+        self.clear_pending_gui_command_mode();
+        GameMessageDisposition::DestroyMessage
+    }
 }
 
 impl Default for GUICommandTranslator {
@@ -2724,6 +2858,24 @@ impl Default for GUICommandTranslator {
 
 impl GameMessageTranslator for GUICommandTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        if let Some(pending) = TheInGameUI::get_pending_command() {
+            if is_pending_gui_non_context_command(pending.command_type) {
+                match msg.get_type() {
+                    // Consume raw left input while in pending GUI command mode so selection
+                    // translators do not start click/drag selection.
+                    GameMessageType::RawMouseLeftButtonDown(..)
+                    | GameMessageType::RawMouseLeftButtonUp(..) => {
+                        return GameMessageDisposition::DestroyMessage;
+                    }
+                    GameMessageType::MouseLeftClick(region, _)
+                    | GameMessageType::MouseLeftDoubleClick(region, _) => {
+                        return self.handle_pending_non_context_gui_click(region);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         match msg.get_type() {
             GameMessageType::MetaToggleControlBar => {
                 self.handle_toggle_control_bar();
@@ -2734,7 +2886,8 @@ impl GameMessageTranslator for GUICommandTranslator {
                 GameMessageDisposition::DestroyMessage
             }
             GameMessageType::MetaOptions => {
-                info!("Opening options menu");
+                info!("Toggling quit/options menu");
+                toggle_quit_menu();
                 GameMessageDisposition::DestroyMessage
             }
             _ => GameMessageDisposition::KeepMessage,
@@ -2962,6 +3115,79 @@ mod tests {
         let other_msg = GameMessage::new(GameMessageType::Invalid);
         let result = translator.translate_game_message(&other_msg);
         assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn test_gui_command_translator_consumes_pending_non_context_raw_left_input() {
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::DoAttackMoveTo, CMD_NEED_TARGET_POS, 0);
+
+        let mut translator = GUICommandTranslator::new();
+        let down_msg = GameMessage::new(GameMessageType::RawMouseLeftButtonDown(
+            ICoord2D { x: 32, y: 48 },
+            0,
+            1,
+        ));
+        let up_msg = GameMessage::new(GameMessageType::RawMouseLeftButtonUp(
+            ICoord2D { x: 32, y: 48 },
+            0,
+            2,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&down_msg),
+            GameMessageDisposition::DestroyMessage
+        );
+        assert_eq!(
+            translator.translate_game_message(&up_msg),
+            GameMessageDisposition::DestroyMessage
+        );
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_gui_command_translator_click_executes_and_clears_pending_non_context_command() {
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::DoAttackMoveTo, CMD_NEED_TARGET_POS, 0);
+
+        let mut translator = GUICommandTranslator::new();
+        let click_msg = GameMessage::new(GameMessageType::MouseLeftClick(
+            IRegion2D {
+                x: 100,
+                y: 150,
+                width: 0,
+                height: 0,
+            },
+            0,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&click_msg),
+            GameMessageDisposition::DestroyMessage
+        );
+        assert!(TheInGameUI::get_pending_command().is_none());
+    }
+
+    #[test]
+    fn test_gui_command_translator_keeps_context_pending_command_for_command_translator() {
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
+
+        let mut translator = GUICommandTranslator::new();
+        let down_msg = GameMessage::new(GameMessageType::RawMouseLeftButtonDown(
+            ICoord2D { x: 10, y: 20 },
+            0,
+            1,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&down_msg),
+            GameMessageDisposition::KeepMessage
+        );
+        assert!(TheInGameUI::get_pending_command().is_some());
+
+        TheInGameUI::clear_pending_command();
     }
 
     #[test]
