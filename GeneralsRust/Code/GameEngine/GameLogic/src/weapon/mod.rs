@@ -1982,7 +1982,7 @@ impl WeaponTemplate {
             return primary_damage;
         };
 
-        let damage_info = DamageInfoInput {
+        let damage_info = crate::damage::DamageInfoInput {
             damage_type: crate::damage::DamageType::from_u32(self.damage_type as u32),
             death_type: crate::damage::DeathType::from_u32(self.death_type as u32),
             source_id,

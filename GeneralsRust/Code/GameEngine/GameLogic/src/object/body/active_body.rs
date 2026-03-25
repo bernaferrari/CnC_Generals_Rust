@@ -20,9 +20,12 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::system::game_logic::current_frame;
 use game_engine::common::bit_flags::{create_armor_set_flags, ArmorSetBitFlags, ArmorSetFlags};
-use game_engine::common::damage_fx::{get_damage_fx_store, get_damage_fx_store_mut, DamageFX};
 use game_engine::common::game_common::convert_duration_from_msecs_to_frames;
 use game_engine::common::global_data;
+use game_engine::common::ini::ini_damage_fx::{
+    get_damage_fx_store, get_damage_fx_store_mut, init_global_damage_fx_store, DamageFX,
+    DamageType as IniDamageType, Object as DamageFxObjectTrait,
+};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock};
@@ -350,6 +353,85 @@ struct BodyParticleSystem {
     next: Option<Box<BodyParticleSystem>>,
 }
 
+#[derive(Debug, Clone)]
+struct DamageFxObjectSnapshot {
+    id: u32,
+    name: String,
+}
+
+impl DamageFxObjectSnapshot {
+    fn from_object(object: &Object) -> Self {
+        Self {
+            id: object.get_id(),
+            name: object.get_name().as_str().to_string(),
+        }
+    }
+}
+
+impl DamageFxObjectTrait for DamageFxObjectSnapshot {
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    fn get_id(&self) -> u32 {
+        self.id
+    }
+}
+
+fn to_ini_damage_type(damage_type: DamageType) -> IniDamageType {
+    match damage_type {
+        DamageType::Explosion => IniDamageType::Explosion,
+        DamageType::Crush => IniDamageType::Crush,
+        DamageType::ArmorPiercing => IniDamageType::ArmorPiercing,
+        DamageType::SmallArms => IniDamageType::SmallArms,
+        DamageType::Gattling => IniDamageType::Gattling,
+        DamageType::Radiation => IniDamageType::Radiation,
+        DamageType::Flame => IniDamageType::Flame,
+        DamageType::Laser => IniDamageType::Laser,
+        DamageType::Sniper => IniDamageType::Sniper,
+        DamageType::Poison => IniDamageType::Poison,
+        DamageType::Healing => IniDamageType::Healing,
+        DamageType::Unresistable => IniDamageType::Unresistable,
+        DamageType::Water => IniDamageType::Water,
+        DamageType::Deploy => IniDamageType::Deploy,
+        DamageType::Surrender => IniDamageType::Surrender,
+        DamageType::Hack => IniDamageType::Hack,
+        DamageType::KillPilot => IniDamageType::KillPilot,
+        DamageType::Penalty => IniDamageType::Penalty,
+        DamageType::Falling => IniDamageType::Falling,
+        DamageType::Melee => IniDamageType::Melee,
+        DamageType::Disarm => IniDamageType::Disarm,
+        DamageType::HazardCleanup => IniDamageType::HazardCleanup,
+        DamageType::ParticleBeam => IniDamageType::ParticleBeam,
+        DamageType::Toppling => IniDamageType::Toppling,
+        DamageType::InfantryMissile => IniDamageType::InfantryMissile,
+        DamageType::AuroraBomb => IniDamageType::AuroraBomb,
+        DamageType::LandMine => IniDamageType::LandMine,
+        DamageType::JetMissiles => IniDamageType::JetMissiles,
+        DamageType::StealthJetMissiles => IniDamageType::StealthJetMissiles,
+        DamageType::MolotovCocktail => IniDamageType::MolotovCocktail,
+        DamageType::ComancheVulcan => IniDamageType::ComancheVulcan,
+        DamageType::SubdualMissile => IniDamageType::SubdualMissile,
+        DamageType::SubdualVehicle => IniDamageType::SubdualVehicle,
+        DamageType::SubdualBuilding => IniDamageType::SubdualBuilding,
+        DamageType::SubdualUnresistable => IniDamageType::SubdualUnresistable,
+        DamageType::Microwave => IniDamageType::Microwave,
+        DamageType::KillGarrisoned => IniDamageType::KillGarrisoned,
+        DamageType::Status => IniDamageType::Status,
+        DamageType::DamageNumTypes => IniDamageType::Explosion,
+    }
+}
+
+fn snapshot_object_for_damage_fx(object_id: ObjectId) -> Option<DamageFxObjectSnapshot> {
+    if object_id == INVALID_ID {
+        return None;
+    }
+
+    let object = OBJECT_REGISTRY.get_object(object_id)?;
+    let guard = object.read().ok()?;
+    Some(DamageFxObjectSnapshot::from_object(&guard))
+}
+
 /// Thread-safe state for active body
 #[derive(Debug)]
 struct ActiveBodyState {
@@ -668,8 +750,10 @@ impl ActiveBody {
         self.apply_named_armor(desired_armor_name.clone())?;
 
         if let Some(ref fx_name) = damage_fx_name {
-            let store = get_damage_fx_store();
-            if store.find_damage_fx(fx_name.as_str()).is_none() {
+            let missing = get_damage_fx_store()
+                .map(|store| store.find_damage_fx(fx_name.as_str()).is_none())
+                .unwrap_or(true);
+            if missing {
                 log::trace!(
                     "Missing damage FX '{}' referenced by armor template",
                     fx_name.as_str()
@@ -788,9 +872,15 @@ impl ActiveBody {
             return Ok(());
         }
 
+        // C++ ActiveBody::doDamageFX applies visual override when requested.
+        let mut damage_type_to_use = damage_info.input.damage_type;
+        if damage_info.input.damage_fx_override != DamageType::Unresistable {
+            damage_type_to_use = damage_info.input.damage_fx_override;
+        }
+
         let current_time = current_frame();
 
-        let (fx_name, next_allowed) = {
+        let (fx_name, next_allowed, last_damage_fx_done) = {
             let state = self
                 .state
                 .read()
@@ -798,6 +888,7 @@ impl ActiveBody {
             (
                 state.current_damage_fx_name.clone(),
                 state.next_damage_fx_time,
+                state.last_damage_fx_done,
             )
         };
 
@@ -806,20 +897,42 @@ impl ActiveBody {
             None => return Ok(()),
         };
 
-        if current_time < next_allowed {
+        // C++ throttle only suppresses repeated effects of the same damage type.
+        if damage_type_to_use == last_damage_fx_done && current_time < next_allowed {
             return Ok(());
         }
 
-        let damage_type_idx = damage_info.input.damage_type as usize;
+        let source_snapshot = snapshot_object_for_damage_fx(damage_info.input.source_id);
+        let victim_snapshot = self.get_owner().and_then(|owner| {
+            owner
+                .read()
+                .ok()
+                .map(|guard| DamageFxObjectSnapshot::from_object(&guard))
+        });
+        let source_obj = source_snapshot
+            .as_ref()
+            .map(|obj| obj as &dyn DamageFxObjectTrait);
+        let victim_obj = victim_snapshot
+            .as_ref()
+            .map(|obj| obj as &dyn DamageFxObjectTrait);
+        let damage_type = to_ini_damage_type(damage_type_to_use);
+
         let throttle = {
-            let store = get_damage_fx_store();
-            if let Some(fx) = store.find_damage_fx(fx_name.as_str()) {
-                let throttle = fx.get_damage_fx_throttle_time(damage_type_idx, None);
-                fx.do_damage_fx(damage_type_idx, dealt, None, None);
-                throttle
+            if let Some(store) = get_damage_fx_store() {
+                if let Some(fx) = store.find_damage_fx(fx_name.as_str()) {
+                    let throttle = fx.get_damage_fx_throttle_time(damage_type, source_obj);
+                    fx.do_damage_fx(damage_type, dealt, source_obj, victim_obj);
+                    throttle
+                } else {
+                    log::trace!(
+                        "Missing damage FX '{}' referenced by armor template",
+                        fx_name.as_str()
+                    );
+                    0
+                }
             } else {
                 log::trace!(
-                    "Missing damage FX '{}' referenced by armor template",
+                    "Damage FX store is not initialized while looking up '{}'",
                     fx_name.as_str()
                 );
                 0
@@ -830,7 +943,7 @@ impl ActiveBody {
             .state
             .write()
             .map_err(|_| BodyError::ArmorValidationFailed)?;
-        state.last_damage_fx_done = damage_info.input.damage_type;
+        state.last_damage_fx_done = damage_type_to_use;
         state.next_damage_fx_time = current_time.saturating_add(throttle);
 
         Ok(())
@@ -2251,7 +2364,10 @@ mod tests {
     #[test]
     fn resolves_armor_template_from_template_flags() {
         TheArmorStore::reset();
-        get_damage_fx_store_mut().clear();
+        init_global_damage_fx_store();
+        if let Some(mut store) = get_damage_fx_store_mut() {
+            store.reset();
+        }
 
         let base_name = AsciiString::from("BaseArmor");
         let hero_name = AsciiString::from("HeroArmor");
@@ -2265,7 +2381,9 @@ mod tests {
         hero_template.set_default(0.5);
         TheArmorStore::register_template(&hero_name, hero_template);
 
-        get_damage_fx_store_mut().add_damage_fx(hero_fx_name.as_str(), DamageFX::new());
+        if let Some(mut store) = get_damage_fx_store_mut() {
+            store.add_damage_fx(hero_fx_name.as_str().to_string(), DamageFX::new());
+        }
 
         let mut engine_template = EngineThingTemplateDataExt::new();
         let mut base_set = EngineArmorTemplateSet::new();
@@ -2302,6 +2420,8 @@ mod tests {
         assert!(body.current_damage_fx_name().is_none());
 
         TheArmorStore::reset();
-        get_damage_fx_store_mut().clear();
+        if let Some(mut store) = get_damage_fx_store_mut() {
+            store.reset();
+        }
     }
 }
