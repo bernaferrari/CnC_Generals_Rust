@@ -25,9 +25,12 @@ type DrawableIdCounterSetter = Arc<dyn Fn(DrawableID) + Send + Sync>;
 type BeginLoadHook = Arc<dyn Fn() + Send + Sync>;
 type EndLoadHook = Arc<dyn Fn() + Send + Sync>;
 type SetLoadingSaveHook = Arc<dyn Fn(bool) + Send + Sync>;
+type GetGameModeHook = Arc<dyn Fn() -> i32 + Send + Sync>;
 type SetGameModeHook = Arc<dyn Fn(i32) + Send + Sync>;
 type StartNewGameFromSaveHook = Arc<dyn Fn() + Send + Sync>;
 type PostLoadRefreshHook = Arc<dyn Fn() + Send + Sync>;
+type GetSkirmishPayloadHook = Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>;
+type SetSkirmishPayloadHook = Arc<dyn Fn(Option<Vec<u8>>) + Send + Sync>;
 
 #[derive(Default)]
 struct RuntimeIdCounterHooks {
@@ -44,9 +47,12 @@ struct SaveLoadLifecycleHooks {
     begin_load: Option<BeginLoadHook>,
     end_load: Option<EndLoadHook>,
     set_loading_save: Option<SetLoadingSaveHook>,
+    get_game_mode: Option<GetGameModeHook>,
     set_game_mode: Option<SetGameModeHook>,
     start_new_game_from_save: Option<StartNewGameFromSaveHook>,
     post_load_refresh: Option<PostLoadRefreshHook>,
+    get_skirmish_payload: Option<GetSkirmishPayloadHook>,
+    set_skirmish_payload: Option<SetSkirmishPayloadHook>,
 }
 
 static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
@@ -115,6 +121,7 @@ pub fn register_save_load_lifecycle_hooks(
     begin_load: Option<BeginLoadHook>,
     end_load: Option<EndLoadHook>,
     set_loading_save: Option<SetLoadingSaveHook>,
+    get_game_mode: Option<GetGameModeHook>,
     set_game_mode: Option<SetGameModeHook>,
     start_new_game_from_save: Option<StartNewGameFromSaveHook>,
     post_load_refresh: Option<PostLoadRefreshHook>,
@@ -123,9 +130,20 @@ pub fn register_save_load_lifecycle_hooks(
         hooks.begin_load = begin_load;
         hooks.end_load = end_load;
         hooks.set_loading_save = set_loading_save;
+        hooks.get_game_mode = get_game_mode;
         hooks.set_game_mode = set_game_mode;
         hooks.start_new_game_from_save = start_new_game_from_save;
         hooks.post_load_refresh = post_load_refresh;
+    }
+}
+
+pub fn register_save_load_skirmish_hooks(
+    get_skirmish_payload: Option<GetSkirmishPayloadHook>,
+    set_skirmish_payload: Option<SetSkirmishPayloadHook>,
+) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.get_skirmish_payload = get_skirmish_payload;
+        hooks.set_skirmish_payload = set_skirmish_payload;
     }
 }
 
@@ -153,6 +171,11 @@ pub(crate) fn notify_set_loading_save(loading: bool) {
     }
 }
 
+pub(crate) fn notify_get_game_mode() -> Option<i32> {
+    let hooks = save_load_hooks().lock().ok()?;
+    hooks.get_game_mode.as_ref().map(|callback| callback())
+}
+
 pub(crate) fn notify_set_game_mode(game_mode: i32) {
     if let Ok(hooks) = save_load_hooks().lock() {
         if let Some(callback) = hooks.set_game_mode.as_ref() {
@@ -173,6 +196,22 @@ pub(crate) fn notify_post_load_refresh() {
     if let Ok(hooks) = save_load_hooks().lock() {
         if let Some(callback) = hooks.post_load_refresh.as_ref() {
             callback();
+        }
+    }
+}
+
+pub(crate) fn notify_get_skirmish_payload() -> Option<Vec<u8>> {
+    let hooks = save_load_hooks().lock().ok()?;
+    hooks
+        .get_skirmish_payload
+        .as_ref()
+        .and_then(|callback| callback())
+}
+
+pub(crate) fn notify_set_skirmish_payload(payload: Option<Vec<u8>>) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.set_skirmish_payload.as_ref() {
+            callback(payload);
         }
     }
 }
