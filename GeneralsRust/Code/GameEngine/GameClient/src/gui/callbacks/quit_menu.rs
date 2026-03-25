@@ -4,7 +4,9 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::message_box::{
     message_box_yes_no, quit_message_box_yes_no, MessageBoxFunc,
 };
-use crate::gui::{get_disconnect_menu, get_shell, hide_diplomacy, hide_in_game_chat};
+use crate::gui::{
+    get_disconnect_menu, get_lan_setup, get_shell, hide_diplomacy, hide_in_game_chat,
+};
 use crate::gui::{
     with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
@@ -16,6 +18,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::recorder::{with_recorder, with_recorder_mut};
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine, TheVictoryConditions};
+use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN};
 use gamelogic::player::ThePlayerList;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -79,6 +82,49 @@ fn init_gadgets_no_save_quit(state: &mut QuitMenuState) {
     });
 }
 
+fn send_back_button_selection(button_name: &str) -> bool {
+    let button_id = NameKeyGenerator::name_to_key(button_name) as i32;
+    with_window_manager(|manager| {
+        let Some(button) = manager.get_window_by_id(button_id) else {
+            return false;
+        };
+
+        let target = {
+            let button_ref = button.borrow();
+            button_ref.get_parent().unwrap_or_else(|| button.clone())
+        };
+
+        let _ = manager.send_system_message(
+            &target,
+            WindowMessage::GadgetSelected,
+            button_id as u32,
+            button_id as u32,
+        );
+        true
+    })
+}
+
+#[cfg(feature = "network")]
+fn internet_session_is_sandbox() -> bool {
+    crate::gamespy_game::with_gamespy_game_info(|info| info.is_sandbox())
+}
+
+#[cfg(not(feature = "network"))]
+fn internet_session_is_sandbox() -> bool {
+    false
+}
+
+fn session_is_sandbox() -> bool {
+    match TheGameLogic::get_game_mode() {
+        GAME_LAN => {
+            let setup = get_lan_setup();
+            setup.game_info().is_sandbox()
+        }
+        GAME_INTERNET => internet_session_is_sandbox(),
+        _ => false,
+    }
+}
+
 pub fn destroy_quit_menu() {
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().expect("quit menu state lock poisoned");
@@ -96,7 +142,10 @@ pub fn destroy_quit_menu() {
 fn exit_quit_menu() {
     destroy_quit_menu();
 
-    if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_skirmish_game() {
+    if TheGameLogic::is_in_multiplayer_game()
+        && !TheGameLogic::is_in_skirmish_game()
+        && !session_is_sandbox()
+    {
         let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
         let message_stream = get_message_stream();
         let mut stream = message_stream.write().unwrap();
@@ -259,6 +308,9 @@ pub fn toggle_quit_menu() {
         let mut shell = get_shell();
         if let Some(layout) = shell.get_options_layout(false) {
             if !layout.is_hidden() {
+                if send_back_button_selection("OptionsMenu.wnd:ButtonBack") {
+                    return;
+                }
                 let mut immediate = false;
                 let _ = layout.run_shutdown(&mut immediate);
                 layout.hide(true);
@@ -272,7 +324,12 @@ pub fn toggle_quit_menu() {
         let mut state = state_handle.lock().expect("quit menu state lock poisoned");
         if let Some(layout) = state.save_load_layout.as_ref() {
             if !layout.borrow().is_hidden() {
+                if send_back_button_selection("PopupSaveLoad.wnd:ButtonBack") {
+                    state.save_load_layout = None;
+                    return;
+                }
                 layout.borrow_mut().hide(true);
+                state.save_load_layout = None;
                 return;
             }
         }

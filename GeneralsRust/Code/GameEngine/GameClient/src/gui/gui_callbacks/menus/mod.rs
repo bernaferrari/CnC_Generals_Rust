@@ -2,7 +2,6 @@
 
 pub mod challenge_menu;
 pub mod credits_menu;
-pub mod difficulty_select;
 pub mod disconnect_window;
 pub mod download_menu;
 pub mod establish_connections_window;

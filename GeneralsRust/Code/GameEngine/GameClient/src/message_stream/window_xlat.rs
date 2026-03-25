@@ -2,13 +2,20 @@
 
 use super::game_message::{GameMessage, GameMessageType, ICoord2D};
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
+use crate::display::view::with_tactical_view_ref;
+use crate::helpers::TheInGameUI;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
 use crate::gui::shell::get_shell;
 use crate::gui::window_manager::with_window_manager;
+use game_engine::common::ini::get_global_data;
+use gamelogic::helpers::TheGameLogic;
 
 fn pack_legacy_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
 }
+
+const KEY_ESC: u32 = 0x1B;
+const KEY_STATE_UP: u8 = 0x01;
 
 fn raw_mouse_to_window_message(msg_type: &GameMessageType) -> Option<WindowMessage> {
     match msg_type {
@@ -57,6 +64,17 @@ fn extract_mouse_position(msg_type: &GameMessageType) -> Option<ICoord2D> {
     }
 }
 
+fn is_mouse_locked() -> bool {
+    with_tactical_view_ref(|view| view.is_mouse_locked())
+}
+
+fn is_legacy_left_mouse_message(msg_type: &GameMessageType) -> bool {
+    matches!(
+        msg_type,
+        GameMessageType::RawMouseLeftButtonDown(..) | GameMessageType::RawMouseLeftButtonUp(..)
+    )
+}
+
 #[derive(Default)]
 pub struct WindowTranslator {
     last_mouse_pos: ICoord2D,
@@ -74,6 +92,11 @@ impl GameMessageTranslator for WindowTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
         let msg_type = msg.get_type();
         let mut return_code = WindowInputReturnCode::NotUsed;
+        let mut force_keep_message = false;
+
+        if is_mouse_locked() && !is_legacy_left_mouse_message(msg_type) {
+            return GameMessageDisposition::KeepMessage;
+        }
 
         match msg_type {
             GameMessageType::MetaToggleAttackMove => {
@@ -101,6 +124,12 @@ impl GameMessageTranslator for WindowTranslator {
             | GameMessageType::RawMouseMiddleDrag(..)
             | GameMessageType::RawMouseRightDrag(..)
             | GameMessageType::RawMouseWheel(..) => {
+                if matches!(msg_type, GameMessageType::RawMouseLeftButtonUp(..))
+                    && TheInGameUI::is_placement_anchored()
+                {
+                    force_keep_message = true;
+                }
+
                 if let Some(pos) = extract_mouse_position(msg_type) {
                     self.last_mouse_pos = pos.clone();
                 }
@@ -121,6 +150,10 @@ impl GameMessageTranslator for WindowTranslator {
                 if get_shell().is_shell_active() {
                     return_code = WindowInputReturnCode::Used;
                 }
+
+                if TheInGameUI::get_input_enabled() == false {
+                    return_code = WindowInputReturnCode::Used;
+                }
             }
             GameMessageType::RawKeyDown(key) | GameMessageType::RawKeyUp(key) => {
                 let key_state = match msg.get_argument(1) {
@@ -133,14 +166,56 @@ impl GameMessageTranslator for WindowTranslator {
                 with_window_manager(|manager| {
                     return_code = manager.process_key_event(*key as u8, state);
                 });
+
+                if return_code != WindowInputReturnCode::Used
+                    && *key == KEY_ESC
+                    && (state & KEY_STATE_UP) != 0
+                {
+                    let movie_playing = TheGameLogic::is_intro_movie_playing();
+                    let allow_exit = get_global_data()
+                        .map(|global_data| global_data.read().allow_exit_out_of_movies)
+                        .unwrap_or(false);
+
+                    if movie_playing && allow_exit {
+                        if let Some(global_data) = get_global_data() {
+                            let mut global = global_data.write();
+                            global.break_the_movie = true;
+                        }
+                        TheGameLogic::set_intro_movie_playing(false);
+                        return_code = WindowInputReturnCode::Used;
+                    }
+                }
+
+                if return_code != WindowInputReturnCode::Used
+                    && *key == KEY_ESC
+                    && (state & KEY_STATE_UP) != 0
+                    && TheInGameUI::get_input_enabled() == false
+                {
+                    return_code = WindowInputReturnCode::Used;
+                }
             }
             _ => {}
         }
 
-        if return_code == WindowInputReturnCode::Used {
+        if return_code == WindowInputReturnCode::Used && !force_keep_message {
             GameMessageDisposition::DestroyMessage
         } else {
             GameMessageDisposition::KeepMessage
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_legacy_mouse_data_matches_low_level_layout() {
+        assert_eq!(pack_legacy_mouse_data(12, 34), (34u32 << 16) | 12u32);
+    }
+
+    #[test]
+    fn raw_mouse_wheel_zero_is_ignored() {
+        assert_eq!(raw_mouse_to_window_message(&GameMessageType::RawMouseWheel(0)), None);
     }
 }

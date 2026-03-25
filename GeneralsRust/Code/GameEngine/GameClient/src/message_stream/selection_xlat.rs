@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 use super::game_message::*;
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::display::view::{with_tactical_view_ref, IPoint2, Point3};
+use crate::helpers::TheInGameUI;
 use crate::input::{KeyCode, KeyModifiers};
+use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list, PLAYER_INDEX_INVALID};
@@ -41,6 +43,12 @@ pub const DRAG_TOLERANCE_MS: u64 = 250;
 /// Double-click time window (milliseconds)
 /// Matches C++ SelectionXlat.cpp double-tap logic
 pub const DOUBLE_CLICK_TIME_MS: u64 = 500;
+
+fn is_alternate_mouse_enabled() -> bool {
+    get_global_data()
+        .map(|data| data.read().use_alternate_mouse)
+        .unwrap_or(false)
+}
 
 /// Drawable selection state
 /// Matches C++ Drawable selection flags
@@ -444,7 +452,8 @@ impl SelectionTranslator {
         let mut messages = Vec::new();
 
         self.left_mouse_button_is_down = false;
-        let add_to_group = modifiers.contains(KeyModifiers::SHIFT);
+        let add_to_group = modifiers.contains(KeyModifiers::SHIFT)
+            || TheInGameUI::is_in_prefer_selection_mode();
 
         if self.drag_selecting {
             // Stop drag selecting
@@ -485,41 +494,93 @@ impl SelectionTranslator {
                 ));
             }
         } else {
-            // Left click behavior (not drag)
-            // Matches C++ SelectionXlat.cpp:924-946
-            let Some(clicked) = self.find_drawable_at_position(&position) else {
-                if !add_to_group && !self.current_selection.is_empty() {
+            // Raw left-up only resolves selection on the higher-level click path now.
+            // Preserve the C++ alternate-mouse blank-click deselect behavior here, and
+            // otherwise forward a click message so selection and context-command guards
+            // happen in the click pipeline.
+            let pending_command_active = TheInGameUI::get_pending_command().is_some();
+            let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
+            let is_blank_click = modifiers.bits() == 0;
+            let use_alternate_mouse = is_alternate_mouse_enabled();
+
+            if is_blank_click
+                && !pending_command_active
+                && !TheInGameUI::is_quit_menu_visible()
+                && use_alternate_mouse
+                && pending_place_source_object_id == 0
+            {
+                if !self.current_selection.is_empty() {
                     self.deselect_all();
                     messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
                 }
-                return messages;
-            };
-
-            if add_to_group && self.current_selection.contains(&clicked.object_id) {
-                self.current_selection.remove(&clicked.object_id);
-                messages.push(GameMessageType::RemoveFromSelectedGroup(vec![
-                    clicked.object_id,
-                ]));
-                return messages;
-            }
-
-            if !add_to_group {
-                self.deselect_all();
-            }
-
-            if self.current_selection.len() < MAX_SELECTION_COUNT
-                && self.current_selection.insert(clicked.object_id)
-            {
-                messages.push(GameMessageType::CreateSelectedGroup(
-                    !add_to_group,
-                    vec![clicked.object_id],
+            } else {
+                messages.push(GameMessageType::MouseLeftClick(
+                    IRegion2D {
+                        x: position.x,
+                        y: position.y,
+                        width: 0,
+                        height: 0,
+                    },
+                    modifiers.bits() as u32,
                 ));
-            } else if self.current_selection.len() >= MAX_SELECTION_COUNT
-                && !self.displayed_max_warning
-            {
-                warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
-                self.displayed_max_warning = true;
             }
+        }
+
+        messages
+    }
+
+    /// Handle high-level left click selection.
+    /// Mirrors C++ MSG_MOUSE_LEFT_CLICK from SelectionXlat.cpp:575-646.
+    fn handle_mouse_left_click(
+        &mut self,
+        region: IRegion2D,
+        modifiers: KeyModifiers,
+    ) -> Vec<GameMessageType> {
+        let mut messages = Vec::new();
+
+        if region.width != 0 || region.height != 0 {
+            return messages;
+        }
+
+        if TheInGameUI::is_quit_menu_visible() {
+            return messages;
+        }
+
+        if TheInGameUI::get_pending_command().is_some() {
+            return messages;
+        }
+
+        let Some(clicked) = self.find_drawable_at_position(&ICoord2D {
+            x: region.x,
+            y: region.y,
+        }) else {
+            return messages;
+        };
+
+        let add_to_group = modifiers.contains(KeyModifiers::SHIFT)
+            || TheInGameUI::is_in_prefer_selection_mode();
+
+        if add_to_group && self.current_selection.contains(&clicked.object_id) {
+            self.current_selection.remove(&clicked.object_id);
+            messages.push(GameMessageType::RemoveFromSelectedGroup(vec![clicked.object_id]));
+            return messages;
+        }
+
+        if !add_to_group {
+            self.deselect_all();
+        }
+
+        if self.current_selection.len() < MAX_SELECTION_COUNT
+            && self.current_selection.insert(clicked.object_id)
+        {
+            messages.push(GameMessageType::CreateSelectedGroup(
+                !add_to_group,
+                vec![clicked.object_id],
+            ));
+        } else if self.current_selection.len() >= MAX_SELECTION_COUNT && !self.displayed_max_warning
+        {
+            warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
+            self.displayed_max_warning = true;
         }
 
         messages
@@ -584,12 +645,21 @@ impl SelectionTranslator {
         // Right click behavior (not right drag)
         // Matches C++ SelectionXlat.cpp:1002-1025
         if is_click {
-            // Would handle GUI command cancellation here
-            // Matches C++ SelectionXlat.cpp:1007-1014
+            if TheInGameUI::get_pending_command().is_some() {
+                // Cancel GUI command mode and do not touch selection.
+                TheInGameUI::clear_pending_command();
+                return messages;
+            }
 
-            // Deselect all in regular mouse mode
-            // Matches C++ SelectionXlat.cpp:1016-1023
-            // This would check !TheGlobalData->m_useAlternateMouse in C++
+            let use_alternate_mouse = is_alternate_mouse_enabled();
+            let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
+
+            if !use_alternate_mouse || pending_place_source_object_id != 0 {
+                if !self.current_selection.is_empty() {
+                    self.deselect_all();
+                    messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
+                }
+            }
         }
 
         messages
@@ -603,6 +673,10 @@ impl SelectionTranslator {
         modifiers: KeyModifiers,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
+
+        if TheInGameUI::is_quit_menu_visible() || TheInGameUI::get_pending_command().is_some() {
+            return messages;
+        }
 
         // Double-click selects all units of same type
         // Matches C++ SelectionXlat.cpp:458-520
@@ -917,6 +991,11 @@ impl Default for SelectionTranslator {
 
 impl GameMessageTranslator for SelectionTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        let is_mouse_click_message = matches!(
+            msg.get_type(),
+            GameMessageType::MouseLeftClick(..) | GameMessageType::MouseLeftDoubleClick(..)
+        );
+
         let new_messages = match msg.get_type() {
             // Mouse position tracking
             GameMessageType::RawMousePosition(pos) => {
@@ -935,6 +1014,11 @@ impl GameMessageTranslator for SelectionTranslator {
             GameMessageType::RawMouseLeftButtonUp(pos, modifiers, _time) => {
                 let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
                 self.handle_left_button_up(pos.clone(), modifiers)
+            }
+
+            GameMessageType::MouseLeftClick(region, modifiers) => {
+                let modifiers = KeyModifiers::from_bits_truncate((*modifiers & 0xFF) as u8);
+                self.handle_mouse_left_click(region.clone(), modifiers)
             }
 
             GameMessageType::MouseLeftDoubleClick(region, modifiers) => {
@@ -972,8 +1056,15 @@ impl GameMessageTranslator for SelectionTranslator {
         };
 
         // Dispatch translated messages into the message stream.
+        let should_keep_message =
+            is_mouse_click_message && new_messages.is_empty() && !TheInGameUI::is_quit_menu_visible();
+
         for new_msg in new_messages {
             emit_message(GameMessage::new(new_msg));
+        }
+
+        if should_keep_message {
+            return GameMessageDisposition::KeepMessage;
         }
 
         // Raw input messages are destroyed after processing
@@ -1048,6 +1139,28 @@ mod tests {
     }
 
     #[test]
+    fn test_raw_left_button_up_forwards_click_when_not_dragging() {
+        let mut translator = SelectionTranslator::new();
+
+        let messages = translator.handle_left_button_up(
+            ICoord2D { x: 12, y: 34 },
+            KeyModifiers::empty(),
+        );
+
+        assert_eq!(messages.len(), 1);
+        match &messages[0] {
+            GameMessageType::MouseLeftClick(region, modifiers) => {
+                assert_eq!(region.x, 12);
+                assert_eq!(region.y, 34);
+                assert_eq!(region.width, 0);
+                assert_eq!(region.height, 0);
+                assert_eq!(*modifiers, 0);
+            }
+            other => panic!("expected MouseLeftClick, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_control_group_management() {
         let mut translator = SelectionTranslator::new();
 
@@ -1107,5 +1220,56 @@ mod tests {
         // Test reverse order
         let region2 = translator.build_region(&p2, &p1);
         assert_eq!(region, region2);
+    }
+
+    #[test]
+    fn test_right_click_cancels_pending_command_without_clearing_selection() {
+        use crate::helpers::{PendingCommand, TheInGameUI};
+        use gamelogic::commands::command::CommandType;
+
+        let mut translator = SelectionTranslator::new();
+        translator.current_selection.insert(7);
+        TheInGameUI::set_pending_command(Some(PendingCommand {
+            command_type: CommandType::PlaceBeacon,
+            options: 0x20,
+            source_object_id: 99,
+        }));
+
+        translator.handle_right_button_down(
+            ICoord2D { x: 50, y: 60 },
+            0,
+            Coord3D::default(),
+        );
+        let messages = translator.handle_right_button_up(
+            ICoord2D { x: 50, y: 60 },
+            Coord3D::default(),
+        );
+
+        assert!(messages.is_empty());
+        assert_eq!(translator.current_selection.len(), 1);
+        assert!(TheInGameUI::get_pending_command().is_none());
+    }
+
+    #[test]
+    fn test_mouse_left_click_quit_menu_guard() {
+        use crate::helpers::TheInGameUI;
+
+        let mut translator = SelectionTranslator::new();
+        TheInGameUI::set_quit_menu_visible(true);
+
+        let disposition = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::MouseLeftClick(
+                IRegion2D {
+                    x: 20,
+                    y: 30,
+                    width: 0,
+                    height: 0,
+                },
+                0,
+            ),
+        ));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        TheInGameUI::set_quit_menu_visible(false);
     }
 }
