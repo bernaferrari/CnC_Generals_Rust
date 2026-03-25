@@ -6,14 +6,17 @@ use super::super::xfer::*;
 use super::game_state::SaveCode;
 use super::{
     get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
-    notify_begin_load, notify_end_load, notify_post_load_refresh, notify_set_game_mode,
-    notify_set_loading_save, notify_start_new_game_from_save, set_runtime_drawable_id_counter,
-    set_runtime_object_id_counter,
+    notify_begin_load, notify_end_load, notify_get_game_mode, notify_get_skirmish_payload,
+    notify_post_load_refresh, notify_set_game_mode, notify_set_loading_save,
+    notify_set_skirmish_payload, notify_start_new_game_from_save,
+    set_runtime_drawable_id_counter, set_runtime_object_id_counter,
 };
 use crate::common::ini::ini_game_data::get_global_data;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+
+const GAME_SKIRMISH_MODE: i32 = 2;
 
 // ------------------------------------------------------------------------------------------------
 // GameStateMap - Manages map embedding in save files
@@ -206,6 +209,7 @@ impl Snapshot for GameStateMap {
             let mut version = current_version;
             xfer.xfer_version(&mut version, current_version)?;
 
+            let mut effective_game_mode = notify_get_game_mode().unwrap_or(0);
             let mut first_save = false;
             match xfer.get_xfer_mode() {
                 XferMode::Save => {
@@ -239,8 +243,9 @@ impl Snapshot for GameStateMap {
 
                     if version >= 2 {
                         // Game mode
-                        let mut game_mode: i32 = 0;
+                        let mut game_mode: i32 = notify_get_game_mode().unwrap_or(effective_game_mode);
                         xfer.xfer_int(&mut game_mode)?;
+                        effective_game_mode = game_mode;
                     }
 
                     if first_save {
@@ -289,6 +294,7 @@ impl Snapshot for GameStateMap {
                         // Game mode
                         let mut game_mode: i32 = 0;
                         xfer.xfer_int(&mut game_mode)?;
+                        effective_game_mode = game_mode;
                         notify_set_game_mode(game_mode);
                     }
 
@@ -326,6 +332,28 @@ impl Snapshot for GameStateMap {
                 set_runtime_drawable_id_counter(high_drawable_id);
                 notify_start_new_game_from_save();
                 notify_post_load_refresh();
+            }
+
+            if effective_game_mode == GAME_SKIRMISH_MODE {
+                let mut payload = if xfer.get_xfer_mode() == XferMode::Save {
+                    notify_get_skirmish_payload().unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let mut payload_len = payload.len() as u32;
+                xfer.xfer_unsigned_int(&mut payload_len)?;
+                if xfer.get_xfer_mode() == XferMode::Load {
+                    payload.resize(payload_len as usize, 0);
+                }
+                if payload_len > 0 {
+                    // SAFETY: payload buffer is allocated with at least `payload_len` bytes.
+                    unsafe { xfer.xfer_user(payload.as_mut_ptr(), payload_len as usize)? };
+                }
+                if xfer.get_xfer_mode() == XferMode::Load {
+                    notify_set_skirmish_payload(Some(payload));
+                }
+            } else if xfer.get_xfer_mode() == XferMode::Load {
+                notify_set_skirmish_payload(None);
             }
             Ok(())
         })();
