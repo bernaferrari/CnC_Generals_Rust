@@ -820,65 +820,32 @@ impl AdvancedBehavior for StealthBehaviorImpl {
 /// Veterancy behavior implementation
 pub struct VeterancyBehaviorImpl {
     name: String,
-    current_level: u8, // 0=Regular, 1=Veteran, 2=Elite, 3=Heroic
-    current_experience: i32,
-    experience_requirements: [i32; 4],
-    experience_scalar: f32,
 }
 
 impl VeterancyBehaviorImpl {
-    pub fn new(build_cost: i32) -> Self {
+    pub fn new(_build_cost: i32) -> Self {
         Self {
             name: "VeterancyBehavior".to_string(),
-            current_level: 0,
-            current_experience: 0,
-            experience_requirements: [0, build_cost, build_cost * 3, build_cost * 6],
-            experience_scalar: 1.0,
         }
     }
 
-    fn add_experience_points(&mut self, amount: i32, can_scale: bool) -> Option<u8> {
-        let amount_to_gain = if can_scale {
-            (amount as f32 * self.experience_scalar) as i32
-        } else {
-            amount
-        };
-
-        let old_level = self.current_level;
-        self.current_experience += amount_to_gain;
-
-        let mut level_index = 0;
-        while (level_index + 1) < 4
-            && self.current_experience >= self.experience_requirements[level_index + 1]
-        {
-            level_index += 1;
-        }
-
-        self.current_level = level_index;
-
-        if old_level != self.current_level {
-            Some(old_level)
-        } else {
-            None
-        }
+    fn add_experience_points(&mut self, _amount: i32, _can_scale: bool) -> Option<u8> {
+        // Non-canonical XP formulas were removed from this behavior path.
+        None
     }
 
     pub fn get_damage_multiplier(&self) -> f32 {
-        1.0 + (self.current_level as f32 * 0.25)
+        // Damage output is handled by weapon/bonus systems, not this behavior.
+        1.0
     }
 
     pub fn get_armor_multiplier(&self) -> f32 {
-        1.0 - (self.current_level as f32 * 0.1)
+        // C++ parity: veterancy does not apply a direct armor multiplier here.
+        1.0
     }
 
     pub fn get_self_heal_rate(&self) -> f32 {
-        match self.current_level {
-            0 => 0.0,
-            1 => 0.5,
-            2 => 1.0,
-            3 => 2.0,
-            _ => 0.0,
-        }
+        0.0
     }
 }
 
@@ -899,21 +866,8 @@ impl AdvancedBehavior for VeterancyBehaviorImpl {
     async fn update(
         &mut self,
         _object: &mut Object,
-        context: &BehaviorContext,
+        _context: &BehaviorContext,
     ) -> GameLogicResult<BehaviorOutcome> {
-        if self.current_level > 0 {
-            let heal_rate = self.get_self_heal_rate();
-            if heal_rate > 0.0 && context.health < context.max_health {
-                let heal_amount = heal_rate * context.delta_time;
-                log::trace!(
-                    "Object {} self-healing: +{:.2} HP (level {})",
-                    context.object_id,
-                    heal_amount,
-                    self.current_level
-                );
-            }
-        }
-
         Ok(BehaviorOutcome::Continue)
     }
 
@@ -937,16 +891,12 @@ impl AdvancedBehavior for VeterancyBehaviorImpl {
             BehaviorEvent::Custom { event_type, data } => {
                 if event_type == "award_experience" {
                     if let Some(xp_str) = data.get("amount") {
-                        if let Ok(xp) = xp_str.parse::<i32>() {
-                            if let Some(old_level) = self.add_experience_points(xp, true) {
-                                log::info!(
-                                    "Object {} promoted from level {} to {}!",
-                                    context.object_id,
-                                    old_level,
-                                    self.current_level
-                                );
-                            }
-                        }
+                        let _ = xp_str.parse::<i32>().ok();
+                        let _ = self.add_experience_points(0, true);
+                        log::trace!(
+                            "Ignoring non-canonical advanced_behavior_system XP event on object {}",
+                            context.object_id
+                        );
                     }
                 }
             }
@@ -972,15 +922,6 @@ impl ExperienceTrackingBehaviorImpl {
         }
     }
 
-    fn calculate_damage_experience(damage: f32) -> i32 {
-        (damage * 0.1) as i32
-    }
-
-    fn calculate_kill_experience(victim_cost: i32, victim_level: u8) -> i32 {
-        let level_multiplier = 1.0 + (victim_level as f32 * 0.25);
-        let base_value = (victim_cost as f32 * 0.5) as i32;
-        (base_value as f32 * level_multiplier) as i32
-    }
 }
 
 #[async_trait]
@@ -1009,19 +950,10 @@ impl AdvancedBehavior for ExperienceTrackingBehaviorImpl {
                     if let Some(damage_str) = data.get("damage") {
                         if let Ok(damage) = damage_str.parse::<f32>() {
                             self.total_damage_dealt += damage;
-                            let _xp = Self::calculate_damage_experience(damage);
                         }
                     }
                 } else if event_type == "unit_killed" {
-                    if let (Some(cost_str), Some(level_str)) = (data.get("cost"), data.get("level"))
-                    {
-                        if let (Ok(cost), Ok(level)) =
-                            (cost_str.parse::<i32>(), level_str.parse::<u8>())
-                        {
-                            self.total_kills += 1;
-                            let _xp = Self::calculate_kill_experience(cost, level);
-                        }
-                    }
+                    self.total_kills += 1;
                 }
             }
             _ => {}

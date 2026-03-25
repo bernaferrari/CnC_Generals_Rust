@@ -1742,6 +1742,7 @@ impl Default for FormationID {
 
 /// Veterancy level (matching C++ VeterancyLevel)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(i32)]
 pub enum VeterancyLevel {
     Regular = 0,
     Veteran = 1,
