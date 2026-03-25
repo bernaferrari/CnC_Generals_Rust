@@ -68,6 +68,7 @@ use crate::gui::{
     get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer,
     WindowStatus,
 };
+use crate::gui::ime_manager::get_ime_manager;
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -88,7 +89,7 @@ use crate::video_player::{
     VideoPlayerInterface as GlobalVideoPlayerInterface,
 };
 use game_engine::common::game_lod::prefers_low_res_movies;
-use game_engine::common::ini::get_global_data;
+use game_engine::common::ini::{get_global_data, get_global_language_read, INILoadType, INI};
 use game_engine::common::recorder::{init_recorder, with_recorder_mut};
 use game_engine::common::system::{geometry::Matrix3D, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::{get_thing_factory, ThingTemplate};
@@ -660,6 +661,7 @@ impl GameClient {
         self.init_display_subsystems()?;
         self.init_audio_subsystems()?;
         self.init_game_subsystems()?;
+        self.post_process_display_strings()?;
         self.init_message_translators()?;
         self.init_network_bridge();
         self.init_recorder_bridge();
@@ -1605,6 +1607,32 @@ impl GameClient {
 
     fn init_core_subsystems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing core subsystems");
+        self.init_draw_group_info()?;
+
+        Ok(())
+    }
+
+    fn init_draw_group_info(&mut self) -> GameClientResult<()> {
+        // C++ parity: DrawGroupInfo is loaded before the display string manager.
+        let mut ini = INI::new();
+        ini.load("Data/INI/DrawGroupInfo.ini", INILoadType::Overwrite)
+            .map_err(|err| {
+                GameClientError::SubsystemError(format!("DrawGroupInfo init failed: {err}"))
+            })?;
+
+        // C++ parity: localized DrawGroupInfo font overrides INI values.
+        if let (Some(language), Some(draw_group_info)) = (
+            get_global_language_read(),
+            game_engine::common::ini::ini_draw_group_info::get_draw_group_info(),
+        ) {
+            let font = &language.draw_group_info_font;
+            if !font.name.is_empty() {
+                let mut draw_group_info = draw_group_info.write();
+                draw_group_info.font.name = font.name.clone();
+                draw_group_info.font.size = font.size;
+                draw_group_info.font.is_bold = font.bold;
+            }
+        }
 
         Ok(())
     }
@@ -1738,6 +1766,14 @@ impl GameClient {
             let mut window_manager = WindowManagerSubsystem::new();
             window_manager.init()?;
             self.subsystem_manager.window_manager = Some(Arc::new(Mutex::new(window_manager)));
+        }
+
+        {
+            let ime_manager = get_ime_manager();
+            let mut ime = ime_manager.lock().map_err(|_| {
+                GameClientError::SubsystemError("IME manager lock poisoned during init".to_string())
+            })?;
+            ime.init();
         }
 
         {
@@ -1891,6 +1927,20 @@ impl GameClient {
             self.subsystem_manager.video_player = Some(Arc::new(Mutex::new(video_player)));
         }
 
+        Ok(())
+    }
+
+    fn post_process_display_strings(&mut self) -> GameClientResult<()> {
+        if let Some(display_strings) = self.subsystem_manager.display_strings.as_ref() {
+            display_strings
+                .lock()
+                .map_err(|_| {
+                    GameClientError::SubsystemError(
+                        "Display string manager lock poisoned during post-process load".to_string(),
+                    )
+                })?
+                .post_process_load()?;
+        }
         Ok(())
     }
 
