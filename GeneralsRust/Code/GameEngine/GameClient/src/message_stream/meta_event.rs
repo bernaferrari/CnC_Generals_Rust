@@ -4,6 +4,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 
+use game_engine::common::game_engine::get_game_engine;
+use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
     get_global_data, register_block_parser, INIError, INILoadType, INIResult, INI,
 };
@@ -18,7 +20,8 @@ use crate::gui::shell::get_shell;
 use crate::helpers::TheInGameUI;
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use gamelogic::commands::command::CommandType;
-use gamelogic::helpers::TheGameLogic;
+use gamelogic::helpers::{TheGameLogic, TheThingFactory};
+use gamelogic::player::ThePlayerList;
 
 const MOD_CTRL: u32 = 1;
 const MOD_ALT: u32 = 2;
@@ -644,7 +647,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     // Runtime CommandMap currently relies on these aliases. Keep behavior close to C++:
     // consume the key regardless of whether runtime game-state allows the command.
     if record.name.eq_ignore_ascii_case("PLACE_BEACON") {
-        if TheGameLogic::is_in_multiplayer_game() && !TheGameLogic::is_in_replay_game() {
+        if can_enter_place_beacon_mode() {
             const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
             TheInGameUI::clear_pending_special_power();
             TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
@@ -704,6 +707,65 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     None
+}
+
+fn can_enter_place_beacon_mode() -> bool {
+    if !TheGameLogic::is_in_multiplayer_game() || TheGameLogic::is_in_replay_game() {
+        return false;
+    }
+
+    let Some(local_player) = ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_local_player().cloned())
+    else {
+        return false;
+    };
+
+    let Ok(local_guard) = local_player.read() else {
+        return false;
+    };
+    if !local_guard.is_player_active() {
+        return false;
+    }
+
+    let net_min_players = get_global_data()
+        .map(|data| data.read().net_min_players)
+        .unwrap_or(0);
+    let is_multiplayer_session = get_game_engine()
+        .map(|engine| engine.lock().is_multiplayer_session())
+        .unwrap_or(false);
+    if net_min_players != 0 && !is_multiplayer_session {
+        return false;
+    }
+
+    let Some(template_name) = local_guard
+        .get_player_template()
+        .map(|template| template.beacon_name.clone())
+    else {
+        return false;
+    };
+    if template_name.is_empty() {
+        return false;
+    }
+
+    let Some(beacon_template) = TheThingFactory::find_template(&template_name) else {
+        return false;
+    };
+    let mut count = [0];
+    local_guard.count_objects_by_thing_template(
+        std::slice::from_ref(&beacon_template),
+        false,
+        false,
+        &mut count,
+    );
+    debug!(
+        "MSG_META_PLACE_BEACON - Player already has {} beacons active",
+        count[0]
+    );
+
+    let max_beacons = with_multiplayer_settings(|settings| settings.max_beacons_per_player);
+    count[0] < max_beacons
 }
 
 #[derive(Default)]
