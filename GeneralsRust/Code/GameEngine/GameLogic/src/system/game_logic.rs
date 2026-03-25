@@ -111,7 +111,10 @@ use game_engine::common::rts::energy::{
 };
 use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
 use game_engine::common::system::build_assistant::init_build_assistant;
-use game_engine::System::{register_object_id_counter_hooks, register_save_load_lifecycle_hooks};
+use game_engine::System::{
+    register_object_id_counter_hooks, register_save_load_lifecycle_hooks,
+    register_save_load_mission_hooks,
+};
 use log::{debug, info, trace, warn};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
@@ -2882,6 +2885,13 @@ fn install_save_game_counter_integration() {
                 let _ = ai.new_map();
             });
         })),
+    );
+
+    register_save_load_mission_hooks(
+        Some(Arc::new(|| {
+            let _ = crate::helpers::TheGameLogic::clear_game_data();
+        })),
+        None,
     );
 }
 
