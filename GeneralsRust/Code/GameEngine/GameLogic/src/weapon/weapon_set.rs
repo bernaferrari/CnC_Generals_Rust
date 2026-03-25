@@ -8,9 +8,13 @@ use super::{
     WeaponTemplate,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
-use crate::common::{CommandSourceType, Coord3D, ModelConditionFlags, ObjectID, WEAPONSLOT_COUNT};
+use crate::common::{
+    CommandSourceType, Coord3D, ModelConditionFlags, ObjectID, WEAPONSLOT_COUNT, Xfer, XferMode,
+    XferVersion,
+};
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::system::Snapshotable;
 use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -283,6 +287,38 @@ pub enum WeaponLockType {
     LockedPermanently,
 }
 
+fn weapon_slot_to_u32(slot: WeaponSlotType) -> u32 {
+    match slot {
+        WeaponSlotType::Primary => 0,
+        WeaponSlotType::Secondary => 1,
+        WeaponSlotType::Tertiary => 2,
+    }
+}
+
+fn weapon_slot_from_u32(value: u32) -> WeaponSlotType {
+    match value {
+        1 => WeaponSlotType::Secondary,
+        2 => WeaponSlotType::Tertiary,
+        _ => WeaponSlotType::Primary,
+    }
+}
+
+fn weapon_lock_type_to_u32(lock: WeaponLockType) -> u32 {
+    match lock {
+        WeaponLockType::NotLocked => 0,
+        WeaponLockType::LockedTemporarily => 1,
+        WeaponLockType::LockedPermanently => 2,
+    }
+}
+
+fn weapon_lock_type_from_u32(value: u32) -> WeaponLockType {
+    match value {
+        1 => WeaponLockType::LockedTemporarily,
+        2 => WeaponLockType::LockedPermanently,
+        _ => WeaponLockType::NotLocked,
+    }
+}
+
 // DamageTypeFlags is defined in src/damage.rs
 // Import with: use crate::damage::DamageTypeFlags;
 
@@ -330,6 +366,97 @@ impl WeaponSet {
     /// Add a weapon template set
     pub fn add_weapon_template_set(&mut self, template_set: WeaponTemplateSet) {
         self.weapon_template_sets.push(Arc::new(template_set));
+    }
+
+    /// Serialize WeaponSet state for save/load parity with C++ WeaponSet::xfer.
+    pub fn xfer_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        for slot in [
+            WeaponSlotType::Primary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary,
+        ] {
+            let index = slot as usize;
+            let mut has_weapon = self.weapons[index].is_some();
+            xfer.xfer_bool(&mut has_weapon).map_err(|e| e.to_string())?;
+
+            if has_weapon {
+                if xfer.get_xfer_mode() == XferMode::Load && self.weapons[index].is_none() {
+                    let template = self
+                        .current_weapon_template_set
+                        .as_ref()
+                        .and_then(|set| {
+                            set.get_weapon_template(slot)
+                                .cloned()
+                                .or_else(|| set.get_weapon_template(WeaponSlotType::Primary).cloned())
+                        });
+
+                    if let Some(template) = template {
+                        self.weapons[index] = Some(Weapon::new(template, slot));
+                    }
+                }
+
+                let weapon = self.weapons[index]
+                    .as_mut()
+                    .ok_or_else(|| format!("WeaponSet::xfer_state missing weapon in slot {:?}", slot))?;
+                weapon.xfer(xfer)?;
+            } else if xfer.get_xfer_mode() == XferMode::Load {
+                self.weapons[index] = None;
+            }
+        }
+
+        let mut current_weapon = weapon_slot_to_u32(self.current_weapon);
+        xfer.xfer_unsigned_int(&mut current_weapon)
+            .map_err(|e| e.to_string())?;
+        self.current_weapon = weapon_slot_from_u32(current_weapon);
+
+        let mut lock_status = weapon_lock_type_to_u32(self.current_weapon_locked_status);
+        xfer.xfer_unsigned_int(&mut lock_status)
+            .map_err(|e| e.to_string())?;
+        self.current_weapon_locked_status = weapon_lock_type_from_u32(lock_status);
+
+        let mut filled_weapon_slot_mask = self.filled_weapon_slot_mask as u32;
+        xfer.xfer_unsigned_int(&mut filled_weapon_slot_mask)
+            .map_err(|e| e.to_string())?;
+        self.filled_weapon_slot_mask = (filled_weapon_slot_mask & 0xFF) as u8;
+
+        let mut total_anti_mask = self.total_anti_mask as i32;
+        xfer.xfer_int(&mut total_anti_mask).map_err(|e| e.to_string())?;
+        self.total_anti_mask = total_anti_mask as u32;
+
+        let mut has_damage_weapon_a = self.has_damage_weapon;
+        xfer.xfer_bool(&mut has_damage_weapon_a)
+            .map_err(|e| e.to_string())?;
+        self.has_damage_weapon = has_damage_weapon_a;
+
+        // Intentional duplicate field xfer matches C++ WeaponSet::xfer legacy behavior.
+        let mut has_damage_weapon_b = self.has_damage_weapon;
+        xfer.xfer_bool(&mut has_damage_weapon_b)
+            .map_err(|e| e.to_string())?;
+
+        let mut total_damage_lo = (self.total_damage_type_mask.bits() & 0xFFFF_FFFF) as u32;
+        let mut total_damage_hi = (self.total_damage_type_mask.bits() >> 32) as u32;
+        xfer.xfer_unsigned_int(&mut total_damage_lo)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut total_damage_hi)
+            .map_err(|e| e.to_string())?;
+        let total_damage_type_mask = ((total_damage_hi as u64) << 32) | (total_damage_lo as u64);
+        self.total_damage_type_mask = crate::damage::DamageTypeFlags::from_bits_retain(
+            total_damage_type_mask,
+        );
+
+        // Recompute derived fields such as pitch limits after load.
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.update_weapon_statistics();
+            self.current_weapon = weapon_slot_from_u32(current_weapon);
+            self.current_weapon_locked_status = weapon_lock_type_from_u32(lock_status);
+        }
+
+        Ok(())
     }
 
     /// Update weapon set based on current object conditions
@@ -788,6 +915,14 @@ impl WeaponSet {
             if self.current_weapon_locked_status == WeaponLockType::LockedTemporarily {
                 self.current_weapon_locked_status = WeaponLockType::NotLocked;
             }
+        } else {
+            debug_assert!(
+                false,
+                "release_weapon_lock called with NotLocked; this matches invalid C++ call path"
+            );
+            log::warn!(
+                "release_weapon_lock called with NotLocked; call site should pass Temporary or Permanent"
+            );
         }
     }
 

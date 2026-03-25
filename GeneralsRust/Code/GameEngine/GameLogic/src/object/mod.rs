@@ -3610,32 +3610,34 @@ impl Object {
 
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let weapon_result = (|| {
-            let weapon = weapon_set
-                .get_current_weapon_mut()
-                .ok_or(ObjectError::NoWeapon)?;
+            let (name, reloaded) = {
+                let weapon = weapon_set
+                    .get_current_weapon_mut()
+                    .ok_or(ObjectError::NoWeapon)?;
 
-            if weapon.get_status() != WeaponStatus::ReadyToFire {
-                return Err(ObjectError::WeaponNotReady);
+                if weapon.get_status() != WeaponStatus::ReadyToFire {
+                    return Err(ObjectError::WeaponNotReady);
+                }
+
+                let reloaded = weapon
+                    .fire_weapon_at_position_with_bonus_and_reload_flag(
+                        self.id,
+                        pos,
+                        source_bonus_flags,
+                        container_bonus_flags,
+                    )
+                    .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
+
+                // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
+                // that is done in AIUpdate, not in fireCurrentWeapon.
+                self.notify_firing_tracker_shot_fired(weapon, INVALID_ID);
+                (weapon.get_name().to_string(), reloaded)
+            };
+
+            if reloaded {
+                weapon_set.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
 
-            weapon
-                .fire_weapon_at_position_with_bonus(
-                    self.id,
-                    pos,
-                    source_bonus_flags,
-                    container_bonus_flags,
-                )
-                .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
-
-            // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
-            // that is done in AIUpdate, not in fireCurrentWeapon.
-
-            let name = weapon.get_name().to_string();
-
-            // Note: C++ Object.cpp only releases temporary weapon lock if
-            // weapon->fireWeapon() returns reloaded=true. The Rust fire_weapon()
-            // does not currently return reloaded, so we do NOT release the lock
-            // here unconditionally (matching C++ conditional behavior).
             Ok(name)
         })();
         self.weapon_set = weapon_set;
@@ -3688,8 +3690,8 @@ impl Object {
                 return Err(ObjectError::WeaponNotReady);
             }
 
-            weapon
-                .fire_weapon_at_position_with_bonus(
+            let reloaded = weapon
+                .fire_weapon_at_position_with_bonus_and_reload_flag(
                     self.id,
                     pos,
                     source_bonus_flags,
@@ -3697,19 +3699,18 @@ impl Object {
                 )
                 .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
-            self.set_status(
-                ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon),
-                true,
-            );
-
             self.notify_firing_tracker_shot_fired(weapon, INVALID_ID);
 
             let name = weapon.get_name().to_string();
-            weapon_set.release_weapon_lock(WeaponLockType::LockedTemporarily);
-            Ok(name)
+            Ok((name, reloaded))
         })();
         self.weapon_set = weapon_set;
-        let weapon_name = weapon_result?;
+        let (weapon_name, reloaded) = weapon_result?;
+
+        if reloaded {
+            self.weapon_set
+                .release_weapon_lock(WeaponLockType::LockedTemporarily);
+        }
 
         self.friend_set_undetected_defector(false);
         self.fire_weapon_fired_event(&weapon_name, None);
@@ -6654,38 +6655,39 @@ impl Object {
         // Temporarily take the weapon set to avoid aliasing `self` during firing.
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let weapon_result = (|| {
-            let weapon = weapon_set
-                .get_current_weapon_mut()
-                .ok_or(ObjectError::NoWeapon)?;
+            let (name, reloaded) = {
+                let weapon = weapon_set
+                    .get_current_weapon_mut()
+                    .ok_or(ObjectError::NoWeapon)?;
 
-            // Check if weapon is ready
-            if weapon.get_status() != WeaponStatus::ReadyToFire {
-                return Err(ObjectError::WeaponNotReady);
+                // Check if weapon is ready
+                if weapon.get_status() != WeaponStatus::ReadyToFire {
+                    return Err(ObjectError::WeaponNotReady);
+                }
+
+                // Fire the weapon with full bonus integration (matches C++ Object.cpp fireCurrentWeapon)
+                // This passes source object's bonus flags (veterancy, horde, nationalism, etc.)
+                // and container bonus flags if in transport
+                let reloaded = weapon
+                    .fire_weapon_with_bonus_and_reload_flag(
+                        self.id,
+                        target.get_id(),
+                        current_frame,
+                        source_bonus_flags,
+                        container_bonus_flags,
+                    )
+                    .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
+
+                // Notify firing tracker for statistics
+                // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
+                // that is done in AIUpdate, not in fireCurrentWeapon.
+                self.notify_firing_tracker_shot_fired(weapon, target.get_id());
+                (weapon.get_name().to_string(), reloaded)
+            };
+
+            if reloaded {
+                weapon_set.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
-
-            // Fire the weapon with full bonus integration (matches C++ Object.cpp fireCurrentWeapon)
-            // This passes source object's bonus flags (veterancy, horde, nationalism, etc.)
-            // and container bonus flags if in transport
-            weapon
-                .fire_weapon(
-                    self.id,
-                    target.get_id(),
-                    current_frame,
-                    source_bonus_flags,
-                    container_bonus_flags,
-                )
-                .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
-
-            // Notify firing tracker for statistics
-            // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
-            // that is done in AIUpdate, not in fireCurrentWeapon.
-
-            let name = weapon.get_name().to_string();
-
-            // Note: C++ Object.cpp only releases temporary weapon lock if
-            // weapon->fireWeapon() returns reloaded=true. The Rust fire_weapon()
-            // does not currently return reloaded, so we do NOT release the lock
-            // here unconditionally (matching C++ conditional behavior).
 
             Ok(name)
         })();
@@ -11379,6 +11381,25 @@ impl Snapshot for Object {
 
         let _ = xfer.xfer_unsigned_int(&mut self.smc_until);
 
+        if self.experience_tracker.is_none() {
+            self.experience_tracker = Some(Arc::new(Mutex::new(ExperienceTracker::new(self.id))));
+        }
+        if let Some(tracker) = &self.experience_tracker {
+            if let Ok(mut tracker_guard) = tracker.lock() {
+                if let Err(err) = tracker_guard.xfer_state(xfer) {
+                    warn!(
+                        "Object::xfer failed for experience tracker on object {}: {}",
+                        self.id, err
+                    );
+                }
+            } else {
+                warn!(
+                    "Object::xfer could not lock experience tracker for object {}",
+                    self.id
+                );
+            }
+        }
+
         if version >= 6 {
             if is_saving {
                 self.xfer_contained_by_id = self
@@ -11433,9 +11454,17 @@ impl Snapshot for Object {
                     }
                 }
             }
-            let _ = xfer.xfer_bool(&mut self.trigger_info[i].entered);
-            let _ = xfer.xfer_bool(&mut self.trigger_info[i].exited);
-            let _ = xfer.xfer_bool(&mut self.trigger_info[i].is_inside);
+            let mut entered = u8::from(self.trigger_info[i].entered);
+            let _ = xfer.xfer_unsigned_byte(&mut entered);
+            self.trigger_info[i].entered = entered != 0;
+
+            let mut exited = u8::from(self.trigger_info[i].exited);
+            let _ = xfer.xfer_unsigned_byte(&mut exited);
+            self.trigger_info[i].exited = exited != 0;
+
+            let mut is_inside = u8::from(self.trigger_info[i].is_inside);
+            let _ = xfer.xfer_unsigned_byte(&mut is_inside);
+            self.trigger_info[i].is_inside = is_inside != 0;
         }
 
         let mut layer = self.layer as u32;
@@ -11534,6 +11563,24 @@ impl Snapshot for Object {
 
             for condition in &mut self.last_weapon_condition {
                 let _ = xfer.xfer_unsigned_byte(condition);
+            }
+
+            if is_loading {
+                if let Err(err) = self
+                    .weapon_set
+                    .update_weapon_set(self.id, &self.cur_weapon_set_flags)
+                {
+                    warn!(
+                        "Object::xfer failed to prepare weapon set for object {}: {}",
+                        self.id, err
+                    );
+                }
+            }
+            if let Err(err) = self.weapon_set.xfer_state(xfer) {
+                warn!(
+                    "Object::xfer failed to serialize weapon set for object {}: {}",
+                    self.id, err
+                );
             }
 
             let mut special_power_bits = self.special_power_bits.bits();
