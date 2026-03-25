@@ -13,6 +13,7 @@ use crate::object::body::body_module::BodyDamageType;
 use crate::object::draw::draw_module::{DrawModule, ObjectDrawInterface};
 use crate::object::draw::TerrainDecalType;
 use crate::player::ThePlayerList;
+use game_engine::bit_flags::create_model_condition_flags;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::{
     get_global_audio_manager, initialize_global_audio_manager,
@@ -670,12 +671,101 @@ fn allocate_local_drawable_id() -> DrawableID {
     }
 }
 
-fn xfer_matrix3d(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
-    let mut cols = matrix.to_cols_array();
-    for value in &mut cols {
+fn xfer_matrix3d_rows_legacy(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
+    let cols = matrix.to_cols_array();
+    let mut row0 = [cols[0], cols[4], cols[8], cols[12]];
+    let mut row1 = [cols[1], cols[5], cols[9], cols[13]];
+    let mut row2 = [cols[2], cols[6], cols[10], cols[14]];
+
+    for value in &mut row0 {
         let _ = xfer.xfer_real(value);
     }
-    *matrix = Matrix3D::from_cols_array(&cols);
+    for value in &mut row1 {
+        let _ = xfer.xfer_real(value);
+    }
+    for value in &mut row2 {
+        let _ = xfer.xfer_real(value);
+    }
+
+    let rebuilt_cols = [
+        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2],
+        row2[2], 0.0, row0[3], row1[3], row2[3], 1.0,
+    ];
+    *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
+}
+
+fn xfer_matrix3d_legacy(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
+    // C++ parity: Xfer::xferMatrix3D writes a version byte plus 3x4 matrix rows.
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    let _ = xfer.xfer_version(&mut version, current_version);
+    xfer_matrix3d_rows_legacy(xfer, matrix);
+}
+
+fn xfer_matrix3d_user_legacy(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
+    // C++ parity: xferUser(&Matrix3D,sizeof(Matrix3D)) for instance matrices (3x4 rows, no version).
+    xfer_matrix3d_rows_legacy(xfer, matrix);
+}
+
+fn xfer_model_condition_flags_legacy(xfer: &mut dyn Xfer, flags: &mut ModelConditionFlags) {
+    // C++ parity: BitFlags::xfer saves named bits (versioned), not raw bitmasks.
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    let _ = xfer.xfer_version(&mut version, current_version);
+
+    match xfer.get_xfer_mode() {
+        game_engine::system::XferMode::Save => {
+            let mut named = create_model_condition_flags();
+            let bits = flags.bits();
+            let max_bits = named.size().min(u128::BITS as usize);
+            for i in 0..max_bits {
+                if (bits & (1u128 << i)) != 0 {
+                    named.set(i, true);
+                }
+            }
+
+            let mut count = named.count().min(i32::MAX as usize) as i32;
+            let _ = xfer.xfer_int(&mut count);
+            for i in 0..named.size() {
+                if let Some(bit_name) = named.get_bit_name_if_set(i) {
+                    let mut token = bit_name.to_string();
+                    let _ = xfer.xfer_ascii_string(&mut token);
+                }
+            }
+        }
+        game_engine::system::XferMode::Load => {
+            let mut named = create_model_condition_flags();
+            named.clear();
+
+            let mut count = 0i32;
+            let _ = xfer.xfer_int(&mut count);
+            for _ in 0..count.max(0) {
+                let mut token = String::new();
+                let _ = xfer.xfer_ascii_string(&mut token);
+                if !named.set_bit_by_name(&token) {
+                    panic!(
+                        "Drawable::xfer invalid ModelCondition flag token '{}'",
+                        token
+                    );
+                }
+            }
+
+            let mut bits: u128 = 0;
+            let max_bits = named.size().min(u128::BITS as usize);
+            for i in 0..max_bits {
+                if named.test(i) {
+                    bits |= 1u128 << i;
+                }
+            }
+            *flags = ModelConditionFlags::from_bits_retain(bits);
+        }
+        game_engine::system::XferMode::Crc => {
+            let mut bits = flags.bits();
+            xfer_u128_bits(xfer, &mut bits);
+            *flags = ModelConditionFlags::from_bits_retain(bits);
+        }
+        _ => {}
+    }
 }
 
 fn xfer_u128_bits(xfer: &mut dyn Xfer, value: &mut u128) {
@@ -2925,9 +3015,9 @@ impl Snapshot for Drawable {
         self.set_drawable_id(drawable_id);
 
         if version >= 2 {
-            let mut condition_state_bits = self.model_conditions.bits();
-            xfer_u128_bits(xfer, &mut condition_state_bits);
-            self.model_conditions = ModelConditionFlags::from_bits_retain(condition_state_bits);
+            let mut condition_state = self.model_conditions;
+            xfer_model_condition_flags_legacy(xfer, &mut condition_state);
+            self.model_conditions = condition_state;
             if is_loading {
                 self.update_conditional_model();
             }
@@ -2936,7 +3026,7 @@ impl Snapshot for Drawable {
         if version >= 3 {
             if version >= 5 {
                 let mut transform = self.transform;
-                xfer_matrix3d(xfer, &mut transform);
+                xfer_matrix3d_legacy(xfer, &mut transform);
                 self.set_transform(transform);
             } else {
                 let mut position = self.get_position();
@@ -3089,7 +3179,7 @@ impl Snapshot for Drawable {
         let _ = xfer.xfer_bool(&mut instance_is_identity);
 
         let mut instance_matrix = self.instance_matrix.unwrap_or(Matrix3D::IDENTITY);
-        xfer_matrix3d(xfer, &mut instance_matrix);
+        xfer_matrix3d_user_legacy(xfer, &mut instance_matrix);
 
         let mut instance_scale = self.instance_scale;
         let _ = xfer.xfer_real(&mut instance_scale);
@@ -3106,9 +3196,9 @@ impl Snapshot for Drawable {
         let _ = xfer.xfer_object_id(&mut self.shroud_status_object_id);
 
         if version < 2 {
-            let mut condition_state_bits = self.model_conditions.bits();
-            xfer_u128_bits(xfer, &mut condition_state_bits);
-            self.model_conditions = ModelConditionFlags::from_bits_retain(condition_state_bits);
+            let mut condition_state = self.model_conditions;
+            xfer_model_condition_flags_legacy(xfer, &mut condition_state);
+            self.model_conditions = condition_state;
             if is_loading {
                 self.update_conditional_model();
             }

@@ -23,6 +23,7 @@ use crate::common::well_known_keys::{
     key_team_owner, key_team_production_condition,
 };
 use crate::common::{AsciiString, Color, Relationship};
+use crate::helpers::TheGameText;
 use crate::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerType as LogicPlayerType, ThePlayerList,
@@ -30,9 +31,15 @@ use crate::player::{
 use crate::sides_list::get_sides_list;
 use crate::team::get_team_factory;
 use crate::team::MAX_GENERIC_SCRIPTS;
+use game_engine::common::ini::ini::{INI, INILoadType};
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::resource_manager::get_resource_manager;
 use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
+use game_engine::common::system::file::FileAccess;
+use game_engine::common::system::file_system::get_file_system;
+use game_engine::System::get_game_state;
 
+use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -206,6 +213,9 @@ impl GameInitializer {
     fn load_map(game_state: &mut GameState, map_path: &str) -> io::Result<()> {
         println!("[INIT] Phase 1: Loading map from {}", map_path);
 
+        // C++ parity: load map.ini/solo.ini and map.str before terrain map load.
+        Self::load_map_sidecar_resources(map_path);
+
         // Load the .map file
         game_state.map_loader.load_map(map_path)?;
         let map_data = game_state.map_loader.to_map_data();
@@ -239,6 +249,169 @@ impl GameInitializer {
         game_state.start_sequence = GameStartSequence::new(width as usize, height as usize);
 
         Ok(())
+    }
+
+    fn load_map_sidecar_resources(map_path: &str) {
+        let map_for_sidecars = Self::resolve_sidecar_map_path(map_path);
+        let Some(map_dir) = Self::map_directory_for_sidecars(&map_for_sidecars) else {
+            return;
+        };
+
+        Self::load_map_ini_override(&map_dir, "map.ini");
+        Self::load_map_ini_override(&map_dir, "solo.ini");
+
+        if let Some(map_str_path) = Self::find_existing_case_variants(&[
+            format!("{map_dir}/map.str"),
+            format!("{map_dir}/Map.str"),
+        ]) {
+            if let Err(err) = TheGameText::init_map_string_file(&map_str_path) {
+                log::warn!(
+                    "Failed to initialize map string file '{}': {}",
+                    map_str_path,
+                    err
+                );
+            }
+        }
+
+        // C++ parity note: Display::doSmartAssetPurgeAndPreload consumes this file.
+        // We preload listed assets through ResourceManager as a parity approximation.
+        Self::preload_asset_usage_manifest(&format!("{map_dir}/AssetUsage.txt"));
+    }
+
+    fn resolve_sidecar_map_path(map_path: &str) -> String {
+        let normalized_map = Self::normalize_path_for_compare(map_path);
+        let state = get_game_state();
+        let normalized_save_dir =
+            Self::normalize_path_for_compare(state.get_save_directory().to_string_lossy().as_ref());
+
+        if !normalized_save_dir.is_empty() && normalized_map.starts_with(&normalized_save_dir) {
+            let pristine = state.get_pristine_map_name().trim();
+            if !pristine.is_empty() {
+                return pristine.to_string();
+            }
+        }
+
+        map_path.to_string()
+    }
+
+    fn normalize_path_for_compare(path: &str) -> String {
+        path.replace('\\', "/").to_ascii_lowercase()
+    }
+
+    fn map_directory_for_sidecars(map_path: &str) -> Option<String> {
+        let normalized = map_path.replace('\\', "/");
+        let trimmed = normalized.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let mut without_ext = trimmed.to_string();
+        if without_ext.to_ascii_lowercase().ends_with(".map") {
+            without_ext.truncate(without_ext.len() - 4);
+        }
+
+        let slash = without_ext.rfind('/')?;
+        let directory = without_ext[..slash].trim_end_matches('/');
+        if directory.is_empty() {
+            None
+        } else {
+            Some(directory.to_string())
+        }
+    }
+
+    fn load_map_ini_override(map_dir: &str, filename: &str) {
+        let path = format!("{map_dir}/{filename}");
+        if !Self::file_exists(&path) {
+            return;
+        }
+
+        let mut ini = INI::new();
+        if let Err(err) = ini.load(&path, INILoadType::CreateOverrides) {
+            log::warn!("Failed to load map override INI '{}': {}", path, err);
+        }
+    }
+
+    fn preload_asset_usage_manifest(path: &str) {
+        if !Self::file_exists(path) {
+            return;
+        }
+
+        let Some(contents) = Self::read_text_file(path) else {
+            log::warn!("Failed to read asset usage manifest '{}'", path);
+            return;
+        };
+
+        let mut resources = Vec::new();
+        for raw_line in contents.lines() {
+            let line = raw_line.trim();
+            if line.is_empty()
+                || line.starts_with("//")
+                || line.starts_with('#')
+                || line.starts_with(';')
+            {
+                continue;
+            }
+
+            let resource = line
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !resource.is_empty() {
+                resources.push(resource.to_string());
+            }
+        }
+
+        if resources.is_empty() {
+            return;
+        }
+
+        let manager_arc = get_resource_manager();
+        let manager_lock = manager_arc.lock();
+        if let Ok(manager_guard) = manager_lock {
+            let refs = resources.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+            let _ = manager_guard.preload_resources(&refs);
+        }
+    }
+
+    fn find_existing_case_variants(candidates: &[String]) -> Option<String> {
+        candidates
+            .iter()
+            .find(|candidate| Self::file_exists(candidate))
+            .cloned()
+    }
+
+    fn read_text_file(path: &str) -> Option<String> {
+        if let Ok(contents) = fs::read_to_string(path) {
+            return Some(contents);
+        }
+
+        let fs = get_file_system();
+        let mut fs_guard = fs.lock().ok()?;
+        let mut file = fs_guard.open_file(path, FileAccess::READ.combine(FileAccess::BINARY))?;
+        let bytes = file.read_entire_and_close().ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    fn file_exists(path: &str) -> bool {
+        if Path::new(path).exists() {
+            return true;
+        }
+        let alt = path.replace('/', "\\");
+        if alt != path && Path::new(&alt).exists() {
+            return true;
+        }
+
+        let fs = get_file_system();
+        if let Ok(fs_guard) = fs.lock() {
+            if fs_guard.does_file_exist(path) {
+                return true;
+            }
+            if alt != path && fs_guard.does_file_exist(&alt) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Phase 2: Initialize players from map data and templates

@@ -46,6 +46,8 @@ use game_engine::common::ini::{
     get_global_data as get_engine_global_data, TimeOfDay as IniTimeOfDay,
 };
 use game_engine::common::system::radar::get_radar_system;
+use game_engine::common::system::file::FileAccess;
+use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
 };
@@ -910,6 +912,88 @@ impl TheGameLogic {
                 hooks.hide_shell();
             }
         }
+    }
+
+    /// Start a prepared game (C++ parity: GameLogic::startNewGame(FALSE)).
+    pub fn start_new_game(_is_load_game: Bool) -> Result<(), String> {
+        let map_path = get_engine_global_data()
+            .map(|data| data.read().map_name.clone())
+            .unwrap_or_default();
+
+        if map_path.is_empty() {
+            return Err("Cannot start game: global map_name is empty".to_string());
+        }
+
+        let params = crate::system::game_initialization::GameInitParams {
+            map_path,
+            game_mode: Self::to_init_game_mode(Self::get_game_mode()),
+            difficulty: Self::to_init_difficulty(TheScriptEngine::get_global_difficulty()),
+            num_players: Self::detect_player_count_for_init(),
+            player_templates: Vec::new(),
+            victory_type: crate::system::victory_conditions::VictoryType::Annihilation,
+            score_limit: None,
+            time_limit: None,
+            fog_of_war_enabled: true,
+            starting_resources: 0,
+            ai_script: "DefaultAI".to_string(),
+        };
+
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.set_loading_map(true);
+        }
+
+        let init_result = crate::system::game_initialization::GameInitializer::initialize_game(params)
+            .map(|_| ())
+            .map_err(|err| format!("Game initialization failed: {}", err));
+
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.set_loading_map(false);
+        }
+
+        init_result
+    }
+
+    fn to_init_game_mode(mode: Int) -> crate::system::game_initialization::GameMode {
+        match mode {
+            crate::system::game_logic::GAME_SHELL => {
+                crate::system::game_initialization::GameMode::ShellMap
+            }
+            crate::system::game_logic::GAME_SKIRMISH => {
+                crate::system::game_initialization::GameMode::Skirmish
+            }
+            crate::system::game_logic::GAME_LAN | crate::system::game_logic::GAME_INTERNET => {
+                crate::system::game_initialization::GameMode::Multiplayer
+            }
+            crate::system::game_logic::GAME_REPLAY => {
+                crate::system::game_initialization::GameMode::Replay
+            }
+            _ => crate::system::game_initialization::GameMode::SinglePlayer,
+        }
+    }
+
+    fn to_init_difficulty(difficulty: Int) -> crate::system::game_initialization::GameDifficulty {
+        match difficulty {
+            0 => crate::system::game_initialization::GameDifficulty::Easy,
+            2 => crate::system::game_initialization::GameDifficulty::Hard,
+            3 => crate::system::game_initialization::GameDifficulty::Brutal,
+            _ => crate::system::game_initialization::GameDifficulty::Normal,
+        }
+    }
+
+    fn detect_player_count_for_init() -> usize {
+        if let Ok(sides_guard) = crate::sides_list::get_sides_list().read() {
+            let count = sides_guard.get_num_sides().max(1) as usize;
+            return count.min(crate::system::player_init::MAX_PLAYER_COUNT);
+        }
+
+        if let Ok(player_list) = crate::player::ThePlayerList().read() {
+            let count = player_list.iter().count();
+            if count > 0 {
+                return count.min(crate::system::player_init::MAX_PLAYER_COUNT);
+            }
+        }
+
+        2
     }
 
     /// Reset game logic state (matches C++ TheGameLogic::clearGameData).
@@ -4172,10 +4256,107 @@ fn normalize_resource_name(name: &str) -> String {
 /// Simple text lookup helper emulating the legacy localization queries.
 pub struct TheGameText;
 
+static MAP_STRING_OVERLAY: Lazy<RwLock<HashMap<String, String>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+fn parse_map_string_file(contents: &str, out: &mut HashMap<String, String>) {
+    let mut current_key: Option<String> = None;
+    let mut current_value = String::new();
+
+    for raw_line in contents.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with("//") {
+            continue;
+        }
+        if line.eq_ignore_ascii_case("END") {
+            if let Some(key) = current_key.take() {
+                out.insert(key, current_value.clone());
+            }
+            current_value.clear();
+            continue;
+        }
+        if line.starts_with('"') {
+            let mut value = line.trim_matches('"').to_string();
+            value = unescape_map_string_value(&value);
+            if !current_value.is_empty() {
+                current_value.push('\n');
+            }
+            current_value.push_str(&value);
+            continue;
+        }
+        current_key = Some(line.to_string());
+    }
+}
+
+fn unescape_map_string_value(value: &str) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 impl TheGameText {
     /// Fetch a localized string; currently returns the key as-is.
     pub fn fetch(key: &str) -> String {
+        let key = key.trim();
+        if key.is_empty() {
+            return String::new();
+        }
+
+        if let Ok(overlay) = MAP_STRING_OVERLAY.read() {
+            if let Some(value) = overlay.get(key) {
+                return value.clone();
+            }
+        }
+
         game_engine::common::language::Language::get_localized_string(key)
+    }
+
+    pub fn init_map_string_file(path: &str) -> Result<(), String> {
+        let bytes = std::fs::read(path).or_else(|_| {
+            let fs_arc = get_file_system();
+            let mut fs = fs_arc
+                .lock()
+                .map_err(|_| std::io::Error::other("FileSystem mutex poisoned"))?;
+            let mut file = fs
+                .open_file(path, FileAccess::READ.combine(FileAccess::BINARY))
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, path))?;
+            file.read_entire_and_close()
+        });
+
+        let contents = bytes
+            .map(|raw| String::from_utf8_lossy(&raw).into_owned())
+            .map_err(|err| format!("Failed reading map string file '{}': {err}", path))?;
+
+        if let Ok(mut overlay) = MAP_STRING_OVERLAY.write() {
+            overlay.clear();
+            parse_map_string_file(&contents, &mut overlay);
+        }
+
+        Ok(())
+    }
+
+    pub fn clear_map_string_file() {
+        if let Ok(mut overlay) = MAP_STRING_OVERLAY.write() {
+            overlay.clear();
+        }
     }
 }
 

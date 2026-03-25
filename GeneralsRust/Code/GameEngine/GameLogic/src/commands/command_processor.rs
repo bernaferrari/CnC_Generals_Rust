@@ -41,6 +41,8 @@ use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::system::beacon_manager::get_beacon_manager;
 use crate::weapon::{WeaponLockType, WeaponSlotType};
+use game_engine::common::game_engine::get_game_engine;
+use game_engine::common::ini::get_global_data as get_engine_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::system::radar::{
     get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
@@ -3204,6 +3206,54 @@ impl DefaultCommandHandler {
 
         CommandExecutionResult::Success
     }
+
+    fn execute_clear_game_data(&self) -> CommandExecutionResult {
+        match TheGameLogic::clear_game_data() {
+            Ok(()) => CommandExecutionResult::Success,
+            Err(err) => CommandExecutionResult::Failed(AsciiString::from(&err)),
+        }
+    }
+
+    fn execute_new_game(&self, command: &QueuedCommand) -> CommandExecutionResult {
+        let read_int = |index: Int, fallback: Int| -> Int {
+            match command.command.get_argument(index) {
+                Some(crate::commands::command::CommandArgumentType::Integer(value)) => *value,
+                _ => fallback,
+            }
+        };
+
+        let game_mode = read_int(0, crate::system::game_logic::GAME_SINGLE_PLAYER);
+        let difficulty = read_int(1, 1);
+        let rank_points = read_int(2, 0);
+        let max_fps_arg = read_int(3, -1);
+
+        if max_fps_arg >= 0 {
+            let default_fps = get_engine_global_data()
+                .map(|data| data.read().frames_per_second_limit)
+                .unwrap_or(30);
+            let clamped_fps = if (1..=1000).contains(&max_fps_arg) {
+                max_fps_arg
+            } else {
+                default_fps
+            };
+
+            if let Some(data) = get_engine_global_data() {
+                let mut data = data.write();
+                data.frames_per_second_limit = clamped_fps;
+                data.use_fps_limit = true;
+            }
+            if let Some(engine) = get_game_engine() {
+                let mut guard = engine.lock();
+                guard.set_frames_per_second_limit(clamped_fps.max(0) as u32);
+            }
+        }
+
+        TheGameLogic::prepare_new_game(game_mode, difficulty, rank_points);
+        match TheGameLogic::start_new_game(false) {
+            Ok(()) => CommandExecutionResult::Success,
+            Err(err) => CommandExecutionResult::Failed(AsciiString::from(&err)),
+        }
+    }
 }
 
 impl CommandHandler for DefaultCommandHandler {
@@ -3218,6 +3268,8 @@ impl CommandHandler for DefaultCommandHandler {
         self.stats.commands_processed += 1;
 
         let result = match command.command.get_type() {
+            CommandType::ClearGameData => self.execute_clear_game_data(),
+            CommandType::NewGame => self.execute_new_game(command),
             CommandType::DoMoveTo
             | CommandType::DoAttackMoveTo
             | CommandType::DoForceMoveTo
@@ -3342,7 +3394,9 @@ impl CommandHandler for DefaultCommandHandler {
     fn can_handle(&self, command_type: CommandType) -> bool {
         matches!(
             command_type,
-            CommandType::DoMoveTo
+            CommandType::ClearGameData
+                | CommandType::NewGame
+                | CommandType::DoMoveTo
                 | CommandType::DoAttackMoveTo
                 | CommandType::DoForceMoveTo
                 | CommandType::DoSalvage

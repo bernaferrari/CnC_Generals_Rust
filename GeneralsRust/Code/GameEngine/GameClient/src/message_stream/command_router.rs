@@ -15,7 +15,9 @@ use gamelogic::common::{
     AsciiString, Coord3D as LogicCoord3D, IRegion2D as LogicRegion2D, Int, ObjectID,
 };
 
-use super::game_message::{Coord3D, GameMessage, GameMessageType, IRegion2D};
+use super::game_message::{
+    Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, IRegion2D,
+};
 
 /// Errors that can occur while routing commands to the legacy command queue.
 #[derive(Debug, Error)]
@@ -103,6 +105,12 @@ fn convert_game_message(message: &GameMessage) -> Option<Command> {
     let player = message.get_player_index();
 
     match message.get_type() {
+        ClearGameData => Some(basic_command(CommandType::ClearGameData, player)),
+        NewGame => {
+            let mut command = basic_command(CommandType::NewGame, player);
+            append_integer_message_arguments(message, &mut command);
+            Some(command)
+        }
         CreateSelectedGroup(create_new, objects) => {
             let mut command = Command::new(CommandType::CreateSelectedGroup);
             command.set_player_index(player);
@@ -573,6 +581,14 @@ fn map_team_slot_add(slot: u8) -> Option<CommandType> {
 
 fn to_logic_coord(coord: &Coord3D) -> LogicCoord3D {
     Vec3::new(coord.x, coord.y, coord.z)
+}
+
+fn append_integer_message_arguments(message: &GameMessage, command: &mut Command) {
+    for i in 0..message.get_argument_count() {
+        if let Some(GameMessageArgumentType::Integer(value)) = message.get_argument(i) {
+            command.append_integer_argument(*value);
+        }
+    }
 }
 
 fn to_logic_region(region: &IRegion2D) -> LogicRegion2D {
