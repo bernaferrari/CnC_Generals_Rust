@@ -22,6 +22,12 @@ type ObjectIdCounterGetter = Arc<dyn Fn() -> ObjectID + Send + Sync>;
 type ObjectIdCounterSetter = Arc<dyn Fn(ObjectID) + Send + Sync>;
 type DrawableIdCounterGetter = Arc<dyn Fn() -> DrawableID + Send + Sync>;
 type DrawableIdCounterSetter = Arc<dyn Fn(DrawableID) + Send + Sync>;
+type BeginLoadHook = Arc<dyn Fn() + Send + Sync>;
+type EndLoadHook = Arc<dyn Fn() + Send + Sync>;
+type SetLoadingSaveHook = Arc<dyn Fn(bool) + Send + Sync>;
+type SetGameModeHook = Arc<dyn Fn(i32) + Send + Sync>;
+type StartNewGameFromSaveHook = Arc<dyn Fn() + Send + Sync>;
+type PostLoadRefreshHook = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Default)]
 struct RuntimeIdCounterHooks {
@@ -33,8 +39,24 @@ struct RuntimeIdCounterHooks {
 
 static RUNTIME_ID_COUNTER_HOOKS: OnceLock<Mutex<RuntimeIdCounterHooks>> = OnceLock::new();
 
+#[derive(Default)]
+struct SaveLoadLifecycleHooks {
+    begin_load: Option<BeginLoadHook>,
+    end_load: Option<EndLoadHook>,
+    set_loading_save: Option<SetLoadingSaveHook>,
+    set_game_mode: Option<SetGameModeHook>,
+    start_new_game_from_save: Option<StartNewGameFromSaveHook>,
+    post_load_refresh: Option<PostLoadRefreshHook>,
+}
+
+static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
+
 fn id_counter_hooks() -> &'static Mutex<RuntimeIdCounterHooks> {
     RUNTIME_ID_COUNTER_HOOKS.get_or_init(|| Mutex::new(RuntimeIdCounterHooks::default()))
+}
+
+fn save_load_hooks() -> &'static Mutex<SaveLoadLifecycleHooks> {
+    SAVE_LOAD_LIFECYCLE_HOOKS.get_or_init(|| Mutex::new(SaveLoadLifecycleHooks::default()))
 }
 
 fn default_save_directory() -> PathBuf {
@@ -86,6 +108,72 @@ pub fn register_drawable_id_counter_hooks(
     if let Ok(mut hooks) = id_counter_hooks().lock() {
         hooks.drawable_getter = getter;
         hooks.drawable_setter = setter;
+    }
+}
+
+pub fn register_save_load_lifecycle_hooks(
+    begin_load: Option<BeginLoadHook>,
+    end_load: Option<EndLoadHook>,
+    set_loading_save: Option<SetLoadingSaveHook>,
+    set_game_mode: Option<SetGameModeHook>,
+    start_new_game_from_save: Option<StartNewGameFromSaveHook>,
+    post_load_refresh: Option<PostLoadRefreshHook>,
+) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.begin_load = begin_load;
+        hooks.end_load = end_load;
+        hooks.set_loading_save = set_loading_save;
+        hooks.set_game_mode = set_game_mode;
+        hooks.start_new_game_from_save = start_new_game_from_save;
+        hooks.post_load_refresh = post_load_refresh;
+    }
+}
+
+pub(crate) fn notify_begin_load() {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.begin_load.as_ref() {
+            callback();
+        }
+    }
+}
+
+pub(crate) fn notify_end_load() {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.end_load.as_ref() {
+            callback();
+        }
+    }
+}
+
+pub(crate) fn notify_set_loading_save(loading: bool) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.set_loading_save.as_ref() {
+            callback(loading);
+        }
+    }
+}
+
+pub(crate) fn notify_set_game_mode(game_mode: i32) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.set_game_mode.as_ref() {
+            callback(game_mode);
+        }
+    }
+}
+
+pub(crate) fn notify_start_new_game_from_save() {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.start_new_game_from_save.as_ref() {
+            callback();
+        }
+    }
+}
+
+pub(crate) fn notify_post_load_refresh() {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.post_load_refresh.as_ref() {
+            callback();
+        }
     }
 }
 

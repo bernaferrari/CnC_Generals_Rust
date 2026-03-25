@@ -111,7 +111,7 @@ use game_engine::common::rts::energy::{
 };
 use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
 use game_engine::common::system::build_assistant::init_build_assistant;
-use game_engine::System::register_object_id_counter_hooks;
+use game_engine::System::{register_object_id_counter_hooks, register_save_load_lifecycle_hooks};
 use log::{debug, info, trace, warn};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
@@ -2804,6 +2804,56 @@ fn install_save_game_counter_integration() {
             if let Ok(mut logic) = game_logic_mutex().lock() {
                 logic.set_object_id_counter(next_id);
             }
+        })),
+    );
+
+    register_save_load_lifecycle_hooks(
+        Some(Arc::new(|| {
+            if let Ok(mut logic) = game_logic_mutex().lock() {
+                logic.clear_all_objects();
+                logic.rebuild_spatial_index();
+                logic.set_loading_map(true);
+            }
+        })),
+        Some(Arc::new(|| {
+            if let Ok(mut logic) = game_logic_mutex().lock() {
+                logic.set_loading_map(false);
+            }
+        })),
+        Some(Arc::new(|loading| {
+            if let Ok(mut logic) = game_logic_mutex().lock() {
+                logic.set_loading_save(loading);
+            }
+        })),
+        Some(Arc::new(|game_mode| {
+            if let Ok(mut logic) = game_logic_mutex().lock() {
+                logic.set_game_mode(game_mode);
+            }
+        })),
+        Some(Arc::new(|| {
+            let map_name = game_engine::common::ini::get_global_data()
+                .map(|data| data.read().map_name.clone())
+                .unwrap_or_default();
+            if !map_name.is_empty() {
+                if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+                    if terrain.load_map(AsciiString::from(map_name.as_str()), false) {
+                        terrain.new_map(true);
+                    }
+                }
+            }
+            if let Ok(mut logic) = game_logic_mutex().lock() {
+                logic.set_loading_map(false);
+            }
+        })),
+        Some(Arc::new(|| {
+            if let Ok(mut logic) = game_logic_mutex().lock() {
+                logic.rebuild_spatial_index();
+                let _ = logic.update_partition_manager();
+                logic.rebuild_selection_cache();
+            }
+            let _ = with_ai_integration_mut(|ai| {
+                let _ = ai.new_map();
+            });
         })),
     );
 }
