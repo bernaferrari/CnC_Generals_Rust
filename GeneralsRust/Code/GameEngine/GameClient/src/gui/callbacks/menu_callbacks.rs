@@ -29,6 +29,27 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
+#[cfg(feature = "network")]
+use crate::gamespy_overlay::{close_overlay, is_overlay_open, GameSpyOverlayType};
+
+#[cfg(feature = "network")]
+fn options_overlay_is_open() -> bool {
+    is_overlay_open(GameSpyOverlayType::Options)
+}
+
+#[cfg(not(feature = "network"))]
+fn options_overlay_is_open() -> bool {
+    false
+}
+
+#[cfg(feature = "network")]
+fn close_options_overlay() {
+    close_overlay(GameSpyOverlayType::Options);
+}
+
+#[cfg(not(feature = "network"))]
+fn close_options_overlay() {}
+
 /// Menu callback trait
 pub trait MenuCallbacks {
     /// Initialize the menu
@@ -359,6 +380,9 @@ pub struct OptionsMenu {
     check_double_click_attack_move_id: i32,
     check_language_filter_id: i32,
     check_send_delay_id: i32,
+    combo_lan_ip_id: i32,
+    combo_online_ip_id: i32,
+    button_firewall_refresh_id: i32,
     check_use_camera_id: i32,
     check_save_camera_id: i32,
     check_draw_anchor_id: i32,
@@ -385,6 +409,7 @@ pub struct OptionsMenu {
     parent: Option<Rc<RefCell<GameWindow>>>,
     resolution_modes: Vec<(i32, i32)>,
     initial_detail_index: usize,
+    firewall_behavior_override: Option<u32>,
 }
 
 impl OptionsMenu {
@@ -407,6 +432,9 @@ impl OptionsMenu {
             check_double_click_attack_move_id: 0,
             check_language_filter_id: 0,
             check_send_delay_id: 0,
+            combo_lan_ip_id: 0,
+            combo_online_ip_id: 0,
+            button_firewall_refresh_id: 0,
             check_use_camera_id: 0,
             check_save_camera_id: 0,
             check_draw_anchor_id: 0,
@@ -433,6 +461,7 @@ impl OptionsMenu {
             parent: None,
             resolution_modes: Vec::new(),
             initial_detail_index: 1,
+            firewall_behavior_override: None,
         }
     }
 
@@ -913,7 +942,11 @@ impl OptionsMenu {
         Self::set_yes_no(&mut pref, "HeatEffects", heat_effects);
         Self::set_yes_no(&mut pref, "BuildingOcclusion", building_occlusion);
         Self::set_yes_no(&mut pref, "ShowTrees", show_props);
+        if let Some(firewall_behavior) = self.firewall_behavior_override {
+            pref.set_string("FirewallBehavior", firewall_behavior.to_string());
+        }
         let _ = pref.write();
+        self.firewall_behavior_override = None;
 
         {
             let mut global = runtime_global_data::write();
@@ -978,6 +1011,7 @@ impl OptionsMenu {
     }
 
     fn close_menu(&mut self) {
+        let options_overlay_open = options_overlay_is_open();
         if let Some(parent) = self.parent.as_ref() {
             with_window_manager(|manager| {
                 let _ = manager.unset_modal(parent);
@@ -985,7 +1019,11 @@ impl OptionsMenu {
         }
         Self::set_window_hidden(self.advanced_window_id, true);
         TheScriptEngine::signal_ui_interact("ShellOptionsClosed");
-        get_shell().destroy_options_layout();
+        if options_overlay_open {
+            close_options_overlay();
+        } else {
+            get_shell().destroy_options_layout();
+        }
         self.parent = None;
         self.initialized = false;
     }
@@ -1007,6 +1045,9 @@ impl OptionsMenu {
             Self::name_to_id("OptionsMenu.wnd:CheckDoubleClickAttackMove");
         self.check_language_filter_id = Self::name_to_id("OptionsMenu.wnd:CheckLanguageFilter");
         self.check_send_delay_id = Self::name_to_id("OptionsMenu.wnd:CheckSendDelay");
+        self.combo_lan_ip_id = Self::name_to_id("OptionsMenu.wnd:ComboBoxIP");
+        self.combo_online_ip_id = Self::name_to_id("OptionsMenu.wnd:ComboBoxOnlineIP");
+        self.button_firewall_refresh_id = Self::name_to_id("OptionsMenu.wnd:ButtonFirewallRefresh");
         self.check_use_camera_id = Self::name_to_id("OptionsMenu.wnd:CheckBoxUseCamera");
         self.check_save_camera_id = Self::name_to_id("OptionsMenu.wnd:CheckBoxSaveCamera");
         self.check_draw_anchor_id = Self::name_to_id("OptionsMenu.wnd:CheckBoxDrawAnchor");
@@ -1059,10 +1100,15 @@ impl MenuCallbacks for OptionsMenu {
             }
         });
         self.populate_controls();
-        if TheGameLogic::is_in_game() {
+        let in_game_locked =
+            TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() != GAME_SHELL;
+        if in_game_locked || options_overlay_is_open() {
+            Self::set_window_enabled(self.combo_lan_ip_id, false);
+            Self::set_window_enabled(self.combo_online_ip_id, false);
             Self::set_window_enabled(self.combo_detail_id, false);
             Self::set_window_enabled(self.combo_resolution_id, false);
             Self::set_window_enabled(self.check_send_delay_id, false);
+            Self::set_window_enabled(self.button_firewall_refresh_id, false);
         }
         layout.hide(false);
         self.ignore_selected = false;
@@ -1129,15 +1175,22 @@ impl MenuCallbacks for OptionsMenu {
                     self.close_menu();
                 } else if control_id == self.button_accept_id {
                     let resolution_changed = self.apply_options();
+                    let options_overlay_open = options_overlay_is_open();
                     if !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL {
                         destroy_quit_menu();
                     }
                     self.close_menu();
-                    if resolution_changed {
+                    if resolution_changed && !options_overlay_open {
                         get_main_menu().do_resolution_dialog();
                     }
                 } else if control_id == self.button_defaults_id {
                     self.apply_default_controls();
+                } else if control_id == self.button_firewall_refresh_id {
+                    self.firewall_behavior_override = Some(0);
+                    {
+                        let mut global = runtime_global_data::write();
+                        global.firewall_behavior = 0;
+                    }
                 } else if control_id == self.button_advanced_accept_id {
                     Self::set_window_hidden(self.advanced_window_id, true);
                 } else if control_id == self.button_advanced_back_id {
@@ -1164,7 +1217,13 @@ impl MenuCallbacks for OptionsMenu {
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
         if msg == WindowMessage::Char && data1 == 0x1B && (data2 & 0x0001) != 0 {
-            self.close_menu();
+            if let Some(parent) = self.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    self.button_back_id as u32,
+                    self.button_back_id as u32,
+                );
+            }
             return WindowMsgHandled::Handled;
         }
         WindowMsgHandled::Ignored
