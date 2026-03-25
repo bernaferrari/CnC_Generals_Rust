@@ -49,6 +49,13 @@ pub fn is_script_display_movie_playing() -> bool {
     with_script_display(|display| display.is_movie_playing()).unwrap_or(false)
 }
 
+pub fn stop_script_display_movie() -> bool {
+    with_script_display(|display| {
+        display.stop_movie();
+    })
+    .is_some()
+}
+
 pub fn script_popup_message(
     message: &str,
     x_percent: i32,

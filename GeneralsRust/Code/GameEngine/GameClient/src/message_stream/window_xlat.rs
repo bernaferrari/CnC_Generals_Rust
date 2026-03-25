@@ -2,13 +2,13 @@
 
 use super::game_message::{GameMessage, GameMessageType, ICoord2D};
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
+use crate::core::script_action_handler::{is_script_display_movie_playing, stop_script_display_movie};
 use crate::display::view::with_tactical_view_ref;
 use crate::helpers::TheInGameUI;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
 use crate::gui::shell::get_shell;
 use crate::gui::window_manager::with_window_manager;
 use game_engine::common::ini::get_global_data;
-use gamelogic::helpers::TheGameLogic;
 
 fn pack_legacy_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
@@ -171,17 +171,13 @@ impl GameMessageTranslator for WindowTranslator {
                     && *key == KEY_ESC
                     && (state & KEY_STATE_UP) != 0
                 {
-                    let movie_playing = TheGameLogic::is_intro_movie_playing();
+                    let movie_playing = is_script_display_movie_playing();
                     let allow_exit = get_global_data()
                         .map(|global_data| global_data.read().allow_exit_out_of_movies)
                         .unwrap_or(false);
 
                     if movie_playing && allow_exit {
-                        if let Some(global_data) = get_global_data() {
-                            let mut global = global_data.write();
-                            global.break_the_movie = true;
-                        }
-                        TheGameLogic::set_intro_movie_playing(false);
+                        let _ = stop_script_display_movie();
                         return_code = WindowInputReturnCode::Used;
                     }
                 }

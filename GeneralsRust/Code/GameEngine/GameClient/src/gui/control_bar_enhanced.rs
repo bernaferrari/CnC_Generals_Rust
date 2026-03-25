@@ -32,10 +32,12 @@ use game_engine::common::system::radar::{
     get_radar_system, ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
 };
 use gamelogic::commands::selection::get_selection_manager;
+use gamelogic::common::types::ObjectStatusTypes;
 use gamelogic::common::{AsciiString, ObjectID, LOGICFRAMES_PER_SECOND};
 use gamelogic::common::system::kind_of::KindOfMask;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::object::production::queue::BuildQueueEntry;
+use gamelogic::object::special_power_template::SpecialPowerTemplate;
 use gamelogic::object::update::ocl_update::OCLUpdateModule;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
@@ -1577,6 +1579,106 @@ impl EnhancedControlBar {
         Ok(false)
     }
 
+    fn find_most_ready_shortcut_special_power_source(
+        &self,
+        local_player_id: i32,
+        special_power_template: &SpecialPowerTemplate,
+    ) -> Option<ObjectID> {
+        if local_player_id < 0 {
+            return None;
+        }
+        let local_player = local_player_id as u32;
+        let special_power_type = special_power_template.get_special_power_type();
+        let current_frame = TheGameLogic::get_frame();
+
+        let mut best_candidate: Option<ObjectID> = None;
+        let mut lowest_ready_frame = u32::MAX;
+
+        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            let is_mine = obj_guard
+                .get_controlling_player_id()
+                .map(|owner| owner == local_player)
+                .unwrap_or(false);
+            if !is_mine
+                || obj_guard.is_under_construction()
+                || obj_guard.test_status(ObjectStatusTypes::Sold)
+                || obj_guard.is_effectively_dead()
+            {
+                continue;
+            }
+            if !obj_guard.has_special_power(special_power_type) {
+                continue;
+            }
+
+            for behavior_arc in obj_guard.get_behavior_modules() {
+                let Ok(behavior_lock) = behavior_arc.lock() else {
+                    continue;
+                };
+                let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() else {
+                    continue;
+                };
+                let Some(template) = sp_module.get_special_power_template_full() else {
+                    continue;
+                };
+                if template.get_special_power_type() != special_power_type || sp_module.is_script_only() {
+                    continue;
+                }
+
+                let mut ready_frame = sp_module.get_ready_frame();
+                if obj_guard.is_disabled() {
+                    // C++ treats disabled units as a last-resort candidate.
+                    ready_frame = u32::MAX - 10;
+                }
+
+                if ready_frame < current_frame {
+                    return Some(obj_guard.get_id());
+                }
+
+                if ready_frame < lowest_ready_frame {
+                    lowest_ready_frame = ready_frame;
+                    best_candidate = Some(obj_guard.get_id());
+                }
+                break;
+            }
+        }
+
+        best_candidate
+    }
+
+    fn source_has_overridable_special_power_destination(&self, source_object_id: ObjectID) -> bool {
+        if source_object_id == 0 {
+            return false;
+        }
+        let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) else {
+            return false;
+        };
+        let Ok(source_guard) = source_obj.read() else {
+            return false;
+        };
+        if source_guard.is_effectively_dead() {
+            return false;
+        }
+
+        for behavior_arc in source_guard.get_behavior_modules() {
+            let Ok(mut behavior_lock) = behavior_arc.lock() else {
+                continue;
+            };
+            let Some(update) = behavior_lock.get_special_power_update_interface() else {
+                continue;
+            };
+            if update.does_special_power_have_overridable_destination_active()
+                || update.does_special_power_have_overridable_destination()
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
     fn execute_command(
         &mut self,
         command: &gamelogic::command_button::CommandButton,
@@ -1597,7 +1699,19 @@ impl EnhancedControlBar {
             .and_then(|manager| manager.get_player_selection_ref(local_player_id))
             .map(|selection| selection.get_selected_objects())
             .unwrap_or_default();
-        let source_object = selected_objects.first().copied().unwrap_or(0);
+        let mut source_object = selected_objects.first().copied().unwrap_or(0);
+        let shortcut_special_power = command
+            .get_special_power_template()
+            .filter(|template| template.is_shortcut_power());
+        if command_type == gamelogic::commands::command::CommandType::SpecialPower {
+            if let Some(template) = shortcut_special_power {
+                if let Some(best_source) =
+                    self.find_most_ready_shortcut_special_power_source(local_player_id, template)
+                {
+                    source_object = best_source;
+                }
+            }
+        }
 
         if (command.get_options_bits() & 0x0000_0020) != 0 {
             if let Some(template) = command.get_thing_template() {
@@ -1759,6 +1873,15 @@ impl EnhancedControlBar {
                         command.get_options_bits(),
                         source_object,
                     ));
+
+                    if power.is_shortcut_power()
+                        && self.source_has_overridable_special_power_destination(source_object)
+                    {
+                        stream.append_message(GameMessageType::CreateSelectedGroupNoSound(
+                            true,
+                            vec![source_object],
+                        ));
+                    }
                 }
             }
             _ => {

@@ -32,8 +32,12 @@ use gamelogic::common::Coord3D as LogicCoord3D;
 use gamelogic::common::{
     CommandSourceType, KindOf, ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
 };
+use gamelogic::damage::DamageType;
+use gamelogic::helpers::TheTerrainLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::path::SURFACE_CLIFF;
 use gamelogic::player::player_list;
+use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -77,8 +81,73 @@ const CMD_NEED_TARGET_ENEMY_OBJECT: u32 = 0x0000_0001;
 const CMD_NEED_TARGET_NEUTRAL_OBJECT: u32 = 0x0000_0002;
 const CMD_NEED_TARGET_ALLY_OBJECT: u32 = 0x0000_0004;
 const CMD_NEED_TARGET_PRISONER: u32 = 0x0000_0008;
+const CMD_ALLOW_SHRUBBERY_TARGET: u32 = 0x0000_0010;
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
+const CMD_ALLOW_MINE_TARGET: u32 = 0x0000_0800;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
+const SPECIAL_POWER_INVALID: u32 = 0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ContextPickProfile {
+    include_selectable: bool,
+    include_force_attackable: bool,
+    include_mines: bool,
+    include_shrubbery: bool,
+}
+
+impl Default for ContextPickProfile {
+    fn default() -> Self {
+        Self {
+            include_selectable: true,
+            include_force_attackable: false,
+            include_mines: false,
+            include_shrubbery: false,
+        }
+    }
+}
+
+fn selection_has_flame_weapon(selection: &HashSet<ObjectID>) -> bool {
+    for &id in selection {
+        let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(guard) = obj.read() else {
+            continue;
+        };
+        if guard.is_destroyed() {
+            continue;
+        }
+        if guard.weapon_set.has_weapon_to_deal_damage_type(DamageType::Flame) {
+            return true;
+        }
+    }
+    false
+}
+
+fn context_pick_profile(force_attack_mode: bool, selection: &HashSet<ObjectID>) -> ContextPickProfile {
+    let mut profile = ContextPickProfile::default();
+    if force_attack_mode {
+        profile.include_force_attackable = true;
+    }
+
+    let pending_options = TheInGameUI::get_pending_command()
+        .map(|pending| pending.options)
+        .or_else(|| TheInGameUI::get_pending_special_power().map(|pending| pending.options));
+
+    if let Some(options) = pending_options {
+        if options & CMD_ALLOW_MINE_TARGET != 0 {
+            profile.include_mines = true;
+        }
+        if options & CMD_ALLOW_SHRUBBERY_TARGET != 0 {
+            profile.include_shrubbery = true;
+        }
+    } else if force_attack_mode && selection_has_flame_weapon(selection) {
+        // Matches C++ getPickTypesForCurrentSelection(forceAttackMode): flame weapons can target shrubbery.
+        profile.include_shrubbery = true;
+    }
+
+    profile
+}
 
 fn pending_command_accepts_object(options: u32) -> bool {
     options
@@ -305,6 +374,80 @@ fn selection_source_object_id(
     gamelogic::common::INVALID_ID
 }
 
+fn selection_can_override_special_power_destination(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    special_power_type: u32,
+) -> bool {
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine || sel_guard.is_effectively_dead() {
+            continue;
+        }
+
+        let mut matches_power = special_power_type == SPECIAL_POWER_INVALID;
+        if !matches_power {
+            for behavior_arc in sel_guard.get_behavior_modules() {
+                let Ok(behavior_lock) = behavior_arc.lock() else {
+                    continue;
+                };
+                let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() else {
+                    continue;
+                };
+                let Some(template) = sp_module.get_special_power_template_full() else {
+                    continue;
+                };
+                if template.get_special_power_type() as u32 == special_power_type {
+                    matches_power = true;
+                }
+                if matches_power {
+                    break;
+                }
+            }
+        }
+        if !matches_power {
+            continue;
+        }
+
+        let mut can_override = false;
+        for behavior_arc in sel_guard.get_behavior_modules() {
+            let Ok(mut behavior_lock) = behavior_arc.lock() else {
+                continue;
+            };
+            let Some(update) = behavior_lock.get_special_power_update_interface() else {
+                continue;
+            };
+            if update.does_special_power_have_overridable_destination_active()
+                || update.does_special_power_have_overridable_destination()
+            {
+                can_override = true;
+            }
+            if can_override {
+                break;
+            }
+        }
+
+        if can_override {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn selection_attack_result(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
@@ -405,10 +548,17 @@ fn current_local_selection(local_player: i32) -> HashSet<ObjectID> {
     selection_ids
 }
 
-fn pick_context_target_for_click(region: &IRegion2D, local_player: Option<u32>) -> Option<ObjectID> {
+fn pick_context_target_for_click(
+    region: &IRegion2D,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    force_attack_mode: bool,
+) -> Option<ObjectID> {
     const PICK_RADIUS_WORLD: f32 = 10.0;
 
-    let (mut mine, mut other) = collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player);
+    let profile = context_pick_profile(force_attack_mode, selection);
+    let (mut mine, mut other) =
+        collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player, profile);
     let mine_pick = pick_closest(&mut mine);
     let other_pick = pick_closest(&mut other);
 
@@ -553,8 +703,10 @@ impl CommandTranslator {
         local_player: Option<u32>,
     ) -> Option<ObjectID> {
         const PICK_RADIUS_WORLD: f32 = 10.0;
+        let force_attack_active = self.force_attack_mode || TheInGameUI::is_in_force_attack_mode();
+        let profile = context_pick_profile(force_attack_active, &self.current_selection);
         let (mut mine, mut other) =
-            collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player);
+            collect_selectable_objects(region, true, PICK_RADIUS_WORLD, local_player, profile);
         let mine_pick = pick_closest(&mut mine);
         let other_pick = pick_closest(&mut other);
 
@@ -643,8 +795,6 @@ impl CommandTranslator {
 
     fn resolve_move_hint(&self, world: Coord3D) -> GameMessageType {
         if !selection_has_quick_path_to(&self.current_selection, &world) {
-            // TODO: Match the full C++ shroud/path fallback, including the explicit shroud
-            // status bypass and cliff-locomotor special case.
             return GameMessageType::DoInvalidHint;
         }
 
@@ -705,7 +855,20 @@ impl CommandTranslator {
         _local_player: i32,
         local_player_u32: Option<u32>,
         target_id: ObjectID,
+        world: Coord3D,
     ) -> Option<GameMessageType> {
+        if selection_can_override_special_power_destination(
+            local_player_u32,
+            &self.current_selection,
+            SPECIAL_POWER_INVALID,
+        ) {
+            return Some(GameMessageType::DoSpecialPowerOverrideDestination(
+                world,
+                SPECIAL_POWER_INVALID,
+                gamelogic::common::INVALID_ID,
+            ));
+        }
+
         if selection_can_resume_construction_target(
             local_player_u32,
             &self.current_selection,
@@ -832,6 +995,14 @@ impl CommandTranslator {
         target_id: ObjectID,
         world: Coord3D,
     ) -> Option<GameMessageType> {
+        if selection_can_override_special_power_destination(
+            local_player_u32,
+            &self.current_selection,
+            SPECIAL_POWER_INVALID,
+        ) {
+            return Some(GameMessageType::DoSpecialPowerOverrideDestinationHint(world));
+        }
+
         let attack_result =
             selection_attack_result(local_player_u32, &self.current_selection, target_id);
 
@@ -990,7 +1161,17 @@ impl CommandTranslator {
         let command = if force_attack_active {
             self.evaluate_force_attack_command(local_player_u32, target, world.clone())
         } else if let Some(target_id) = target {
-            self.evaluate_context_action(local_player, local_player_u32, target_id)
+            self.evaluate_context_action(local_player, local_player_u32, target_id, world.clone())
+        } else if selection_can_override_special_power_destination(
+            local_player_u32,
+            &self.current_selection,
+            SPECIAL_POWER_INVALID,
+        ) {
+            Some(GameMessageType::DoSpecialPowerOverrideDestination(
+                world.clone(),
+                SPECIAL_POWER_INVALID,
+                gamelogic::common::INVALID_ID,
+            ))
         } else {
             Some(self.resolve_move_command(world.clone()))
         };
@@ -1028,6 +1209,14 @@ impl CommandTranslator {
                 .evaluate_force_attack_hint(local_player_u32, None, pos.clone())
                 .map(|hint| vec![hint])
                 .unwrap_or_default();
+        }
+
+        if selection_can_override_special_power_destination(
+            local_player_u32,
+            &self.current_selection,
+            SPECIAL_POWER_INVALID,
+        ) {
+            return vec![GameMessageType::DoSpecialPowerOverrideDestinationHint(pos.clone())];
         }
 
         vec![self.resolve_move_hint(pos.clone())]
@@ -1179,7 +1368,13 @@ impl CommandTranslator {
         };
 
         let (mut mine, mut other) =
-            collect_selectable_objects(region, is_point, PICK_RADIUS_WORLD, local_player_u32);
+            collect_selectable_objects(
+                region,
+                is_point,
+                PICK_RADIUS_WORLD,
+                local_player_u32,
+                ContextPickProfile::default(),
+            );
 
         if is_point {
             let picked_object = pick_closest(&mut mine).or_else(|| pick_closest(&mut other));
@@ -1746,6 +1941,7 @@ fn collect_selectable_objects(
     is_point: bool,
     pick_radius_world: f32,
     local_player: Option<u32>,
+    profile: ContextPickProfile,
 ) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
     let min_x = region.x.min(region.x + region.width);
     let min_y = region.y.min(region.y + region.height);
@@ -1768,15 +1964,28 @@ fn collect_selectable_objects(
             continue;
         }
 
-        let selectable =
+        let selectable_kind =
             obj.is_kind_of(KindOf::Selectable) || obj.is_kind_of(KindOf::AlwaysSelectable);
-        if !selectable {
+        let mine_kind = obj.is_kind_of(KindOf::Mine);
+        let shrubbery_kind = obj.is_kind_of(KindOf::Shrubbery);
+        let force_attackable_kind = obj.is_kind_of(KindOf::ForceAttackable);
+
+        let selectable_pick = profile.include_selectable && selectable_kind;
+        let mine_pick = profile.include_mines && mine_kind;
+        let shrubbery_pick = profile.include_shrubbery && shrubbery_kind;
+        let force_attackable_pick = profile.include_force_attackable && force_attackable_kind;
+        let special_pick = mine_pick || shrubbery_pick || force_attackable_pick;
+
+        if !(selectable_pick || special_pick) {
             continue;
         }
 
         let status = obj.get_status_bits();
-        if status.contains(LogicObjectStatusMaskType::UNSELECTABLE)
-            || status.contains(LogicObjectStatusMaskType::MASKED)
+        if status.contains(LogicObjectStatusMaskType::UNSELECTABLE) && !special_pick {
+            continue;
+        }
+        if status.contains(LogicObjectStatusMaskType::MASKED)
+            && !(shrubbery_pick || force_attackable_pick)
         {
             continue;
         }
@@ -2028,6 +2237,16 @@ where
 fn selection_has_quick_path_to(selection: &HashSet<ObjectID>, world: &Coord3D) -> bool {
     let world = LogicCoord3D::new(world.x, world.y, world.z);
 
+    let local_player = get_local_player_id();
+    if local_player >= 0 {
+        if let Ok(shroud) = get_shroud_manager().lock() {
+            if shroud.get_shroud_state(local_player as u32, &world) != ShroudState::Visible {
+                // C++ parity: when target point is fogged/shrouded, skip quick-path rejection.
+                return true;
+            }
+        }
+    }
+
     for &id in selection {
         let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
             continue;
@@ -2045,6 +2264,14 @@ fn selection_has_quick_path_to(selection: &HashSet<ObjectID>, world: &Coord3D) -
 
         if ai_guard.is_quick_path_available(&world) {
             return true;
+        }
+
+        if ai_guard.has_locomotor_for_surface(SURFACE_CLIFF) {
+            if let Some(terrain) = TheTerrainLogic::get() {
+                if terrain.is_cliff_cell(world.x, world.y) {
+                    return true;
+                }
+            }
         }
     }
 
@@ -2810,7 +3037,12 @@ impl GUICommandTranslator {
             None
         };
         let selection_ids = current_local_selection(local_player);
-        let target = pick_context_target_for_click(&click_region, local_player_u32);
+        let target = pick_context_target_for_click(
+            &click_region,
+            local_player_u32,
+            &selection_ids,
+            TheInGameUI::is_in_force_attack_mode(),
+        );
 
         let mut translated: Option<GameMessageType> = None;
         if let Some(target_id) = target {
@@ -2900,63 +3132,197 @@ pub struct HintSpy {
     last_hint: Option<String>,
 }
 
+struct HintVisual {
+    text: String,
+    cursor: &'static str,
+    radius_cursor: bool,
+}
+
 impl HintSpy {
     pub fn new() -> Self {
         Self { last_hint: None }
     }
 
-    fn process_hint(&mut self, hint: String) {
-        debug!("Processing hint: {}", hint);
-        self.last_hint = Some(hint);
+    fn process_hint(&mut self, hint: HintVisual) {
+        debug!("Processing hint: {}", hint.text);
+        self.last_hint = Some(hint.text);
         if let Some(last_hint) = &self.last_hint {
             TheInGameUI::set_hint_text(last_hint);
+        }
+        TheInGameUI::set_cursor_by_name(hint.cursor);
+        if hint.radius_cursor {
+            TheInGameUI::set_radius_cursor_active();
+        } else {
+            TheInGameUI::set_radius_cursor_none();
         }
     }
 }
 
-fn hint_text_for_message(msg: &GameMessageType) -> Option<String> {
+fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisual> {
     use GameMessageType::*;
 
-    let text = match msg {
-        MouseoverDrawableHint(drawable) => format!("Mouse over drawable {}", drawable),
-        MouseoverLocationHint(pos) => format!("Mouse over location {:?}", pos),
-        ValidGUICommandHint => "Valid GUI command".to_string(),
-        InvalidGUICommandHint => "Invalid GUI command".to_string(),
-        AreaSelectionHint(region) => format!("Area selection {:?}", region),
-        DoAttackObjectHint(target) => format!("Attack object {}", target),
-        ImpossibleAttackHint => "Impossible attack".to_string(),
-        DoForceAttackObjectHint(target) => format!("Force attack object {}", target),
-        DoForceAttackGroundHint(pos) => format!("Force attack ground {:?}", pos),
-        GetRepairedHint(target) => format!("Get repaired {}", target),
-        GetHealedHint(target) => format!("Get healed {}", target),
-        DoRepairHint(target) => format!("Repair object {}", target),
-        ResumeConstructionHint(target) => format!("Resume construction {}", target),
-        EnterHint(target) => format!("Enter object {}", target),
-        DockHint(target) => format!("Dock at object {}", target),
-        DoMoveToHint(pos) => format!("Move to {:?}", pos),
-        DoAttackMoveToHint(pos) => format!("Attack move to {:?}", pos),
-        AddWaypointHint(pos) => format!("Add waypoint {:?}", pos),
-        HijackHint(target) => format!("Hijack object {}", target),
-        SabotageHint(target) => format!("Sabotage object {}", target),
-        FirebombHint(target) => format!("Firebomb object {}", target),
-        ConvertToCarbombHint(target) => format!("Convert to carbomb {}", target),
-        CaptureBuildingHint(target) => format!("Capture building {}", target),
-        SnipeVehicleHint(target) => format!("Snipe vehicle {}", target),
-        DefectorHint(target) => format!("Defector {}", target),
-        SetRallyPointHint(pos) => format!("Set rally point {:?}", pos),
-        DoSpecialPowerOverrideDestinationHint(pos) => {
-            format!("Special power destination {:?}", pos)
-        }
-        DoSalvageHint(pos) => format!("Salvage {:?}", pos),
-        DoInvalidHint => "Invalid action".to_string(),
-        DoAttackObjectAfterMovingHint(target) => {
-            format!("Attack object after moving {}", target)
-        }
-        HackHint(target) => format!("Hack object {}", target),
+    let visual = match msg {
+        MouseoverDrawableHint(drawable) => HintVisual {
+            text: format!("Mouse over drawable {}", drawable),
+            cursor: "ARROW",
+            radius_cursor: false,
+        },
+        MouseoverLocationHint(pos) => HintVisual {
+            text: format!("Mouse over location {:?}", pos),
+            cursor: "ARROW",
+            radius_cursor: false,
+        },
+        ValidGUICommandHint => HintVisual {
+            text: "Valid GUI command".to_string(),
+            cursor: "CROSS",
+            radius_cursor: TheInGameUI::get_pending_command().is_some()
+                || TheInGameUI::get_pending_special_power().is_some(),
+        },
+        InvalidGUICommandHint => HintVisual {
+            text: "Invalid GUI command".to_string(),
+            cursor: "GENERIC_INVALID",
+            radius_cursor: TheInGameUI::get_pending_command().is_some()
+                || TheInGameUI::get_pending_special_power().is_some(),
+        },
+        AreaSelectionHint(region) => HintVisual {
+            text: format!("Area selection {:?}", region),
+            cursor: "SELECTING",
+            radius_cursor: false,
+        },
+        DoMoveToHint(pos) => HintVisual {
+            text: format!("Move to {:?}", pos),
+            cursor: "MOVETO",
+            radius_cursor: false,
+        },
+        DoAttackMoveToHint(pos) => HintVisual {
+            text: format!("Attack move to {:?}", pos),
+            cursor: "ATTACKMOVETO",
+            radius_cursor: false,
+        },
+        AddWaypointHint(pos) => HintVisual {
+            text: format!("Add waypoint {:?}", pos),
+            cursor: "WAYPOINT",
+            radius_cursor: false,
+        },
+        DoAttackObjectHint(target) => HintVisual {
+            text: format!("Attack object {}", target),
+            cursor: "ATTACK_OBJECT",
+            radius_cursor: false,
+        },
+        DoAttackObjectAfterMovingHint(target) => HintVisual {
+            text: format!("Attack object after moving {}", target),
+            cursor: "OUTRANGE",
+            radius_cursor: false,
+        },
+        ImpossibleAttackHint => HintVisual {
+            text: "Impossible attack".to_string(),
+            cursor: "GENERIC_INVALID",
+            radius_cursor: false,
+        },
+        DoForceAttackObjectHint(target) => HintVisual {
+            text: format!("Force attack object {}", target),
+            cursor: "FORCE_ATTACK_OBJECT",
+            radius_cursor: false,
+        },
+        DoForceAttackGroundHint(pos) => HintVisual {
+            text: format!("Force attack ground {:?}", pos),
+            cursor: "FORCE_ATTACK_GROUND",
+            radius_cursor: false,
+        },
+        GetRepairedHint(target) => HintVisual {
+            text: format!("Get repaired {}", target),
+            cursor: "GET_REPAIRED",
+            radius_cursor: false,
+        },
+        DockHint(target) => HintVisual {
+            text: format!("Dock at object {}", target),
+            cursor: "DOCK",
+            radius_cursor: false,
+        },
+        GetHealedHint(target) => HintVisual {
+            text: format!("Get healed {}", target),
+            cursor: "GET_HEALED",
+            radius_cursor: false,
+        },
+        DoRepairHint(target) => HintVisual {
+            text: format!("Repair object {}", target),
+            cursor: "DO_REPAIR",
+            radius_cursor: false,
+        },
+        ResumeConstructionHint(target) => HintVisual {
+            text: format!("Resume construction {}", target),
+            cursor: "RESUME_CONSTRUCTION",
+            radius_cursor: false,
+        },
+        EnterHint(target) => HintVisual {
+            text: format!("Enter object {}", target),
+            cursor: "ENTER_FRIENDLY",
+            radius_cursor: false,
+        },
+        HijackHint(target) => HintVisual {
+            text: format!("Hijack object {}", target),
+            cursor: "ENTER_AGGRESSIVELY",
+            radius_cursor: false,
+        },
+        SabotageHint(target) => HintVisual {
+            text: format!("Sabotage object {}", target),
+            cursor: "ENTER_AGGRESSIVELY",
+            radius_cursor: false,
+        },
+        FirebombHint(target) => HintVisual {
+            text: format!("Firebomb object {}", target),
+            cursor: "ENTER_AGGRESSIVELY",
+            radius_cursor: false,
+        },
+        ConvertToCarbombHint(target) => HintVisual {
+            text: format!("Convert to carbomb {}", target),
+            cursor: "ENTER_AGGRESSIVELY",
+            radius_cursor: false,
+        },
+        CaptureBuildingHint(target) => HintVisual {
+            text: format!("Capture building {}", target),
+            cursor: "CAPTUREBUILDING",
+            radius_cursor: false,
+        },
+        SnipeVehicleHint(target) => HintVisual {
+            text: format!("Snipe vehicle {}", target),
+            cursor: "ATTACK_OBJECT",
+            radius_cursor: false,
+        },
+        DefectorHint(target) => HintVisual {
+            text: format!("Defector {}", target),
+            cursor: "DEFECTOR",
+            radius_cursor: false,
+        },
+        HackHint(target) => HintVisual {
+            text: format!("Hack object {}", target),
+            cursor: "HACK",
+            radius_cursor: false,
+        },
+        SetRallyPointHint(pos) => HintVisual {
+            text: format!("Set rally point {:?}", pos),
+            cursor: "SET_RALLY_POINT",
+            radius_cursor: false,
+        },
+        DoSpecialPowerOverrideDestinationHint(pos) => HintVisual {
+            text: format!("Special power destination {:?}", pos),
+            cursor: "PARTICLE_UPLINK_CANNON",
+            radius_cursor: false,
+        },
+        DoSalvageHint(pos) => HintVisual {
+            text: format!("Salvage {:?}", pos),
+            cursor: "MOVETO",
+            radius_cursor: false,
+        },
+        DoInvalidHint => HintVisual {
+            text: "Invalid action".to_string(),
+            cursor: "GENERIC_INVALID",
+            radius_cursor: false,
+        },
         _ => return None,
     };
 
-    Some(text)
+    Some(visual)
 }
 
 impl Default for HintSpy {
@@ -2967,7 +3333,7 @@ impl Default for HintSpy {
 
 impl GameMessageTranslator for HintSpy {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        if let Some(hint) = hint_text_for_message(msg.get_type()) {
+        if let Some(hint) = hint_visual_for_message(msg.get_type()) {
             self.process_hint(hint);
             GameMessageDisposition::DestroyMessage
         } else {
@@ -3195,6 +3561,8 @@ mod tests {
         let mut hint_spy = HintSpy::new();
 
         assert!(hint_spy.last_hint.is_none());
+        TheInGameUI::set_cursor_arrow();
+        TheInGameUI::set_radius_cursor_none();
 
         let cases = [
             (
@@ -3251,6 +3619,8 @@ mod tests {
                 message.get_type()
             );
         }
+
+        assert_eq!(TheInGameUI::get_cursor_name(), "GENERIC_INVALID");
 
         // Test pass-through
         let other_msg = GameMessage::new(GameMessageType::Invalid);

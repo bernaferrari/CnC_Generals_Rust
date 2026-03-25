@@ -5,11 +5,16 @@ use super::game_message::{
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewLocation};
+use crate::gui::get_shell;
+use crate::helpers::TheInGameUI;
 use game_engine::common::ini::ini_game_data::get_global_data;
+use gamelogic::helpers::TheGameLogic;
 
 const MAX_VIEW_LOCS: usize = 8;
 const SCROLL_AMT: f32 = 100.0;
 const EDGE_SCROLL_SIZE: i32 = 3;
+const MMB_CLICK_DURATION_FRAMES: u32 = 5;
+const MMB_CLICK_PIXEL_OFFSET: i32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum ScrollType {
@@ -74,13 +79,19 @@ impl LookAtTranslator {
     }
 
     fn set_scrolling(&mut self, scroll_type: ScrollType) {
+        if !TheInGameUI::get_input_enabled() {
+            return;
+        }
         self.is_scrolling = true;
         self.scroll_type = scroll_type;
+        TheInGameUI::set_scrolling(true);
     }
 
     fn stop_scrolling(&mut self) {
         self.is_scrolling = false;
         self.scroll_type = ScrollType::None;
+        TheInGameUI::set_scrolling(false);
+        TheInGameUI::set_cursor_arrow();
     }
 
     fn update_scroll_dir(&mut self, key: u32, pressed: bool) {
@@ -111,10 +122,13 @@ impl LookAtTranslator {
     fn handle_frame_tick(&mut self) {
         let (display_width, display_height) =
             with_tactical_view_ref(|view| (view.width(), view.height()));
-        let (h_factor, v_factor, key_factor, windowed, cutoff) = self.get_global_scroll_factors();
+        let (h_factor, v_factor, key_factor, _windowed, cutoff) = self.get_global_scroll_factors();
 
         let mut offset = Coord2D::zero();
-        if self.is_scrolling {
+        if self.is_scrolling && !TheInGameUI::is_scrolling() {
+            TheInGameUI::set_scroll_amount(0.0, 0.0);
+            self.stop_scrolling();
+        } else if self.is_scrolling {
             match self.scroll_type {
                 ScrollType::Rmb => {
                     offset.x = h_factor * (self.current_pos.x - self.anchor.x) as f32;
@@ -164,17 +178,12 @@ impl LookAtTranslator {
                 }
             }
 
+            TheInGameUI::set_scroll_amount(offset.x, offset.y);
             with_tactical_view(|view| {
                 view.scroll_by(&crate::display::view::Vector2::new(offset.x, offset.y));
             });
-        } else if !windowed {
-            if self.current_pos.x < EDGE_SCROLL_SIZE
-                || self.current_pos.y < EDGE_SCROLL_SIZE
-                || self.current_pos.x >= display_width - EDGE_SCROLL_SIZE
-                || self.current_pos.y >= display_height - EDGE_SCROLL_SIZE
-            {
-                self.set_scrolling(ScrollType::ScreenEdge);
-            }
+        } else {
+            TheInGameUI::set_scroll_amount(0.0, 0.0);
         }
 
         with_tactical_view(|view| {
@@ -199,6 +208,9 @@ impl GameMessageTranslator for LookAtTranslator {
         let msg_type = msg.get_type();
         match msg_type {
             GameMessageType::RawKeyDown(key) | GameMessageType::RawKeyUp(key) => {
+                if get_shell().is_shell_active() {
+                    return GameMessageDisposition::KeepMessage;
+                }
                 let key_state = match msg.get_argument(1) {
                     Some(GameMessageArgumentType::Integer(value)) => *value as u32,
                     _ => 0,
@@ -206,44 +218,91 @@ impl GameMessageTranslator for LookAtTranslator {
                 let pressed = (key_state & 0x0001) == 0;
                 self.update_scroll_dir(*key, pressed);
 
+                if TheInGameUI::is_selecting()
+                    || (self.is_scrolling && self.scroll_type != ScrollType::Key)
+                {
+                    return GameMessageDisposition::KeepMessage;
+                }
+
                 let num_dirs = self.scroll_dir.iter().filter(|&&dir| dir).count();
                 if num_dirs > 0 && !self.is_scrolling {
                     self.set_scrolling(ScrollType::Key);
-                } else if num_dirs == 0 && self.is_scrolling && self.scroll_type == ScrollType::Key
-                {
+                } else if num_dirs == 0 && self.is_scrolling {
                     self.stop_scrolling();
                 }
             }
             GameMessageType::RawMouseRightButtonDown(pos, ..) => {
+                self.last_mouse_move_frame = TheGameLogic::get_frame();
                 self.anchor = pos.clone();
                 self.current_pos = pos.clone();
-                if !self.is_scrolling {
+                if !TheInGameUI::is_selecting() && !self.is_scrolling {
                     self.set_scrolling(ScrollType::Rmb);
                 }
             }
             GameMessageType::RawMouseRightButtonUp(..) => {
+                self.last_mouse_move_frame = TheGameLogic::get_frame();
                 if self.scroll_type == ScrollType::Rmb {
                     self.stop_scrolling();
                 }
             }
             GameMessageType::RawMouseMiddleButtonDown(pos, ..) => {
+                self.last_mouse_move_frame = TheGameLogic::get_frame();
                 self.is_rotating = true;
                 self.anchor = pos.clone();
                 self.original_anchor = pos.clone();
                 self.current_pos = pos.clone();
+                self.timestamp = TheGameLogic::get_frame();
             }
             GameMessageType::RawMouseMiddleButtonUp(..) => {
+                self.last_mouse_move_frame = TheGameLogic::get_frame();
                 self.is_rotating = false;
-                with_tactical_view(|view| {
-                    view.set_angle_and_pitch_to_default();
-                    view.set_zoom_to_default();
-                });
+                let dx = (self.current_pos.x - self.original_anchor.x).abs();
+                let dy = (self.current_pos.y - self.original_anchor.y).abs();
+                let did_move = dx > MMB_CLICK_PIXEL_OFFSET || dy > MMB_CLICK_PIXEL_OFFSET;
+                let is_short_click = TheGameLogic::get_frame().wrapping_sub(self.timestamp)
+                    < MMB_CLICK_DURATION_FRAMES;
+                if !did_move && is_short_click {
+                    with_tactical_view(|view| {
+                        view.set_angle_and_pitch_to_default();
+                        view.set_zoom_to_default();
+                    });
+                }
             }
             GameMessageType::RawMousePosition(pos) => {
                 if self.current_pos.x != pos.x || self.current_pos.y != pos.y {
-                    self.last_mouse_move_frame = self.last_mouse_move_frame.wrapping_add(1);
+                    self.last_mouse_move_frame = TheGameLogic::get_frame();
                 }
                 self.current_pos = pos.clone();
+
+                let (display_width, display_height) =
+                    with_tactical_view_ref(|view| (view.width(), view.height()));
+                let (_, _, _, windowed, _) = self.get_global_scroll_factors();
+                if !TheInGameUI::get_input_enabled() {
+                    if self.is_scrolling {
+                        self.stop_scrolling();
+                    }
+                    return GameMessageDisposition::KeepMessage;
+                }
+
+                if !windowed {
+                    if self.is_scrolling {
+                        if self.scroll_type == ScrollType::ScreenEdge
+                            && self.current_pos.x >= EDGE_SCROLL_SIZE
+                            && self.current_pos.y >= EDGE_SCROLL_SIZE
+                            && self.current_pos.y < display_height - EDGE_SCROLL_SIZE
+                            && self.current_pos.x < display_width - EDGE_SCROLL_SIZE
+                        {
+                            self.stop_scrolling();
+                        }
+                    } else if self.current_pos.x < EDGE_SCROLL_SIZE
+                        || self.current_pos.y < EDGE_SCROLL_SIZE
+                        || self.current_pos.y >= display_height - EDGE_SCROLL_SIZE
+                        || self.current_pos.x >= display_width - EDGE_SCROLL_SIZE
+                    {
+                        self.set_scrolling(ScrollType::ScreenEdge);
+                    }
+                }
+
                 if self.is_rotating {
                     let delta = (self.current_pos.x - self.anchor.x) as f32 * 0.01;
                     with_tactical_view(|view| view.set_angle(view.angle() + delta));
@@ -256,10 +315,15 @@ impl GameMessageTranslator for LookAtTranslator {
                 }
             }
             GameMessageType::RawMouseWheel(spin) => {
+                self.last_mouse_move_frame = TheGameLogic::get_frame();
                 if *spin > 0 {
-                    with_tactical_view(|view| view.zoom_in());
+                    for _ in 0..*spin {
+                        with_tactical_view(|view| view.zoom_in());
+                    }
                 } else if *spin < 0 {
-                    with_tactical_view(|view| view.zoom_out());
+                    for _ in 0..(-*spin) {
+                        with_tactical_view(|view| view.zoom_out());
+                    }
                 }
             }
             GameMessageType::FrameTick(..) => {

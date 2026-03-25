@@ -24,12 +24,15 @@ use crate::message_stream::game_message::{
     Coord3D as MsgCoord3D, GameMessageType, ICoord2D as MsgICoord2D,
 };
 use crate::message_stream::message_stream::append_message_to_stream;
+use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::types::Relationship;
+use gamelogic::common::CommandSourceType;
 use gamelogic::common::{Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID};
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
 use gamelogic::player::{PlayerType, ThePlayerList};
 
@@ -665,7 +668,12 @@ impl InGameUI {
                 | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
         ) {
             if let Some(target_id) = self.pick_object_at_screen(mouse_pos) {
-                if self.is_valid_special_power_target(target_id, options) {
+                if self.is_valid_special_power_target(
+                    pending.source_object_id,
+                    pending.power_id,
+                    target_id,
+                    pending.options,
+                ) {
                     let _ = append_message_to_stream(GameMessageType::DoSpecialPowerAtObject(
                         pending.power_id,
                         target_id,
@@ -697,17 +705,65 @@ impl InGameUI {
         }
 
         if issued {
+            let reselection_required = get_special_power_store()
+                .and_then(|store| {
+                    store
+                        .find_special_power_template_by_id(pending.power_id)
+                        .map(|template| template.is_shortcut_power())
+                })
+                .unwrap_or(false)
+                && self.source_has_overridable_special_power_destination(pending.source_object_id);
+            if reselection_required {
+                let _ = append_message_to_stream(GameMessageType::CreateSelectedGroupNoSound(
+                    true,
+                    vec![pending.source_object_id],
+                ));
+            }
             TheInGameUI::clear_pending_special_power();
         }
 
         Ok(true)
     }
 
+    fn source_has_overridable_special_power_destination(&self, source_object_id: ObjectID) -> bool {
+        if source_object_id == 0 {
+            return false;
+        }
+        let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) else {
+            return false;
+        };
+        let Ok(source_guard) = source_obj.read() else {
+            return false;
+        };
+        if source_guard.is_effectively_dead() {
+            return false;
+        }
+
+        for behavior_arc in source_guard.get_behavior_modules() {
+            let Ok(mut behavior_lock) = behavior_arc.lock() else {
+                continue;
+            };
+            let Some(update) = behavior_lock.get_special_power_update_interface() else {
+                continue;
+            };
+            if update.does_special_power_have_overridable_destination_active()
+                || update.does_special_power_have_overridable_destination()
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
     fn is_valid_special_power_target(
         &self,
+        source_object_id: ObjectID,
+        power_id: u32,
         target_id: ObjectID,
-        options: SpecialPowerCommandOption,
+        options_bits: u32,
     ) -> bool {
+        let options = SpecialPowerCommandOption::from_bits_truncate(options_bits);
         let needs_object = options.intersects(
             SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
                 | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
@@ -725,6 +781,28 @@ impl InGameUI {
         let Ok(target_guard) = target.read() else {
             return false;
         };
+        if target_guard.is_effectively_dead() {
+            return false;
+        }
+
+        if let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) {
+            if let Ok(source_guard) = source_obj.read() {
+                if !source_guard.is_effectively_dead() {
+                    if let Some(store) = get_special_power_store() {
+                        if let Some(template) = store.find_special_power_template_by_id(power_id) {
+                            return ActionManager::can_do_special_power_at_object(
+                                &source_guard,
+                                &target_guard,
+                                CommandSourceType::FromPlayer,
+                                template,
+                                options_bits,
+                                false,
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         let target_player_id = target_guard
             .get_controlling_player_id()
