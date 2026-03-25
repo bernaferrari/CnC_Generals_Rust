@@ -664,7 +664,7 @@ impl ActiveBody {
             ),
             Err(_) => (0.5, 0.25),
         };
-        if let Ok(mut state) = self.state.write() {
+        let should_apply_structure_rubble_effects = if let Ok(mut state) = self.state.write() {
             let new_state = Self::calc_damage_state(
                 state.current_health,
                 state.max_health,
@@ -673,29 +673,49 @@ impl ActiveBody {
                 really_damaged_thresh,
             );
             state.current_damage_state = new_state;
+            new_state == BodyDamageType::Rubble && is_structure
+        } else {
+            return Err(BodyError::OperationNotSupported);
+        };
 
-            // Handle special case for structures becoming rubble
-            if new_state == BodyDamageType::Rubble && is_structure {
-                // Avoid deadlocks: this can run while the owner object lock is already held.
-                if let Some(owner) = self.get_owner() {
-                    if let Ok(mut obj) = owner.try_write() {
-                        let rubble_height = obj
-                            .get_template()
-                            .structure_rubble_height()
-                            .unwrap_or_else(|| {
-                                global_data::read_safe()
-                                    .map(|g| g.default_structure_rubble_height as u8)
-                                    .unwrap_or(0)
-                            });
-                        obj.set_geometry_info_z(rubble_height as f32);
+        // Handle special case for structures becoming rubble.
+        //
+        // C++ ActiveBody::setCorrectDamageState does all three:
+        // 1) set rubble geometry height
+        // 2) refresh pathfind map entry (remove/add)
+        // 3) force NO_COLLISIONS status
+        if should_apply_structure_rubble_effects {
+            // Avoid deadlocks: this can run while the owner object lock is already held.
+            if let Some(owner) = self.get_owner() {
+                let mut object_id = INVALID_ID;
+                if let Ok(mut obj) = owner.try_write() {
+                    object_id = obj.get_id();
+                    let rubble_height = obj
+                        .get_template()
+                        .structure_rubble_height()
+                        .unwrap_or_else(|| {
+                            global_data::read_safe()
+                                .map(|g| g.default_structure_rubble_height as u8)
+                                .unwrap_or(0)
+                        });
+                    obj.set_geometry_info_z(rubble_height as f32);
+                    obj.set_status(crate::common::ObjectStatusMaskType::NO_COLLISIONS, true);
+                }
+
+                if object_id != INVALID_ID {
+                    if let Ok(ai_guard) = crate::ai::THE_AI.read() {
+                        if let Some(pathfinder) = ai_guard.pathfinder() {
+                            if let Ok(mut pf_guard) = pathfinder.write() {
+                                pf_guard.remove_object_from_map(object_id, &[]);
+                                pf_guard.add_object_to_map(object_id, &[], false);
+                            }
+                        }
                     }
                 }
             }
-
-            Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
+
+        Ok(())
     }
 
     /// Validate armor and damage FX against the active template.
@@ -1262,10 +1282,8 @@ impl BodyModuleInterface for ActiveBody {
                         }
                     }
                 }
-                damage_info.output.actual_damage_dealt = 0.0;
-                damage_info.output.actual_damage_clipped = 0.0;
-                damage_info.output.no_effect = true;
-                return Ok(());
+                already_handled = true;
+                allow_modifier = false;
             }
             DamageType::KillGarrisoned => {
                 // C++ parity: only garrisonable, non-immune containers are affected.
@@ -1306,10 +1324,8 @@ impl BodyModuleInterface for ActiveBody {
                         }
                     }
                 }
-                damage_info.output.actual_damage_dealt = 0.0;
-                damage_info.output.actual_damage_clipped = 0.0;
-                damage_info.output.no_effect = true;
-                return Ok(());
+                already_handled = true;
+                allow_modifier = false;
             }
             DamageType::Status => {
                 // Apply status effect duration.
@@ -1319,10 +1335,8 @@ impl BodyModuleInterface for ActiveBody {
                         obj.do_status_damage(damage_info.input.damage_status_type, duration_frames);
                     }
                 }
-                damage_info.output.actual_damage_dealt = 0.0;
-                damage_info.output.actual_damage_clipped = 0.0;
-                damage_info.output.no_effect = true;
-                return Ok(());
+                already_handled = true;
+                allow_modifier = false;
             }
             _ => {}
         }
@@ -1383,11 +1397,49 @@ impl BodyModuleInterface for ActiveBody {
 
             // Store damage info
             let frame_now = current_frame();
+            let mut should_overwrite_last_damage = true;
+            let mut existing_source_id = INVALID_ID;
+            if let Ok(state) = self.state.read() {
+                let is_same_or_next_frame = state.last_damage_timestamp == frame_now
+                    || state.last_damage_timestamp == frame_now.saturating_sub(1);
+                if is_same_or_next_frame {
+                    should_overwrite_last_damage = false;
+                    existing_source_id = state
+                        .last_damage_info
+                        .as_ref()
+                        .map(|info| info.input.source_id)
+                        .unwrap_or(INVALID_ID);
+                }
+            }
 
-            if let Ok(mut state) = self.state.write() {
-                state.last_damage_info = Some(damage_info.clone());
-                state.last_damage_cleared = false;
-                state.last_damage_timestamp = frame_now;
+            if !should_overwrite_last_damage {
+                let src2_is_preferred = OBJECT_REGISTRY
+                    .get_object(damage_info.input.source_id)
+                    .and_then(|obj| {
+                        obj.read().ok().map(|guard| {
+                            guard.is_kind_of(crate::common::KindOf::Vehicle)
+                                || guard.is_kind_of(crate::common::KindOf::Infantry)
+                                || guard.is_kind_of(crate::common::KindOf::Structure)
+                        })
+                    });
+                let src1_exists = OBJECT_REGISTRY
+                    .get_object(existing_source_id)
+                    .and_then(|obj| obj.read().ok().map(|_| ()))
+                    .is_some();
+
+                if let Some(src2_is_preferred) = src2_is_preferred {
+                    if !src1_exists || src2_is_preferred {
+                        should_overwrite_last_damage = true;
+                    }
+                }
+            }
+
+            if should_overwrite_last_damage {
+                if let Ok(mut state) = self.state.write() {
+                    state.last_damage_info = Some(damage_info.clone());
+                    state.last_damage_cleared = false;
+                    state.last_damage_timestamp = frame_now;
+                }
             }
 
             if current_health < previous_health {
