@@ -5,11 +5,91 @@
 // C++ Reference: /GeneralsMD/Code/GameEngine/Include/GameClient/ChallengeGenerals.h
 //                /GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ChallengeGenerals.cpp
 
-use std::rc::Rc;
+use game_engine::common::ini::{
+    get_challenge_generals as get_ini_challenge_generals,
+    get_challenge_generals_mut as get_ini_challenge_generals_mut,
+    init_challenge_generals as init_ini_challenge_generals,
+    ChallengeGenerals as IniChallengeGenerals, INILoadType, INI,
+};
+use std::collections::{BTreeSet, HashSet};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 
 /// Number of generals in Challenge mode
 /// Matches C++ ChallengeGenerals.h line 18
 pub const NUM_GENERALS: usize = 12;
+
+fn optional_ini_string(value: &str) -> Option<String> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn push_challenge_ini_file(
+    files: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+    path: PathBuf,
+) {
+    if path.is_file() {
+        let key = fs::canonicalize(&path).unwrap_or(path.clone());
+        if seen.insert(key) {
+            files.push(path);
+        }
+    }
+}
+
+fn discover_challenge_mode_ini_files() -> Vec<PathBuf> {
+    let mut roots = BTreeSet::new();
+
+    if let Ok(cwd) = env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            roots.insert(ancestor.to_path_buf());
+        }
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            for ancestor in parent.ancestors() {
+                roots.insert(ancestor.to_path_buf());
+            }
+        }
+    }
+
+    let mut seen = HashSet::new();
+    let mut files = Vec::new();
+    for root in roots {
+        push_challenge_ini_file(
+            &mut files,
+            &mut seen,
+            root.join("Data/INI/ChallengeMode.ini"),
+        );
+        push_challenge_ini_file(
+            &mut files,
+            &mut seen,
+            root.join("Data/INI/Default/ChallengeMode.ini"),
+        );
+
+        for extracted in [
+            root.join("windows_game/extracted_big_files/INIZH"),
+            root.join("windows_game/extracted_big_files_v2/INIZH"),
+        ] {
+            push_challenge_ini_file(
+                &mut files,
+                &mut seen,
+                extracted.join("Data/INI/ChallengeMode.ini"),
+            );
+            push_challenge_ini_file(
+                &mut files,
+                &mut seen,
+                extracted.join("Data/INI/Default/ChallengeMode.ini"),
+            );
+        }
+    }
+
+    files
+}
 
 /// Represents an individual General's persona data
 /// Matches C++ GeneralPersona class (ChallengeGenerals.h lines 24-96)
@@ -354,6 +434,41 @@ pub struct ChallengeGenerals {
 }
 
 impl ChallengeGenerals {
+    fn sync_from_ini_store(&mut self) {
+        let store = get_ini_challenge_generals();
+        for index in 0..NUM_GENERALS {
+            let src = &store.positions[index];
+            let dst = &mut self.positions[index];
+
+            dst.starts_enabled = src.starts_enabled;
+            dst.bio_name = src.bio_name.clone();
+            dst.bio_dob = src.bio_dob.clone();
+            dst.bio_birthplace = src.bio_birthplace.clone();
+            dst.bio_strategy = src.bio_strategy.clone();
+            dst.bio_rank = src.bio_rank.clone();
+            dst.bio_branch = src.bio_branch.clone();
+            dst.bio_class_number = src.bio_class_number.clone();
+            dst.bio_portrait_small = optional_ini_string(&src.bio_portrait_small);
+            dst.bio_portrait_large = optional_ini_string(&src.bio_portrait_large);
+            dst.campaign = src.campaign.clone();
+            dst.player_template_name = src.player_template_name.clone();
+            dst.portrait_movie_left_name = src.portrait_movie_left_name.clone();
+            dst.portrait_movie_right_name = src.portrait_movie_right_name.clone();
+            dst.image_defeated = optional_ini_string(&src.image_defeated);
+            dst.image_victorious = optional_ini_string(&src.image_victorious);
+            dst.str_defeated = src.string_defeated.clone();
+            dst.str_victorious = src.string_victorious.clone();
+            dst.selection_sound = src.selection_sound.clone();
+            dst.taunt_sound_1 = src.taunt_sound1.clone();
+            dst.taunt_sound_2 = src.taunt_sound2.clone();
+            dst.taunt_sound_3 = src.taunt_sound3.clone();
+            dst.win_sound = src.win_sound.clone();
+            dst.loss_sound = src.loss_sound.clone();
+            dst.preview_sound = src.preview_sound.clone();
+            dst.name_sound = src.name_sound.clone();
+        }
+    }
+
     /// Creates a new ChallengeGenerals manager
     /// Matches C++ ChallengeGenerals constructor (ChallengeGenerals.cpp lines 24-27)
     pub fn new() -> Self {
@@ -381,10 +496,36 @@ impl ChallengeGenerals {
     /// Matches C++ init() (ChallengeGenerals.cpp lines 36-40)
     ///
     /// In the C++ version, this loads from Data\\INI\\ChallengeMode.ini
-    /// In a real implementation, this would parse the INI file and populate the generals
     pub fn init(&mut self) {
-        // In C++ this calls: ini.load(AsciiString("Data\\INI\\ChallengeMode.ini"), INI_LOAD_OVERWRITE, NULL);
-        // For a faithful port, this would need INI parsing infrastructure
+        init_ini_challenge_generals();
+        {
+            let mut store = get_ini_challenge_generals_mut();
+            *store = IniChallengeGenerals::new();
+        }
+
+        let sources = discover_challenge_mode_ini_files();
+        if sources.is_empty() {
+            log::warn!("ChallengeGenerals::init: no ChallengeMode.ini sources found");
+            return;
+        }
+
+        let mut ini = INI::new();
+        for (idx, source) in sources.iter().enumerate() {
+            let load_type = if idx == 0 {
+                INILoadType::Overwrite
+            } else {
+                INILoadType::MultiFile
+            };
+            if let Err(err) = ini.load(source, load_type) {
+                log::warn!(
+                    "ChallengeGenerals::init: failed to load '{}': {}",
+                    source.display(),
+                    err
+                );
+            }
+        }
+
+        self.sync_from_ini_store();
     }
 
     /// Returns a reference to all challenge generals
