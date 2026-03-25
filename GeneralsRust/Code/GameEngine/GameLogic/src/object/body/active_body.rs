@@ -357,6 +357,7 @@ struct BodyParticleSystem {
 struct DamageFxObjectSnapshot {
     id: u32,
     name: String,
+    veterancy_level: usize,
 }
 
 impl DamageFxObjectSnapshot {
@@ -364,6 +365,7 @@ impl DamageFxObjectSnapshot {
         Self {
             id: object.get_id(),
             name: object.get_name().as_str().to_string(),
+            veterancy_level: object.get_veterancy_level() as usize,
         }
     }
 }
@@ -375,6 +377,10 @@ impl DamageFxObjectTrait for DamageFxObjectSnapshot {
 
     fn get_id(&self) -> u32 {
         self.id
+    }
+
+    fn get_veterancy_level(&self) -> usize {
+        self.veterancy_level
     }
 }
 
@@ -622,13 +628,12 @@ impl ActiveBody {
 
     /// Calculate damage state based on health ratio and global thresholds.
     ///
-    /// In Generals/Zero Hour, structures and units use slightly different semantics:
-    /// - Structures are considered "damaged" as soon as they are below max health.
-    /// - Units transition to "damaged" only when crossing a global threshold.
+    /// C++ ActiveBody::calcDamageState uses the same threshold flow for units and
+    /// structures; structure-specific behavior is handled later (for rubble side-effects).
     fn calc_damage_state(
         health: f32,
         max_health: f32,
-        is_structure: bool,
+        _is_structure: bool,
         damaged_thresh: f32,
         really_damaged_thresh: f32,
     ) -> BodyDamageType {
@@ -638,17 +643,7 @@ impl ActiveBody {
 
         let ratio = health / max_health;
 
-        if is_structure {
-            if health >= max_health {
-                BodyDamageType::Pristine
-            } else if ratio > really_damaged_thresh {
-                BodyDamageType::Damaged
-            } else if ratio > 0.0 {
-                BodyDamageType::ReallyDamaged
-            } else {
-                BodyDamageType::Rubble
-            }
-        } else if ratio > damaged_thresh {
+        if ratio > damaged_thresh {
             BodyDamageType::Pristine
         } else if ratio > really_damaged_thresh {
             BodyDamageType::Damaged
@@ -1520,8 +1515,11 @@ impl BodyModuleInterface for ActiveBody {
                     if let Ok(owner_guard) = owner.read() {
                         if let Some(contain) = owner_guard.get_contain() {
                             if let Ok(contain_guard) = contain.lock() {
-                                if contain_guard.get_contained_count() > 0 {
-                                    return Ok(damage_info.amount);
+                                if contain_guard.get_contained_count() > 0
+                                    && contain_guard.is_garrisonable()
+                                    && !contain_guard.is_immune_to_clear_building_attacks()
+                                {
+                                    return Ok(1.0);
                                 }
                             }
                         }
