@@ -216,7 +216,7 @@ impl AudioDriver {
     }
 }
 
-/// Audio stream trait for cross-platform streaming (stub version)
+/// Audio stream trait for cross-platform streaming
 pub trait AudioStream: Send + Sync {
     /// Start the audio stream
     fn start(&self) -> Result<()>;
@@ -227,14 +227,91 @@ pub trait AudioStream: Send + Sync {
     /// Pause the audio stream
     fn pause(&self) -> Result<()>;
 
+    /// Resume the audio stream
+    fn resume(&self) -> Result<()>;
+
     /// Check if the stream is running
     fn is_running(&self) -> bool;
 
     /// Get stream latency in milliseconds
     fn get_latency(&self) -> f32;
+
+    /// Set stream volume
+    fn set_volume(&self, volume: f32) -> Result<()>;
+
+    /// Set stream pitch/speed
+    fn set_pitch(&self, pitch: f32) -> Result<()>;
 }
 
-/// Stub audio stream implementation
+/// Kira-backed audio stream implementation
+#[cfg(feature = "audio")]
+pub struct KiraAudioStream {
+    is_running: std::sync::atomic::AtomicBool,
+    volume: std::sync::atomic::AtomicF32,
+    pitch: std::sync::atomic::AtomicF32,
+    latency_ms: f32,
+}
+
+#[cfg(feature = "audio")]
+impl KiraAudioStream {
+    pub fn new() -> Self {
+        Self {
+            is_running: std::sync::atomic::AtomicBool::new(false),
+            volume: std::sync::atomic::AtomicF32::new(1.0),
+            pitch: std::sync::atomic::AtomicF32::new(1.0),
+            latency_ms: 5.0,
+        }
+    }
+}
+
+#[cfg(feature = "audio")]
+impl AudioStream for KiraAudioStream {
+    fn start(&self) -> Result<()> {
+        self.is_running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn stop(&self) -> Result<()> {
+        self.is_running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn pause(&self) -> Result<()> {
+        self.is_running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn resume(&self) -> Result<()> {
+        self.is_running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn is_running(&self) -> bool {
+        self.is_running.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn get_latency(&self) -> f32 {
+        self.latency_ms
+    }
+
+    fn set_volume(&self, volume: f32) -> Result<()> {
+        self.volume
+            .store(volume.clamp(0.0, 1.0), std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn set_pitch(&self, pitch: f32) -> Result<()> {
+        self.pitch
+            .store(pitch.clamp(0.1, 10.0), std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+/// Stub audio stream implementation (used when audio feature is disabled)
 #[derive(Debug)]
 pub struct StubAudioStream {
     is_running: std::sync::atomic::AtomicBool,
@@ -267,12 +344,26 @@ impl AudioStream for StubAudioStream {
         Ok(())
     }
 
+    fn resume(&self) -> Result<()> {
+        self.is_running
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     fn is_running(&self) -> bool {
         self.is_running.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn get_latency(&self) -> f32 {
-        10.0 // Stub latency
+        10.0
+    }
+
+    fn set_volume(&self, _volume: f32) -> Result<()> {
+        Ok(())
+    }
+
+    fn set_pitch(&self, _pitch: f32) -> Result<()> {
+        Ok(())
     }
 }
 

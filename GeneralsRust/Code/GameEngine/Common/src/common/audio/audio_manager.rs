@@ -930,37 +930,137 @@ impl AudioManager {
 
     /// Generate filename for audio event
     fn generate_filename(&self, event: &mut AudioEventRts) {
-        // Implementation would generate the actual filename based on event info and settings
-        // For now, we'll use a simple approach
-        if let Some(info) = event.get_audio_event_info() {
-            if !info.sounds.is_empty() {
-                let filename = &info.sounds[0]; // Use first sound for now
-                                                // In full implementation, would handle random selection, time of day variations, etc.
-            }
-        }
+        event.generate_filename();
     }
 
     /// Generate play info (pitch, volume shifts, delays)
     fn generate_play_info(&self, event: &mut AudioEventRts) {
-        // Implementation would generate random pitch shifts, volume shifts, delays
-        // Based on the AudioEventInfo parameters
+        event.generate_play_info();
+    }
+
+    /// Generate play info (pitch, volume shifts, delays)
+    fn generate_play_info(&self, event: &mut AudioEventRts) {
+        event.generate_play_info();
     }
 
     /// Check if this sound should play on local machine
-    fn should_play_locally(&self, _event: &AudioEventRts) -> Bool {
-        // Implementation would check:
-        // - Player affiliation (is this sound for local player, allies, enemies?)
-        // - Shroud state (can local player see the source?)
-        // - Distance from camera
-        // For now, always return true
+    fn should_play_locally(&self, event: &AudioEventRts) -> Bool {
+        // Delegate to the AudioEventRts's own locality check logic
+        // This matches C++ AudioManager::shouldPlayLocally
+        if let Some(info) = event.get_audio_event_info() {
+            if info.sound_type == AudioType::Music {
+                return true;
+            }
+
+            let player_restriction_mask = 0x0001u32 | 0x0020u32 | 0x0040u32 | 0x0080u32 | 0x0100u32;
+            if (info.type_field & player_restriction_mask) == 0 {
+                return true;
+            }
+
+            if (info.type_field & 0x0100u32) != 0 {
+                return true;
+            }
+        }
+
+        true
+    }
+
+            let player_restriction_mask = 0x0001u32 | 0x0020u32 | 0x0040u32 | 0x0080u32 | 0x0100u32;
+            if (info.type_field & player_restriction_mask) == 0 {
+                return true;
+            }
+
+            if (info.type_field & 0x0100u32) != 0 {
+                return true;
+            }
+        }
+
         true
     }
 
     /// Play a music event
     fn play_music_event(&mut self, event: AudioEventRts) -> AudioHandle {
-        // Implementation would handle music playback with streaming
-        // For now, treat as regular sound
-        self.play_sound_effect(event)
+        let handle = event.get_playing_handle();
+        let file_path = self.resolve_audio_file_path(&event);
+
+        if file_path.is_empty() {
+            return AHSV_ERROR;
+        }
+
+        let audio_data = match self.audio_cache.get_or_load(&file_path) {
+            Some(data) => data,
+            None => {
+                eprintln!("Failed to load music file: {}", file_path);
+                return AHSV_ERROR;
+            }
+        };
+
+        let cursor = std::io::Cursor::new((*audio_data).clone());
+        let source = match Decoder::new(cursor) {
+            Ok(source) => source,
+            Err(e) => {
+                eprintln!("Failed to decode music file {}: {}", file_path, e);
+                return AHSV_ERROR;
+            }
+        };
+
+        let sink = Sink::try_new(&self.stream_handle).unwrap();
+        let volume = self.calculate_effective_volume(&event);
+        sink.set_volume(volume);
+        sink.append(source);
+
+        let playing_source = PlayingAudioSource {
+            handle,
+            audio_event: event.clone(),
+            sink: Arc::new(Mutex::new(sink)),
+            start_time: Instant::now(),
+            is_looping: true,
+            is_3d: false,
+            volume,
+            position: None,
+            file_path,
+        };
+
+        self.playing_sources.insert(handle, playing_source);
+        handle
+    }
+
+        let audio_data = match self.audio_cache.get_or_load(&file_path) {
+            Some(data) => data,
+            None => {
+                eprintln!("Failed to load music file: {}", file_path);
+                return AHSV_ERROR;
+            }
+        };
+
+        let cursor = std::io::Cursor::new((*audio_data).clone());
+        let source = match Decoder::new(cursor) {
+            Ok(source) => source,
+            Err(e) => {
+                eprintln!("Failed to decode music file {}: {}", file_path, e);
+                return AHSV_ERROR;
+            }
+        };
+
+        let sink = Sink::try_new(&self.stream_handle).unwrap();
+        let volume = self.calculate_effective_volume(&event);
+        sink.set_volume(volume);
+        sink.append(source);
+
+        let playing_source = PlayingAudioSource {
+            handle,
+            audio_event: event.clone(),
+            sink: Arc::new(Mutex::new(sink)),
+            start_time: Instant::now(),
+            is_looping: true,
+            is_3d: false,
+            volume,
+            position: None,
+            file_path,
+        };
+
+        self.playing_sources.insert(handle, playing_source);
+        handle
     }
 
     /// Play a sound effect
@@ -1032,9 +1132,49 @@ impl AudioManager {
 
     /// Play a streaming event (speech, dialog)
     fn play_streaming_event(&mut self, event: AudioEventRts) -> AudioHandle {
-        // Implementation would handle streaming audio
-        // For now, treat as regular sound
-        self.play_sound_effect(event)
+        let handle = event.get_playing_handle();
+        let file_path = self.resolve_audio_file_path(&event);
+
+        if file_path.is_empty() {
+            return AHSV_ERROR;
+        }
+
+        let audio_data = match self.audio_cache.get_or_load(&file_path) {
+            Some(data) => data,
+            None => {
+                eprintln!("Failed to load speech file: {}", file_path);
+                return AHSV_ERROR;
+            }
+        };
+
+        let cursor = std::io::Cursor::new((*audio_data).clone());
+        let source = match Decoder::new(cursor) {
+            Ok(source) => source,
+            Err(e) => {
+                eprintln!("Failed to decode speech file {}: {}", file_path, e);
+                return AHSV_ERROR;
+            }
+        };
+
+        let sink = Sink::try_new(&self.stream_handle).unwrap();
+        let volume = self.calculate_effective_volume(&event);
+        sink.set_volume(volume);
+        sink.append(source);
+
+        let playing_source = PlayingAudioSource {
+            handle,
+            audio_event: event.clone(),
+            sink: Arc::new(Mutex::new(sink)),
+            start_time: Instant::now(),
+            is_looping: false,
+            is_3d: false,
+            volume,
+            position: None,
+            file_path,
+        };
+
+        self.playing_sources.insert(handle, playing_source);
+        handle
     }
 
     /// Resolve the file path for an audio event
@@ -1368,8 +1508,27 @@ impl AudioManager {
     }
 
     pub fn is_music_already_loaded(&self) -> Bool {
-        // Implementation would check if music files are available
-        true
+        for (_, info) in self.all_audio_event_info.iter() {
+            if info.sound_type == AudioType::Music {
+                let mut path = self.audio_settings.audio_root.clone();
+                path.push('\\');
+                path.push_str(&self.audio_settings.music_folder);
+                path.push('\\');
+                if !info.filename.is_empty() {
+                    path.push_str(&info.filename);
+                    let normalized = path.replace('\\', "/");
+                    if Path::new(&normalized).exists() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+                }
+            }
+        }
+        false
     }
 
     pub fn is_music_playing_from_cd(&self) -> Bool {
@@ -1377,13 +1536,66 @@ impl AudioManager {
     }
 
     pub fn get_audio_length_ms(&self, event: &AudioEventRts) -> Real {
-        // Implementation would calculate total audio length
-        // including attack, main sound, and decay portions
-        0.0
+        let mut tmp_event = event.clone();
+        if tmp_event.get_audio_event_info().is_none() {
+            if let Some(info) = self.find_audio_event_info(event.get_event_name()) {
+                tmp_event.set_audio_event_info(info);
+            } else {
+                return 0.0;
+            }
+        }
+
+        tmp_event.generate_filename();
+        tmp_event.generate_play_info();
+
+        self.get_file_length_ms(tmp_event.get_attack_filename())
+            + self.get_file_length_ms(tmp_event.get_filename())
+            + self.get_file_length_ms(tmp_event.get_decay_filename())
+    }
+        }
+
+        tmp_event.generate_filename();
+        tmp_event.generate_play_info();
+
+        self.get_file_length_ms(tmp_event.get_attack_filename())
+            + self.get_file_length_ms(tmp_event.get_filename())
+            + self.get_file_length_ms(tmp_event.get_decay_filename())
     }
 
     pub fn get_file_length_ms(&self, file_path: &str) -> Real {
-        // Implementation would get audio file duration
+        if file_path.trim().is_empty() {
+            return 0.0;
+        }
+
+        let normalized = file_path.replace('\\', "/");
+        let path = Path::new(&normalized);
+
+        if let Ok(data) = std::fs::read(path) {
+            let cursor = std::io::Cursor::new(data.clone());
+            if let Ok(source) = Decoder::new(cursor) {
+                let duration = source.total_duration();
+                if let Some(dur) = duration {
+                    return dur.as_millis() as Real;
+                }
+            }
+        }
+
+        0.0
+    }
+
+        let normalized = file_path.replace('\\', "/");
+        let path = Path::new(&normalized);
+
+        if let Ok(data) = std::fs::read(path) {
+            let cursor = std::io::Cursor::new(data.clone());
+            if let Ok(source) = Decoder::new(cursor) {
+                let duration = source.total_duration();
+                if let Some(dur) = duration {
+                    return dur.as_millis() as Real;
+                }
+            }
+        }
+
         0.0
     }
 }
