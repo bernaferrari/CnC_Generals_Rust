@@ -965,19 +965,6 @@ impl AudioManager {
         true
     }
 
-            let player_restriction_mask = 0x0001u32 | 0x0020u32 | 0x0040u32 | 0x0080u32 | 0x0100u32;
-            if (info.type_field & player_restriction_mask) == 0 {
-                return true;
-            }
-
-            if (info.type_field & 0x0100u32) != 0 {
-                return true;
-            }
-        }
-
-        true
-    }
-
     /// Play a music event
     fn play_music_event(&mut self, event: AudioEventRts) -> AudioHandle {
         let handle = event.get_playing_handle();
