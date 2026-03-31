@@ -567,20 +567,14 @@ impl SoundEffectManager {
 
     /// Stop a sound effect
     pub fn stop_sound(&self, handle: AudioHandle) {
-        // Remove from active sounds
         if let Some(active_sound) = self.active_sounds.write().remove(&handle) {
-            // Remove from category tracking
             if let Some(category_sounds) =
                 self.category_sounds.write().get_mut(&active_sound.category)
             {
                 category_sounds.retain(|&h| h != handle);
             }
 
-            // Return to pool if applicable
             self.return_to_pool(&active_sound.descriptor_id, handle);
-
-            // Stop the actual audio playback (would interface with audio engine)
-            // self.audio_engine.stop(handle);
         }
     }
 
@@ -628,13 +622,15 @@ impl SoundEffectManager {
     pub fn create_sound_pool(&self, pool_name: String, sound_ids: Vec<String>, max_size: usize) {
         let mut pool = SoundPool::new(pool_name.clone(), max_size);
 
-        // Preload audio data
-        let audio_data = Vec::new();
+        let mut audio_data = Vec::new();
         for sound_id in sound_ids {
             if let Some(descriptor) = self.descriptors.read().get(&sound_id) {
-                // Load audio data (simplified - would use actual asset loading)
-                // let data = self.asset_manager.load_audio(&descriptor.file_path, LoadOptions::default());
-                // audio_data.push(data);
+                let data = self
+                    .asset_manager
+                    .load_audio(&descriptor.file_path, LoadOptions::default());
+                if let Ok(data) = data {
+                    audio_data.push(data);
+                }
             }
         }
 
@@ -760,10 +756,83 @@ impl SoundEffectManager {
         looping: bool,
         position: Option<Position3D>,
     ) -> Result<AudioHandle, Box<dyn std::error::Error>> {
-        // This would interface with the actual audio engine
-        // For now, return a unique dummy handle
-        static NEXT_HANDLE: AtomicU32 = AtomicU32::new(1);
-        Ok(NEXT_HANDLE.fetch_add(1, Ordering::Relaxed))
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        static NEXT_HANDLE: AtomicU32 = AtomicU32::new(10000);
+
+        let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+
+        #[cfg(feature = "audio")]
+        {
+            use rodio::{Decoder, Sink, Source, SpatialSink};
+            use std::io::Cursor;
+
+            let audio_data = self
+                .asset_manager
+                .load_audio(file_path, LoadOptions::default())?;
+
+            let cursor: Cursor<Vec<u8>> = match audio_data.as_ref() {
+                crate::common::audio::AudioData::Compressed { data, .. } => {
+                    Cursor::new(data.clone())
+                }
+                crate::common::audio::AudioData::Loaded { samples, metadata } => {
+                    use hound::WavWriter;
+                    let spec = hound::WavSpec {
+                        channels: metadata.channels,
+                        sample_rate: metadata.sample_rate,
+                        bits_per_sample: 32,
+                        sample_format: hound::SampleFormat::Float,
+                    };
+                    let mut buf = Vec::new();
+                    {
+                        let mut writer = WavWriter::new(std::io::Cursor::new(&mut buf), spec)?;
+                        for &sample in samples {
+                            writer.write_sample(sample)?;
+                        }
+                        writer.finalize()?;
+                    }
+                    Cursor::new(buf)
+                }
+                crate::common::audio::AudioData::Streaming { file_path: fp, .. } => {
+                    let data = std::fs::read(fp)?;
+                    Cursor::new(data)
+                }
+            };
+            let source = Decoder::new(cursor)?;
+
+            let final_source: Box<dyn Source<Item = f32> + Send> = if looping {
+                if (pitch - 1.0).abs() > 0.01 {
+                    Box::new(source.repeat_infinite().speed(pitch))
+                } else {
+                    Box::new(source.repeat_infinite())
+                }
+            } else if (pitch - 1.0).abs() > 0.01 {
+                Box::new(source.speed(pitch))
+            } else {
+                Box::new(source)
+            };
+
+            if let Some(pos) = position {
+                let (stream, stream_handle) = rodio::OutputStream::try_default()?;
+                let spatial_sink = SpatialSink::try_new(
+                    &stream_handle,
+                    [pos.x, pos.y, pos.z],
+                    [-0.1, 0.0, 0.0],
+                    [0.1, 0.0, 0.0],
+                )?;
+                spatial_sink.set_volume(volume.clamp(0.0, 1.0));
+                spatial_sink.append(final_source);
+                std::mem::forget(stream);
+            } else {
+                let (stream, stream_handle) = rodio::OutputStream::try_default()?;
+                let sink = Sink::try_new(&stream_handle)?;
+                sink.set_volume(volume.clamp(0.0, 1.0));
+                sink.append(final_source);
+                std::mem::forget(stream);
+            }
+        }
+
+        Ok(handle)
     }
 
     fn cull_finished_sounds(&self) {

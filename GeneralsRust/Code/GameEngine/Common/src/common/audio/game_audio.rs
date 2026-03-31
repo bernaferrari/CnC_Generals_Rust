@@ -39,13 +39,9 @@ pub type UnsignedInt = u32;
 pub trait SoundPlaybackHook: Send + Sync {
     fn play(&self, event: &AudioEventRts) -> Result<(), String>;
     fn stop(&self, handle: AudioHandle);
-    fn pause(&self, handle: AudioHandle) {
-        self.stop(handle);
-    }
-    fn resume(&self, _handle: AudioHandle) {}
-    fn is_playing(&self, _handle: AudioHandle) -> bool {
-        false
-    }
+    fn pause(&self, handle: AudioHandle);
+    fn resume(&self, handle: AudioHandle);
+    fn is_playing(&self, handle: AudioHandle) -> bool;
 }
 
 static SOUND_PLAYBACK_HOOK: OnceLock<Arc<dyn SoundPlaybackHook>> = OnceLock::new();
