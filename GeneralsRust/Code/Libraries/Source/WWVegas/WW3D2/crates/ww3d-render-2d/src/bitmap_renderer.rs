@@ -128,7 +128,7 @@ impl Default for BitmapRenderCommand {
 }
 
 /// Bitmap renderer for 2D images with complete feature set
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 pub struct BitmapRenderer {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,

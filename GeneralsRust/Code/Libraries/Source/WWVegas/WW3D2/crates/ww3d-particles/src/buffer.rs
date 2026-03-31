@@ -1071,14 +1071,14 @@ impl ParticleBuffer {
     }
 
     /// Check if particle should be rendered based on LOD decimation
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn should_render_particle(&self, particle_index: usize) -> bool {
         let perm_index = (particle_index & 0xF) as usize;
         PERMUTATION_ARRAY[perm_index] as usize >= self.decimation_threshold
     }
 
     /// Get active particles after LOD decimation
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn get_active_particles_with_lod(&self) -> Vec<usize> {
         let mut active_indices = Vec::new();
 

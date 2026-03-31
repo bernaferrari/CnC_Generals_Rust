@@ -927,15 +927,15 @@ macro_rules! dump_real_named {
 
 /// Global debug flags for builds without the debug_crc feature
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub static DEBUG_IGNORE_SYNC_ERRORS: AtomicBool = AtomicBool::new(false);
 
 /// Network and replay CRC intervals used when debug CRC support is disabled
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub static NET_CRC_INTERVAL: AtomicI32 = AtomicI32::new(1);
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub static REPLAY_CRC_INTERVAL: AtomicI32 = AtomicI32::new(1);
 
 #[cfg(feature = "debug_crc")]
@@ -946,7 +946,7 @@ pub fn set_debug_ignore_sync_errors(enabled: bool) {
 }
 
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn set_debug_ignore_sync_errors(enabled: bool) {
     DEBUG_IGNORE_SYNC_ERRORS.store(enabled, Ordering::Relaxed);
 }
@@ -957,7 +957,7 @@ pub fn debug_ignore_sync_errors() -> bool {
 }
 
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn debug_ignore_sync_errors() -> bool {
     DEBUG_IGNORE_SYNC_ERRORS.load(Ordering::Relaxed)
 }
@@ -970,7 +970,7 @@ pub fn set_net_crc_interval(interval: i32) {
 }
 
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn set_net_crc_interval(interval: i32) {
     NET_CRC_INTERVAL.store(interval, Ordering::Relaxed);
 }

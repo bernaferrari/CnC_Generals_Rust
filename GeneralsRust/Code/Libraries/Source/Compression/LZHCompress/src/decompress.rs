@@ -268,7 +268,7 @@ impl Default for LzhDecompressor {
 }
 
 /// Huffman decoder for reading variable-length codes
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: LZH Huffman decoder, retained for future decompression integration
 struct HuffmanDecoder {
     // Lookup table for fast decoding
     lookup: Vec<DecoderEntry>,
@@ -276,7 +276,7 @@ struct HuffmanDecoder {
 }
 
 #[derive(Clone, Copy)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: LZH Huffman decoder entry
 struct DecoderEntry {
     symbol: u8,
     length: u8,
@@ -314,7 +314,7 @@ impl HuffmanDecoder {
     }
 
     /// Decode next symbol from input
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: LZH Huffman decode, retained for future decompression integration
     fn decode(&self, decompressor: &mut LzhDecompressor, input: &[u8]) -> Result<u8> {
         // Read bits and look up in table
         let mut code = 0u32;

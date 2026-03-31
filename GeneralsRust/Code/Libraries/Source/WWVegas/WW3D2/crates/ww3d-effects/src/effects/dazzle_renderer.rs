@@ -263,7 +263,7 @@ impl LensFlare {
 }
 
 /// GPU renderer for dazzle effects
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 pub struct DazzleGpuRenderer {
     pipeline_additive: wgpu::RenderPipeline,
     pipeline_alpha: wgpu::RenderPipeline,

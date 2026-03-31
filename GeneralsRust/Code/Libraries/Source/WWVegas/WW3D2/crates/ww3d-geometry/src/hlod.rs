@@ -724,7 +724,7 @@ impl HLod {
         screen_area.max(0.0).min(1.0)
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn select_best_lod(&mut self) {
         if self.values.is_empty() || self.costs.is_empty() {
             return;

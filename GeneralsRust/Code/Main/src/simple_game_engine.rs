@@ -29,7 +29,7 @@ pub struct GameEngine {
     render_pipeline: wgpu::RenderPipeline,
     
     // Audio system
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept alive to prevent audio stream from dropping
     audio_output: OutputStream,
     audio_handle: OutputStreamHandle,
     background_music: Option<Sink>,

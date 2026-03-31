@@ -474,7 +474,7 @@ impl ParticleEmitterClass {
         None
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
 
     fn find_inactive_particle(&mut self) -> Option<&mut Particle> {
         for particle in &mut self.particles {
@@ -520,7 +520,7 @@ impl ParticleEmitterClass {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
 
     fn initialize_particle(&self, particle: &mut Particle) {
         // Position

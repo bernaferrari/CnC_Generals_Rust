@@ -40,9 +40,9 @@ impl Default for EncoderConfig {
 pub struct Encoder {
     config: EncoderConfig,
     // Reusable buffers for performance
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Pre-allocated for future encoder optimization
     work_buffer: Vec<u8>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Pre-allocated for future encoder optimization
     temp_buffer: Vec<u8>,
 }
 

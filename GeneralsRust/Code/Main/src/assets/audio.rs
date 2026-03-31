@@ -96,7 +96,7 @@ impl<T> SendSyncWrapper<T> {
 /// AudioManager - Main audio management class (mirrors C++ AudioManager)
 /// Handles all audio operations including music, sound effects, and voice
 pub struct AudioManager {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept alive to prevent audio stream from dropping
     output: Option<SendSyncWrapper<OutputStream>>,
     pub handle: Option<SendSyncWrapper<OutputStreamHandle>>,
 

@@ -9,7 +9,7 @@
 use glam::{Mat4, Quat, Vec3};
 use std::sync::Arc;
 
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const W3D_NAME_LEN: usize = 32;
 
 fn fast_slerp(q0: Quat, q1: Quat, t: f32) -> Quat {

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use wgpu::{util::DeviceExt, Device, Queue, RenderPass};
 
 /// Segmented line renderer class
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 pub struct SegLineRendererClass {
     // Line properties
     pub width: f32,

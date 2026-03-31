@@ -199,7 +199,7 @@ impl RendererListContainer {
 
 /// Mesh container for managing nodes of a specific shader class
 #[derive(Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: WW3D shader mesh container
 struct MeshContainer {
     class_id: u32,
     renderer_lists: [Option<RendererListContainer>; SHD_MAX_PASSES],
@@ -284,7 +284,7 @@ pub trait ShaderRenderer: Send + Sync {
 
 /// Default render node implementation
 #[derive(Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: WW3D default render node
 pub struct DefaultRenderNode {
     mesh: Arc<MeshGeometry>,
     shader: Arc<Mutex<dyn ShdInterface>>,

@@ -759,7 +759,7 @@ impl SnapshotBuilder {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_object_modules(
         &self,
         object: &Object,
@@ -957,7 +957,7 @@ impl SnapshotBuilder {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_all_teams(&self, game_logic: &GameLogic) -> SaveLoadResult<Vec<TeamSnapshot>> {
         // Teams are derived from players/objects in the current `Code/Main` model.
         // Mirror C++ behavior by snapshotting per-team membership (and leaving alliance state empty
@@ -992,7 +992,7 @@ impl SnapshotBuilder {
         Ok(snapshots)
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_terrain(&self, _game_logic: &GameLogic) -> SaveLoadResult<TerrainSnapshot> {
         let (width, height, passability_map) = _game_logic.snapshot_pathfinding_passability();
         let height_map = _game_logic
@@ -1008,7 +1008,7 @@ impl SnapshotBuilder {
         })
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_weather(&self, _game_logic: &GameLogic) -> SaveLoadResult<WeatherSnapshot> {
         let weather = _game_logic.weather_state();
         Ok(WeatherSnapshot {
@@ -1020,7 +1020,7 @@ impl SnapshotBuilder {
         })
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_resource_manager(
         &self,
         _game_logic: &GameLogic,
@@ -1116,7 +1116,7 @@ impl SnapshotBuilder {
         })
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_combat_tracker(
         &self,
         _game_logic: &GameLogic,
@@ -1173,7 +1173,7 @@ impl SnapshotBuilder {
         })
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_experience_tracker(
         &self,
         _game_logic: &GameLogic,
@@ -1206,7 +1206,7 @@ impl SnapshotBuilder {
         })
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_global_ai_state(
         &self,
         _game_logic: &GameLogic,
@@ -1245,7 +1245,7 @@ impl SnapshotBuilder {
 
     // Private helper methods for snapshot restoration
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn restore_all_objects(
         &self,
         objects: &HashMap<ObjectId, ObjectSnapshot>,
@@ -1274,7 +1274,7 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn restore_object(
         &self,
         snapshot: &ObjectSnapshot,
@@ -1449,7 +1449,7 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn restore_object_references(
         &self,
         snapshot: &ObjectSnapshot,

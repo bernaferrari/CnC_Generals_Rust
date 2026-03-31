@@ -382,7 +382,7 @@ impl CollisionMath {
 // Context Structures for Complex Collision Tests
 // ========================================================================================
 
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 struct AABTriCollisionContext {
     box_ref: AABox,
     triangle: Triangle,
@@ -458,7 +458,7 @@ impl AABTriCollisionContext {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 struct AABCollisionContext {
     box1: AABox,
     box2: AABox,

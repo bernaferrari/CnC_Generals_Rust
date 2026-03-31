@@ -1528,7 +1528,7 @@ impl Engine {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn capture_texture_to_file(
         &self,
         texture: &wgpu::Texture,

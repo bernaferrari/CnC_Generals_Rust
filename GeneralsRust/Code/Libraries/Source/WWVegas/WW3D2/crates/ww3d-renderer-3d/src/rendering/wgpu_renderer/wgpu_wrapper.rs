@@ -55,7 +55,7 @@ pub enum TransformState {
 }
 
 /// Render state enumeration matching D3DRENDERSTATETYPE compatibility IDs.
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RenderState {
     ZEnable = 7,
@@ -69,7 +69,7 @@ pub enum RenderState {
 }
 
 /// Texture stage state enumeration matching D3DTEXTURESTAGESTATETYPE compatibility IDs.
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TextureStageState {
     ColorOp = 1,

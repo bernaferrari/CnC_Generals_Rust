@@ -34,9 +34,9 @@ impl Default for DecoderConfig {
 pub struct Decoder {
     config: DecoderConfig,
     // Reusable buffers for performance
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Pre-allocated for future decoder optimization
     work_buffer: Vec<u8>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Pre-allocated for future decoder verification
     verify_buffer: Vec<u8>,
 }
 

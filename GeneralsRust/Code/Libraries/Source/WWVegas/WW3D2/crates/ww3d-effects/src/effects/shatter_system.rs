@@ -500,10 +500,10 @@ impl ShatterSystem {
 const BPT_FRONT: u32 = 0x01;
 const BPT_BACK: u32 = 0x02;
 const BPT_ON: u32 = 0x04;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const BPT_BOTH: u32 = 0x08;
 const BPT_EPSILON: f32 = 0.0001;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const BPT_COINCIDENCE_EPSILON: f32 = 0.000001;
 
 fn shatter_system_store() -> &'static Mutex<Option<ShatterSystem>> {

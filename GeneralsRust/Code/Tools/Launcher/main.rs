@@ -20,7 +20,7 @@ use std::path::Path;
 
 /// Update return value constant - matches C++ UPDATE_RETVAL
 /// If a program returns this value, it means it wants to check for patches
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: launcher patch check return code
 const UPDATE_RETVAL: i32 = 123456789;
 
 /// Configuration file extension

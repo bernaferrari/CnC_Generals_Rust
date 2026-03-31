@@ -25,7 +25,7 @@ use ww3d_core::RenderObjClassId;
 /// This defines a box mesh with 8 vertices arranged as follows:
 /// - Vertices 0-3: Start end of line (origin)
 /// - Vertices 4-7: End of line (at distance = length)
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const INDICES: [u16; 36] = [
     3, 5, 1, 7, 5, 3, 1, 5, 0, 5, 4, 0, 4, 2, 0, 4, 6, 2, 7, 3, 2, 6, 7, 2, 7, 6, 5, 5, 6, 4, 2, 3,
     1, 2, 1, 0,
