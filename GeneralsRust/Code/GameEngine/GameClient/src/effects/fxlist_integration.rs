@@ -6,12 +6,515 @@
 //!
 //! This matches the C++ behavior where FXLists can contain ParticleSystemFXNuggets
 //! that create and manage particle systems as part of larger effect sequences.
+//!
+//! FX Nugget types (matching C++ FXList.cpp):
+//! - SoundFXNugget: Play audio events
+//! - TracerFXNugget: Create tracer drawables between positions
+//! - RayEffectFXNugget: Create ray effects (lasers, beams)
+//! - LightPulseFXNugget: Create light pulses
+//! - ViewShakeFXNugget: Trigger camera shake
+//! - TerrainScorchFXNugget: Add scorch marks to terrain
+//! - ParticleSystemFXNugget: Spawn particle systems
+//! - FXListAtBonePosFXNugget: Execute FX at bone positions
 
+use super::decals::{DecalManager, DecalSettings, DecalType};
 use super::particle_manager::*;
 use super::particle_presets;
+use super::ray_effects::{RayEffectConfig, RayEffectManager};
 use nalgebra::{Matrix3, Point3, Rotation3, Vector3};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// FX nugget trait - all FX nuggets implement this
+pub trait FXNugget: Send + Sync {
+    /// Execute FX at a position (matches C++ doFXPos)
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        primary_mtx: Option<&Matrix3<f32>>,
+        primary_speed: f32,
+        secondary: Option<Point3<f32>>,
+        override_radius: f32,
+        context: &mut FXContext,
+    );
+
+    /// Execute FX on objects (matches C++ doFXObj)
+    fn do_fx_obj(
+        &self,
+        primary_pos: Option<Point3<f32>>,
+        primary_mtx: Option<&Matrix3<f32>>,
+        secondary_pos: Option<Point3<f32>>,
+        context: &mut FXContext,
+    ) {
+        // Default: delegate to do_fx_pos
+        if let Some(pos) = primary_pos {
+            self.do_fx_pos(pos, primary_mtx, 0.0, secondary_pos, 0.0, context);
+        }
+    }
+}
+
+/// Context passed to FX nuggets during execution
+pub struct FXContext<'a> {
+    pub particle_manager: &'a mut ParticleSystemManager,
+    pub ray_effect_manager: Option<&'a mut RayEffectManager>,
+    pub decal_manager: Option<&'a mut DecalManager>,
+    pub current_frame: u32,
+    pub local_player_index: i32,
+}
+
+/// Sound FX nugget - plays audio events (matches C++ SoundFXNugget)
+pub struct SoundFXNugget {
+    pub sound_name: String,
+}
+
+impl SoundFXNugget {
+    pub fn new(sound_name: String) -> Self {
+        Self { sound_name }
+    }
+}
+
+impl FXNugget for SoundFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        _secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        _context: &mut FXContext,
+    ) {
+        // Audio playback would be triggered here via TheAudio->addAudioEvent
+        // For now, we log the sound event
+        log::debug!(
+            "SoundFX: {} at ({}, {}, {})",
+            self.sound_name,
+            primary.x,
+            primary.y,
+            primary.z
+        );
+    }
+}
+
+/// Tracer FX nugget - creates tracer effects between positions (matches C++ TracerFXNugget)
+pub struct TracerFXNugget {
+    pub tracer_name: String,
+    pub bone_name: String,
+    pub speed: f32,
+    pub decay_at: f32,
+    pub length: f32,
+    pub width: f32,
+    pub color: [f32; 3],
+    pub probability: f32,
+}
+
+impl Default for TracerFXNugget {
+    fn default() -> Self {
+        Self {
+            tracer_name: "GenericTracer".to_string(),
+            bone_name: String::new(),
+            speed: 0.0,
+            decay_at: 1.0,
+            length: 10.0,
+            width: 1.0,
+            color: [1.0, 1.0, 1.0],
+            probability: 1.0,
+        }
+    }
+}
+
+impl TracerFXNugget {
+    pub fn new(tracer_name: String) -> Self {
+        Self {
+            tracer_name,
+            ..Default::default()
+        }
+    }
+}
+
+impl FXNugget for TracerFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        primary_speed: f32,
+        secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        context: &mut FXContext,
+    ) {
+        // Probability check (matches C++ line 151)
+        if self.probability <= rand::random::<f32>() {
+            return;
+        }
+
+        if let Some(sec_pos) = secondary {
+            // Calculate direction and distance
+            let dir = sec_pos - primary;
+            let dist = dir.norm();
+            let speed = if self.speed > 0.0 {
+                self.speed
+            } else {
+                primary_speed
+            };
+
+            // Estimate frames to reach destination
+            let adjusted_dist = dist - self.length;
+            let frames = if adjusted_dist >= 0.0 && speed >= 0.0 {
+                (adjusted_dist / speed * self.decay_at) as u32
+            } else {
+                1
+            };
+
+            // Create a tracer particle system
+            if let Some(template) = context.particle_manager.find_template(&self.tracer_name) {
+                if let Ok(system_id) = context
+                    .particle_manager
+                    .create_particle_system(&template, false)
+                {
+                    if let Some(system) =
+                        context.particle_manager.find_particle_system_mut(system_id)
+                    {
+                        system.set_position(primary);
+                        system.start();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Ray Effect FX nugget (matches C++ RayEffectFXNugget)
+pub struct RayEffectFXNugget {
+    pub template_name: String,
+    pub primary_offset: Vector3<f32>,
+    pub secondary_offset: Vector3<f32>,
+}
+
+impl Default for RayEffectFXNugget {
+    fn default() -> Self {
+        Self {
+            template_name: String::new(),
+            primary_offset: Vector3::zeros(),
+            secondary_offset: Vector3::zeros(),
+        }
+    }
+}
+
+impl RayEffectFXNugget {
+    pub fn new(template_name: String) -> Self {
+        Self {
+            template_name,
+            ..Default::default()
+        }
+    }
+}
+
+impl FXNugget for RayEffectFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        context: &mut FXContext,
+    ) {
+        if let (Some(sec_pos), Some(ray_mgr)) = (secondary, context.ray_effect_manager.as_mut()) {
+            let source_pos = primary + self.primary_offset;
+            let target_pos = sec_pos + self.secondary_offset;
+
+            let config = RayEffectConfig::default().between(source_pos, target_pos);
+
+            ray_mgr.spawn(config);
+        }
+    }
+}
+
+/// Light Pulse FX nugget (matches C++ LightPulseFXNugget)
+pub struct LightPulseFXNugget {
+    pub color: [f32; 3],
+    pub radius: f32,
+    pub bounding_circle_pct: f32,
+    pub increase_frames: u32,
+    pub decrease_frames: u32,
+}
+
+impl Default for LightPulseFXNugget {
+    fn default() -> Self {
+        Self {
+            color: [0.0, 0.0, 0.0],
+            radius: 0.0,
+            bounding_circle_pct: 0.0,
+            increase_frames: 0,
+            decrease_frames: 0,
+        }
+    }
+}
+
+impl FXNugget for LightPulseFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        _secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        _context: &mut FXContext,
+    ) {
+        // Light pulse would be created via TheDisplay->createLightPulse
+        log::debug!(
+            "LightPulse: at ({}, {}, {}) radius={} color=({}, {}, {})",
+            primary.x,
+            primary.y,
+            primary.z,
+            self.radius,
+            self.color[0],
+            self.color[1],
+            self.color[2]
+        );
+    }
+}
+
+/// View Shake FX nugget (matches C++ ViewShakeFXNugget)
+pub struct ViewShakeFXNugget {
+    pub shake_type: ShakeType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShakeType {
+    Subtle,
+    Normal,
+    Strong,
+    Severe,
+    CineExtreme,
+    CineInsane,
+}
+
+impl Default for ViewShakeFXNugget {
+    fn default() -> Self {
+        Self {
+            shake_type: ShakeType::Normal,
+        }
+    }
+}
+
+impl FXNugget for ViewShakeFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        _secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        _context: &mut FXContext,
+    ) {
+        log::debug!(
+            "ViewShake: {:?} at ({}, {}, {})",
+            self.shake_type,
+            primary.x,
+            primary.y,
+            primary.z
+        );
+    }
+}
+
+/// Terrain Scorch FX nugget (matches C++ TerrainScorchFXNugget)
+pub struct TerrainScorchFXNugget {
+    pub scorch_type: ScorchType,
+    pub radius: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScorchType {
+    Scorch1,
+    Scorch2,
+    Scorch3,
+    Scorch4,
+    ShadowScorch,
+    Random,
+}
+
+impl Default for TerrainScorchFXNugget {
+    fn default() -> Self {
+        Self {
+            scorch_type: ScorchType::Random,
+            radius: 0.0,
+        }
+    }
+}
+
+impl FXNugget for TerrainScorchFXNugget {
+    fn do_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        _secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        context: &mut FXContext,
+    ) {
+        // Determine scorch type (random if specified, matches C++ lines 428-431)
+        let scorch_type = match self.scorch_type {
+            ScorchType::Random => {
+                // Random between SCORCH_1 and SCORCH_4
+                let rand_val = rand::random::<u8>() % 4;
+                match rand_val {
+                    0 => DecalType::Scorch,
+                    1 => DecalType::Scorch,
+                    2 => DecalType::Scorch,
+                    _ => DecalType::Scorch,
+                }
+            }
+            _ => DecalType::Scorch,
+        };
+
+        // Create scorch decal
+        if let Some(decal_mgr) = context.decal_manager.as_mut() {
+            let settings = DecalSettings::scorch_mark(primary, self.radius);
+            decal_mgr.create_decal(settings);
+        }
+    }
+}
+
+/// FXList at bone position nugget (matches C++ FXListAtBonePosFXNugget)
+pub struct FXListAtBonePosFXNugget {
+    pub fx_list: Option<Arc<FXList>>,
+    pub bone_name: String,
+    pub orient_to_bone: bool,
+}
+
+impl FXListAtBonePosFXNugget {
+    pub fn new(fx_list: Arc<FXList>, bone_name: String) -> Self {
+        Self {
+            fx_list: Some(fx_list),
+            bone_name,
+            orient_to_bone: true,
+        }
+    }
+}
+
+impl FXNugget for FXListAtBonePosFXNugget {
+    fn do_fx_pos(
+        &self,
+        _primary: Point3<f32>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary_speed: f32,
+        _secondary: Option<Point3<f32>>,
+        _override_radius: f32,
+        _context: &mut FXContext,
+    ) {
+        // This requires bone position lookup from drawable
+        // Would call draw->getCurrentClientBonePositions and convert to world space
+    }
+
+    fn do_fx_obj(
+        &self,
+        primary_pos: Option<Point3<f32>>,
+        primary_mtx: Option<&Matrix3<f32>>,
+        _secondary_pos: Option<Point3<f32>>,
+        context: &mut FXContext,
+    ) {
+        if let (Some(pos), Some(fx_list)) = (primary_pos, &self.fx_list) {
+            // Execute the nested FXList at bone positions
+            fx_list.execute_fx_pos(pos, primary_mtx, 0.0, None, 0.0, context);
+        }
+    }
+}
+
+/// FXList - a collection of FX nuggets executed in order (matches C++ FXList)
+pub struct FXList {
+    pub nuggets: Vec<Arc<dyn FXNugget>>,
+}
+
+impl FXList {
+    pub fn new() -> Self {
+        Self {
+            nuggets: Vec::new(),
+        }
+    }
+
+    pub fn add_nugget(&mut self, nugget: Arc<dyn FXNugget>) {
+        self.nuggets.push(nugget);
+    }
+
+    pub fn clear(&mut self) {
+        self.nuggets.clear();
+    }
+
+    /// Execute FX at a position (matches C++ FXList::doFXPos)
+    pub fn execute_fx_pos(
+        &self,
+        primary: Point3<f32>,
+        primary_mtx: Option<&Matrix3<f32>>,
+        primary_speed: f32,
+        secondary: Option<Point3<f32>>,
+        override_radius: f32,
+        context: &mut FXContext,
+    ) {
+        for nugget in &self.nuggets {
+            nugget.do_fx_pos(
+                primary,
+                primary_mtx,
+                primary_speed,
+                secondary,
+                override_radius,
+                context,
+            );
+        }
+    }
+
+    /// Execute FX on objects (matches C++ FXList::doFXObj)
+    pub fn execute_fx_obj(
+        &self,
+        primary_pos: Option<Point3<f32>>,
+        primary_mtx: Option<&Matrix3<f32>>,
+        secondary_pos: Option<Point3<f32>>,
+        context: &mut FXContext,
+    ) {
+        for nugget in &self.nuggets {
+            nugget.do_fx_obj(primary_pos, primary_mtx, secondary_pos, context);
+        }
+    }
+}
+
+impl Default for FXList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// FXList Store - manages all FXLists (matches C++ FXListStore)
+pub struct FXListStore {
+    pub fx_lists: HashMap<String, Arc<FXList>>,
+}
+
+impl FXListStore {
+    pub fn new() -> Self {
+        Self {
+            fx_lists: HashMap::new(),
+        }
+    }
+
+    pub fn find_fx_list(&self, name: &str) -> Option<&Arc<FXList>> {
+        if name.eq_ignore_ascii_case("None") {
+            return None;
+        }
+        self.fx_lists.get(name)
+    }
+
+    pub fn insert_fx_list(&mut self, name: String, fx_list: FXList) {
+        self.fx_lists.insert(name, Arc::new(fx_list));
+    }
+
+    pub fn clear(&mut self) {
+        self.fx_lists.clear();
+    }
+}
+
+impl Default for FXListStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// FX nugget that spawns a particle system
 /// Matches C++ ParticleSystemFXNugget from FXList.cpp:481-658

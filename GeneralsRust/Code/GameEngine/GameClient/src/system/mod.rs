@@ -20,8 +20,8 @@ pub use beacon_display::{BeaconMarker, BeaconNotification};
 pub use debug_display::{DebugDisplay, DebugTextSink};
 pub use debug_displayers::audio_debug_display;
 pub use particle_sys::{
-    Particle, ParticleEmitter, ParticleForce, ParticleRenderer, ParticleStats, ParticleSystem,
-    ParticleSystemDesc, ParticleSystemId, ParticleType,
+    Particle, ParticleRenderer, ParticleSystem, ParticleSystemId, ParticleSystemManager,
+    ParticleSystemTemplate,
 };
 pub use ray_effect::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
 pub use smudge::{get_smudge_manager, Smudge, SmudgeManager, SmudgeSet, SmudgeSetHandle};
