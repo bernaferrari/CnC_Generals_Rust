@@ -153,7 +153,7 @@ impl LinuxInputBackend {
     }
 
     /// Convert Linux key code to KeyCode
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: Linux key mapping for future native event integration
     fn linux_keycode_to_keycode(keycode: u32) -> Option<KeyCode> {
         // Linux key codes (from linux/input-event-codes.h)
         // These need to be mapped to our KeyCode enum

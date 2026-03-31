@@ -664,7 +664,7 @@ fn aabox_corners(box_obj: &AABoxClass) -> [Vec3; 8] {
     ]
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 fn obbox_corners(box_obj: &OBBoxClass) -> [Vec3; 8] {
     box_obj.get_corners()
 }

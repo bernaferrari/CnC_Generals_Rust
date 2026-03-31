@@ -270,7 +270,7 @@ pub struct VolumeTexture {
 /// DDS file header structures
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 struct DDSPixelFormat {
     size: u32,
     flags: u32,
@@ -284,7 +284,7 @@ struct DDSPixelFormat {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 struct DDSHeader {
     magic: [u8; 4], // "DDS "
     size: u32,

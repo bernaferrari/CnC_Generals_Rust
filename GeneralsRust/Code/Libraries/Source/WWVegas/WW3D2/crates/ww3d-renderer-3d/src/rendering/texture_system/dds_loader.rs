@@ -13,7 +13,7 @@ use wgpu::TextureFormat;
 const DDS_MAGIC: u32 = 0x20534444; // "DDS "
 
 /// DDS pixel format flags
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 mod ddpf {
     pub const ALPHAPIXELS: u32 = 0x1;
     pub const ALPHA: u32 = 0x2;
@@ -24,7 +24,7 @@ mod ddpf {
 }
 
 /// DDS surface flags
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 mod ddsd {
     pub const CAPS: u32 = 0x1;
     pub const HEIGHT: u32 = 0x2;
@@ -37,7 +37,7 @@ mod ddsd {
 }
 
 /// DDS capabilities flags
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 mod ddscaps {
     pub const COMPLEX: u32 = 0x8;
     pub const MIPMAP: u32 = 0x400000;
@@ -45,7 +45,7 @@ mod ddscaps {
 }
 
 /// DDS capabilities 2 flags
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 mod ddscaps2 {
     pub const CUBEMAP: u32 = 0x200;
     pub const CUBEMAP_POSITIVEX: u32 = 0x400;

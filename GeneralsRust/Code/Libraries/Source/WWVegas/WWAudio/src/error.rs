@@ -97,7 +97,7 @@ pub enum StreamError {
 
 /// Error categories for classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: audio error classification enum
 pub enum ErrorKind {
     /// Recoverable errors that may be retried
     Recoverable,

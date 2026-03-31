@@ -260,7 +260,7 @@ impl Win32GameEngine {
     }
 
     /// Pre-load all W3D unit models (matching C++ asset loading)
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: asset preloading, will be called during loading screens
     async fn preload_w3d_models(&mut self) -> Result<()> {
         info!("Pre-loading W3D unit models...");
         let Some(asset_manager_arc) = get_asset_manager() else {
@@ -364,7 +364,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     /// Render W3D models (no fallbacks - faithful to C++ version)
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Legacy stub: superseded by CncGameEngine render pipeline
     fn render_w3d_objects(&mut self) -> Result<()> {
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -420,7 +420,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Legacy stub: superseded by CncGameEngine render pipeline
     fn render_game_objects<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         for obj in self.game_logic.get_objects().values() {
             if obj.is_alive() {
@@ -429,7 +429,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Legacy stub: superseded by CncGameEngine render pipeline
     fn render_object<'a>(&'a self, _obj: &Object, _render_pass: &mut wgpu::RenderPass<'a>) {
         // This Win32GameEngine render method is now deprecated
         // Since we fixed the architecture to use only CncGameEngine which has proper rendering

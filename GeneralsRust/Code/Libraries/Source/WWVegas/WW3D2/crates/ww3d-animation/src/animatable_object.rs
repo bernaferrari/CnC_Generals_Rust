@@ -15,10 +15,10 @@ use std::sync::Arc;
 /// Current animation mode for the object
 /// Reference: animobj.h:38-43
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 enum MotionMode {
     /// No animation
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     None,
     /// Base pose only
     BasePose,

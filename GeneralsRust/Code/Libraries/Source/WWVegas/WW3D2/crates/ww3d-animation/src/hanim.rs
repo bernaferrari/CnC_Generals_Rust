@@ -213,7 +213,7 @@ struct PivotMotion {
     translation: [Option<usize>; 3],
     rotation: Option<usize>,
     visibility: Option<VisibilityBinding>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     rotation_axes: [Option<usize>; 3],
 }
 

@@ -37,7 +37,7 @@ const MAX_PASSES: usize = 2;
 const MAX_TEX_STAGES: usize = 2;
 
 /// Shatter pattern name format string (C++ line 64)
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const SHATTER_PATTERN_FORMAT: &str = "ShatterPlanes%d";
 
 // Plane classification flags (C++ lines 66-69)

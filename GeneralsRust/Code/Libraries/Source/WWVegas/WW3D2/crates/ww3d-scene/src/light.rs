@@ -217,7 +217,7 @@ impl Light {
 
 /// Input light structure - light before transformation to camera space
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 struct InputLight {
     /// Direction to the light (or light direction for directional)
     direction: Vec3,

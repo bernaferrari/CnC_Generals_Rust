@@ -17,7 +17,7 @@ use ww3d_renderer_3d::rendering::shader_system::shader::ShaderClass;
 use ww3d_renderer_3d::rendering::texture_system::TextureClass;
 
 /// Convert glam::Mat4 to math_utilities::Matrix4
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 fn mat4_to_matrix4(m: Mat4) -> Matrix4 {
     let cols = m.to_cols_array();
     Matrix4::from_cols_array(&cols)
@@ -26,7 +26,7 @@ fn mat4_to_matrix4(m: Mat4) -> Matrix4 {
 // Matrix conversion functions removed - using Mat4 directly now
 
 /// Convert glam::Vec3 to math_utilities::Vec3
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 fn vec3_to_vector3(v: Vec3) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
 }

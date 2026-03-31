@@ -211,7 +211,7 @@ pub struct Renderer {
     skinned_meshes: HashMap<String, GpuSkinnedMesh>,
     textures: HashMap<String, TextureHandle>,
     pipelines: HashMap<u32, PipelineHandle>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     next_handle_id: u64,
 }
 
@@ -227,7 +227,7 @@ impl Renderer {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn allocate_handle(&mut self) -> u64 {
         let handle = self.next_handle_id;
         self.next_handle_id += 1;

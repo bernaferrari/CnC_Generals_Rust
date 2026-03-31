@@ -655,7 +655,7 @@ impl UpgradeCenter {
 
     /// Unlink an upgrade from the list
     /// Matches C++ UpgradeCenter::unlinkUpgrade from Upgrade.cpp lines 389-406
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: will be called when upgrade removal is fully integrated
     fn unlink_upgrade(&mut self, upgrade: &Arc<RwLock<UpgradeTemplate>>) {
         let (prev, next, key) = if let Ok(guard) = upgrade.read() {
             (guard.prev.clone(), guard.next.clone(), guard.get_upgrade_name_key())

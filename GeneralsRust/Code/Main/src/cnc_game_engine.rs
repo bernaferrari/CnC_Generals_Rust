@@ -1032,7 +1032,7 @@ enum StartupLoadState {
 /// Main C&C game engine with full RTS functionality - restructured to match C++ SAGE architecture
 pub struct CnCGameEngine {
     window: Arc<Window>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: stored for future command-line query access
     command_line: Arc<CommandLineArgs>,
 
     // C++ SAGE equivalent rendering subsystems
@@ -1043,7 +1043,7 @@ pub struct CnCGameEngine {
     message_processor: WindowMessageProcessor,
 
     // Audio system
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: audio stream handle kept alive to prevent drop
     audio_output: Option<OutputStream>,
     audio_handle: Option<OutputStreamHandle>,
     background_music: Option<Sink>,
@@ -6898,7 +6898,7 @@ impl CnCGameEngine {
     /// Legacy render stub -- NOT called from the active render path.
     /// Actual rendering is handled by RenderPipeline::execute() -> ForwardPass::render()
     /// which queues MeshClass instances into the WW3D Renderer and issues real draw calls.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
     fn render_game_objects<'a>(&'a self, _render_pass: &mut wgpu::RenderPass<'a>) {
         // Collect objects to render to avoid borrowing conflicts
         let objects: Vec<_> = self.game_logic.get_objects().values().cloned().collect();
@@ -6914,7 +6914,7 @@ impl CnCGameEngine {
     /// The active render path is RenderPipeline::collect_render_items() which builds
     /// RenderItem list and ForwardPass::prepare_mesh_instance() which creates actual
     /// MeshClass instances submitted to the WW3D Renderer.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Legacy stub: superseded by RenderPipeline, retained for reference
     fn render_object<'a>(&'a self, obj: &Object, _render_pass: &mut wgpu::RenderPass<'a>) {
         let model_name = obj.get_template().get_model_name();
 
@@ -7132,7 +7132,7 @@ impl CnCGameEngine {
     /// This is now superseded by GraphicsSystem::create_fallback_cube_model() which
     /// creates a W3DModel-based fallback cube cached in the model cache and used by
     /// RenderPipeline::collect_render_items() for objects with missing W3D assets.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Legacy stub: superseded by GraphicsSystem, retained for reference
     fn create_fallback_cube(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer, u32) {
         // C++ SAGE compatible cube vertices using VertexFormatXYZNDUV2
         let vertices = vec![

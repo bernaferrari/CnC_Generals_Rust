@@ -22,7 +22,7 @@ struct HuffmanNode {
     parent: Option<usize>,
     left: Option<usize>,
     right: Option<usize>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Diagnostic: node position index for debugging Huffman tree
     node_index: usize,
 }
 

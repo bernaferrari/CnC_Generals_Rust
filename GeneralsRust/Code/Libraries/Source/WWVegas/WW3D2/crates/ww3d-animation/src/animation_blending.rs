@@ -20,7 +20,7 @@ use ww3d_renderer_3d::rendering::mesh_system::MeshClass;
 #[derive(Debug)]
 pub struct MeshClass;
 
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const MAX_SKINNING_MATRICES: usize = 64;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -141,7 +141,7 @@ impl AnimationState {
 
 /// Advanced animatable object with blending and state machine
 #[derive(Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 pub struct AdvancedAnimatable3DObj {
     pub htree: HTreeClass,
     pub layers: Vec<AnimationLayer>,

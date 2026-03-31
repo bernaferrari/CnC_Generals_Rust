@@ -27,7 +27,7 @@ use std::os::windows::fs::OpenOptionsExt;
 /// Single instance guard that prevents multiple game instances
 pub struct SingleInstanceGuard {
     lock_file_path: PathBuf,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept alive to hold file lock for single-instance enforcement
     lock_file: File,
     process_id: u32,
 }

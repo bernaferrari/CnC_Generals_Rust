@@ -90,7 +90,7 @@ impl CollisionMath {
 }
 
 /// Context structure for AABox-Triangle intersection tests
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 struct AABTriIntersectContext {
     box_ref: AABox,
     triangle: Triangle,

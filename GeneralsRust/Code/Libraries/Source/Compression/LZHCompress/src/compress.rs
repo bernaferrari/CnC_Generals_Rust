@@ -30,7 +30,7 @@ const MAX_BLOCK_SIZE: usize = 500_000;
 const MIN_MATCH_LENGTH: usize = 3;
 
 /// Maximum match length (limited by encoding format)
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: format limit constant for future encoding use
 const MAX_MATCH_LENGTH: usize = 258;
 
 /// LZH Compressor state

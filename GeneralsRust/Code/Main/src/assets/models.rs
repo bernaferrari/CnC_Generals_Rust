@@ -20,11 +20,6 @@ use ww3d_core::w3d_format::{
 };
 use ww3d_renderer_3d::rendering::mesh_system::MeshModelClass;
 
-#[allow(dead_code)]
-const _MAX_TEXTURE_STAGES: usize = 8;
-#[allow(dead_code)]
-const _MAX_UV_CHANNELS: usize = 4;
-
 /// W3D file format constants based on C++ w3d_file.h
 const W3D_CHUNK_MESH: u32 = 0x00000000;
 const W3D_CHUNK_MESH_HEADER: u32 = 0x0000001F; // W3dMeshHeader3Struct

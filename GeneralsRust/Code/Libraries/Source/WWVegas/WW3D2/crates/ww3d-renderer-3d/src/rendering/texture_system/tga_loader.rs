@@ -10,7 +10,7 @@ use std::path::Path;
 use wgpu::TextureFormat;
 
 /// TGA image type constants
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 mod tga_type {
     pub const NO_IMAGE: u8 = 0;
     pub const UNCOMPRESSED_COLOR_MAPPED: u8 = 1;

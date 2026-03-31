@@ -43,7 +43,7 @@ const BOX_VERTS: [Vec3; NUM_BOX_VERTS] = [
 
 /// Box face connectivity (triangle indices)
 /// C++ Reference: boxrobj.cpp lines 113-127
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const BOX_FACES: [[u16; 3]; NUM_BOX_FACES] = [
     [0, 1, 2], // +z faces
     [0, 2, 3],
@@ -62,9 +62,9 @@ const BOX_FACES: [[u16; 3]; NUM_BOX_FACES] = [
 /// Box vertex normals (normalized corner directions)
 /// C++ Reference: boxrobj.cpp lines 143-155
 /// WWMATH_OOSQRT3 = 1/sqrt(3) ≈ 0.57735026919
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const OOSQRT3: f32 = 0.57735026919;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const BOX_VERTEX_NORMALS: [Vec3; NUM_BOX_VERTS] = [
     Vec3::new(OOSQRT3, OOSQRT3, OOSQRT3),
     Vec3::new(-OOSQRT3, OOSQRT3, OOSQRT3),

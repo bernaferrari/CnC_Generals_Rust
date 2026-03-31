@@ -31,17 +31,17 @@ const W3D_TIMECODED_BINARY_MOVEMENT_FLAG: u32 = 0x80000000;
 const W3D_TIMECODED_BIT_MASK: u32 = 0x80000000;
 
 // Channel types from w3d_file.h
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const ANIM_CHANNEL_X: u16 = 0;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const ANIM_CHANNEL_Y: u16 = 1;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const ANIM_CHANNEL_Z: u16 = 2;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const ANIM_CHANNEL_Q: u16 = 6;
 
 // Bit channel type
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const BIT_CHANNEL_VIS: u16 = 0;
 
 /// Fast quaternion slerp with lerp approximation for small angles
@@ -658,7 +658,7 @@ impl AdaptiveDeltaMotionChannelClass {
 /// Time-coded bit channel for visibility data
 /// Reference: motchan.h:304-332, motchan.cpp:693-837
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 pub struct TimeCodedBitChannelClass {
     pivot_idx: u32,
     channel_type: u16,
