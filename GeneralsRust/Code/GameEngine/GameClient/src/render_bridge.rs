@@ -702,6 +702,23 @@ impl Default for RenderBridge {
     }
 }
 
+// Global singleton instance (matching C++ TheRenderBridge pattern)
+use std::sync::Mutex;
+lazy_static::lazy_static! {
+    pub static ref THE_RENDER_BRIDGE: Mutex<Option<RenderBridge>> = Mutex::new(None);
+}
+
+/// Initialize the global render bridge
+pub fn init_render_bridge() {
+    let mut guard = THE_RENDER_BRIDGE.lock().unwrap();
+    *guard = Some(RenderBridge::new());
+}
+
+/// Get reference to global render bridge
+pub fn get_render_bridge() -> &'static Mutex<Option<RenderBridge>> {
+    &THE_RENDER_BRIDGE
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -871,10 +888,7 @@ mod tests {
             condition_flags: RenderConditionFlags::PRISTINE,
             render_state: RenderStateOverrides::default(),
             bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
-            bounding_box: AABox::new(
-                WwVec3::new(-5.0, 0.0, -5.0),
-                WwVec3::new(5.0, 10.0, 5.0),
-            ),
+            bounding_box: AABox::new(WwVec3::new(-5.0, 0.0, -5.0), WwVec3::new(5.0, 10.0, 5.0)),
             opaque: true,
             transparent: false,
             cast_shadow: true,
