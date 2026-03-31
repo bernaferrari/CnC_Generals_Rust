@@ -512,7 +512,7 @@ impl CampaignManager {
 
     /// Post-load processing. Matches C++ CampaignManager::loadPostProcess().
     pub fn load_post_process(&mut self) {
-        if let Some(generals) = crate::gui::challenge_generals::get_challenge_generals_mut() {
+        if let Some(mut generals) = crate::gui::challenge_generals::get_challenge_generals_mut() {
             generals
                 .set_current_player_template_num(self.xfer_challenge_generals_player_template_num);
         }

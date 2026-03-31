@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Once, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 /// Errors that can occur during save/load operations
 #[derive(Debug)]
@@ -242,22 +242,15 @@ impl DefinitionManager {
 }
 
 /// Global definition manager instance
-static mut THE_DEFINITION_MGR: Option<DefinitionManager> = None;
-static DEFINITION_MGR_ONCE: Once = Once::new();
+static THE_DEFINITION_MGR: OnceLock<Mutex<DefinitionManager>> = OnceLock::new();
 static DEFINITION_MGR_LOCK: RwLock<()> = RwLock::new(());
 
 /// Get a reference to the global definition manager
-///
-/// # Safety
-/// This function uses unsafe code to access a global static variable.
-/// It's protected by a Once and RwLock to ensure thread safety.
-fn get_definition_manager() -> &'static mut DefinitionManager {
-    unsafe {
-        DEFINITION_MGR_ONCE.call_once(|| {
-            THE_DEFINITION_MGR = Some(DefinitionManager::new());
-        });
-        THE_DEFINITION_MGR.as_mut().unwrap()
-    }
+fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {
+    THE_DEFINITION_MGR
+        .get_or_init(|| Mutex::new(DefinitionManager::new()))
+        .lock()
+        .unwrap()
 }
 
 /**
@@ -299,9 +292,8 @@ impl WWSaveLoad {
     ///
     /// This provides access to the definition manager for registration and lookup operations.
     ///
-    /// # Safety
     /// This function should only be called after WWSaveLoad::init() has been called.
-    pub fn get_definition_manager() -> &'static mut DefinitionManager {
+    pub fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {
         get_definition_manager()
     }
 }

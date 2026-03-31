@@ -2642,7 +2642,6 @@ fn parse_damage_status_type(s: &str) -> ObjectStatusTypes {
         "UNDERGOING_REPAIR" | "UNDERGOINGREPAIR" => ObjectStatusTypes::UndergoingRepair,
         "IMMOBILE" => ObjectStatusTypes::Immobile,
         "DEPLOYED" => ObjectStatusTypes::Deployed,
-        "SUBDUED" => ObjectStatusTypes::Subdued,
         _ => ObjectStatusTypes::None,
     }
 }

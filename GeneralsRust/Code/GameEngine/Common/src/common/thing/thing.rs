@@ -15,11 +15,40 @@ use crate::common::{
     system::{Coord3D, Matrix3D},
     thing::thing_template::ThingTemplate,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Kind of type enumeration for object classification
 pub type KindOfType = u32;
 pub type KindOfMaskType = u64;
+
+/// Global terrain height provider, registered from GameLogic during init.
+/// Returns ground height at (x, y). Falls back to 0.0 if not registered.
+static GROUND_HEIGHT_PROVIDER: OnceLock<
+    Mutex<Box<dyn Fn(f32, f32) -> f32 + Send + Sync>>,
+> = OnceLock::new();
+
+/// Global underwater check provider, registered from GameLogic during init.
+/// Returns (is_underwater, water_level). Falls back to (false, 0.0) if not registered.
+static UNDERWATER_PROVIDER: OnceLock<
+    Mutex<Box<dyn Fn(f32, f32) -> (bool, f32) + Send + Sync>>,
+> = OnceLock::new();
+
+/// Register a terrain height provider from the GameLogic layer.
+/// This is called once during game initialization.
+pub fn register_terrain_height_provider(
+    provider: impl Fn(f32, f32) -> f32 + Send + Sync + 'static,
+) {
+    GROUND_HEIGHT_PROVIDER
+        .get_or_init(|| Mutex::new(Box::new(provider)));
+}
+
+/// Register an underwater check provider from the GameLogic layer.
+pub fn register_underwater_provider(
+    provider: impl Fn(f32, f32) -> (bool, f32) + Send + Sync + 'static,
+) {
+    UNDERWATER_PROVIDER
+        .get_or_init(|| Mutex::new(Box::new(provider)));
+}
 
 /// Cache flags for optimizing recalculations
 #[derive(Debug, Clone, Copy)]
@@ -175,16 +204,24 @@ impl BaseThing {
         pos.z - terrain_z
     }
 
-    /// Get ground height at coordinates (placeholder)
-    fn get_ground_height(&self, _x: Real, _y: Real) -> Real {
-        // This would be implemented by the terrain system
-        0.0
+    /// Get ground height at coordinates via the registered terrain provider.
+    /// Returns 0.0 if no provider is registered (before terrain init).
+    fn get_ground_height(&self, x: Real, y: Real) -> Real {
+        GROUND_HEIGHT_PROVIDER
+            .get()
+            .and_then(|p| p.lock().ok())
+            .map(|f| f(x, y))
+            .unwrap_or(0.0)
     }
 
-    /// Check if underwater and get water level
-    fn is_underwater(&self, _x: Real, _y: Real) -> (bool, Real) {
-        // This would be implemented by the terrain system
-        (false, 0.0)
+    /// Check if underwater and get water level via the registered provider.
+    /// Returns (false, 0.0) if no provider is registered.
+    fn is_underwater(&self, x: Real, y: Real) -> (bool, Real) {
+        UNDERWATER_PROVIDER
+            .get()
+            .and_then(|p| p.lock().ok())
+            .map(|f| f(x, y))
+            .unwrap_or((false, 0.0))
     }
 
     /// Normalize angle to -PI..PI range

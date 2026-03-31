@@ -55,6 +55,7 @@ pub struct W3DChunkHeader {
 
 /// W3D chunk types (from original C++)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
 pub enum W3DChunkType {
     /// Mesh chunk
     Mesh = 0x00000000,

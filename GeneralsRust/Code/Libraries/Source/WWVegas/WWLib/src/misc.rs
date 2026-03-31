@@ -106,12 +106,10 @@ pub fn vsync() {
     wait_vert_blank();
 }
 
-pub static mut AUDIO_FOCUS_LOSS_FUNCTION: Option<fn()> = None;
+pub static AUDIO_FOCUS_LOSS_FUNCTION: Mutex<Option<fn()>> = Mutex::new(None);
 
 pub fn trigger_audio_focus_loss() {
-    unsafe {
-        if let Some(func) = AUDIO_FOCUS_LOSS_FUNCTION {
-            func();
-        }
+    if let Some(func) = *AUDIO_FOCUS_LOSS_FUNCTION.lock().unwrap() {
+        func();
     }
 }

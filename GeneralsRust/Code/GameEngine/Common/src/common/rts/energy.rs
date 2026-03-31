@@ -498,7 +498,7 @@ pub fn set_energy_owner_callbacks(
 ///
 /// This is commented out because it requires the Player callback system to be
 /// fully integrated into the Rust architecture.
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: awaiting Player callback system integration
 fn notify_player_brownout_change(_player: PlayerHandle, _brown_out: bool) {
     if let Some(callbacks) = ENERGY_OWNER_CALLBACKS.get() {
         callbacks.on_power_brown_out_change(_player, _brown_out);

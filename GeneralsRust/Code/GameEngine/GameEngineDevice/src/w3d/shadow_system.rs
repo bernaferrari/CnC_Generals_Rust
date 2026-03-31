@@ -12,13 +12,20 @@
 //! - SHADOW_ALPHA_DECAL: Alpha blended decals
 //! - SHADOW_ADDITIVE_DECAL: Additive blended decals
 
-use super::{BoundingBox, CameraUniforms, MaterialData, Result, W3DError, W3DVertex};
+use super::{BoundingBox, Result, W3DError, W3DVertex};
 use crate::video::{ColorFormat, Resolution};
 use bytemuck::{cast_slice, Pod, Zeroable};
 use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Camera uniforms for shadow rendering
+pub struct CameraUniforms {
+    pub view_matrix: [[f32; 4]; 4],
+    pub projection_matrix: [[f32; 4]; 4],
+    pub near_far: [f32; 2],
+}
 
 // ============================================================================
 // Constants matching C++ implementation
@@ -690,7 +697,7 @@ impl W3DVolumetricShadowManager {
             shadow_length_scale: 0.0,
             robj_extent: 0.0,
             extra_extrusion_padding: 0.0,
-            shadow_volumes: Default::default(),
+            shadow_volumes: std::array::from_fn(|_| std::array::from_fn(|_| None)),
             light_pos_history: [[Vec3::ZERO; MAX_SHADOW_CASTER_MESHES]; MAX_SHADOW_LIGHTS],
         };
 
@@ -1349,7 +1356,7 @@ impl W3DShadowMapper {
         // Create depth-only shader for shadow mapping
         let depth_shader = self
             .device
-            .create_shader_module(&wgpu::ShaderModuleDescriptor {
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Depth Only Shader"),
                 source: wgpu::ShaderSource::Wgsl(self.get_depth_shader_source().into()),
             });
@@ -1490,8 +1497,8 @@ impl W3DShadowMapper {
             // Expand bounds to include static scene geometry
             let scene_center = scene_bounds.center();
             let scene_radius = scene_bounds.radius();
-            min_bounds.z = (scene_center.z - scene_radius).min(min_bounds.z);
-            max_bounds.z = (scene_center.z + scene_radius).max(max_bounds.z);
+            min_bounds.z = (scene_center[2] - scene_radius).min(min_bounds.z);
+            max_bounds.z = (scene_center[2] + scene_radius).max(max_bounds.z);
 
             // Snap to texel grid to reduce shimmer
             let texel_size = (max_bounds.x - min_bounds.x) / config.quality.resolution() as f32;
@@ -1586,9 +1593,9 @@ impl W3DShadowMapper {
         encoder: &mut CommandEncoder,
         shadow_casters: &[ShadowCaster],
     ) -> Result<()> {
-        let config = self.config.read();
-        if !config.enabled || shadow_casters.is_empty() {
-            return Ok();
+        let enabled = self.config.read().enabled;
+        if !enabled || shadow_casters.is_empty() {
+            return Ok(());
         }
 
         let mut stats = ShadowRenderStats::default();
@@ -1758,10 +1765,10 @@ impl W3DShadowMapper {
         *self.cascade_data.read()
     }
 
-    /// Get shadow atlas view
+    /// Get shadow atlas texture
     #[cfg(feature = "w3d")]
-    pub fn get_shadow_atlas_view(&self) -> &TextureView {
-        &self.shadow_atlas.lock().view
+    pub fn get_shadow_atlas_texture(&self) -> Arc<Mutex<ShadowAtlas>> {
+        Arc::clone(&self.shadow_atlas)
     }
 
     /// Get shadow sampler
@@ -1850,7 +1857,7 @@ impl W3DCascadedShadowMaps {
         scene_bounds: &BoundingBox,
     ) -> Result<()> {
         if !self.enabled {
-            return Ok();
+            return Ok(());
         }
 
         self.shadow_mapper

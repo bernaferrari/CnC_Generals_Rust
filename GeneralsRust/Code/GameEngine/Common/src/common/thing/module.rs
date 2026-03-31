@@ -515,7 +515,7 @@ impl UpgradeMuxData {
         self.requires_all_triggers
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ API parity: ModuleData setter
     pub fn set_requires_all_triggers(&mut self, value: bool) {
         self.requires_all_triggers = value;
     }

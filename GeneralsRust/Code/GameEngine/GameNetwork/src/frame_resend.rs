@@ -39,11 +39,6 @@ const MAX_PENDING_REQUESTS_PER_PLAYER: usize = 10;
 /// Maximum frame range for a single resend request
 const MAX_FRAME_RANGE: u32 = 50;
 
-/// Maximum age for resend requests before cleanup
-/// Currently managed by ResendExpiryManager with TTL-based expiry
-#[allow(dead_code)]
-const MAX_REQUEST_AGE: Duration = Duration::from_secs(30);
-
 /// Default timeout for resend requests
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 

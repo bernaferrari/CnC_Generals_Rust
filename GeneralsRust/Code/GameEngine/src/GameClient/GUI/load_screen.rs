@@ -19,7 +19,8 @@
 //
 //-----------------------------------------------------------------------------
 
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::ptr;
 use std::time::{Duration, Instant};
 use std::thread;
@@ -662,16 +663,52 @@ impl ChallengeLoadScreen {
 
     fn activate_pieces(&mut self, frame: i32, _general_player: &GeneralPersona, _general_opponent: &GeneralPersona) {
         // Static variables for teletype text positions
-        static mut TEXT_POS_BIG_NAME_RIGHT: i32 = 0;
-        static mut TEXT_POS_NAME_RIGHT: i32 = 0;
-        static mut TEXT_POS_AGE_RIGHT: i32 = 0;
-        static mut TEXT_POS_BIRTHPLACE_RIGHT: i32 = 0;
-        static mut TEXT_POS_STRATEGY_RIGHT: i32 = 0;
-        static mut TEXT_POS_BIG_NAME_LEFT: i32 = 0;
-        static mut TEXT_POS_NAME_LEFT: i32 = 0;
-        static mut TEXT_POS_AGE_LEFT: i32 = 0;
-        static mut TEXT_POS_BIRTHPLACE_LEFT: i32 = 0;
-        static mut TEXT_POS_STRATEGY_LEFT: i32 = 0;
+        static TEXT_POS_CACHE: OnceLock<TextPosCache> = OnceLock::new();
+
+        struct TextPosCache {
+            text_pos_big_name_right: AtomicI32,
+            text_pos_name_right: AtomicI32,
+            text_pos_age_right: AtomicI32,
+            text_pos_birthplace_right: AtomicI32,
+            text_pos_strategy_right: AtomicI32,
+            text_pos_big_name_left: AtomicI32,
+            text_pos_name_left: AtomicI32,
+            text_pos_age_left: AtomicI32,
+            text_pos_birthplace_left: AtomicI32,
+            text_pos_strategy_left: AtomicI32,
+        }
+
+        impl TextPosCache {
+            fn new() -> Self {
+                Self {
+                    text_pos_big_name_right: AtomicI32::new(0),
+                    text_pos_name_right: AtomicI32::new(0),
+                    text_pos_age_right: AtomicI32::new(0),
+                    text_pos_birthplace_right: AtomicI32::new(0),
+                    text_pos_strategy_right: AtomicI32::new(0),
+                    text_pos_big_name_left: AtomicI32::new(0),
+                    text_pos_name_left: AtomicI32::new(0),
+                    text_pos_age_left: AtomicI32::new(0),
+                    text_pos_birthplace_left: AtomicI32::new(0),
+                    text_pos_strategy_left: AtomicI32::new(0),
+                }
+            }
+
+            fn reset(&self) {
+                self.text_pos_big_name_right.store(0, Ordering::Relaxed);
+                self.text_pos_name_right.store(0, Ordering::Relaxed);
+                self.text_pos_age_right.store(0, Ordering::Relaxed);
+                self.text_pos_birthplace_right.store(0, Ordering::Relaxed);
+                self.text_pos_strategy_right.store(0, Ordering::Relaxed);
+                self.text_pos_big_name_left.store(0, Ordering::Relaxed);
+                self.text_pos_name_left.store(0, Ordering::Relaxed);
+                self.text_pos_age_left.store(0, Ordering::Relaxed);
+                self.text_pos_birthplace_left.store(0, Ordering::Relaxed);
+                self.text_pos_strategy_left.store(0, Ordering::Relaxed);
+            }
+        }
+
+        let cache = TEXT_POS_CACHE.get_or_init(TextPosCache::new);
 
         // AudioEventRTS eventLeftGeneral(generalPlayer->getNameSound());
         // AudioEventRTS eventVS("Taunts_GCAnnouncer12");
@@ -700,18 +737,7 @@ impl ChallengeLoadScreen {
             }
             FRAME_TELETYPE_START => {
                 // reinit the statics for each new load screen
-                unsafe {
-                    TEXT_POS_BIG_NAME_RIGHT = 0;
-                    TEXT_POS_NAME_RIGHT = 0;
-                    TEXT_POS_AGE_RIGHT = 0;
-                    TEXT_POS_BIRTHPLACE_RIGHT = 0;
-                    TEXT_POS_STRATEGY_RIGHT = 0;
-                    TEXT_POS_BIG_NAME_LEFT = 0;
-                    TEXT_POS_NAME_LEFT = 0;
-                    TEXT_POS_AGE_LEFT = 0;
-                    TEXT_POS_BIRTHPLACE_LEFT = 0;
-                    TEXT_POS_STRATEGY_LEFT = 0;
-                }
+                cache.reset();
 
                 if let Some(ref win) = self.m_bio_big_name_entry_left {
                     win.lock().unwrap().win_hide(false);
@@ -1139,7 +1165,7 @@ impl ShellGameLoadScreen {
 
 impl LoadScreen for ShellGameLoadScreen {
     fn init(&mut self, game: Arc<Mutex<dyn GameInfoTrait>>) {
-        static mut FIRST_LOAD: bool = true;
+        static FIRST_LOAD: AtomicBool = AtomicBool::new(true);
 
         // create the layout of the load screen
         // m_loadScreen = TheWindowManager->winCreateFromScript(AsciiString("Menus/ShellGameLoadScreen.wnd"));
@@ -1158,8 +1184,7 @@ impl LoadScreen for ShellGameLoadScreen {
             win.lock().unwrap().win_hide(true);
         }
 
-        unsafe {
-            if FIRST_LOAD {
+        if FIRST_LOAD.swap(false, Ordering::Relaxed) {
                 // if (m_loadScreen && TheGameLODManager && TheGameLODManager->didMemPass()) {
                 //     m_loadScreen->winSetEnabledImage(0, TheMappedImageCollection->findImageByName("TitleScreen"));
                 //     TheWritableGlobalData->m_breakTheMovie = FALSE;
@@ -1175,9 +1200,6 @@ impl LoadScreen for ShellGameLoadScreen {
                 //         Sleep(100);
                 //     }
                 // }
-
-                FIRST_LOAD = false;
-            }
         }
 
         if let Some(ref win) = self.m_progress_bar {

@@ -14,6 +14,7 @@
 //! - `camerashakesystem.cpp` - Implementation with sinusoidal shake patterns
 
 use glam::Vec3;
+use std::sync::{Mutex, OnceLock};
 
 // Re-export the full cinematic camera system
 pub use game_client::display::cinematic_camera::{
@@ -99,16 +100,14 @@ impl Default for CameraShakeSystemWrapper {
 
 // Global camera shake system instance
 // C++ Reference: camerashakesystem.cpp line 266
-static mut GLOBAL_CAMERA_SHAKER: Option<CameraShakeSystemWrapper> = None;
+static GLOBAL_CAMERA_SHAKER: OnceLock<Mutex<CameraShakeSystemWrapper>> = OnceLock::new();
 
 /// Get the global camera shake system
-pub fn get_camera_shaker_system() -> &'static mut CameraShakeSystemWrapper {
-    unsafe {
-        if GLOBAL_CAMERA_SHAKER.is_none() {
-            GLOBAL_CAMERA_SHAKER = Some(CameraShakeSystemWrapper::new());
-        }
-        GLOBAL_CAMERA_SHAKER.as_mut().unwrap()
-    }
+pub fn get_camera_shaker_system() -> std::sync::MutexGuard<'static, CameraShakeSystemWrapper> {
+    GLOBAL_CAMERA_SHAKER
+        .get_or_init(|| Mutex::new(CameraShakeSystemWrapper::new()))
+        .lock()
+        .unwrap()
 }
 
 #[cfg(test)]

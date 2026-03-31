@@ -65,6 +65,14 @@ pub enum W3DError {
     /// Graphics API error
     #[error("W3D graphics API error: {0}")]
     GraphicsApiError(String),
+
+    /// General resource error
+    #[error("W3D resource error: {0}")]
+    ResourceError(String),
+
+    /// Model loading failed
+    #[error("W3D model loading failed: {0}")]
+    ModelLoadingFailed(String),
 }
 
 /// Result type for W3D operations
@@ -304,6 +312,12 @@ impl BoundingBox {
             && point[2] >= self.min[2]
             && point[2] <= self.max[2]
     }
+
+    /// Get radius (half diagonal)
+    pub fn radius(self) -> f32 {
+        let s = self.size();
+        ((s[0] * s[0] + s[1] * s[1] + s[2] * s[2]) as f64).sqrt() as f32 * 0.5
+    }
 }
 
 /// W3D material description
@@ -323,6 +337,10 @@ pub struct Material {
     pub specular_texture: Option<String>,
     /// Emissive texture
     pub emissive_texture: Option<String>,
+    /// Detail (second-stage) texture for multi-texture blending
+    pub detail_texture: Option<String>,
+    /// Multi-texture blend mode: 0=off, 1=MODULATE, 2=ADDSIGNED, 3=BLENDCURRENTALPHA
+    pub detail_blend_mode: u8,
     /// Material properties
     pub properties: MaterialProperties,
 }
@@ -559,14 +577,6 @@ pub struct W3DMeshGpu {
 pub struct W3DMaterialGpu {
     pub uniform_buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
-}
-
-/// GPU-uploaded texture data
-#[derive(Debug)]
-pub struct W3DTextureGpu {
-    pub texture: wgpu::Texture,
-    pub view: wgpu::TextureView,
-    pub sampler: wgpu::Sampler,
 }
 
 /// GPU-compiled shader data

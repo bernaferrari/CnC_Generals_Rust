@@ -2786,6 +2786,89 @@ impl Weapon {
         dist_sqr < min_range_sqr
     }
 
+    /// Get the attack distance including object bounding radii.
+    ///
+    /// Matches C++ Weapon::getAttackDistance() from Weapon.cpp line 2352.
+    /// Returns `getAttackRange(source)` plus the bounding circle radii of both
+    /// the source and victim objects (2D path via ATTACK_RANGE_IS_2D).
+    pub fn get_attack_distance(
+        &self,
+        source_obj: ObjectId,
+        victim_obj: Option<ObjectId>,
+    ) -> f32 {
+        let mut range = self.get_attack_range(source_obj);
+
+        if let Some(victim_id) = victim_obj {
+            let source_radius = match crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) {
+                Some(arc) => match arc.read() {
+                    Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
+                    Err(_) => 0.0,
+                },
+                None => 0.0,
+            };
+
+            let victim_radius = match crate::object::registry::OBJECT_REGISTRY.get_object(victim_id) {
+                Some(arc) => match arc.read() {
+                    Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
+                    Err(_) => 0.0,
+                },
+                None => 0.0,
+            };
+
+            range += source_radius + victim_radius;
+        }
+
+        range
+    }
+
+    /// Check if the source object's goal position is within attack range of the target.
+    ///
+    /// Matches C++ Weapon::isSourceObjectWithGoalPositionWithinAttackRange() from
+    /// Weapon.cpp line 2110. Uses 2D distance squared comparison with the same
+    /// fudge factor and min-range guard as the C++ original.
+    ///
+    /// Note: The C++ version uses `ThePartitionManager->getGoalDistanceSquared`
+    /// which accounts for pathfinding distance. This implementation uses straight-line
+    /// 2D distance as a faithful approximation until the partition manager is integrated.
+    pub fn is_source_object_with_goal_position_within_attack_range(
+        &self,
+        source_obj: ObjectId,
+        goal_pos: &Coord3D,
+        target_obj: Option<ObjectId>,
+        target_pos: Option<&Coord3D>,
+    ) -> bool {
+        // Resolve target position
+        let tgt_pos = if let Some(pos) = target_pos {
+            *pos
+        } else if let Some(target_id) = target_obj {
+            let Some(target) = crate::object::registry::OBJECT_REGISTRY
+                .get_object(target_id) else {
+                return false;
+            };
+            let Ok(target_guard) = target.read() else {
+                return false;
+            };
+            *target_guard.get_position()
+        } else {
+            return false;
+        };
+
+        // 2D distance squared from goal position to target position
+        let dx = goal_pos.x - tgt_pos.x;
+        let dy = goal_pos.y - tgt_pos.y;
+        let dist_sqr = dx * dx + dy * dy;
+
+        let attack_range = self.get_attack_range(source_obj);
+        let min_attack_range = self.template.get_minimum_attack_range();
+
+        // C++ line 2134: if (distSqr < minAttackRangeSqr - 0.5f) return false;
+        if dist_sqr < min_attack_range * min_attack_range - 0.5 {
+            return false;
+        }
+
+        dist_sqr <= attack_range * attack_range
+    }
+
     /// Load ammo instantly (for newly created units)
     pub fn load_ammo_now(&mut self, _source: ObjectId) -> GameLogicResult<()> {
         self.ammo_in_clip = self.template.clip_size as u32;
@@ -3141,6 +3224,226 @@ impl Weapon {
 
     pub fn get_anti_mask(&self) -> u32 {
         self.template.get_anti_mask()
+    }
+
+    /// Get the scatter radius for this weapon.
+    /// C++ Reference: Weapon.h line 670
+    pub fn get_scatter_radius(&self) -> f32 {
+        self.template.scatter_radius
+    }
+
+    /// Get whether this weapon is capable of following waypoint paths.
+    /// C++ Reference: Weapon.h line 673
+    pub fn is_capable_of_following_waypoint(&self) -> bool {
+        self.template.capable_of_following_waypoint
+    }
+
+    /// Get the continuous fire coast frames.
+    /// C++ Reference: Weapon.h line 676
+    pub fn get_continuous_fire_coast_frames(&self) -> u32 {
+        self.template.continuous_fire_coast_frames
+    }
+
+    /// Get the auto-reload when idle frames.
+    /// C++ Reference: Weapon.h line 677
+    pub fn get_auto_reload_when_idle_frames(&self) -> u32 {
+        self.template.auto_reload_when_idle_frames
+    }
+
+    /// Get the reload type for this weapon.
+    /// C++ Reference: Weapon.h line 667
+    pub fn get_reload_type(&self) -> WeaponReloadType {
+        self.template.reload_type
+    }
+
+    /// Get the death type for this weapon.
+    /// C++ Reference: Weapon.h line 681
+    pub fn get_death_type(&self) -> DeathType {
+        self.template.death_type
+    }
+
+    /// Set the last reload started frame.
+    /// C++ Reference: Weapon.h line 642
+    pub fn set_last_reload_started_frame(&mut self, frame: u32) {
+        self.when_last_reload_started = frame;
+    }
+
+    /// Get the fire sound for this weapon.
+    /// C++ Reference: Weapon.h line 678 (inline getFireSound)
+    pub fn get_fire_sound(&self) -> &AudioEventRts {
+        &self.template.fire_sound
+    }
+
+    /// Get the fire sound loop time.
+    /// C++ Reference: Weapon.h line 679
+    pub fn get_fire_sound_loop_time(&self) -> u32 {
+        self.template.fire_sound_loop_time
+    }
+
+    /// Check if there is clear terrain line of sight from source to victim object.
+    /// C++ Reference: Weapon.cpp line 3066 (isClearFiringLineOfSightTerrain)
+    ///
+    /// Adjusts source position upward by geometry height (eye level), then
+    /// checks terrain LOS to the victim's geometry center.
+    pub fn is_clear_firing_line_of_sight_terrain(
+        &self,
+        source_obj: ObjectId,
+        target_obj: ObjectId,
+    ) -> bool {
+        use crate::object::collide::Coord3D as CollideCoord;
+
+        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        else {
+            return true;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return true;
+        };
+        let source_pos = source_guard.get_position();
+        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let origin = CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height);
+        drop(source_guard);
+
+        let Some(target_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
+        else {
+            return true;
+        };
+        let Ok(target_guard) = target_arc.read() else {
+            return true;
+        };
+        let target_pos = target_guard.get_position();
+        let target_height = target_guard.get_geometry_info().get_max_height_above_position();
+        let victim_pos = CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
+
+        crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+            None,
+            &origin,
+            None,
+            &victim_pos,
+        )
+    }
+
+    /// Check if there is clear terrain LOS from source to a specific position.
+    /// C++ Reference: Weapon.cpp line 3083
+    pub fn is_clear_firing_line_of_sight_terrain_pos(
+        &self,
+        source_obj: ObjectId,
+        victim_pos: &Coord3D,
+    ) -> bool {
+        use crate::object::collide::Coord3D as CollideCoord;
+
+        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        else {
+            return true;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return true;
+        };
+        let source_pos = source_guard.get_position();
+        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let origin = CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height);
+
+        let victim = CollideCoord::new(victim_pos.x, victim_pos.y, victim_pos.z);
+
+        crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+            None,
+            &origin,
+            None,
+            &victim,
+        )
+    }
+
+    /// Check if source at goal position would have clear terrain LOS to victim object.
+    /// C++ Reference: Weapon.cpp line 3096 (isClearGoalFiringLineOfSightTerrain)
+    ///
+    /// Used by AI to pre-check if moving to a goal position would give clear shot.
+    pub fn is_clear_goal_firing_line_of_sight_terrain(
+        &self,
+        source_obj: ObjectId,
+        goal_pos: &Coord3D,
+        target_obj: ObjectId,
+    ) -> bool {
+        use crate::object::collide::Coord3D as CollideCoord;
+
+        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        else {
+            return true;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return true;
+        };
+        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let origin = CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height);
+        drop(source_guard);
+
+        let Some(target_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
+        else {
+            return true;
+        };
+        let Ok(target_guard) = target_arc.read() else {
+            return true;
+        };
+        let target_pos = target_guard.get_position();
+        let target_height = target_guard.get_geometry_info().get_max_height_above_position();
+        let victim_pos = CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
+
+        crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+            None,
+            &origin,
+            None,
+            &victim_pos,
+        )
+    }
+
+    /// Check if source at goal position would have clear terrain LOS to a position.
+    /// C++ Reference: Weapon.cpp line 3110
+    pub fn is_clear_goal_firing_line_of_sight_terrain_pos(
+        &self,
+        source_obj: ObjectId,
+        goal_pos: &Coord3D,
+        victim_pos: &Coord3D,
+    ) -> bool {
+        use crate::object::collide::Coord3D as CollideCoord;
+
+        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_obj)
+        else {
+            return true;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return true;
+        };
+        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let origin = CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height);
+
+        let victim = CollideCoord::new(victim_pos.x, victim_pos.y, victim_pos.z);
+
+        crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+            None,
+            &origin,
+            None,
+            &victim,
+        )
+    }
+
+    /// Get clip reload time for this weapon with source object context.
+    /// C++ Reference: Weapon.h line 688
+    pub fn get_clip_reload_time_obj(&self, source_obj: ObjectId) -> i32 {
+        let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
+        self.template.get_clip_reload_time(&bonus)
+    }
+
+    /// Get pre-attack delay for a specific target.
+    /// C++ Reference: Weapon.h line 692
+    pub fn get_pre_attack_delay_obj(&self, source_obj: ObjectId) -> i32 {
+        let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
+        self.template.get_pre_attack_delay(&bonus)
+    }
+
+    /// Get primary damage radius for this weapon with source object context.
+    /// C++ Reference: Weapon.h line 690
+    pub fn get_primary_damage_radius_obj(&self, source_obj: ObjectId) -> f32 {
+        let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
+        self.template.get_primary_damage_radius(&bonus)
     }
 
     // ========================================================================

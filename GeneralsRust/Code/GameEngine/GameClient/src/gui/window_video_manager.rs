@@ -345,7 +345,7 @@ fn open_stream(movie_name: String) -> Option<Box<dyn VideoStreamInterface>> {
             }
         }
     }
-    let _ = movie_name;
+    log::warn!("window video skipped (no video provider): {}", movie_name);
     None
 }
 

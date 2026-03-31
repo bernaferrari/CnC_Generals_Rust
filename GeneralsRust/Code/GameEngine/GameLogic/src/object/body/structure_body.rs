@@ -408,20 +408,25 @@ mod tests {
         assert_eq!(body.get_health(), 100.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::Damaged);
 
-        // Damage to 20%
+        // Damage to 20% — still Damaged (really_damaged_thresh is 0.1)
         assert!(body.internal_change_health(-60.0).is_ok());
         assert_eq!(body.get_health(), 40.0);
+        assert_eq!(body.get_damage_state(), BodyDamageType::Damaged);
+
+        // Damage to 5% (below 0.1 threshold)
+        assert!(body.internal_change_health(-30.0).is_ok());
+        assert_eq!(body.get_health(), 10.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::ReallyDamaged);
 
         // Damage to 0%
-        assert!(body.internal_change_health(-40.0).is_ok());
+        assert!(body.internal_change_health(-10.0).is_ok());
         assert_eq!(body.get_health(), 0.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::Rubble);
 
-        // Heal back up
+        // Heal back up — 150/200 = 75% > 0.5 threshold → Pristine
         assert!(body.internal_change_health(150.0).is_ok());
         assert_eq!(body.get_health(), 150.0);
-        assert_eq!(body.get_damage_state(), BodyDamageType::Damaged);
+        assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
     }
 
     #[test]

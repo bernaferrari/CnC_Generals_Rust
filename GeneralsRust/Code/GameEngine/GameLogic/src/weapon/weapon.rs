@@ -18,6 +18,7 @@ use crate::weapon::{
     WeaponReloadType, WeaponSlotType, WeaponStatus, WeaponTemplate, NO_MAX_SHOTS_LIMIT,
 };
 use crate::{GameLogicError, GameLogicResult};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::Arc;
 
 /// Weapon instance with state and ammunition management
@@ -996,6 +997,215 @@ impl Weapon {
         self.template.get_name()
     }
 
+    // ----- C++ parity methods previously missing -----
+
+    /// Check if target is too close (within minimum attack range)
+    ///
+    /// Matches C++ Weapon::isTooClose(source, target) from Weapon.cpp line 2211
+    pub fn is_too_close(&self, source_pos: &Coord3D, target_pos: &Coord3D) -> bool {
+        let min_attack_range = self.template.get_minimum_attack_range();
+        if min_attack_range == 0.0 {
+            return false;
+        }
+        let dist_sqr = Self::distance_squared(source_pos, target_pos);
+        dist_sqr < min_attack_range * min_attack_range
+    }
+
+    /// Check if a goal position is within attack range of the target
+    ///
+    /// Matches C++ Weapon::isGoalPosWithinAttackRange() from Weapon.cpp line 2241
+    /// Used by AI to pre-check if moving to a goal position would put us in range.
+    /// The 1/4 pathfind cell fudge prevents teetering on the edge of firing range.
+    pub fn is_goal_pos_within_attack_range(
+        &self,
+        goal_pos: &Coord3D,
+        target_pos: &Coord3D,
+        bonus: &WeaponBonus,
+    ) -> bool {
+        // Undersize attack range by 1/4 pathfind cell (PATHFIND_CELL_SIZE_F = 10.0)
+        let pathfind_fudge = 10.0 * 0.25;
+        let attack_range = self.template.get_attack_range(bonus) - pathfind_fudge;
+        if attack_range <= 0.0 {
+            return false;
+        }
+        let dist_sqr = Self::distance_squared(goal_pos, target_pos);
+
+        // Oversize min range by 1/4 pathfind cell
+        let min_range = self.template.get_minimum_attack_range() + pathfind_fudge;
+        if dist_sqr < min_range * min_range - 0.5 {
+            return false;
+        }
+        dist_sqr <= attack_range * attack_range
+    }
+
+    /// Get remaining ammo (returns 0 if currently reloading)
+    ///
+    /// Matches C++ Weapon::getRemainingAmmo() from Weapon.h line 666
+    /// When reloading, the internal ammo counter says full but the weapon
+    /// can't actually fire yet, so this reports 0 during reload.
+    pub fn get_remaining_ammo(&self) -> UnsignedInt {
+        if self.status == WeaponStatus::ReloadingClip {
+            0
+        } else {
+            self.ammo_in_clip
+        }
+    }
+
+    /// Get pre-attack delay for a specific target
+    ///
+    /// Matches C++ Weapon::getPreAttackDelay() from Weapon.h line 692
+    pub fn get_pre_attack_delay(&self, bonus: &WeaponBonus) -> i32 {
+        self.template.get_pre_attack_delay(bonus)
+    }
+
+    /// Get clip reload time with bonus
+    ///
+    /// Matches C++ Weapon::getClipReloadTime(source) from Weapon.h line 688
+    pub fn get_clip_reload_time(&self, bonus: &WeaponBonus) -> i32 {
+        self.template.get_clip_reload_time(bonus)
+    }
+
+    /// Get primary damage radius with bonus
+    ///
+    /// Matches C++ Weapon::getPrimaryDamageRadius(source) from Weapon.h line 690
+    pub fn get_primary_damage_radius(&self, bonus: &WeaponBonus) -> Real {
+        self.template.get_primary_damage_radius(bonus)
+    }
+
+    /// Check if this weapon uses a laser
+    ///
+    /// Matches C++ Weapon::isLaser() from Weapon.h line 658
+    pub fn is_laser(&self) -> bool {
+        self.template.is_laser()
+    }
+
+    /// Compute approach target position for AI movement
+    ///
+    /// Matches C++ Weapon::computeApproachTarget() from Weapon.cpp line 1977
+    /// Returns true if source is already close enough (no movement needed).
+    /// Otherwise sets approach_target_pos to a position within weapon range.
+    pub fn compute_approach_target(
+        &self,
+        source_pos: &Coord3D,
+        target_pos: &Coord3D,
+        angle_offset: Real,
+        bonus: &WeaponBonus,
+        approach_target_pos: &mut Coord3D,
+    ) -> bool {
+        // Compute direction from source to target
+        let dx = target_pos.x - source_pos.x;
+        let dy = target_pos.y - source_pos.y;
+        let dz = target_pos.z - source_pos.z;
+        let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+
+        let min_attack_range = self.template.get_minimum_attack_range();
+
+        // If too close, move away
+        if min_attack_range > 10.0 && dist < min_attack_range {
+            let mid_range = (self.template.get_attack_range(bonus) + min_attack_range) / 2.0;
+            let mut dir_x = source_pos.x - target_pos.x;
+            let mut dir_y = source_pos.y - target_pos.y;
+            let dir_len = (dir_x * dir_x + dir_y * dir_y).sqrt().max(f32::MIN_POSITIVE);
+            dir_x /= dir_len;
+            dir_y /= dir_len;
+
+            if angle_offset != 0.0 {
+                let angle = dir_y.atan2(dir_x) + angle_offset;
+                dir_x = angle.cos();
+                dir_y = angle.sin();
+            }
+
+            approach_target_pos.x = mid_range * dir_x + target_pos.x;
+            approach_target_pos.y = mid_range * dir_y + target_pos.y;
+            approach_target_pos.z = mid_range * 0.0 + target_pos.z; // 2D range
+            return false;
+        }
+
+        const FUDGE: Real = 0.001;
+        if dist < FUDGE {
+            // Already close enough
+            *approach_target_pos = *source_pos;
+            return true;
+        }
+
+        if self.is_contact_weapon() {
+            *approach_target_pos = *target_pos;
+            return false;
+        }
+
+        // Normalize direction
+        let ndx = dx / dist;
+        let ndy = dy / dist;
+
+        let (final_dx, final_dy) = if angle_offset != 0.0 {
+            let angle = ndy.atan2(ndx) + angle_offset;
+            (angle.cos(), angle.sin())
+        } else {
+            (ndx, ndy)
+        };
+
+        // 90% of attack range (ATTACK_RANGE_APPROACH_FUDGE)
+        let attack_range = self.template.get_attack_range(bonus) * 0.9;
+        approach_target_pos.x = attack_range * final_dx + target_pos.x;
+        approach_target_pos.y = attack_range * final_dy + target_pos.y;
+        approach_target_pos.z = target_pos.z;
+
+        false
+    }
+
+    /// Check if there is clear line of sight for firing
+    ///
+    /// Matches C++ Weapon::isClearFiringLineOfSightTerrain() from Weapon.cpp line 3066
+    /// Uses terrain LOS check via TheTerrainLogic::is_clear_line_of_sight()
+    pub fn is_clear_firing_line_of_sight(
+        &self,
+        source_pos: &Coord3D,
+        target_pos: &Coord3D,
+    ) -> bool {
+        if let Some(terrain) = TheTerrainLogic::get() {
+            terrain.is_clear_line_of_sight(source_pos, target_pos)
+        } else {
+            true // Assume clear if no terrain available
+        }
+    }
+
+    /// Transfer next-shot stats from another weapon
+    ///
+    /// Matches C++ Weapon::transferNextShotStatsFrom() from Weapon.cpp line 3127
+    /// Used for weapons like Jarmen Kell's bike sniper attack to share cooldown state.
+    pub fn transfer_next_shot_stats_from(&mut self, other: &Weapon) {
+        self.when_we_can_fire_again = other.when_we_can_fire_again;
+        self.when_last_reload_started = other.when_last_reload_started;
+        self.status = other.status;
+    }
+
+    /// Fire weapon as projectile detonation (when projectile hits)
+    ///
+    /// Matches C++ Weapon::fireProjectileDetonationWeapon() from Weapon.cpp line 2692
+    /// Used when a projectile (missile, shell) detonates at the target position.
+    pub fn fire_projectile_detonation(
+        &mut self,
+        source_id: ObjectID,
+        target_id: Option<ObjectID>,
+        target_pos: Option<&Coord3D>,
+        current_frame: UnsignedInt,
+        extra_bonus_flags: WeaponBonusConditionFlags,
+        inflict_damage: bool,
+    ) -> GameLogicResult<(bool, Option<ObjectID>)> {
+        self.private_fire_weapon(
+            source_id,
+            target_id,
+            target_pos.copied(),
+            current_frame,
+            true,  // is_projectile_detonation
+            false, // ignore_ranges
+            extra_bonus_flags,
+            inflict_damage,
+            WeaponBonusConditionFlags::empty(),
+            None,
+        )
+    }
+
     /// Compute weapon bonus from source object conditions
     ///
     /// Matches C++ Weapon::computeBonus() from Weapon.cpp lines 1797-1817
@@ -1046,6 +1256,165 @@ impl Weapon {
         extra_bonus_flags: WeaponBonusConditionFlags,
     ) -> WeaponBonus {
         self.compute_bonus(source_bonus_flags, extra_bonus_flags, None, None)
+    }
+}
+
+/// Save/Load serialization for Weapon (matches C++ Weapon::xfer from Weapon.cpp line 3341)
+impl Snapshotable for Weapon {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // Just xfer the template name for CRC purposes
+        let name = self.template.get_name().to_string();
+        let mut name_mut = name;
+        xfer.xfer_ascii_string(&mut name_mut)
+            .map_err(|e| e.to_string())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // Version history:
+        // 1: initial
+        // 2: added template name
+        // 3: added suspendFXFrame
+        let current_version: XferVersion = 3;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        // Template name (version >= 2)
+        if version >= 2 {
+            let mut tmpl_name = self.template.get_name().to_string();
+            xfer.xfer_ascii_string(&mut tmpl_name)
+                .map_err(|e| e.to_string())?;
+            // On load, we would need to look up the template from WeaponStore
+            // For now, we keep the existing template (CRC/save path)
+        }
+
+        // Weapon slot
+        let mut wslot = self.wslot as i32;
+        unsafe {
+            xfer.xfer_user(
+                (&mut wslot as *mut i32).cast::<u8>(),
+                std::mem::size_of::<i32>(),
+            )
+        }
+        .map_err(|e| e.to_string())?;
+        // Note: wslot is const in our impl, so we don't restore it
+
+        // Status
+        let mut status = self.status as i32;
+        unsafe {
+            xfer.xfer_user(
+                (&mut status as *mut i32).cast::<u8>(),
+                std::mem::size_of::<i32>(),
+            )
+        }
+        .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            self.status = match status {
+                0 => WeaponStatus::ReadyToFire,
+                1 => WeaponStatus::PreAttack,
+                2 => WeaponStatus::BetweenFiringShots,
+                3 => WeaponStatus::ReloadingClip,
+                _ => WeaponStatus::OutOfAmmo,
+            };
+        }
+
+        // Ammo in clip
+        xfer.xfer_unsigned_int(&mut self.ammo_in_clip)
+            .map_err(|e| e.to_string())?;
+
+        // When we can fire again (note: C++ calls this m_whenWeCanFireAgain,
+        // mapped to our when_we_can_fire_again)
+        xfer.xfer_unsigned_int(&mut self.when_we_can_fire_again)
+            .map_err(|e| e.to_string())?;
+
+        // When pre-attack finished
+        xfer.xfer_unsigned_int(&mut self.when_pre_attack_finished)
+            .map_err(|e| e.to_string())?;
+
+        // When last reload started
+        xfer.xfer_unsigned_int(&mut self.when_last_reload_started)
+            .map_err(|e| e.to_string())?;
+
+        // Last fire frame
+        xfer.xfer_unsigned_int(&mut self.last_fire_frame)
+            .map_err(|e| e.to_string())?;
+
+        // Suspend FX frame (version >= 3)
+        if version >= 3 {
+            xfer.xfer_unsigned_int(&mut self.suspend_fx_frame)
+                .map_err(|e| e.to_string())?;
+        } else if xfer.is_reading() {
+            self.suspend_fx_frame = 0;
+        }
+
+        // Projectile stream ID
+        xfer.xfer_object_id(&mut self.projectile_stream_id)
+            .map_err(|e| e.to_string())?;
+
+        // Laser ID (unused, matches C++ line 3391-3392)
+        let mut laser_id_unused: ObjectID = INVALID_ID;
+        xfer.xfer_object_id(&mut laser_id_unused)
+            .map_err(|e| e.to_string())?;
+
+        // Max shot count
+        xfer.xfer_int(&mut self.max_shot_count)
+            .map_err(|e| e.to_string())?;
+
+        // Current barrel
+        xfer.xfer_int(&mut self.cur_barrel)
+            .map_err(|e| e.to_string())?;
+
+        // Num shots for current barrel
+        xfer.xfer_int(&mut self.num_shots_for_cur_barrel)
+            .map_err(|e| e.to_string())?;
+
+        // Scatter targets unused
+        let mut scatter_count = self.scatter_targets_unused.len() as u16;
+        xfer.xfer_unsigned_short(&mut scatter_count)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            self.scatter_targets_unused.clear();
+            for _ in 0..scatter_count {
+                let mut int_data: i32 = 0;
+                xfer.xfer_int(&mut int_data).map_err(|e| e.to_string())?;
+                self.scatter_targets_unused.push(int_data);
+            }
+        } else {
+            for target in &self.scatter_targets_unused {
+                let mut int_data = *target;
+                xfer.xfer_int(&mut int_data).map_err(|e| e.to_string())?;
+            }
+        }
+
+        // Pitch limited
+        let mut pitch_limited = self.pitch_limited;
+        xfer.xfer_bool(&mut pitch_limited)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            self.pitch_limited = pitch_limited;
+        }
+
+        // Leech weapon range active
+        let mut leech_active = self.leech_weapon_range_active;
+        xfer.xfer_bool(&mut leech_active)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            self.leech_weapon_range_active = leech_active;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ Weapon::loadPostProcess() from Weapon.cpp line 3447
+        // Validates projectile stream ID after load
+        if self.projectile_stream_id != INVALID_ID {
+            if crate::helpers::TheGameLogic::find_object_by_id(self.projectile_stream_id).is_none()
+            {
+                self.projectile_stream_id = INVALID_ID;
+            }
+        }
+        Ok(())
     }
 }
 

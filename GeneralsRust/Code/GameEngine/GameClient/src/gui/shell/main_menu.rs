@@ -1724,7 +1724,7 @@ impl MainMenu {
         }
 
         if state.launch_challenge_menu {
-            if let Some(generals) = get_challenge_generals_mut() {
+            if let Some(mut generals) = get_challenge_generals_mut() {
                 generals.set_current_difficulty(Self::to_challenge_difficulty(diff));
             }
             state.campaign_selected = true;

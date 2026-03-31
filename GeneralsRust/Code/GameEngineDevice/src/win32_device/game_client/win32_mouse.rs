@@ -7,7 +7,10 @@
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicPtr, Ordering},
+    },
 };
 
 use anyhow::Result;
@@ -488,27 +491,30 @@ impl Win32Mouse {
 }
 
 // Global reference for WndProc access (as per C++ implementation)
-static mut THE_WIN32_MOUSE: Option<*mut Win32Mouse> = None;
+static THE_WIN32_MOUSE: AtomicPtr<Win32Mouse> = AtomicPtr::new(std::ptr::null_mut());
 
 impl Win32Mouse {
     /// Set global mouse reference for WndProc access
     pub fn set_global_reference(&mut self) {
-        unsafe {
-            THE_WIN32_MOUSE = Some(self as *mut Win32Mouse);
-        }
+        THE_WIN32_MOUSE.store(self as *mut Win32Mouse, Ordering::SeqCst);
     }
 
     /// Clear global mouse reference
     pub fn clear_global_reference() {
-        unsafe {
-            THE_WIN32_MOUSE = None;
-        }
+        THE_WIN32_MOUSE.store(std::ptr::null_mut(), Ordering::SeqCst);
     }
 
     /// Get global mouse reference (for WndProc)
     pub fn get_global_reference() -> Option<&'static mut Win32Mouse> {
-        unsafe {
-            THE_WIN32_MOUSE.map(|ptr| &mut *ptr)
+        let ptr = THE_WIN32_MOUSE.load(Ordering::SeqCst);
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: The pointer is only set by set_global_reference and cleared by
+            // clear_global_reference/Drop. The Win32Mouse is designed to be accessed from
+            // the main thread and the message pump thread (both of which are single-threaded
+            // relative to each other via the Windows message loop).
+            unsafe { Some(&mut *ptr) }
         }
     }
 }

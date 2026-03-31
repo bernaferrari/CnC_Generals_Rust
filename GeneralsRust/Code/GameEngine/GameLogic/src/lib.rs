@@ -218,6 +218,28 @@ pub fn initialize() -> GameLogicResult<()> {
     // Initialize weapon system
     initialize_weapon_store()?;
 
+    // Register terrain height provider for Common layer's Thing trait
+    game_engine::common::thing::register_terrain_height_provider(|x, y| {
+        let terrain = crate::terrain::get_terrain_logic();
+        terrain
+            .read()
+            .ok()
+            .map(|guard| guard.get_ground_height(x, y, None))
+            .unwrap_or(0.0)
+    });
+    game_engine::common::thing::register_underwater_provider(|x, y| {
+        let terrain = crate::terrain::get_terrain_logic();
+        terrain
+            .read()
+            .ok()
+            .map(|guard| {
+                let mut water_z = 0.0f32;
+                let underwater = guard.is_underwater(x, y, Some(&mut water_z), None);
+                (underwater, water_z)
+            })
+            .unwrap_or((false, 0.0))
+    });
+
     log::info!("Game Logic systems initialized successfully");
     Ok(())
 }

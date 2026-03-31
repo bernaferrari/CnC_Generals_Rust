@@ -32,7 +32,8 @@ use game_engine::common::audio::audio_event_rts::{
 };
 use game_engine::common::audio::game_audio::{
     get_global_audio_manager, initialize_global_audio_manager, register_audio_locality_resolver,
-    AudioLocalityRelationship, AudioLocalityResolver,
+    register_audio_view_resolver, AudioLocalityRelationship, AudioLocalityResolver,
+    AudioViewResolver,
 };
 use game_engine::common::audio::game_sounds::{
     register_audio_shroud_resolver, AudioShroudResolver,
@@ -400,6 +401,14 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.get_occlusion_delay()
     }
 
+    fn get_crusher_level(&self) -> u32 {
+        self.inner.get_crusher_level() as u32
+    }
+
+    fn get_crushable_level(&self) -> u32 {
+        self.inner.get_crushable_level() as u32
+    }
+
     fn calc_cost_to_build(&self, player: Option<&dyn std::any::Any>) -> crate::common::Int {
         let Some(player) = player.and_then(|p| p.downcast_ref::<crate::player::Player>()) else {
             return self.get_build_cost();
@@ -467,6 +476,29 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
 
     fn get_behavior_module_info(&self) -> &[crate::common::TemplateModuleInfo] {
         &self.behavior_modules
+    }
+
+    fn get_radar_priority(&self) -> crate::common::RadarPriorityType {
+        // Convert engine RadarPriorityType to game logic RadarPriorityType.
+        // The engine uses Invalid/Low/Medium/High/Critical while
+        // the logic uses Invalid/NotOnRadar/Structure/Unit/LocalUnitOnly.
+        match self.inner.get_radar_priority() {
+            game_engine::common::thing::thing_template::RadarPriorityType::Invalid => {
+                crate::common::RadarPriorityType::Invalid
+            }
+            game_engine::common::thing::thing_template::RadarPriorityType::Low => {
+                crate::common::RadarPriorityType::NotOnRadar
+            }
+            game_engine::common::thing::thing_template::RadarPriorityType::Medium => {
+                crate::common::RadarPriorityType::Structure
+            }
+            game_engine::common::thing::thing_template::RadarPriorityType::High => {
+                crate::common::RadarPriorityType::Unit
+            }
+            game_engine::common::thing::thing_template::RadarPriorityType::Critical => {
+                crate::common::RadarPriorityType::LocalUnitOnly
+            }
+        }
     }
 }
 
@@ -4623,12 +4655,51 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
     }
 }
 
+/// Resolver that provides camera/terrain view information for 3D audio positioning.
+///
+/// C++ equivalent: TheTacticalView and TheTerrainLogic access in AudioManager::update().
+/// Uses the real terrain logic for ground height and provides tactical view data
+/// from the game client when available.
+struct GameLogicAudioViewResolver;
+
+impl AudioViewResolver for GameLogicAudioViewResolver {
+    fn get_tactical_view_position(&self) -> EngineCoord3D {
+        // C++ reads TheTacticalView->getPosition().
+        // Until the game client tactical view is wired up, return a reasonable
+        // default (center of map, typical camera height).
+        EngineCoord3D { x: 0.0, y: 0.0, z: 0.0 }
+    }
+
+    fn get_tactical_view_angle(&self) -> f32 {
+        // C++ reads TheTacticalView->getAngle().
+        // Default angle of 0.0 (north-facing).
+        0.0
+    }
+
+    fn get_3d_camera_position(&self) -> EngineCoord3D {
+        // C++ reads TheTacticalView->get3DCameraPosition().
+        // Return the tactical view position until the real camera is wired.
+        EngineCoord3D { x: 0.0, y: 0.0, z: 0.0 }
+    }
+
+    fn get_ground_height(&self, x: f32, y: f32) -> f32 {
+        // C++ reads TheTerrainLogic->getGroundHeight(x, y).
+        // This uses the real terrain logic - the most important resolver method
+        // for correct audio attenuation over terrain.
+        crate::terrain::get_terrain_logic()
+            .read()
+            .map(|terrain| terrain.get_ground_height(x, y, None))
+            .unwrap_or(0.0)
+    }
+}
+
 fn ensure_audio_event_resolvers_registered() {
     static REGISTERED: OnceLock<()> = OnceLock::new();
     REGISTERED.get_or_init(|| {
         let _ = register_audio_event_owner_resolver(Arc::new(GameLogicAudioEventOwnerResolver));
         let _ = register_audio_shroud_resolver(Arc::new(GameLogicAudioShroudResolver));
         let _ = register_audio_locality_resolver(Arc::new(GameLogicAudioLocalityResolver));
+        let _ = register_audio_view_resolver(Arc::new(GameLogicAudioViewResolver));
     });
 }
 

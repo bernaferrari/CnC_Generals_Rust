@@ -13,7 +13,7 @@
 //! - CloudMapTerrainTextureClass: Animated cloud shadows
 //! - ScorchTextureClass: Scorch marks and damage
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wgpu::{Device, Queue, Texture, TextureView, Sampler};
 
@@ -307,10 +307,10 @@ pub struct GlobalData {
 }
 
 // Global instance (would be properly initialized in real code)
-static mut THE_GLOBAL_DATA: Option<GlobalData> = None;
+static THE_GLOBAL_DATA: OnceLock<RwLock<GlobalData>> = OnceLock::new();
 
-pub fn get_global_data() -> Option<&'static GlobalData> {
-    unsafe { THE_GLOBAL_DATA.as_ref() }
+pub fn get_global_data() -> Option<&'static RwLock<GlobalData>> {
+    THE_GLOBAL_DATA.get()
 }
 
 // =============================================================================

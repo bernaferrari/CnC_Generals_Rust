@@ -309,10 +309,10 @@ mod tests {
         assert_eq!(body.get_health(), 75.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
 
-        // Damage to around 25%
+        // Damage to around 25% — still Damaged (really_damaged_thresh is 0.1)
         assert!(body.internal_change_health(-50.0).is_ok());
         assert_eq!(body.get_health(), 25.0);
-        assert_eq!(body.get_damage_state(), BodyDamageType::ReallyDamaged);
+        assert_eq!(body.get_damage_state(), BodyDamageType::Damaged);
 
         // Try to damage to death - should stop at 1
         assert!(body.internal_change_health(-100.0).is_ok());

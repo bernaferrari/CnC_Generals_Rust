@@ -655,7 +655,7 @@ pub(crate) fn batch_material_params(material: Option<&Material>) -> [f32; 4] {
 }
 
 pub(crate) fn batch_priority(material: Option<&Material>) -> u32 {
-    let mut priority = match material_batch_specialization(material) {
+    let mut priority: u32 = match material_batch_specialization(material) {
         MaterialBatchSpecialization::Null => 5,
         MaterialBatchSpecialization::Unlit => 5,
         MaterialBatchSpecialization::ForceMultiplyLike => 9,
@@ -831,6 +831,8 @@ mod tests {
             normal_texture: None,
             specular_texture: None,
             emissive_texture: None,
+            detail_texture: None,
+            detail_blend_mode: 0,
             properties: super::super::MaterialProperties::default(),
         };
         material.properties.specular_color = [0.7, 0.2, 0.1];
@@ -863,6 +865,8 @@ mod tests {
             normal_texture: None,
             specular_texture: None,
             emissive_texture: None,
+            detail_texture: None,
+            detail_blend_mode: 0,
             properties: super::super::MaterialProperties::default(),
         };
         assert_eq!(batch_priority(Some(&material)), 10);
@@ -884,6 +888,8 @@ mod tests {
             normal_texture: None,
             specular_texture: None,
             emissive_texture: None,
+            detail_texture: None,
+            detail_blend_mode: 0,
             properties: super::super::MaterialProperties::default(),
         };
         material.properties.diffuse_color = [0.75, 0.8, 0.9, 1.0];

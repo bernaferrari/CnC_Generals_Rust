@@ -2137,6 +2137,9 @@ pub struct Object {
 
     // Experience and combat
     experience_tracker: Option<Arc<Mutex<ExperienceTracker>>>,
+    captured: bool,
+    veterancy_level: VeterancyLevel,
+    experience_points: Real,
 
     // Weapons and combat
     pub weapon_set: WeaponSet,
@@ -2376,6 +2379,9 @@ impl Object {
 
             group_id: None,
             experience_tracker: None,
+            captured: false,
+            veterancy_level: VeterancyLevel::Regular,
+            experience_points: 0.0,
 
             weapon_set: WeaponSet::new(),
             weapon_bonus_multiplier: 1.0,
@@ -3819,6 +3825,40 @@ impl Object {
         self.weapon_set.is_out_of_ammo()
     }
 
+    /// Check if current weapon is locked
+    ///
+    /// Matches C++ Object::isCurWeaponLocked() from Object.h line 525
+    pub fn is_cur_weapon_locked(&self) -> bool {
+        self.weapon_set.is_current_weapon_locked()
+    }
+
+    /// Get largest weapon range across all weapon slots
+    ///
+    /// Matches C++ Object::getLargestWeaponRange() from Object.h line 455
+    pub fn get_largest_weapon_range(&self) -> f32 {
+        let mut max_range: f32 = 0.0;
+        for slot in [
+            WeaponSlotType::Primary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary,
+        ] {
+            if let Some(weapon) = self.weapon_set.get_weapon_in_slot(slot) {
+                let range = weapon.get_attack_range(self.id);
+                if range > max_range {
+                    max_range = range;
+                }
+            }
+        }
+        max_range
+    }
+
+    /// Check if weapon set can deal a specific damage type
+    ///
+    /// Matches C++ Object::hasWeaponToDealDamageType() from Object.h line 454
+    pub fn has_weapon_to_deal_damage_type(&self, damage_type: crate::weapon::DamageType) -> bool {
+        self.weapon_set.has_weapon_to_deal_damage_type(damage_type.into())
+    }
+
     /// Check if this object shares reload time across all weapons
     ///
     /// When true, firing any weapon sets the cooldown on all weapons.
@@ -4347,10 +4387,56 @@ impl Object {
         max_damage
     }
 
-    /// Returns the crushing power rating for this object. Hooked to locomotor/template once those
-    /// systems are ported; for now we default to 0 (cannot crush).
+    /// Returns the crushing power rating for this object.
+    /// C++ Reference: Object.cpp line 1156 (Object::getCrusherLevel)
     pub fn get_crusher_level(&self) -> u32 {
-        0
+        self.thing_template.get_crusher_level() as u32
+    }
+
+    /// Returns the crushable vulnerability level for this object.
+    /// C++ Reference: Object.cpp line 1162 (Object::getCrushableLevel)
+    pub fn get_crushable_level(&self) -> u32 {
+        self.thing_template.get_crushable_level() as u32
+    }
+
+    /// Check if this object can crush or squish another object.
+    /// C++ Reference: Object.cpp line 1076 (Object::canCrushOrSquish)
+    pub fn can_crush_or_squish(&self, other: &Object, test_type: CrushSquishTestType) -> bool {
+        if self.is_disabled_by_type(DisabledType::DisabledUnmanned) {
+            return false;
+        }
+
+        let crusher_level = self.get_crusher_level();
+
+        // Order matters: we want to know if I consider it to be an ally, not vice versa
+        if self.relationship_to(other) == Relationship::Allies {
+            return false;
+        }
+
+        if crusher_level == 0 {
+            return false;
+        }
+
+        // Check squish module on other object
+        if test_type == CrushSquishTestType::TestSquishOnly
+            || test_type == CrushSquishTestType::TestCrushOrSquish
+        {
+            if other.find_module_by_name("SquishCollide").is_some() {
+                return true;
+            }
+        }
+
+        let crushable_level = other.get_crushable_level();
+
+        if test_type == CrushSquishTestType::TestCrushOnly
+            || test_type == CrushSquishTestType::TestCrushOrSquish
+        {
+            if crusher_level > crushable_level {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub fn is_kind_of(&self, kind: KindOf) -> bool {
@@ -5548,6 +5634,70 @@ impl Object {
 
     pub fn is_mass_selectable(&self) -> bool {
         self.is_selectable() && !self.is_kind_of(KindOf::Structure)
+    }
+
+    /// Check if this object is mobile (not immobile and not disabled).
+    /// C++ Reference: Object.cpp line 2878 (Object::isMobile)
+    pub fn is_mobile(&self) -> bool {
+        if self.is_kind_of(KindOf::Immobile) {
+            return false;
+        }
+        if self.is_disabled() {
+            return false;
+        }
+        true
+    }
+
+    /// Get radar priority for this object.
+    /// C++ Reference: Object.cpp line 6240 (Object::getRadarPriority)
+    pub fn get_radar_priority(&self) -> crate::common::RadarPriorityType {
+        use crate::common::RadarPriorityType;
+
+        // Start with template default
+        let mut priority = self.get_template().get_radar_priority();
+
+        // If invalid, infer from object properties (C++ lines 6254-6267)
+        if priority == RadarPriorityType::Invalid {
+            // Garrisonable objects show as structures
+            if self.get_contain().is_some() {
+                // C++ checks isGarrisonable() - simplified here
+                priority = RadarPriorityType::Structure;
+            }
+
+            // Capturable objects show as structures
+            if self.is_kind_of(KindOf::Capturable) {
+                priority = RadarPriorityType::Structure;
+            }
+        }
+
+        // Carbombs show as units (C++ line 6270)
+        if self.test_status(crate::common::ObjectStatusTypes::IsCarBomb) {
+            priority = RadarPriorityType::Unit;
+        }
+
+        priority
+    }
+
+    /// Get the owning player (the player who originally built/owns this object).
+    /// C++ Reference: Object.h line 229 (getOwningPlayer)
+    /// In C++, this is the team the object belongs to. Returns controlling player as fallback.
+    pub fn get_owning_player(&self) -> Option<Arc<RwLock<Player>>> {
+        self.get_controlling_player()
+    }
+
+    /// Calculate the natural rally point for this object (where produced units should gather).
+    /// C++ Reference: Object.cpp line 2819 (Object::calcNaturalRallyPoint)
+    /// The C++ version transforms a model-space point through the object's transform matrix.
+    /// This simplified version uses the object's current position as the rally point.
+    pub fn calc_natural_rally_point(&self) -> Coord2D {
+        let pos = self.get_position();
+        Coord2D { x: pos.x, y: pos.y }
+    }
+
+    /// Get the experience points this object has accumulated.
+    /// C++ Reference: Object.h line 325 (getExperiencePoints)
+    pub fn get_experience_points(&self) -> Real {
+        self.experience_points
     }
 
     /// Iterate over modules that advertise a given interface mask.
@@ -6949,6 +7099,13 @@ impl Object {
             }
         }
         None
+    }
+
+    /// Check if this object is inside a container
+    ///
+    /// Matches C++ Object::isContained() from Object.h line 421
+    pub fn is_contained(&self) -> bool {
+        self.contained_by.is_some()
     }
 
     /// Get locomotor for this object, if any.
@@ -12041,8 +12198,6 @@ mod tests {
 /// ```bash
 /// cargo test --package game_logic --lib object::tests
 /// ```
-#[allow(dead_code)]
-const CRITICAL_METHODS_IMPLEMENTED: bool = true;
 
 #[cfg(test)]
 mod visibility_tests {

@@ -3,6 +3,9 @@
 use crate::vector_class::DynamicVectorClass;
 
 #[cfg(target_os = "windows")]
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
 #[cfg(target_os = "windows")]
@@ -36,45 +39,41 @@ impl PartialEq for AcceleratorTracker {
 }
 
 #[cfg(target_os = "windows")]
-static mut MODELESS_DIALOGS: Option<DynamicVectorClass<HWND>> = None;
+static MODELESS_DIALOGS: OnceLock<Mutex<DynamicVectorClass<HWND>>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
-static mut ACCELERATORS: Option<DynamicVectorClass<AcceleratorTracker>> = None;
+static ACCELERATORS: OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
-pub static mut MESSAGE_INTERCEPT_HANDLER: Option<fn(&mut MSG) -> bool> = None;
+pub static MESSAGE_INTERCEPT_HANDLER: Mutex<Option<fn(&mut MSG) -> bool>> = Mutex::new(None);
 
 #[cfg(target_os = "windows")]
-fn modeless_dialogs() -> &'static mut DynamicVectorClass<HWND> {
-    unsafe {
-        if MODELESS_DIALOGS.is_none() {
-            MODELESS_DIALOGS = Some(DynamicVectorClass::new(0, None));
-        }
-        MODELESS_DIALOGS.as_mut().unwrap()
-    }
+fn modeless_dialogs() -> std::sync::MutexGuard<'static, DynamicVectorClass<HWND>> {
+    MODELESS_DIALOGS
+        .get_or_init(|| Mutex::new(DynamicVectorClass::new(0, None)))
+        .lock()
+        .unwrap()
 }
 
 #[cfg(target_os = "windows")]
-fn accelerators() -> &'static mut DynamicVectorClass<AcceleratorTracker> {
-    unsafe {
-        if ACCELERATORS.is_none() {
-            ACCELERATORS = Some(DynamicVectorClass::new(0, None));
-        }
-        ACCELERATORS.as_mut().unwrap()
-    }
+fn accelerators() -> std::sync::MutexGuard<'static, DynamicVectorClass<AcceleratorTracker>> {
+    ACCELERATORS
+        .get_or_init(|| Mutex::new(DynamicVectorClass::new(0, None)))
+        .lock()
+        .unwrap()
 }
 
 #[cfg(target_os = "windows")]
 pub fn windows_message_handler() {
-    unsafe {
-        let mut msg = MSG::default();
-        while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_NOREMOVE).as_bool() {
-            if !GetMessageW(&mut msg, HWND(0), 0, 0).as_bool() {
-                return;
-            }
+    let mut msg = MSG::default();
+    while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_NOREMOVE).as_bool() {
+        if !GetMessageW(&mut msg, HWND(0), 0, 0).as_bool() {
+            return;
+        }
 
-            let mut processed = false;
+        let mut processed = false;
 
+        {
             let accels = accelerators();
             for aindex in 0..accels.count() {
                 if accels[aindex].window != HWND(0) {
@@ -90,10 +89,12 @@ pub fn windows_message_handler() {
                 }
                 break;
             }
-            if processed {
-                continue;
-            }
+        }
+        if processed {
+            continue;
+        }
 
+        {
             let dialogs = modeless_dialogs();
             for index in 0..dialogs.count() {
                 if IsDialogMessageW(dialogs[index], &msg).as_bool() {
@@ -101,20 +102,23 @@ pub fn windows_message_handler() {
                     break;
                 }
             }
-            if processed {
-                continue;
-            }
+        }
+        if processed {
+            continue;
+        }
 
-            if let Some(handler) = MESSAGE_INTERCEPT_HANDLER {
+        {
+            let handler_guard = MESSAGE_INTERCEPT_HANDLER.lock().unwrap();
+            if let Some(handler) = *handler_guard {
                 processed = handler(&mut msg);
             }
-            if processed {
-                continue;
-            }
-
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
         }
+        if processed {
+            continue;
+        }
+
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
     }
 }
 

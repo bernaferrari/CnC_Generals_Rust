@@ -105,7 +105,7 @@ impl MacOSInputBackend {
     }
 
     /// Convert macOS key code to KeyCode
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: macOS key mapping for future native event integration
     fn macos_keycode_to_keycode(keycode: u16) -> Option<KeyCode> {
         // macOS key codes (from HIToolbox/Events.h)
         match keycode {
@@ -172,7 +172,7 @@ impl MacOSInputBackend {
 
     /// Convert NSEvent modifier flags to ModifierKeys
     #[cfg(target_os = "macos")]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: macOS modifier mapping for future native event integration
     fn nsevent_modifiers_to_modifier_keys(flags: u64) -> ModifierKeys {
         let mut modifiers = ModifierKeys::empty();
 
@@ -256,7 +256,7 @@ pub mod hid {
         }
 
         /// Set device vibration (if supported)
-        #[allow(dead_code)]
+        #[allow(dead_code)] // Platform parity: gamepad haptic feedback API
         pub fn set_vibration(&mut self, _left: f32, _right: f32) -> Result<()> {
             // In a real implementation, this would send HID output reports
             // for force feedback

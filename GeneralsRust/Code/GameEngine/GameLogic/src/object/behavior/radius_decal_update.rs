@@ -48,7 +48,6 @@ crate::impl_behavior_module_data_via_base!(RadiusDecalUpdateModuleData, base);
 /// RadiusDecalUpdate - manages terrain radius decals for visual feedback
 pub struct RadiusDecalUpdate {
     object: Weak<RwLock<GameObject>>,
-    #[allow(dead_code)]
     module_data: Arc<RadiusDecalUpdateModuleData>,
 
     /// The radius decal being managed

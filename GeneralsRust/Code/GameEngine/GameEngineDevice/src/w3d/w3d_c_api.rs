@@ -336,7 +336,7 @@ pub struct W3DMaterialC {
 }
 
 // Global device instance for C compatibility
-static mut GLOBAL_W3D_DEVICE: Option<NonNull<W3DDeviceC>> = None;
+static GLOBAL_W3D_DEVICE: std::sync::Mutex<Option<NonNull<W3DDeviceC>>> = std::sync::Mutex::new(None);
 const TEMP_MESH_PREFIX: &str = "__w3d_c_api_temp_";
 const TEMP_MESH_RING_SIZE: u64 = 4096;
 const D3DFVF_XYZ: u32 = 0x002;
@@ -486,7 +486,7 @@ unsafe fn create_w3d_device_with_config(config: W3DConfig) -> Result<W3D_DEVICE>
     });
 
     let device_ptr = Box::into_raw(device_c);
-    GLOBAL_W3D_DEVICE = NonNull::new(device_ptr);
+    *GLOBAL_W3D_DEVICE.lock().unwrap() = NonNull::new(device_ptr);
 
     Ok(device_ptr)
 }
@@ -1975,6 +1975,8 @@ async fn ensure_bound_material_internal(
     device: &Arc<RwLock<W3DDevice>>,
     base_material_id: Option<&str>,
     texture_id: Option<&str>,
+    detail_texture_id: Option<&str>,
+    detail_blend_mode: u8,
     bound_material_id: &str,
     tint_rgba: [f32; 4],
     lighting_state: FixedFunctionLightingState,
@@ -2004,6 +2006,8 @@ async fn ensure_bound_material_internal(
     material.id = bound_material_id.to_string();
     material.name = bound_material_id.to_string();
     material.diffuse_texture = texture_id.map(str::to_string);
+    material.detail_texture = detail_texture_id.map(str::to_string);
+    material.detail_blend_mode = detail_blend_mode;
     material.properties.diffuse_color = multiply_rgba(material.properties.diffuse_color, tint_rgba);
     material.properties.transparent =
         material.properties.transparent || material.properties.diffuse_color[3] < 0.999;
@@ -2228,8 +2232,9 @@ pub unsafe extern "C" fn W3DDevice_Destroy(device: W3D_DEVICE) -> i32 {
         .block_on(async { device_box.device.read().await.shutdown().await });
 
     // Clear global reference
-    if GLOBAL_W3D_DEVICE == destroying_ptr {
-        GLOBAL_W3D_DEVICE = None;
+    let mut global_device = GLOBAL_W3D_DEVICE.lock().unwrap();
+    if global_device.map_or(false, |p| p == destroying_ptr.unwrap()) {
+        *global_device = None;
     }
 
     tracing::info!("W3D device destroyed");
@@ -4325,6 +4330,16 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
     );
     let multi_texture_chain = combiner_signature.sampling_stage_count > 1;
 
+    // Resolve detail (Stage 1) texture and blend mode for multi-texture chains.
+    let (detail_texture_id, detail_blend_mode) = if multi_texture_chain {
+        let detail_id = resolve_detail_texture_id(device);
+        let stage1_color_op = stage_texture_state_value(device, 1, D3DTSS_COLOROP);
+        let blend = detail_blend_mode_from_color_op(stage1_color_op);
+        (detail_id, blend)
+    } else {
+        (None, 0)
+    };
+
     let texture_factor = render_state_value(device, W3D_RENDER_STATE::W3DRS_TEXTUREFACTOR);
     let tint_rgba = if active_texture_id.is_some() {
         if multi_texture_chain {
@@ -4377,6 +4392,7 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
         active_texture_id.clone(),
     );
     let texture_cache_id = effective_texture_id.clone().unwrap_or_default();
+    let detail_cache_id = detail_texture_id.clone().unwrap_or_default();
     let cache_key = MaterialBindingCacheKey {
         base_material_id: base_material_id.clone(),
         texture_id: texture_cache_id.clone(),
@@ -4394,6 +4410,7 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
     let bound_material_id = material_binding_id(
         base_material_id.as_deref(),
         &texture_cache_id,
+        &detail_cache_id,
         cache_key.tint_rgba,
         combiner_signature,
         lighting_state,
@@ -4406,6 +4423,8 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
                 &device.device,
                 base_material_id.as_deref(),
                 effective_texture_id.as_deref(),
+                detail_texture_id.as_deref(),
+                detail_blend_mode,
                 &bound_material_id,
                 tint_rgba,
                 lighting_state,
@@ -4425,20 +4444,40 @@ fn resolve_draw_material_id(device: &W3DDeviceC, texture_stage: u32) -> Option<S
 }
 
 fn effective_bound_texture_id(
-    has_base_material: bool,
-    multi_texture_chain: bool,
+    _has_base_material: bool,
+    _multi_texture_chain: bool,
     active_texture_id: Option<String>,
 ) -> Option<String> {
-    if multi_texture_chain && has_base_material {
-        None
+    // Always return the primary (Stage 0) texture ID.
+    // The secondary (Stage 1) texture is resolved separately for multi-texture chains.
+    active_texture_id
+}
+
+/// Resolve the Stage 1 (detail) texture bound to a multi-texture chain.
+fn resolve_detail_texture_id(device: &W3DDeviceC) -> Option<String> {
+    if let Ok(bindings) = device.bound_textures.lock() {
+        bindings.get(&1u32).cloned()
     } else {
-        active_texture_id
+        None
+    }
+}
+
+/// Map a D3DTOP color operation to our detail blend mode enum.
+/// Returns: 0=off, 1=MODULATE, 2=ADDSIGNED, 3=BLENDCURRENTALPHA.
+fn detail_blend_mode_from_color_op(color_op: u32) -> u8 {
+    match color_op {
+        D3DTOP_MODULATE | D3DTOP_MODULATE2X | D3DTOP_MODULATE4X => 1,
+        D3DTOP_ADDSIGNED | D3DTOP_ADDSIGNED2X => 2,
+        D3DTOP_BLENDCURRENTALPHA => 3,
+        D3DTOP_ADD | D3DTOP_ADDSMOOTH => 2, // Approximate ADD as ADDSIGNED
+        _ => 1, // Default to MODULATE for unknown ops
     }
 }
 
 fn material_binding_id(
     base_material_id: Option<&str>,
     texture_id: &str,
+    detail_texture_id: &str,
     tint_rgba: [u8; 4],
     combiner_signature: MaterialCombinerSignature,
     lighting_state: FixedFunctionLightingState,
@@ -4447,6 +4486,7 @@ fn material_binding_id(
     let mut hasher = DefaultHasher::new();
     base_material_id.hash(&mut hasher);
     texture_id.hash(&mut hasher);
+    detail_texture_id.hash(&mut hasher);
     tint_rgba.hash(&mut hasher);
     combiner_signature.hash(&mut hasher);
     lighting_state.hash(&mut hasher);
@@ -4563,6 +4603,8 @@ fn c_material_data_to_material(id: &str, data: W3DMaterialData) -> Material {
         normal_texture: None,
         specular_texture: None,
         emissive_texture: None,
+        detail_texture: None,
+        detail_blend_mode: 0,
         properties: super::MaterialProperties {
             diffuse_color: data.albedo,
             specular_color: [data.metallic.clamp(0.0, 1.0); 3],
@@ -4607,6 +4649,8 @@ fn default_material(id: &str) -> Material {
         normal_texture: None,
         specular_texture: None,
         emissive_texture: None,
+        detail_texture: None,
+        detail_blend_mode: 0,
         properties: super::MaterialProperties {
             diffuse_color: [1.0, 1.0, 1.0, 1.0],
             specular_color: [0.0, 0.0, 0.0],
@@ -6395,6 +6439,7 @@ mod tests {
         let lit_id = material_binding_id(
             base,
             texture,
+            "",
             tint,
             identity_signature,
             lighting_default,
@@ -6403,6 +6448,7 @@ mod tests {
         let alpha_test_id = material_binding_id(
             base,
             texture,
+            "",
             tint,
             identity_signature,
             lighting_default,
@@ -6436,6 +6482,7 @@ mod tests {
         let select_id = material_binding_id(
             base,
             texture,
+            "",
             tint,
             select_arg1,
             lighting_default,
@@ -6444,6 +6491,7 @@ mod tests {
         let modulate_id = material_binding_id(
             base,
             texture,
+            "",
             tint,
             modulate,
             lighting_default,

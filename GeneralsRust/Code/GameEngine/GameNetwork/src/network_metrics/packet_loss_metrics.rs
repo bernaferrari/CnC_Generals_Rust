@@ -77,7 +77,7 @@ pub struct PacketLossMetrics {
     /// Start time of current measurement window
     start_time: Instant,
     /// Measurement window duration
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Diagnostic: stored for future window-based metrics
     measurement_window: Duration,
     /// History of loss rates (last N measurements, 0.0 = 0%, 1.0 = 100%)
     loss_history: VecDeque<f32>,

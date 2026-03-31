@@ -23,7 +23,7 @@ use std::ffi::c_void;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use winit::{
@@ -36,21 +36,18 @@ use winit::{
 // Import the GameMain function from our game engine
 // use crate::game_engine::GameMain; // Removed - use cnc_game_engine instead
 
-// NOTE: These static mut variables are used for Win32 FFI integration
-// and must remain as raw pointers to maintain compatibility with Windows APIs.
+// NOTE: These static variables are used for Win32 FFI integration
+// and use AtomicPtr to maintain compatibility with Windows APIs.
 // They represent opaque handles from the Windows API and are appropriate for FFI.
 
 /// Application instance handle (equivalent to HINSTANCE)
-/// SAFETY: This is only accessed from the main thread during Win32 initialization
-pub static mut APPLICATION_INSTANCE: *mut c_void = std::ptr::null_mut();
+pub static APPLICATION_INSTANCE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
-/// Application window handle (equivalent to HWND)  
-/// SAFETY: This is only accessed from the main thread during Win32 initialization
-pub static mut APPLICATION_WINDOW: *mut c_void = std::ptr::null_mut();
+/// Application window handle (equivalent to HWND)
+pub static APPLICATION_WINDOW: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Win32 mouse interface pointer
-/// SAFETY: This is only accessed from the main thread during Win32 initialization
-pub static mut THE_WIN32_MOUSE: *mut c_void = std::ptr::null_mut();
+pub static THE_WIN32_MOUSE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Whether application is windowed
 pub static APPLICATION_IS_WINDOWED: AtomicBool = AtomicBool::new(false);
@@ -72,7 +69,7 @@ pub unsafe fn win_main(
     _lp_cmd_line: *const c_char,
     n_cmd_show: c_int,
 ) -> c_int {
-    APPLICATION_INSTANCE = h_instance;
+    APPLICATION_INSTANCE.store(h_instance, Ordering::Relaxed);
 
     if let Err(err) = set_working_directory_to_executable() {
         warn!("Failed to set working directory to executable path: {err}");

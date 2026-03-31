@@ -981,7 +981,7 @@ pub fn net_crc_interval() -> i32 {
 }
 
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn net_crc_interval() -> i32 {
     NET_CRC_INTERVAL.load(Ordering::Relaxed)
 }
@@ -994,7 +994,7 @@ pub fn set_replay_crc_interval(interval: i32) {
 }
 
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn set_replay_crc_interval(interval: i32) {
     REPLAY_CRC_INTERVAL.store(interval, Ordering::Relaxed);
 }
@@ -1005,7 +1005,7 @@ pub fn replay_crc_interval() -> i32 {
 }
 
 #[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn replay_crc_interval() -> i32 {
     REPLAY_CRC_INTERVAL.load(Ordering::Relaxed)
 }
