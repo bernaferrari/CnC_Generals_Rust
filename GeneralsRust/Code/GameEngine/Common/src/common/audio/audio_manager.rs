@@ -562,10 +562,18 @@ impl AudioManager {
     /// Kill audio event immediately without fade
     pub fn kill_audio_event_immediately(&mut self, audio_event: AudioHandle) {
         if let Some(source) = self.playing_sources.remove(&audio_event) {
-            // Stop the sink
             let sink = source.sink.lock().unwrap();
             sink.stop();
         }
+    }
+
+    /// Fade out an audio event before stopping (matches C++ fade behavior)
+    pub fn fade_out_audio_event(&mut self, audio_event: AudioHandle) {
+        if let Some(source) = self.playing_sources.get(&audio_event) {
+            let sink = source.sink.lock().unwrap();
+            sink.set_volume(0.0);
+        }
+        self.playing_sources.remove(&audio_event);
     }
 
     /// Check if an audio event is valid
@@ -906,9 +914,10 @@ impl AudioManager {
 
         for handle in handles_to_stop {
             if fade {
-                // In a real implementation, we'd fade out the music
-                // For now, just stop immediately
+                self.fade_out_audio_event(handle);
             }
+            self.kill_audio_event_immediately(handle);
+        }
             self.kill_audio_event_immediately(handle);
         }
     }
