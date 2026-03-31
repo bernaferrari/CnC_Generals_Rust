@@ -6,6 +6,7 @@
 
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewTrait};
 use crate::display::DisplayInterface;
+use crate::drawable::drawable_manager::DrawableManager;
 use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     register_particle_renderer, ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
@@ -19,6 +20,8 @@ use crate::gui::{with_ui_renderer, with_window_manager};
 use crate::platform::GraphicsContext;
 use crate::system::debug_display::DebugDisplay;
 use crate::system::SubsystemInterface;
+use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::TerrainVisual;
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
 use crate::video_player::{get_video_player, VideoPlayerInterface};
 use crate::video_stream::VideoStreamInterface;
@@ -58,6 +61,7 @@ pub struct Display {
     letterbox_fade_level: f32,
     letterbox_enabled: bool,
     letterbox_fade_start_time: Option<Instant>,
+    drawable_manager: Arc<Mutex<DrawableManager>>,
 }
 
 impl Display {
@@ -109,6 +113,7 @@ impl Display {
             letterbox_fade_level: 0.0,
             letterbox_enabled: false,
             letterbox_fade_start_time: None,
+            drawable_manager: Arc::new(Mutex::new(DrawableManager::new())),
         }
     }
 
@@ -146,6 +151,16 @@ impl Display {
         })
     }
 
+    fn nalgebra_to_game_matrix(nm: &nalgebra::Matrix4<f32>) -> crate::drawable::Matrix4 {
+        let mut gm = crate::drawable::Matrix4::identity();
+        for r in 0..4 {
+            for c in 0..4 {
+                gm.elements[r][c] = nm[(r, c)];
+            }
+        }
+        gm
+    }
+
     pub fn attach_view(&mut self, view: Box<dyn ViewTrait>) {
         self.view_list.push(view);
     }
@@ -170,6 +185,10 @@ impl Display {
         for view in &mut self.view_list {
             view.reset_view();
         }
+    }
+
+    pub fn drawable_manager(&self) -> Arc<Mutex<DrawableManager>> {
+        Arc::clone(&self.drawable_manager)
     }
 
     pub fn set_width(&mut self, width: u32) {
@@ -486,34 +505,102 @@ impl DisplayInterface for Display {
             self.graphics
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Display Clear Encoder"),
+                    label: Some("Display Render Encoder"),
                 });
 
-        {
-            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Display Clear Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-        }
+        with_tactical_view_ref(|tactical_view| {
+            let camera_pos = tactical_view.get_3d_camera_position();
+            let target = tactical_view.position();
+            let eye = nalgebra::Point3::new(camera_pos.x, camera_pos.y, camera_pos.z);
+            let target = nalgebra::Point3::new(target.x, target.y, target.z);
+            let up = nalgebra::Vector3::new(0.0, 0.0, 1.0);
 
+            let view_matrix = nalgebra::Matrix4::look_at_rh(&eye, &target, &up);
+            let aspect =
+                (tactical_view.width() as f32 / tactical_view.height().max(1) as f32).max(0.01);
+            let projection_matrix = nalgebra::Matrix4::new_perspective(
+                aspect,
+                tactical_view.field_of_view(),
+                1.0,
+                20000.0,
+            );
+
+            let view_glam = glam::Mat4::from_cols_array_2d(&view_matrix.into());
+            let proj_glam = glam::Mat4::from_cols_array_2d(&projection_matrix.into());
+
+            // Terrain rendering pass: render terrain chunks, water, and roads
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Display Terrain Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                // Record terrain chunk draws (chunks, roads, water)
+                // First update terrain state (uniforms, camera, frustum), then record draws
+                if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
+                    if let Some(terrain) = terrain_guard.as_mut() {
+                        let _ = terrain.render(&view_glam, &proj_glam);
+                        terrain.record_chunk_draws(&mut pass);
+                    }
+                }
+            }
+
+            // Drawable rendering pass: render units, buildings, and other game objects
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Display Drawable Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                crate::drawable::drawable_manager::with_drawable_manager(|manager| {
+                    manager.set_camera(
+                        Self::nalgebra_to_game_matrix(&view_matrix),
+                        Self::nalgebra_to_game_matrix(&projection_matrix),
+                        crate::drawable::Vector3::new(camera_pos.x, camera_pos.y, camera_pos.z),
+                    );
+                    manager.cull_and_sort();
+                    manager.render_pass_through(&mut pass, &view_glam, &proj_glam);
+                });
+            }
+        });
+
+        // Particle, decal, and weather rendering pass
         if let Some(renderer) = self.particle_renderer.as_ref() {
             if let Ok(manager_guard) = get_particle_system_manager() {
                 if let Some(manager) = manager_guard.as_ref() {
@@ -573,6 +660,7 @@ impl DisplayInterface for Display {
             }
         }
 
+        // UI rendering pass
         let ui_result = with_ui_renderer(|renderer| {
             let mut renderer = renderer.write().unwrap();
             renderer.begin_frame();
