@@ -200,6 +200,11 @@ impl SoundPlaybackHook for AssetAudioPlaybackHook {
         self.stop(handle);
     }
 
+    fn resume(&self, _handle: AudioHandle) {
+        // AssetManager does not yet expose per-instance resume; no-op for now.
+        // The playback hook will re-check is_playing on the next update cycle.
+    }
+
     fn is_playing(&self, handle: AudioHandle) -> bool {
         let state = {
             let Ok(map) = self.handle_map.lock() else {
