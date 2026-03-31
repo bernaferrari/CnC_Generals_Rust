@@ -698,6 +698,21 @@ impl ParticleSystem {
         self.attached_object_id = object_id;
     }
 
+    /// Get shader type
+    pub fn shader_type(&self) -> ParticleShaderType {
+        self.template.info().shader_type
+    }
+
+    /// Get drift velocity
+    pub fn drift_velocity(&self) -> Vector3<f32> {
+        self.template.info().drift_velocity
+    }
+
+    /// Get attached drawable
+    pub fn attached_drawable_id(&self) -> DrawableId {
+        self.attached_drawable_id
+    }
+
     /// Get attached object
     pub fn attached_object(&self) -> Option<ObjectId> {
         if self.attached_object_id != 0 {
@@ -707,11 +722,130 @@ impl ParticleSystem {
         }
     }
 
+    /// Get particle type name
+    pub fn particle_type_name(&self) -> &str {
+        &self.template.info().particle_type_name
+    }
+
+    /// Get slave position offset
+    pub fn slave_position_offset(&self) -> Vector3<f32> {
+        self.template.info().slave_pos_offset
+    }
+
+    /// Set system lifetime
+    pub fn set_system_lifetime(&mut self, frames: u32) {
+        self.system_lifetime_left = frames;
+    }
+
+    /// Check if system is forever
+    pub fn is_system_forever(&self) -> bool {
+        self.is_forever
+    }
+
+    /// Check if saveable
+    pub fn is_saveable(&self) -> bool {
+        self.is_saveable
+    }
+
+    /// Set saveable
+    pub fn set_saveable(&mut self, b: bool) {
+        self.is_saveable = b;
+    }
+
+    /// Set skip parent transform
+    pub fn set_skip_parent_xfrm(&mut self, enable: bool) {
+        self.skip_parent_transform = enable;
+    }
+
+    /// Get velocity multiplier
+    pub fn velocity_multiplier(&self) -> Vector3<f32> {
+        self.vel_coeff
+    }
+
+    /// Get burst delay multiplier
+    pub fn burst_delay_multiplier(&self) -> f32 {
+        self.delay_coeff
+    }
+
+    /// Get size multiplier
+    pub fn size_multiplier(&self) -> f32 {
+        self.size_coeff
+    }
+
+    /// Get burst count multiplier
+    pub fn burst_count_multiplier(&self) -> f32 {
+        self.count_coeff
+    }
+
+    /// Should billboard
+    pub fn should_billboard(&self) -> bool {
+        !self.template.info().is_ground_aligned
+    }
+
+    /// Get start frame
+    pub fn start_frame(&self) -> u32 {
+        self.start_timestamp
+    }
+
+    /// Set initial delay
+    pub fn set_initial_delay(&mut self, delay: u32) {
+        self.delay_left = delay;
+    }
+
+    /// Set lifetime range
+    pub fn set_lifetime_range(&mut self, min: f32, max: f32) {
+        let info = self.template.info();
+        let mut info = info.clone();
+        info.lifetime = GameClientRandomVariable::new(min, max);
+    }
+
+    /// Rotate local transform X (matches C++ ParticleSystem::rotateLocalTransformX)
+    pub fn rotate_local_transform_x(&mut self, angle: f32) {
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+        let rot = Matrix3::from_columns(&[
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, cos_a, sin_a),
+            Vector3::new(0.0, -sin_a, cos_a),
+        ]);
+        self.local_transform = rot * self.local_transform;
+        self.is_local_identity = false;
+        self.update_transform();
+    }
+
+    /// Rotate local transform Y (matches C++ ParticleSystem::rotateLocalTransformY)
+    pub fn rotate_local_transform_y(&mut self, angle: f32) {
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+        let rot = Matrix3::from_columns(&[
+            Vector3::new(cos_a, 0.0, -sin_a),
+            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(sin_a, 0.0, cos_a),
+        ]);
+        self.local_transform = rot * self.local_transform;
+        self.is_local_identity = false;
+        self.update_transform();
+    }
+
+    /// Rotate local transform Z (matches C++ ParticleSystem::rotateLocalTransformZ)
+    pub fn rotate_local_transform_z(&mut self, angle: f32) {
+        let cos_a = angle.cos();
+        let sin_a = angle.sin();
+        let rot = Matrix3::from_columns(&[
+            Vector3::new(cos_a, sin_a, 0.0),
+            Vector3::new(-sin_a, cos_a, 0.0),
+            Vector3::new(0.0, 0.0, 1.0),
+        ]);
+        self.local_transform = rot * self.local_transform;
+        self.is_local_identity = false;
+        self.update_transform();
+    }
+
     /// Start the particle system (matches C++ ParticleSystem::start)
     pub fn start(&mut self) {
         self.is_stopped = false;
         self.is_destroyed = false;
-        self.start_timestamp = 0; // Should be current frame timestamp
+        self.start_timestamp = 0;
     }
 
     /// Stop the particle system (matches C++ ParticleSystem::stop)
@@ -913,11 +1047,41 @@ impl ParticleSystem {
                 (end - start) * t
             }
 
-            EmissionVolume::Box { half_size } => Vector3::new(
-                rng.gen_range(-half_size.x..=half_size.x),
-                rng.gen_range(-half_size.y..=half_size.y),
-                rng.gen_range(-half_size.z..=half_size.z),
-            ),
+            EmissionVolume::Box { half_size } => {
+                if info.is_emission_volume_hollow {
+                    // Match C++ bug exactly: side % 3 == 1 uses halfSize.y for X (C++ line 1597)
+                    let side = rng.gen_range(0..6);
+                    if side % 3 == 0 {
+                        // Bottom or top face (Z = -/+halfSize.z)
+                        Vector3::new(
+                            rng.gen_range(-half_size.x..=half_size.x),
+                            rng.gen_range(-half_size.y..=half_size.y),
+                            if side == 0 { -half_size.z } else { half_size.z },
+                        )
+                    } else if side % 3 == 1 {
+                        // Left or right face (X = -/+halfSize.x)
+                        // C++ bug: uses halfSize.y instead of halfSize.x for X coordinate
+                        Vector3::new(
+                            if side == 1 { -half_size.x } else { half_size.y },
+                            rng.gen_range(-half_size.y..=half_size.y),
+                            rng.gen_range(-half_size.z..=half_size.z),
+                        )
+                    } else {
+                        // Front or back face (Y = -/+halfSize.y)
+                        Vector3::new(
+                            rng.gen_range(-half_size.x..=half_size.x),
+                            if side == 2 { -half_size.y } else { half_size.y },
+                            rng.gen_range(-half_size.z..=half_size.z),
+                        )
+                    }
+                } else {
+                    Vector3::new(
+                        rng.gen_range(-half_size.x..=half_size.x),
+                        rng.gen_range(-half_size.y..=half_size.y),
+                        rng.gen_range(-half_size.z..=half_size.z),
+                    )
+                }
+            }
 
             EmissionVolume::Sphere { radius } => {
                 if info.is_emission_volume_hollow {
@@ -1013,9 +1177,64 @@ impl ParticleSystem {
                 let speed_val = speed.sample();
                 let other_speed_val = other_speed.sample();
 
-                // Direction from emitter to particle position
-                let direction = (position - self.position).normalize();
-                direction * speed_val + Vector3::new(0.0, 0.0, other_speed_val)
+                match info.emission_volume_type {
+                    EmissionVolumeType::Cylinder => {
+                        let dx = position.x - self.position.x;
+                        let dy = position.y - self.position.y;
+                        let len = (dx * dx + dy * dy).sqrt();
+                        if len > 0.0 {
+                            Vector3::new(
+                                speed_val * dx / len,
+                                speed_val * dy / len,
+                                other_speed_val,
+                            )
+                        } else {
+                            Vector3::new(speed_val, 0.0, other_speed_val)
+                        }
+                    }
+                    EmissionVolumeType::Box | EmissionVolumeType::Sphere => {
+                        let dx = position.x - self.position.x;
+                        let dy = position.y - self.position.y;
+                        let dz = position.z - self.position.z;
+                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                        if len > 0.0 {
+                            Vector3::new(
+                                speed_val * dx / len,
+                                speed_val * dy / len,
+                                speed_val * dz / len,
+                            )
+                        } else {
+                            let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+                            let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                            Vector3::new(
+                                speed_val * phi.sin() * theta.cos(),
+                                speed_val * phi.sin() * theta.sin(),
+                                speed_val * phi.cos(),
+                            )
+                        }
+                    }
+                    EmissionVolumeType::Line => {
+                        let vol = self.effective_emission_volume();
+                        if let EmissionVolume::Line { start, end } = vol {
+                            let along = (end - start).normalize();
+                            let up = Vector3::new(0.0, 0.0, 1.0);
+                            let perp = up.cross(&along).normalize();
+                            let new_up = along.cross(&perp);
+                            speed_val * perp + other_speed_val * new_up
+                        } else {
+                            Vector3::new(0.0, 0.0, other_speed_val)
+                        }
+                    }
+                    EmissionVolumeType::Point => {
+                        let theta = rng.gen::<f32>() * 2.0 * std::f32::consts::PI;
+                        let phi = rng.gen::<f32>() * std::f32::consts::PI;
+                        Vector3::new(
+                            speed_val * phi.sin() * theta.cos(),
+                            speed_val * phi.sin() * theta.sin(),
+                            speed_val * phi.cos(),
+                        )
+                    }
+                }
             }
         }
     }
