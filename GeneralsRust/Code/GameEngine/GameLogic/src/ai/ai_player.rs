@@ -3027,7 +3027,7 @@ impl AIPlayer {
         Ok(false)
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: default wrapper for start_training_internal
     fn start_training(&mut self, order: &mut WorkOrder) -> Result<(), AiError> {
         // Default: don't use busy factories
         self.start_training_internal(order, false, "default")?;

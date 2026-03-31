@@ -630,7 +630,7 @@ pub struct W3DMaterialData {
     pub material_params: [f32; 4],
     /// Emissive color and intensity
     pub emissive: [f32; 4],
-    /// Normal map scale, height scale, unused, unused
+    /// Normal map scale, height scale, detail blend mode, unused
     pub texture_params: [f32; 4],
 }
 
@@ -1038,6 +1038,24 @@ impl W3DDevice {
                     // Normal sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    // Detail (second-stage) texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    // Detail sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,

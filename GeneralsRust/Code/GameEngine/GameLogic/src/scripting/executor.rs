@@ -13495,7 +13495,7 @@ impl ScriptActionDispatcher {
 
     /// Issue a command to all members of a team through their AI interfaces
     /// C++ Reference: Matches pattern in doTeamGuard where we iterate team members
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
     fn issue_command_to_team_members(
         &self,
         team_name: &str,
@@ -13535,7 +13535,7 @@ impl ScriptActionDispatcher {
     }
 
     /// Get object by ID from ObjectManager
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
     fn get_object_by_id(
         &self,
         object_id: u32,
@@ -13550,7 +13550,7 @@ impl ScriptActionDispatcher {
     }
 
     /// Get waypoint position from terrain logic
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
     fn get_waypoint_position(&self, waypoint_name: &str) -> Result<Coord3D, ScriptError> {
         let waypoint_name_ascii = AsciiString::from(waypoint_name);
         if let Ok(terrain) = get_terrain_logic().read() {
@@ -13572,7 +13572,7 @@ impl ScriptActionDispatcher {
 
     /// Get trigger area by name
     /// Returns a clone of the trigger area for use in script execution
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
     fn get_trigger_area(
         &self,
         area_name: &str,

@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::f32::consts::{PI, TAU as TWO_PI};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::Common::{Coord3D, Coord2D, RGBColor};
 use crate::GameClient::fx_list::GameClientRandomVariable;
@@ -957,23 +957,21 @@ impl Default for ParticleSystemManager {
 
 /// Global particle system manager singleton
 /// Matches C++ ParticleSys.h:788
-pub static mut THE_PARTICLE_SYSTEM_MANAGER: Option<ParticleSystemManager> = None;
+pub static THE_PARTICLE_SYSTEM_MANAGER: OnceLock<Mutex<ParticleSystemManager>> = OnceLock::new();
 
 /// Initialize the global particle system manager
 pub fn init_particle_system_manager() {
-    unsafe {
-        THE_PARTICLE_SYSTEM_MANAGER = Some(ParticleSystemManager::new());
-    }
+    THE_PARTICLE_SYSTEM_MANAGER.get_or_init(|| Mutex::new(ParticleSystemManager::new()));
 }
 
 /// Get reference to the global particle system manager
-pub fn get_particle_system_manager() -> Option<&'static ParticleSystemManager> {
-    unsafe { THE_PARTICLE_SYSTEM_MANAGER.as_ref() }
+pub fn get_particle_system_manager() -> Option<&'static Mutex<ParticleSystemManager>> {
+    THE_PARTICLE_SYSTEM_MANAGER.get()
 }
 
 /// Get mutable reference to the global particle system manager
-pub fn get_particle_system_manager_mut() -> Option<&'static mut ParticleSystemManager> {
-    unsafe { THE_PARTICLE_SYSTEM_MANAGER.as_mut() }
+pub fn get_particle_system_manager_mut() -> Option<std::sync::MutexGuard<'static, ParticleSystemManager>> {
+    THE_PARTICLE_SYSTEM_MANAGER.get().and_then(|m| m.lock().ok())
 }
 
 #[cfg(test)]

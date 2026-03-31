@@ -93,18 +93,13 @@ impl From<VideoStatistics> for CVideoStatistics {
 }
 
 /// Global runtime for async operations
-static mut TOKIO_RUNTIME: Option<tokio::runtime::Runtime> = None;
-static RUNTIME_INIT: std::sync::Once = std::sync::Once::new();
+static TOKIO_RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
 
 fn get_runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME_INIT.call_once(|| unsafe {
-        TOKIO_RUNTIME = Some(
-            tokio::runtime::Runtime::new()
-                .expect("Failed to create Tokio runtime for C++ bindings"),
-        );
-    });
-
-    unsafe { TOKIO_RUNTIME.as_ref().unwrap() }
+    TOKIO_RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new()
+            .expect("Failed to create Tokio runtime for C++ bindings")
+    })
 }
 
 /// Helper macro for error handling in C bindings

@@ -5,7 +5,8 @@
 
 use game_network::time::NetworkInstant;
 use parking_lot::RwLock;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::time::interval;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -645,24 +646,25 @@ impl PerformanceManager {
         }
 
         // Track allocations per second (simplified estimation)
-        static mut LAST_ALLOC_COUNT: u64 = 0;
-        static mut LAST_ALLOC_TIME: Option<NetworkInstant> = None;
+        static LAST_ALLOC_COUNT: AtomicU64 = AtomicU64::new(0);
+        static LAST_ALLOC_TIME: Mutex<Option<NetworkInstant>> = Mutex::new(None);
 
-        unsafe {
+        {
             let current_time = NetworkInstant::now();
             let current_allocs = self.metrics.memory.used_mb * 1024; // Rough estimate
 
-            if let Some(last_time) = LAST_ALLOC_TIME {
+            let mut last_time_lock = LAST_ALLOC_TIME.lock().unwrap();
+            if let Some(last_time) = *last_time_lock {
                 let time_diff = current_time.duration_since(last_time).as_secs_f64();
                 if time_diff > 0.0 {
-                    let alloc_diff = current_allocs.saturating_sub(LAST_ALLOC_COUNT);
+                    let alloc_diff = current_allocs.saturating_sub(LAST_ALLOC_COUNT.load(Ordering::Relaxed));
                     self.metrics.memory.allocations_per_second =
                         (alloc_diff as f64 / time_diff) as u64;
                 }
             }
 
-            LAST_ALLOC_COUNT = current_allocs;
-            LAST_ALLOC_TIME = Some(current_time);
+            LAST_ALLOC_COUNT.store(current_allocs, Ordering::Relaxed);
+            *last_time_lock = Some(current_time);
         }
 
         Ok(())
@@ -672,26 +674,28 @@ impl PerformanceManager {
         // Graphics performance monitoring based on C++ W3D patterns
 
         // Track frame timing for FPS calculation
-        static mut LAST_FRAME_TIME: Option<NetworkInstant> = None;
-        static mut FRAME_TIMES: Vec<f64> = Vec::new();
+        static LAST_FRAME_TIME: Mutex<Option<NetworkInstant>> = Mutex::new(None);
+        static FRAME_TIMES: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 
-        unsafe {
+        {
             let current_time = NetworkInstant::now();
+            let mut last_frame_lock = LAST_FRAME_TIME.lock().unwrap();
+            let mut frame_times_lock = FRAME_TIMES.lock().unwrap();
 
-            if let Some(last_time) = LAST_FRAME_TIME {
+            if let Some(last_time) = *last_frame_lock {
                 let frame_duration = current_time.duration_since(last_time).as_secs_f64() * 1000.0;
 
-                FRAME_TIMES.push(frame_duration);
+                frame_times_lock.push(frame_duration);
 
                 // Keep only last 60 frame times for rolling average
-                if FRAME_TIMES.len() > 60 {
-                    FRAME_TIMES.remove(0);
+                if frame_times_lock.len() > 60 {
+                    frame_times_lock.remove(0);
                 }
 
                 // Calculate average frametime and FPS
-                if !FRAME_TIMES.is_empty() {
+                if !frame_times_lock.is_empty() {
                     let avg_frametime: f64 =
-                        FRAME_TIMES.iter().sum::<f64>() / FRAME_TIMES.len() as f64;
+                        frame_times_lock.iter().sum::<f64>() / frame_times_lock.len() as f64;
                     self.metrics.graphics.frametime_ms = avg_frametime;
 
                     if avg_frametime > 0.0 {
@@ -709,7 +713,7 @@ impl PerformanceManager {
                 self.metrics.graphics.frametime_ms = 16.67;
             }
 
-            LAST_FRAME_TIME = Some(current_time);
+            *last_frame_lock = Some(current_time);
         }
 
         // Estimate GPU usage and VRAM (simplified)

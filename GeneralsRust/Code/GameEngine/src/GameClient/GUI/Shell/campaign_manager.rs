@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
 
 // Constants
 pub const MAX_OBJECTIVE_LINES: usize = 5;
@@ -342,21 +343,17 @@ impl CampaignManager {
 }
 
 // Global campaign manager instance (mimics C++ singleton pattern)
-static mut THE_CAMPAIGN_MANAGER: Option<CampaignManager> = None;
+static THE_CAMPAIGN_MANAGER: OnceLock<Mutex<CampaignManager>> = OnceLock::new();
 
 pub fn init_campaign_manager() {
-    unsafe {
-        THE_CAMPAIGN_MANAGER = Some(CampaignManager::new());
-        if let Some(ref mut manager) = THE_CAMPAIGN_MANAGER {
-            manager.init();
-        }
-    }
+    let manager = THE_CAMPAIGN_MANAGER.get_or_init(|| Mutex::new(CampaignManager::new()));
+    manager.lock().unwrap().init();
 }
 
-pub fn get_campaign_manager() -> Option<&'static CampaignManager> {
-    unsafe { THE_CAMPAIGN_MANAGER.as_ref() }
+pub fn get_campaign_manager() -> Option<&'static Mutex<CampaignManager>> {
+    THE_CAMPAIGN_MANAGER.get()
 }
 
-pub fn get_campaign_manager_mut() -> Option<&'static mut CampaignManager> {
-    unsafe { THE_CAMPAIGN_MANAGER.as_mut() }
+pub fn get_campaign_manager_mut() -> Option<std::sync::MutexGuard<'static, CampaignManager>> {
+    THE_CAMPAIGN_MANAGER.get().and_then(|m| m.lock().ok())
 }

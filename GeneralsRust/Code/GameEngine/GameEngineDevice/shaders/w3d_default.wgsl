@@ -18,7 +18,7 @@ struct W3DMaterial {
     base_color: vec4<f32>,
     material_params: vec4<f32>, // metallic, roughness, ao, fixed-function unlit flag
     emissive: vec4<f32>,
-    texture_params: vec4<f32>, // normal_scale, height_scale, unused, unused
+    texture_params: vec4<f32>, // normal_scale, height_scale, detail_blend_mode, unused
 }
 
 struct W3DLight {
@@ -40,6 +40,8 @@ struct W3DLight {
 @group(1) @binding(1) var diffuse_sampler: sampler;
 @group(1) @binding(2) var normal_texture: texture_2d<f32>;
 @group(1) @binding(3) var normal_sampler: sampler;
+@group(1) @binding(4) var detail_texture: texture_2d<f32>;
+@group(1) @binding(5) var detail_sampler: sampler;
 
 // Vertex input structure (matches W3DVertex)
 struct VertexInput {
@@ -60,6 +62,7 @@ struct VertexOutput {
     @location(3) vertex_color: vec4<f32>,
     @location(4) tangent: vec3<f32>,
     @location(5) bitangent: vec3<f32>,
+    @location(6) tex_coords2: vec2<f32>,
 }
 
 // G-Buffer output for deferred rendering
@@ -183,7 +186,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     
     // Pass through texture coordinates
     output.tex_coords = input.tex_coords.xy;
-    
+
+    // Pass through second UV set for multi-texture blending
+    output.tex_coords2 = input.tex_coords.zw;
+
     // Pass through vertex color
     output.vertex_color = input.color;
     
@@ -200,8 +206,24 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Sample base textures
     let albedo_sample = textureSample(diffuse_texture, diffuse_sampler, input.tex_coords);
-    let base_albedo = material.base_color.rgb * albedo_sample.rgb * input.vertex_color.rgb;
+    var base_albedo = material.base_color.rgb * albedo_sample.rgb * input.vertex_color.rgb;
     let alpha = albedo_sample.a * material.base_color.a;
+
+    // Multi-texture detail blending (DX8 fixed-function Stage 1)
+    let blend_mode = material.texture_params.z;
+    if (blend_mode > 0.5 && blend_mode < 1.5) {
+        // Mode 1: MODULATE — result = base * detail
+        let detail_sample = textureSample(detail_texture, detail_sampler, input.tex_coords2);
+        base_albedo = base_albedo * detail_sample.rgb;
+    } else if (blend_mode > 1.5 && blend_mode < 2.5) {
+        // Mode 2: ADDSIGNED — result = base + detail - 0.5
+        let detail_sample = textureSample(detail_texture, detail_sampler, input.tex_coords2);
+        base_albedo = base_albedo + detail_sample.rgb - vec3<f32>(0.5);
+    } else if (blend_mode > 2.5 && blend_mode < 3.5) {
+        // Mode 3: BLENDCURRENTALPHA — result = lerp(base, detail, detail.a)
+        let detail_sample = textureSample(detail_texture, detail_sampler, input.tex_coords2);
+        base_albedo = mix(base_albedo, detail_sample.rgb, detail_sample.a);
+    }
 
     if (material.material_params.w > 0.5) {
         let fixed_function_color = clamp(
@@ -291,7 +313,20 @@ fn fs_gbuffer(input: VertexOutput) -> GBufferOutput {
     
     // Sample textures
     let albedo_sample = textureSample(diffuse_texture, diffuse_sampler, input.tex_coords);
-    let base_albedo = material.base_color.rgb * albedo_sample.rgb * input.vertex_color.rgb;
+    var base_albedo = material.base_color.rgb * albedo_sample.rgb * input.vertex_color.rgb;
+
+    // Multi-texture detail blending (same logic as forward path)
+    let blend_mode = material.texture_params.z;
+    if (blend_mode > 0.5 && blend_mode < 1.5) {
+        let detail_sample = textureSample(detail_texture, detail_sampler, input.tex_coords2);
+        base_albedo = base_albedo * detail_sample.rgb;
+    } else if (blend_mode > 1.5 && blend_mode < 2.5) {
+        let detail_sample = textureSample(detail_texture, detail_sampler, input.tex_coords2);
+        base_albedo = base_albedo + detail_sample.rgb - vec3<f32>(0.5);
+    } else if (blend_mode > 2.5 && blend_mode < 3.5) {
+        let detail_sample = textureSample(detail_texture, detail_sampler, input.tex_coords2);
+        base_albedo = mix(base_albedo, detail_sample.rgb, detail_sample.a);
+    }
     
     // Sample and encode normal
     let tbn = mat3x3<f32>(input.tangent, input.bitangent, input.world_normal);

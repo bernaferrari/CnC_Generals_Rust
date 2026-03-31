@@ -34,9 +34,6 @@ const MANGLER_SERVERS: &[&str] = &[
 pub const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 const PROBE_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_PROBE_RETRIES: u32 = 10;
-/// Port mapping timeout for port availability checks
-#[allow(dead_code)]
-const PORT_TIMEOUT: Duration = Duration::from_secs(15);
 const ROUND_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// NAT behavior types matching C++ FirewallBehaviorType.
@@ -100,7 +97,6 @@ pub struct PortAllocationPattern {
 
 /// Connection state for a single peer during NAT negotiation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 enum ConnectionState {
     NoState,
     WaitingToBegin,
@@ -119,10 +115,10 @@ pub struct PeerConnection {
     /// Remote address (may be updated during probe)
     remote_addr: SocketAddr,
     /// Expected mangled source port
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: PeerConnection field for NAT negotiation
     expected_port: u16,
     /// NAT behavior of this peer
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: PeerConnection field for NAT negotiation
     behavior: NatBehavior,
     /// Current connection state
     state: ConnectionState,

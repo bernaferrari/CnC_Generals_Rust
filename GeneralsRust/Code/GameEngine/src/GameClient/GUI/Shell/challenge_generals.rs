@@ -6,6 +6,7 @@
 //                /GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ChallengeGenerals.cpp
 
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
 
 /// Number of generals in Challenge mode
 /// Matches C++ ChallengeGenerals.h line 18
@@ -476,29 +477,25 @@ pub fn create_challenge_generals() -> ChallengeGenerals {
 }
 
 /// Global challenge generals instance (mimics C++ singleton pattern)
-static mut THE_CHALLENGE_GENERALS: Option<ChallengeGenerals> = None;
+static THE_CHALLENGE_GENERALS: OnceLock<Mutex<ChallengeGenerals>> = OnceLock::new();
 
 /// Initialize the global challenge generals instance
 /// Matches C++ TheChallengeGenerals initialization
 pub fn init_challenge_generals() {
-    unsafe {
-        THE_CHALLENGE_GENERALS = Some(ChallengeGenerals::new());
-        if let Some(ref mut generals) = THE_CHALLENGE_GENERALS {
-            generals.init();
-        }
-    }
+    let generals = THE_CHALLENGE_GENERALS.get_or_init(|| Mutex::new(ChallengeGenerals::new()));
+    generals.lock().unwrap().init();
 }
 
 /// Get immutable reference to global challenge generals
 /// Matches C++ TheChallengeGenerals access
-pub fn get_challenge_generals() -> Option<&'static ChallengeGenerals> {
-    unsafe { THE_CHALLENGE_GENERALS.as_ref() }
+pub fn get_challenge_generals() -> Option<&'static Mutex<ChallengeGenerals>> {
+    THE_CHALLENGE_GENERALS.get()
 }
 
 /// Get mutable reference to global challenge generals
 /// Matches C++ TheChallengeGenerals access
-pub fn get_challenge_generals_mut() -> Option<&'static mut ChallengeGenerals> {
-    unsafe { THE_CHALLENGE_GENERALS.as_mut() }
+pub fn get_challenge_generals_mut() -> Option<std::sync::MutexGuard<'static, ChallengeGenerals>> {
+    THE_CHALLENGE_GENERALS.get().and_then(|m| m.lock().ok())
 }
 
 #[cfg(test)]

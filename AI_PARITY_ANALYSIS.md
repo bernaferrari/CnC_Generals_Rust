@@ -1,7 +1,13 @@
 # AI System Parity Analysis Report
 
-**Date:** 2026-03-12  
-**Branch:** parity-fix  
+> **STALENESS NOTICE** — This report was generated on 2026-03-12. Many items
+> marked as "missing" or "incomplete" below have since been **fully implemented**.
+> See the "Post-Audit Corrections" section at the bottom for a summary of what
+> changed. Do **not** use this document as an authoritative gap list without
+> cross-referencing the beads tracker (`bd list`).
+
+**Date:** 2026-03-12
+**Branch:** parity-fix
 **Analyzed by:** Worker Droid (subagent)
 
 ## Executive Summary
@@ -426,3 +432,34 @@ The Rust AI implementation has substantial coverage of the C++ original but has 
 - `GeneralsRust/Code/GameEngine/GameLogic/src/ai/turret.rs` (72,693 bytes)
 - `GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind.rs` (49,542 bytes)
 - `GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_astar.rs` (26,866 bytes)
+
+---
+
+## Post-Audit Corrections (2026-03-26)
+
+A comprehensive parity audit on 2026-03-26 verified that many items marked as
+"missing" or "incomplete" in the original report have since been implemented.
+
+### Items NOW IMPLEMENTED (previously marked missing)
+
+| Section | Item | Original Status | Current Status | Rust Location |
+|---------|------|-----------------|----------------|---------------|
+| §2 | AIRappelState | ❌ "Completely missing" | ✅ Implemented | `ai/states.rs:3645` |
+| §4 | RebuildHoleBehavior integration | ❌ "Missing" | ✅ Implemented | `object/behavior/rebuild_hole_behavior.rs` |
+| §5 | Skillset selection | ❌ "Completely missing" | ✅ Implemented | `skirmish_player.rs:1720`, `ai/modules/difficulty_handling.rs` |
+| §2 | Container enemy detection | ❌ "Not implemented" | ✅ Implemented | `ai/states.rs:8064` (`find_enemy_in_container`) |
+| §8 | AIGuardAttackAggressorState | ❌ "Missing" | ✅ Implemented | `guard.rs:1655` |
+| §1 | AiData xfer/save-load | ⚠️ "Missing full field serialization" | ✅ Implemented | `ai/mod.rs:456` (`Snapshot for AiData`) |
+| §3 | Bridge pathfinding | ❌ "Not fully implemented" | ✅ Implemented | Path layer + bridge layer transitions present |
+| §7 | Squad xfer/save-load | ⚠️ "Incomplete" | ✅ Implemented | Squad snapshotable trait implemented |
+
+### Items that remain partially simplified
+
+| Section | Item | Status | Notes |
+|---------|------|--------|-------|
+| §1 | findClosestEnemy priority logic | ⚠️ Partial | Container iteration exists but priority weighting may differ |
+| §4 | Dozer/worker management | ⚠️ Simplified | Core logic present, advanced queue management simplified |
+| §4 | Defense positioning | ⚠️ Partial | Waypoint integration exists but angle calculation may differ |
+| §3 | Path optimization | ⚠️ Partial | Layer handling simplified compared to C++ |
+| §8 | Guard exit conditions | ⚠️ Partial | Core conditions present, some bitmask flags simplified |
+| §10 | Turret state machine | ⚠️ Partial | Core aiming/targeting works, state transitions simplified |

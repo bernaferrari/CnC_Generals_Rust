@@ -81,8 +81,7 @@ struct AudioData {
     std_channel_attribs: AudioAttribs,
 }
 
-static mut AUDIO_DATA: Option<AudioData> = None;
-static AUDIO_DATA_INIT: std::sync::Once = std::sync::Once::new();
+static AUDIO_DATA: std::sync::OnceLock<AudioData> = std::sync::OnceLock::new();
 
 /// Audio system flags
 #[derive(Debug, Clone, Copy)]
@@ -302,16 +301,12 @@ impl AudioSystem {
         if AUDIO_INITIALIZED.load(Ordering::SeqCst) {
             return Err(AudioError::AlreadyInitialized);
         }
-        
-        AUDIO_DATA_INIT.call_once(|| {
-            unsafe {
-                AUDIO_DATA = Some(AudioData {
-                    system_list: Arc::new(Mutex::new(Vec::new())),
-                    dev_list: Arc::new(Mutex::new(Vec::new())),
-                    dev_list_access: Lock::new(),
-                    std_channel_attribs: AudioAttribs::new(),
-                });
-            }
+
+        AUDIO_DATA.get_or_init(|| AudioData {
+            system_list: Arc::new(Mutex::new(Vec::new())),
+            dev_list: Arc::new(Mutex::new(Vec::new())),
+            dev_list_access: Lock::new(),
+            std_channel_attribs: AudioAttribs::new(),
         });
         
         // Initialize audio timer
@@ -342,7 +337,7 @@ impl AudioSystem {
             return;
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         
         if audio_data.dev_list_access.try_lock().is_err() {
             return;
@@ -376,7 +371,7 @@ impl AudioSystem {
         
         let system = Arc::new(Self::create_system(Arc::new(Mutex::new(master)))?);
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         audio_data.system_list.lock().unwrap().push(system.clone());
         
         {
@@ -399,7 +394,7 @@ impl AudioSystem {
             return Err(AudioError::SystemInUse);
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let mut systems = audio_data.system_list.lock().unwrap();
         
         // Remove from list
@@ -422,7 +417,7 @@ impl AudioSystem {
             return;
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let systems = audio_data.system_list.lock().unwrap().clone();
         
         for system in systems {
@@ -436,7 +431,7 @@ impl AudioSystem {
             return None;
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let systems = audio_data.system_list.lock().unwrap();
         systems.first().cloned()
     }
@@ -447,7 +442,7 @@ impl AudioSystem {
             return 0;
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let systems = audio_data.system_list.lock().unwrap();
         
         systems.iter().map(|sys| sys.num_units).sum()
@@ -459,7 +454,7 @@ impl AudioSystem {
             return;
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let _guard = audio_data.dev_list_access.lock();
         
         let devices = audio_data.dev_list.lock().unwrap().clone();
@@ -507,7 +502,7 @@ impl AudioSystem {
             return None;
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let systems = audio_data.system_list.lock().unwrap();
         
         let mut remaining_unit = unit as usize;
@@ -579,7 +574,7 @@ impl AudioDevice {
         device.system.units[system_unit] = Some(device.clone());
         
         // Add to global device list
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         audio_data.dev_list.lock().unwrap().push(device.clone());
         
         let _guard = device.lock.lock();
@@ -699,7 +694,7 @@ impl AudioDevice {
         }
         
         // Remove from global device list
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let mut devices = audio_data.dev_list.lock().unwrap();
         // Similar issue here - need proper Arc handling
         devices.retain(|d| !std::ptr::eq(d.as_ref(), self));
@@ -1115,7 +1110,7 @@ impl AudioSystemIter {
             return Self { systems: Vec::new(), index: 0 };
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let systems = audio_data.system_list.lock().unwrap().clone();
         
         Self { systems, index: 0 }
@@ -1149,7 +1144,7 @@ impl AudioDeviceIter {
             return Self { devices: Vec::new(), index: 0 };
         }
         
-        let audio_data = unsafe { AUDIO_DATA.as_ref().unwrap() };
+        let audio_data = AUDIO_DATA.get().unwrap();
         let devices = audio_data.dev_list.lock().unwrap().clone();
         
         Self { devices, index: 0 }
@@ -1162,9 +1157,7 @@ pub fn audio_std_channel_attribs() -> Option<&'static AudioAttribs> {
         return None;
     }
     
-    unsafe {
-        AUDIO_DATA.as_ref().map(|data| &data.std_channel_attribs)
-    }
+    AUDIO_DATA.get().map(|data| &data.std_channel_attribs)
 }
 
 // Export key functionality for C-style interface compatibility

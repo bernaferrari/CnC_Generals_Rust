@@ -32,7 +32,7 @@ fn fold_crc_bytes(mut crc: u32, data: &[u8]) -> u32 {
 
 /// CRC accumulator that tracks cumulative hash
 pub struct XferCRC<X: Xfer> {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: inner Xfer is stored for potential future delegation
     inner: X,
     crc: u32,
 }
@@ -58,7 +58,7 @@ impl<X: Xfer> XferCRC<X> {
 /// Deep CRC verifier for object trees
 /// Tracks CRC values per object and validates entire object hierarchies
 pub struct XferDeepCRC<X: Xfer> {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: inner Xfer is stored for potential future delegation
     inner: X,
     global_crc: u32,
     object_crcs: BTreeMap<String, u32>,

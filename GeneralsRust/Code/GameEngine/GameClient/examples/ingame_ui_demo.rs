@@ -15,6 +15,7 @@ fn main() {}
 #[cfg(feature = "internal")]
 mod internal {
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
 use glam::Vec2;
@@ -279,19 +280,19 @@ fn setup_demo_state(ui_system: &mut IntegratedUISystem) {
 /// Update demo state to simulate game changes
 fn update_demo_state(ui_system: &mut IntegratedUISystem, delta_time: Duration) {
     // Simulate resource accumulation
-    static mut RESOURCES_TIMER: f32 = 0.0;
+    static RESOURCES_TIMER: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
+    static CURRENT_CREDITS: AtomicI32 = AtomicI32::new(10000);
 
-    unsafe {
-        RESOURCES_TIMER += delta_time.as_secs_f32();
+    {
+        let mut timer = RESOURCES_TIMER.lock().unwrap();
+        *timer += delta_time.as_secs_f32();
 
-        if RESOURCES_TIMER >= 1.0 {
-            RESOURCES_TIMER = 0.0;
+        if *timer >= 1.0 {
+            *timer = 0.0;
 
             // Add some credits periodically
-            static mut CURRENT_CREDITS: i32 = 10000;
-            CURRENT_CREDITS += 100;
-
-            ui_system.update_resources(CURRENT_CREDITS, 100, 50);
+            let credits = CURRENT_CREDITS.fetch_add(100, Ordering::Relaxed) + 100;
+            ui_system.update_resources(credits, 100, 50);
         }
     }
 }

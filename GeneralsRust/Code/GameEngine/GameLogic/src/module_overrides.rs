@@ -756,7 +756,6 @@ impl Snapshotable for InactiveBodyModuleData {
 struct InactiveBodyModule {
     module_name_key: NameKeyType,
     data: Arc<InactiveBodyModuleData>,
-    #[allow(dead_code)]
     body: Arc<Mutex<InactiveBody>>,
     owner_id: ObjectID,
 }

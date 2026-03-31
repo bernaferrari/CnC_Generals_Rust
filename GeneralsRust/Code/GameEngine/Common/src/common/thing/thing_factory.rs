@@ -456,7 +456,7 @@ impl ThingFactory {
         }
 
         // Validate the template
-        // thing_template.validate();
+        thing_template.validate();
 
         if ini.get_load_type() == IniLoadType::CreateOverrides {
             // thing_template.resolve_names();

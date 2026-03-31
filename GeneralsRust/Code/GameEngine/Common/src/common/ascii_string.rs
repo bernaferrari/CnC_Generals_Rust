@@ -471,13 +471,9 @@ impl AsciiString {
             }
         }
 
-        // Fallback - should never reach here, but return a static empty str
-        // This is technically unsafe but matches the pattern expected by xfer
-        static mut EMPTY: String = String::new();
-        #[allow(static_mut_refs)]
-        unsafe {
-            &mut EMPTY
-        }
+        // Fallback - should never reach here. Arc::get_mut always succeeds after
+        // the strong_count check above.
+        unreachable!("as_mut_string: should always have unique access after copy-on-write")
     }
 
     /// Get mutable access to the internal String buffer for xfer operations.

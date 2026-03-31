@@ -111,7 +111,6 @@ pub enum WeaponSlotType {
 
 /// Special power types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum SpecialPowerType {
     None = 0,
     InfantryCaptureBuilding,
@@ -731,7 +730,7 @@ fn is_object_shrouded_for_action(
 
 /// Check if object appears to contain friendlies (stealth trick)
 /// Reference: C++ ActionManager.cpp lines 56-72
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: duplicated in GameLogic/src/action_manager.rs which is the active copy
 fn appears_to_contain_friendlies(obj: &Object, other_object: &Object) -> bool {
     // Line 60-70: Check if container has stealth units tricking player
     if other_object.has_contain_module() {

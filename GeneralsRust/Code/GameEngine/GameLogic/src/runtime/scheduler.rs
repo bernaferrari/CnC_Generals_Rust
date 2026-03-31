@@ -25,7 +25,7 @@ impl PhaseId {
 #[derive(Clone, Debug)]
 pub struct Phase {
     pub(crate) id: PhaseId,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Diagnostic label for debugging/diagnostics
     pub(crate) label: Cow<'static, str>,
     pub(crate) order: usize,
 }
@@ -57,7 +57,7 @@ where
 }
 
 struct ScheduledTask {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Diagnostic label for debugging/diagnostics
     label: Cow<'static, str>,
     order: TaskOrder,
     system: Box<dyn SchedulerTask>,

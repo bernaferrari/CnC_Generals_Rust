@@ -461,7 +461,8 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
                 .unwrap_or(false)
         };
         if is_challenge {
-            if let Some(generals) = get_challenge_generals() {
+            if let Some(generals_mutex) = get_challenge_generals() {
+                let generals = generals_mutex.lock().unwrap();
                 let manager = get_campaign_manager();
                 if let Some(mission) = manager.get_current_mission() {
                     if let Some(general) = generals.general_by_general_name(&mission.general_name) {

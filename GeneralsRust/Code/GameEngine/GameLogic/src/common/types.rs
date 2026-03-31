@@ -332,7 +332,6 @@ bitflags! {
         const IMMOBILE = 1u64 << ObjectStatusTypes::Immobile as u32;
         const DISGUISED = 1u64 << ObjectStatusTypes::Disguised as u32;
         const DEPLOYED = 1u64 << ObjectStatusTypes::Deployed as u32;
-        const SUBDUED = 1u64 << ObjectStatusTypes::Subdued as u32;
     }
 }
 
@@ -1329,7 +1328,6 @@ pub enum ObjectStatusTypes {
     Immobile,
     Disguised,
     Deployed,
-    Subdued,
 }
 
 impl ObjectStatusTypes {
@@ -1381,7 +1379,6 @@ impl ObjectStatusTypes {
             42 => ObjectStatusTypes::Immobile,
             43 => ObjectStatusTypes::Disguised,
             44 => ObjectStatusTypes::Deployed,
-            45 => ObjectStatusTypes::Subdued,
             _ => ObjectStatusTypes::None,
         }
     }
@@ -2450,6 +2447,24 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     /// Whether this template supplies physics data
     fn has_physics(&self) -> bool {
         false
+    }
+
+    /// Default radar priority for this template.
+    /// C++ Reference: ThingTemplate::getDefaultRadarPriority()
+    fn get_radar_priority(&self) -> RadarPriorityType {
+        RadarPriorityType::Invalid
+    }
+
+    /// Crushing power rating for this template.
+    /// C++ Reference: ThingTemplate::getCrusherLevel()
+    fn get_crusher_level(&self) -> u32 {
+        0
+    }
+
+    /// Vulnerability to being crushed for this template.
+    /// C++ Reference: ThingTemplate::getCrushableLevel()
+    fn get_crushable_level(&self) -> u32 {
+        255
     }
 
     /// Initial physics type

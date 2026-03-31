@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use crate::video_stream::{VideoStream, VideoStreamInterface};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
+use log::warn;
 
 type Bool = bool;
 type Int = i32;
@@ -254,7 +255,13 @@ impl VideoPlayerInterface for VideoPlayer {
 
     fn open(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
         let resolved_path = self.resolve_movie_path(&movie_title)?;
-        let provider = get_video_stream_provider()?;
+        let provider = match get_video_stream_provider() {
+            Some(p) => p,
+            None => {
+                warn!("cutscene skipped (no video stream provider registered): {}", movie_title);
+                return None;
+            }
+        };
         provider
             .open(&movie_title, &resolved_path)
             .map(|stream| self.track_stream(stream))
@@ -262,7 +269,13 @@ impl VideoPlayerInterface for VideoPlayer {
 
     fn load(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
         let resolved_path = self.resolve_movie_path(&movie_title)?;
-        let provider = get_video_stream_provider()?;
+        let provider = match get_video_stream_provider() {
+            Some(p) => p,
+            None => {
+                warn!("video load skipped (no video stream provider registered): {}", movie_title);
+                return None;
+            }
+        };
         provider
             .load(&movie_title, &resolved_path)
             .map(|stream| self.track_stream(stream))

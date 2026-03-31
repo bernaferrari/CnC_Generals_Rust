@@ -2,7 +2,7 @@
 // Port of ControlBar class from C++
 // Original: ControlBar.h and ControlBar.cpp
 
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::cell::RefCell;
 use super::types::*;
 use super::command_button::CommandButton;
@@ -530,24 +530,17 @@ impl ControlBar {
 }
 
 // Global singleton instance
-static CONTROL_BAR_INSTANCE: Once = Once::new();
-static mut CONTROL_BAR: Option<Arc<Mutex<ControlBar>>> = None;
+static CONTROL_BAR: OnceLock<Arc<Mutex<ControlBar>>> = OnceLock::new();
 
 impl ControlBar {
     /// Get the global instance
     pub fn get_instance() -> Option<Arc<Mutex<ControlBar>>> {
-        unsafe {
-            CONTROL_BAR.clone()
-        }
+        CONTROL_BAR.get().cloned()
     }
 
     /// Initialize the global instance
     pub fn initialize_instance() {
-        CONTROL_BAR_INSTANCE.call_once(|| {
-            unsafe {
-                CONTROL_BAR = Some(Arc::new(Mutex::new(ControlBar::new())));
-            }
-        });
+        CONTROL_BAR.get_or_init(|| Arc::new(Mutex::new(ControlBar::new())));
     }
 }
 
