@@ -911,7 +911,10 @@ impl TerrainLogic {
         let mut current = self.waypoint_list_head.as_deref();
         while let Some(waypoint) = current {
             let loc = waypoint.get_location();
-            waypoint_heights.push((waypoint.get_id(), self.get_ground_height(loc.x, loc.y, None)));
+            waypoint_heights.push((
+                waypoint.get_id(),
+                self.get_ground_height(loc.x, loc.y, None),
+            ));
             current = waypoint.get_next();
         }
 
@@ -927,7 +930,13 @@ impl TerrainLogic {
 
     /// Get ground height at position
     pub fn get_ground_height(&self, x: f32, y: f32, normal: Option<&mut Coord3D>) -> f32 {
-        // Convert world coordinates to map coordinates
+        if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
+            if let Some(n) = normal {
+                *n = Coord3D::new(0.0, 0.0, 1.0);
+            }
+            return 0.0;
+        }
+
         let map_x = x / MAP_XY_FACTOR;
         let map_y = y / MAP_XY_FACTOR;
 
@@ -937,54 +946,68 @@ impl TerrainLogic {
             || map_x > (self.map_dx - 1).max(0) as f32
             || map_y > (self.map_dy - 1).max(0) as f32
         {
+            if let Some(n) = normal {
+                *n = Coord3D::new(0.0, 0.0, 1.0);
+            }
             return 0.0;
         }
 
-        // Bilinear interpolation between height samples
-        let x0 = map_x.floor() as i32;
-        let y0 = map_y.floor() as i32;
-        let x1 = (x0 + 1).min(self.map_dx - 1);
-        let y1 = (y0 + 1).min(self.map_dy - 1);
-        let fx = map_x - x0 as f32;
-        let fy = map_y - y0 as f32;
+        let ixf = map_x.floor();
+        let iyf = map_y.floor();
+        let fx = map_x - ixf;
+        let fy = map_y - iyf;
 
-        let idx00 = (y0 * self.map_dx + x0) as usize;
-        let idx10 = (y0 * self.map_dx + x1) as usize;
-        let idx01 = (y1 * self.map_dx + x0) as usize;
-        let idx11 = (y1 * self.map_dx + x1) as usize;
-        if idx00 < self.map_data.len()
-            && idx10 < self.map_data.len()
-            && idx01 < self.map_data.len()
-            && idx11 < self.map_data.len()
-        {
-            let h00 = self.map_data[idx00] as f32 * MAP_HEIGHT_SCALE;
-            let h10 = self.map_data[idx10] as f32 * MAP_HEIGHT_SCALE;
-            let h01 = self.map_data[idx01] as f32 * MAP_HEIGHT_SCALE;
-            let h11 = self.map_data[idx11] as f32 * MAP_HEIGHT_SCALE;
+        let ix = ixf as i32;
+        let iy = iyf as i32;
 
-            let h0 = h00 * (1.0 - fx) + h10 * fx;
-            let h1 = h01 * (1.0 - fx) + h11 * fx;
-            let world_height = h0 * (1.0 - fy) + h1 * fy;
+        let x_extent = self.map_dx;
+        let y_extent = self.map_dy;
 
-            if let Some(n) = normal {
-                let dx = (h10 - h00) / MAP_XY_FACTOR;
-                let dy = (h01 - h00) / MAP_XY_FACTOR;
-                let mut nx = -dx;
-                let mut ny = -dy;
-                let mut nz = 1.0;
-                let len = (nx * nx + ny * ny + nz * nz).sqrt();
-                if len > f32::EPSILON {
-                    nx /= len;
-                    ny /= len;
-                    nz /= len;
-                }
-                *n = Coord3D::new(nx, ny, nz);
+        let get_height_sample = |gx: i32, gy: i32| -> f32 {
+            let idx = (gy * x_extent + gx) as usize;
+            if gx >= 0 && gy >= 0 && gx < x_extent && gy < y_extent && idx < self.map_data.len() {
+                self.map_data[idx] as f32
+            } else {
+                0.0
             }
+        };
 
-            world_height
+        let p0 = get_height_sample(ix, iy);
+        let p1 = get_height_sample(ix + 1, iy);
+        let p2 = get_height_sample(ix + 1, iy + 1);
+        let p3 = get_height_sample(ix, iy + 1);
+
+        // Triangle-based barycentric interpolation matching C++ BaseHeightMapRenderObjClass::getHeightMapHeight
+        // C++ tessellation: diagonal from (0,0) to (1,1)
+        //   3-----2
+        //   |    /|
+        //   |  /  |
+        //   |/    |
+        //   0-----1
+        let height = if fy > fx {
+            // Upper triangle: vertices p0, p2, p3
+            (p3 + (1.0 - fy) * (p0 - p3) + fx * (p2 - p3)) * MAP_HEIGHT_SCALE
         } else {
-            0.0
+            // Lower triangle: vertices p0, p1, p2
+            (p1 + fy * (p2 - p1) + (1.0 - fx) * (p0 - p1)) * MAP_HEIGHT_SCALE
+        };
+
+        if let Some(n) = normal {
+            let dx = (p1 - p0) / MAP_XY_FACTOR;
+            let dy = (p3 - p0) / MAP_XY_FACTOR;
+            let mut nx = -dx;
+            let mut ny = -dy;
+            let mut nz = 1.0;
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            if len > f32::EPSILON {
+                nx /= len;
+                ny /= len;
+                nz /= len;
+            }
+            *n = Coord3D::new(nx, ny, nz);
         }
+
+        height
     }
 
     /// Get layer height at position
@@ -2278,6 +2301,202 @@ mod tests {
         assert!(!loaded);
 
         let _ = std::fs::remove_file(&map_path);
+    }
+
+    #[test]
+    fn ground_height_returns_zero_for_empty_terrain() {
+        let terrain = TerrainLogic::new();
+        let h = terrain.get_ground_height(50.0, 50.0, None);
+        assert_eq!(h, 0.0, "Empty terrain should return 0.0 height");
+    }
+
+    #[test]
+    fn ground_height_triangle_interpolation_lower() {
+        let mut terrain = TerrainLogic::new();
+        let map_data = crate::system::map_loader::MapData {
+            heightmap: vec![0, 128, 0, 255],
+            width: 2,
+            height: 2,
+            border_size: 0,
+            boundaries: vec![],
+            bridges: vec![],
+            water_height: None,
+            waypoints: vec![],
+            waypoint_links: vec![],
+            polygon_triggers: vec![],
+            texture_tiles: vec![],
+        };
+        terrain.load_map_data(map_data);
+
+        let h00 = terrain.get_ground_height(0.0, 0.0, None);
+        let h10 = terrain.get_ground_height(10.0, 0.0, None);
+        let h01 = terrain.get_ground_height(0.0, 10.0, None);
+        let h11 = terrain.get_ground_height(10.0, 10.0, None);
+
+        assert!(
+            h00 < h11,
+            "Corner heights should reflect heightmap: h00={}, h11={}",
+            h00,
+            h11
+        );
+
+        let h_center = terrain.get_ground_height(5.0, 5.0, None);
+        let expected = 127.5 * MAP_HEIGHT_SCALE;
+        assert!(
+            (h_center - expected).abs() < 0.1,
+            "Center height should match C++ triangle interpolation: got {}, expected {}",
+            h_center,
+            expected
+        );
+    }
+
+    #[test]
+    fn ground_height_triangle_interpolation_upper() {
+        let mut terrain = TerrainLogic::new();
+        let map_data = crate::system::map_loader::MapData {
+            heightmap: vec![0, 255, 255, 0],
+            width: 2,
+            height: 2,
+            border_size: 0,
+            boundaries: vec![],
+            bridges: vec![],
+            water_height: None,
+            waypoints: vec![],
+            waypoint_links: vec![],
+            polygon_triggers: vec![],
+            texture_tiles: vec![],
+        };
+        terrain.load_map_data(map_data);
+
+        let h = terrain.get_ground_height(2.0, 8.0, None);
+        assert!(h > 0.0, "Upper triangle height should be > 0, got {}", h);
+    }
+
+    #[test]
+    fn ground_height_matches_cpp_triangle_split() {
+        let mut terrain = TerrainLogic::new();
+        let map_data = crate::system::map_loader::MapData {
+            heightmap: vec![0, 100, 200, 255],
+            width: 2,
+            height: 2,
+            border_size: 0,
+            boundaries: vec![],
+            bridges: vec![],
+            water_height: None,
+            waypoints: vec![],
+            waypoint_links: vec![],
+            polygon_triggers: vec![],
+            texture_tiles: vec![],
+        };
+        terrain.load_map_data(map_data);
+
+        let h = terrain.get_ground_height(5.0, 5.0, None);
+        let p0 = 0.0;
+        let p1 = 100.0;
+        let p2 = 255.0;
+        let p3 = 200.0;
+        let fx = 0.5;
+        let fy = 0.5;
+        let expected = if fy > fx {
+            (p3 + (1.0 - fy) * (p0 - p3) + fx * (p2 - p3))
+        } else {
+            (p1 + fy * (p2 - p1) + (1.0 - fx) * (p0 - p1))
+        } * MAP_HEIGHT_SCALE;
+
+        assert!(
+            (h - expected).abs() < 0.01,
+            "Triangle interpolation mismatch: got {}, expected {}",
+            h,
+            expected
+        );
+    }
+
+    #[test]
+    fn ground_height_with_border_offset() {
+        let mut terrain = TerrainLogic::new();
+        let mut heightmap = vec![0u8; 49];
+        for i in 0..7 {
+            for j in 0..7 {
+                heightmap[i * 7 + j] = 128;
+            }
+        }
+        let map_data = crate::system::map_loader::MapData {
+            heightmap,
+            width: 7,
+            height: 7,
+            border_size: 1,
+            boundaries: vec![],
+            bridges: vec![],
+            water_height: None,
+            waypoints: vec![],
+            waypoint_links: vec![],
+            polygon_triggers: vec![],
+            texture_tiles: vec![],
+        };
+        terrain.load_map_data(map_data);
+
+        let h = terrain.get_ground_height(10.0, 10.0, None);
+        let expected = 128.0 * MAP_HEIGHT_SCALE;
+        assert!(
+            (h - expected).abs() < 0.1,
+            "Height with border offset: got {}, expected {}",
+            h,
+            expected
+        );
+    }
+
+    #[test]
+    fn ground_height_clamped_at_edges() {
+        let mut terrain = TerrainLogic::new();
+        let map_data = crate::system::map_loader::MapData {
+            heightmap: vec![128; 4],
+            width: 2,
+            height: 2,
+            border_size: 0,
+            boundaries: vec![],
+            bridges: vec![],
+            water_height: None,
+            waypoints: vec![],
+            waypoint_links: vec![],
+            polygon_triggers: vec![],
+            texture_tiles: vec![],
+        };
+        terrain.load_map_data(map_data);
+
+        let h_outside = terrain.get_ground_height(-10.0, -10.0, None);
+        assert!(
+            h_outside >= 0.0,
+            "Out-of-bounds height should be non-negative"
+        );
+    }
+
+    #[test]
+    fn ground_height_normal_computed() {
+        let mut terrain = TerrainLogic::new();
+        let map_data = crate::system::map_loader::MapData {
+            heightmap: vec![0, 0, 0, 255],
+            width: 2,
+            height: 2,
+            border_size: 0,
+            boundaries: vec![],
+            bridges: vec![],
+            water_height: None,
+            waypoints: vec![],
+            waypoint_links: vec![],
+            polygon_triggers: vec![],
+            texture_tiles: vec![],
+        };
+        terrain.load_map_data(map_data);
+
+        let mut normal = Coord3D::new(0.0, 0.0, 0.0);
+        let _h = terrain.get_ground_height(5.0, 5.0, Some(&mut normal));
+        let len = (normal.x * normal.x + normal.y * normal.y + normal.z * normal.z).sqrt();
+        assert!(
+            (len - 1.0).abs() < 0.01,
+            "Normal should be unit length, got len={}",
+            len
+        );
+        assert!(normal.z > 0.0, "Normal should point upward");
     }
 }
 
