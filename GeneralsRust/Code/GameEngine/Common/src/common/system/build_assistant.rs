@@ -179,16 +179,6 @@ pub struct TileBuildInfo {
     pub positions: Vec<Coord3D>,
 }
 
-/// Sample build data for footprint checking
-#[derive(Debug)]
-#[allow(dead_code)]
-struct SampleBuildData {
-    pub terrain_restricted: bool,
-    pub hi_z: f32,
-    pub lo_z: f32,
-    pub map_region: Region3D,
-}
-
 /// 3D region structure
 #[derive(Debug, Clone)]
 pub struct Region3D {

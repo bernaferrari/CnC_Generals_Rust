@@ -65,7 +65,6 @@ impl Default for Dict {
 ///
 /// Reference: C++ Dict.h lines 42-50: DataType enum
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Other variants reserved for future use
 enum DictValue {
     Bool(bool),
     Int(i32),

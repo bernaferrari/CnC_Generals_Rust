@@ -8049,10 +8049,10 @@ pub async fn run_cnc_game(
                                     if let raw_window_handle::RawWindowHandle::Win32(win) =
                                         handle.as_raw()
                                     {
-                                        unsafe {
-                                            crate::win_main::APPLICATION_WINDOW =
-                                                win.hwnd.get() as *mut std::ffi::c_void;
-                                        }
+                                        crate::win_main::APPLICATION_WINDOW.store(
+                                            win.hwnd.get() as *mut std::ffi::c_void,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                        );
                                         debug!("Win32 window handle stored");
                                     }
                                 }

@@ -23,7 +23,7 @@ use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
 use crate::video_player::{get_video_player, VideoPlayerInterface};
 use crate::video_stream::VideoStreamInterface;
 use gamelogic::helpers::TheGameLogic;
-use log::error;
+use log::{error, warn};
 use nalgebra::{Matrix4, Point3, Vector3};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -255,6 +255,7 @@ impl Display {
 
         let stream = self.open_video_stream(movie_name.clone());
         let Some(stream) = stream else {
+            warn!("logo movie skipped (no video provider): {}", movie_name);
             return;
         };
 
@@ -279,6 +280,7 @@ impl Display {
 
         let stream = self.open_video_stream(movie_name.clone());
         let Some(stream) = stream else {
+            warn!("movie playback skipped (no video provider): {}", movie_name);
             return false;
         };
 

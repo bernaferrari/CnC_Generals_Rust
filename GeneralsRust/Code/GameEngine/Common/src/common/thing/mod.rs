@@ -91,7 +91,10 @@ pub use module_factory::{
     ModuleTemplate, NewModuleDataProc, NewModuleProc,
 };
 
-pub use thing::{BaseThing, KindOfMaskType, KindOfType};
+pub use thing::{
+    register_terrain_height_provider, register_underwater_provider, BaseThing, KindOfMaskType,
+    KindOfType,
+};
 
 pub use thing_factory::{
     get_thing_factory, init_thing_factory, shutdown_thing_factory, DrawableStatus,

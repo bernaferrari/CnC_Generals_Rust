@@ -283,12 +283,9 @@ impl ExperienceTracker {
         }
 
         let max_level = VeterancyLevel::Heroic as i32;
-        let mut new_level = (self.current_level as i32) + levels_to_gain;
-        if new_level > max_level {
-            new_level = max_level;
-        }
+        let new_level = (self.current_level as i32) + levels_to_gain;
 
-        new_level > self.current_level as i32
+        new_level <= max_level
     }
 
     /// Check if this object can be trained (gain at least one level)

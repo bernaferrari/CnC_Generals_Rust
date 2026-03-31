@@ -986,7 +986,6 @@ impl Drop for BigFile {
 }
 
 /// Entry metadata maintained for each loaded BIG archive.
-#[allow(dead_code)]
 struct ArchiveEntry {
     name: AsciiString,
     path: PathBuf,
@@ -1003,7 +1002,6 @@ struct FileLocator {
     original_path: AsciiString,
 }
 
-#[allow(dead_code)]
 struct PreparedEntry {
     entry: BigFileEntry,
     normalized_path: AsciiString,

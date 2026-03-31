@@ -1177,18 +1177,11 @@ impl AudioStreamer {
 }
 
 /// Initialize global stream manager
-static mut STREAM_MANAGER: Option<StreamManager> = None;
-static STREAM_MANAGER_INIT: std::sync::Once = std::sync::Once::new();
+static STREAM_MANAGER: std::sync::OnceLock<StreamManager> = std::sync::OnceLock::new();
 
 /// Get global stream manager instance
-#[allow(static_mut_refs)]
 pub fn get_stream_manager() -> &'static StreamManager {
-    unsafe {
-        STREAM_MANAGER_INIT.call_once(|| {
-            STREAM_MANAGER = Some(StreamManager::new());
-        });
-        STREAM_MANAGER.as_ref().unwrap()
-    }
+    STREAM_MANAGER.get_or_init(StreamManager::new)
 }
 
 /// Initialize the streaming system

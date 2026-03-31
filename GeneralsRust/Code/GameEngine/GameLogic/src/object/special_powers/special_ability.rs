@@ -181,8 +181,3 @@ const SPECIAL_ABILITY_FIELDS: &[FieldParse<SpecialAbilityModuleData>] = &[FieldP
     token: "SpecialPowerTemplate",
     parse: parse_special_power_template_field,
 }];
-
-#[allow(dead_code)]
-fn _module_name_key() -> NameKeyType {
-    NameKeyGenerator::name_to_key("SpecialAbility")
-}

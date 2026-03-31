@@ -77,7 +77,6 @@ pub struct SoundManagerImpl {
 
 /// Represents an actively playing sound
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ActiveSound {
     handle: AudioHandle,
     event_name: AsciiString,

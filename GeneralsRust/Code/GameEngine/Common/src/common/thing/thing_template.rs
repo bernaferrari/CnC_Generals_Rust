@@ -322,6 +322,16 @@ impl<'a> ModuleInfoEntry<'a> {
     }
 }
 
+/// Build a KindOf u64 mask from an array of discriminant positions.
+/// Each position `p` sets bit `1u64 << p`.
+fn kindof_mask(positions: &[u32]) -> u64 {
+    let mut mask = 0u64;
+    for &p in positions {
+        mask |= 1u64 << p;
+    }
+    mask
+}
+
 impl ModuleInfo {
     pub fn new() -> Self {
         Self { info: Vec::new() }
@@ -410,23 +420,78 @@ impl ModuleInfo {
     pub fn clear_copied_from_default_entries(
         &mut self,
         interface_mask: i32,
-        _new_name: &AsciiString,
-        _full_template: &ThingTemplate,
+        new_name: &AsciiString,
+        full_template: &ThingTemplate,
     ) -> bool {
+        // C++ Reference: ThingTemplate.cpp line 382-455 clearCopiedFromDefaultEntries
+        //
+        // Build KindOf masks using discriminant positions from the KindOf enum.
+        // The mask is 1u64 << discriminant.
+
+        // ImmuneToGPSScramblerMask: types that should NOT receive GPS scrambler modules
+        let immune_mask: u64 = kindof_mask(&[
+            5,  // Aircraft
+            41, // Shrubbery
+            133, // OptimizedTree
+            9,  // Structure
+            88, // DrawableOnly
+            79, // MobNexus
+            78, // IgnoredInGui
+            136, // ClearedByBuild
+            108, // DefensiveWall
+            114, // BallisticMissile
+            7,  // SupplySource
+            87, // Boat
+            66, // Inert (alias for Immobile)
+            12, // Bridge
+            134, // LandmarkBridge
+            65, // BridgeTower
+        ]);
+        let disallowed = full_template.is_any_kind_of(&immune_mask);
+
+        // CandidateForGPSScramblerMask: types that CAN receive GPS scrambler modules
+        let candidate_mask: u64 = kindof_mask(&[
+            89, // Score
+            3,  // Vehicle
+            4,  // Infantry
+            69, // PortableStructure
+        ]);
+        let candidate = full_template.is_any_kind_of(&candidate_mask);
+
         let mut removed_any = false;
-
-        self.info.retain(|nugget| {
-            let should_remove = (nugget.interface_mask & interface_mask) != 0
-                && nugget.copied_from_default
-                && (!nugget.inheritable || !nugget.overrideable_by_like_kind);
-
-            if should_remove {
-                removed_any = true;
-                false
-            } else {
-                true
+        let mut i = 0;
+        while i < self.info.len() {
+            let nugget = &self.info[i];
+            if (nugget.interface_mask & interface_mask) != 0 && nugget.copied_from_default {
+                if nugget.inheritable {
+                    // Special case: don't inherit DefaultAutoHealBehavior if template
+                    // is not trainable (module would be entirely useless).
+                    if nugget.module_tag == "ModuleTag_DefaultAutoHealBehavior"
+                        && !full_template.is_trainable()
+                    {
+                        self.info.remove(i);
+                        removed_any = true;
+                        continue;
+                    }
+                    // Keep this inherited module, skip to next.
+                } else if nugget.overrideable_by_like_kind {
+                    // Remove if: name matches new (INI author specified same class),
+                    // or disallowed kind, or not a candidate kind.
+                    if nugget.name == *new_name || disallowed || !candidate {
+                        self.info.remove(i);
+                        removed_any = true;
+                        continue;
+                    }
+                    // No match — preserve the default module instance.
+                } else {
+                    // Non-inheritable, non-overrideable — always remove.
+                    self.info.remove(i);
+                    removed_any = true;
+                    continue;
+                }
             }
-        });
+            i += 1;
+        }
 
         removed_any
     }
@@ -1173,6 +1238,18 @@ impl ThingTemplate {
         self.threat_value
     }
 
+    /// Returns the crushing power rating for this template.
+    /// C++ Reference: ThingTemplate.h getCrusherLevel()
+    pub fn get_crusher_level(&self) -> UnsignedByte {
+        self.crusher_level
+    }
+
+    /// Returns the vulnerability to being crushed for this template.
+    /// C++ Reference: ThingTemplate.h getCrushableLevel()
+    pub fn get_crushable_level(&self) -> UnsignedByte {
+        self.crushable_level
+    }
+
     pub fn get_asset_scale(&self) -> Real {
         self.asset_scale
     }
@@ -1481,6 +1558,12 @@ impl ThingTemplate {
     }
     pub fn set_next_template(&mut self, template: Option<Arc<ThingTemplate>>) {
         self.next_thing_template = template;
+    }
+
+    /// Get the default radar priority level for this template.
+    /// C++ Reference: ThingTemplate.h line 468 (getDefaultRadarPriority)
+    pub fn get_radar_priority(&self) -> RadarPriorityType {
+        self.radar_priority
     }
 
     // Utility methods

@@ -71,13 +71,13 @@ pub trait Xfer {
 
     fn xfer_vec<T>(&mut self, data: &mut Vec<T>) -> SaveLoadResult<()>
     where
-        T: XferData,
+        T: XferData + Default,
         Self: Sized;
 
     fn xfer_hashmap<K, V>(&mut self, data: &mut HashMap<K, V>) -> SaveLoadResult<()>
     where
-        K: XferData + std::hash::Hash + Eq,
-        V: XferData,
+        K: XferData + std::hash::Hash + Eq + Default,
+        V: XferData + Default,
         Self: Sized;
 
     fn xfer_raw(&mut self, data: &mut [u8]) -> SaveLoadResult<()>;
@@ -380,7 +380,7 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 
     fn xfer_vec<T>(&mut self, data: &mut Vec<T>) -> SaveLoadResult<()>
     where
-        T: XferData,
+        T: XferData + Default,
     {
         let mut len = data.len() as u32;
         self.xfer_u32(&mut len)?;
@@ -392,8 +392,8 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 
     fn xfer_hashmap<K, V>(&mut self, data: &mut HashMap<K, V>) -> SaveLoadResult<()>
     where
-        K: XferData + std::hash::Hash + Eq,
-        V: XferData,
+        K: XferData + std::hash::Hash + Eq + Default,
+        V: XferData + Default,
     {
         let mut len = data.len() as u32;
         self.xfer_u32(&mut len)?;
@@ -608,7 +608,7 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
 
     fn xfer_vec<T>(&mut self, data: &mut Vec<T>) -> SaveLoadResult<()>
     where
-        T: XferData,
+        T: XferData + Default,
     {
         let mut len = 0u32;
         self.xfer_u32(&mut len)?;
@@ -617,7 +617,7 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
         data.reserve(len as usize);
 
         for _ in 0..len {
-            let mut item: T = unsafe { std::mem::zeroed() };
+            let mut item: T = T::default();
             item.xfer(self)?;
             data.push(item);
         }
@@ -626,8 +626,8 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
 
     fn xfer_hashmap<K, V>(&mut self, data: &mut HashMap<K, V>) -> SaveLoadResult<()>
     where
-        K: XferData + std::hash::Hash + Eq,
-        V: XferData,
+        K: XferData + std::hash::Hash + Eq + Default,
+        V: XferData + Default,
     {
         let mut len = 0u32;
         self.xfer_u32(&mut len)?;
@@ -636,8 +636,8 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
         data.reserve(len as usize);
 
         for _ in 0..len {
-            let mut key: K = unsafe { std::mem::zeroed() };
-            let mut value: V = unsafe { std::mem::zeroed() };
+            let mut key: K = K::default();
+            let mut value: V = V::default();
             key.xfer(self)?;
             value.xfer(self)?;
             data.insert(key, value);

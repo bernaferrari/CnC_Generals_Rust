@@ -264,7 +264,7 @@ fn set_general_campaign(button_index: usize) -> Option<String> {
         (template_num, player_display_name)
     };
 
-    if let Some(generals) = get_challenge_generals_mut() {
+    if let Some(mut generals) = get_challenge_generals_mut() {
         generals.set_current_player_template_num(template_num);
     }
 

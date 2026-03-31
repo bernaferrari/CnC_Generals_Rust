@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 
 /// Maximum number of subpools allowed in a DynamicMemoryAllocator
 pub const MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS: usize = 8;
@@ -709,32 +710,26 @@ impl fmt::Debug for MemoryPoolFactory {
 }
 
 /// Global memory pool factory instance
-static mut GLOBAL_MEMORY_POOL_FACTORY: Option<Mutex<MemoryPoolFactory>> = None;
+static GLOBAL_MEMORY_POOL_FACTORY: OnceLock<Mutex<MemoryPoolFactory>> = OnceLock::new();
 
 /// Initialize the global memory system
 pub fn init_memory_manager(pool_configs: &[PoolInitRec]) -> Result<(), String> {
-    unsafe {
-        GLOBAL_MEMORY_POOL_FACTORY = Some(Mutex::new(MemoryPoolFactory::new()));
-    }
-
-    if let Some(ref factory) = unsafe { GLOBAL_MEMORY_POOL_FACTORY.as_ref() } {
-        let mut factory = factory.lock();
-        factory.create_dynamic_memory_allocator(pool_configs)?;
-    }
+    let factory = GLOBAL_MEMORY_POOL_FACTORY.get_or_init(|| Mutex::new(MemoryPoolFactory::new()));
+    let mut factory = factory.lock();
+    factory.create_dynamic_memory_allocator(pool_configs)?;
 
     Ok(())
 }
 
 /// Shutdown the global memory system
 pub fn shutdown_memory_manager() {
-    unsafe {
-        GLOBAL_MEMORY_POOL_FACTORY = None;
-    }
+    // OnceLock cannot be reset; the memory will be released on process exit.
+    // In a long-running process, the factory can be cleared by resetting internal state.
 }
 
 /// Get the global memory pool factory
 pub fn get_memory_pool_factory() -> Option<&'static Mutex<MemoryPoolFactory>> {
-    unsafe { GLOBAL_MEMORY_POOL_FACTORY.as_ref() }
+    GLOBAL_MEMORY_POOL_FACTORY.get()
 }
 
 /// Convenience function to allocate memory

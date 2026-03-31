@@ -878,13 +878,38 @@ impl WeaponSet {
     }
 
     /// Set weapon lock for specific weapon
+    ///
+    /// Matches C++ WeaponSet::setWeaponLock() from WeaponSet.cpp lines 1035-1065
+    ///
+    /// Logic:
+    /// - NOT_LOCKED: invalid call, returns false (use release_weapon_lock instead)
+    /// - LOCKED_PERMANENTLY: always sets weapon and lock, overriding any existing lock
+    /// - LOCKED_TEMPORARILY: only sets if current lock is NOT LOCKED_PERMANENTLY
     pub fn set_weapon_lock(
         &mut self,
         weapon_slot: WeaponSlotType,
         lock_type: WeaponLockType,
     ) -> bool {
-        if self.get_weapon_in_slot(weapon_slot).is_some() {
-            if weapon_slot == self.current_weapon || lock_type == WeaponLockType::NotLocked {
+        // C++ line 1037-1041: NOT_LOCKED is invalid for set
+        if lock_type == WeaponLockType::NotLocked {
+            log::warn!("set_weapon_lock called with NotLocked; use release_weapon_lock instead");
+            return false;
+        }
+
+        // C++ line 1045: Verify weapon exists in the requested slot
+        if self.get_weapon_in_slot(weapon_slot).is_none() {
+            return false;
+        }
+
+        // C++ lines 1047-1063: Apply lock based on type
+        if lock_type == WeaponLockType::LockedPermanently {
+            // Permanent lock always wins (C++ line 1047-1051)
+            self.current_weapon = weapon_slot;
+            self.current_weapon_locked_status = lock_type;
+            true
+        } else if lock_type == WeaponLockType::LockedTemporarily {
+            // Temporary lock only if not permanently locked (C++ line 1053-1055)
+            if self.current_weapon_locked_status != WeaponLockType::LockedPermanently {
                 self.current_weapon = weapon_slot;
                 self.current_weapon_locked_status = lock_type;
                 true
@@ -1034,15 +1059,27 @@ impl WeaponSet {
     }
 
     /// Find weapon capable of following waypoints
+    ///
+    /// Matches C++ WeaponSet::findWaypointFollowingCapableWeapon() from WeaponSet.cpp line 998
+    /// C++ iterates REVERSE (WEAPONSLOT_COUNT-1 down to PRIMARY) so tertiary is preferred.
     pub fn find_waypoint_following_capable_weapon(&mut self) -> Option<&mut Weapon> {
-        for weapon_opt in &mut self.weapons {
-            if let Some(weapon) = weapon_opt {
+        // First pass: find the index (avoids borrow checker issues)
+        let mut found_idx: Option<usize> = None;
+        for slot_idx in (0..crate::common::WEAPONSLOT_COUNT).rev() {
+            if let Some(weapon) = &self.weapons[slot_idx] {
                 if weapon.get_template().capable_of_following_waypoint {
-                    return Some(weapon);
+                    found_idx = Some(slot_idx);
+                    break;
                 }
             }
         }
-        None
+
+        // Second pass: return mutable reference at found index
+        if let Some(idx) = found_idx {
+            self.weapons[idx].as_mut()
+        } else {
+            None
+        }
     }
 
     /// Find weapon that shows ammo pips
@@ -1083,8 +1120,20 @@ impl WeaponSet {
             .map_or(false, |set| set.is_reload_time_shared)
     }
 
+    /// Get the command source mask for a specific weapon slot
+    ///
+    /// Matches C++ WeaponSet::getNthCommandSourceMask() from WeaponSet.h line 215
+ pub fn get_nth_command_source_mask(&self, slot: WeaponSlotType) -> u32 {
+        self.current_weapon_template_set
+            .as_ref()
+            .map(|set| set.get_auto_choose_mask(slot))
+            .unwrap_or(0)
+    }
+
     /// Check weapon capability against specific object
-    pub fn get_able_to_attack_specific_object(
+    ///
+    /// Matches C++ WeaponSet::getAbleToAttackSpecificObject() from WeaponSet.h line 231
+ pub fn get_able_to_attack_specific_object(
         &self,
         attack_type: AbleToAttackType,
         source_obj: ObjectID,
@@ -1133,6 +1182,107 @@ impl WeaponSet {
         }
     }
 
+    /// Determine if the unit can use its weapon against a target position
+    ///
+    /// Matches C++ WeaponSet::getAbleToUseWeaponAgainstTarget() from WeaponSet.cpp line 581
+    /// Supports both attacking an object and attacking the position on the ground.
+    pub fn get_able_to_use_weapon_against_target(
+        &self,
+        _attack_type: AbleToAttackType,
+        source_obj: ObjectID,
+        target_obj: Option<ObjectID>,
+        target_pos: Option<&Coord3D>,
+        _command_source: CommandSourceType,
+        specific_slot: Option<WeaponSlotType>,
+    ) -> CanAttackResult {
+        // C++ WeaponSet.cpp line 589-603: Determine anti-mask from target
+        let target_anti_mask = if let Some(target_id) = target_obj {
+            if let Some(obj_arc) =
+                crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+            {
+                if let Ok(obj_guard) = obj_arc.read() {
+                    obj_guard.get_anti_mask()
+                } else {
+                    0xffffffff
+                }
+            } else {
+                0xffffffff
+            }
+        } else {
+            0xffffffff // Ground or no target
+        };
+
+        // C++ WeaponSet.cpp line 607-626: Check pitch limits when targeting an object
+        let pitch_ok = if let Some(target_id) = target_obj {
+            self.is_any_within_target_pitch(source_obj, target_id)
+        } else {
+            true
+        };
+
+        // Collect weapon references to check
+        let slots_to_check: Vec<usize> = if let Some(slot) = specific_slot {
+            vec![slot as usize]
+        } else {
+            vec![0, 1, 2]
+        };
+
+        let mut best_result = CanAttackResult::NotPossible;
+
+        for slot_idx in slots_to_check {
+            let weapon = match self.weapons.get(slot_idx).and_then(|w| w.as_ref()) {
+                Some(w) => w,
+                None => continue,
+            };
+
+            // C++ WeaponSet.cpp line 638-639: Check anti-mask against target
+            let weapon_anti = weapon.template.get_anti_mask();
+            if (weapon_anti & target_anti_mask) == 0 {
+                continue;
+            }
+
+            // C++ WeaponSet.cpp line 641-644: Skip weapons out of pitch range
+            if !pitch_ok && !weapon.is_within_target_pitch(source_obj, target_obj.unwrap_or(0)) {
+                continue;
+            }
+
+            // C++ WeaponSet.cpp line 650-656: Check if out of ammo and not auto-reload
+            if weapon.get_status() == WeaponStatus::OutOfAmmo
+                && !weapon.template.get_auto_reloads_clip()
+            {
+                continue;
+            }
+
+            // C++ WeaponSet.cpp line 662-666: Check damage > 0 (unless unresistable)
+            let damage = weapon.estimate_weapon_damage(source_obj, target_obj, target_pos);
+            if damage <= 0.0 && weapon.get_damage_type() != DamageType::Unresistable {
+                continue;
+            }
+
+            // C++ WeaponSet.cpp line 668-676: Check attack range
+            if weapon.is_within_attack_range(source_obj, target_obj, target_pos) {
+                return CanAttackResult::Possible;
+            } else if !matches!(best_result, CanAttackResult::Possible) {
+                best_result = CanAttackResult::PossibleAfterMoving;
+            }
+        }
+
+        best_result
+    }
+
+    /// Check if any weapon is within target pitch limits
+    ///
+    /// Matches C++ WeaponSet::isAnyWithinTargetPitch() from WeaponSet.h line 187
+    fn is_any_within_target_pitch(&self, source_obj: ObjectID, target_obj: ObjectID) -> bool {
+        for weapon_opt in &self.weapons {
+            if let Some(weapon) = weapon_opt {
+                if weapon.is_within_target_pitch(source_obj, target_obj) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Evaluate a specific weapon against target
     fn evaluate_weapon_against_target(
         &self,
@@ -1142,8 +1292,22 @@ impl WeaponSet {
         _attack_type: AbleToAttackType,
         _command_source: CommandSourceType,
     ) -> CanAttackResult {
-        // Check if weapon can target this type of object (anti-mask)
-        // This would require object type information
+        // Check anti-mask
+        let weapon_anti = weapon.template.get_anti_mask();
+        let target_anti = if let Some(obj_arc) =
+            crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
+        {
+            if let Ok(guard) = obj_arc.read() {
+                guard.get_anti_mask()
+            } else {
+                0xffffffff
+            }
+        } else {
+            0xffffffff
+        };
+        if (weapon_anti & target_anti) == 0 {
+            return CanAttackResult::InvalidShot;
+        }
 
         // Check if weapon is in range
         if !weapon.is_within_attack_range(source_obj, Some(target_obj), None) {
@@ -1155,9 +1319,6 @@ impl WeaponSet {
         if estimated_damage <= 0.0 {
             return CanAttackResult::InvalidShot;
         }
-
-        // Check line of sight (simplified)
-        // In real implementation, this would check terrain and obstacles
 
         CanAttackResult::Possible
     }

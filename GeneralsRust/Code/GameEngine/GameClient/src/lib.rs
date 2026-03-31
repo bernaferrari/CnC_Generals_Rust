@@ -17,8 +17,7 @@
 #![cfg_attr(test, cfg(feature = "internal"))]
 
 // Core modules
-#[allow(non_snake_case)]
-pub mod HotKey;
+pub mod hot_key;
 pub mod audio;
 pub mod core;
 pub mod display;

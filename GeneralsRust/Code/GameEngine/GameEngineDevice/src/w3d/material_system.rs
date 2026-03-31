@@ -46,7 +46,7 @@ const DEFAULT_TEXTURE_SIZE: u32 = 64;
 
 /// PBR material parameters
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable, Serialize, Deserialize)]
 pub struct W3DMaterialData {
     /// Base color (albedo) - RGBA
     pub base_color: [f32; 4],
@@ -181,6 +181,20 @@ pub struct MaterialTextures {
     pub custom: Vec<String>,
 }
 
+/// Vertex attribute description for shader variant layout
+#[derive(Debug, Clone, Copy)]
+pub struct VertexAttribute {
+    /// Byte offset in vertex buffer
+    pub offset: u64,
+    /// Shader location index
+    pub shader_location: u32,
+    /// Vertex data format
+    #[cfg(feature = "w3d")]
+    pub format: wgpu::VertexFormat,
+    #[cfg(not(feature = "w3d"))]
+    pub format: u32,
+}
+
 /// Shader variant definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct W3DShaderVariant {
@@ -197,6 +211,7 @@ pub struct W3DShaderVariant {
     /// Preprocessor defines
     pub defines: HashMap<String, String>,
     /// Vertex input layout
+    #[serde(skip)]
     pub vertex_layout: Vec<VertexAttribute>,
     /// Render state overrides
     pub render_state: RenderState,
@@ -393,8 +408,8 @@ impl W3DShaderManager {
     async fn create_default_pbr_shader(&mut self) -> Result<()> {
         let pbr_variant = W3DShaderVariant {
             name: "pbr_default".to_string(),
-            vertex_shader: include_str!("../shaders/w3d_default.wgsl").to_string(),
-            fragment_shader: include_str!("../shaders/w3d_default.wgsl").to_string(),
+            vertex_shader: include_str!("../../shaders/w3d_default.wgsl").to_string(),
+            fragment_shader: include_str!("../../shaders/w3d_default.wgsl").to_string(),
             geometry_shader: None,
             compute_shader: None,
             defines: HashMap::new(),
@@ -412,8 +427,7 @@ impl W3DShaderManager {
 
     /// Create default vertex layout
     fn create_default_vertex_layout() -> Vec<VertexAttribute> {
-        use wgpu::{VertexAttribute, VertexFormat};
-
+        use wgpu::VertexFormat;
         vec![
             VertexAttribute {
                 offset: 0,
@@ -874,7 +888,7 @@ impl W3DShaderManager {
 
     /// Create vertex buffer layout from vertex attributes
     #[cfg(feature = "w3d")]
-    fn create_vertex_buffer_layout(&self, attributes: &[VertexAttribute]) -> VertexBufferLayout {
+    fn create_vertex_buffer_layout(&self, attributes: &[VertexAttribute]) -> VertexBufferLayout<'static> {
         let wgpu_attributes: Vec<wgpu::VertexAttribute> = attributes
             .iter()
             .enumerate()
@@ -885,13 +899,15 @@ impl W3DShaderManager {
             })
             .collect();
 
+        let stride = attributes
+            .last()
+            .map(|attr| attr.offset + attr.format.size())
+            .unwrap_or(0);
+        let leaked: &'static [wgpu::VertexAttribute] = Box::leak(wgpu_attributes.into_boxed_slice());
         VertexBufferLayout {
-            array_stride: attributes
-                .last()
-                .map(|attr| attr.offset + attr.format.size())
-                .unwrap_or(0),
+            array_stride: stride,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu_attributes,
+            attributes: leaked,
         }
     }
 
@@ -902,11 +918,8 @@ impl W3DShaderManager {
 
     /// Get compiled shader
     #[cfg(feature = "w3d")]
-    pub fn get_shader(&self, name: &str) -> Option<Arc<W3DShader>> {
-        self.compiled_shaders
-            .read()
-            .get(name)
-            .map(|shader| Arc::new(shader.clone()))
+    pub fn get_shader(&self, name: &str) -> bool {
+        self.compiled_shaders.read().contains_key(name)
     }
 
     /// Update material parameters
@@ -1067,7 +1080,8 @@ impl W3DTextureManager {
 
     #[cfg(feature = "w3d")]
     fn ensure_texture_atlas(&self) -> Result<Arc<Texture>> {
-        if let Ok(guard) = self.texture_atlas.lock() {
+        {
+            let guard = self.texture_atlas.lock();
             if let Some(atlas) = guard.as_ref() {
                 return Ok(Arc::clone(atlas));
             }
@@ -1092,17 +1106,13 @@ impl W3DTextureManager {
             ..Default::default()
         });
 
-        if let Ok(mut guard) = self.texture_atlas.lock() {
-            *guard = Some(Arc::new(atlas));
-        }
-        if let Ok(mut guard) = self.atlas_view.lock() {
-            *guard = Some(Arc::new(view));
-        }
+        *self.texture_atlas.lock() = Some(Arc::new(atlas));
+        *self.atlas_view.lock() = Some(Arc::new(view));
 
         self.texture_atlas
             .lock()
-            .ok()
-            .and_then(|guard| guard.as_ref().map(Arc::clone))
+            .as_ref()
+            .map(Arc::clone)
             .ok_or_else(|| {
                 W3DError::ResourceError("Failed to initialize texture atlas".to_string())
             })

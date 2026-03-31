@@ -380,7 +380,7 @@ impl FirewallIntegration for LinuxFirewallHelper {
 /// macOS firewall helper (pfctl).
 #[cfg(target_os = "macos")]
 pub struct MacFirewallHelper {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: stored for future pfctl rule management
     app_name: String,
 }
 

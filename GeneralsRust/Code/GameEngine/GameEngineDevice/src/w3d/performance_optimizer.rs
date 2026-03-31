@@ -77,7 +77,9 @@ impl Default for W3DOptimizationSettings {
     fn default() -> Self {
         Self {
             auto_quality_adjustment: true,
-            target_frame_rate: 60.0,
+            // C++ uses LOGIC_FRAMES_PER_SECOND (30), not 60 for GPU
+            // (which is internal adaptive quality)
+            target_frame_rate: 30.0,
             frame_rate_tolerance: 5.0,
             dynamic_resolution: true,
             min_resolution_scale: 0.5,

@@ -6,6 +6,7 @@
 
 use std::cell::RefCell;
 use std::f32::consts::PI;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use game_engine::common::ini::get_global_data;
 use serde::{Deserialize, Serialize};
@@ -453,12 +454,8 @@ pub struct View {
 impl View {
     /// Create a new view with default settings
     pub fn new() -> Self {
-        static mut NEXT_ID: u32 = 1;
-        let id = unsafe {
-            let current_id = NEXT_ID;
-            NEXT_ID += 1;
-            current_id
-        };
+        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
 
         Self {
             id,

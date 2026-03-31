@@ -5,6 +5,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::{OnceLock, RwLock};
 
+use crate::common::ini::ini_game_data::get_global_data;
+use crate::common::ini::ini_game_lod::{
+    get_game_lod_manager, StaticGameLODLevel, StaticGameLODInfo,
+};
+
 /// LOD levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LodLevel {
@@ -106,6 +111,46 @@ pub fn set_static_lod_from_string(value: &str) {
     if let Ok(mut guard) = static_lod_name().write() {
         *guard = mapped.to_string();
     }
+    apply_static_lod_level(mapped);
+}
+
+/// Apply StaticGameLOD settings to GlobalData.
+/// Matches C++ GameLODManager::applyStaticLODLevel().
+fn apply_static_lod_level(level_name: &str) {
+    let level = match StaticGameLODLevel::from_str(level_name) {
+        Some(l) => l,
+        None => return,
+    };
+    let index = match level.to_index() {
+        Some(i) => i,
+        None => return,
+    };
+
+    let lod_info = {
+        let manager = get_game_lod_manager();
+        manager.static_game_lod_info[index].clone()
+    };
+
+    let Some(global_data) = get_global_data() else {
+        return;
+    };
+    let mut global = global_data.write();
+
+    global.max_particle_count = lod_info.max_particle_count;
+    global.use_shadow_volumes = lod_info.use_shadow_volumes;
+    global.use_shadow_decals = lod_info.use_shadow_decals;
+    global.use_cloud_map = lod_info.use_cloud_map;
+    global.use_light_map = lod_info.use_light_map;
+    global.show_soft_water_edge = lod_info.show_soft_water_edge;
+    global.max_tank_track_edges = lod_info.max_tank_track_edges;
+    global.max_tank_track_opaque_edges = lod_info.max_tank_track_opaque_edges;
+    global.max_tank_track_fade_delay = lod_info.max_tank_track_fade_delay;
+    global.use_tree_sway = lod_info.use_tree_sway;
+    global.use_draw_module_lod = !lod_info.use_buildup_scaffolds;
+    global.use_heat_effects = lod_info.use_heat_effects;
+    global.enable_dynamic_lod = lod_info.enable_dynamic_lod;
+    global.use_fps_limit = lod_info.use_fps_limit;
+    global.use_trees = lod_info.use_trees;
 }
 
 pub fn get_static_lod() -> String {

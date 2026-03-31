@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
 
 use crate::Common::{Coord3D, RGBColor};
 
@@ -817,23 +818,21 @@ impl Default for FXListStore {
 
 /// Global FXListStore singleton
 /// Matches C++ FXList.h:198
-pub static mut THE_FX_LIST_STORE: Option<FXListStore> = None;
+pub static THE_FX_LIST_STORE: OnceLock<Mutex<FXListStore>> = OnceLock::new();
 
 /// Initialize the global FXListStore
 pub fn init_fx_list_store() {
-    unsafe {
-        THE_FX_LIST_STORE = Some(FXListStore::new());
-    }
+    THE_FX_LIST_STORE.get_or_init(|| Mutex::new(FXListStore::new()));
 }
 
 /// Get reference to the global FXListStore
-pub fn get_fx_list_store() -> Option<&'static FXListStore> {
-    unsafe { THE_FX_LIST_STORE.as_ref() }
+pub fn get_fx_list_store() -> Option<&'static Mutex<FXListStore>> {
+    THE_FX_LIST_STORE.get()
 }
 
 /// Get mutable reference to the global FXListStore
-pub fn get_fx_list_store_mut() -> Option<&'static mut FXListStore> {
-    unsafe { THE_FX_LIST_STORE.as_mut() }
+pub fn get_fx_list_store_mut() -> Option<std::sync::MutexGuard<'static, FXListStore>> {
+    THE_FX_LIST_STORE.get().and_then(|m| m.lock().ok())
 }
 
 /// INI Parser for FXList definitions

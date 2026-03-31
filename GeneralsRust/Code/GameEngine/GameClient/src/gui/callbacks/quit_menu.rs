@@ -168,7 +168,7 @@ fn no_exit_quit_menu() {
     state.quit_confirmation_window = None;
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity: GUI callback, will be wired to menu system
 fn quit_to_desktop_quit_menu() {
     destroy_quit_menu();
 

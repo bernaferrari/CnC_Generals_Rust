@@ -5,7 +5,6 @@ use glam::Vec3;
 
 // Re-export for legacy compatibility
 /// Xfer version identifiers used by legacy modules (note: actual Xfer uses u8, this is for legacy compatibility)
-#[allow(dead_code)]
 pub type LegacyXferVersion = u32;
 
 /// Helper methods that provide additional xfer functionality beyond the base trait.

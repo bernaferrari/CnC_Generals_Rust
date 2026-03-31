@@ -1,16 +1,16 @@
 //! Windows platform globals and helpers (ported from WWLib win.h).
 
 #[cfg(target_os = "windows")]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND};
 
 #[cfg(target_os = "windows")]
-pub static mut PROGRAM_INSTANCE: HINSTANCE = HINSTANCE(0);
+pub static PROGRAM_INSTANCE: AtomicIsize = AtomicIsize::new(0);
 
 #[cfg(target_os = "windows")]
-pub static mut MAIN_WINDOW: HWND = HWND(0);
+pub static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 #[cfg(target_os = "windows")]
 pub static GAME_IN_FOCUS: AtomicBool = AtomicBool::new(false);

@@ -3741,7 +3741,7 @@ impl ScriptCondition for NamedInsideAreaCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let obj = obj_arc
+        let _obj = obj_arc
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
 
@@ -5854,7 +5854,6 @@ impl ScriptCondition for PlayerPowerComparePercentCondition {
             .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
         let ratio = player.get_energy().supply_ratio();
-        let test_ratio = percent as f64 / 100.0;
         Ok(perform_comparison(
             (ratio * 100.0) as i64,
             &comparison,

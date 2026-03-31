@@ -47,6 +47,19 @@ impl FunctionPtr {
     pub fn is_null(self) -> bool {
         self.0 == 0
     }
+
+    /// Convert to a typed unit function pointer (fn()).
+    /// All GameWin/WindowLayout function types are fn(), so this single
+    /// conversion covers every use site without per-site transmute.
+    pub fn as_unit_fn(self) -> Option<fn()> {
+        if self.0 == 0 {
+            None
+        } else {
+            // Safe: function pointers are thin pointers; all fn() types have
+            // the same layout, and FunctionPtr only stores fn() pointers.
+            Some(unsafe { std::mem::transmute(self.0) })
+        }
+    }
 }
 
 /// Table entry for function lookups
@@ -354,49 +367,49 @@ impl FunctionLexicon {
     /// Get a game window system function
     pub fn game_win_system_func(&self, key: NameKeyType) -> Option<GameWinSystemFunc> {
         self.find_function(key, TableIndex::GameWinSystem)
-            .map(|ptr| unsafe { std::mem::transmute(ptr.as_ptr()) })
+            .and_then(|ptr| ptr.as_unit_fn())
     }
 
     /// Get a game window input function
     pub fn game_win_input_func(&self, key: NameKeyType) -> Option<GameWinInputFunc> {
         self.find_function(key, TableIndex::GameWinInput)
-            .map(|ptr| unsafe { std::mem::transmute(ptr.as_ptr()) })
+            .and_then(|ptr| ptr.as_unit_fn())
     }
 
     /// Get a game window draw function (searches both device-specific and general tables)
     pub fn game_win_draw_func(&self, key: NameKeyType) -> Option<GameWinDrawFunc> {
         // First try device-specific draw table
         if let Some(func) = self.find_function(key, TableIndex::GameWinDeviceDraw) {
-            return Some(unsafe { std::mem::transmute(func.as_ptr()) });
+            return func.as_unit_fn();
         }
 
         // Fall back to general draw table
         self.find_function(key, TableIndex::GameWinDraw)
-            .map(|ptr| unsafe { std::mem::transmute(ptr.as_ptr()) })
+            .and_then(|ptr| ptr.as_unit_fn())
     }
 
     /// Get a window layout init function (searches both device-specific and general tables)
     pub fn win_layout_init_func(&self, key: NameKeyType) -> Option<WindowLayoutInitFunc> {
         // First try device-specific init table
         if let Some(func) = self.find_function(key, TableIndex::WinLayoutDeviceInit) {
-            return Some(unsafe { std::mem::transmute(func.as_ptr()) });
+            return func.as_unit_fn();
         }
 
         // Fall back to general init table
         self.find_function(key, TableIndex::WinLayoutInit)
-            .map(|ptr| unsafe { std::mem::transmute(ptr.as_ptr()) })
+            .and_then(|ptr| ptr.as_unit_fn())
     }
 
     /// Get a window layout update function
     pub fn win_layout_update_func(&self, key: NameKeyType) -> Option<WindowLayoutUpdateFunc> {
         self.find_function(key, TableIndex::WinLayoutUpdate)
-            .map(|ptr| unsafe { std::mem::transmute(ptr.as_ptr()) })
+            .and_then(|ptr| ptr.as_unit_fn())
     }
 
     /// Get a window layout shutdown function
     pub fn win_layout_shutdown_func(&self, key: NameKeyType) -> Option<WindowLayoutShutdownFunc> {
         self.find_function(key, TableIndex::WinLayoutShutdown)
-            .map(|ptr| unsafe { std::mem::transmute(ptr.as_ptr()) })
+            .and_then(|ptr| ptr.as_unit_fn())
     }
 }
 
