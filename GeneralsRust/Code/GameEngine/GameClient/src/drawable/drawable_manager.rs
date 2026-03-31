@@ -4,6 +4,7 @@
 //! and rendering of all drawable objects in the game world. It manages spatial organization,
 //! culling, Z-ordering, transparency sorting, and efficient batch rendering.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -493,6 +494,44 @@ impl DrawableManager {
         // Note: We can't modify self in a non-mut method, so this would need to be handled differently
     }
 
+    /// Render all visible drawables through an active wgpu render pass.
+    /// This is the main entry point used by Display::draw() to submit
+    /// drawable geometry into the frame's render pass.
+    pub fn render_pass_through(
+        &self,
+        _pass: &mut wgpu::RenderPass,
+        _view_matrix: &glam::Mat4,
+        _proj_matrix: &glam::Mat4,
+    ) {
+        // Render opaque objects first (front-to-back)
+        for &drawable_id in &self.opaque_render_list {
+            if let Some(entry) = self.drawables.get(&drawable_id) {
+                entry
+                    .drawable
+                    .render(&self.view_matrix, &self.projection_matrix);
+            }
+        }
+
+        // Render transparent objects (back-to-front)
+        for &drawable_id in &self.transparent_render_list {
+            if let Some(entry) = self.drawables.get(&drawable_id) {
+                entry
+                    .drawable
+                    .render(&self.view_matrix, &self.projection_matrix);
+            }
+        }
+
+        // Second material pass for stealth/selection effects
+        for entry in self.drawables.values() {
+            let drawable = &entry.drawable;
+            if drawable.get_stealth_look() == StealthLook::VisibleDetected
+                || drawable.get_stealth_look() == StealthLook::VisibleFriendlyDetected
+            {
+                drawable.render(&self.view_matrix, &self.projection_matrix);
+            }
+        }
+    }
+
     /// Render a specific pass
     fn render_pass(&self, render_list: &[DrawableId], pass: RenderPass) {
         for &drawable_id in render_list {
@@ -675,6 +714,21 @@ impl Default for DrawableManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// Global singleton instance (matching C++ TheDrawableManager pattern)
+thread_local! {
+    static THE_DRAWABLE_MANAGER: RefCell<DrawableManager> = RefCell::new(DrawableManager::new());
+}
+
+/// Access the global drawable manager
+pub fn with_drawable_manager<R>(f: impl FnOnce(&mut DrawableManager) -> R) -> R {
+    THE_DRAWABLE_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+}
+
+/// Access the global drawable manager immutably
+pub fn with_drawable_manager_ref<R>(f: impl FnOnce(&DrawableManager) -> R) -> R {
+    THE_DRAWABLE_MANAGER.with(|manager| f(&manager.borrow()))
 }
 
 // Downcasting support is provided by DrawableExt in drawable.rs

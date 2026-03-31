@@ -10,6 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 pub use crate::core::DrawableId;
+use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
@@ -1397,6 +1398,23 @@ impl BasicDrawable {
 
         self.prev_tint_status = self.tint_status;
     }
+
+    /// Compute render condition flags from drawable state.
+    /// Maps drawable visual state to RenderBridge condition flags.
+    fn compute_render_condition_flags(&self) -> crate::render_bridge::RenderConditionFlags {
+        use crate::render_bridge::RenderConditionFlags;
+        let mut flags = RenderConditionFlags::empty();
+
+        if self.selected {
+            flags |= RenderConditionFlags::SELECTED;
+        }
+
+        if matches!(self.stealth_look, StealthLook::DisguisedEnemy) {
+            flags |= RenderConditionFlags::DISGUISED;
+        }
+
+        flags
+    }
 }
 
 impl Drawable for BasicDrawable {
@@ -1613,9 +1631,60 @@ impl Drawable for BasicDrawable {
         }
     }
 
-    fn render(&self, _view_matrix: &Matrix4, _projection_matrix: &Matrix4) {
-        // Default implementation - to be overridden by specific drawable types
-        // This would typically render the drawable using the graphics API
+    fn render(&self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
+        if !self.visible || self.hidden || self.hidden_by_stealth {
+            return;
+        }
+
+        let opacity = self.get_opacity();
+        if opacity <= 0.0 {
+            return;
+        }
+
+        let tint = self.get_tint_color();
+        let selected = self.is_selected();
+
+        let world_transform = self.get_transform();
+
+        let model_name = self.template_name.clone().unwrap_or_default();
+
+        let condition_flags = self.compute_render_condition_flags();
+
+        let submission = crate::render_bridge::DrawSubmission {
+            drawable_id: crate::render_bridge::DrawableId(self.id.0),
+            model_name,
+            world_transform: glam::Mat4::from_cols_array_2d(&world_transform.elements),
+            condition_flags,
+            render_state: crate::render_bridge::RenderStateOverrides {
+                opacity,
+                emissive_tint: [tint.x.max(0.0), tint.y.max(0.0), tint.z.max(0.0)],
+                selected,
+                hidden: false,
+                ..Default::default()
+            },
+            bone_overrides: Vec::new(),
+            animation_name: None,
+            animation_mode: None,
+            animation_time: 0.0,
+            bounding_sphere: {
+                let (_, radius) = self.get_bounding_sphere();
+                ww3d_core::BoundingSphere::new(
+                    ww3d_core::glam::Vec3::new(self.position.x, self.position.y, self.position.z),
+                    radius,
+                )
+            },
+            bounding_box: ww3d_core::AABox::zero(),
+            sort_level: 0,
+            opaque: opacity >= 1.0,
+            transparent: opacity < 1.0,
+            cast_shadow: self.status.has(DrawableStatus::SHADOWS),
+        };
+
+        if let Ok(mut bridge_guard) = get_render_bridge().lock() {
+            if let Some(bridge) = bridge_guard.as_mut() {
+                bridge.submit(submission);
+            }
+        }
     }
 
     fn get_bounding_sphere(&self) -> (Vector3, f32) {
