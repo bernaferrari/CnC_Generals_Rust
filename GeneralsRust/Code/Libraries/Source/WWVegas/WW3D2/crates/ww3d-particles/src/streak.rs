@@ -9,7 +9,7 @@ use wgpu::{util::DeviceExt, BindGroup, Buffer, Device, Queue, RenderPass, Render
 
 /// Streak line class for rendering thick segmented lines
 #[derive(Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 pub struct StreakLine {
     // Line properties
     pub points: Vec<Vec3>,

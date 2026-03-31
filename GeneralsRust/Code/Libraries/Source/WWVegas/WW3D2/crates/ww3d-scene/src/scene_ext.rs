@@ -135,7 +135,7 @@ impl SceneExt {
     }
 
     /// Ray-sphere intersection test
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
 
     fn ray_sphere_intersection_test(&self, ray: &PickRay, sphere: &SphereClass) -> Option<f32> {
         ray_sphere_intersection(ray, sphere)
@@ -320,7 +320,7 @@ fn ray_sphere_intersection(ray: &PickRay, sphere: &SphereClass) -> Option<f32> {
 
 /// Ray-box intersection helper
 /// C++ Reference: scene.cpp lines 852-920
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 fn ray_box_intersection(ray: &PickRay, bbox: &AABoxClass) -> Option<f32> {
     let min = bbox.min;
     let max = bbox.max;

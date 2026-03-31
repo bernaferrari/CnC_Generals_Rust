@@ -390,7 +390,7 @@ impl BVHNode {
 }
 
 /// Helper function for sphere-AABB intersection (should be in intersection.rs but needed here)
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 fn sphere_aabb_intersect(sphere: &Sphere, aabb: &AABox) -> bool {
     let closest_point = Vec3::new(
         sphere

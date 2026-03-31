@@ -141,20 +141,3 @@ fn demo_error_handling() -> SaveLoadResult<()> {
 
     Ok(())
 }
-
-// Helper function to create test game state data
-#[allow(dead_code)]
-fn create_test_state() -> HashMap<String, Vec<u8>> {
-    let mut state = HashMap::new();
-
-    // Simulate various game data
-    state.insert("player_resources".to_string(), vec![100, 200, 50, 75]); // Mock resource data
-    state.insert(
-        "unit_positions".to_string(),
-        (0..100).map(|i| (i % 256) as u8).collect(),
-    ); // Mock position data
-    state.insert("building_states".to_string(), vec![1, 0, 1, 1, 0]); // Mock building states
-    state.insert("ai_state".to_string(), vec![42; 200]); // Mock AI state
-
-    state
-}

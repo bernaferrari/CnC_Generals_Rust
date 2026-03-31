@@ -123,7 +123,7 @@ fn high_res_get_time() -> TimeStamp {
 /// This provides a thread-safe fallback timer that handles potential
 /// wraparound issues, similar to the original C++ implementation.
 #[cfg(windows)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled on Windows
 fn failsafe_get_time() -> TimeStamp {
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
@@ -177,7 +177,7 @@ fn failsafe_get_time() -> TimeStamp {
 
 /// Cross-platform failsafe timer for non-Windows systems
 #[cfg(not(windows))]
-#[allow(dead_code)]
+#[allow(dead_code)] // Conditional compilation: only compiled on non-Windows
 fn failsafe_get_time() -> TimeStamp {
     // On non-Windows systems, std::time::Instant is already high-resolution
     // and handles all edge cases, so we can just use it directly

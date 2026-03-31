@@ -1189,7 +1189,7 @@ impl MultiFixedPoolDecalSystem {
 
     /// Decode a decal ID into pool and slot IDs
     /// C++ Reference: decalsys.h line 232 (decode_decal_id)
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn decode_decal_id(decal_id: DecalId) -> (u32, u32) {
         let pool_id = (decal_id >> 16) & 0xFFFF;
         let slot_id = decal_id & 0xFFFF;

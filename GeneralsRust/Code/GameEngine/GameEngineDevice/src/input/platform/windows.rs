@@ -73,7 +73,7 @@ impl WindowsInputBackend {
     }
 
     /// Process a Windows message
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: Windows message processing for future native event loop
     fn process_message(&mut self, _msg: u32, _wparam: usize, _lparam: isize) {
         // In a real implementation, this would process Windows messages:
         // - WM_KEYDOWN / WM_KEYUP for keyboard
@@ -83,7 +83,7 @@ impl WindowsInputBackend {
     }
 
     /// Convert Windows virtual key code to KeyCode
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: Windows key mapping for future native event integration
     fn vk_to_keycode(vk: u32) -> Option<KeyCode> {
         // Virtual key codes match our KeyCode enum by design
         match vk {
@@ -95,7 +95,7 @@ impl WindowsInputBackend {
     }
 
     /// Update modifier state from Windows message
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: Windows modifier tracking for future native event loop
     fn update_modifiers(&mut self) {
         #[cfg(target_os = "windows")]
         {
@@ -182,7 +182,7 @@ pub mod xinput {
         }
 
         /// Set gamepad vibration
-        #[allow(dead_code)]
+        #[allow(dead_code)] // Platform parity: gamepad haptic feedback API
         pub fn set_vibration(&mut self, _left: f32, _right: f32) -> Result<()> {
             // In a real implementation, this would call XInputSetState
             Ok(())
@@ -190,7 +190,7 @@ pub mod xinput {
     }
 
     /// Convert XInput button to GamepadButton
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Platform parity: XInput gamepad mapping for future native integration
     fn xinput_button_to_gamepad_button(button: u16) -> Option<GamepadButton> {
         // XINPUT_GAMEPAD_* button flags
         match button {

@@ -153,7 +153,7 @@ impl CollisionMath {
     }
 
     /// Evaluate overlap from collision result
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     fn eval_overlap_collision(res: &CastResult) -> OverlapType {
         if res.fraction < 1.0 {
             OverlapType::Both

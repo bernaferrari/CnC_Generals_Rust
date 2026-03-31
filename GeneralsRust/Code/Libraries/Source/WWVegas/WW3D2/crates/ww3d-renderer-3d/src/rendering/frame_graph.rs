@@ -194,9 +194,9 @@ fn blend_rank(blend: MaterialBlendMode) -> u8 {
 struct FrameGraphSubmission {
     mesh: Arc<MeshClass>,
     sort_level: u32,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     pass_mask: FrameGraphPassMask,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     pipeline_hint: PipelineHint,
     sort_key: u64,
     blend_mode: MaterialBlendMode,
@@ -204,7 +204,7 @@ struct FrameGraphSubmission {
     z_write: bool,
     tie_breaker: usize,
     bounds_center: Vec3,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     bounds_radius: f32,
 }
 
@@ -312,7 +312,7 @@ impl NodeQueues {
 
 /// Frame-graph node that owns submissions for a single pass.
 pub struct FrameGraphNode {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     pass: FrameGraphPass,
     context: Option<FrameGraphPassContext>,
     submissions: Vec<FrameGraphSubmission>,

@@ -29,7 +29,7 @@ use crate::prototype_loader::{find_loader, DefaultLoaders, PrototypeLoader};
 /// };
 /// ```
 const PROTOTYPE_HASH_TABLE_SIZE: usize = 4096;
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 const PROTOTYPE_HASH_MASK: u32 = 0x00000FFF;
 
 /// Enhanced Asset Manager with prototype loader system
@@ -99,7 +99,7 @@ pub struct AssetManagerExt {
 
     /// Enable fog activation during load
     /// C++ reference: assetmgr.h:417 `bool Activate_Fog_On_Load;`
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     activate_fog_on_load: bool,
 
     /// Statistics for memory tracking

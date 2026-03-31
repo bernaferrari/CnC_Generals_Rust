@@ -60,7 +60,7 @@ macro_rules! size_of_field {
 /// Simple W3D memory pool descriptor.
 pub struct W3dMemPool {
     allocation_size: usize,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity: pool name for diagnostics
     name: String,
 }
 

@@ -1387,13 +1387,13 @@ impl PrototypeLoader for HAnimLoader {
 /// HModelLoaderClass   _HModelLoader;
 /// ```
 pub struct DefaultLoaders {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     mesh_loader: MeshLoader,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     hmodel_loader: HModelLoader,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     htree_loader: HTreeLoader,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // C++ parity
     hanim_loader: HAnimLoader,
 }
 

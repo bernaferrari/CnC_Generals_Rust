@@ -113,7 +113,7 @@ impl BoundingSphere {
 }
 
 /// Sorting renderer for transparent geometry
-#[allow(dead_code)]
+#[allow(dead_code)] // C++ parity
 #[derive(Debug)]
 pub struct SortingRenderer {
     // Configuration
