@@ -268,7 +268,7 @@ impl WWSaveLoad {
         let _lock = DEFINITION_MGR_LOCK.write();
 
         // Initialize the definition manager if not already done
-        let _ = get_definition_manager();
+        let _mgr = get_definition_manager();
 
         // Additional initialization logic would go here
         println!("WWSaveLoad system initialized");
@@ -282,7 +282,7 @@ impl WWSaveLoad {
         let _lock = DEFINITION_MGR_LOCK.write();
 
         // Free all definitions from the global definition manager
-        let def_mgr = get_definition_manager();
+        let mut def_mgr = get_definition_manager();
         def_mgr.free_definitions();
 
         println!("WWSaveLoad system shutdown complete");
@@ -293,7 +293,7 @@ impl WWSaveLoad {
     /// This provides access to the definition manager for registration and lookup operations.
     ///
     /// This function should only be called after WWSaveLoad::init() has been called.
-    pub fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {
+    pub fn get_definition_manager_ref() -> std::sync::MutexGuard<'static, DefinitionManager> {
         get_definition_manager()
     }
 }

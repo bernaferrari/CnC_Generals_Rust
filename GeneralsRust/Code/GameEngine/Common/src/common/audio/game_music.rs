@@ -11,6 +11,7 @@
 use crate::common::audio::{
     audio_event_rts::{AudioEventRts, AudioHandle},
     audio_request::{AudioRequest, RequestType},
+    game_audio::with_sound_playback_hook,
 };
 
 // Type aliases
@@ -105,18 +106,19 @@ impl MusicManagerImpl {
 
     /// Play a music track using the provided audio event
     pub fn play_track(&mut self, event_to_use: AudioEventRts) {
-        // Create an audio request to play the music
-        let audio_request = AudioRequest::new_with_event(RequestType::Play, event_to_use);
+        if let Some(result) = with_sound_playback_hook(|hook| hook.play(&event_to_use)) {
+            if result.is_ok() {
+                self.current_handle = Some(event_to_use.get_playing_handle());
+                self.is_playing = true;
+                return;
+            }
+        }
 
-        // In the original C++, this would append to TheAudio's request list
-        // For now, we'll store the handle if available
+        let audio_request = AudioRequest::new_with_event(RequestType::Play, event_to_use);
         if let Some(event) = audio_request.get_pending_event() {
             self.current_handle = Some(event.get_playing_handle());
             self.is_playing = true;
         }
-
-        // In a real implementation, we would:
-        // TheAudio->appendAudioRequest(audio_request);
     }
 
     /// Stop the currently playing track

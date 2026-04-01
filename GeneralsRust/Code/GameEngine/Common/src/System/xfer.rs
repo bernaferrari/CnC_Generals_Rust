@@ -201,6 +201,21 @@ pub trait Xfer {
         }
     }
 
+    /// Transfer u32 (alias for xfer_unsigned_int)
+    fn xfer_u32(&mut self, u32_data: &mut u32) -> Result<(), XferStatus> {
+        self.xfer_unsigned_int(u32_data)
+    }
+
+    /// Transfer f32 (alias for xfer_real)
+    fn xfer_f32(&mut self, f32_data: &mut f32) -> Result<(), XferStatus> {
+        self.xfer_real(f32_data)
+    }
+
+    /// Transfer string (alias for xfer_ascii_string)
+    fn xfer_string(&mut self, string_data: &mut String) -> Result<(), XferStatus> {
+        self.xfer_ascii_string(string_data)
+    }
+
     /// Transfer short
     fn xfer_short(&mut self, short_data: &mut i16) -> Result<(), XferStatus> {
         // SAFETY: short_data is a valid reference

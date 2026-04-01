@@ -337,6 +337,16 @@ pub trait Xfer {
         self.xfer_unsigned_int(u32_data)
     }
 
+    /// Xfer f32 (alias for xfer_real)
+    fn xfer_f32(&mut self, f32_data: &mut f32) -> io::Result<()> {
+        self.xfer_real(f32_data)
+    }
+
+    /// Xfer string (alias for xfer_ascii_string)
+    fn xfer_string(&mut self, string_data: &mut String) -> io::Result<()> {
+        self.xfer_ascii_string(string_data)
+    }
+
     /// Xfer u64
     fn xfer_u64(&mut self, u64_data: &mut u64) -> io::Result<()> {
         // SAFETY: u64_data is a valid reference

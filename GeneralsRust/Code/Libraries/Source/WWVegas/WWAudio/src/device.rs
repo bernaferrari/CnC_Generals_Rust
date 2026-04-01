@@ -243,6 +243,11 @@ pub struct AudioDevice {
     system: *mut AudioSystem, // Reference to parent system
 }
 
+// SAFETY: AudioDevice holds a non-owning reference to AudioSystem.
+// Access is synchronized through the audio system's internal locking.
+unsafe impl Send for AudioDevice {}
+unsafe impl Sync for AudioDevice {}
+
 /// Device information and capabilities
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
