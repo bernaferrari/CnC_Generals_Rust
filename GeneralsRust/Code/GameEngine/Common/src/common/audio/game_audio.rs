@@ -22,6 +22,7 @@ use glam::Mat4;
 use hound::WavReader;
 use lewton::inside_ogg::OggStreamReader;
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -1448,6 +1449,142 @@ impl Default for AudioManager {
     }
 }
 
+
+fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
+    static HANDLE: std::sync::OnceLock<OutputStreamHandle> = std::sync::OnceLock::new();
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        if let Ok((_, h)) = OutputStream::try_default() {
+            let _ = HANDLE.set(h);
+        }
+    });
+    HANDLE.get().cloned()
+}
+
+struct RodioPlaybackHook {
+    sinks: Mutex<HashMap<AudioHandle, Arc<Mutex<Sink>>>>,
+    listener_position: Mutex<Coord3D>,
+}
+
+impl RodioPlaybackHook {
+    fn new() -> Self {
+        let _ = get_rodio_stream_handle();
+        Self {
+            sinks: Mutex::new(HashMap::new()),
+            listener_position: Mutex::new(Coord3D::new()),
+        }
+    }
+
+    fn resolve_audio_file_path(&self, event: &AudioEventRts) -> Option<String> {
+        let filename = event.get_filename();
+        if filename.is_empty() {
+            return None;
+        }
+        let normalized = filename.replace('\\', "/");
+        if std::path::Path::new(&normalized).exists() {
+            return Some(normalized);
+        }
+        let slash_variant = filename.replace('\\', "/");
+        if std::path::Path::new(&slash_variant).exists() {
+            return Some(slash_variant);
+        }
+        Some(normalized)
+    }
+
+    fn calculate_3d_volume_falloff(&self, position: &Coord3D) -> Real {
+        let listener = self.listener_position.lock().ok().map(|l| *l).unwrap_or_else(|| Coord3D::new());
+        let dx = position.x - listener.x;
+        let dy = position.y - listener.y;
+        let dz = position.z - listener.z;
+        let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+        const MIN_DISTANCE: Real = 25.0;
+        const MAX_DISTANCE: Real = 1000.0;
+        if distance <= MIN_DISTANCE {
+            1.0
+        } else if distance >= MAX_DISTANCE {
+            0.0
+        } else {
+            let falloff = (MAX_DISTANCE - distance) / (MAX_DISTANCE - MIN_DISTANCE);
+            falloff.clamp(0.0, 1.0)
+        }
+    }
+}
+
+impl SoundPlaybackHook for RodioPlaybackHook {
+    fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+        let handle = event.get_playing_handle();
+        if handle == 0 {
+            return Err("No handle assigned".to_string());
+        }
+        let file_path = self.resolve_audio_file_path(event).ok_or_else(|| {
+            format!("Could not resolve file path for event '{}'", event.get_event_name())
+        })?;
+        let audio_data = std::fs::read(&file_path).map_err(|e| {
+            format!("Failed to read audio file '{}': {}", file_path, e)
+        })?;
+        let cursor = Cursor::new(audio_data);
+        let source = Decoder::new(cursor).map_err(|e| {
+            format!("Failed to decode audio file '{}': {}", file_path, e)
+        })?;
+        let stream_handle = get_rodio_stream_handle().ok_or_else(|| {
+            "Audio output stream not available".to_string()
+        })?;
+        let sink = Sink::try_new(&stream_handle).map_err(|e| {
+            format!("Failed to create audio sink: {}", e)
+        })?;
+        let volume = event.get_volume().clamp(0.0, 1.0);
+        sink.set_volume(volume);
+        let pitch = event.get_effective_pitch();
+        if (pitch - 1.0).abs() > 0.01 {
+            sink.append(source.speed(pitch));
+        } else {
+            sink.append(source);
+        }
+        if event.is_positional_audio() {
+            let pos = event.get_position();
+            let distance_volume = self.calculate_3d_volume_falloff(pos);
+            sink.set_volume(volume * distance_volume);
+        }
+        self.sinks.lock().unwrap().insert(handle, Arc::new(Mutex::new(sink)));
+        Ok(())
+    }
+
+    fn stop(&self, handle: AudioHandle) {
+        if let Some(sink) = self.sinks.lock().unwrap().remove(&handle) {
+            let s = sink.lock().unwrap();
+            s.stop();
+        }
+    }
+
+    fn pause(&self, handle: AudioHandle) {
+        if let Some(sink) = self.sinks.lock().unwrap().get(&handle) {
+            let s = sink.lock().unwrap();
+            s.pause();
+        }
+    }
+
+    fn resume(&self, handle: AudioHandle) {
+        if let Some(sink) = self.sinks.lock().unwrap().get(&handle) {
+            let s = sink.lock().unwrap();
+            s.play();
+        }
+    }
+
+    fn is_playing(&self, handle: AudioHandle) -> bool {
+        if let Some(sink) = self.sinks.lock().unwrap().get(&handle) {
+            let s = sink.lock().unwrap();
+            !s.empty()
+        } else {
+            false
+        }
+    }
+}
+
+pub fn register_rodio_playback_hook() -> bool {
+    let hook = Arc::new(RodioPlaybackHook::new());
+    register_sound_playback_hook(hook)
+}
+
 const AHSV_NO_SOUND: AudioHandle = 0x0000_0000;
 const AHSV_ERROR: AudioHandle = 0xFFFF_FFFF;
 const AHSV_NOT_FOR_LOCAL: AudioHandle = 0xFFFF_FFFE;
@@ -1590,6 +1727,7 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
     if THE_AUDIO.set(manager.clone()).is_err() {
         THE_AUDIO.get().expect("THE_AUDIO set but missing").clone()
     } else {
+        register_rodio_playback_hook();
         register_animation_sound_library(manager.clone());
         manager
     }

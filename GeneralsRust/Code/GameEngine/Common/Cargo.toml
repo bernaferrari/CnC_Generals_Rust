@@ -39,7 +39,7 @@ async-trait = { workspace = true, optional = true }
 futures = { version = "0.3", optional = true }
 
 # Modern audio libraries for high-quality audio system
-rodio = { version = "0.17", features = ["symphonia", "wav"], optional = true }
+rodio = { version = "0.17", features = ["symphonia", "wav"] }
 cpal = { version = "0.15", optional = true }
 symphonia = { version = "0.5", features = ["all"], optional = true }
 # hound = { version = "3.5", optional = true }  # Now required
@@ -96,7 +96,7 @@ winit = { version = "0.29", optional = true }
 [features]
 default = ["async", "graphics"]
 async = ["tokio", "async-trait", "futures"]
-audio = ["rodio", "cpal", "symphonia", "realfft", "rubato", "fundsp", "rtrb"]
+audio = ["cpal", "symphonia", "realfft", "rubato", "fundsp", "rtrb"]
 compression = ["lz4", "zstd"]
 graphics = ["wgpu", "winit"]
 windows = ["winapi"]

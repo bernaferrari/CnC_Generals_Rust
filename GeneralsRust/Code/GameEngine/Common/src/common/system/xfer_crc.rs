@@ -2,7 +2,8 @@
 // CRC-enabled data transfer with deep verification support
 ///////////////////////////////////////////////////////////////////////////////
 
-use super::xfer::Xfer;
+use super::snapshot::Snapshot;
+use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use std::collections::BTreeMap;
 use std::io;
 
@@ -191,9 +192,132 @@ impl<X: Xfer> XferDeepCRC<X> {
 }
 
 // Note: XferCRC and XferDeepCRC wrap other Xfer implementations and add CRC tracking.
-// They don't directly implement the full Xfer trait, but provide CRC calculation
-// via delegation and accumulation. For full Xfer trait implementation, see xfer_save.rs
-// and xfer_load.rs which provide concrete Save and Load modes.
+
+impl<X: Xfer> Xfer for XferCRC<X> {
+    fn get_xfer_mode(&self) -> XferMode {
+        self.inner.get_xfer_mode()
+    }
+
+    fn get_identifier(&self) -> &str {
+        self.inner.get_identifier()
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.inner.set_options(options)
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.inner.clear_options(options)
+    }
+
+    fn get_options(&self) -> u32 {
+        self.inner.get_options()
+    }
+
+    fn open(&mut self, identifier: &str) -> Result<(), XferStatus> {
+        self.inner.open(identifier)
+    }
+
+    fn close(&mut self) -> Result<(), XferStatus> {
+        self.inner.close()
+    }
+
+    fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+        self.inner.begin_block()
+    }
+
+    fn end_block(&mut self) -> Result<(), XferStatus> {
+        self.inner.end_block()
+    }
+
+    fn skip(&mut self, data_size: i32) -> Result<(), XferStatus> {
+        self.inner.skip(data_size)
+    }
+
+    fn xfer_snapshot(&mut self, snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+        self.inner.xfer_snapshot(snapshot)
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
+        self.inner.xfer_ascii_string(ascii_string_data)
+    }
+
+    fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
+        self.inner.xfer_unicode_string(unicode_string_data)
+    }
+
+    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
+        let result = unsafe { self.inner.xfer_implementation(data, data_size) };
+        if result.is_ok() {
+            let slice = std::slice::from_raw_parts(data, data_size);
+            self.update_crc(slice);
+        }
+        result
+    }
+}
+
+impl<X: Xfer> Xfer for XferDeepCRC<X> {
+    fn get_xfer_mode(&self) -> XferMode {
+        self.inner.get_xfer_mode()
+    }
+
+    fn get_identifier(&self) -> &str {
+        self.inner.get_identifier()
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.inner.set_options(options)
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.inner.clear_options(options)
+    }
+
+    fn get_options(&self) -> u32 {
+        self.inner.get_options()
+    }
+
+    fn open(&mut self, identifier: &str) -> Result<(), XferStatus> {
+        self.inner.open(identifier)
+    }
+
+    fn close(&mut self) -> Result<(), XferStatus> {
+        self.inner.close()
+    }
+
+    fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+        self.inner.begin_block()
+    }
+
+    fn end_block(&mut self) -> Result<(), XferStatus> {
+        self.inner.end_block()
+    }
+
+    fn skip(&mut self, data_size: i32) -> Result<(), XferStatus> {
+        self.inner.skip(data_size)
+    }
+
+    fn xfer_snapshot(&mut self, snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+        self.inner.xfer_snapshot(snapshot)
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
+        self.inner.xfer_ascii_string(ascii_string_data)
+    }
+
+    fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
+        self.inner.xfer_unicode_string(unicode_string_data)
+    }
+
+    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
+        let result = unsafe { self.inner.xfer_implementation(data, data_size) };
+        if result.is_ok() {
+            let slice = std::slice::from_raw_parts(data, data_size);
+            self.update_crc(slice);
+        }
+        result
+    }
+}
 
 #[cfg(test)]
 mod tests {
