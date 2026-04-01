@@ -105,8 +105,10 @@ impl AnimationTrack {
             return self.keyframes[0].value.clone();
         }
 
-        if time >= self.keyframes.last().unwrap().time {
-            return self.keyframes.last().unwrap().value.clone();
+        if let Some(last) = self.keyframes.last() {
+            if time >= last.time {
+                return last.value.clone();
+            }
         }
 
         // Find interpolation range
