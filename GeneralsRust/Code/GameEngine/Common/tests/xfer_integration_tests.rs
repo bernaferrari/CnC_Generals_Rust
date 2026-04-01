@@ -7,7 +7,8 @@
 // Integration tests for complete save/load cycle with deep CRC verification
 
 use game_engine::common::system::{
-    xfer::*, xfer_crc::*, xfer_load::*, xfer_postprocess::*, xfer_save::*, xfer_version::*,
+    xfer::Xfer, xfer_crc::*, xfer_load::XferLoad, xfer_load::XferLoadWithCRC, xfer_postprocess::*,
+    xfer_save::XferSave, xfer_version::*,
 };
 use std::io::Cursor;
 
@@ -205,11 +206,16 @@ fn test_hierarchical_crc() {
 
         // Create hierarchy: Root -> Child1 -> GrandChild
         xfer_deep.begin_object("Root").unwrap();
+        let mut root_val = 100u32;
+        xfer_deep.xfer_u32(&mut root_val).unwrap();
 
         xfer_deep.begin_object("Child1").unwrap();
+        let mut child_val = 200u32;
+        xfer_deep.xfer_u32(&mut child_val).unwrap();
+
         xfer_deep.begin_object("GrandChild").unwrap();
-        let mut value = 42u32;
-        xfer_deep.xfer_u32(&mut value).unwrap();
+        let mut gc_val = 300u32;
+        xfer_deep.xfer_u32(&mut gc_val).unwrap();
         let gc_crc = xfer_deep.end_object().unwrap();
         let c1_crc = xfer_deep.end_object().unwrap();
 
@@ -218,7 +224,7 @@ fn test_hierarchical_crc() {
         (root_crc, c1_crc, gc_crc)
     };
 
-    // Verify all CRCs are different
+    // Verify all CRCs are different (each level has its own data)
     assert_ne!(saved_crcs.0, saved_crcs.1);
     assert_ne!(saved_crcs.1, saved_crcs.2);
     assert_ne!(saved_crcs.0, saved_crcs.2);

@@ -9,7 +9,10 @@ use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::local_file_system::LocalFileSystem;
 use game_engine::common::system::subsystem_interface::SubsystemInterface;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static MAPPED_IMAGE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn parse_image_coords_accepts_space_separated_subtokens() {
@@ -35,6 +38,7 @@ fn parse_image_coords_accepts_space_separated_subtokens() {
 
 #[test]
 fn parse_mapped_image_definition_overwrites_in_place_with_raw_texture_present() {
+    let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
     init_global_mapped_image_collection();
     let collection_handle = ensure_mapped_image_collection();
     {
@@ -83,6 +87,7 @@ End
 
 #[test]
 fn common_mapped_image_load_finds_shell_menu_images_from_repo_assets() {
+    let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
     init_global_mapped_image_collection();
     game_engine::common::ini::ini_mapped_image::ImageCollection::load_global(512);
 
@@ -132,6 +137,7 @@ fn common_mapped_image_load_finds_shell_menu_images_from_repo_assets() {
 
 #[test]
 fn shell_menu_mapped_images_report_raw_texture_state() {
+    let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
     init_global_mapped_image_collection();
     game_engine::common::ini::ini_mapped_image::ImageCollection::load_global(512);
 
@@ -206,6 +212,7 @@ fn configure_repo_asset_filesystem() {
 
 #[test]
 fn mounted_filesystem_opens_available_shell_menu_art_from_repo_assets() {
+    let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
     configure_repo_asset_filesystem();
 
     let fs = get_file_system();
@@ -265,6 +272,7 @@ fn mounted_filesystem_opens_available_shell_menu_art_from_repo_assets() {
 
 #[test]
 fn mounted_archive_index_reports_shell_menu_art_candidates() {
+    let _lock = MAPPED_IMAGE_TEST_LOCK.lock().unwrap();
     configure_repo_asset_filesystem();
 
     let fs = get_file_system();

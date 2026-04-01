@@ -60,12 +60,12 @@ members = [
     "Code/Tools/big_unpack",
     "Code/Tools/w3d_to_gltf",
     "Code/Tools/UIFramework",
-    "Code/GameEngine/GameClient/gui",
+    # "Code/GameEngine/GameClient/gui",  # Requires gpui, fails on macOS without Metal toolchain
     "Code/Tools/WorldBuilder",
     "Code/Tools/ParticleEditor",
     "Code/Tools/GUIEdit",
     "Code/Tools/DebugWindow",
-    "Code/Tools/ImagePacker",
+    # "Code/Tools/ImagePacker",  # Requires gpui, fails on macOS without Metal toolchain
     "Code/Tools/MapCacheBuilder",
     "Code/Tools/Launcher",
 ]

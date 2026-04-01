@@ -209,6 +209,10 @@ impl Drop for MemoryPoolBlob {
     }
 }
 
+// SAFETY: MemoryPoolBlob is used behind a Mutex in GLOBAL_MEMORY_POOL_FACTORY.
+// The Mutex ensures exclusive access, making it safe to send across threads.
+unsafe impl Send for MemoryPoolBlob {}
+
 /// Memory pool for efficiently allocating objects of the same size
 pub struct MemoryPool {
     /// Name of this pool
@@ -424,6 +428,10 @@ impl fmt::Debug for MemoryPool {
             .finish()
     }
 }
+
+// SAFETY: MemoryPool is used behind a Mutex in GLOBAL_MEMORY_POOL_FACTORY.
+// The Mutex ensures exclusive access, making it safe to send across threads.
+unsafe impl Send for MemoryPool {}
 
 /// Dynamic memory allocator for variable-sized allocations
 pub struct DynamicMemoryAllocator {
@@ -708,6 +716,14 @@ impl fmt::Debug for MemoryPoolFactory {
             .finish()
     }
 }
+
+// SAFETY: MemoryPoolFactory is used behind a Mutex in a static OnceLock.
+// The Mutex ensures exclusive access, making it safe to send across threads.
+unsafe impl Send for MemoryPoolFactory {}
+
+// SAFETY: DynamicMemoryAllocator is used behind a Mutex in GLOBAL_MEMORY_POOL_FACTORY.
+// The Mutex ensures exclusive access, making it safe to send across threads.
+unsafe impl Send for DynamicMemoryAllocator {}
 
 /// Global memory pool factory instance
 static GLOBAL_MEMORY_POOL_FACTORY: OnceLock<Mutex<MemoryPoolFactory>> = OnceLock::new();
