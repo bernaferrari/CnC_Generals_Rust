@@ -20,8 +20,10 @@
 //!   - `DrawableManager::render()`
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use ww3d_assets::AssetManager;
 use ww3d_core::animation::{AnimationController, AnimationMode, Hierarchy, Pivot};
 use ww3d_core::lighting::{Light, LightEnvironment, LightType};
 use ww3d_core::material::{BlendMode, MaterialInfo, Shader, ShaderType, VertexMaterial};
@@ -36,22 +38,12 @@ use ww3d_core::{
 // ---------------------------------------------------------------------------
 
 /// Newtype wrapper for a drawable identifier coming from GameLogic.
-///
-/// In the full system this will match `Drawable::getID()`.  For now we
-/// use a simple integer that is assigned by the bridge itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DrawableId(pub u32);
 
 /// Bitflags that the bridge receives from GameLogic draw modules.
-///
-/// This is a *subset* of the full `ModelConditionFlags` from GameLogic — only
-/// the flags that actually influence rendering state are kept here, which
-/// avoids pulling the entire `gamelogic` type into the bridge's public API.
 bitflags::bitflags! {
     /// Rendering-relevant model condition flags.
-    ///
-    /// Each flag maps to a WWVegas render-state override in
-    /// [`RenderStateOverrides::from_condition_flags`].
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct RenderConditionFlags: u64 {
         const PRISTINE             = 1 <<  0;
@@ -88,34 +80,15 @@ bitflags::bitflags! {
 /// `RenderConditionFlags` and applies to WWVegas render objects.
 #[derive(Debug, Clone)]
 pub struct RenderStateOverrides {
-    /// Overall opacity multiplier (e.g. partially-constructed buildings).
     pub opacity: f32,
-
-    /// Additive emissive tint (night glow, aflame).
     pub emissive_tint: [f32; 3],
-
-    /// Whether to apply the night-map texture blend.
     pub apply_night_map: bool,
-
-    /// Whether to apply the snow-map texture blend.
     pub apply_snow_map: bool,
-
-    /// Tint colour for construction-progress scaffolding.
     pub construction_tint: Option<[f32; 3]>,
-
-    /// Damage overlay intensity in [0, 1].
     pub damage_overlay: f32,
-
-    /// Whether the object is currently selected (selection ring).
     pub selected: bool,
-
-    /// Whether the object should be hidden entirely (shroud, etc.).
     pub hidden: bool,
-
-    /// Blend mode override (None = use material default).
     pub blend_override: Option<BlendMode>,
-
-    /// Whether to apply wireframe rendering (debug).
     pub wireframe: bool,
 }
 
@@ -137,31 +110,23 @@ impl Default for RenderStateOverrides {
 }
 
 impl RenderStateOverrides {
-    /// Derive render-state overrides from the given condition flags.
-    ///
-    /// This mirrors how the C++ `W3DModelDraw::do_draw_module()` interprets
-    /// `ModelConditionFlags` to change render object properties (opacity,
-    /// visibility of sub-objects, material replacement, etc.).
     pub fn from_condition_flags(flags: RenderConditionFlags) -> Self {
         let mut s = Self::default();
 
-        // --- Visibility ---
         if flags.contains(RenderConditionFlags::AWAITING_CONSTRUCTION) {
             s.hidden = true;
             return s;
         }
 
-        // --- Damage ---
         if flags.contains(RenderConditionFlags::REALLY_DAMAGED) {
             s.damage_overlay = 1.0;
         } else if flags.contains(RenderConditionFlags::DAMAGED) {
             s.damage_overlay = 0.5;
         } else if flags.contains(RenderConditionFlags::RUBBLE) {
             s.damage_overlay = 1.0;
-            s.opacity = 0.8; // rubble is slightly faded
+            s.opacity = 0.8;
         }
 
-        // --- Construction progress ---
         if flags.contains(RenderConditionFlags::ACTIVELY_CONSTRUCTED) {
             s.construction_tint = Some([0.6, 0.6, 0.6]);
             s.opacity = 1.0;
@@ -170,23 +135,18 @@ impl RenderStateOverrides {
             s.opacity = 0.7;
         }
 
-        // --- Night / Snow ---
         s.apply_night_map = flags.contains(RenderConditionFlags::NIGHT);
         s.apply_snow_map = flags.contains(RenderConditionFlags::SNOW);
 
-        // --- Fire effects ---
         if flags.contains(RenderConditionFlags::AFLAME) {
             s.emissive_tint = [1.0, 0.4, 0.05];
         } else if flags.contains(RenderConditionFlags::SMOLDERING) {
             s.emissive_tint = [0.3, 0.15, 0.05];
         }
 
-        // --- Selection ---
         s.selected = flags.contains(RenderConditionFlags::SELECTED);
 
-        // --- Disguised ---
         if flags.contains(RenderConditionFlags::DISGUISED) {
-            // Disguised objects keep their visual but with a subtle tint.
             s.emissive_tint = [
                 s.emissive_tint[0] + 0.05,
                 s.emissive_tint[1] + 0.05,
@@ -194,7 +154,6 @@ impl RenderStateOverrides {
             ];
         }
 
-        // --- Toppled / Flooded ---
         if flags.contains(RenderConditionFlags::TOPPLED)
             || flags.contains(RenderConditionFlags::FLOODED)
         {
@@ -209,73 +168,33 @@ impl RenderStateOverrides {
 // Bone override data for animated models
 // ---------------------------------------------------------------------------
 
-/// A single bone transform override, submitted when GameLogic's draw module
-/// adjusts a turret rotation, recoil offset, etc.
 #[derive(Debug, Clone)]
 pub struct BoneOverride {
-    /// Bone index within the hierarchy.
     pub bone_index: i32,
-
-    /// Optional bone name (for logging / debugging).
     pub bone_name: Option<String>,
-
-    /// Replacement transform (world-space after hierarchy compose).
     pub transform: glam::Mat4,
 }
 
 // ---------------------------------------------------------------------------
-// Per-frame draw submission — what GameLogic pushes into the bridge
+// Per-frame draw submission
 // ---------------------------------------------------------------------------
 
-/// A single draw submission representing one draw module on one drawable.
-///
-/// The bridge collects a `Vec<DrawSubmission>` each frame, sorts them, and
-/// maps them into WWVegas `RenderObject` instances inside the scene.
 #[derive(Debug, Clone)]
 pub struct DrawSubmission {
-    /// Which drawable this submission belongs to.
     pub drawable_id: DrawableId,
-
-    /// Human-readable model name (e.g. `"AVComanche"`) used for W3D asset lookup.
     pub model_name: String,
-
-    /// World-space transform (position + rotation + scale).
     pub world_transform: glam::Mat4,
-
-    /// Current model condition flags from GameLogic.
     pub condition_flags: RenderConditionFlags,
-
-    /// Computed render-state overrides for this frame.
     pub render_state: RenderStateOverrides,
-
-    /// Bone transform overrides (turret, recoil, etc.).
     pub bone_overrides: Vec<BoneOverride>,
-
-    /// Active animation name, if any.
     pub animation_name: Option<String>,
-
-    /// Animation mode (loop, once, etc.).
     pub animation_mode: Option<AnimationMode>,
-
-    /// Animation time offset in seconds.
     pub animation_time: f32,
-
-    /// Object-space bounding sphere radius for frustum culling.
     pub bounding_sphere: BoundingSphere,
-
-    /// Object-space bounding box.
     pub bounding_box: AABox,
-
-    /// Sort priority (higher = rendered later / on top).
     pub sort_level: i32,
-
-    /// Whether the draw module has an opaque pass (default true).
     pub opaque: bool,
-
-    /// Whether the draw module has a transparent pass.
     pub transparent: bool,
-
-    /// Shadow type requested by the draw module.
     pub cast_shadow: bool,
 }
 
@@ -302,25 +221,47 @@ impl Default for DrawSubmission {
 }
 
 // ---------------------------------------------------------------------------
-// W3D render object wrapper — lives inside the WWVegas scene
+// W3D render object wrapper
 // ---------------------------------------------------------------------------
 
-/// A lightweight `RenderObject` that the bridge inserts into the WWVegas scene
-/// to represent one draw-module submission.
-///
-/// On `render()` it simply records itself so the real WWVegas pipeline can
-/// consume the submission data later.  This avoids duplicating the heavy
-/// W3D asset loading code; the actual mesh / texture / shader binding
-/// happens in `RenderBridge::flush()` when it resolves model names to
-/// `ww3d_core::RenderObject`s loaded from W3D files.
 #[derive(Debug)]
 struct BridgeRenderObject {
     submission: DrawSubmission,
+    model: Option<Arc<dyn RenderObject>>,
+}
+
+impl BridgeRenderObject {
+    fn apply_render_state(&self, render_obj: &mut dyn RenderObject) {
+        let state = &self.submission.render_state;
+
+        if state.opacity < 1.0 {
+            if let Some(mesh) = render_obj.as_any_mut().downcast_mut::<Mesh>() {
+                mesh.set_alpha_override(state.opacity);
+            }
+        }
+
+        let emissive_strength = state.emissive_tint.iter().cloned().fold(0.0_f32, f32::max);
+        if emissive_strength > 0.0 {
+            if let Some(mesh) = render_obj.as_any_mut().downcast_mut::<Mesh>() {
+                mesh.set_material_pass_emissive_override(emissive_strength.clamp(0.0, 1.0));
+            }
+        }
+
+        if state.damage_overlay > 0.0 {
+            if let Some(mesh) = render_obj.as_any_mut().downcast_mut::<Mesh>() {
+                let current = mesh.get_alpha_override();
+                mesh.set_alpha_override(current * (1.0 - state.damage_overlay * 0.3));
+            }
+        }
+    }
 }
 
 impl RenderObject for BridgeRenderObject {
     fn class_id(&self) -> ww3d_core::RenderObjClassId {
-        ww3d_core::RenderObjClassId::Mesh
+        self.model
+            .as_ref()
+            .map(|m| m.class_id())
+            .unwrap_or(ww3d_core::RenderObjClassId::Mesh)
     }
 
     fn name(&self) -> &str {
@@ -334,13 +275,24 @@ impl RenderObject for BridgeRenderObject {
     fn clone_object(&self) -> Box<dyn RenderObject> {
         Box::new(BridgeRenderObject {
             submission: self.submission.clone(),
+            model: self.model.clone(),
         })
     }
 
-    fn render(&mut self, _info: &RenderInfo) -> ww3d_core::errors::W3DResult<()> {
-        // The bridge itself does not rasterize.  The real rendering pass in
-        // RenderBridge::flush() will map the submission's model_name to an
-        // actual WWVegas render object and call its render() method.
+    fn render(&mut self, info: &RenderInfo) -> ww3d_core::errors::W3DResult<()> {
+        if self.submission.render_state.hidden {
+            return Ok(());
+        }
+
+        let world = glam_to_ww_mat4(self.submission.world_transform);
+
+        if let Some(ref model) = self.model {
+            let mut instance = model.clone_object();
+            instance.set_transform(world);
+            self.apply_render_state(instance.as_mut());
+            instance.render(info)?;
+        }
+
         Ok(())
     }
 
@@ -353,11 +305,11 @@ impl RenderObject for BridgeRenderObject {
     }
 
     fn get_transform(&self) -> ww3d_core::glam::Mat4 {
-        ww3d_core::glam::Mat4::from_cols_array(&self.submission.world_transform.to_cols_array())
+        glam_to_ww_mat4(self.submission.world_transform)
     }
 
     fn set_transform(&mut self, transform: ww3d_core::glam::Mat4) {
-        self.submission.world_transform = glam::Mat4::from_cols_array(&transform.to_cols_array());
+        self.submission.world_transform = ww_to_glam_mat4(transform);
     }
 
     fn get_sort_level(&self) -> i32 {
@@ -381,74 +333,30 @@ impl RenderObject for BridgeRenderObject {
 // Main Render Bridge
 // ---------------------------------------------------------------------------
 
-/// Statistics about the last frame processed by the bridge.
 #[derive(Debug, Clone, Default)]
 pub struct RenderBridgeStats {
-    /// Total draw submissions received this frame.
     pub submissions_received: usize,
-    /// Submissions culled by frustum test.
     pub culled: usize,
-    /// Submissions actually rendered (opaque + transparent).
     pub rendered: usize,
-    /// Opaque draw calls.
     pub opaque_draws: usize,
-    /// Transparent draw calls (sorted back-to-front).
     pub transparent_draws: usize,
-    /// Submissions hidden by condition flags (shroud, awaiting construction).
     pub hidden: usize,
-    /// Time spent in the bridge this frame (seconds).
     pub bridge_time_s: f32,
 }
 
-/// The render bridge is the central coordinator between GameLogic's draw
-/// modules and the WWVegas W3D renderer.
-///
-/// ## Usage pattern (each frame)
-///
-/// ```text
-/// 1. bridge.begin_frame(camera, delta);
-/// 2. for each drawable that ticked its draw modules:
-///        bridge.submit(draw_submission);
-/// 3. bridge.flush();   // cull, sort, push into WWVegas scene
-/// 4. // WWVegas renderer picks up the scene and presents
-/// 5. bridge.end_frame();
-/// ```
-///
-/// ## C++ Reference
-///
-/// This struct subsumes the rendering portion of:
-/// - `W3DGameClient::draw()`
-/// - `DrawableManager::render()`
-/// - `Drawable::friend_DrawModule()` (the per-module render call)
 pub struct RenderBridge {
-    /// The WWVegas scene that receives render objects.
     scene: Scene,
-
-    /// Submissions collected during the current frame (before flush).
     pending: Vec<DrawSubmission>,
-
-    /// Cached camera for frustum culling during flush.
     camera: Option<Camera>,
-
-    /// Model-name -> resolved WWVegas render object cache.
-    ///
-    /// In the full implementation this will be backed by the asset manager
-    /// that loads .w3d files and produces `ww3d_core::RenderObject` instances.
-    /// For now it stores placeholder markers.
-    model_cache: HashMap<String, bool>,
-
-    /// Statistics for the last completed frame.
+    model_cache: HashMap<String, Arc<dyn RenderObject>>,
+    asset_manager: AssetManager,
+    asset_search_paths: Vec<PathBuf>,
     stats: RenderBridgeStats,
-
-    /// The current render info (view/projection matrices, timing).
     render_info: RenderInfo,
-
-    /// Global elapsed time accumulator (seconds).
     elapsed_time: f32,
 }
 
 impl RenderBridge {
-    /// Create a new render bridge with default scene settings.
     pub fn new() -> Self {
         let scene = SceneBuilder::new("GameLogic Bridge Scene".to_string()).build();
 
@@ -457,20 +365,14 @@ impl RenderBridge {
             pending: Vec::with_capacity(2048),
             camera: None,
             model_cache: HashMap::new(),
+            asset_manager: AssetManager::new(),
+            asset_search_paths: Vec::new(),
             stats: RenderBridgeStats::default(),
             render_info: RenderInfo::new(),
             elapsed_time: 0.0,
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Frame lifecycle
-    // -----------------------------------------------------------------------
-
-    /// Begin a new frame.  Call this once before submitting any draw data.
-    ///
-    /// * `camera` — the current game camera used for frustum culling.
-    /// * `delta_time` — frame delta in seconds.
     pub fn begin_frame(&mut self, camera: &Camera, delta_time: f32) {
         self.pending.clear();
         let mut frame_camera = camera.clone();
@@ -488,18 +390,10 @@ impl RenderBridge {
         self.camera = Some(frame_camera);
     }
 
-    /// Submit one draw module's render data to the bridge.
-    ///
-    /// The submission is queued and will be processed during `flush()`.
     pub fn submit(&mut self, submission: DrawSubmission) {
         self.pending.push(submission);
     }
 
-    /// Process all pending submissions: cull, sort, and push into the
-    /// WWVegas scene.
-    ///
-    /// After this returns the scene is ready for the WWVegas renderer to
-    /// consume.
     pub fn flush(&mut self) {
         let start = std::time::Instant::now();
 
@@ -508,10 +402,27 @@ impl RenderBridge {
             ..Default::default()
         };
 
-        // Phase 1: Filter hidden objects (shroud, awaiting construction).
-        let visible: Vec<&DrawSubmission> = self
+        // Collect model names needed first (no borrow conflict)
+        let model_names: Vec<String> = self
             .pending
             .iter()
+            .filter(|s| !s.render_state.hidden)
+            .map(|s| s.model_name.to_lowercase())
+            .collect();
+
+        // Phase 2.5: Ensure models are loaded in the cache.
+        for name in &model_names {
+            if !self.model_cache.contains_key(name) {
+                if let Some(render_obj) = self.resolve_model(name) {
+                    self.model_cache.insert(name.clone(), render_obj);
+                }
+            }
+        }
+
+        // Phase 1: Filter hidden objects.
+        let visible: Vec<DrawSubmission> = self
+            .pending
+            .drain(..)
             .filter(|s| {
                 if s.render_state.hidden {
                     stats.hidden += 1;
@@ -525,13 +436,12 @@ impl RenderBridge {
         // Phase 2: Frustum cull.
         let mut camera = match &self.camera {
             Some(c) => c.clone(),
-            None => return, // no camera — skip all rendering
+            None => return,
         };
 
-        let after_cull: Vec<&DrawSubmission> = visible
+        let after_cull: Vec<DrawSubmission> = visible
             .into_iter()
             .filter(|s| {
-                // Transform bounding sphere to world space for frustum test.
                 let local_center = ww_to_game_vec3(s.bounding_sphere.center);
                 let world_center = s.world_transform.transform_point3(local_center);
                 let world_sphere =
@@ -546,26 +456,16 @@ impl RenderBridge {
             })
             .collect();
 
-        let loaded_model_names: Vec<String> = after_cull
-            .iter()
-            .map(|s| s.model_name.to_lowercase())
-            .collect();
-
         // Phase 3: Partition into opaque / transparent.
-        let mut opaque: Vec<&DrawSubmission> = Vec::new();
-        let mut transparent: Vec<&DrawSubmission> = Vec::new();
+        let mut opaque: Vec<DrawSubmission> = Vec::new();
+        let mut transparent: Vec<DrawSubmission> = Vec::new();
 
-        for s in &after_cull {
+        for s in after_cull {
             if s.transparent {
                 transparent.push(s);
             } else {
                 opaque.push(s);
             }
-        }
-        drop(after_cull);
-
-        for name in loaded_model_names {
-            self.model_cache.insert(name, true);
         }
 
         // Phase 4: Sort opaque front-to-back, transparent back-to-front.
@@ -592,26 +492,30 @@ impl RenderBridge {
         // Phase 5: Rebuild the scene layers.
         self.scene.clear();
 
-        // Opaque layer (sort level 0)
         {
             let mut opaque_layer = Layer::new("opaque".to_string());
             opaque_layer.set_sort_level(0);
             for s in opaque {
+                let key = s.model_name.to_lowercase();
+                let model = self.model_cache.get(&key).cloned();
                 let obj = BridgeRenderObject {
-                    submission: (*s).clone(),
+                    submission: s,
+                    model,
                 };
                 opaque_layer.add_object(Box::new(obj));
             }
             self.scene.add_layer(opaque_layer);
         }
 
-        // Transparent layer (sort level 100 — rendered after opaque)
         if !transparent.is_empty() {
             let mut trans_layer = Layer::new("transparent".to_string());
             trans_layer.set_sort_level(100);
             for s in transparent {
+                let key = s.model_name.to_lowercase();
+                let model = self.model_cache.get(&key).cloned();
                 let obj = BridgeRenderObject {
-                    submission: (*s).clone(),
+                    submission: s,
+                    model,
                 };
                 trans_layer.add_object(Box::new(obj));
             }
@@ -622,43 +526,66 @@ impl RenderBridge {
         self.stats = stats;
     }
 
-    /// End the frame.  Call after flush and after the WWVegas renderer has
-    /// presented.
-    pub fn end_frame(&mut self) {
-        // No-op for now; could release per-frame scratch buffers.
+    fn resolve_model(&mut self, name: &str) -> Option<Arc<dyn RenderObject>> {
+        if let Some(obj) = self.asset_manager.create_render_obj(name) {
+            return Some(Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>));
+        }
+
+        for search_path in &self.asset_search_paths {
+            let candidate = search_path.join(format!("{name}.w3d"));
+            if candidate.exists() {
+                if self.asset_manager.load_3d_assets(&candidate).is_ok() {
+                    if let Some(obj) = self.asset_manager.create_render_obj(name) {
+                        return Some(Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>));
+                    }
+                }
+            }
+        }
+
+        let fallback = ww3d_core::create_cube_mesh(name.to_string(), 1.0);
+        Some(Arc::new(fallback))
     }
 
-    // -----------------------------------------------------------------------
-    // Accessors
-    // -----------------------------------------------------------------------
+    pub fn end_frame(&mut self) {}
 
-    /// Borrow the WWVegas scene (read-only) so the renderer can walk it.
     pub fn scene(&self) -> &Scene {
         &self.scene
     }
 
-    /// Borrow the WWVegas scene mutably (advanced use).
     pub fn scene_mut(&mut self) -> &mut Scene {
         &mut self.scene
     }
 
-    /// Borrow the current render info.
     pub fn render_info(&self) -> &RenderInfo {
         &self.render_info
     }
 
-    /// Get statistics from the last completed flush.
     pub fn stats(&self) -> &RenderBridgeStats {
         &self.stats
     }
 
-    /// Mark a model name as loaded (placeholder — full impl will call into
-    /// the WWVegas asset manager to load .w3d / .tga / .dds files).
-    pub fn mark_model_loaded(&mut self, model_name: &str) {
-        self.model_cache.insert(model_name.to_lowercase(), true);
+    pub fn add_asset_search_path<P: Into<PathBuf>>(&mut self, path: P) {
+        self.asset_search_paths.push(path.into());
     }
 
-    /// Mark a batch of model names as loaded.
+    pub fn asset_manager(&self) -> &AssetManager {
+        &self.asset_manager
+    }
+
+    pub fn asset_manager_mut(&mut self) -> &mut AssetManager {
+        &mut self.asset_manager
+    }
+
+    pub fn mark_model_loaded(&mut self, model_name: &str) {
+        let key = model_name.to_lowercase();
+        if self.model_cache.contains_key(&key) {
+            return;
+        }
+        if let Some(render_obj) = self.resolve_model(&key) {
+            self.model_cache.insert(key, render_obj);
+        }
+    }
+
     pub fn mark_models_loaded<I, S>(&mut self, model_names: I)
     where
         I: IntoIterator<Item = S>,
@@ -672,25 +599,24 @@ impl RenderBridge {
             }
             let key = model_name.to_lowercase();
             if seen.insert(key.clone()) {
-                self.model_cache.insert(key, true);
+                if !self.model_cache.contains_key(&key) {
+                    if let Some(render_obj) = self.resolve_model(&key) {
+                        self.model_cache.insert(key, render_obj);
+                    }
+                }
             }
         }
     }
 
-    /// Check whether a model has been loaded.
     pub fn is_model_loaded(&self, model_name: &str) -> bool {
         self.model_cache
-            .get(&model_name.to_lowercase())
-            .copied()
-            .unwrap_or(false)
+            .contains_key(&model_name.to_lowercase())
     }
 
-    /// Get the number of pending (un-flushed) submissions.
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
 
-    /// Clear all cached model data.
     pub fn clear_model_cache(&mut self) {
         self.model_cache.clear();
     }
@@ -702,19 +628,66 @@ impl Default for RenderBridge {
     }
 }
 
-// Global singleton instance (matching C++ TheRenderBridge pattern)
+/// Adapter that wraps a `ww3d_assets::RenderObj` as a `ww3d_core::RenderObject`.
+#[derive(Debug)]
+struct WrapRenderObj(Box<dyn ww3d_assets::assets::RenderObj>);
+
+impl RenderObject for WrapRenderObj {
+    fn class_id(&self) -> ww3d_core::RenderObjClassId {
+        ww3d_core::RenderObjClassId::Mesh
+    }
+
+    fn name(&self) -> &str {
+        self.0.get_name()
+    }
+
+    fn set_name(&mut self, _name: String) {}
+
+    fn clone_object(&self) -> Box<dyn RenderObject> {
+        Box::new(WrapRenderObj(self.0.clone_box()))
+    }
+
+    fn render(&mut self, _info: &RenderInfo) -> ww3d_core::errors::W3DResult<()> {
+        self.0.render();
+        Ok(())
+    }
+
+    fn get_obj_space_bounding_sphere(&self) -> BoundingSphere {
+        BoundingSphere::zero()
+    }
+
+    fn get_obj_space_bounding_box(&self) -> AABox {
+        AABox::zero()
+    }
+
+    fn get_transform(&self) -> ww3d_core::glam::Mat4 {
+        *self.0.get_transform()
+    }
+
+    fn set_transform(&mut self, transform: ww3d_core::glam::Mat4) {
+        self.0.set_transform(transform);
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
+// Global singleton instance
 use std::sync::Mutex;
 lazy_static::lazy_static! {
     pub static ref THE_RENDER_BRIDGE: Mutex<Option<RenderBridge>> = Mutex::new(None);
 }
 
-/// Initialize the global render bridge
 pub fn init_render_bridge() {
     let mut guard = THE_RENDER_BRIDGE.lock().unwrap();
     *guard = Some(RenderBridge::new());
 }
 
-/// Get reference to global render bridge
 pub fn get_render_bridge() -> &'static Mutex<Option<RenderBridge>> {
     &THE_RENDER_BRIDGE
 }
@@ -723,10 +696,6 @@ pub fn get_render_bridge() -> &'static Mutex<Option<RenderBridge>> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Squared distance from a submission's world position to the camera.
-///
-/// Used for depth sorting.  We use the translation component of the world
-/// transform as the object centre.
 fn distance_sq_to_camera(submission: &DrawSubmission, camera: &Camera) -> f32 {
     let obj_pos = submission
         .world_transform
@@ -745,50 +714,36 @@ fn game_to_ww_vec3(v: glam::Vec3) -> ww3d_core::glam::Vec3 {
     ww3d_core::glam::Vec3::new(v.x, v.y, v.z)
 }
 
-/// Convert a GameLogic `Matrix3D` (which is `glam::Mat4`) to the WWVegas
-/// representation.  Since both are `glam::Mat4` under the hood, this is a
-/// no-op identity conversion, but it documents the boundary.
+#[inline]
+fn glam_to_ww_mat4(m: glam::Mat4) -> ww3d_core::glam::Mat4 {
+    let cols = m.to_cols_array();
+    ww3d_core::glam::Mat4::from_cols_array(&cols)
+}
+
+#[inline]
+fn ww_to_glam_mat4(m: ww3d_core::glam::Mat4) -> glam::Mat4 {
+    let cols = m.to_cols_array();
+    glam::Mat4::from_cols_array(&cols)
+}
+
 #[inline]
 pub fn game_logic_to_wwvegas_transform(m: glam::Mat4) -> glam::Mat4 {
     m
 }
 
-/// Convert a GameLogic `Coord3D` (`glam::Vec3`) to a WWVegas `Vec3`.
 #[inline]
 pub fn game_logic_to_wwvegas_vec3(v: glam::Vec3) -> glam::Vec3 {
     v
 }
 
-/// Apply render-state overrides to a WWVegas material.
-///
-/// This is called by the bridge (or by consumers that walk the scene) to
-/// adjust per-object material properties based on condition flags.
 pub fn apply_render_state_to_material(
     _material: &mut VertexMaterial,
     _overrides: &RenderStateOverrides,
 ) {
-    // Full implementation will modify material diffuse, emissive, opacity,
-    // texture stage flags based on the overrides struct.
-    // Left as a stub because VertexMaterial mutation API is still evolving.
 }
 
-// ---------------------------------------------------------------------------
-// Scene builder helpers
-// ---------------------------------------------------------------------------
-
-/// Create a default game scene with standard layers.
-///
-/// This sets up the layer hierarchy that matches the C++ render ordering:
-///
-/// 1. Terrain (sort 0)
-/// 2. Shadows (sort 50)
-/// 3. Opaque objects (sort 100)
-/// 4. Transparent objects (sort 200)
-/// 5. Post-FX / selection circles (sort 300)
 pub fn create_default_game_scene() -> Scene {
     let scene = SceneBuilder::new("Game World".to_string()).build();
-
-    // Layers will be added dynamically by the bridge during flush().
     scene
 }
 
@@ -880,7 +835,6 @@ mod tests {
 
         bridge.begin_frame(&camera, 0.016);
 
-        // Submit a visible object at the origin.
         let submission = DrawSubmission {
             drawable_id: DrawableId(1),
             model_name: "AVComanche".to_string(),
@@ -896,7 +850,6 @@ mod tests {
         };
         bridge.submit(submission);
 
-        // Submit a hidden object.
         let hidden = DrawSubmission {
             drawable_id: DrawableId(2),
             model_name: "Scaffold".to_string(),
@@ -926,14 +879,13 @@ mod tests {
             60.0_f32.to_radians(),
             16.0 / 9.0,
             0.1,
-            100.0, // far plane = 100
+            100.0,
         );
         camera.set_position(WwVec3::new(0.0, 10.0, 0.0));
         camera.look_at(WwVec3::new(0.0, 10.0, 1.0), WwVec3::Y);
 
         bridge.begin_frame(&camera, 0.016);
 
-        // Object inside frustum.
         let near = DrawSubmission {
             drawable_id: DrawableId(1),
             bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 1.0),
@@ -942,7 +894,6 @@ mod tests {
         };
         bridge.submit(near);
 
-        // Object beyond far plane.
         let far = DrawSubmission {
             drawable_id: DrawableId(2),
             bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 1.0),
@@ -956,7 +907,6 @@ mod tests {
 
         let stats = bridge.stats();
         assert_eq!(stats.submissions_received, 2);
-        // At least one should be culled (the far object).
         assert!(stats.culled >= 1);
     }
 
@@ -975,7 +925,7 @@ mod tests {
         assert!(!bridge.is_model_loaded("TestModel"));
         bridge.mark_model_loaded("TestModel");
         assert!(bridge.is_model_loaded("TestModel"));
-        assert!(bridge.is_model_loaded("testmodel")); // case insensitive
+        assert!(bridge.is_model_loaded("testmodel"));
         bridge.clear_model_cache();
         assert!(!bridge.is_model_loaded("TestModel"));
     }
