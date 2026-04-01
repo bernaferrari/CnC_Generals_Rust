@@ -4968,15 +4968,16 @@ impl GameLogic {
                 if let Some(attacker) = self.objects.get(&object_id) {
                     let shooter_pos = attacker.get_position();
                     let weapon_damage = attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(25.0);
-                    let target_loc = attacker.target_location.unwrap();
-                    super::combat::queue_projectile(super::combat::PendingProjectile {
-                        shooter_id: object_id,
-                        shooter_pos,
-                        target_id: None,
-                        target_pos: target_loc,
-                        damage: weapon_damage,
-                        speed: 200.0,
-                    });
+                    if let Some(target_loc) = attacker.target_location {
+                        super::combat::queue_projectile(super::combat::PendingProjectile {
+                            shooter_id: object_id,
+                            shooter_pos,
+                            target_id: None,
+                            target_pos: target_loc,
+                            damage: weapon_damage,
+                            speed: 200.0,
+                        });
+                    }
                 }
                 if let Some(attacker) = self.objects.get_mut(&object_id) {
                     if let Some(w) = attacker.weapon.as_mut() {

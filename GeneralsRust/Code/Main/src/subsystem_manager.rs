@@ -66,10 +66,9 @@ fn resolve_save_directory() -> PathBuf {
 }
 
 fn resolve_save_directory_from(user_data: Option<&str>) -> PathBuf {
-    let base = if user_data.unwrap_or("").trim().is_empty() {
-        "UserData".to_string()
-    } else {
-        user_data.unwrap().trim().to_string()
+    let base = match user_data.map(str::trim) {
+        Some(path) if !path.is_empty() => path.to_string(),
+        _ => "UserData".to_string(),
     };
 
     PathBuf::from(base).join("Save")
