@@ -87,7 +87,10 @@ impl CrossPlatformGameEngine {
                 .context("Failed to parse command line arguments")?,
         );
 
-        let cmd_args = self.command_line_args.as_ref().unwrap();
+        let cmd_args = self
+            .command_line_args
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Command line arguments missing after parse"))?;
 
         // Show help if requested
         if cmd_args.wants_help() {

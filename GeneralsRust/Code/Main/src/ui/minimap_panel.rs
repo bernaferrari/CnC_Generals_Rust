@@ -213,11 +213,12 @@ pub fn update_minimap_state(
 
     if !new_beacons.is_empty() {
         // Start a highlight on the most recent beacon location
-        let last = new_beacons.last().copied().unwrap();
-        ui_state.beacon_highlight = Some(BeaconHighlight {
-            world_pos: last,
-            timer: 1.0,
-        });
+        if let Some(last) = new_beacons.last().copied() {
+            ui_state.beacon_highlight = Some(BeaconHighlight {
+                world_pos: last,
+                timer: 1.0,
+            });
+        }
     }
 }
 
