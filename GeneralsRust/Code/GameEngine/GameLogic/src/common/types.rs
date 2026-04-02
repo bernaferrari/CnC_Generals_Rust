@@ -425,7 +425,11 @@ bitflags! {
 
 #[cfg(test)]
 mod tests {
-    use super::ObjectStatusMaskType;
+    use super::{
+        engine_geometry_to_logic, geometry_type_from_u32, geometry_type_to_u32,
+        EngineGeometryInfo, EngineGeometryType, GeometryExtentModType, GeometryInfo,
+        ObjectStatusMaskType,
+    };
 
     #[test]
     fn object_status_parse_tokens_matches_legacy_helper() {
@@ -454,6 +458,47 @@ mod tests {
             err.contains("NONE"),
             "error message should reference NONE token"
         );
+    }
+
+    #[test]
+    fn geometry_info_tweak_extents_cycles_type_and_clears_small_flag() {
+        let mut geometry = GeometryInfo::default();
+        geometry.geometry_type = EngineGeometryType::Box;
+        geometry.is_small = true;
+        geometry.tweak_extents(GeometryExtentModType::Type, 1.0);
+
+        assert_eq!(geometry.geometry_type, EngineGeometryType::Sphere);
+        assert!(!geometry.is_small);
+    }
+
+    #[test]
+    fn geometry_type_round_trip_helpers_match_cpp_order() {
+        assert_eq!(geometry_type_to_u32(EngineGeometryType::Sphere), 0);
+        assert_eq!(geometry_type_to_u32(EngineGeometryType::Cylinder), 1);
+        assert_eq!(geometry_type_to_u32(EngineGeometryType::Box), 2);
+
+        assert_eq!(geometry_type_from_u32(0), EngineGeometryType::Sphere);
+        assert_eq!(geometry_type_from_u32(1), EngineGeometryType::Cylinder);
+        assert_eq!(geometry_type_from_u32(2), EngineGeometryType::Box);
+    }
+
+    #[test]
+    fn engine_geometry_to_logic_preserves_type_and_small_flag() {
+        let engine_geometry = EngineGeometryInfo::new(
+            EngineGeometryType::Cylinder,
+            true,
+            12.0,
+            8.0,
+            4.0,
+        );
+
+        let logic_geometry = engine_geometry_to_logic(&engine_geometry);
+
+        assert_eq!(logic_geometry.geometry_type, EngineGeometryType::Cylinder);
+        assert!(logic_geometry.is_small);
+        assert_eq!(logic_geometry.get_major_radius(), 6.0);
+        assert_eq!(logic_geometry.get_minor_radius(), 2.0);
+        assert_eq!(logic_geometry.get_max_height_above_position(), 8.0);
     }
 }
 
@@ -1130,6 +1175,31 @@ impl std::fmt::Display for PlayerId {
 }
 
 // Geometry and positioning
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeometryExtentModType {
+    Type,
+    Major,
+    Minor,
+    Height,
+}
+
+pub(crate) fn geometry_type_to_u32(geometry_type: EngineGeometryType) -> u32 {
+    match geometry_type {
+        EngineGeometryType::Sphere => 0,
+        EngineGeometryType::Cylinder => 1,
+        EngineGeometryType::Box => 2,
+    }
+}
+
+pub(crate) fn geometry_type_from_u32(value: u32) -> EngineGeometryType {
+    match value {
+        0 => EngineGeometryType::Sphere,
+        1 => EngineGeometryType::Cylinder,
+        2 => EngineGeometryType::Box,
+        _ => EngineGeometryType::Box,
+    }
+}
+
 /// Geometry information (matching C++ GeometryInfo)
 #[derive(Debug, Clone)]
 pub struct GeometryInfo {
@@ -1137,6 +1207,8 @@ pub struct GeometryInfo {
     pub angle: Real,
     pub bounds: AABox,
     pub height_above_terrain: Real,
+    pub geometry_type: EngineGeometryType,
+    pub is_small: bool,
 }
 
 impl Default for GeometryInfo {
@@ -1146,11 +1218,29 @@ impl Default for GeometryInfo {
             angle: 0.0,
             bounds: AABox::default(),
             height_above_terrain: 0.0,
+            geometry_type: EngineGeometryType::Box,
+            is_small: false,
         }
     }
 }
 
 impl GeometryInfo {
+    pub fn get_geometry_type(&self) -> EngineGeometryType {
+        self.geometry_type
+    }
+
+    pub fn set_geometry_type(&mut self, geometry_type: EngineGeometryType) {
+        self.geometry_type = geometry_type;
+    }
+
+    pub fn get_is_small(&self) -> bool {
+        self.is_small
+    }
+
+    pub fn set_is_small(&mut self, is_small: bool) {
+        self.is_small = is_small;
+    }
+
     /// Get the bounding sphere radius (3D, includes height)
     pub fn get_bounding_sphere_radius(&self) -> Real {
         let dx = self.bounds.max.x - self.bounds.min.x;
@@ -1223,6 +1313,67 @@ impl GeometryInfo {
         let min_pitch = dz_min.atan2(dxy);
 
         (min_pitch, max_pitch)
+    }
+
+    pub fn tweak_extents(&mut self, extent_mod_type: GeometryExtentModType, extent_mod_amount: Real) {
+        match extent_mod_type {
+            GeometryExtentModType::Major => {
+                let center_x = (self.bounds.min.x + self.bounds.max.x) * 0.5;
+                let center_y = (self.bounds.min.y + self.bounds.max.y) * 0.5;
+                let half_x = (self.bounds.max.x - self.bounds.min.x).abs() * 0.5;
+                let half_y = (self.bounds.max.y - self.bounds.min.y).abs() * 0.5;
+                let radius = self.get_major_radius() + extent_mod_amount;
+
+                if half_x >= half_y {
+                    self.bounds.min.x = center_x - radius;
+                    self.bounds.max.x = center_x + radius;
+                } else {
+                    self.bounds.min.y = center_y - radius;
+                    self.bounds.max.y = center_y + radius;
+                }
+            }
+            GeometryExtentModType::Minor => {
+                let center_x = (self.bounds.min.x + self.bounds.max.x) * 0.5;
+                let center_y = (self.bounds.min.y + self.bounds.max.y) * 0.5;
+                let half_x = (self.bounds.max.x - self.bounds.min.x).abs() * 0.5;
+                let half_y = (self.bounds.max.y - self.bounds.min.y).abs() * 0.5;
+                let radius = self.get_minor_radius() + extent_mod_amount;
+
+                if half_x <= half_y {
+                    self.bounds.min.x = center_x - radius;
+                    self.bounds.max.x = center_x + radius;
+                } else {
+                    self.bounds.min.y = center_y - radius;
+                    self.bounds.max.y = center_y + radius;
+                }
+            }
+            GeometryExtentModType::Height => {
+                self.bounds.max.z = self.get_max_height_above_position() + extent_mod_amount;
+                if self.bounds.max.z < self.bounds.min.z {
+                    self.bounds.min.z = self.bounds.max.z;
+                }
+            }
+            GeometryExtentModType::Type => {
+                self.geometry_type = match self.geometry_type {
+                    EngineGeometryType::Sphere => EngineGeometryType::Cylinder,
+                    EngineGeometryType::Cylinder => EngineGeometryType::Box,
+                    EngineGeometryType::Box => EngineGeometryType::Sphere,
+                };
+            }
+        }
+
+        self.is_small = false;
+    }
+
+    pub fn get_descriptive_string(&self) -> String {
+        format!(
+            "{}/{}({} {} {})",
+            geometry_type_to_u32(self.geometry_type),
+            self.is_small as u32,
+            self.get_major_radius(),
+            self.get_minor_radius(),
+            self.get_max_height_above_position()
+        )
     }
 }
 
@@ -4019,6 +4170,8 @@ fn engine_geometry_to_logic(info: &EngineGeometryInfo) -> GeometryInfo {
         } else {
             height
         },
+        geometry_type: info.geometry_type,
+        is_small: info.is_small,
     }
 }
 

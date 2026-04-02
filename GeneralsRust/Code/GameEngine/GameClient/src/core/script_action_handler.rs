@@ -104,6 +104,14 @@ pub fn script_set_skybox_enabled(enabled: bool) {
     }
 }
 
+pub fn script_set_3d_wireframe_mode(enabled: bool) {
+    game_engine::common::global_data::write().writable.wireframe = enabled;
+
+    with_tactical_view(|view| {
+        view.set_3d_wireframe_mode(enabled);
+    });
+}
+
 pub fn script_set_camera_bw_mode(enabled: bool, frames: i32) {
     with_tactical_view(|view| {
         if enabled {
@@ -244,6 +252,8 @@ pub fn reset_script_action_runtime_state() {
         *state = ScriptUiState::default();
     }
     PENDING_BORDER_SHROUD_LEVEL.store(-1, Ordering::Relaxed);
+    game_engine::common::global_data::write().writable.wireframe = false;
+    with_tactical_view(|view| view.reset_3d_wireframe_mode());
     TheGameLogic::set_intro_movie_playing(false);
 }
 
@@ -260,6 +270,13 @@ pub fn apply_pending_script_display_state() {
     if level >= 0 {
         let _ = with_script_display(|display| display.set_border_shroud_level(level as u8));
     }
+
+    let wireframe = game_engine::common::global_data::read().writable.wireframe;
+    with_tactical_view(|view| {
+        if view.pending_3d_wireframe_mode() != wireframe {
+            view.set_3d_wireframe_mode(wireframe);
+        }
+    });
 }
 
 fn fullscreen_movie_wait_slot() -> &'static Mutex<HashSet<String>> {
@@ -1339,6 +1356,11 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
                 view.set_fade_parameters(frames, -1);
             }
         });
+        Ok(())
+    }
+
+    fn set_3d_wireframe_mode(&self, enabled: bool) -> GameLogicResult<()> {
+        script_set_3d_wireframe_mode(enabled);
         Ok(())
     }
 

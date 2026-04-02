@@ -251,6 +251,7 @@ pub enum ProjectionMode {
 pub enum FilterType {
     Null,
     BlackAndWhite,
+    Crossfade,
     MotionBlur,
 }
 
@@ -261,6 +262,7 @@ pub enum FilterMode {
     BWBlackAndWhite,
     BWRedAndWhite,
     BWGreenAndWhite,
+    CrossfadeFbMask,
     MBInAndOutAlpha,
     MBInAndOutSaturate,
     MBInAlpha,
@@ -436,6 +438,9 @@ pub struct View {
     fade_total_frames: i32,
     fade_progress_frames: i32,
     fade_direction: i32,
+    wireframe_enabled: bool,
+    wireframe_next_enabled: bool,
+    wireframe_pending_frames: u8,
     freeze_time_for_camera_movement: bool,
     freeze_time_for_camera_movement_active: bool,
 
@@ -492,6 +497,9 @@ impl View {
             fade_total_frames: 0,
             fade_progress_frames: 0,
             fade_direction: 0,
+            wireframe_enabled: false,
+            wireframe_next_enabled: false,
+            wireframe_pending_frames: 0,
             freeze_time_for_camera_movement: false,
             freeze_time_for_camera_movement_active: false,
             camera_move: None,
@@ -533,6 +541,9 @@ impl View {
         self.fade_total_frames = 0;
         self.fade_progress_frames = 0;
         self.fade_direction = 0;
+        self.wireframe_enabled = false;
+        self.wireframe_next_enabled = false;
+        self.wireframe_pending_frames = 0;
         self.freeze_time_for_camera_movement = false;
         self.freeze_time_for_camera_movement_active = false;
     }
@@ -966,6 +977,33 @@ impl View {
         self.fade_direction = direction;
     }
 
+    /// Mirrors `W3DView::set3DWireFrameMode`.
+    pub fn set_3d_wireframe_mode(&mut self, enable: bool) {
+        self.wireframe_next_enabled = enable;
+        self.wireframe_pending_frames = 2;
+    }
+
+    /// Clears any pending wireframe transition and disables wireframe immediately.
+    pub fn reset_3d_wireframe_mode(&mut self) {
+        self.wireframe_enabled = false;
+        self.wireframe_next_enabled = false;
+        self.wireframe_pending_frames = 0;
+    }
+
+    /// Returns the currently active 3D wireframe state.
+    pub fn is_3d_wireframe_mode(&self) -> bool {
+        self.wireframe_enabled
+    }
+
+    /// Returns the wireframe state that will be applied once the pending update expires.
+    pub fn pending_3d_wireframe_mode(&self) -> bool {
+        if self.wireframe_pending_frames > 0 {
+            self.wireframe_next_enabled
+        } else {
+            self.wireframe_enabled
+        }
+    }
+
     pub fn set_motion_blur_follow_mode(&mut self, amount: i32) {
         self.set_view_filter_mode(FilterMode::from_pan_amount(amount));
         self.set_view_filter(FilterType::MotionBlur);
@@ -1149,6 +1187,13 @@ impl View {
                 }
                 self.fade_total_frames = 0;
                 self.fade_progress_frames = 0;
+            }
+        }
+
+        if self.wireframe_pending_frames > 0 {
+            self.wireframe_pending_frames -= 1;
+            if self.wireframe_pending_frames == 0 {
+                self.wireframe_enabled = self.wireframe_next_enabled;
             }
         }
 
@@ -1854,6 +1899,39 @@ mod tests {
             view.update_view();
             assert!((view.angle() - frozen_angle).abs() < 0.001);
         }
+    }
+
+    #[test]
+    fn test_wireframe_mode_applies_with_frame_delay() {
+        let mut view = View::new();
+        view.init();
+
+        assert!(!view.is_3d_wireframe_mode());
+        assert!(!view.pending_3d_wireframe_mode());
+
+        view.set_3d_wireframe_mode(true);
+        assert!(!view.is_3d_wireframe_mode());
+        assert!(view.pending_3d_wireframe_mode());
+
+        view.update_view();
+        assert!(!view.is_3d_wireframe_mode());
+        assert!(view.pending_3d_wireframe_mode());
+
+        view.update_view();
+        assert!(view.is_3d_wireframe_mode());
+        assert!(view.pending_3d_wireframe_mode());
+
+        view.set_3d_wireframe_mode(false);
+        assert!(view.is_3d_wireframe_mode());
+        assert!(!view.pending_3d_wireframe_mode());
+
+        view.update_view();
+        assert!(view.is_3d_wireframe_mode());
+        assert!(!view.pending_3d_wireframe_mode());
+
+        view.update_view();
+        assert!(!view.is_3d_wireframe_mode());
+        assert!(!view.pending_3d_wireframe_mode());
     }
 
     #[test]

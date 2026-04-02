@@ -26,7 +26,7 @@ use super::game_message::{
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::core::script_action_handler::{
     get_script_display_debug_callback, set_script_display_debug_callback,
-    stop_script_display_movie, toggle_script_display_letter_box,
+    script_set_3d_wireframe_mode, stop_script_display_movie, toggle_script_display_letter_box,
     toggle_script_display_movie_capture,
 };
 use crate::display::display::DebugDisplayCallback;
@@ -41,7 +41,7 @@ use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
-use gamelogic::common::types::{GeometryInfo, KindOf};
+use gamelogic::common::types::{GeometryExtentModType, GeometryInfo, KindOf};
 use gamelogic::common::ModelConditionFlags;
 use gamelogic::helpers::{
     TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions,
@@ -136,6 +136,7 @@ static DEMO_CAMERA_ADJUST_STATE: OnceLock<RwLock<DemoCameraAdjustState>> = OnceL
 static HAND_OF_GOD_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
 static HURT_ME_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
 static DEBUG_SELECTION_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
+static BW_VIEW_MODE_STATE: OnceLock<RwLock<u8>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 const EXTENT_BIG_CHANGE: f32 = 10.0;
@@ -161,6 +162,7 @@ struct DemoCameraAdjustState {
 
 #[derive(Debug, Clone, Copy)]
 enum ExtentAdjustAxis {
+    Type,
     Major,
     Minor,
     Height,
@@ -217,6 +219,10 @@ fn debug_selection_mode_state() -> &'static RwLock<bool> {
     DEBUG_SELECTION_MODE.get_or_init(|| RwLock::new(false))
 }
 
+fn bw_view_mode_state() -> &'static RwLock<u8> {
+    BW_VIEW_MODE_STATE.get_or_init(|| RwLock::new(0))
+}
+
 fn toggle_shared_bool_state(state: &'static RwLock<bool>) -> bool {
     if let Ok(mut guard) = state.write() {
         *guard = !*guard;
@@ -235,6 +241,30 @@ fn set_bool_state_for_tests(state: &'static RwLock<bool>, value: bool) {
 #[cfg(test)]
 fn bool_state_for_tests(state: &'static RwLock<bool>) -> bool {
     state.read().map(|guard| *guard).unwrap_or(false)
+}
+
+#[cfg(test)]
+fn bw_view_mode_for_tests() -> u8 {
+    bw_view_mode_state().read().map(|guard| *guard).unwrap_or(0)
+}
+
+#[cfg(test)]
+fn bw_view_wireframe_for_tests() -> (bool, bool) {
+    crate::display::view::with_tactical_view_ref(|view| {
+        (view.is_3d_wireframe_mode(), view.pending_3d_wireframe_mode())
+    })
+}
+
+#[cfg(test)]
+fn reset_bw_view_state_for_tests() {
+    if let Ok(mut mode) = bw_view_mode_state().write() {
+        *mode = 0;
+    }
+    script_set_3d_wireframe_mode(false);
+    crate::display::view::with_tactical_view(|view| {
+        view.update_view();
+        view.update_view();
+    });
 }
 
 fn set_demo_pitch_adjusting(enabled: bool) {
@@ -301,6 +331,10 @@ fn demo_camera_adjust_state_for_tests() -> DemoCameraAdjustState {
 fn parse_extent_adjust_alias(name: &str) -> Option<ExtentAdjustSpec> {
     let upper = name.to_ascii_uppercase();
     match upper.as_str() {
+        "DEMO_CYCLE_EXTENT_TYPE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Type,
+            amount: 1.0,
+        }),
         "DEMO_INCR_EXTENT_MAJOR" => Some(ExtentAdjustSpec {
             axis: ExtentAdjustAxis::Major,
             amount: 1.0,
@@ -353,69 +387,30 @@ fn parse_extent_adjust_alias(name: &str) -> Option<ExtentAdjustSpec> {
     }
 }
 
-fn set_geometry_major_radius(geometry: &mut GeometryInfo, new_radius: f32) {
-    let center_x = (geometry.bounds.min.x + geometry.bounds.max.x) * 0.5;
-    let center_y = (geometry.bounds.min.y + geometry.bounds.max.y) * 0.5;
-    let half_x = (geometry.bounds.max.x - geometry.bounds.min.x).abs() * 0.5;
-    let half_y = (geometry.bounds.max.y - geometry.bounds.min.y).abs() * 0.5;
-    let radius = new_radius.max(0.0);
-
-    if half_x >= half_y {
-        geometry.bounds.min.x = center_x - radius;
-        geometry.bounds.max.x = center_x + radius;
-    } else {
-        geometry.bounds.min.y = center_y - radius;
-        geometry.bounds.max.y = center_y + radius;
+fn geometry_extent_mod_type(axis: ExtentAdjustAxis) -> GeometryExtentModType {
+    match axis {
+        ExtentAdjustAxis::Type => GeometryExtentModType::Type,
+        ExtentAdjustAxis::Major => GeometryExtentModType::Major,
+        ExtentAdjustAxis::Minor => GeometryExtentModType::Minor,
+        ExtentAdjustAxis::Height => GeometryExtentModType::Height,
     }
 }
 
-fn set_geometry_minor_radius(geometry: &mut GeometryInfo, new_radius: f32) {
-    let center_x = (geometry.bounds.min.x + geometry.bounds.max.x) * 0.5;
-    let center_y = (geometry.bounds.min.y + geometry.bounds.max.y) * 0.5;
-    let half_x = (geometry.bounds.max.x - geometry.bounds.min.x).abs() * 0.5;
-    let half_y = (geometry.bounds.max.y - geometry.bounds.min.y).abs() * 0.5;
-    let radius = new_radius.max(0.0);
-
-    if half_x <= half_y {
-        geometry.bounds.min.x = center_x - radius;
-        geometry.bounds.max.x = center_x + radius;
-    } else {
-        geometry.bounds.min.y = center_y - radius;
-        geometry.bounds.max.y = center_y + radius;
-    }
-}
-
-fn set_geometry_height(geometry: &mut GeometryInfo, new_height: f32) {
-    geometry.bounds.max.z = new_height.max(0.0);
-    if geometry.bounds.max.z < geometry.bounds.min.z {
-        geometry.bounds.min.z = geometry.bounds.max.z;
+fn geometry_extent_mod_type_code(axis: ExtentAdjustAxis) -> i32 {
+    match axis {
+        ExtentAdjustAxis::Type => 1,
+        ExtentAdjustAxis::Major => 2,
+        ExtentAdjustAxis::Minor => 3,
+        ExtentAdjustAxis::Height => 4,
     }
 }
 
 fn apply_extent_adjust(geometry: &mut GeometryInfo, spec: ExtentAdjustSpec) {
-    match spec.axis {
-        ExtentAdjustAxis::Major => {
-            set_geometry_major_radius(geometry, geometry.get_major_radius() + spec.amount);
-        }
-        ExtentAdjustAxis::Minor => {
-            set_geometry_minor_radius(geometry, geometry.get_minor_radius() + spec.amount);
-        }
-        ExtentAdjustAxis::Height => {
-            set_geometry_height(
-                geometry,
-                geometry.get_max_height_above_position() + spec.amount,
-            );
-        }
-    }
+    geometry.tweak_extents(geometry_extent_mod_type(spec.axis), spec.amount);
 }
 
 fn format_extent_debug(geometry: &GeometryInfo) -> String {
-    format!(
-        "{:.3}/{:.3}/{:.3}",
-        geometry.get_major_radius(),
-        geometry.get_minor_radius(),
-        geometry.get_max_height_above_position()
-    )
+    geometry.get_descriptive_string()
 }
 
 fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
@@ -433,10 +428,10 @@ fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
         object.set_geometry_info(new_geometry.clone());
 
         TheInGameUI::message(&format!(
-            "Extent {} -> {}   {:?} {:+.3}",
+            "Extent {} --> {}   {} {}",
             format_extent_debug(&old_geometry),
             format_extent_debug(&new_geometry),
-            spec.axis,
+            geometry_extent_mod_type_code(spec.axis),
             spec.amount
         ));
     }
@@ -711,6 +706,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEBUG_DRAWABLE_ID_PERFORMANCE"
         | "DEBUG_OBJECT_ID_PERFORMANCE"
         | "DEBUG_SLEEPY_UPDATE_PERFORMANCE"
+        | "DEMO_CYCLE_EXTENT_TYPE"
         | "DEMO_CYCLE_LOD_LEVEL"
         | "DEMO_DECR_ANIM_SKATE_SPEED"
         | "DEMO_DECR_EXTENT_HEIGHT"
@@ -779,6 +775,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_NO_DRAW"
         | "DEMO_TOGGLE_PARTICLEDEBUG"
         | "DEMO_TOGGLE_PROJECTILEDEBUG"
+        | "DEMO_TOGGLE_BW_VIEW"
         | "DEMO_TOGGLE_RED_VIEW"
         | "DEMO_TOGGLE_RENDER"
         | "DEMO_TOGGLE_LETTERBOX"
@@ -812,11 +809,7 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         return false;
     }
 
-    match name.to_ascii_uppercase().as_str() {
-        "DEMO_CYCLE_EXTENT_TYPE" => true,
-        "DEMO_TOGGLE_BW_VIEW" => true,
-        _ => false,
-    }
+    false
 }
 
 fn is_runtime_command_map_alias(name: &str) -> bool {
@@ -1075,6 +1068,56 @@ fn toggle_bw_color_view(mode: FilterMode) {
         view.set_view_filter(FilterType::BlackAndWhite);
         view.set_fade_parameters(30, 1);
     });
+}
+
+fn toggle_bw_view_mode() {
+    let mode = bw_view_mode_state().read().map(|guard| *guard).unwrap_or(0);
+    match mode {
+        0 => {
+            game_engine::common::global_data::write().writable.wireframe = true;
+            with_tactical_view(|view| view.set_3d_wireframe_mode(true));
+            if let Ok(mut guard) = bw_view_mode_state().write() {
+                *guard = 1;
+            }
+        }
+        1 => {
+            let mut should_disable_wireframe = false;
+            with_tactical_view(|view| {
+                if view.get_view_filter_type() == FilterType::Crossfade {
+                    view.set_view_filter_mode(FilterMode::Null);
+                    view.set_view_filter(FilterType::Null);
+                    view.set_fade_parameters(0, -1);
+                } else {
+                    if let Ok(mut script_engine_guard) = get_script_engine().write() {
+                        if let Some(script_engine) = script_engine_guard.as_mut() {
+                            script_engine.do_freeze_time();
+                        }
+                    }
+                    view.set_view_filter_mode(FilterMode::CrossfadeFbMask);
+                    view.set_view_filter(FilterType::Crossfade);
+                    view.set_fade_parameters(60, -1);
+                    view.set_3d_wireframe_mode(false);
+                    should_disable_wireframe = true;
+                    if let Ok(mut guard) = bw_view_mode_state().write() {
+                        *guard = 2;
+                    }
+                }
+            });
+            if should_disable_wireframe {
+                game_engine::common::global_data::write().writable.wireframe = false;
+            }
+        }
+        _ => {
+            if let Ok(mut script_engine_guard) = get_script_engine().write() {
+                if let Some(script_engine) = script_engine_guard.as_mut() {
+                    script_engine.do_unfreeze_time();
+                }
+            }
+            if let Ok(mut guard) = bw_view_mode_state().write() {
+                *guard = 0;
+            }
+        }
+    }
 }
 
 fn toggle_motion_blur_zoom_filter() {
@@ -2456,6 +2499,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_BW_VIEW") {
+        toggle_bw_view_mode();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_RED_VIEW") {
         toggle_bw_color_view(FilterMode::BWRedAndWhite);
         return Some(GameMessageDisposition::DestroyMessage);
@@ -3277,14 +3325,7 @@ mod tests {
     fn test_unimplemented_cpp_command_entries_are_consumed() {
         let _guard = test_state_lock().lock().expect("lock poisoned");
 
-        assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_CYCLE_EXTENT_TYPE")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
+        assert!(!is_unimplemented_cpp_command_name("DEMO_CYCLE_EXTENT_TYPE"));
     }
 
     #[test]
@@ -3301,6 +3342,7 @@ mod tests {
             "DEBUG_DRAWABLE_ID_PERFORMANCE",
             "DEBUG_OBJECT_ID_PERFORMANCE",
             "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
+            "DEMO_CYCLE_EXTENT_TYPE",
             "DEMO_BEGIN_ADJUST_FOV",
             "DEMO_BEGIN_ADJUST_PITCH",
             "DEMO_CYCLE_LOD_LEVEL",
@@ -3333,6 +3375,7 @@ mod tests {
             "DEMO_TEST_SURRENDER",
             "DEMO_TOGGLE_AUDIODEBUG",
             "DEMO_TOGGLE_AVI",
+            "DEMO_TOGGLE_BW_VIEW",
             "DEMO_TOGGLE_DEBUG_STATS",
             "DEMO_TOGGLE_GREEN_VIEW",
             "DEMO_TOGGLE_HAND_OF_GOD_MODE",
@@ -3447,6 +3490,7 @@ mod tests {
         let _guard = test_state_lock().lock().expect("lock poisoned");
 
         for alias in [
+            "DEMO_CYCLE_EXTENT_TYPE",
             "DEMO_INCR_EXTENT_MAJOR",
             "DEMO_DECR_EXTENT_MAJOR",
             "DEMO_INCR_EXTENT_MAJOR_LARGE",
@@ -3468,12 +3512,21 @@ mod tests {
         }
 
         let mut major = GeometryInfo::default();
+        major.set_geometry_type(game_engine::system::geometry::GeometryType::Box);
         major.bounds.min.x = -5.0;
         major.bounds.max.x = 5.0;
         major.bounds.min.y = -3.0;
         major.bounds.max.y = 3.0;
         major.bounds.min.z = 0.0;
         major.bounds.max.z = 4.0;
+        apply_extent_adjust(
+            &mut major,
+            parse_extent_adjust_alias("DEMO_CYCLE_EXTENT_TYPE").expect("extent alias"),
+        );
+        assert_eq!(
+            major.get_geometry_type(),
+            game_engine::system::geometry::GeometryType::Sphere
+        );
         apply_extent_adjust(
             &mut major,
             parse_extent_adjust_alias("DEMO_INCR_EXTENT_MAJOR_LARGE").expect("extent alias"),
@@ -3498,7 +3551,7 @@ mod tests {
             &mut height,
             parse_extent_adjust_alias("DEMO_DECR_EXTENT_HEIGHT_LARGE").expect("extent alias"),
         );
-        assert!((height.get_max_height_above_position() - 0.0).abs() < 0.001);
+        assert!((height.get_max_height_above_position() + 6.0).abs() < 0.001);
     }
 
     #[test]
@@ -4275,6 +4328,45 @@ mod tests {
             assert_eq!(view.get_view_filter_type(), FilterType::Null);
             assert_eq!(view.get_view_filter_mode(), FilterMode::Null);
         });
+    }
+
+    #[test]
+    fn test_demo_toggle_bw_view_alias_cycles_cpp_compat_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        reset_bw_view_state_for_tests();
+        with_tactical_view(|view| {
+            view.set_view_filter_mode(FilterMode::Null);
+            view.set_view_filter(FilterType::Null);
+            view.set_fade_parameters(0, -1);
+        });
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(bw_view_mode_for_tests(), 1);
+        let (wireframe_active, wireframe_pending) = bw_view_wireframe_for_tests();
+        assert!(!wireframe_active);
+        assert!(wireframe_pending);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(bw_view_mode_for_tests(), 2);
+        let (_, wireframe_pending) = bw_view_wireframe_for_tests();
+        assert!(!wireframe_pending);
+        with_tactical_view(|view| {
+            assert_eq!(view.get_view_filter_type(), FilterType::Crossfade);
+            assert_eq!(view.get_view_filter_mode(), FilterMode::CrossfadeFbMask);
+        });
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(bw_view_mode_for_tests(), 0);
     }
 
     #[test]
