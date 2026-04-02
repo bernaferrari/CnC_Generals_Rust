@@ -9,7 +9,7 @@
 
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::game_message::*;
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
@@ -67,6 +67,8 @@ pub struct SelectableDrawable {
     pub object_id: ObjectID,
     pub position: Coord3D,
     pub is_structure: bool,
+    pub is_garrisonable_building: bool,
+    pub is_crate: bool,
     pub is_selectable: bool,
     pub is_dead: bool,
     pub is_hidden: bool,
@@ -204,7 +206,7 @@ pub struct SelectionTranslator {
 
     // Click detection
     // Matches C++ SelectionXlat.h:31
-    last_click: Instant,
+    right_button_down_time_ms: u32,
     last_click_info: Option<ClickInfo>,
 
     // Camera position for right-click detection
@@ -239,7 +241,7 @@ impl SelectionTranslator {
             last_group_sel_group: -1,
             select_feedback_anchor: ICoord2D::default(),
             deselect_feedback_anchor: ICoord2D::default(),
-            last_click: Instant::now(),
+            right_button_down_time_ms: 0,
             last_click_info: None,
             deselect_down_camera_position: Coord3D::default(),
             displayed_max_warning: false,
@@ -311,11 +313,17 @@ impl SelectionTranslator {
             }
 
             let pos = obj.get_position();
+            let is_garrisonable_building = obj
+                .get_contain()
+                .and_then(|contain| contain.lock().ok().map(|guard| guard.is_garrisonable()))
+                .unwrap_or(false);
             drawables.push(SelectableDrawable {
                 id: obj.get_id() as u32,
                 object_id: obj.get_id(),
                 position: Coord3D::new(pos.x, pos.y, pos.z),
                 is_structure: obj.is_structure(),
+                is_garrisonable_building,
+                is_crate: obj.is_kind_of(KindOf::Crate),
                 is_selectable: obj.is_selectable(),
                 is_dead: obj.is_effectively_dead() || obj.is_destroyed(),
                 is_hidden,
@@ -326,6 +334,62 @@ impl SelectionTranslator {
         }
 
         drawables
+    }
+
+    fn current_selection_context_counts(&self) -> (usize, usize, usize) {
+        let mut mine = 0usize;
+        let mut other = 0usize;
+        let mut mine_infantry = 0usize;
+
+        for drawable in self.collect_drawables() {
+            if !self.current_selection.contains(&drawable.object_id) {
+                continue;
+            }
+
+            if drawable.is_local_controlled {
+                mine += 1;
+                if drawable.has_kindof(KINDOF_INFANTRY) {
+                    mine_infantry += 1;
+                }
+            } else {
+                other += 1;
+            }
+        }
+
+        (mine, other, mine_infantry)
+    }
+
+    fn should_short_circuit_selection_for_context_command(
+        &self,
+        clicked: &SelectableDrawable,
+        selection_is_point: bool,
+    ) -> bool {
+        if TheInGameUI::is_in_force_attack_mode()
+            || TheInGameUI::is_in_force_move_to_mode()
+            || is_alternate_mouse_enabled()
+        {
+            return false;
+        }
+
+        let (current_mine, current_other, current_mine_infantry) =
+            self.current_selection_context_counts();
+        if current_other > 0 || current_mine == 0 {
+            return false;
+        }
+
+        if clicked.is_garrisonable_building {
+            return current_mine_infantry > 0 || selection_is_point;
+        }
+
+        if clicked.is_crate && selection_is_point {
+            return true;
+        }
+
+        if clicked.is_local_controlled {
+            return selection_is_point && !TheInGameUI::is_in_prefer_selection_mode();
+        }
+
+        selection_is_point
     }
 
     fn screen_to_world(&self, screen: &ICoord2D) -> Option<Coord3D> {
@@ -342,6 +406,13 @@ impl SelectionTranslator {
         with_tactical_view_ref(|view| {
             view.world_to_screen(&point)
                 .map(|pt| (pt.x as f32, pt.y as f32))
+        })
+    }
+
+    fn current_camera_position(&self) -> Coord3D {
+        with_tactical_view_ref(|view| {
+            let pos = view.position();
+            Coord3D::new(pos.x, pos.y, pos.z)
         })
     }
 
@@ -453,8 +524,6 @@ impl SelectionTranslator {
         let mut messages = Vec::new();
 
         self.left_mouse_button_is_down = false;
-        let add_to_group = modifiers.contains(KeyModifiers::SHIFT)
-            || TheInGameUI::is_in_prefer_selection_mode();
 
         if self.drag_selecting {
             // Stop drag selecting
@@ -464,37 +533,8 @@ impl SelectionTranslator {
             debug!("Ended drag selection");
 
             let region = self.build_region(&self.select_feedback_anchor, &position);
-            let picked = self.find_drawables_in_region(&region, true);
-
-            if picked.is_empty() {
-                return messages;
-            }
-
-            if !add_to_group {
-                self.deselect_all();
-            }
-
-            let mut selected_ids = Vec::new();
-            for drawable in picked {
-                if self.current_selection.len() >= MAX_SELECTION_COUNT {
-                    if !self.displayed_max_warning {
-                        warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
-                        self.displayed_max_warning = true;
-                    }
-                    break;
-                }
-
-                if self.current_selection.insert(drawable.object_id) {
-                    selected_ids.push(drawable.object_id);
-                }
-            }
-
-            if !selected_ids.is_empty() {
-                messages.push(GameMessageType::CreateSelectedGroup(
-                    !add_to_group,
-                    selected_ids,
-                ));
-            }
+            // C++ emits MSG_AREA_SELECTION here and resolves selection in that path.
+            messages.push(GameMessageType::AreaSelection(region));
         } else {
             TheInGameUI::set_selecting(false);
             // Raw left-up only resolves selection on the higher-level click path now.
@@ -505,14 +545,20 @@ impl SelectionTranslator {
             let pending_place_source_object_id = TheInGameUI::get_pending_place_source_object_id();
             let is_blank_click = modifiers.bits() == 0;
             let use_alternate_mouse = is_alternate_mouse_enabled();
+            let prevent_deselect_for_one_click = TheInGameUI::
+                get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click();
 
             if is_blank_click
                 && !pending_command_active
-                && !TheInGameUI::is_quit_menu_visible()
                 && use_alternate_mouse
                 && pending_place_source_object_id == 0
             {
-                if !self.current_selection.is_empty() {
+                if prevent_deselect_for_one_click {
+                    TheInGameUI::
+                        set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+                            false,
+                        );
+                } else if !self.current_selection.is_empty() {
                     self.deselect_all();
                     messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
                 }
@@ -560,12 +606,20 @@ impl SelectionTranslator {
             return messages;
         };
 
-        let add_to_group = modifiers.contains(KeyModifiers::SHIFT)
-            || TheInGameUI::is_in_prefer_selection_mode();
+        // C++ SelectionXlat short-circuits to context-command handling before committing a
+        // selection change when the click target can drive a command for the current selection.
+        if self.should_short_circuit_selection_for_context_command(&clicked, true) {
+            return messages;
+        }
+
+        let add_to_group =
+            modifiers.contains(KeyModifiers::SHIFT) || TheInGameUI::is_in_prefer_selection_mode();
 
         if add_to_group && self.current_selection.contains(&clicked.object_id) {
             self.current_selection.remove(&clicked.object_id);
-            messages.push(GameMessageType::RemoveFromSelectedGroup(vec![clicked.object_id]));
+            messages.push(GameMessageType::RemoveFromSelectedGroup(vec![
+                clicked.object_id,
+            ]));
             return messages;
         }
 
@@ -600,7 +654,7 @@ impl SelectionTranslator {
         // Track position for click detection
         // Matches C++ SelectionXlat.cpp:959-961
         self.deselect_feedback_anchor = position;
-        self.last_click = Instant::now();
+        self.right_button_down_time_ms = time;
         self.deselect_down_camera_position = camera_position;
     }
 
@@ -609,13 +663,13 @@ impl SelectionTranslator {
     fn handle_right_button_up(
         &mut self,
         position: ICoord2D,
+        time: u32,
         camera_position: Coord3D,
     ) -> Vec<GameMessageType> {
         let mut messages = Vec::new();
 
         let delta_x = (self.deselect_feedback_anchor.x - position.x).abs();
         let delta_y = (self.deselect_feedback_anchor.y - position.y).abs();
-        let current_time = Instant::now();
 
         // Calculate camera movement
         // Matches C++ SelectionXlat.cpp:973-974
@@ -637,7 +691,7 @@ impl SelectionTranslator {
             is_click = false;
         }
 
-        if current_time.duration_since(self.last_click).as_millis() > DRAG_TOLERANCE_MS as u128 {
+        if time.wrapping_sub(self.right_button_down_time_ms) as u64 > DRAG_TOLERANCE_MS {
             is_click = false;
         }
 
@@ -651,6 +705,7 @@ impl SelectionTranslator {
             if TheInGameUI::get_pending_command().is_some() {
                 // Cancel GUI command mode and do not touch selection.
                 TheInGameUI::clear_pending_command();
+                TheInGameUI::set_scrolling(false);
                 return messages;
             }
 
@@ -1035,12 +1090,24 @@ impl GameMessageTranslator for SelectionTranslator {
 
             // Right mouse button
             GameMessageType::RawMouseRightButtonDown(pos, _modifiers, time) => {
-                self.handle_right_button_down(pos.clone(), *time, Coord3D::default());
-                Vec::new()
+                self.handle_right_button_down(pos.clone(), *time, self.current_camera_position());
+                return GameMessageDisposition::KeepMessage;
             }
 
-            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, _time) => {
-                self.handle_right_button_up(pos.clone(), Coord3D::default())
+            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, time) => {
+                let pending_before = TheInGameUI::get_pending_command().is_some();
+                let new_messages =
+                    self.handle_right_button_up(pos.clone(), *time, self.current_camera_position());
+                for new_msg in new_messages {
+                    emit_message(GameMessage::new(new_msg));
+                }
+
+                // Match C++ SelectionXlat behavior: consume raw right-up only when it cancels
+                // GUI command mode; otherwise keep it so CommandXlat can evaluate click context.
+                if pending_before && TheInGameUI::get_pending_command().is_none() {
+                    return GameMessageDisposition::DestroyMessage;
+                }
+                return GameMessageDisposition::KeepMessage;
             }
 
             // Control group creation (Ctrl+0-9)
@@ -1052,6 +1119,15 @@ impl GameMessageTranslator for SelectionTranslator {
             // Control group add (Shift+0-9)
             GameMessageType::MetaAddTeam(group) => self.handle_add_control_group(*group),
 
+            // Match C++ SelectionXlat MSG_META_OPTIONS behavior:
+            // stop left-button selection feedback state, then let CommandXlat process options.
+            GameMessageType::MetaOptions => {
+                self.left_mouse_button_is_down = false;
+                self.drag_selecting = false;
+                TheInGameUI::set_selecting(false);
+                return GameMessageDisposition::KeepMessage;
+            }
+
             // Pass through other messages
             _ => {
                 return GameMessageDisposition::KeepMessage;
@@ -1059,8 +1135,18 @@ impl GameMessageTranslator for SelectionTranslator {
         };
 
         // Dispatch translated messages into the message stream.
-        let should_keep_message =
-            is_mouse_click_message && new_messages.is_empty() && !TheInGameUI::is_quit_menu_visible();
+        // C++ SelectionXlat keeps raw mouse position/left-button messages and only consumes
+        // specific meta/selection flow messages.
+        let keep_raw_mouse_message = matches!(
+            msg.get_type(),
+            GameMessageType::RawMousePosition(_)
+                | GameMessageType::RawMouseLeftButtonDown(..)
+                | GameMessageType::RawMouseLeftButtonUp(..)
+        );
+        let should_keep_message = keep_raw_mouse_message
+            || (is_mouse_click_message
+                && new_messages.is_empty()
+                && !TheInGameUI::is_quit_menu_visible());
 
         for new_msg in new_messages {
             emit_message(GameMessage::new(new_msg));
@@ -1078,14 +1164,25 @@ impl GameMessageTranslator for SelectionTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn test_state_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("selection_xlat test lock poisoned")
+    }
 
     #[test]
     fn test_can_select_drawable() {
+        let _guard = test_state_lock();
         let drawable = SelectableDrawable {
             id: 1,
             object_id: 100,
             position: Coord3D::default(),
             is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
             is_selectable: true,
             is_dead: false,
             is_hidden: false,
@@ -1116,7 +1213,160 @@ mod tests {
     }
 
     #[test]
+    fn test_context_short_circuit_prefers_command_over_enemy_selection() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+
+        translator.register_drawable(SelectableDrawable {
+            id: 1,
+            object_id: 101,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        });
+        translator.register_drawable(SelectableDrawable {
+            id: 2,
+            object_id: 202,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: false,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        });
+        translator.current_selection.insert(101);
+
+        let clicked = translator
+            .drawable_registry
+            .get(&2)
+            .cloned()
+            .expect("test drawable must exist");
+
+        assert!(
+            translator.should_short_circuit_selection_for_context_command(&clicked, true),
+            "point clicks on non-local targets should stay in the command pipeline"
+        );
+    }
+
+    #[test]
+    fn test_context_short_circuit_respects_prefer_selection_and_empty_selection() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+
+        let clicked = SelectableDrawable {
+            id: 1,
+            object_id: 303,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        };
+        translator.register_drawable(clicked.clone());
+
+        assert!(
+            !translator.should_short_circuit_selection_for_context_command(&clicked, true),
+            "empty selection should never short-circuit"
+        );
+
+        translator.current_selection.insert(303);
+        TheInGameUI::set_prefer_selection_mode(true);
+        assert!(
+            !translator.should_short_circuit_selection_for_context_command(&clicked, true),
+            "prefer-selection mode should keep the click in selection flow"
+        );
+        TheInGameUI::set_prefer_selection_mode(false);
+    }
+
+    #[test]
+    fn test_context_short_circuit_allows_point_click_on_already_selected_local_unit() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+
+        let clicked = SelectableDrawable {
+            id: 1,
+            object_id: 404,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        };
+        translator.register_drawable(clicked.clone());
+        translator.current_selection.insert(404);
+
+        assert!(
+            translator.should_short_circuit_selection_for_context_command(&clicked, true),
+            "C++ contextCommandForNewSelection still short-circuits when clicking an already selected local unit"
+        );
+    }
+
+    #[test]
+    fn test_context_short_circuit_allows_garrisonable_drag_when_infantry_selected() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+
+        translator.register_drawable(SelectableDrawable {
+            id: 10,
+            object_id: 500,
+            position: Coord3D::default(),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        });
+        let clicked = SelectableDrawable {
+            id: 11,
+            object_id: 501,
+            position: Coord3D::default(),
+            is_structure: true,
+            is_garrisonable_building: true,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: false,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_STRUCTURE,
+            status_bits: 0,
+        };
+        translator.register_drawable(clicked.clone());
+        translator.current_selection.insert(500);
+
+        assert!(
+            translator.should_short_circuit_selection_for_context_command(&clicked, false),
+            "infantry selecting a garrisonable building should short-circuit even for non-point selection"
+        );
+    }
+
+    #[test]
     fn test_selection_translator_creation() {
+        let _guard = test_state_lock();
         let translator = SelectionTranslator::new();
         assert!(!translator.left_mouse_button_is_down);
         assert!(!translator.drag_selecting);
@@ -1125,6 +1375,7 @@ mod tests {
 
     #[test]
     fn test_drag_selection_start() {
+        let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
         // Simulate mouse down
@@ -1143,12 +1394,11 @@ mod tests {
 
     #[test]
     fn test_raw_left_button_up_forwards_click_when_not_dragging() {
+        let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
-        let messages = translator.handle_left_button_up(
-            ICoord2D { x: 12, y: 34 },
-            KeyModifiers::empty(),
-        );
+        let messages =
+            translator.handle_left_button_up(ICoord2D { x: 12, y: 34 }, KeyModifiers::empty());
 
         assert_eq!(messages.len(), 1);
         match &messages[0] {
@@ -1164,7 +1414,41 @@ mod tests {
     }
 
     #[test]
+    fn test_raw_left_button_up_honors_one_click_deselect_prevention_in_alternate_mouse_mode() {
+        let _guard = test_state_lock();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        let previous_alt_mouse = game_engine::common::ini::ini_game_data::get_global_data()
+            .map(|data| data.read().use_alternate_mouse)
+            .unwrap_or(false);
+        if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
+            data.write().use_alternate_mouse = true;
+        }
+
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(true);
+        let mut translator = SelectionTranslator::new();
+        translator.current_selection.insert(777);
+
+        let messages =
+            translator.handle_left_button_up(ICoord2D { x: 16, y: 24 }, KeyModifiers::empty());
+
+        assert!(messages.is_empty());
+        assert_eq!(translator.current_selection.len(), 1);
+        assert!(
+            !TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            )
+        );
+
+        if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
+            data.write().use_alternate_mouse = previous_alt_mouse;
+        }
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
+    }
+
+    #[test]
     fn test_control_group_management() {
+        let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
         // Add some units to selection
@@ -1190,6 +1474,7 @@ mod tests {
 
     #[test]
     fn test_is_click_tolerance() {
+        let _guard = test_state_lock();
         let translator = SelectionTranslator::new();
 
         let anchor = ICoord2D { x: 100, y: 100 };
@@ -1208,6 +1493,7 @@ mod tests {
 
     #[test]
     fn test_build_region() {
+        let _guard = test_state_lock();
         let translator = SelectionTranslator::new();
 
         let p1 = ICoord2D { x: 100, y: 100 };
@@ -1227,41 +1513,58 @@ mod tests {
 
     #[test]
     fn test_right_click_cancels_pending_command_without_clearing_selection() {
-        use crate::helpers::{PendingCommand, TheInGameUI};
+        let _guard = test_state_lock();
+        use crate::helpers::TheInGameUI;
         use gamelogic::commands::command::CommandType;
 
         let mut translator = SelectionTranslator::new();
         translator.current_selection.insert(7);
-        TheInGameUI::set_pending_command(Some(PendingCommand {
-            command_type: CommandType::PlaceBeacon,
-            options: 0x20,
-            source_object_id: 99,
-        }));
+        TheInGameUI::set_pending_command(CommandType::PlaceBeacon, 0x20, 99);
+        TheInGameUI::set_scrolling(true);
 
-        translator.handle_right_button_down(
-            ICoord2D { x: 50, y: 60 },
-            0,
-            Coord3D::default(),
-        );
+        translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
+        let messages =
+            translator.handle_right_button_up(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
+
+        assert!(messages.is_empty());
+        assert_eq!(translator.current_selection.len(), 1);
+        assert!(TheInGameUI::get_pending_command().is_none());
+        assert!(!TheInGameUI::is_scrolling());
+    }
+
+    #[test]
+    fn test_right_click_slow_release_does_not_cancel_pending_command() {
+        let _guard = test_state_lock();
+        use crate::helpers::TheInGameUI;
+        use gamelogic::commands::command::CommandType;
+
+        let mut translator = SelectionTranslator::new();
+        translator.current_selection.insert(7);
+        TheInGameUI::set_pending_command(CommandType::PlaceBeacon, 0x20, 99);
+
+        translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 10, Coord3D::default());
         let messages = translator.handle_right_button_up(
             ICoord2D { x: 50, y: 60 },
+            10 + DRAG_TOLERANCE_MS as u32 + 1,
             Coord3D::default(),
         );
 
         assert!(messages.is_empty());
         assert_eq!(translator.current_selection.len(), 1);
-        assert!(TheInGameUI::get_pending_command().is_none());
+        assert!(TheInGameUI::get_pending_command().is_some());
+        TheInGameUI::clear_pending_command();
     }
 
     #[test]
     fn test_mouse_left_click_quit_menu_guard() {
+        let _guard = test_state_lock();
         use crate::helpers::TheInGameUI;
 
         let mut translator = SelectionTranslator::new();
         TheInGameUI::set_quit_menu_visible(true);
 
-        let disposition = translator.translate_game_message(&GameMessage::new(
-            GameMessageType::MouseLeftClick(
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MouseLeftClick(
                 IRegion2D {
                     x: 20,
                     y: 30,
@@ -1269,10 +1572,28 @@ mod tests {
                     height: 0,
                 },
                 0,
-            ),
-        ));
+            )));
 
         assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
         TheInGameUI::set_quit_menu_visible(false);
+    }
+
+    #[test]
+    fn test_meta_options_clears_left_selection_feedback_state() {
+        let _guard = test_state_lock();
+        use crate::helpers::TheInGameUI;
+
+        let mut translator = SelectionTranslator::new();
+        translator.set_left_mouse_button(true);
+        translator.set_drag_selecting(true);
+        TheInGameUI::set_selecting(true);
+
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaOptions));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert!(!translator.left_mouse_button_is_down);
+        assert!(!translator.drag_selecting);
+        assert!(!TheInGameUI::is_selecting());
     }
 }
