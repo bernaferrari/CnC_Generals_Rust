@@ -599,9 +599,9 @@ fn run_key_script_alias(script_index: i32) {
     let _ = engine.execute_subroutine_by_name(&script_name);
 }
 
-fn kill_local_player_selection() {
+fn local_selection_object_ids() -> Vec<u32> {
     let selection_manager = get_selection_manager();
-    let selected_ids = selection_manager
+    selection_manager
         .read()
         .ok()
         .and_then(|manager| {
@@ -609,7 +609,11 @@ fn kill_local_player_selection() {
                 .get_player_selection_ref(get_local_player_id())
                 .map(|selection| selection.get_selected_objects())
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn kill_local_player_selection() {
+    let selected_ids = local_selection_object_ids();
 
     for object_id in selected_ids {
         if let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) {
@@ -621,16 +625,34 @@ fn kill_local_player_selection() {
 }
 
 fn first_selected_object_id_for_local_player() -> Option<u32> {
-    let selection_manager = get_selection_manager();
-    selection_manager
-        .read()
-        .ok()
-        .and_then(|manager| {
-            manager
-                .get_player_selection_ref(get_local_player_id())
-                .map(|selection| selection.get_selected_objects())
-        })
-        .and_then(|selected| selected.into_iter().next())
+    local_selection_object_ids().into_iter().next()
+}
+
+fn adjust_local_selection_veterancy(delta: i32) {
+    for object_id in local_selection_object_ids() {
+        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            continue;
+        };
+        let Ok(mut object) = object_arc.write() else {
+            continue;
+        };
+        let Some(tracker_arc) = object.get_experience_tracker() else {
+            continue;
+        };
+        let Ok(mut tracker) = tracker_arc.lock() else {
+            continue;
+        };
+        if !tracker.is_trainable() {
+            continue;
+        }
+
+        let old_level = tracker.get_veterancy_level();
+        let new_level = old_level.saturating_add_levels(delta);
+        if tracker.set_veterancy_level(new_level).is_some() {
+            drop(tracker);
+            object.on_veterancy_level_changed(old_level, new_level, true);
+        }
+    }
 }
 
 fn set_local_player_index_with_refresh(index: i32) {
@@ -1247,6 +1269,20 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_KILL_SELECTION") {
         kill_local_player_selection();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_GIVE_VETERANCY")
+        || record.name.eq_ignore_ascii_case("DEMO_TAKE_VETERANCY")
+    {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let delta = if record.name.eq_ignore_ascii_case("DEMO_GIVE_VETERANCY") {
+                1
+            } else {
+                -1
+            };
+            adjust_local_selection_veterancy(delta);
+        }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -2443,6 +2479,14 @@ mod tests {
         );
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_RUNSCRIPT7")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_GIVE_VETERANCY")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TAKE_VETERANCY")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
