@@ -4,6 +4,9 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 
+use game_engine::common::audio::game_audio::{
+    get_global_audio_manager, initialize_global_audio_manager, AudioAffect,
+};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
@@ -1173,6 +1176,18 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_SOUND") {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        if let Ok(mut audio) = manager.lock() {
+            if audio.is_on(AudioAffect::Sound) {
+                audio.set_on(false, AudioAffect::All);
+            } else {
+                audio.set_on(true, AudioAffect::All);
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MILITARY_SUBTITLES") {
         TheInGameUI::military_subtitle("MSG:Testing", 10_000);
         return Some(GameMessageDisposition::DestroyMessage);
@@ -1378,6 +1393,20 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_metrics = !global.show_metrics;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MUSIC") {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        if let Ok(mut audio) = manager.lock() {
+            if audio.is_on(AudioAffect::Music) {
+                audio.set_on(false, AudioAffect::Music);
+                TheInGameUI::message("Stopping Music");
+            } else {
+                audio.set_on(true, AudioAffect::Music);
+                TheInGameUI::message("Resuming Music");
+            }
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -2231,5 +2260,56 @@ mod tests {
             logic.set_game_mode(GAME_NONE);
         }
         ThePlayerList().write().expect("player list lock").clear();
+    }
+
+    #[test]
+    fn test_demo_toggle_sound_and_music_aliases_update_audio_flags() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        {
+            let mut audio = manager.lock().expect("audio lock");
+            audio.set_on(true, AudioAffect::All);
+            audio.set_on(true, AudioAffect::Music);
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_SOUND")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        {
+            let audio = manager.lock().expect("audio lock");
+            assert!(!audio.is_on(AudioAffect::Sound));
+            assert!(!audio.is_on(AudioAffect::Music));
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_SOUND")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        {
+            let audio = manager.lock().expect("audio lock");
+            assert!(audio.is_on(AudioAffect::Sound));
+            assert!(audio.is_on(AudioAffect::Music));
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MUSIC")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        {
+            let audio = manager.lock().expect("audio lock");
+            assert!(!audio.is_on(AudioAffect::Music));
+            assert!(audio.is_on(AudioAffect::Sound));
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MUSIC")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        {
+            let audio = manager.lock().expect("audio lock");
+            assert!(audio.is_on(AudioAffect::Music));
+        }
     }
 }
