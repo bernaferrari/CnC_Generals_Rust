@@ -1235,7 +1235,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 player.get_money_mut().deposit_money(10_000);
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_INSTANT_BUILD") {
@@ -1547,7 +1547,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let mut global = global_data.write();
             global.disable_render = !global.disable_render;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record
@@ -1696,7 +1696,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 "Show Object Extents OFF"
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record
@@ -1712,7 +1712,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 "Show AudioLocations OFF"
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_SHOW_HEALTH") {
@@ -1725,7 +1725,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 "Object Health OFF"
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_METRICS") {
@@ -1733,7 +1733,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let mut global = global_data.write();
             global.show_metrics = !global.show_metrics;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MUSIC") {
@@ -1775,7 +1775,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             "Statistics dump made on frame: {}",
             TheGameLogic::get_frame()
         ));
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_WIN") {
@@ -2378,9 +2378,17 @@ mod tests {
             "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS",
         ];
         for alias in aliases {
+            let expected = match alias {
+                "DEMO_TOGGLE_RENDER"
+                | "DEMO_SHOW_EXTENTS"
+                | "DEMO_SHOW_AUDIO_LOCATIONS"
+                | "DEMO_SHOW_HEALTH"
+                | "DEMO_TOGGLE_METRICS" => None,
+                _ => Some(GameMessageDisposition::DestroyMessage),
+            };
             assert_eq!(
                 dispatch_map_entry(&alias_record(alias)),
-                Some(GameMessageDisposition::DestroyMessage),
+                expected,
                 "alias {alias} should be consumed"
             );
         }
@@ -2432,7 +2440,7 @@ mod tests {
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_ADDCASH")),
-            Some(GameMessageDisposition::DestroyMessage)
+            None
         );
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_GIVE_SCIENCEPURCHASEPOINTS")),
@@ -2832,7 +2840,7 @@ mod tests {
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_PERFORM_STATISTICAL_DUMP")),
-            Some(GameMessageDisposition::DestroyMessage)
+            None
         );
         assert!(global_data.read().dump_performance_statistics);
     }
