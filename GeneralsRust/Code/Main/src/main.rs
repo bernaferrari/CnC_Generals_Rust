@@ -29,6 +29,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+use game_engine::common::game_engine::clear_game_engine;
 use game_engine::common::system::game_memory::init_game_memory;
 use generals_main::command_line::{self, CommandLineArgs};
 use generals_main::subsystem_manager;
@@ -470,17 +471,23 @@ fn cleanup_and_exit() {
     }
 
     // =========================================================================
-    // STEP 4: Version System Cleanup (matches delete TheVersion)
+    // STEP 4: Reset the shared GameEngine slot (matches C++ TheGameEngine = NULL)
+    // =========================================================================
+    clear_game_engine();
+    debug!("Common GameEngine slot cleared");
+
+    // =========================================================================
+    // STEP 5: Version System Cleanup (matches delete TheVersion)
     // =========================================================================
     // Version system cleanup happens automatically in Rust
 
     // =========================================================================
-    // STEP 5: Memory Manager Shutdown (matches shutdownMemoryManager())
+    // STEP 6: Memory Manager Shutdown (matches shutdownMemoryManager())
     // =========================================================================
     // Rust's memory management handles this automatically
 
     // =========================================================================
-    // STEP 6: Debug System Shutdown (matches DEBUG_SHUTDOWN())
+    // STEP 7: Debug System Shutdown (matches DEBUG_SHUTDOWN())
     // =========================================================================
     debug!("Cleanup sequence completed");
 
