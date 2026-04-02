@@ -2630,8 +2630,8 @@ impl GameLogic {
             let previous_object_id = object_index
                 .and_then(|index| index.checked_sub(1))
                 .and_then(|index| self.all_objects.get(index).copied());
-            let next_object_id = object_index
-                .and_then(|index| self.all_objects.get(index + 1).copied());
+            let next_object_id =
+                object_index.and_then(|index| self.all_objects.get(index + 1).copied());
 
             if let Some(previous_id) = previous_object_id {
                 if let Some(previous_object) = self.objects.get(&previous_id) {
@@ -3111,6 +3111,13 @@ impl GameLogic {
     /// Get object count
     pub fn get_object_count(&self) -> usize {
         self.all_objects.len()
+    }
+
+    /// Get current number of queued sleepy update modules.
+    ///
+    /// ## C++ Reference: GameLogic::getNumberSleepyUpdates()
+    pub fn get_number_sleepy_updates(&self) -> usize {
+        self.sleepy_updates.len()
     }
 
     // =========================================================================
@@ -3935,11 +3942,25 @@ mod tests {
 
         assert_eq!(logic.all_objects, vec![11, 22, 33]);
         assert_eq!(
-            first.read().unwrap().get_next_object().unwrap().read().unwrap().get_id(),
+            first
+                .read()
+                .unwrap()
+                .get_next_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_id(),
             22
         );
         assert_eq!(
-            middle.read().unwrap().get_prev_object().unwrap().read().unwrap().get_id(),
+            middle
+                .read()
+                .unwrap()
+                .get_prev_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_id(),
             11
         );
 
@@ -3948,11 +3969,24 @@ mod tests {
 
         assert_eq!(logic.all_objects, vec![11, 33]);
         assert_eq!(
-            first.read().unwrap().get_next_object().unwrap().read().unwrap().get_id(),
+            first
+                .read()
+                .unwrap()
+                .get_next_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_id(),
             33
         );
         assert_eq!(
-            last.read().unwrap().get_prev_object().unwrap().read().unwrap().get_id(),
+            last.read()
+                .unwrap()
+                .get_prev_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_id(),
             11
         );
 

@@ -425,6 +425,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_BATTLE_CRY"
         | "DEBUG_DUMP_ALL_PLAYER_OBJECTS"
         | "DEBUG_DUMP_PLAYER_OBJECTS"
+        | "DEBUG_SLEEPY_UPDATE_PERFORMANCE"
         | "DEMO_CYCLE_LOD_LEVEL"
         | "DEMO_FREE_BUILD"
         | "DEMO_GIVE_ALL_SCIENCES"
@@ -502,7 +503,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEBUG_DRAWABLE_ID_PERFORMANCE" => true,
         "DEBUG_OBJECT_ID_PERFORMANCE" => true,
-        "DEBUG_SLEEPY_UPDATE_PERFORMANCE" => true,
         "DEMO_BEGIN_ADJUST_FOV" => true,
         "DEMO_BEGIN_ADJUST_PITCH" => true,
         "DEMO_CYCLE_EXTENT_TYPE" => true,
@@ -2039,6 +2039,15 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record
+        .name
+        .eq_ignore_ascii_case("DEBUG_SLEEPY_UPDATE_PERFORMANCE")
+    {
+        let count = TheGameLogic::get_number_sleepy_updates();
+        TheInGameUI::message(&format!("Number of Sleepy Modules: {count}."));
+        return None;
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_NETWORK") {
         toggle_demo_network_runtime();
         return Some(GameMessageDisposition::DestroyMessage);
@@ -2657,6 +2666,7 @@ mod tests {
             "CHEAT_RUNSCRIPT3",
             "DEBUG_DUMP_ALL_PLAYER_OBJECTS",
             "DEBUG_DUMP_PLAYER_OBJECTS",
+            "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
             "DEMO_CYCLE_LOD_LEVEL",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_MUSIC_NEXT_TRACK",
@@ -3372,6 +3382,15 @@ mod tests {
         assert_eq!(
             dispatch_map_entry(&alias_record("DEBUG_DUMP_ALL_PLAYER_OBJECTS")),
             Some(GameMessageDisposition::DestroyMessage)
+        );
+    }
+
+    #[test]
+    fn test_debug_sleepy_update_performance_alias_keeps_message() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEBUG_SLEEPY_UPDATE_PERFORMANCE")),
+            None
         );
     }
 
