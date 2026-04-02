@@ -1888,9 +1888,70 @@ impl Pathfinder {
         }
     }
 
+    fn bridge_layer_from_pathfinder_id(layer_id: u32) -> crate::path::PathfindLayerEnum {
+        match layer_id {
+            2 => crate::path::PathfindLayerEnum::Bridge1,
+            3 => crate::path::PathfindLayerEnum::Bridge2,
+            4 => crate::path::PathfindLayerEnum::Bridge3,
+            5 => crate::path::PathfindLayerEnum::Bridge4,
+            _ => crate::path::PathfindLayerEnum::Invalid,
+        }
+    }
+
+    fn pathfinder_id_from_bridge_layer(layer: crate::path::PathfindLayerEnum) -> Option<u32> {
+        match layer {
+            crate::path::PathfindLayerEnum::Bridge1 => Some(2),
+            crate::path::PathfindLayerEnum::Bridge2 => Some(3),
+            crate::path::PathfindLayerEnum::Bridge3 => Some(4),
+            crate::path::PathfindLayerEnum::Bridge4 => Some(5),
+            _ => None,
+        }
+    }
+
+    /// Register a bridge with the pathfinder and return the assigned terrain layer.
+    ///
+    /// C++ parity: `Pathfinder::addBridge()` returns the dynamic bridge layer used by
+    /// `TerrainLogic::addBridgeToLogic()` / `addLandmarkBridgeToLogic()`.
+    pub fn add_bridge(
+        &mut self,
+        bounds: (pathfind_complete::GridCoord, pathfind_complete::GridCoord),
+    ) -> crate::path::PathfindLayerEnum {
+        let layer_id = self.inner.add_bridge(bounds);
+        Self::bridge_layer_from_pathfinder_id(layer_id)
+    }
+
+    /// Mirror C++ `Pathfinder::changeBridgeState(layer, repaired)`.
+    pub fn change_bridge_state(&mut self, layer: crate::path::PathfindLayerEnum, repaired: bool) {
+        let Some(layer_id) = Self::pathfinder_id_from_bridge_layer(layer) else {
+            return;
+        };
+        self.inner.set_bridge_destroyed(layer_id, !repaired);
+    }
+
+    /// Inspect whether a registered bridge is currently destroyed.
+    pub fn bridge_is_destroyed(&self, layer: crate::path::PathfindLayerEnum) -> Option<bool> {
+        let layer_id = Self::pathfinder_id_from_bridge_layer(layer)?;
+        self.inner
+            .bridge_by_layer_id(layer_id)
+            .map(|bridge| bridge.destroyed)
+    }
+
     pub fn process_pathfind_queue(&mut self) -> Result<(), AiError> {
         self.inner.process_queue(PATHFIND_QUEUE_LEN);
         Ok(())
+    }
+
+    /// Check whether a world position lies on the wall layer footprint.
+    pub fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
+        self.inner
+            .get_cell_type(pos)
+            .map(|cell_type| {
+                matches!(
+                    cell_type,
+                    PathfindCellType::Obstacle | PathfindCellType::Impassable
+                )
+            })
+            .unwrap_or(false)
     }
 
     /// Queue a pathfinding request (matches C++ Pathfinder::queueForPath).
@@ -2388,6 +2449,7 @@ pub mod modules;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::path::PathfindLayerEnum as LegacyPathfindLayerEnum;
 
     #[test]
     fn test_ai_group_creation() {
@@ -2451,5 +2513,23 @@ mod tests {
         ai_data.add_side_info(side_info);
         assert_eq!(ai_data.side_info.len(), 1);
         assert_eq!(ai_data.side_info[0].side, "USA");
+    }
+
+    #[test]
+    fn test_bridge_state_mapping_matches_cpp_boolean_semantics() {
+        let mut pathfinder = Pathfinder::new();
+        let layer = pathfinder.add_bridge((
+            pathfind_complete::GridCoord::new(10, 10),
+            pathfind_complete::GridCoord::new(20, 20),
+        ));
+
+        assert_eq!(layer, LegacyPathfindLayerEnum::Bridge1);
+        assert_eq!(pathfinder.bridge_is_destroyed(layer), Some(false));
+
+        pathfinder.change_bridge_state(layer, false);
+        assert_eq!(pathfinder.bridge_is_destroyed(layer), Some(true));
+
+        pathfinder.change_bridge_state(layer, true);
+        assert_eq!(pathfinder.bridge_is_destroyed(layer), Some(false));
     }
 }
