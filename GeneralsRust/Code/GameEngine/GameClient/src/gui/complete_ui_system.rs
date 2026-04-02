@@ -793,6 +793,20 @@ impl ControlBarHooks for ControlBarBackend {
         }
     }
 
+    fn init_special_power_shortcut_bar_for_player(&self, _player_side: &str) {
+        if let Ok(mut control_bar) = self.control_bar.lock() {
+            control_bar.show_special_power_shortcut();
+        }
+    }
+
+    fn set_control_bar_scheme_by_player(&self, player_side: &str) {
+        if let Ok(mut control_bar) = self.control_bar.lock() {
+            if let Err(err) = control_bar.set_control_bar_scheme_by_player(player_side) {
+                log::warn!("Failed to set control bar scheme for side '{}': {}", player_side, err);
+            }
+        }
+    }
+
     fn toggle_control_bar_stage(&self) {
         if let Ok(mut control_bar) = self.control_bar.lock() {
             control_bar.toggle_control_bar_stage();
