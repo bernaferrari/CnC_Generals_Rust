@@ -47,9 +47,9 @@ use game_engine::common::ini::ini_game_data::ensure_global_data as ensure_engine
 use game_engine::common::ini::{
     get_global_data as get_engine_global_data, TimeOfDay as IniTimeOfDay,
 };
-use game_engine::common::system::radar::get_radar_system;
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
+use game_engine::common::system::radar::get_radar_system;
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
 };
@@ -755,6 +755,14 @@ impl TheGameLogic {
         crate::system::game_logic::current_frame()
     }
 
+    /// Get number of sleepy update modules queued in GameLogic.
+    pub fn get_number_sleepy_updates() -> usize {
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .map(|logic| logic.get_number_sleepy_updates())
+            .unwrap_or(0)
+    }
+
     /// Get whether draw icon UI indicators are enabled.
     pub fn get_draw_icon_ui() -> Bool {
         crate::system::game_logic::get_game_logic()
@@ -1024,9 +1032,10 @@ impl TheGameLogic {
             logic.set_loading_map(true);
         }
 
-        let init_result = crate::system::game_initialization::GameInitializer::initialize_game(params)
-            .map(|_| ())
-            .map_err(|err| format!("Game initialization failed: {}", err));
+        let init_result =
+            crate::system::game_initialization::GameInitializer::initialize_game(params)
+                .map(|_| ())
+                .map_err(|err| format!("Game initialization failed: {}", err));
 
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_loading_map(false);
@@ -4750,18 +4759,24 @@ struct GameLogicAudioViewResolver;
 
 impl AudioViewResolver for GameLogicAudioViewResolver {
     fn get_tactical_view_position(&self) -> EngineCoord3D {
-        if let Some((x, y, z)) = observer_audio_view_hooks()
-            .and_then(|hooks| hooks.get_tactical_view_position())
+        if let Some((x, y, z)) =
+            observer_audio_view_hooks().and_then(|hooks| hooks.get_tactical_view_position())
         {
             return EngineCoord3D { x, y, z };
         }
 
         // C++ reads TheTacticalView->getPosition(). Fallback remains deterministic.
-        EngineCoord3D { x: 0.0, y: 0.0, z: 0.0 }
+        EngineCoord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        }
     }
 
     fn get_tactical_view_angle(&self) -> f32 {
-        if let Some(angle) = observer_audio_view_hooks().and_then(|hooks| hooks.get_tactical_view_angle()) {
+        if let Some(angle) =
+            observer_audio_view_hooks().and_then(|hooks| hooks.get_tactical_view_angle())
+        {
             return angle;
         }
 
@@ -4770,14 +4785,18 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
     }
 
     fn get_3d_camera_position(&self) -> EngineCoord3D {
-        if let Some((x, y, z)) = observer_audio_view_hooks()
-            .and_then(|hooks| hooks.get_3d_camera_position())
+        if let Some((x, y, z)) =
+            observer_audio_view_hooks().and_then(|hooks| hooks.get_3d_camera_position())
         {
             return EngineCoord3D { x, y, z };
         }
 
         // C++ reads TheTacticalView->get3DCameraPosition(). Fallback remains deterministic.
-        EngineCoord3D { x: 0.0, y: 0.0, z: 0.0 }
+        EngineCoord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        }
     }
 
     fn get_ground_height(&self, x: f32, y: f32) -> f32 {
