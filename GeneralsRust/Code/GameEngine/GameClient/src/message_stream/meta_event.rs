@@ -9,6 +9,7 @@ use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
     get_global_data, register_block_parser, INIError, INILoadType, INIResult, INI,
 };
+use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 use log::debug;
 
 use super::game_message::{
@@ -530,6 +531,25 @@ fn is_supported_command_map_name(name: &str) -> bool {
         || is_unimplemented_cpp_command_name(name)
 }
 
+fn with_local_player_mut<F>(f: F) -> bool
+where
+    F: FnOnce(&mut gamelogic::player::Player),
+{
+    let Some(local_player) = ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_local_player().cloned())
+    else {
+        return false;
+    };
+
+    let Ok(mut local_guard) = local_player.write() else {
+        return false;
+    };
+    f(&mut local_guard);
+    true
+}
+
 fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> {
     ini.read_line()?;
     if ini.is_eof() {
@@ -876,6 +896,73 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             global_data.write().no_draw = u32::MAX;
         }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_ADD_CASH") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let _ = with_local_player_mut(|player| {
+                player.get_money_mut().deposit_money(10_000);
+            });
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_ADDCASH") {
+        let _ = with_local_player_mut(|player| {
+            player.get_money_mut().deposit_money(10_000);
+        });
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("CHEAT_GIVE_SCIENCEPURCHASEPOINTS")
+    {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let _ = with_local_player_mut(|player| {
+                player.add_science_purchase_points(1);
+            });
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_GIVE_SCIENCEPURCHASEPOINTS")
+    {
+        let _ = with_local_player_mut(|player| {
+            player.add_science_purchase_points(1);
+        });
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_GIVE_ALL_SCIENCES") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let _ = with_local_player_mut(|player| {
+                if let Some(science_store) = get_science_store() {
+                    for (&science, _) in science_store.iter() {
+                        if science != SCIENCE_INVALID && science_store.is_science_grantable(science)
+                        {
+                            let _ = player.grant_science(science);
+                        }
+                    }
+                }
+            });
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_GIVE_ALL_SCIENCES") {
+        let _ = with_local_player_mut(|player| {
+            if let Some(science_store) = get_science_store() {
+                for (&science, _) in science_store.iter() {
+                    if science != SCIENCE_INVALID && science_store.is_science_grantable(science) {
+                        let _ = player.grant_science(science);
+                    }
+                }
+            }
+        });
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -1343,6 +1430,8 @@ impl GameMessageTranslator for MetaEventTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gamelogic::player::Player;
+    use std::sync::{Arc, RwLock};
     use std::sync::{Mutex, OnceLock};
 
     fn test_state_lock() -> &'static Mutex<()> {
@@ -1584,5 +1673,44 @@ mod tests {
         assert!(global.special_power_uses_delay);
         assert_eq!(global.feather_water, 5);
         assert!(TheGameLogic::get_show_behind_building_markers());
+    }
+
+    #[test]
+    fn test_demo_cash_and_science_point_aliases_apply_local_player_effects() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let local_player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut local_guard = local_player.write().expect("player lock");
+            local_guard.get_money_mut().set_money(0);
+            let spp = local_guard.get_science_purchase_points();
+            if spp != 0 {
+                local_guard.add_science_purchase_points(-spp);
+            }
+        }
+
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&local_player));
+            list.set_local_player_index(0);
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_ADDCASH")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_GIVE_SCIENCEPURCHASEPOINTS")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+
+        {
+            let local_guard = local_player.read().expect("player lock");
+            assert_eq!(local_guard.get_money().get_money(), 10_000);
+            assert_eq!(local_guard.get_science_purchase_points(), 1);
+        }
+
+        ThePlayerList().write().expect("player list lock").clear();
     }
 }
