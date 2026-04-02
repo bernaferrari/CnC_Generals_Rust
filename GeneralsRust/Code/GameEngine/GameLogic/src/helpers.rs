@@ -117,6 +117,8 @@ impl EngineThingTemplateAdapter {
                 max: crate::common::Coord3D::new(half_w, half_d, height),
             },
             height_above_terrain: 0.0,
+            geometry_type: geo.geometry_type,
+            is_small: geo.is_small,
         };
 
         Self {
