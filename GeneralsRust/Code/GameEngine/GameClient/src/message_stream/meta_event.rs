@@ -1449,6 +1449,26 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_AI_DEBUG") {
+        if let Some(global_data) = get_global_data() {
+            let debug_level = {
+                let mut global = global_data.write();
+                global.debug_ai.value = global.debug_ai.value.saturating_add(1);
+                if global.debug_ai.value >= 6 {
+                    global.debug_ai.value = 0;
+                }
+                global.debug_ai.value
+            };
+
+            if debug_level == 0 {
+                TheInGameUI::message("Debug AI Mode is OFF");
+            } else {
+                TheInGameUI::message(&format!("Debug AI Mode is Level {}", debug_level));
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_CAMERA_DEBUG") {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
@@ -2092,6 +2112,7 @@ mod tests {
             global.show_metrics = false;
             global.special_power_uses_delay = true;
             global.feather_water = 0;
+            global.debug_ai.value = 0;
         }
         TheGameLogic::set_show_behind_building_markers(false);
 
@@ -2115,6 +2136,7 @@ mod tests {
             "DEMO_TOGGLE_SPECIAL_POWER_DELAYS",
             "DEMO_TOGGLE_FEATHER_WATER",
             "DEMO_TOGGLE_CASHMAPDEBUG",
+            "DEMO_TOGGLE_AI_DEBUG",
             "CHEAT_SHOW_HEALTH",
             "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS",
         ];
@@ -2146,6 +2168,7 @@ mod tests {
         assert!(global.show_metrics);
         assert!(global.special_power_uses_delay);
         assert_eq!(global.feather_water, 5);
+        assert_eq!(global.debug_ai.value, 1);
         assert!(TheGameLogic::get_show_behind_building_markers());
     }
 
