@@ -13,8 +13,8 @@ use game_engine::common::audio::game_audio::{
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
-    get_global_data, register_block_parser, DynamicGameLODLevel, INIError, INILoadType,
-    INIResult, TimeOfDay, INI,
+    get_global_data, register_block_parser, DynamicGameLODLevel, INIError, INILoadType, INIResult,
+    TimeOfDay, INI,
 };
 use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 use log::debug;
@@ -29,9 +29,9 @@ use crate::core::script_action_handler::{
     stop_script_display_movie, toggle_script_display_letter_box,
     toggle_script_display_movie_capture,
 };
-use crate::drawable::drawable_manager::with_drawable_manager_ref;
 use crate::display::display::DebugDisplayCallback;
 use crate::display::view::{with_tactical_view, FilterMode, FilterType};
+use crate::drawable::drawable_manager::with_drawable_manager_ref;
 use crate::gui::shell::get_shell;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::helpers::{TheControlBar, TheInGameUI};
@@ -41,9 +41,11 @@ use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
-use gamelogic::common::types::KindOf;
+use gamelogic::common::types::{GeometryInfo, KindOf};
 use gamelogic::common::ModelConditionFlags;
-use gamelogic::helpers::{TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions};
+use gamelogic::helpers::{
+    TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions,
+};
 use gamelogic::object::drawable::Drawable;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
@@ -130,8 +132,14 @@ static CYCLE_LOD_LEVEL_STATE: OnceLock<RwLock<DynamicGameLODLevel>> = OnceLock::
 static LAST_PLANE_LOCK_OBJECT_ID: OnceLock<RwLock<Option<u32>>> = OnceLock::new();
 static VTUNE_ENABLED: OnceLock<RwLock<bool>> = OnceLock::new();
 static SKATE_DISTANCE_OVERRIDE: OnceLock<RwLock<f32>> = OnceLock::new();
+static DEMO_CAMERA_ADJUST_STATE: OnceLock<RwLock<DemoCameraAdjustState>> = OnceLock::new();
+static HAND_OF_GOD_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
+static HURT_ME_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
+static DEBUG_SELECTION_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
+const EXTENT_BIG_CHANGE: f32 = 10.0;
+const DEMO_CAMERA_ADJUST_FACTOR: f32 = 0.01;
 
 #[derive(Debug, Clone)]
 struct LowerDetailToggleState {
@@ -141,6 +149,27 @@ struct LowerDetailToggleState {
     old_use_cloud_map: bool,
     old_show_behind_building_markers: bool,
     old_max_particle_count: i32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DemoCameraAdjustState {
+    is_pitching: bool,
+    is_changing_fov: bool,
+    anchor: ICoord2D,
+    current_pos: ICoord2D,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ExtentAdjustAxis {
+    Major,
+    Minor,
+    Height,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExtentAdjustSpec {
+    axis: ExtentAdjustAxis,
+    amount: f32,
 }
 
 impl Default for LowerDetailToggleState {
@@ -170,6 +199,247 @@ fn get_objective_movie_index() -> &'static RwLock<i32> {
 
 fn get_motion_blur_zoom_saturate_state() -> &'static RwLock<bool> {
     MOTION_BLUR_ZOOM_SATURATE.get_or_init(|| RwLock::new(false))
+}
+
+fn get_demo_camera_adjust_state() -> &'static RwLock<DemoCameraAdjustState> {
+    DEMO_CAMERA_ADJUST_STATE.get_or_init(|| RwLock::new(DemoCameraAdjustState::default()))
+}
+
+fn hand_of_god_mode_state() -> &'static RwLock<bool> {
+    HAND_OF_GOD_MODE.get_or_init(|| RwLock::new(false))
+}
+
+fn hurt_me_mode_state() -> &'static RwLock<bool> {
+    HURT_ME_MODE.get_or_init(|| RwLock::new(false))
+}
+
+fn debug_selection_mode_state() -> &'static RwLock<bool> {
+    DEBUG_SELECTION_MODE.get_or_init(|| RwLock::new(false))
+}
+
+fn toggle_shared_bool_state(state: &'static RwLock<bool>) -> bool {
+    if let Ok(mut guard) = state.write() {
+        *guard = !*guard;
+        return *guard;
+    }
+    false
+}
+
+#[cfg(test)]
+fn set_bool_state_for_tests(state: &'static RwLock<bool>, value: bool) {
+    if let Ok(mut guard) = state.write() {
+        *guard = value;
+    }
+}
+
+#[cfg(test)]
+fn bool_state_for_tests(state: &'static RwLock<bool>) -> bool {
+    state.read().map(|guard| *guard).unwrap_or(false)
+}
+
+fn set_demo_pitch_adjusting(enabled: bool) {
+    if let Ok(mut state) = get_demo_camera_adjust_state().write() {
+        state.is_pitching = enabled;
+    }
+}
+
+fn set_demo_fov_adjusting(enabled: bool) {
+    if let Ok(mut state) = get_demo_camera_adjust_state().write() {
+        state.is_changing_fov = enabled;
+        if enabled {
+            state.anchor = state.current_pos.clone();
+        }
+    }
+}
+
+fn apply_demo_camera_adjust_from_mouse_position(pos: &ICoord2D) {
+    let (is_pitching, is_changing_fov, delta_y) = {
+        let Ok(mut state) = get_demo_camera_adjust_state().write() else {
+            return;
+        };
+
+        state.current_pos = pos.clone();
+        if !state.is_pitching && !state.is_changing_fov {
+            state.anchor = state.current_pos.clone();
+            return;
+        }
+
+        let delta_y = (state.current_pos.y - state.anchor.y) as f32;
+        state.anchor = state.current_pos.clone();
+        (state.is_pitching, state.is_changing_fov, delta_y)
+    };
+
+    if delta_y.abs() < f32::EPSILON {
+        return;
+    }
+
+    with_tactical_view(|view| {
+        if is_pitching {
+            view.set_pitch(view.pitch() + (delta_y * DEMO_CAMERA_ADJUST_FACTOR));
+        }
+        if is_changing_fov {
+            view.set_field_of_view(view.field_of_view() + (delta_y * DEMO_CAMERA_ADJUST_FACTOR));
+        }
+    });
+}
+
+#[cfg(test)]
+fn reset_demo_camera_adjust_state_for_tests() {
+    if let Ok(mut state) = get_demo_camera_adjust_state().write() {
+        *state = DemoCameraAdjustState::default();
+    }
+}
+
+#[cfg(test)]
+fn demo_camera_adjust_state_for_tests() -> DemoCameraAdjustState {
+    get_demo_camera_adjust_state()
+        .read()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+fn parse_extent_adjust_alias(name: &str) -> Option<ExtentAdjustSpec> {
+    let upper = name.to_ascii_uppercase();
+    match upper.as_str() {
+        "DEMO_INCR_EXTENT_MAJOR" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Major,
+            amount: 1.0,
+        }),
+        "DEMO_DECR_EXTENT_MAJOR" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Major,
+            amount: -1.0,
+        }),
+        "DEMO_INCR_EXTENT_MAJOR_LARGE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Major,
+            amount: EXTENT_BIG_CHANGE,
+        }),
+        "DEMO_DECR_EXTENT_MAJOR_LARGE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Major,
+            amount: -EXTENT_BIG_CHANGE,
+        }),
+        "DEMO_INCR_EXTENT_MINOR" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Minor,
+            amount: 1.0,
+        }),
+        "DEMO_DECR_EXTENT_MINOR" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Minor,
+            amount: -1.0,
+        }),
+        "DEMO_INCR_EXTENT_MINOR_LARGE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Minor,
+            amount: EXTENT_BIG_CHANGE,
+        }),
+        "DEMO_DECR_EXTENT_MINOR_LARGE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Minor,
+            amount: -EXTENT_BIG_CHANGE,
+        }),
+        "DEMO_INCR_EXTENT_HEIGHT" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Height,
+            amount: 1.0,
+        }),
+        "DEMO_DECR_EXTENT_HEIGHT" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Height,
+            amount: -1.0,
+        }),
+        "DEMO_INCR_EXTENT_HEIGHT_LARGE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Height,
+            amount: EXTENT_BIG_CHANGE,
+        }),
+        "DEMO_DECR_EXTENT_HEIGHT_LARGE" => Some(ExtentAdjustSpec {
+            axis: ExtentAdjustAxis::Height,
+            amount: -EXTENT_BIG_CHANGE,
+        }),
+        _ => None,
+    }
+}
+
+fn set_geometry_major_radius(geometry: &mut GeometryInfo, new_radius: f32) {
+    let center_x = (geometry.bounds.min.x + geometry.bounds.max.x) * 0.5;
+    let center_y = (geometry.bounds.min.y + geometry.bounds.max.y) * 0.5;
+    let half_x = (geometry.bounds.max.x - geometry.bounds.min.x).abs() * 0.5;
+    let half_y = (geometry.bounds.max.y - geometry.bounds.min.y).abs() * 0.5;
+    let radius = new_radius.max(0.0);
+
+    if half_x >= half_y {
+        geometry.bounds.min.x = center_x - radius;
+        geometry.bounds.max.x = center_x + radius;
+    } else {
+        geometry.bounds.min.y = center_y - radius;
+        geometry.bounds.max.y = center_y + radius;
+    }
+}
+
+fn set_geometry_minor_radius(geometry: &mut GeometryInfo, new_radius: f32) {
+    let center_x = (geometry.bounds.min.x + geometry.bounds.max.x) * 0.5;
+    let center_y = (geometry.bounds.min.y + geometry.bounds.max.y) * 0.5;
+    let half_x = (geometry.bounds.max.x - geometry.bounds.min.x).abs() * 0.5;
+    let half_y = (geometry.bounds.max.y - geometry.bounds.min.y).abs() * 0.5;
+    let radius = new_radius.max(0.0);
+
+    if half_x <= half_y {
+        geometry.bounds.min.x = center_x - radius;
+        geometry.bounds.max.x = center_x + radius;
+    } else {
+        geometry.bounds.min.y = center_y - radius;
+        geometry.bounds.max.y = center_y + radius;
+    }
+}
+
+fn set_geometry_height(geometry: &mut GeometryInfo, new_height: f32) {
+    geometry.bounds.max.z = new_height.max(0.0);
+    if geometry.bounds.max.z < geometry.bounds.min.z {
+        geometry.bounds.min.z = geometry.bounds.max.z;
+    }
+}
+
+fn apply_extent_adjust(geometry: &mut GeometryInfo, spec: ExtentAdjustSpec) {
+    match spec.axis {
+        ExtentAdjustAxis::Major => {
+            set_geometry_major_radius(geometry, geometry.get_major_radius() + spec.amount);
+        }
+        ExtentAdjustAxis::Minor => {
+            set_geometry_minor_radius(geometry, geometry.get_minor_radius() + spec.amount);
+        }
+        ExtentAdjustAxis::Height => {
+            set_geometry_height(
+                geometry,
+                geometry.get_max_height_above_position() + spec.amount,
+            );
+        }
+    }
+}
+
+fn format_extent_debug(geometry: &GeometryInfo) -> String {
+    format!(
+        "{:.3}/{:.3}/{:.3}",
+        geometry.get_major_radius(),
+        geometry.get_minor_radius(),
+        geometry.get_max_height_above_position()
+    )
+}
+
+fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
+    for object_id in local_selection_object_ids() {
+        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            continue;
+        };
+        let Ok(mut object) = object_arc.write() else {
+            continue;
+        };
+
+        let old_geometry = object.get_geometry_info().clone();
+        let mut new_geometry = old_geometry.clone();
+        apply_extent_adjust(&mut new_geometry, spec);
+        object.set_geometry_info(new_geometry.clone());
+
+        TheInGameUI::message(&format!(
+            "Extent {} -> {}   {:?} {:+.3}",
+            format_extent_debug(&old_geometry),
+            format_extent_debug(&new_geometry),
+            spec.axis,
+            spec.amount
+        ));
+    }
 }
 
 fn ensure_meta_map_loaded() {
@@ -429,9 +699,12 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "CHEAT_KILL_SELECTION"
         | "CHEAT_SHOW_HEALTH"
         | "CHEAT_SWITCH_TEAMS"
+        | "CHEAT_TOGGLE_HAND_OF_GOD_MODE"
         | "CHEAT_TOGGLE_MESSAGE_TEXT"
         | "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS"
         | "DEMO_ADDCASH"
+        | "DEMO_BEGIN_ADJUST_FOV"
+        | "DEMO_BEGIN_ADJUST_PITCH"
         | "DEMO_BATTLE_CRY"
         | "DEBUG_DUMP_ALL_PLAYER_OBJECTS"
         | "DEBUG_DUMP_PLAYER_OBJECTS"
@@ -440,15 +713,29 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEBUG_SLEEPY_UPDATE_PERFORMANCE"
         | "DEMO_CYCLE_LOD_LEVEL"
         | "DEMO_DECR_ANIM_SKATE_SPEED"
+        | "DEMO_DECR_EXTENT_HEIGHT"
+        | "DEMO_DECR_EXTENT_HEIGHT_LARGE"
+        | "DEMO_DECR_EXTENT_MAJOR"
+        | "DEMO_DECR_EXTENT_MAJOR_LARGE"
+        | "DEMO_DECR_EXTENT_MINOR"
+        | "DEMO_DECR_EXTENT_MINOR_LARGE"
         | "DEMO_DESHROUD"
         | "DEMO_DUMP_ASSETS"
         | "DEMO_ENSHROUD"
+        | "DEMO_END_ADJUST_FOV"
+        | "DEMO_END_ADJUST_PITCH"
         | "DEMO_FREE_BUILD"
         | "DEMO_GIVE_ALL_SCIENCES"
         | "DEMO_GIVE_RANKLEVEL"
         | "DEMO_GIVE_SCIENCEPURCHASEPOINTS"
         | "DEMO_GIVE_VETERANCY"
         | "DEMO_INSTANT_BUILD"
+        | "DEMO_INCR_EXTENT_HEIGHT"
+        | "DEMO_INCR_EXTENT_HEIGHT_LARGE"
+        | "DEMO_INCR_EXTENT_MAJOR"
+        | "DEMO_INCR_EXTENT_MAJOR_LARGE"
+        | "DEMO_INCR_EXTENT_MINOR"
+        | "DEMO_INCR_EXTENT_MINOR_LARGE"
         | "DEMO_INCR_ANIM_SKATE_SPEED"
         | "DEMO_KILL_ALL_ENEMIES"
         | "DEMO_KILL_SELECTION"
@@ -471,6 +758,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TAKE_RANKLEVEL"
         | "DEMO_TAKE_VETERANCY"
         | "DEMO_TIME_OF_DAY"
+        | "DEMO_DEBUG_SELECTION"
         | "DEMO_TOGGLE_AI_DEBUG"
         | "DEMO_TOGGLE_AUDIODEBUG"
         | "DEMO_TOGGLE_AVI"
@@ -498,6 +786,8 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_SOUND"
         | "DEMO_TOGGLE_SPECIAL_POWER_DELAYS"
         | "DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT"
+        | "DEMO_TOGGLE_HAND_OF_GOD_MODE"
+        | "DEMO_TOGGLE_HURT_ME_MODE"
         | "DEMO_TOGGLE_THREATDEBUG"
         | "DEMO_TOGGLE_TRACKMARKS"
         | "DEMO_TOGGLE_VISIONDEBUG"
@@ -522,29 +812,9 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
     }
 
     match name.to_ascii_uppercase().as_str() {
-        "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
-        "DEMO_BEGIN_ADJUST_FOV" => true,
-        "DEMO_BEGIN_ADJUST_PITCH" => true,
         "DEMO_CYCLE_EXTENT_TYPE" => true,
-        "DEMO_DEBUG_SELECTION" => true,
-        "DEMO_DECR_EXTENT_HEIGHT" => true,
-        "DEMO_DECR_EXTENT_HEIGHT_LARGE" => true,
-        "DEMO_DECR_EXTENT_MAJOR" => true,
-        "DEMO_DECR_EXTENT_MAJOR_LARGE" => true,
-        "DEMO_DECR_EXTENT_MINOR" => true,
-        "DEMO_DECR_EXTENT_MINOR_LARGE" => true,
-        "DEMO_END_ADJUST_FOV" => true,
-        "DEMO_END_ADJUST_PITCH" => true,
-        "DEMO_INCR_EXTENT_HEIGHT" => true,
-        "DEMO_INCR_EXTENT_HEIGHT_LARGE" => true,
-        "DEMO_INCR_EXTENT_MAJOR" => true,
-        "DEMO_INCR_EXTENT_MAJOR_LARGE" => true,
-        "DEMO_INCR_EXTENT_MINOR" => true,
-        "DEMO_INCR_EXTENT_MINOR_LARGE" => true,
         "DEMO_TEST_SURRENDER" => true,
         "DEMO_TOGGLE_BW_VIEW" => true,
-        "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
-        "DEMO_TOGGLE_HURT_ME_MODE" => true,
         _ => false,
     }
 }
@@ -716,7 +986,9 @@ fn cycle_lod_level_state() -> &'static RwLock<DynamicGameLODLevel> {
 
 fn cycle_dynamic_lod_level() {
     let next = {
-        let mut guard = cycle_lod_level_state().write().expect("LOD cycle lock poisoned");
+        let mut guard = cycle_lod_level_state()
+            .write()
+            .expect("LOD cycle lock poisoned");
         *guard = match *guard {
             DynamicGameLODLevel::VeryHigh => DynamicGameLODLevel::High,
             DynamicGameLODLevel::High => DynamicGameLODLevel::Medium,
@@ -1058,11 +1330,7 @@ fn local_player_index_u32() -> Option<u32> {
 }
 
 fn adjust_texture_reduction_factor(delta: i32) {
-    let Some(global_data) = get_global_data() else {
-        return;
-    };
-    let mut global = global_data.write();
-    global.texture_reduction_factor = (global.texture_reduction_factor + delta).clamp(0, 4);
+    let _ = crate::core::game_client::adjust_lod_texture_reduction(delta);
 }
 
 fn reveal_local_player_map_permanently() {
@@ -1667,16 +1935,96 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_INCR_ANIM_SKATE_SPEED") {
+    if record.name.eq_ignore_ascii_case("DEMO_BEGIN_ADJUST_PITCH") {
+        set_demo_pitch_adjusting(true);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_END_ADJUST_PITCH") {
+        set_demo_pitch_adjusting(false);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_BEGIN_ADJUST_FOV") {
+        set_demo_fov_adjusting(true);
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_END_ADJUST_FOV") {
+        set_demo_fov_adjusting(false);
+        return None;
+    }
+
+    if let Some(extent_adjust) = parse_extent_adjust_alias(&record.name) {
+        apply_extent_adjust_to_local_selection(extent_adjust);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_INCR_ANIM_SKATE_SPEED")
+    {
         let value = adjust_skate_distance_override(0.25);
         TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
         return None;
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_DECR_ANIM_SKATE_SPEED") {
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_DECR_ANIM_SKATE_SPEED")
+    {
         let value = adjust_skate_distance_override(-0.25);
         TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
         return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HAND_OF_GOD_MODE") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let enabled = toggle_shared_bool_state(hand_of_god_mode_state());
+            TheInGameUI::message(if enabled {
+                "Meta Hand-Of-God Mode is ON"
+            } else {
+                "Meta Hand-Of-God Mode is OFF"
+            });
+            return Some(GameMessageDisposition::DestroyMessage);
+        }
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_TOGGLE_HAND_OF_GOD_MODE") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let enabled = toggle_shared_bool_state(hand_of_god_mode_state());
+            TheInGameUI::message(if enabled {
+                "Hand-Of-God Mode is ON"
+            } else {
+                "Hand-Of-God Mode is OFF"
+            });
+            return Some(GameMessageDisposition::DestroyMessage);
+        }
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HURT_ME_MODE") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let enabled = toggle_shared_bool_state(hurt_me_mode_state());
+            TheInGameUI::message(if enabled {
+                "Hurt-Me Mode is ON"
+            } else {
+                "Hurt-Me Mode is OFF"
+            });
+            return Some(GameMessageDisposition::DestroyMessage);
+        }
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_DEBUG_SELECTION") {
+        let enabled = toggle_shared_bool_state(debug_selection_mode_state());
+        TheInGameUI::message(if enabled {
+            "Debug-Selected-Item Mode is ON"
+        } else {
+            "Debug-Selected-Item Mode is OFF"
+        });
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_ADD_CASH") {
@@ -1976,18 +2324,17 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             if !TheInGameUI::is_movie_playing(CAMEO_MOVIE) {
                 let _ = TheInGameUI::play_movie(CAMEO_MOVIE);
             } else {
-                let target_window = [
-                    "ControlBar.wnd:CameoMovieWindow",
-                    "ControlBar.wnd:RightHUD",
-                ]
-                .into_iter()
-                .find_map(|window_name| {
-                    let window_id =
-                        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-                            window_name,
-                        ) as i32;
-                    crate::gui::with_window_manager_ref(|manager| manager.get_window_by_id(window_id))
-                });
+                let target_window = ["ControlBar.wnd:CameoMovieWindow", "ControlBar.wnd:RightHUD"]
+                    .into_iter()
+                    .find_map(|window_name| {
+                        let window_id =
+                            game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                                window_name,
+                            ) as i32;
+                        crate::gui::with_window_manager_ref(|manager| {
+                            manager.get_window_by_id(window_id)
+                        })
+                    });
                 if let Some(window) = target_window {
                     with_window_video_manager(|manager| manager.stop_movie(&window));
                 }
@@ -2689,6 +3036,9 @@ impl GameMessageTranslator for MetaEventTranslator {
         }
 
         match msg_type {
+            GameMessageType::RawMousePosition(pos) => {
+                apply_demo_camera_adjust_from_mouse_position(pos);
+            }
             GameMessageType::RawMouseLeftButtonDown(pos, ..)
             | GameMessageType::RawMouseMiddleButtonDown(pos, ..)
             | GameMessageType::RawMouseRightButtonDown(pos, ..) => {
@@ -2918,15 +3268,11 @@ mod tests {
         let _guard = test_state_lock().lock().expect("lock poisoned");
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_DECR_EXTENT_MAJOR")),
+            dispatch_map_entry(&alias_record("DEMO_CYCLE_EXTENT_TYPE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -2943,15 +3289,33 @@ mod tests {
             "CHEAT_ADD_CASH",
             "CHEAT_DESHROUD",
             "CHEAT_RUNSCRIPT3",
+            "CHEAT_TOGGLE_HAND_OF_GOD_MODE",
             "DEBUG_DUMP_ALL_PLAYER_OBJECTS",
             "DEBUG_DUMP_PLAYER_OBJECTS",
             "DEBUG_DRAWABLE_ID_PERFORMANCE",
             "DEBUG_OBJECT_ID_PERFORMANCE",
             "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
+            "DEMO_BEGIN_ADJUST_FOV",
+            "DEMO_BEGIN_ADJUST_PITCH",
             "DEMO_CYCLE_LOD_LEVEL",
+            "DEMO_DEBUG_SELECTION",
             "DEMO_DECR_ANIM_SKATE_SPEED",
+            "DEMO_DECR_EXTENT_HEIGHT",
+            "DEMO_DECR_EXTENT_HEIGHT_LARGE",
+            "DEMO_DECR_EXTENT_MAJOR",
+            "DEMO_DECR_EXTENT_MAJOR_LARGE",
+            "DEMO_DECR_EXTENT_MINOR",
+            "DEMO_DECR_EXTENT_MINOR_LARGE",
             "DEMO_DESHROUD",
             "DEMO_DUMP_ASSETS",
+            "DEMO_END_ADJUST_FOV",
+            "DEMO_END_ADJUST_PITCH",
+            "DEMO_INCR_EXTENT_HEIGHT",
+            "DEMO_INCR_EXTENT_HEIGHT_LARGE",
+            "DEMO_INCR_EXTENT_MAJOR",
+            "DEMO_INCR_EXTENT_MAJOR_LARGE",
+            "DEMO_INCR_EXTENT_MINOR",
+            "DEMO_INCR_EXTENT_MINOR_LARGE",
             "DEMO_INCR_ANIM_SKATE_SPEED",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_LOCK_CAMERA_TO_PLANES",
@@ -2964,6 +3328,8 @@ mod tests {
             "DEMO_TOGGLE_AVI",
             "DEMO_TOGGLE_DEBUG_STATS",
             "DEMO_TOGGLE_GREEN_VIEW",
+            "DEMO_TOGGLE_HAND_OF_GOD_MODE",
+            "DEMO_TOGGLE_HURT_ME_MODE",
             "DEMO_TOGGLE_LETTERBOX",
             "DEMO_TOGGLE_MOTION_BLUR_ZOOM",
             "DEMO_TOGGLE_NETWORK",
@@ -2979,6 +3345,153 @@ mod tests {
             assert!(!is_unimplemented_cpp_command_name(alias));
             assert!(is_supported_command_map_name(alias));
         }
+    }
+
+    #[test]
+    fn test_demo_adjust_aliases_toggle_camera_adjust_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        reset_demo_camera_adjust_state_for_tests();
+        apply_demo_camera_adjust_from_mouse_position(&ICoord2D::new(50, 60));
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
+            None
+        );
+        let state = demo_camera_adjust_state_for_tests();
+        assert!(!state.is_pitching);
+        assert!(state.is_changing_fov);
+        assert_eq!(state.anchor, ICoord2D::new(50, 60));
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        let state = demo_camera_adjust_state_for_tests();
+        assert!(state.is_pitching);
+        assert!(state.is_changing_fov);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_FOV")),
+            None
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_PITCH")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        let state = demo_camera_adjust_state_for_tests();
+        assert!(!state.is_pitching);
+        assert!(!state.is_changing_fov);
+    }
+
+    #[test]
+    fn test_raw_mouse_position_applies_demo_pitch_and_fov_adjustments() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        reset_demo_camera_adjust_state_for_tests();
+        let mut translator = MetaEventTranslator::default();
+        with_tactical_view(|view| {
+            view.set_pitch(0.0);
+            view.set_field_of_view(1.0);
+        });
+
+        let _ = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::RawMousePosition(ICoord2D::new(100, 100)),
+        ));
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
+            None
+        );
+
+        let _ = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::RawMousePosition(ICoord2D::new(100, 110)),
+        ));
+        let (pitch_after, fov_after) = crate::display::view::with_tactical_view_ref(|view| {
+            (view.pitch(), view.field_of_view())
+        });
+        assert!((pitch_after - 0.1).abs() < 0.001);
+        assert!((fov_after - 1.1).abs() < 0.001);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_PITCH")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_FOV")),
+            None
+        );
+
+        let _ = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::RawMousePosition(ICoord2D::new(100, 140)),
+        ));
+        let (pitch_final, fov_final) = crate::display::view::with_tactical_view_ref(|view| {
+            (view.pitch(), view.field_of_view())
+        });
+        assert!((pitch_final - pitch_after).abs() < 0.001);
+        assert!((fov_final - fov_after).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_extent_adjust_aliases_are_consumed_and_adjust_geometry_values() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        for alias in [
+            "DEMO_INCR_EXTENT_MAJOR",
+            "DEMO_DECR_EXTENT_MAJOR",
+            "DEMO_INCR_EXTENT_MAJOR_LARGE",
+            "DEMO_DECR_EXTENT_MAJOR_LARGE",
+            "DEMO_INCR_EXTENT_MINOR",
+            "DEMO_DECR_EXTENT_MINOR",
+            "DEMO_INCR_EXTENT_MINOR_LARGE",
+            "DEMO_DECR_EXTENT_MINOR_LARGE",
+            "DEMO_INCR_EXTENT_HEIGHT",
+            "DEMO_DECR_EXTENT_HEIGHT",
+            "DEMO_INCR_EXTENT_HEIGHT_LARGE",
+            "DEMO_DECR_EXTENT_HEIGHT_LARGE",
+        ] {
+            assert_eq!(
+                dispatch_map_entry(&alias_record(alias)),
+                Some(GameMessageDisposition::DestroyMessage),
+                "alias {alias} should be consumed"
+            );
+        }
+
+        let mut major = GeometryInfo::default();
+        major.bounds.min.x = -5.0;
+        major.bounds.max.x = 5.0;
+        major.bounds.min.y = -3.0;
+        major.bounds.max.y = 3.0;
+        major.bounds.min.z = 0.0;
+        major.bounds.max.z = 4.0;
+        apply_extent_adjust(
+            &mut major,
+            parse_extent_adjust_alias("DEMO_INCR_EXTENT_MAJOR_LARGE").expect("extent alias"),
+        );
+        assert!((major.get_major_radius() - 15.0).abs() < 0.001);
+
+        let mut minor = GeometryInfo::default();
+        minor.bounds.min.x = -5.0;
+        minor.bounds.max.x = 5.0;
+        minor.bounds.min.y = -3.0;
+        minor.bounds.max.y = 3.0;
+        apply_extent_adjust(
+            &mut minor,
+            parse_extent_adjust_alias("DEMO_DECR_EXTENT_MINOR").expect("extent alias"),
+        );
+        assert!((minor.get_minor_radius() - 2.0).abs() < 0.001);
+
+        let mut height = GeometryInfo::default();
+        height.bounds.min.z = 0.0;
+        height.bounds.max.z = 4.0;
+        apply_extent_adjust(
+            &mut height,
+            parse_extent_adjust_alias("DEMO_DECR_EXTENT_HEIGHT_LARGE").expect("extent alias"),
+        );
+        assert!((height.get_max_height_above_position() - 0.0).abs() < 0.001);
     }
 
     #[test]
@@ -3075,6 +3588,38 @@ mod tests {
             None
         );
         assert!((adjust_skate_distance_override(0.0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_selection_debug_toggle_aliases_flip_compat_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        set_bool_state_for_tests(hand_of_god_mode_state(), false);
+        set_bool_state_for_tests(hurt_me_mode_state(), false);
+        set_bool_state_for_tests(debug_selection_mode_state(), false);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_HAND_OF_GOD_MODE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(bool_state_for_tests(hand_of_god_mode_state()));
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_TOGGLE_HAND_OF_GOD_MODE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(!bool_state_for_tests(hand_of_god_mode_state()));
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_HURT_ME_MODE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(bool_state_for_tests(hurt_me_mode_state()));
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_DEBUG_SELECTION")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(bool_state_for_tests(debug_selection_mode_state()));
     }
 
     #[test]
