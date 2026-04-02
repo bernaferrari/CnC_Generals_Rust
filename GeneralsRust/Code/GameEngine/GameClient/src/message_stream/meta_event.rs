@@ -418,6 +418,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     match upper.as_str() {
         "CHEAT_ADD_CASH"
+        | "CHEAT_DESHROUD"
         | "CHEAT_GIVE_ALL_SCIENCES"
         | "CHEAT_GIVE_SCIENCEPURCHASEPOINTS"
         | "CHEAT_INSTANT_BUILD"
@@ -434,6 +435,8 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEBUG_OBJECT_ID_PERFORMANCE"
         | "DEBUG_SLEEPY_UPDATE_PERFORMANCE"
         | "DEMO_CYCLE_LOD_LEVEL"
+        | "DEMO_DESHROUD"
+        | "DEMO_ENSHROUD"
         | "DEMO_FREE_BUILD"
         | "DEMO_GIVE_ALL_SCIENCES"
         | "DEMO_GIVE_RANKLEVEL"
@@ -444,6 +447,8 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_KILL_SELECTION"
         | "DEMO_LOCK_CAMERA_TO_PLANES"
         | "DEMO_LOCK_CAMERA_TO_SELECTION"
+        | "DEMO_LOD_DECREASE"
+        | "DEMO_LOD_INCREASE"
         | "DEMO_MUSIC_NEXT_TRACK"
         | "DEMO_MUSIC_PREV_TRACK"
         | "DEMO_NEXT_OBJECTIVE_MOVIE"
@@ -491,6 +496,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_VISIONDEBUG"
         | "DEMO_TOGGLE_WATERPLANE"
         | "DEMO_TOGGLE_ZOOM_LOCK"
+        | "HELP"
         | "DEMO_WIN" => true,
         _ => {
             parse_runscript_alias(&upper).is_some() || parse_objective_movie_alias(&upper).is_some()
@@ -507,7 +513,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
     }
 
     match name.to_ascii_uppercase().as_str() {
-        "CHEAT_DESHROUD" => true,
         "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEMO_BEGIN_ADJUST_FOV" => true,
         "DEMO_BEGIN_ADJUST_PITCH" => true,
@@ -520,11 +525,9 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_DECR_EXTENT_MAJOR_LARGE" => true,
         "DEMO_DECR_EXTENT_MINOR" => true,
         "DEMO_DECR_EXTENT_MINOR_LARGE" => true,
-        "DEMO_DESHROUD" => true,
         "DEMO_DUMP_ASSETS" => true,
         "DEMO_END_ADJUST_FOV" => true,
         "DEMO_END_ADJUST_PITCH" => true,
-        "DEMO_ENSHROUD" => true,
         "DEMO_INCR_ANIM_SKATE_SPEED" => true,
         "DEMO_INCR_EXTENT_HEIGHT" => true,
         "DEMO_INCR_EXTENT_HEIGHT_LARGE" => true,
@@ -532,15 +535,12 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_INCR_EXTENT_MAJOR_LARGE" => true,
         "DEMO_INCR_EXTENT_MINOR" => true,
         "DEMO_INCR_EXTENT_MINOR_LARGE" => true,
-        "DEMO_LOD_DECREASE" => true,
-        "DEMO_LOD_INCREASE" => true,
         "DEMO_TEST_SURRENDER" => true,
         "DEMO_TOGGLE_BW_VIEW" => true,
         "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEMO_TOGGLE_HURT_ME_MODE" => true,
         "DEMO_VTUNE_OFF" => true,
         "DEMO_VTUNE_ON" => true,
-        "HELP" => true,
         _ => false,
     }
 }
@@ -979,6 +979,42 @@ fn local_player_side_name() -> Option<String> {
     let player = list.get_player(index)?;
     let guard = player.read().ok()?;
     Some(guard.get_side().to_string())
+}
+
+fn local_player_index_u32() -> Option<u32> {
+    let list = ThePlayerList().read().ok()?;
+    let index = list.get_local_player_index();
+    if index == PLAYER_INDEX_INVALID || index < 0 {
+        return None;
+    }
+    Some(index as u32)
+}
+
+fn adjust_texture_reduction_factor(delta: i32) {
+    let Some(global_data) = get_global_data() else {
+        return;
+    };
+    let mut global = global_data.write();
+    global.texture_reduction_factor = (global.texture_reduction_factor + delta).clamp(0, 4);
+}
+
+fn reveal_local_player_map_permanently() {
+    let Some(player_id) = local_player_index_u32() else {
+        return;
+    };
+    if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+        let _ = shroud.reveal_map_for_player_permanently(player_id);
+    }
+}
+
+fn shroud_local_player_map() {
+    let Some(player_id) = local_player_index_u32() else {
+        return;
+    };
+    if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+        let _ = shroud.undo_reveal_map_for_player_permanently(player_id);
+        let _ = shroud.shroud_map_for_player(player_id);
+    }
 }
 
 fn apply_local_player_switch_side_effects(initialize_shortcut_bar: bool) {
@@ -1514,6 +1550,37 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             global_data.write().no_draw = u32::MAX;
         }
         return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("HELP") {
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_LOD_DECREASE") {
+        adjust_texture_reduction_factor(-1);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_LOD_INCREASE") {
+        adjust_texture_reduction_factor(1);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_DESHROUD") {
+        reveal_local_player_map_permanently();
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_DESHROUD") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            reveal_local_player_map_permanently();
+        }
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_ENSHROUD") {
+        shroud_local_player_map();
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_ADD_CASH") {
@@ -2755,10 +2822,6 @@ mod tests {
         let _guard = test_state_lock().lock().expect("lock poisoned");
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_DESHROUD")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_DECR_EXTENT_MAJOR")),
             Some(GameMessageDisposition::DestroyMessage)
         );
@@ -2767,7 +2830,11 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("HELP")),
+            dispatch_map_entry(&alias_record("DEMO_VTUNE_ON")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TEST_SURRENDER")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
@@ -2778,6 +2845,7 @@ mod tests {
 
         for alias in [
             "CHEAT_ADD_CASH",
+            "CHEAT_DESHROUD",
             "CHEAT_RUNSCRIPT3",
             "DEBUG_DUMP_ALL_PLAYER_OBJECTS",
             "DEBUG_DUMP_PLAYER_OBJECTS",
@@ -2785,8 +2853,11 @@ mod tests {
             "DEBUG_OBJECT_ID_PERFORMANCE",
             "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
             "DEMO_CYCLE_LOD_LEVEL",
+            "DEMO_DESHROUD",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_LOCK_CAMERA_TO_PLANES",
+            "DEMO_LOD_DECREASE",
+            "DEMO_LOD_INCREASE",
             "DEMO_MUSIC_NEXT_TRACK",
             "DEMO_PLAY_CAMEO_MOVIE",
             "DEMO_PLAY_OBJECTIVE_MOVIE2",
@@ -2799,6 +2870,8 @@ mod tests {
             "DEMO_TOGGLE_NETWORK",
             "DEMO_TOGGLE_PARTICLEDEBUG",
             "DEMO_TOGGLE_RED_VIEW",
+            "DEMO_ENSHROUD",
+            "HELP",
             "DEMO_WIN",
         ] {
             assert!(is_dispatch_handled_cpp_command_name(alias));
@@ -2818,6 +2891,52 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(global_data.read().no_draw, u32::MAX);
+    }
+
+    #[test]
+    fn test_demo_lod_aliases_adjust_texture_reduction_factor_with_cpp_clamp() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        global_data.write().texture_reduction_factor = 0;
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_LOD_DECREASE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(global_data.read().texture_reduction_factor, 0);
+
+        for _ in 0..6 {
+            assert_eq!(
+                dispatch_map_entry(&alias_record("DEMO_LOD_INCREASE")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+        }
+        assert_eq!(global_data.read().texture_reduction_factor, 4);
+
+        for _ in 0..6 {
+            assert_eq!(
+                dispatch_map_entry(&alias_record("DEMO_LOD_DECREASE")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+        }
+        assert_eq!(global_data.read().texture_reduction_factor, 0);
+    }
+
+    #[test]
+    fn test_deshroud_aliases_follow_cpp_keep_message_semantics() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        assert_eq!(dispatch_map_entry(&alias_record("CHEAT_DESHROUD")), None);
+        assert_eq!(dispatch_map_entry(&alias_record("DEMO_DESHROUD")), None);
+        assert_eq!(dispatch_map_entry(&alias_record("DEMO_ENSHROUD")), None);
+    }
+
+    #[test]
+    fn test_help_alias_is_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        assert_eq!(
+            dispatch_map_entry(&alias_record("HELP")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
     }
 
     #[test]
