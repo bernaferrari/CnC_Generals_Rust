@@ -49,6 +49,7 @@ pub struct Display {
     video_buffer: Option<Box<dyn VideoBuffer + Send>>,
     video_stream: Option<Box<dyn VideoStreamInterface>>,
     currently_playing_movie: String,
+    movie_capture_enabled: bool,
     movie_hold_time_ms: i32,
     copyright_hold_time_ms: i32,
     movie_start_time: Option<Instant>,
@@ -101,6 +102,7 @@ impl Display {
             video_buffer: None,
             video_stream: None,
             currently_playing_movie: String::new(),
+            movie_capture_enabled: false,
             movie_hold_time_ms: -1,
             copyright_hold_time_ms: -1,
             movie_start_time: None,
@@ -339,6 +341,14 @@ impl Display {
 
     pub fn is_movie_playing(&self) -> bool {
         self.video_stream.is_some() && self.video_buffer.is_some()
+    }
+
+    pub fn toggle_movie_capture(&mut self) {
+        self.movie_capture_enabled = !self.movie_capture_enabled;
+    }
+
+    pub fn is_movie_capture_enabled(&self) -> bool {
+        self.movie_capture_enabled
     }
 
     pub fn enable_letter_box(&mut self, enabled: bool) {

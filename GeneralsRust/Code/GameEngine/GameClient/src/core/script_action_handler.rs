@@ -1,4 +1,4 @@
-use crate::display::display::Display as GraphicsDisplay;
+use crate::display::display::{DebugDisplayCallback, Display as GraphicsDisplay};
 use crate::display::view::{
     with_tactical_view, with_tactical_view_ref, CameraLockType, CameraShakeType, FilterMode,
     FilterType, Point3, Vector2,
@@ -54,6 +54,25 @@ pub fn stop_script_display_movie() -> bool {
         display.stop_movie();
     })
     .is_some()
+}
+
+pub fn toggle_script_display_movie_capture() -> bool {
+    with_script_display(|display| {
+        display.toggle_movie_capture();
+    })
+    .is_some()
+}
+
+pub fn is_script_display_movie_capture_enabled() -> bool {
+    with_script_display(|display| display.is_movie_capture_enabled()).unwrap_or(false)
+}
+
+pub fn set_script_display_debug_callback(callback: Option<DebugDisplayCallback>) -> bool {
+    with_script_display(|display| display.set_debug_display_callback(callback, None)).is_some()
+}
+
+pub fn get_script_display_debug_callback() -> Option<DebugDisplayCallback> {
+    with_script_display(|display| display.get_debug_display_callback()).flatten()
 }
 
 pub fn script_popup_message(

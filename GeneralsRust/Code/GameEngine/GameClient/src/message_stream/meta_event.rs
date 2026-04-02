@@ -10,7 +10,7 @@ use game_engine::common::audio::game_audio::{
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
-    get_global_data, register_block_parser, INIError, INILoadType, INIResult, INI, TimeOfDay,
+    get_global_data, register_block_parser, INIError, INILoadType, INIResult, TimeOfDay, INI,
 };
 use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 use log::debug;
@@ -20,15 +20,20 @@ use super::game_message::{
     IRegion2D,
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
-use crate::core::script_action_handler::stop_script_display_movie;
-use crate::gui::window_video_manager::with_window_video_manager;
+use crate::core::script_action_handler::{
+    get_script_display_debug_callback, set_script_display_debug_callback,
+    stop_script_display_movie, toggle_script_display_movie_capture,
+};
+use crate::display::display::DebugDisplayCallback;
+use crate::display::view::with_tactical_view;
 use crate::gui::shell::get_shell;
+use crate::gui::window_video_manager::with_window_video_manager;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
-use crate::display::view::with_tactical_view;
-use gamelogic::commands::get_selection_manager;
+use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
+use gamelogic::commands::get_selection_manager;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
 use gamelogic::common::ModelConditionFlags;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory, TheVictoryConditions};
@@ -396,38 +401,93 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
+fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    match upper.as_str() {
+        "CHEAT_ADD_CASH"
+        | "CHEAT_GIVE_ALL_SCIENCES"
+        | "CHEAT_GIVE_SCIENCEPURCHASEPOINTS"
+        | "CHEAT_INSTANT_BUILD"
+        | "CHEAT_KILL_SELECTION"
+        | "CHEAT_SHOW_HEALTH"
+        | "CHEAT_SWITCH_TEAMS"
+        | "CHEAT_TOGGLE_MESSAGE_TEXT"
+        | "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS"
+        | "DEMO_ADDCASH"
+        | "DEMO_BATTLE_CRY"
+        | "DEMO_FREE_BUILD"
+        | "DEMO_GIVE_ALL_SCIENCES"
+        | "DEMO_GIVE_RANKLEVEL"
+        | "DEMO_GIVE_SCIENCEPURCHASEPOINTS"
+        | "DEMO_GIVE_VETERANCY"
+        | "DEMO_INSTANT_BUILD"
+        | "DEMO_KILL_ALL_ENEMIES"
+        | "DEMO_KILL_SELECTION"
+        | "DEMO_LOCK_CAMERA_TO_SELECTION"
+        | "DEMO_MUSIC_NEXT_TRACK"
+        | "DEMO_MUSIC_PREV_TRACK"
+        | "DEMO_NEXT_OBJECTIVE_MOVIE"
+        | "DEMO_PERFORM_STATISTICAL_DUMP"
+        | "DEMO_REMOVE_PREREQ"
+        | "DEMO_SHOW_AUDIO_LOCATIONS"
+        | "DEMO_SHOW_EXTENTS"
+        | "DEMO_SHOW_HEALTH"
+        | "DEMO_SWITCH_TEAMS"
+        | "DEMO_SWITCH_TEAMS_CHINA_USA"
+        | "DEMO_SWITCH_TEAMS_BETWEEN_CHINA_USA"
+        | "DEMO_TAKE_RANKLEVEL"
+        | "DEMO_TAKE_VETERANCY"
+        | "DEMO_TIME_OF_DAY"
+        | "DEMO_TOGGLE_AI_DEBUG"
+        | "DEMO_TOGGLE_AUDIODEBUG"
+        | "DEMO_TOGGLE_AVI"
+        | "DEMO_TOGGLE_BEHIND_BUILDINGS"
+        | "DEMO_TOGGLE_CASHMAPDEBUG"
+        | "DEMO_TOGGLE_CAMERA_DEBUG"
+        | "DEMO_TOGGLE_DEBUG_STATS"
+        | "DEMO_TOGGLE_FEATHER_WATER"
+        | "DEMO_TOGGLE_FOGOFWAR"
+        | "DEMO_TOGGLE_GRAPHICALFRAMERATEBAR"
+        | "DEMO_TOGGLE_MESSAGE_TEXT"
+        | "DEMO_TOGGLE_METRICS"
+        | "DEMO_TOGGLE_MILITARY_SUBTITLES"
+        | "DEMO_TOGGLE_MUSIC"
+        | "DEMO_TOGGLE_NO_DRAW"
+        | "DEMO_TOGGLE_PARTICLEDEBUG"
+        | "DEMO_TOGGLE_PROJECTILEDEBUG"
+        | "DEMO_TOGGLE_RENDER"
+        | "DEMO_TOGGLE_SHADOW_VOLUMES"
+        | "DEMO_TOGGLE_SOUND"
+        | "DEMO_TOGGLE_SPECIAL_POWER_DELAYS"
+        | "DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT"
+        | "DEMO_TOGGLE_THREATDEBUG"
+        | "DEMO_TOGGLE_TRACKMARKS"
+        | "DEMO_TOGGLE_VISIONDEBUG"
+        | "DEMO_TOGGLE_WATERPLANE"
+        | "DEMO_TOGGLE_ZOOM_LOCK"
+        | "DEMO_WIN" => true,
+        _ => {
+            parse_runscript_alias(&upper).is_some() || parse_objective_movie_alias(&upper).is_some()
+        }
+    }
+}
+
 fn is_unimplemented_cpp_command_name(name: &str) -> bool {
     // C++ MetaEvent.cpp table entries that exist in CommandMap files but are not
     // represented as typed Rust messages yet. Keep these accepted/consumed so keybind
     // behavior stays aligned while the full message pipeline is still being ported.
+    if is_dispatch_handled_cpp_command_name(name) {
+        return false;
+    }
+
     match name.to_ascii_uppercase().as_str() {
-        "CHEAT_ADD_CASH" => true,
         "CHEAT_DESHROUD" => true,
-        "CHEAT_GIVE_ALL_SCIENCES" => true,
-        "CHEAT_GIVE_SCIENCEPURCHASEPOINTS" => true,
-        "CHEAT_INSTANT_BUILD" => true,
-        "CHEAT_KILL_SELECTION" => true,
-        "CHEAT_RUNSCRIPT1" => true,
-        "CHEAT_RUNSCRIPT2" => true,
-        "CHEAT_RUNSCRIPT3" => true,
-        "CHEAT_RUNSCRIPT4" => true,
-        "CHEAT_RUNSCRIPT5" => true,
-        "CHEAT_RUNSCRIPT6" => true,
-        "CHEAT_RUNSCRIPT7" => true,
-        "CHEAT_RUNSCRIPT8" => true,
-        "CHEAT_RUNSCRIPT9" => true,
-        "CHEAT_SHOW_HEALTH" => true,
-        "CHEAT_SWITCH_TEAMS" => true,
         "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
-        "CHEAT_TOGGLE_MESSAGE_TEXT" => true,
-        "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS" => true,
         "DEBUG_DRAWABLE_ID_PERFORMANCE" => true,
         "DEBUG_DUMP_ALL_PLAYER_OBJECTS" => true,
         "DEBUG_DUMP_PLAYER_OBJECTS" => true,
         "DEBUG_OBJECT_ID_PERFORMANCE" => true,
         "DEBUG_SLEEPY_UPDATE_PERFORMANCE" => true,
-        "DEMO_ADDCASH" => true,
-        "DEMO_BATTLE_CRY" => true,
         "DEMO_BEGIN_ADJUST_FOV" => true,
         "DEMO_BEGIN_ADJUST_PITCH" => true,
         "DEMO_CYCLE_EXTENT_TYPE" => true,
@@ -445,10 +505,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_END_ADJUST_FOV" => true,
         "DEMO_END_ADJUST_PITCH" => true,
         "DEMO_ENSHROUD" => true,
-        "DEMO_GIVE_ALL_SCIENCES" => true,
-        "DEMO_GIVE_RANKLEVEL" => true,
-        "DEMO_GIVE_SCIENCEPURCHASEPOINTS" => true,
-        "DEMO_GIVE_VETERANCY" => true,
         "DEMO_INCR_ANIM_SKATE_SPEED" => true,
         "DEMO_INCR_EXTENT_HEIGHT" => true,
         "DEMO_INCR_EXTENT_HEIGHT_LARGE" => true,
@@ -456,81 +512,21 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_INCR_EXTENT_MAJOR_LARGE" => true,
         "DEMO_INCR_EXTENT_MINOR" => true,
         "DEMO_INCR_EXTENT_MINOR_LARGE" => true,
-        "DEMO_INSTANT_BUILD" => true,
-        "DEMO_KILL_ALL_ENEMIES" => true,
-        "DEMO_KILL_SELECTION" => true,
         "DEMO_LOCK_CAMERA_TO_PLANES" => true,
-        "DEMO_LOCK_CAMERA_TO_SELECTION" => true,
         "DEMO_LOD_DECREASE" => true,
         "DEMO_LOD_INCREASE" => true,
-        "DEMO_MUSIC_NEXT_TRACK" => true,
-        "DEMO_MUSIC_PREV_TRACK" => true,
-        "DEMO_NEXT_OBJECTIVE_MOVIE" => true,
-        "DEMO_PERFORM_STATISTICAL_DUMP" => true,
         "DEMO_PLAY_CAMEO_MOVIE" => true,
-        "DEMO_PLAY_OBJECTIVE_MOVIE1" => true,
-        "DEMO_PLAY_OBJECTIVE_MOVIE2" => true,
-        "DEMO_PLAY_OBJECTIVE_MOVIE3" => true,
-        "DEMO_PLAY_OBJECTIVE_MOVIE4" => true,
-        "DEMO_PLAY_OBJECTIVE_MOVIE5" => true,
-        "DEMO_PLAY_OBJECTIVE_MOVIE6" => true,
-        "DEMO_REMOVE_PREREQ" => true,
-        "DEMO_RUNSCRIPT1" => true,
-        "DEMO_RUNSCRIPT2" => true,
-        "DEMO_RUNSCRIPT3" => true,
-        "DEMO_RUNSCRIPT4" => true,
-        "DEMO_RUNSCRIPT5" => true,
-        "DEMO_RUNSCRIPT6" => true,
-        "DEMO_RUNSCRIPT7" => true,
-        "DEMO_RUNSCRIPT8" => true,
-        "DEMO_RUNSCRIPT9" => true,
-        "DEMO_SHOW_AUDIO_LOCATIONS" => true,
-        "DEMO_SHOW_EXTENTS" => true,
-        "DEMO_SHOW_HEALTH" => true,
-        "DEMO_SWITCH_TEAMS" => true,
-        "DEMO_SWITCH_TEAMS_CHINA_USA" => true,
-        "DEMO_TAKE_RANKLEVEL" => true,
-        "DEMO_TAKE_VETERANCY" => true,
         "DEMO_TEST_SURRENDER" => true,
-        "DEMO_TIME_OF_DAY" => true,
-        "DEMO_TOGGLE_AI_DEBUG" => true,
-        "DEMO_TOGGLE_AUDIODEBUG" => true,
-        "DEMO_TOGGLE_AVI" => true,
-        "DEMO_TOGGLE_BEHIND_BUILDINGS" => true,
         "DEMO_TOGGLE_BW_VIEW" => true,
-        "DEMO_TOGGLE_CAMERA_DEBUG" => true,
-        "DEMO_TOGGLE_CASHMAPDEBUG" => true,
-        "DEMO_TOGGLE_DEBUG_STATS" => true,
-        "DEMO_TOGGLE_FEATHER_WATER" => true,
-        "DEMO_TOGGLE_FOGOFWAR" => true,
-        "DEMO_TOGGLE_GRAPHICALFRAMERATEBAR" => true,
         "DEMO_TOGGLE_GREEN_VIEW" => true,
         "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEMO_TOGGLE_HURT_ME_MODE" => true,
         "DEMO_TOGGLE_LETTERBOX" => true,
-        "DEMO_TOGGLE_MESSAGE_TEXT" => true,
-        "DEMO_TOGGLE_METRICS" => true,
-        "DEMO_TOGGLE_MILITARY_SUBTITLES" => true,
         "DEMO_TOGGLE_MOTION_BLUR_ZOOM" => true,
-        "DEMO_TOGGLE_MUSIC" => true,
         "DEMO_TOGGLE_NETWORK" => true,
-        "DEMO_TOGGLE_NO_DRAW" => true,
-        "DEMO_TOGGLE_PARTICLEDEBUG" => true,
-        "DEMO_TOGGLE_PROJECTILEDEBUG" => true,
         "DEMO_TOGGLE_RED_VIEW" => true,
-        "DEMO_TOGGLE_RENDER" => true,
-        "DEMO_TOGGLE_SHADOW_VOLUMES" => true,
-        "DEMO_TOGGLE_SOUND" => true,
-        "DEMO_TOGGLE_SPECIAL_POWER_DELAYS" => true,
-        "DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT" => true,
-        "DEMO_TOGGLE_THREATDEBUG" => true,
-        "DEMO_TOGGLE_TRACKMARKS" => true,
-        "DEMO_TOGGLE_VISIONDEBUG" => true,
-        "DEMO_TOGGLE_WATERPLANE" => true,
-        "DEMO_TOGGLE_ZOOM_LOCK" => true,
         "DEMO_VTUNE_OFF" => true,
         "DEMO_VTUNE_ON" => true,
-        "DEMO_WIN" => true,
         "HELP" => true,
         _ => false,
     }
@@ -545,6 +541,7 @@ fn is_runtime_command_map_alias(name: &str) -> bool {
 fn is_supported_command_map_name(name: &str) -> bool {
     lookup_meta_message_type(name).is_some()
         || is_runtime_command_map_alias(name)
+        || is_dispatch_handled_cpp_command_name(name)
         || is_unimplemented_cpp_command_name(name)
 }
 
@@ -593,6 +590,32 @@ fn parse_runscript_alias(name: &str) -> Option<(bool, i32)> {
     None
 }
 
+fn audio_debug_display_callback(
+    _display: &mut DebugDisplay,
+    _user_data: Option<&mut dyn std::any::Any>,
+) {
+}
+
+fn particle_system_debug_display_callback(
+    _display: &mut DebugDisplay,
+    _user_data: Option<&mut dyn std::any::Any>,
+) {
+}
+
+fn stat_debug_display_callback(
+    _display: &mut DebugDisplay,
+    _user_data: Option<&mut dyn std::any::Any>,
+) {
+}
+
+fn toggle_script_display_debug_callback(target: DebugDisplayCallback) {
+    let active = get_script_display_debug_callback();
+    let same_callback = active
+        .map(|callback| callback as usize == target as usize)
+        .unwrap_or(false);
+    let _ = set_script_display_debug_callback(if same_callback { None } else { Some(target) });
+}
+
 fn run_key_script_alias(script_index: i32) {
     let script_name = format!("KEY_F{script_index}");
     let script_engine = gamelogic::scripting::engine::get_script_engine();
@@ -632,8 +655,12 @@ fn kill_local_player_selection() {
 
 fn kill_all_enemy_objects_for_local_player() {
     let Some(local_team) = ThePlayerList().read().ok().and_then(|list| {
-        list.get_local_player()
-            .and_then(|player| player.read().ok().and_then(|guard| guard.get_default_team()))
+        list.get_local_player().and_then(|player| {
+            player
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_default_team())
+        })
     }) else {
         return;
     };
@@ -647,7 +674,12 @@ fn kill_all_enemy_objects_for_local_player() {
         };
         let is_enemy = object_guard
             .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.is_enemy_with_team(&local_team_guard)))
+            .and_then(|player| {
+                player
+                    .read()
+                    .ok()
+                    .map(|guard| guard.is_enemy_with_team(&local_team_guard))
+            })
             .unwrap_or(false);
         if is_enemy {
             object_guard.kill(None, None);
@@ -1395,7 +1427,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_CHINA_USA")
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_CHINA_USA")
         || record
             .name
             .eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_BETWEEN_CHINA_USA")
@@ -1447,7 +1481,10 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_SELECTION") {
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_SELECTION")
+    {
         let selected_id = first_selected_object_id_for_local_player();
         with_tactical_view(|view| {
             let mut next_camera_lock = selected_id;
@@ -1482,12 +1519,18 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MILITARY_SUBTITLES") {
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_MILITARY_SUBTITLES")
+    {
         TheInGameUI::military_subtitle("MSG:Testing", 10_000);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_NEXT_OBJECTIVE_MOVIE") {
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_NEXT_OBJECTIVE_MOVIE")
+    {
         if TheGameLogic::is_in_game() {
             let mut next = 1;
             if let Ok(mut objective) = get_objective_movie_index().write() {
@@ -1765,6 +1808,29 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return None;
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_DEBUG_STATS") {
+        toggle_script_display_debug_callback(stat_debug_display_callback);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_PARTICLEDEBUG")
+    {
+        toggle_script_display_debug_callback(particle_system_debug_display_callback);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_AUDIODEBUG") {
+        toggle_script_display_debug_callback(audio_debug_display_callback);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_AVI") {
+        let _ = toggle_script_display_movie_capture();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MUSIC") {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         if let Ok(mut audio) = manager.lock() {
@@ -1885,7 +1951,10 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return None;
     }
 
-    if record.name.eq_ignore_ascii_case("CHEAT_TOGGLE_MESSAGE_TEXT") {
+    if record
+        .name
+        .eq_ignore_ascii_case("CHEAT_TOGGLE_MESSAGE_TEXT")
+    {
         if !TheGameLogic::is_in_multiplayer_game() {
             TheInGameUI::toggle_messages();
             if TheInGameUI::is_messages_on() {
@@ -2174,10 +2243,10 @@ impl GameMessageTranslator for MetaEventTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message_stream::player_state::get_local_player_id;
     use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
     use gamelogic::player::Player;
     use gamelogic::system::game_logic::{get_game_logic, GAME_LAN, GAME_NONE, GAME_SINGLE_PLAYER};
-    use crate::message_stream::player_state::get_local_player_id;
     use std::sync::{Arc, RwLock};
     use std::sync::{Mutex, OnceLock};
 
@@ -2330,13 +2399,39 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NO_DRAW")),
+            dispatch_map_entry(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
             dispatch_map_entry(&alias_record("HELP")),
             Some(GameMessageDisposition::DestroyMessage)
         );
+    }
+
+    #[test]
+    fn test_dispatch_handled_cpp_command_entries_are_supported_and_not_unimplemented() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        for alias in [
+            "CHEAT_ADD_CASH",
+            "CHEAT_RUNSCRIPT3",
+            "DEMO_KILL_ALL_ENEMIES",
+            "DEMO_MUSIC_NEXT_TRACK",
+            "DEMO_PLAY_OBJECTIVE_MOVIE2",
+            "DEMO_TOGGLE_AUDIODEBUG",
+            "DEMO_TOGGLE_AVI",
+            "DEMO_TOGGLE_DEBUG_STATS",
+            "DEMO_TOGGLE_PARTICLEDEBUG",
+            "DEMO_WIN",
+        ] {
+            assert!(is_dispatch_handled_cpp_command_name(alias));
+            assert!(!is_unimplemented_cpp_command_name(alias));
+            assert!(is_supported_command_map_name(alias));
+        }
     }
 
     #[test]
@@ -2467,10 +2562,7 @@ mod tests {
             list.set_local_player_index(0);
         }
 
-        assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_ADDCASH")),
-            None
-        );
+        assert_eq!(dispatch_map_entry(&alias_record("DEMO_ADDCASH")), None);
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_GIVE_SCIENCEPURCHASEPOINTS")),
             Some(GameMessageDisposition::DestroyMessage)
@@ -2482,12 +2574,13 @@ mod tests {
             assert_eq!(local_guard.get_science_purchase_points(), 1);
         }
 
+        assert_eq!(dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")), None);
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")),
-            None
-        );
-        assert_eq!(
-            local_player.read().expect("player lock").get_money().get_money(),
+            local_player
+                .read()
+                .expect("player lock")
+                .get_money()
+                .get_money(),
             20_000
         );
 
@@ -2598,13 +2691,17 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(crate::display::view::with_tactical_view_ref(|view| view.is_zoom_limited()));
+        assert!(crate::display::view::with_tactical_view_ref(
+            |view| view.is_zoom_limited()
+        ));
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(!crate::display::view::with_tactical_view_ref(|view| view.is_zoom_limited()));
+        assert!(!crate::display::view::with_tactical_view_ref(
+            |view| view.is_zoom_limited()
+        ));
     }
 
     #[test]
@@ -2622,13 +2719,19 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(*get_objective_movie_index().read().expect("objective lock"), 4);
+        assert_eq!(
+            *get_objective_movie_index().read().expect("objective lock"),
+            4
+        );
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(*get_objective_movie_index().read().expect("objective lock"), 5);
+        assert_eq!(
+            *get_objective_movie_index().read().expect("objective lock"),
+            5
+        );
 
         if let Ok(mut index) = get_objective_movie_index().write() {
             *index = 6;
@@ -2637,7 +2740,10 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(*get_objective_movie_index().read().expect("objective lock"), 1);
+        assert_eq!(
+            *get_objective_movie_index().read().expect("objective lock"),
+            1
+        );
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
@@ -2706,7 +2812,10 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            ThePlayerList().read().expect("player list lock").get_local_player_index(),
+            ThePlayerList()
+                .read()
+                .expect("player list lock")
+                .get_local_player_index(),
             1
         );
         assert_eq!(get_local_player_id(), 1);
@@ -2716,7 +2825,10 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            ThePlayerList().read().expect("player list lock").get_local_player_index(),
+            ThePlayerList()
+                .read()
+                .expect("player list lock")
+                .get_local_player_index(),
             0
         );
         assert_eq!(get_local_player_id(), 0);
@@ -2756,9 +2868,15 @@ mod tests {
             logic.set_game_mode(GAME_LAN);
         }
 
-        assert_eq!(dispatch_map_entry(&alias_record("CHEAT_SWITCH_TEAMS")), None);
         assert_eq!(
-            ThePlayerList().read().expect("player list lock").get_local_player_index(),
+            dispatch_map_entry(&alias_record("CHEAT_SWITCH_TEAMS")),
+            None
+        );
+        assert_eq!(
+            ThePlayerList()
+                .read()
+                .expect("player list lock")
+                .get_local_player_index(),
             0
         );
         assert_eq!(get_local_player_id(), 0);
@@ -2868,6 +2986,24 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_MUSIC_PREV_TRACK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
+    }
+
+    #[test]
+    fn test_demo_debug_display_and_movie_capture_aliases_are_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        for alias in [
+            "DEMO_TOGGLE_DEBUG_STATS",
+            "DEMO_TOGGLE_PARTICLEDEBUG",
+            "DEMO_TOGGLE_AUDIODEBUG",
+            "DEMO_TOGGLE_AVI",
+        ] {
+            assert_eq!(
+                dispatch_map_entry(&alias_record(alias)),
+                Some(GameMessageDisposition::DestroyMessage),
+                "alias {alias} should be consumed"
+            );
+        }
     }
 
     #[test]
@@ -2988,6 +3124,9 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_LOCK_CAMERA_TO_SELECTION")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(crate::display::view::with_tactical_view_ref(|view| view.camera_lock_id()), None);
+        assert_eq!(
+            crate::display::view::with_tactical_view_ref(|view| view.camera_lock_id()),
+            None
+        );
     }
 }
