@@ -39,6 +39,7 @@ use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
+use gamelogic::common::types::KindOf;
 use gamelogic::common::ModelConditionFlags;
 use gamelogic::helpers::{TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions};
 use gamelogic::object::drawable::Drawable;
@@ -124,6 +125,7 @@ static LOWER_DETAIL_TOGGLE_STATE: OnceLock<RwLock<LowerDetailToggleState>> = Onc
 static OBJECTIVE_MOVIE_INDEX: OnceLock<RwLock<i32>> = OnceLock::new();
 static MOTION_BLUR_ZOOM_SATURATE: OnceLock<RwLock<bool>> = OnceLock::new();
 static CYCLE_LOD_LEVEL_STATE: OnceLock<RwLock<DynamicGameLODLevel>> = OnceLock::new();
+static LAST_PLANE_LOCK_OBJECT_ID: OnceLock<RwLock<Option<u32>>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 
@@ -440,6 +442,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_INSTANT_BUILD"
         | "DEMO_KILL_ALL_ENEMIES"
         | "DEMO_KILL_SELECTION"
+        | "DEMO_LOCK_CAMERA_TO_PLANES"
         | "DEMO_LOCK_CAMERA_TO_SELECTION"
         | "DEMO_MUSIC_NEXT_TRACK"
         | "DEMO_MUSIC_PREV_TRACK"
@@ -529,7 +532,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_INCR_EXTENT_MAJOR_LARGE" => true,
         "DEMO_INCR_EXTENT_MINOR" => true,
         "DEMO_INCR_EXTENT_MINOR_LARGE" => true,
-        "DEMO_LOCK_CAMERA_TO_PLANES" => true,
         "DEMO_LOD_DECREASE" => true,
         "DEMO_LOD_INCREASE" => true,
         "DEMO_TEST_SURRENDER" => true,
@@ -666,6 +668,58 @@ fn cycle_dynamic_lod_level() {
 fn set_cycle_lod_level_state_for_tests(level: DynamicGameLODLevel) {
     if let Ok(mut guard) = cycle_lod_level_state().write() {
         *guard = level;
+    }
+}
+
+fn last_plane_lock_object_id_state() -> &'static RwLock<Option<u32>> {
+    LAST_PLANE_LOCK_OBJECT_ID.get_or_init(|| RwLock::new(None))
+}
+
+fn next_plane_camera_lock_object_id() -> Option<u32> {
+    let mut candidates: Vec<u32> = Vec::new();
+    for object in OBJECT_REGISTRY.get_all_objects() {
+        let Ok(object_guard) = object.read() else {
+            continue;
+        };
+        if !object_guard.is_above_terrain() {
+            continue;
+        }
+        if object_guard.is_kind_of(KindOf::Projectile) {
+            continue;
+        }
+        candidates.push(object_guard.get_id());
+    }
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let previous = last_plane_lock_object_id_state()
+        .read()
+        .ok()
+        .and_then(|guard| *guard);
+
+    let next = if let Some(previous_id) = previous {
+        if let Some(index) = candidates.iter().position(|id| *id == previous_id) {
+            candidates[(index + 1) % candidates.len()]
+        } else {
+            candidates[0]
+        }
+    } else {
+        candidates[0]
+    };
+
+    if let Ok(mut guard) = last_plane_lock_object_id_state().write() {
+        *guard = Some(next);
+    }
+
+    Some(next)
+}
+
+#[cfg(test)]
+fn set_last_plane_lock_object_id_for_tests(object_id: Option<u32>) {
+    if let Ok(mut guard) = last_plane_lock_object_id_state().write() {
+        *guard = object_id;
     }
 }
 
@@ -1663,6 +1717,18 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 -1
             };
             adjust_local_selection_veterancy(delta);
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_PLANES")
+    {
+        if let Some(object_id) = next_plane_camera_lock_object_id() {
+            with_tactical_view(|view| {
+                view.set_camera_lock(Some(object_id));
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -2720,6 +2786,7 @@ mod tests {
             "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
             "DEMO_CYCLE_LOD_LEVEL",
             "DEMO_KILL_ALL_ENEMIES",
+            "DEMO_LOCK_CAMERA_TO_PLANES",
             "DEMO_MUSIC_NEXT_TRACK",
             "DEMO_PLAY_CAMEO_MOVIE",
             "DEMO_PLAY_OBJECTIVE_MOVIE2",
@@ -3579,6 +3646,16 @@ mod tests {
         assert_eq!(
             crate::display::view::with_tactical_view_ref(|view| view.camera_lock_id()),
             None
+        );
+    }
+
+    #[test]
+    fn test_demo_lock_camera_to_planes_alias_is_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        set_last_plane_lock_object_id_for_tests(None);
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_LOCK_CAMERA_TO_PLANES")),
+            Some(GameMessageDisposition::DestroyMessage)
         );
     }
 }
