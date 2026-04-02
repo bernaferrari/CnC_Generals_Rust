@@ -1445,6 +1445,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_supply_center_placement = !global.debug_supply_center_placement;
+            TheInGameUI::message(if global.debug_supply_center_placement {
+                "Log SupplyCenter Placement is ON"
+            } else {
+                "Log SupplyCenter Placement is OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1503,6 +1508,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             if global.debug_threat_map {
                 global.debug_cash_value_map = false;
             }
+            TheInGameUI::message(if global.debug_threat_map {
+                "Debug Threat Map is On"
+            } else {
+                "Debug Threat Map is OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1514,6 +1524,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             if global.debug_cash_value_map {
                 global.debug_threat_map = false;
             }
+            TheInGameUI::message(if global.debug_cash_value_map {
+                "Debug Cash Value Map is On"
+            } else {
+                "Debug Cash Value Map is OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1533,6 +1548,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_collision_extents = !global.show_collision_extents;
+            TheInGameUI::message(if global.show_collision_extents {
+                "Show Object Extents ON"
+            } else {
+                "Show Object Extents OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1544,6 +1564,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_audio_locations = !global.show_audio_locations;
+            TheInGameUI::message(if global.show_audio_locations {
+                "Show AudioLocations ON"
+            } else {
+                "Show AudioLocations OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1552,6 +1577,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_object_health = !global.show_object_health;
+            TheInGameUI::message(if global.show_object_health {
+                "Object Health ON"
+            } else {
+                "Object Health OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1599,6 +1629,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.special_power_uses_delay = !global.special_power_uses_delay;
+            TheInGameUI::message(if global.special_power_uses_delay {
+                "Special Power (Superweapon) Delay: ON"
+            } else {
+                "Special Power (Superweapon) Delay: OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
