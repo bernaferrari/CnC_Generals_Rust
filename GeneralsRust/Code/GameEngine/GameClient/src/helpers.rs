@@ -494,6 +494,7 @@ struct InGameUIStatusState {
     quit_menu_visible: bool,
     input_enabled: bool,
     client_quiet: bool,
+    messages_on: bool,
     selecting: bool,
     scrolling: bool,
     scroll_amount_x: f32,
@@ -508,6 +509,7 @@ impl Default for InGameUIStatusState {
             quit_menu_visible: false,
             input_enabled: true,
             client_quiet: false,
+            messages_on: true,
             selecting: false,
             scrolling: false,
             scroll_amount_x: 0.0,
@@ -772,6 +774,21 @@ impl TheInGameUI {
             .lock()
             .expect("In-game UI status lock poisoned");
         guard.client_quiet
+    }
+
+    pub fn toggle_messages() -> bool {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.messages_on = !guard.messages_on;
+        guard.messages_on
+    }
+
+    pub fn is_messages_on() -> bool {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.messages_on
     }
 
     pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
