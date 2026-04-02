@@ -630,6 +630,31 @@ fn kill_local_player_selection() {
     }
 }
 
+fn kill_all_enemy_objects_for_local_player() {
+    let Some(local_team) = ThePlayerList().read().ok().and_then(|list| {
+        list.get_local_player()
+            .and_then(|player| player.read().ok().and_then(|guard| guard.get_default_team()))
+    }) else {
+        return;
+    };
+    let Ok(local_team_guard) = local_team.read() else {
+        return;
+    };
+
+    for object in OBJECT_REGISTRY.get_all_objects() {
+        let Ok(mut object_guard) = object.write() else {
+            continue;
+        };
+        let is_enemy = object_guard
+            .get_controlling_player()
+            .and_then(|player| player.read().ok().map(|guard| guard.is_enemy_with_team(&local_team_guard)))
+            .unwrap_or(false);
+        if is_enemy {
+            object_guard.kill(None, None);
+        }
+    }
+}
+
 fn first_selected_object_id_for_local_player() -> Option<u32> {
     local_selection_object_ids().into_iter().next()
 }
@@ -1224,7 +1249,6 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let _ = with_local_player_mut(|player| {
                 player.get_money_mut().deposit_money(10_000);
             });
-            return Some(GameMessageDisposition::DestroyMessage);
         }
         return None;
     }
@@ -1390,6 +1414,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_KILL_SELECTION") {
         kill_local_player_selection();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_KILL_ALL_ENEMIES") {
+        kill_all_enemy_objects_for_local_player();
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -1852,7 +1881,6 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                     "Object Health OFF"
                 });
             }
-            return Some(GameMessageDisposition::DestroyMessage);
         }
         return None;
     }
@@ -2298,7 +2326,7 @@ mod tests {
         let _guard = test_state_lock().lock().expect("lock poisoned");
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")),
+            dispatch_map_entry(&alias_record("CHEAT_DESHROUD")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -2383,7 +2411,8 @@ mod tests {
                 | "DEMO_SHOW_EXTENTS"
                 | "DEMO_SHOW_AUDIO_LOCATIONS"
                 | "DEMO_SHOW_HEALTH"
-                | "DEMO_TOGGLE_METRICS" => None,
+                | "DEMO_TOGGLE_METRICS"
+                | "CHEAT_SHOW_HEALTH" => None,
                 _ => Some(GameMessageDisposition::DestroyMessage),
             };
             assert_eq!(
@@ -2452,6 +2481,15 @@ mod tests {
             assert_eq!(local_guard.get_money().get_money(), 10_000);
             assert_eq!(local_guard.get_science_purchase_points(), 1);
         }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")),
+            None
+        );
+        assert_eq!(
+            local_player.read().expect("player lock").get_money().get_money(),
+            20_000
+        );
 
         ThePlayerList().write().expect("player list lock").clear();
     }
@@ -2909,6 +2947,10 @@ mod tests {
         );
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_KILL_SELECTION")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_KILL_ALL_ENEMIES")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
