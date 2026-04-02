@@ -1703,6 +1703,20 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_PERFORM_STATISTICAL_DUMP")
+    {
+        if let Some(global_data) = get_global_data() {
+            global_data.write().dump_performance_statistics = true;
+        }
+        TheInGameUI::message(&format!(
+            "Statistics dump made on frame: {}",
+            TheGameLogic::get_frame()
+        ));
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_ZOOM_LOCK") {
         let zoom_limited = with_tactical_view(|view| {
             let next = !view.is_zoom_limited();
@@ -2665,6 +2679,19 @@ mod tests {
             let audio = manager.lock().expect("audio lock");
             assert!(audio.is_on(AudioAffect::Music));
         }
+    }
+
+    #[test]
+    fn test_demo_perform_statistical_dump_sets_dump_flag() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        global_data.write().dump_performance_statistics = false;
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_PERFORM_STATISTICAL_DUMP")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(global_data.read().dump_performance_statistics);
     }
 
     #[test]
