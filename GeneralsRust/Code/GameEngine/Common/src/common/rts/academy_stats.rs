@@ -8,10 +8,7 @@
 
 use crate::common::time;
 
-use super::handles::{
-    CommandSetHandle, FrameNumber, PlayerHandle, SpecialPowerHandle, ThingTemplateHandle,
-    UpgradeHandle,
-};
+use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
 
 /// Maximum number of advice tips to provide at once (C++ AcademyStats.h:39)
 pub const MAX_ADVICE_TIPS: usize = 1;

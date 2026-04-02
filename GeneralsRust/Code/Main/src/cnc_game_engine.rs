@@ -31,11 +31,11 @@ use crate::ui::{
 };
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
+use anyhow::Result;
 use game_engine::common::game_engine::{register_game_client_factory, GameClientInterface};
 use game_engine::common::system::subsystem_interface::{
     SubsystemError, SubsystemResult, SubsystemState,
 };
-use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3};
 #[cfg(feature = "integration-diagnostics")]
 use integration::diagnostics::SystemDiagnostics;
@@ -252,10 +252,7 @@ mod tests {
             assert!(prepared_map.is_none());
 
             let global = game_engine::common::global_data::read();
-            assert_eq!(
-                global.writable.map_name,
-                "Maps\\Unexpected\\Unexpected.map"
-            );
+            assert_eq!(global.writable.map_name, "Maps\\Unexpected\\Unexpected.map");
             assert!(global.pending_file.is_empty());
         });
     }
@@ -391,15 +388,13 @@ mod tests {
 
     #[test]
     fn startup_initial_file_split_matches_cpp_suffix_rules() {
-        let (map_file, replay_file) = CnCGameEngine::split_startup_initial_file(Some(
-            "Maps\\Test\\Test.map".to_string(),
-        ));
+        let (map_file, replay_file) =
+            CnCGameEngine::split_startup_initial_file(Some("Maps\\Test\\Test.map".to_string()));
         assert_eq!(map_file, Some("Maps\\Test\\Test.map".to_string()));
         assert!(replay_file.is_none());
 
-        let (map_file, replay_file) = CnCGameEngine::split_startup_initial_file(Some(
-            "Replays\\demo.rep".to_string(),
-        ));
+        let (map_file, replay_file) =
+            CnCGameEngine::split_startup_initial_file(Some("Replays\\demo.rep".to_string()));
         assert!(map_file.is_none());
         assert_eq!(replay_file, Some("Replays\\demo.rep".to_string()));
     }
@@ -1328,9 +1323,7 @@ impl GameClientInterface for RegisteredGameClientBridge {
 
 #[cfg(feature = "game_client")]
 fn register_real_game_client_bootstrap() {
-    register_game_client_factory(|| {
-        Ok(Box::new(RegisteredGameClientBridge::new()?))
-    });
+    register_game_client_factory(|| Ok(Box::new(RegisteredGameClientBridge::new()?)));
 }
 
 #[cfg(not(feature = "game_client"))]

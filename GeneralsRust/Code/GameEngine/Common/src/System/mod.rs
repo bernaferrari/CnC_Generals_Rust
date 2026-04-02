@@ -44,7 +44,7 @@ pub use SaveGame::{
     get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
     init_game_state, register_drawable_id_counter_hooks, register_object_id_counter_hooks,
     register_save_load_lifecycle_hooks, register_save_load_mission_hooks,
-    register_save_load_skirmish_hooks, set_runtime_drawable_id_counter,
-    set_runtime_object_id_counter, AvailableGameInfo, GameState, GameStateMap, SaveCode,
-    SaveDate, SaveFileType, SaveGameInfo, SaveLoadLayoutType, SnapshotType,
+    register_save_load_skirmish_hooks, register_save_lock_ghost_objects_hook,
+    set_runtime_drawable_id_counter, set_runtime_object_id_counter, AvailableGameInfo, GameState,
+    GameStateMap, SaveCode, SaveDate, SaveFileType, SaveGameInfo, SaveLoadLayoutType, SnapshotType,
 };

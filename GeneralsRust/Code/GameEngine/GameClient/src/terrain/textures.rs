@@ -34,6 +34,7 @@ pub type TextureId = u32;
 /// Maximum blend weights tracked per vertex (matches legacy limit)
 pub const MAX_BLEND_WEIGHTS: usize = 4;
 pub const DEFAULT_TEXTURE_DIMENSIONS: (u32, u32) = (256, 256);
+pub const TERRAIN_TEXTURE_BORDER_PX: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureKind {
@@ -146,6 +147,9 @@ pub struct TerrainTexture {
 
     /// Cached diffuse decode to avoid repeated loads during first GPU upload
     cached_diffuse_image: Option<Arc<image::DynamicImage>>,
+
+    /// Border-aware upload placement used to mirror C++ terrain seam handling.
+    pub atlas_placement: Option<TerrainTexturePlacement>,
 }
 
 /// Texture blending modes
@@ -163,6 +167,46 @@ pub struct TextureWeights {
 
     /// Corresponding blend weights (should sum to 1.0)
     pub weights: [f32; 4],
+}
+
+/// Border-aware placement metadata for terrain texture uploads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerrainTexturePlacement {
+    pub source_dimensions: (u32, u32),
+    pub upload_dimensions: (u32, u32),
+    pub border_px: u32,
+}
+
+impl TerrainTexturePlacement {
+    pub fn new(source_dimensions: (u32, u32), border_px: u32) -> Self {
+        let upload_dimensions = (
+            source_dimensions
+                .0
+                .saturating_add(border_px.saturating_mul(2)),
+            source_dimensions
+                .1
+                .saturating_add(border_px.saturating_mul(2)),
+        );
+
+        Self {
+            source_dimensions,
+            upload_dimensions,
+            border_px,
+        }
+    }
+
+    pub fn uv_rect(&self) -> [f32; 4] {
+        let (upload_width, upload_height) = self.upload_dimensions;
+        if upload_width == 0 || upload_height == 0 {
+            return [0.0, 0.0, 1.0, 1.0];
+        }
+
+        let left = self.border_px as f32 / upload_width as f32;
+        let top = self.border_px as f32 / upload_height as f32;
+        let right = (self.border_px + self.source_dimensions.0) as f32 / upload_width as f32;
+        let bottom = (self.border_px + self.source_dimensions.1) as f32 / upload_height as f32;
+        [left, top, right, bottom]
+    }
 }
 
 /// Manages terrain textures and blending
@@ -212,6 +256,7 @@ impl TerrainTexture {
             dimensions: None,
             resolved_path: None,
             cached_diffuse_image: None,
+            atlas_placement: None,
         }
     }
 
@@ -390,6 +435,36 @@ impl TextureManager {
             cache.insert(key, resolved.clone());
         }
         resolved
+    }
+
+    fn build_terrain_texture_placement(width: u32, height: u32) -> TerrainTexturePlacement {
+        let border_px = TERRAIN_TEXTURE_BORDER_PX.min(width / 2).min(height / 2);
+        TerrainTexturePlacement::new((width, height), border_px)
+    }
+
+    fn pad_rgba_with_border(image: &RgbaImage, placement: TerrainTexturePlacement) -> RgbaImage {
+        let (width, height) = image.dimensions();
+        let (upload_width, upload_height) = placement.upload_dimensions;
+
+        if placement.border_px == 0 || width == 0 || height == 0 {
+            return image.clone();
+        }
+
+        let mut padded = RgbaImage::new(upload_width, upload_height);
+        for y in 0..upload_height {
+            let src_y = y
+                .saturating_sub(placement.border_px)
+                .min(height.saturating_sub(1));
+            for x in 0..upload_width {
+                let src_x = x
+                    .saturating_sub(placement.border_px)
+                    .min(width.saturating_sub(1));
+                let pixel = *image.get_pixel(src_x, src_y);
+                padded.put_pixel(x, y, pixel);
+            }
+        }
+
+        padded
     }
 
     /// Register new terrain texture
@@ -789,12 +864,16 @@ impl TextureManager {
                     .map(|path| format!("Terrain Texture {}", path.display()))
                     .unwrap_or_else(|| format!("Terrain Texture {}", requested_path));
                 let rgba = image.to_rgba8();
+                let placement = texture.atlas_placement.unwrap_or_else(|| {
+                    Self::build_terrain_texture_placement(image.width(), image.height())
+                });
+                let upload_rgba = Self::pad_rgba_with_border(&rgba, placement);
                 let (texture, view) = create_gpu_texture_from_rgba(
                     device,
                     queue,
-                    &rgba,
-                    image.width(),
-                    image.height(),
+                    upload_rgba.as_raw(),
+                    upload_rgba.width(),
+                    upload_rgba.height(),
                     Some(&label),
                 );
                 return Ok((texture, view));
@@ -829,6 +908,10 @@ impl TextureManager {
             Some(img) => {
                 texture.dimensions = Some(img.dimensions());
                 texture.cached_diffuse_image = Some(img);
+                if let Some((width, height)) = texture.dimensions {
+                    texture.atlas_placement =
+                        Some(Self::build_terrain_texture_placement(width, height));
+                }
             }
             None => {
                 let resolved_hint = resolved
@@ -842,6 +925,10 @@ impl TextureManager {
                     texture.diffuse_path, resolved_hint, gamefs_hint
                 );
                 texture.dimensions = Some(DEFAULT_TEXTURE_DIMENSIONS);
+                texture.atlas_placement = Some(Self::build_terrain_texture_placement(
+                    DEFAULT_TEXTURE_DIMENSIONS.0,
+                    DEFAULT_TEXTURE_DIMENSIONS.1,
+                ));
             }
         }
 
@@ -1153,6 +1240,30 @@ mod tests {
         assert_eq!(texture.id, 1);
         assert_eq!(texture.name, "grass");
         assert!(!texture.loaded);
+    }
+
+    #[test]
+    fn test_border_padding_and_uv_rect() {
+        let mut image = RgbaImage::new(16, 16);
+        image.put_pixel(0, 0, image::Rgba([10, 20, 30, 255]));
+        image.put_pixel(15, 0, image::Rgba([40, 50, 60, 255]));
+        image.put_pixel(0, 15, image::Rgba([70, 80, 90, 255]));
+        image.put_pixel(15, 15, image::Rgba([100, 110, 120, 255]));
+
+        let placement = TerrainTexturePlacement::new((16, 16), TERRAIN_TEXTURE_BORDER_PX);
+        let padded = TextureManager::pad_rgba_with_border(&image, placement);
+
+        assert_eq!(padded.dimensions(), (24, 24));
+        assert_eq!(*padded.get_pixel(0, 0), image::Rgba([10, 20, 30, 255]));
+        assert_eq!(*padded.get_pixel(23, 0), image::Rgba([40, 50, 60, 255]));
+        assert_eq!(*padded.get_pixel(0, 23), image::Rgba([70, 80, 90, 255]));
+        assert_eq!(*padded.get_pixel(23, 23), image::Rgba([100, 110, 120, 255]));
+
+        let uv_rect = placement.uv_rect();
+        assert!((uv_rect[0] - 0.16666667).abs() < 0.0001);
+        assert!((uv_rect[1] - 0.16666667).abs() < 0.0001);
+        assert!((uv_rect[2] - 0.8333333).abs() < 0.0001);
+        assert!((uv_rect[3] - 0.8333333).abs() < 0.0001);
     }
 
     #[test]

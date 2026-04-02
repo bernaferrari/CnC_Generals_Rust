@@ -729,7 +729,11 @@ fn parse_waypoints_list_chunk(
         ctx.waypoint_links.push((id1, id2));
     }
 
-    input.at_end_of_chunk()
+    if !input.at_end_of_chunk() {
+        log::debug!("WaypointsList chunk has trailing data; ignoring remainder");
+    }
+
+    true
 }
 
 fn parse_sides_list_chunk(
@@ -1066,6 +1070,37 @@ mod tests {
         let loader = MapLoader::new();
         // Should return minimum of 1
         assert_eq!(loader.count_start_spots(), 1);
+    }
+
+    #[test]
+    fn test_waypoints_list_parser_tolerates_trailing_bytes() {
+        fn make_chunk_bytes(label: &str, version: u16, payload: &[u8]) -> Vec<u8> {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"CkMp");
+            bytes.extend_from_slice(&1i32.to_le_bytes());
+            bytes.push(label.len() as u8);
+            bytes.extend_from_slice(label.as_bytes());
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&version.to_le_bytes());
+            bytes.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+            bytes.extend_from_slice(payload);
+            bytes
+        }
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&1i32.to_le_bytes());
+        payload.extend_from_slice(&7i32.to_le_bytes());
+        payload.extend_from_slice(&9i32.to_le_bytes());
+        payload.push(0xAA);
+
+        let mut input = DataChunkInput::new(make_chunk_bytes("WaypointsList", 0, &payload));
+        assert!(input.is_valid_file_type());
+
+        let mut ctx = MapParseContext::new();
+        input.register_parser("WaypointsList", "", parse_waypoints_list_chunk);
+        assert!(input.parse(&mut ctx));
+        assert_eq!(ctx.waypoint_links, vec![(7, 9)]);
     }
 
     #[test]

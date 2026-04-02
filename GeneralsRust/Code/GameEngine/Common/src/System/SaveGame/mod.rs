@@ -33,6 +33,7 @@ type GetSkirmishPayloadHook = Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>;
 type SetSkirmishPayloadHook = Arc<dyn Fn(Option<Vec<u8>>) + Send + Sync>;
 type ClearGameDataHook = Arc<dyn Fn() + Send + Sync>;
 type MissionStartArgsHook = Arc<dyn Fn() -> (i32, i32) + Send + Sync>;
+type SaveLockGhostObjectsHook = Arc<dyn Fn(bool) + Send + Sync>;
 
 #[derive(Default)]
 struct RuntimeIdCounterHooks {
@@ -57,6 +58,7 @@ struct SaveLoadLifecycleHooks {
     set_skirmish_payload: Option<SetSkirmishPayloadHook>,
     clear_game_data: Option<ClearGameDataHook>,
     mission_start_args: Option<MissionStartArgsHook>,
+    save_lock_ghost_objects: Option<SaveLockGhostObjectsHook>,
 }
 
 static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
@@ -151,6 +153,14 @@ pub fn register_save_load_mission_hooks(
     }
 }
 
+pub fn register_save_lock_ghost_objects_hook(
+    save_lock_ghost_objects: Option<SaveLockGhostObjectsHook>,
+) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.save_lock_ghost_objects = save_lock_ghost_objects;
+    }
+}
+
 pub fn register_save_load_skirmish_hooks(
     get_skirmish_payload: Option<GetSkirmishPayloadHook>,
     set_skirmish_payload: Option<SetSkirmishPayloadHook>,
@@ -224,10 +234,15 @@ pub(crate) fn notify_clear_game_data() {
 
 pub(crate) fn notify_get_mission_start_args() -> Option<(i32, i32)> {
     let hooks = save_load_hooks().lock().ok()?;
-    hooks
-        .mission_start_args
-        .as_ref()
-        .map(|callback| callback())
+    hooks.mission_start_args.as_ref().map(|callback| callback())
+}
+
+pub(crate) fn notify_save_lock_ghost_objects(enable: bool) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(callback) = hooks.save_lock_ghost_objects.as_ref() {
+            callback(enable);
+        }
+    }
 }
 
 pub(crate) fn notify_get_skirmish_payload() -> Option<Vec<u8>> {

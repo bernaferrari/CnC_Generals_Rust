@@ -8,8 +8,8 @@ use super::{
     get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
     notify_begin_load, notify_end_load, notify_get_game_mode, notify_get_skirmish_payload,
     notify_post_load_refresh, notify_set_game_mode, notify_set_loading_save,
-    notify_set_skirmish_payload, notify_start_new_game_from_save,
-    set_runtime_drawable_id_counter, set_runtime_object_id_counter,
+    notify_set_skirmish_payload, notify_start_new_game_from_save, set_runtime_drawable_id_counter,
+    set_runtime_object_id_counter,
 };
 use crate::common::ini::ini_game_data::get_global_data;
 use std::fs::File;
@@ -223,7 +223,8 @@ impl Snapshot for GameStateMap {
                         .get_file_path_in_save_directory(&map_leaf)
                         .to_string_lossy()
                         .to_string();
-                    let mut portable = state.real_map_path_to_portable_map_path(&save_game_map_name);
+                    let mut portable =
+                        state.real_map_path_to_portable_map_path(&save_game_map_name);
                     xfer.xfer_ascii_string(&mut portable)?;
 
                     let mut pristine_map_name = String::new();
@@ -243,7 +244,8 @@ impl Snapshot for GameStateMap {
 
                     if version >= 2 {
                         // Game mode
-                        let mut game_mode: i32 = notify_get_game_mode().unwrap_or(effective_game_mode);
+                        let mut game_mode: i32 =
+                            notify_get_game_mode().unwrap_or(effective_game_mode);
                         xfer.xfer_int(&mut game_mode)?;
                         effective_game_mode = game_mode;
                     }
@@ -267,7 +269,8 @@ impl Snapshot for GameStateMap {
 
                     {
                         let mut state = get_game_state();
-                        let real_save = state.portable_map_path_to_real_map_path(&save_game_map_name);
+                        let real_save =
+                            state.portable_map_path_to_real_map_path(&save_game_map_name);
                         let real_pristine =
                             state.portable_map_path_to_real_map_path(&pristine_map_name);
                         let save_game_map_name = real_save.clone();
@@ -330,8 +333,6 @@ impl Snapshot for GameStateMap {
             xfer.xfer_drawable_id(&mut high_drawable_id)?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 set_runtime_drawable_id_counter(high_drawable_id);
-                notify_start_new_game_from_save();
-                notify_post_load_refresh();
             }
 
             if effective_game_mode == GAME_SKIRMISH_MODE {
@@ -355,6 +356,11 @@ impl Snapshot for GameStateMap {
             } else if xfer.get_xfer_mode() == XferMode::Load {
                 notify_set_skirmish_payload(None);
             }
+
+            if xfer.get_xfer_mode() == XferMode::Load {
+                notify_start_new_game_from_save();
+                notify_post_load_refresh();
+            }
             Ok(())
         })();
 
@@ -376,6 +382,168 @@ impl Drop for GameStateMap {
     fn drop(&mut self) {
         // Clear scratch pad maps on destruction
         let _ = self.clear_scratch_pad_maps();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::ini::ini_game_data::{get_global_data, init_global_data};
+    use crate::common::system::save_game::{
+        init_game_state, register_drawable_id_counter_hooks, register_object_id_counter_hooks,
+        register_save_load_lifecycle_hooks, register_save_load_skirmish_hooks,
+    };
+    use crate::common::xfer::{XferLoad, XferSave};
+    use std::fs;
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_guard() -> &'static Mutex<()> {
+        static TEST_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_GUARD.get_or_init(|| Mutex::new(()))
+    }
+
+    fn unique_temp_save_dir(label: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_nanos();
+        path.push(format!(
+            "game_state_map_test_{}_{}_{}",
+            label,
+            std::process::id(),
+            stamp
+        ));
+        fs::create_dir_all(&path).expect("create temp save dir");
+        path
+    }
+
+    fn register_noop_id_hooks() {
+        register_object_id_counter_hooks(Some(Arc::new(|| 1)), Some(Arc::new(|_| {})));
+        register_drawable_id_counter_hooks(Some(Arc::new(|| 1)), Some(Arc::new(|_| {})));
+    }
+
+    fn push_event(log: &Arc<Mutex<Vec<String>>>, event: &str) {
+        log.lock().expect("event log lock").push(event.to_string());
+    }
+
+    #[test]
+    fn load_refreshes_new_game_after_skirmish_payload() {
+        let _guard = test_guard().lock().expect("test lock");
+        let save_dir = unique_temp_save_dir("load_refresh");
+        let map_path = save_dir.join("FrozenValley.map");
+        fs::write(&map_path, b"dummy map payload").expect("write dummy map");
+
+        init_global_data();
+        if let Some(global) = get_global_data() {
+            global.write().map_name = map_path.to_string_lossy().to_string();
+        }
+        init_game_state(save_dir.clone());
+
+        let event_log = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        register_save_load_lifecycle_hooks(
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move || push_event(&event_log, "begin_load")
+            })),
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move || push_event(&event_log, "end_load")
+            })),
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move |loading| {
+                    push_event(
+                        &event_log,
+                        if loading {
+                            "loading_save_true"
+                        } else {
+                            "loading_save_false"
+                        },
+                    )
+                }
+            })),
+            Some(Arc::new(|| GAME_SKIRMISH_MODE)),
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move |mode| {
+                    push_event(
+                        &event_log,
+                        if mode == GAME_SKIRMISH_MODE {
+                            "set_game_mode_skirmish"
+                        } else {
+                            "set_game_mode_other"
+                        },
+                    )
+                }
+            })),
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move || push_event(&event_log, "start_new_game")
+            })),
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move || push_event(&event_log, "post_load_refresh")
+            })),
+        );
+
+        register_save_load_skirmish_hooks(
+            Some(Arc::new(|| Some(vec![1, 2, 3, 4]))),
+            Some(Arc::new({
+                let event_log = Arc::clone(&event_log);
+                move |_| push_event(&event_log, "set_skirmish_payload")
+            })),
+        );
+
+        register_noop_id_hooks();
+
+        let mut game_state_map = GameStateMap::new(save_dir.clone());
+        let save_path = save_dir.join("00000001.sav");
+
+        {
+            let mut xfer_save = XferSave::new();
+            xfer_save
+                .open(save_path.to_string_lossy().into_owned())
+                .expect("open save file");
+            game_state_map
+                .xfer(&mut xfer_save)
+                .expect("save game state map");
+            xfer_save.close().expect("close save file");
+        }
+
+        event_log.lock().expect("event log lock").clear();
+
+        {
+            let mut xfer_load = XferLoad::new();
+            xfer_load
+                .open(save_path.to_string_lossy().into_owned())
+                .expect("open load file");
+            game_state_map
+                .xfer(&mut xfer_load)
+                .expect("load game state map");
+            xfer_load.close().expect("close load file");
+        }
+
+        let events = event_log.lock().expect("event log lock").clone();
+        let payload_idx = events
+            .iter()
+            .position(|event| event == "set_skirmish_payload")
+            .expect("skirmish payload event");
+        let start_idx = events
+            .iter()
+            .position(|event| event == "start_new_game")
+            .expect("start_new_game event");
+        let refresh_idx = events
+            .iter()
+            .position(|event| event == "post_load_refresh")
+            .expect("post_load_refresh event");
+
+        assert!(payload_idx < start_idx);
+        assert!(start_idx < refresh_idx);
+
+        let _ = fs::remove_dir_all(save_dir);
     }
 }
 

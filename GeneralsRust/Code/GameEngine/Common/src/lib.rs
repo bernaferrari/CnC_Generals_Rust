@@ -1,6 +1,4 @@
-#![allow(dead_code)]
 #![allow(missing_docs)]
-#![allow(unused_imports)]
 #![cfg_attr(test, cfg(feature = "internal"))]
 // Game Engine - Rust port from C++
 // Command & Conquer Generals Zero Hour Game Engine

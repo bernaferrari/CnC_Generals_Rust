@@ -19,6 +19,7 @@ anyhow = { workspace = true }
 ww3d-core = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
 ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 ww3d-assets = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
+ww3d-renderer-3d = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }
 game_network = { path = "../GameNetwork", optional = true }
 gamelogic = { path = "../GameLogic" }
 game_engine = { path = "../Common" }

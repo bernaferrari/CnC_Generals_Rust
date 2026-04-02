@@ -17,11 +17,11 @@
 
 use crate::common::rts::{
     AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle, ProductionPrerequisite,
-    Relationship, ScienceType, ScoreKeeper, Team, TeamID, TeamPrototype, SCIENCE_INVALID,
+    Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
 };
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
 
 /// Object ID type used throughout the game engine
 pub type ObjectID = u32;

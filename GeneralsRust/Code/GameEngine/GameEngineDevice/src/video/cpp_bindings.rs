@@ -97,8 +97,7 @@ static TOKIO_RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::
 
 fn get_runtime() -> &'static tokio::runtime::Runtime {
     TOKIO_RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new()
-            .expect("Failed to create Tokio runtime for C++ bindings")
+        tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for C++ bindings")
     })
 }
 

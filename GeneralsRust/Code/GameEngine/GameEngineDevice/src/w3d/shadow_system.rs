@@ -342,6 +342,10 @@ pub static LIGHT_POS_WORLD: Mutex<[Vec3; MAX_SHADOW_LIGHTS]> =
 pub struct W3DShadowManager {
     /// Flag if current scene needs shadows (no shadows on pre-pass and 2D)
     is_shadow_scene: bool,
+    /// Whether the current frame buffer supports stencil-based occlusion/shadows.
+    stencil_supported: bool,
+    /// Whether volumetric shadow rendering is enabled by the current runtime configuration.
+    shadow_volumes_enabled: bool,
     /// Color and alpha for all shadows in scene (ARGB format)
     shadow_color: u32,
     /// Mask used to mask out stencil bits for storing occlusion/playerColor
@@ -358,6 +362,8 @@ impl W3DShadowManager {
     pub fn new() -> Self {
         Self {
             is_shadow_scene: false,
+            stencil_supported: true,
+            shadow_volumes_enabled: true,
             shadow_color: 0x7fa0a0a0,
             stencil_shadow_mask: 0,
             volumetric_manager: None,
@@ -398,6 +404,60 @@ impl W3DShadowManager {
         self.is_shadow_scene
     }
 
+    /// Set whether the current frame buffer can support stencil-based occlusion/shadow passes.
+    pub fn set_stencil_supported(&mut self, supported: bool) {
+        self.stencil_supported = supported;
+    }
+
+    /// Returns whether stencil-based occlusion/shadow passes are supported.
+    pub fn is_stencil_supported(&self) -> bool {
+        self.stencil_supported
+    }
+
+    /// Enable or disable volumetric shadow rendering.
+    pub fn set_shadow_volumes_enabled(&mut self, enabled: bool) {
+        self.shadow_volumes_enabled = enabled;
+    }
+
+    /// Returns whether volumetric shadow rendering is enabled.
+    pub fn shadow_volumes_enabled(&self) -> bool {
+        self.shadow_volumes_enabled
+    }
+
+    /// Begin the occlusion stencil pass.
+    ///
+    /// C++ `flushOccludedObjectsIntoStencil` clears the shadow mask before writing player
+    /// color bits into the stencil buffer, so shadow volumes cannot overwrite those pixels.
+    pub fn begin_occlusion_stencil_pass(&mut self) {
+        self.set_stencil_shadow_mask(0);
+    }
+
+    /// Commit the accumulated player color bits after the occlusion stencil pass.
+    ///
+    /// When enough visible player colors are present, the legacy engine reserves only the MSB
+    /// for shadow gating and forces `0x80808080` so the shadow pass avoids occluded player pixels.
+    pub fn finish_occlusion_stencil_pass(
+        &mut self,
+        used_player_color_bits: i32,
+        num_visible_player_colors: usize,
+    ) {
+        if num_visible_player_colors >= 8 && self.shadow_volumes_enabled {
+            self.set_stencil_shadow_mask(i32::from_ne_bytes([0x80, 0x80, 0x80, 0x80]));
+        } else {
+            self.set_stencil_shadow_mask(used_player_color_bits);
+        }
+    }
+
+    /// Force the occluded-player-pixel mask used by the fallback non-stencil occlusion path.
+    pub fn force_occluded_player_pixel_mask(&mut self) {
+        self.set_stencil_shadow_mask(i32::from_ne_bytes([0x80, 0x80, 0x80, 0x80]));
+    }
+
+    /// Returns whether volumetric shadow rendering can run this frame.
+    pub fn can_render_volumetric_shadows(&self) -> bool {
+        self.is_shadow_scene && self.stencil_supported && self.shadow_volumes_enabled
+    }
+
     /// Reset all shadows for new map (C++: Reset)
     pub fn reset(&mut self) {
         if let Some(ref mut vol) = self.volumetric_manager {
@@ -421,6 +481,9 @@ impl W3DShadowManager {
 
         match shadow_type {
             ShadowType::VOLUME => {
+                if !self.stencil_supported || !self.shadow_volumes_enabled || render_obj.is_none() {
+                    return None;
+                }
                 if let Some(ref mut vol) = self.volumetric_manager {
                     vol.add_shadow(render_obj, shadow_info, drawable)
                 } else {
@@ -522,13 +585,17 @@ impl W3DShadowManager {
         }
 
         // Volumetric shadows use stencil buffer
-        if stencil_pass {
+        if stencil_pass && self.can_render_volumetric_shadows() {
             if self.is_shadow_scene {
                 if let Some(ref mut vol) = self.volumetric_manager {
-                    vol.render_shadows(projection_count);
+                    vol.render_shadows(projection_count, self.stencil_shadow_mask == 0);
                 }
             }
             // Reset so no more shadow processing this frame
+            self.is_shadow_scene = false;
+        } else if stencil_pass {
+            // Even when stencil-capable shadow rendering is disabled, the C++ flow clears the
+            // queue flag after the stencil pass has been serviced for the frame.
             self.is_shadow_scene = false;
         }
     }
@@ -563,6 +630,60 @@ impl W3DShadowManager {
 impl Default for W3DShadowManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn occlusion_stencil_mask_follows_legacy_phase_order() {
+        let mut manager = W3DShadowManager::new();
+
+        assert_eq!(manager.get_stencil_shadow_mask(), 0);
+
+        manager.begin_occlusion_stencil_pass();
+        assert_eq!(manager.get_stencil_shadow_mask(), 0);
+
+        manager.finish_occlusion_stencil_pass(0x1234, 4);
+        assert_eq!(manager.get_stencil_shadow_mask(), 0x1234);
+
+        manager.finish_occlusion_stencil_pass(0x1234, 8);
+        assert_eq!(
+            manager.get_stencil_shadow_mask(),
+            i32::from_ne_bytes([0x80, 0x80, 0x80, 0x80])
+        );
+
+        manager.force_occluded_player_pixel_mask();
+        assert_eq!(
+            manager.get_stencil_shadow_mask(),
+            i32::from_ne_bytes([0x80, 0x80, 0x80, 0x80])
+        );
+    }
+
+    #[test]
+    fn volumetric_shadow_gating_requires_stencil_and_volume_support() {
+        let mut manager = W3DShadowManager::new();
+
+        assert!(!manager.can_render_volumetric_shadows());
+
+        manager.queue_shadows(true);
+        assert!(manager.can_render_volumetric_shadows());
+
+        manager.set_stencil_supported(false);
+        assert!(!manager.can_render_volumetric_shadows());
+
+        manager.set_stencil_supported(true);
+        manager.set_shadow_volumes_enabled(false);
+        assert!(!manager.can_render_volumetric_shadows());
+
+        manager.set_shadow_volumes_enabled(true);
+        manager.queue_shadows(false);
+        assert!(!manager.can_render_volumetric_shadows());
+
+        manager.queue_shadows(true);
+        assert!(manager.can_render_volumetric_shadows());
     }
 }
 
@@ -690,6 +811,10 @@ impl W3DVolumetricShadowManager {
         shadow_info: Option<&ShadowTypeInfo>,
         _drawable: Option<&DrawableHandle>,
     ) -> Option<Box<dyn Shadow>> {
+        if render_obj.is_none() {
+            return None;
+        }
+
         let entry = VolumetricShadowEntry {
             base: ShadowBase::new(),
             geometry: None,
@@ -725,8 +850,12 @@ impl W3DVolumetricShadowManager {
     }
 
     /// Render shadows
-    pub fn render_shadows(&mut self, _projection_count: i32) {
-        // Implementation would render stencil shadow volumes
+    pub fn render_shadows(&mut self, _projection_count: i32, force_stencil_fill: bool) {
+        // Implementation would render stencil shadow volumes.
+        // Keep the `force_stencil_fill` hook so the public API matches the legacy
+        // C++ fallback path that can still populate stencil when no volumetric shadows
+        // were emitted this frame.
+        let _ = force_stencil_fill;
     }
 
     /// Release resources

@@ -1377,7 +1377,9 @@ impl TheControlBar {
     }
 
     pub fn set_control_bar_scheme_by_player(player_side: &str) {
-        if !with_control_bar_backend(|backend| backend.set_control_bar_scheme_by_player(player_side)) {
+        if !with_control_bar_backend(|backend| {
+            backend.set_control_bar_scheme_by_player(player_side)
+        }) {
             info!("Request to set control bar scheme by side {player_side}");
         }
     }

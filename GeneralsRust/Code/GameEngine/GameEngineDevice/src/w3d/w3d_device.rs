@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use wgpu::{
     Adapter, Backends, BufferUsages, CompositeAlphaMode, Device, Features, Instance, Limits,
     PowerPreference, PresentMode, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    SurfaceTargetUnsafe, TextureUsages,
+    SurfaceError, SurfaceTargetUnsafe, TextureUsages,
 };
 use winit::window::Window;
 
@@ -1134,6 +1134,40 @@ impl W3DDevice {
             .as_mut()
             .ok_or_else(|| W3DError::RenderingError("Renderer not initialized".to_string()))?;
 
+        let (target_width, target_height) = {
+            let surface_config_guard = self.surface_config.read().await;
+            surface_config_guard
+                .as_ref()
+                .map(|cfg| (cfg.width, cfg.height))
+                .unwrap_or((1920, 1080))
+        };
+        renderer
+            .ensure_render_targets(target_width, target_height)
+            .await?;
+
+        let surface_frame = {
+            let surface_guard = self.surface.read().await;
+            if let Some(surface) = surface_guard.as_ref() {
+                match surface.get_current_texture() {
+                    Ok(frame) => Some(frame),
+                    Err(SurfaceError::Timeout) => {
+                        tracing::warn!(
+                            "W3D surface acquire timed out; rendering offscreen this frame"
+                        );
+                        None
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            "W3D surface acquire failed ({err:?}); rendering offscreen this frame"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        };
+
         let scene = self.current_scene.read().await;
 
         // Begin frame
@@ -1185,7 +1219,15 @@ impl W3DDevice {
         }
 
         // End frame
-        renderer.end_frame().await?;
+        if let Some(surface_texture) = surface_frame {
+            let surface_view = surface_texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            renderer.end_frame_with_view(Some(&surface_view)).await?;
+            surface_texture.present();
+        } else {
+            renderer.end_frame().await?;
+        }
 
         // Update statistics
         let mut stats = self.statistics.write().await;
@@ -1195,6 +1237,14 @@ impl W3DDevice {
         stats.active_lights = scene.lights.len() as u32;
 
         Ok(())
+    }
+
+    /// Returns whether the active renderer is configured with a stencil-capable depth target.
+    pub async fn supports_stencil(&self) -> bool {
+        let renderer_guard = self.renderer.read().await;
+        renderer_guard
+            .as_ref()
+            .is_some_and(|renderer| renderer.supports_stencil())
     }
 
     /// Get device statistics

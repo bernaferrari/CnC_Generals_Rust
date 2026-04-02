@@ -925,6 +925,22 @@ impl ControlBar {
             }
         }
 
+        let pending_payload = if button.command_type == CommandType::FireWeapon {
+            self.resolve_logic_button(button)
+                .map(|logic_button| logic_button.get_weapon_slot() as u32)
+                .unwrap_or(source_id)
+        } else {
+            source_id
+        };
+        TheInGameUI::set_pending_command_with_visual(
+            button.command_type,
+            button.options,
+            pending_payload,
+            button.cursor_name.clone(),
+            button.invalid_cursor_name.clone(),
+            button.radius_cursor_type.clone(),
+        );
+
         if (button.options & CommandOption::NeedTargetEnemyObject as u32) != 0
             || (button.options & CommandOption::AttackObjectsPosition as u32) != 0
         {

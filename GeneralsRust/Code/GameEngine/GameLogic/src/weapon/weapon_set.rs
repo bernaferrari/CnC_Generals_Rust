@@ -9,8 +9,8 @@ use super::{
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::{
-    CommandSourceType, Coord3D, ModelConditionFlags, ObjectID, WEAPONSLOT_COUNT, Xfer, XferMode,
-    XferVersion,
+    CommandSourceType, Coord3D, ModelConditionFlags, ObjectID, Xfer, XferMode, XferVersion,
+    WEAPONSLOT_COUNT,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ascii_string::AsciiString;
@@ -386,23 +386,20 @@ impl WeaponSet {
 
             if has_weapon {
                 if xfer.get_xfer_mode() == XferMode::Load && self.weapons[index].is_none() {
-                    let template = self
-                        .current_weapon_template_set
-                        .as_ref()
-                        .and_then(|set| {
-                            set.get_weapon_template(slot)
-                                .cloned()
-                                .or_else(|| set.get_weapon_template(WeaponSlotType::Primary).cloned())
-                        });
+                    let template = self.current_weapon_template_set.as_ref().and_then(|set| {
+                        set.get_weapon_template(slot)
+                            .cloned()
+                            .or_else(|| set.get_weapon_template(WeaponSlotType::Primary).cloned())
+                    });
 
                     if let Some(template) = template {
                         self.weapons[index] = Some(Weapon::new(template, slot));
                     }
                 }
 
-                let weapon = self.weapons[index]
-                    .as_mut()
-                    .ok_or_else(|| format!("WeaponSet::xfer_state missing weapon in slot {:?}", slot))?;
+                let weapon = self.weapons[index].as_mut().ok_or_else(|| {
+                    format!("WeaponSet::xfer_state missing weapon in slot {:?}", slot)
+                })?;
                 weapon.xfer(xfer)?;
             } else if xfer.get_xfer_mode() == XferMode::Load {
                 self.weapons[index] = None;
@@ -425,7 +422,8 @@ impl WeaponSet {
         self.filled_weapon_slot_mask = (filled_weapon_slot_mask & 0xFF) as u8;
 
         let mut total_anti_mask = self.total_anti_mask as i32;
-        xfer.xfer_int(&mut total_anti_mask).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut total_anti_mask)
+            .map_err(|e| e.to_string())?;
         self.total_anti_mask = total_anti_mask as u32;
 
         let mut has_damage_weapon_a = self.has_damage_weapon;
@@ -445,9 +443,8 @@ impl WeaponSet {
         xfer.xfer_unsigned_int(&mut total_damage_hi)
             .map_err(|e| e.to_string())?;
         let total_damage_type_mask = ((total_damage_hi as u64) << 32) | (total_damage_lo as u64);
-        self.total_damage_type_mask = crate::damage::DamageTypeFlags::from_bits_retain(
-            total_damage_type_mask,
-        );
+        self.total_damage_type_mask =
+            crate::damage::DamageTypeFlags::from_bits_retain(total_damage_type_mask);
 
         // Recompute derived fields such as pitch limits after load.
         if xfer.get_xfer_mode() == XferMode::Load {
@@ -553,7 +550,9 @@ impl WeaponSet {
         // release ALL locks and reset curWeapon to PRIMARY.
         if !new_set.is_weapon_lock_shared_across_sets {
             if self.current_weapon_locked_status != WeaponLockType::NotLocked {
-                log::debug!("changing WeaponSet while Weapon is Locked... implicit unlock occurring!");
+                log::debug!(
+                    "changing WeaponSet while Weapon is Locked... implicit unlock occurring!"
+                );
             }
             self.current_weapon_locked_status = WeaponLockType::NotLocked;
             self.current_weapon = WeaponSlotType::Primary;
@@ -1123,7 +1122,7 @@ impl WeaponSet {
     /// Get the command source mask for a specific weapon slot
     ///
     /// Matches C++ WeaponSet::getNthCommandSourceMask() from WeaponSet.h line 215
- pub fn get_nth_command_source_mask(&self, slot: WeaponSlotType) -> u32 {
+    pub fn get_nth_command_source_mask(&self, slot: WeaponSlotType) -> u32 {
         self.current_weapon_template_set
             .as_ref()
             .map(|set| set.get_auto_choose_mask(slot))
@@ -1133,7 +1132,7 @@ impl WeaponSet {
     /// Check weapon capability against specific object
     ///
     /// Matches C++ WeaponSet::getAbleToAttackSpecificObject() from WeaponSet.h line 231
- pub fn get_able_to_attack_specific_object(
+    pub fn get_able_to_attack_specific_object(
         &self,
         attack_type: AbleToAttackType,
         source_obj: ObjectID,
@@ -1197,9 +1196,7 @@ impl WeaponSet {
     ) -> CanAttackResult {
         // C++ WeaponSet.cpp line 589-603: Determine anti-mask from target
         let target_anti_mask = if let Some(target_id) = target_obj {
-            if let Some(obj_arc) =
-                crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
-            {
+            if let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id) {
                 if let Ok(obj_guard) = obj_arc.read() {
                     obj_guard.get_anti_mask()
                 } else {

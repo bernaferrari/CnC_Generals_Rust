@@ -250,13 +250,14 @@ mod tests {
         let source = Coord3D::new(0.0, 0.0, 0.0);
         let target = Coord3D::new(10.0, 0.0, 0.0);
 
-        let result = DamageCalculator::calculate_damage(
-            &weapon, &bonus, &armor, &target, &source,
-        )
-        .unwrap();
+        let result =
+            DamageCalculator::calculate_damage(&weapon, &bonus, &armor, &target, &source).unwrap();
 
         assert!(result.final_damage >= 0.0);
-        assert_eq!(result.raw_damage, result.final_damage + result.armor_absorption);
+        assert_eq!(
+            result.raw_damage,
+            result.final_damage + result.armor_absorption
+        );
     }
 
     #[test]
@@ -269,8 +270,11 @@ mod tests {
         armor.resistances.insert(DamageType::Explosion, 0.5);
 
         let result = DamageCalculator::calculate_damage(
-            &weapon, &bonus, &armor,
-            &Coord3D::ZERO, &Coord3D::ZERO,
+            &weapon,
+            &bonus,
+            &armor,
+            &Coord3D::ZERO,
+            &Coord3D::ZERO,
         )
         .unwrap();
 

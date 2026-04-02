@@ -29,11 +29,7 @@ fn optional_ini_string(value: &str) -> Option<String> {
     }
 }
 
-fn push_challenge_ini_file(
-    files: &mut Vec<PathBuf>,
-    seen: &mut HashSet<PathBuf>,
-    path: PathBuf,
-) {
+fn push_challenge_ini_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
     if path.is_file() {
         let key = fs::canonicalize(&path).unwrap_or(path.clone());
         if seen.insert(key) {

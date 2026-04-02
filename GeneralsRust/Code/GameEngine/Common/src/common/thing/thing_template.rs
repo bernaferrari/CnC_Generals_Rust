@@ -430,22 +430,22 @@ impl ModuleInfo {
 
         // ImmuneToGPSScramblerMask: types that should NOT receive GPS scrambler modules
         let immune_mask: u64 = kindof_mask(&[
-            5,  // Aircraft
-            41, // Shrubbery
+            5,   // Aircraft
+            41,  // Shrubbery
             133, // OptimizedTree
-            9,  // Structure
-            88, // DrawableOnly
-            79, // MobNexus
-            78, // IgnoredInGui
+            9,   // Structure
+            88,  // DrawableOnly
+            79,  // MobNexus
+            78,  // IgnoredInGui
             136, // ClearedByBuild
             108, // DefensiveWall
             114, // BallisticMissile
-            7,  // SupplySource
-            87, // Boat
-            66, // Inert (alias for Immobile)
-            12, // Bridge
+            7,   // SupplySource
+            87,  // Boat
+            66,  // Inert (alias for Immobile)
+            12,  // Bridge
             134, // LandmarkBridge
-            65, // BridgeTower
+            65,  // BridgeTower
         ]);
         let disallowed = full_template.is_any_kind_of(&immune_mask);
 

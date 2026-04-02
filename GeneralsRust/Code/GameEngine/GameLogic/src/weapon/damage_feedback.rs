@@ -235,10 +235,17 @@ mod tests {
         // These should all be no-ops and not panic
         manager.set_current_frame(0).unwrap();
         assert_eq!(manager.get_current_frame().unwrap(), 0);
-        manager.add_screen_shake(ScreenShake::new(Coord3D::ZERO, ShakeIntensity::Light, 0)).unwrap();
-        manager.add_hit_marker(HitMarker::new(Coord3D::ZERO, HitMarkerType::Normal, 0.0, 0)).unwrap();
+        manager
+            .add_screen_shake(ScreenShake::new(Coord3D::ZERO, ShakeIntensity::Light, 0))
+            .unwrap();
+        manager
+            .add_hit_marker(HitMarker::new(Coord3D::ZERO, HitMarkerType::Normal, 0.0, 0))
+            .unwrap();
         assert!(manager.get_active_shakes().unwrap().is_empty());
         assert!(manager.get_active_markers().unwrap().is_empty());
-        assert_eq!(manager.calculate_camera_shake(&Coord3D::ZERO).unwrap(), Coord3D::ZERO);
+        assert_eq!(
+            manager.calculate_camera_shake(&Coord3D::ZERO).unwrap(),
+            Coord3D::ZERO
+        );
     }
 }

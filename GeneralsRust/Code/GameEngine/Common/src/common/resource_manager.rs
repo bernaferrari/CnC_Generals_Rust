@@ -517,7 +517,10 @@ mod tests {
     fn test_free_resources_with_exclusion_list() -> Result<()> {
         let temp_dir = tempdir()?;
 
-        for (name, content) in [("keep.txt", b"keep".as_slice()), ("drop.txt", b"drop".as_slice())] {
+        for (name, content) in [
+            ("keep.txt", b"keep".as_slice()),
+            ("drop.txt", b"drop".as_slice()),
+        ] {
             let path = temp_dir.path().join(name);
             let mut file = File::create(&path)?;
             file.write_all(content)?;

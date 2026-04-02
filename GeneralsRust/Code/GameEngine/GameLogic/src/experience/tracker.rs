@@ -104,7 +104,11 @@ impl ExperienceTracker {
     fn get_owner_template_experience_required(&self, level_index: usize) -> Option<i32> {
         let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
         let owner_guard = owner.read().ok()?;
-        Some(owner_guard.get_template().get_experience_required(level_index))
+        Some(
+            owner_guard
+                .get_template()
+                .get_experience_required(level_index),
+        )
     }
 
     fn get_owner_template_experience_value(&self, level_index: usize) -> Option<i32> {
@@ -127,7 +131,11 @@ impl ExperienceTracker {
             .unwrap_or(0)
     }
 
-    fn experience_required_for_level(&self, level_index: usize, experience_required: &[i32]) -> i32 {
+    fn experience_required_for_level(
+        &self,
+        level_index: usize,
+        experience_required: &[i32],
+    ) -> i32 {
         self.get_owner_template_experience_required(level_index)
             .unwrap_or_else(|| Self::fallback_experience_required(experience_required, level_index))
     }
@@ -266,9 +274,9 @@ impl ExperienceTracker {
         }
 
         if new_level > self.current_level as i32 {
-            let experience_needed =
-                self.experience_required_for_level(new_level as usize, experience_required)
-                    - self.current_experience;
+            let experience_needed = self
+                .experience_required_for_level(new_level as usize, experience_required)
+                - self.current_experience;
             self.add_experience_points(experience_needed, can_scale_for_bonus, experience_required);
             true
         } else {

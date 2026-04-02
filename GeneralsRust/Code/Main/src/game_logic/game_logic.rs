@@ -1756,12 +1756,13 @@ impl GameLogic {
 
     pub fn clearGameData(&mut self) {
         log::debug!("GameLogic::clearGameData() - clearing all game data");
-        self.objects.clear();
-        self.players.clear();
-        self.frame = 0;
+        // C++ routes this through the broader engine reset path, so keep the
+        // fallback state scrubbed rather than only clearing the minimum fields.
+        self.reset();
         self.game_mode = GameMode::None;
+        self.map_name.clear();
+        self.last_map_settings = None;
         self.map_loaded = false;
-        self.objects_to_destroy.clear();
     }
 
     pub fn getFrame(&self) -> u32 {
@@ -9623,6 +9624,35 @@ mod tests {
         game_logic.game_mode = GameMode::Internet;
         assert!(game_logic.isInInternetGame());
         assert!(game_logic.isInNetworkGame());
+    }
+
+    #[test]
+    fn clear_game_data_scrubs_map_and_player_state() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+
+        game_logic.game_mode = GameMode::Skirmish;
+        game_logic.map_name = "Maps\\Test\\Test.map".to_string();
+        game_logic.map_loaded = true;
+        game_logic.objects.insert(
+            ObjectId(7),
+            Object::new(
+                game_logic.templates.get("TestTank").cloned().unwrap(),
+                ObjectId(7),
+                Team::USA,
+            ),
+        );
+        game_logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "Player1", true));
+
+        game_logic.clearGameData();
+
+        assert_eq!(game_logic.game_mode, GameMode::None);
+        assert!(game_logic.map_name.is_empty());
+        assert!(!game_logic.map_loaded);
+        assert!(game_logic.objects.is_empty());
+        assert!(game_logic.players.is_empty());
     }
 
     fn ensure_test_tank_template(game_logic: &mut GameLogic) {

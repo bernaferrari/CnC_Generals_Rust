@@ -2691,6 +2691,26 @@ impl TeamFactory {
         self.prototypes.values().cloned().collect()
     }
 
+    /// Snapshot hook: next team instance ID allocator value.
+    pub fn get_next_team_id(&self) -> TeamID {
+        self.unique_team_id
+    }
+
+    /// Snapshot hook: next team prototype ID allocator value.
+    pub fn get_next_team_prototype_id(&self) -> TeamPrototypeID {
+        self.unique_team_prototype_id
+    }
+
+    /// Snapshot hook: restore allocator state from save data.
+    pub fn set_next_team_ids(
+        &mut self,
+        next_team_id: TeamID,
+        next_team_prototype_id: TeamPrototypeID,
+    ) {
+        self.unique_team_id = next_team_id.max(1);
+        self.unique_team_prototype_id = next_team_prototype_id.max(1);
+    }
+
     /// Find team by ID
     pub fn find_team_by_id(&self, team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
         self.teams.get(&team_id).cloned()

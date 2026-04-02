@@ -26,7 +26,6 @@ use crate::message_stream::game_message::{
 use crate::message_stream::message_stream::append_message_to_stream;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
-use gamelogic::common::types::Relationship;
 use gamelogic::common::CommandSourceType;
 use gamelogic::common::{Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID};
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
@@ -34,7 +33,6 @@ use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
-use gamelogic::player::{PlayerType, ThePlayerList};
 
 /// In-game UI errors
 #[derive(Error, Debug)]
@@ -720,6 +718,15 @@ impl InGameUI {
                 ));
             }
             TheInGameUI::clear_pending_special_power();
+        } else if options.intersects(
+            SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT
+                | SpecialPowerCommandOption::NEED_TARGET_PRISONER
+                | SpecialPowerCommandOption::NEED_TARGET_POS
+                | SpecialPowerCommandOption::ATTACK_OBJECTS_POSITION,
+        ) {
+            let _ = append_message_to_stream(GameMessageType::DoInvalidHint);
         }
 
         Ok(true)
@@ -785,78 +792,31 @@ impl InGameUI {
             return false;
         }
 
-        if let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) {
-            if let Ok(source_guard) = source_obj.read() {
-                if !source_guard.is_effectively_dead() {
-                    if let Some(store) = get_special_power_store() {
-                        if let Some(template) = store.find_special_power_template_by_id(power_id) {
-                            return ActionManager::can_do_special_power_at_object(
-                                &source_guard,
-                                &target_guard,
-                                CommandSourceType::FromPlayer,
-                                template,
-                                options_bits,
-                                false,
-                            );
-                        }
-                    }
-                }
-            }
+        let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) else {
+            return false;
+        };
+        let Ok(source_guard) = source_obj.read() else {
+            return false;
+        };
+        if source_guard.is_effectively_dead() {
+            return false;
         }
 
-        let target_player_id = target_guard
-            .get_controlling_player_id()
-            .map(|id| id as i32)
-            .filter(|id| *id >= 0);
-        let Ok(player_list) = ThePlayerList().read() else {
-            return true;
+        let Some(store) = get_special_power_store() else {
+            return false;
+        };
+        let Some(template) = store.find_special_power_template_by_id(power_id) else {
+            return false;
         };
 
-        let local_player = player_list
-            .get_local_player()
-            .and_then(|player| player.read().ok());
-        let Some(local_player) = local_player else {
-            return true;
-        };
-
-        let relationship = target_player_id
-            .and_then(|id| player_list.get_player(id))
-            .and_then(|player| player.read().ok())
-            .map(|player| {
-                if player.get_player_type() == PlayerType::Neutral {
-                    Relationship::Neutral
-                } else {
-                    local_player.get_relationship(&player)
-                }
-            })
-            .unwrap_or(Relationship::Neutral);
-
-        if options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
-            && relationship == Relationship::Enemy
-        {
-            return true;
-        }
-
-        if options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
-            && relationship == Relationship::Neutral
-        {
-            return true;
-        }
-
-        if options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
-            && matches!(
-                relationship,
-                Relationship::Ally | Relationship::Allies | Relationship::Friend
-            )
-        {
-            return true;
-        }
-
-        if options.contains(SpecialPowerCommandOption::NEED_TARGET_PRISONER) {
-            return true;
-        }
-
-        false
+        ActionManager::can_do_special_power_at_object(
+            &source_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+            template,
+            options_bits,
+            false,
+        )
     }
 
     /// Perform box selection

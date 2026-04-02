@@ -921,7 +921,6 @@ impl ExperienceTrackingBehaviorImpl {
             total_kills: 0,
         }
     }
-
 }
 
 #[async_trait]
