@@ -6,7 +6,15 @@ use std::env;
 
 use log::{error, info};
 
-use crate::common::game_engine::create_game_engine;
+use crate::common::game_engine::{clear_game_engine, create_game_engine, set_game_engine};
+
+struct GameEngineLifecycleGuard;
+
+impl Drop for GameEngineLifecycleGuard {
+    fn drop(&mut self) {
+        clear_game_engine();
+    }
+}
 
 /// Main entry point for the game system (exact C++ GameMain signature)
 ///
@@ -50,11 +58,17 @@ pub async fn game_main(
 
     info!("GameMain: Converted arguments: {:?}", args);
 
-    // Initialize the game engine using factory function (matching C++ CreateGameEngine())
-    let mut the_game_engine = create_game_engine();
+    // Initialize the game engine using factory function (matching C++ CreateGameEngine()).
+    // The global slot mirrors TheGameEngine in the original C++ startup path.
+    let the_game_engine = set_game_engine(create_game_engine());
+    let _engine_lifecycle_guard = GameEngineLifecycleGuard;
 
     // Initialize the engine with command line arguments (matching C++ TheGameEngine->init())
-    match the_game_engine.init(args).await {
+    let init_result = {
+        let mut game_engine = the_game_engine.lock();
+        game_engine.init(args).await
+    };
+    match init_result {
         Ok(()) => {
             info!("GameMain: Engine initialization completed successfully");
         }
@@ -65,7 +79,11 @@ pub async fn game_main(
     }
 
     // Run the main game loop (matching C++ TheGameEngine->execute())
-    match the_game_engine.execute().await {
+    let execute_result = {
+        let mut game_engine = the_game_engine.lock();
+        game_engine.execute().await
+    };
+    match execute_result {
         Ok(()) => {
             info!("GameMain: Game execution completed normally");
         }
@@ -113,6 +131,7 @@ pub async fn run_from_env() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::game_engine::{clear_game_engine, get_game_engine};
 
     #[tokio::test]
     async fn test_game_main_minimal() {
@@ -158,5 +177,14 @@ mod tests {
             shutdown_result.is_ok(),
             "Game engine shutdown should succeed"
         );
+    }
+
+    #[test]
+    fn test_game_engine_global_slot_can_be_cleared() {
+        clear_game_engine();
+        let _engine = crate::common::game_engine::set_game_engine(create_game_engine());
+        assert!(get_game_engine().is_some());
+        clear_game_engine();
+        assert!(get_game_engine().is_none());
     }
 }
