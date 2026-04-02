@@ -7,7 +7,7 @@ use std::sync::{OnceLock, RwLock};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
-    get_global_data, register_block_parser, INIError, INILoadType, INIResult, INI,
+    get_global_data, register_block_parser, INIError, INILoadType, INIResult, INI, TimeOfDay,
 };
 use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 use log::debug;
@@ -20,6 +20,7 @@ use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTra
 use crate::gui::shell::get_shell;
 use crate::helpers::TheInGameUI;
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
+use crate::display::view::with_tactical_view;
 use gamelogic::commands::command::CommandType;
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::player::ThePlayerList;
@@ -99,6 +100,7 @@ impl MetaMap {
 static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 static LOWER_DETAIL_TOGGLE_STATE: OnceLock<RwLock<LowerDetailToggleState>> = OnceLock::new();
+static OBJECTIVE_MOVIE_INDEX: OnceLock<RwLock<i32>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 
@@ -131,6 +133,10 @@ fn get_meta_map() -> &'static RwLock<MetaMap> {
 
 fn get_lower_detail_toggle_state() -> &'static RwLock<LowerDetailToggleState> {
     LOWER_DETAIL_TOGGLE_STATE.get_or_init(|| RwLock::new(LowerDetailToggleState::default()))
+}
+
+fn get_objective_movie_index() -> &'static RwLock<i32> {
+    OBJECTIVE_MOVIE_INDEX.get_or_init(|| RwLock::new(1))
 }
 
 fn ensure_meta_map_loaded() {
@@ -548,6 +554,17 @@ where
     };
     f(&mut local_guard);
     true
+}
+
+fn parse_objective_movie_alias(name: &str) -> Option<i32> {
+    let upper = name.to_ascii_uppercase();
+    let suffix = upper.strip_prefix("DEMO_PLAY_OBJECTIVE_MOVIE")?;
+    let value = suffix.parse::<i32>().ok()?;
+    if (1..=6).contains(&value) {
+        Some(value)
+    } else {
+        None
+    }
 }
 
 fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> {
@@ -1028,6 +1045,50 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MILITARY_SUBTITLES") {
+        TheInGameUI::military_subtitle("MSG:Testing", 10_000);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_NEXT_OBJECTIVE_MOVIE") {
+        if TheGameLogic::is_in_game() {
+            let mut next = 1;
+            if let Ok(mut objective) = get_objective_movie_index().write() {
+                *objective += 1;
+                if *objective > 6 {
+                    *objective = 1;
+                }
+                next = *objective;
+            }
+            let _ = TheInGameUI::play_movie(&format!("DemoObjective{next:02}"));
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if let Some(movie_index) = parse_objective_movie_alias(&record.name) {
+        if TheGameLogic::is_in_game() {
+            if let Ok(mut objective) = get_objective_movie_index().write() {
+                *objective = movie_index;
+            }
+            let _ = TheInGameUI::play_movie(&format!("DemoObjective{movie_index:02}"));
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TIME_OF_DAY") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            let tod = match global.time_of_day {
+                TimeOfDay::Morning => TimeOfDay::Afternoon,
+                TimeOfDay::Afternoon => TimeOfDay::Evening,
+                TimeOfDay::Evening => TimeOfDay::Night,
+                TimeOfDay::Night | TimeOfDay::Invalid => TimeOfDay::Morning,
+            };
+            let _ = global.set_time_of_day(tod);
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_SHADOW_VOLUMES")
@@ -1190,6 +1251,20 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let mut global = global_data.write();
             global.show_metrics = !global.show_metrics;
         }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_ZOOM_LOCK") {
+        let zoom_limited = with_tactical_view(|view| {
+            let next = !view.is_zoom_limited();
+            view.set_zoom_limited(next);
+            next
+        });
+        TheInGameUI::message(if zoom_limited {
+            "Camera Zoom Limit: ON"
+        } else {
+            "Camera Zoom Limit: OFF"
+        });
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -1510,7 +1585,9 @@ impl GameMessageTranslator for MetaEventTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
     use gamelogic::player::Player;
+    use gamelogic::system::game_logic::{get_game_logic, GAME_NONE, GAME_SINGLE_PLAYER};
     use std::sync::{Arc, RwLock};
     use std::sync::{Mutex, OnceLock};
 
@@ -1887,5 +1964,81 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(TheInGameUI::is_messages_on());
+    }
+
+    #[test]
+    fn test_demo_zoom_lock_alias_toggles_view_zoom_limit() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        with_tactical_view(|view| view.set_zoom_limited(false));
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(crate::display::view::with_tactical_view_ref(|view| view.is_zoom_limited()));
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(!crate::display::view::with_tactical_view_ref(|view| view.is_zoom_limited()));
+    }
+
+    #[test]
+    fn test_demo_objective_movie_aliases_update_index_when_in_game() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_SINGLE_PLAYER);
+        }
+        if let Ok(mut index) = get_objective_movie_index().write() {
+            *index = 1;
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(*get_objective_movie_index().read().expect("objective lock"), 4);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(*get_objective_movie_index().read().expect("objective lock"), 5);
+
+        if let Ok(mut index) = get_objective_movie_index().write() {
+            *index = 6;
+        }
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(*get_objective_movie_index().read().expect("objective lock"), 1);
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+    }
+
+    #[test]
+    fn test_demo_military_subtitles_and_time_of_day_aliases_are_wired() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+
+        {
+            let mut global = global_data.write();
+            global.time_of_day = GlobalTimeOfDay::Afternoon;
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MILITARY_SUBTITLES")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TIME_OF_DAY")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(global_data.read().time_of_day, GlobalTimeOfDay::Evening);
     }
 }
