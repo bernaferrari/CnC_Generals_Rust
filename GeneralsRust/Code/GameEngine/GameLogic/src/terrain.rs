@@ -11,8 +11,12 @@
 //! - Line of sight calculations
 //! - Terrain flattening for buildings
 
+use crate::ai::pathfind_complete::GridCoord;
+use crate::ai::THE_AI;
 use crate::common::CoordOrigin;
 use crate::common::*;
+use crate::damage::{DamageInfo, DamageType, DeathType};
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::*;
 use crate::path::PathfindLayerEnum;
 use crate::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
@@ -26,6 +30,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 /// Maximum terrain name length
 pub const MAX_TERRAIN_NAME_LEN: usize = 64;
+const WATER_GRID_NAME_CPP: &str = "Water Grid";
+const WATER_GRID_NAME_LEGACY: &str = "GridWater";
+const MAX_DYNAMIC_WATER_ENTRIES: usize = 64;
 
 /// Waypoint helper class for waypoint info in terrain logic
 #[derive(Debug)]
@@ -610,25 +617,13 @@ impl WaterHandle {
     }
 }
 
-/// Shared handle to water table for animating water height over time
-#[derive(Clone, Debug)]
-pub struct DynamicWaterHandle(std::sync::Arc<std::sync::RwLock<WaterHandle>>);
-
-impl DynamicWaterHandle {
-    pub fn new(handle: std::sync::Arc<std::sync::RwLock<WaterHandle>>) -> Self {
-        Self(handle)
-    }
-
-    pub fn get(&self) -> std::sync::Arc<std::sync::RwLock<WaterHandle>> {
-        self.0.clone()
-    }
-}
-
 /// Dynamic water entry for animating water height over time
 #[derive(Debug)]
 struct DynamicWaterEntry {
-    /// Shared pointer to water table to edit
-    water_handle: DynamicWaterHandle,
+    /// Polygon trigger ID associated with this water table (C++ xfer identity key).
+    trigger_id: Int,
+    /// Water table identity (name assigned from map trigger/editor).
+    water_name: AsciiString,
     /// How much height to add each frame (negative = lowering)  
     change_per_frame: f32,
     /// Target height we want to reach
@@ -637,6 +632,16 @@ struct DynamicWaterEntry {
     damage_amount: f32,
     /// Current height (we track this ourselves)
     current_height: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct TerrainDynamicWaterSnapshotEntry {
+    pub trigger_id: Int,
+    pub water_name: AsciiString,
+    pub change_per_frame: f32,
+    pub target_height: f32,
+    pub damage_amount: f32,
+    pub current_height: f32,
 }
 
 /// Terrain data loaded from map file
@@ -670,6 +675,12 @@ pub struct TerrainLogic {
     bridge_damage_states_changed: bool,
     /// Filename for terrain data
     filename_string: AsciiString,
+    /// Query-mode map load marker.
+    ///
+    /// When `load_map(..., true)` is used we still populate logical terrain state,
+    /// but we suppress the follow-up `new_map` finalization so probe-only loads do
+    /// not trigger the client-facing side effects that C++ skips in query mode.
+    query_load_pending: bool,
     /// Water grid enabled flag
     water_grid_enabled: bool,
     /// Grid water handle
@@ -678,6 +689,8 @@ pub struct TerrainLogic {
     water_to_update: Vec<DynamicWaterEntry>,
     /// Map of named water handles
     water_handles: HashMap<AsciiString, WaterHandle>,
+    /// Map of trigger-ID keyed handles for identity-stable water operations.
+    water_handles_by_trigger_id: HashMap<Int, WaterHandle>,
     /// Loaded terrain data (heightmap and bridges)
     terrain_data: Option<TerrainData>,
     /// Polygon trigger areas for scripts
@@ -686,6 +699,135 @@ pub struct TerrainLogic {
 }
 
 impl TerrainLogic {
+    fn bridge_pathfinder_bounds(bridge_info: &BridgeInfo) -> (GridCoord, GridCoord) {
+        let min_x = bridge_info
+            .from_left
+            .x
+            .min(bridge_info.from_right.x)
+            .min(bridge_info.to_left.x)
+            .min(bridge_info.to_right.x);
+        let max_x = bridge_info
+            .from_left
+            .x
+            .max(bridge_info.from_right.x)
+            .max(bridge_info.to_left.x)
+            .max(bridge_info.to_right.x);
+        let min_y = bridge_info
+            .from_left
+            .y
+            .min(bridge_info.from_right.y)
+            .min(bridge_info.to_left.y)
+            .min(bridge_info.to_right.y);
+        let max_y = bridge_info
+            .from_left
+            .y
+            .max(bridge_info.from_right.y)
+            .max(bridge_info.to_left.y)
+            .max(bridge_info.to_right.y);
+
+        (
+            GridCoord::new(
+                (min_x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (min_y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            ),
+            GridCoord::new(
+                (max_x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (max_y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            ),
+        )
+    }
+
+    fn bridge_info_from_parts(
+        position: Coord3D,
+        angle: Real,
+        halfsize_x: Real,
+        halfsize_y: Real,
+        bridge_object_id: ObjectID,
+    ) -> BridgeInfo {
+        let c = angle.cos();
+        let s = angle.sin();
+
+        let from_left = Coord3D::new(
+            position.x - halfsize_x * c - halfsize_y * s,
+            position.y + halfsize_y * c - halfsize_x * s,
+            position.z,
+        );
+        let to_left = Coord3D::new(
+            position.x + halfsize_x * c - halfsize_y * s,
+            position.y + halfsize_y * c + halfsize_x * s,
+            position.z,
+        );
+        let from_right = Coord3D::new(
+            position.x - halfsize_x * c + halfsize_y * s,
+            position.y - halfsize_y * c - halfsize_x * s,
+            position.z,
+        );
+        let to_right = Coord3D::new(
+            position.x + halfsize_x * c + halfsize_y * s,
+            position.y - halfsize_y * c + halfsize_x * s,
+            position.z,
+        );
+
+        let mut bridge_info = BridgeInfo::new();
+        bridge_info.from_left = from_left;
+        bridge_info.from_right = from_right;
+        bridge_info.to_left = to_left;
+        bridge_info.to_right = to_right;
+        bridge_info.from = Coord3D::new(
+            (from_left.x + from_right.x) * 0.5,
+            (from_left.y + from_right.y) * 0.5,
+            (from_left.z + from_right.z) * 0.5,
+        );
+        bridge_info.to = Coord3D::new(
+            (to_left.x + to_right.x) * 0.5,
+            (to_left.y + to_right.y) * 0.5,
+            (to_left.z + to_right.z) * 0.5,
+        );
+        bridge_info.bridge_width = halfsize_y * 2.0;
+        bridge_info.bridge_object_id = bridge_object_id;
+        bridge_info
+    }
+
+    pub(crate) fn bridge_info_from_object(bridge_obj: &Object) -> BridgeInfo {
+        let position = *bridge_obj.get_position();
+        let angle = bridge_obj.get_orientation();
+        let geometry = bridge_obj.get_geometry_info();
+        Self::bridge_info_from_parts(
+            position,
+            angle,
+            geometry.get_major_radius(),
+            geometry.get_minor_radius(),
+            bridge_obj.get_id(),
+        )
+    }
+
+    fn register_bridge_with_pathfinder(bridge_info: &BridgeInfo) -> Option<PathfindLayerEnum> {
+        let (min_coord, max_coord) = Self::bridge_pathfinder_bounds(bridge_info);
+        let ai_guard = THE_AI.read().ok()?;
+        let pathfinder = ai_guard.pathfinder()?;
+        let mut pathfinder_guard = pathfinder.write().ok()?;
+        Some(pathfinder_guard.add_bridge((min_coord, max_coord)))
+    }
+
+    fn remove_bridge_at(&mut self, location: &Coord3D) -> bool {
+        let mut current = &mut self.bridge_list_head;
+        loop {
+            let should_remove = match current.as_ref() {
+                Some(bridge) => bridge.is_point_on_bridge(location),
+                None => return false,
+            };
+
+            if should_remove {
+                let next = current.as_mut().and_then(|bridge| bridge.next.take());
+                *current = next;
+                self.bridge_damage_states_changed = true;
+                return true;
+            }
+
+            current = &mut current.as_mut().expect("bridge node exists").next;
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             map_data: Vec::new(),
@@ -698,14 +840,16 @@ impl TerrainLogic {
             bridge_list_head: None,
             bridge_damage_states_changed: false,
             filename_string: String::new().into(),
+            query_load_pending: false,
             water_grid_enabled: false,
             grid_water_handle: WaterHandle::new(
-                "GridWater".to_string().into(),
+                WATER_GRID_NAME_CPP.to_string().into(),
                 0.0,
                 Region3D::default(),
             ),
             water_to_update: Vec::new(),
             water_handles: HashMap::new(),
+            water_handles_by_trigger_id: HashMap::new(),
             terrain_data: None,
             trigger_areas: PolygonTriggerList::new(),
         }
@@ -717,6 +861,8 @@ impl TerrainLogic {
     /// # Arguments
     /// * `map_data` - Parsed map data from MapLoader
     pub fn load_map_data(&mut self, map_data: crate::system::map_loader::MapData) {
+        self.query_load_pending = false;
+
         // Store heightmap
         self.map_data = map_data.heightmap.clone();
         self.map_dx = map_data.width as i32;
@@ -732,13 +878,20 @@ impl TerrainLogic {
             bridges: map_data.bridges,
         });
 
-        // Set water height if specified
-        if let Some(water_height) = map_data.water_height {
-            self.grid_water_handle.set_height(water_height);
-        }
+        // Rebuild grid-water handle using C++ sentinel name and map extent.
+        let grid_height = map_data
+            .water_height
+            .unwrap_or(self.grid_water_handle.get_current_height());
+        self.grid_water_handle = WaterHandle::new(
+            WATER_GRID_NAME_CPP.to_string().into(),
+            grid_height,
+            self.get_extent_including_border(),
+        );
 
         // Load polygon trigger areas from map data
         self.trigger_areas.clear();
+        self.water_handles.clear();
+        self.water_handles_by_trigger_id.clear();
         for trigger in map_data.polygon_triggers {
             self.add_trigger_area(trigger);
         }
@@ -810,6 +963,7 @@ impl TerrainLogic {
         self.water_handles.clear();
         self.bridge_damage_states_changed = false;
         self.trigger_areas.clear();
+        self.query_load_pending = false;
     }
 
     /// Update the terrain system
@@ -824,6 +978,7 @@ impl TerrainLogic {
     /// Load map from file
     pub fn load_map(&mut self, filename: AsciiString, _query: bool) -> bool {
         self.filename_string = filename.clone();
+        self.query_load_pending = false;
         let requested = filename.as_str();
 
         let Some(map_path) = self.resolve_map_path(requested) else {
@@ -836,6 +991,7 @@ impl TerrainLogic {
                 self.reset();
                 self.filename_string = filename;
                 self.load_map_data(map_data);
+                self.query_load_pending = _query;
                 true
             }
             Err(err) => {
@@ -907,6 +1063,11 @@ impl TerrainLogic {
     /// It aligns waypoint Z with loaded ground height and enables water grid only
     /// when the map defines the legacy `WaveGuide1` marker.
     pub fn new_map(&mut self, _save_game: bool) {
+        if self.query_load_pending {
+            self.query_load_pending = false;
+            return;
+        }
+
         let mut waypoint_heights = Vec::new();
         let mut current = self.waypoint_list_head.as_deref();
         while let Some(waypoint) = current {
@@ -1068,6 +1229,47 @@ impl TerrainLogic {
         self.get_highest_layer_for_destination_with_health(pos, false)
     }
 
+    fn get_wall_height(&self) -> Real {
+        THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
+            .unwrap_or(0.0)
+    }
+
+    fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
+        if let Ok(ai_guard) = THE_AI.read() {
+            if let Some(pathfinder) = ai_guard.pathfinder() {
+                if let Ok(pathfinder_guard) = pathfinder.read() {
+                    return pathfinder_guard.is_point_on_wall(pos);
+                }
+            }
+        }
+        self.is_point_on_wall_fallback(pos)
+    }
+
+    fn is_point_on_wall_fallback(&self, pos: &Coord3D) -> bool {
+        let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
+        for obj in OBJECT_REGISTRY.get_all_objects() {
+            if let Ok(obj_guard) = obj.read() {
+                if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
+                    continue;
+                }
+                let wall_pos = obj_guard.get_position();
+                let geom = obj_guard.get_template().get_template_geometry_info();
+                let radius = geom.get_bounding_circle_radius();
+                let dx = wall_pos.x - pos.x;
+                let dy = wall_pos.y - pos.y;
+                let dist_sq = dx * dx + dy * dy;
+                let allowed = radius + cell_pad;
+                if dist_sq <= allowed * allowed {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Variant that can optionally ignore broken bridges.
     pub fn get_highest_layer_for_destination_with_health(
         &self,
@@ -1077,6 +1279,15 @@ impl TerrainLogic {
         let ground_z = self.get_ground_height(pos.x, pos.y, None);
         let mut best_layer = PathfindLayerEnum::Ground;
         let mut best_distance = pos.z - ground_z;
+
+        let wall_height = self.get_wall_height();
+        if best_distance > wall_height * 0.5 && self.is_point_on_wall(pos) {
+            let delta = pos.z - wall_height;
+            if delta >= 0.0 && delta.abs() < best_distance.abs() {
+                best_layer = PathfindLayerEnum::Wall;
+                best_distance = delta;
+            }
+        }
 
         let mut current = self.bridge_list_head.as_deref();
         while let Some(bridge) = current {
@@ -1105,6 +1316,15 @@ impl TerrainLogic {
         let ground_z = self.get_ground_height(pos.x, pos.y, None);
         let mut best_layer = PathfindLayerEnum::Ground;
         let mut best_distance = (pos.z - ground_z).abs();
+
+        let wall_height = self.get_wall_height();
+        if best_distance > wall_height * 0.5 && self.is_point_on_wall(pos) {
+            let delta = (pos.z - wall_height).abs();
+            if delta < best_distance {
+                best_layer = PathfindLayerEnum::Wall;
+                best_distance = delta;
+            }
+        }
 
         let mut current = self.bridge_list_head.as_deref();
         while let Some(bridge) = current {
@@ -1200,27 +1420,21 @@ impl TerrainLogic {
             *tz = terrain_height;
         }
 
-        // Check water handles
-        let pos = Coord2D::new(x, y);
-        for water in self.water_handles.values() {
-            let bounds_2d = Region2D::new(
-                Coord2D::new(water.bounds.lo.x, water.bounds.lo.y),
-                Coord2D::new(water.bounds.hi.x, water.bounds.hi.y),
-            );
+        let Some(water_handle) = self.get_water_handle(x, y) else {
+            return false;
+        };
 
-            if pos.x >= bounds_2d.lo.x
-                && pos.x <= bounds_2d.hi.x
-                && pos.y >= bounds_2d.lo.y
-                && pos.y <= bounds_2d.hi.y
-            {
-                if let Some(wz) = water_z {
-                    *wz = water.current_height;
-                }
-                return terrain_height < water.current_height;
-            }
+        let is_grid = std::ptr::eq(water_handle, &self.grid_water_handle);
+        let w_z = if is_grid {
+            self.grid_water_handle.get_current_height()
+        } else {
+            self.get_water_height(water_handle)
+        };
+        if let Some(wz) = water_z {
+            *wz = w_z;
         }
 
-        false
+        terrain_height < w_z
     }
 
     /// Check if cell is cliff
@@ -1270,28 +1484,61 @@ impl TerrainLogic {
 
     /// Get water handle at location
     pub fn get_water_handle(&self, x: f32, y: f32) -> Option<&WaterHandle> {
-        let pos = Coord2D::new(x, y);
+        let query = ICoord3D::new((x + 0.5).floor() as Int, (y + 0.5).floor() as Int, 0);
 
-        for water in self.water_handles.values() {
-            let bounds_2d = Region2D::new(
-                Coord2D::new(water.bounds.lo.x, water.bounds.lo.y),
-                Coord2D::new(water.bounds.hi.x, water.bounds.hi.y),
-            );
+        let mut best_trigger_id: Option<Int> = None;
+        let mut best_water_z = 0.0f32;
 
-            if pos.x >= bounds_2d.lo.x
-                && pos.x <= bounds_2d.hi.x
-                && pos.y >= bounds_2d.lo.y
-                && pos.y <= bounds_2d.hi.y
-            {
-                return Some(water);
+        for trigger in self.trigger_areas.get_triggers() {
+            if !trigger.is_water_area() || !trigger.point_in_trigger_int(&query) {
+                continue;
+            }
+
+            let Some(point0) = trigger.get_point(0) else {
+                continue;
+            };
+            let trigger_water_z = point0.z as f32;
+            if trigger_water_z >= best_water_z {
+                best_water_z = trigger_water_z;
+                best_trigger_id = Some(trigger.get_id());
             }
         }
 
+        // C++ parity subset: optional grid-water override when enabled.
+        if self.water_grid_enabled {
+            let bounds = self.grid_water_handle.get_bounds();
+            if x >= bounds.lo.x && x <= bounds.hi.x && y >= bounds.lo.y && y <= bounds.hi.y {
+                let grid_z = self.grid_water_handle.get_current_height();
+                if grid_z >= best_water_z {
+                    return Some(&self.grid_water_handle);
+                }
+            }
+        }
+
+        if let Some(trigger_id) = best_trigger_id {
+            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
+                return Some(handle);
+            }
+            if let Some(trigger) = self.trigger_areas.get_by_id(trigger_id) {
+                return self.water_handles.get(trigger.get_trigger_name());
+            }
+        }
         None
     }
 
     /// Get water handle by name
     pub fn get_water_handle_by_name(&self, name: &AsciiString) -> Option<&WaterHandle> {
+        if Self::is_grid_water_name(name) {
+            return Some(&self.grid_water_handle);
+        }
+
+        let trigger_id = self.resolve_water_trigger_id(name);
+        if trigger_id >= 0 {
+            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
+                return Some(handle);
+            }
+        }
+
         self.water_handles.get(name)
     }
 
@@ -1300,17 +1547,307 @@ impl TerrainLogic {
         water.get_current_height()
     }
 
+    fn is_grid_water_name(name: &AsciiString) -> bool {
+        name.as_str().eq_ignore_ascii_case(WATER_GRID_NAME_CPP)
+            || name.as_str().eq_ignore_ascii_case(WATER_GRID_NAME_LEGACY)
+    }
+
+    fn water_bounds_from_trigger(trigger: &PolygonTrigger, height: f32) -> Region3D {
+        let bounds = trigger.get_bounds();
+        Region3D::new(
+            Coord3D::new(bounds.lo.x as f32, bounds.lo.y as f32, height),
+            Coord3D::new(bounds.hi.x as f32, bounds.hi.y as f32, height),
+        )
+    }
+
+    fn resolve_water_height_for_entry(
+        &self,
+        trigger_id: Int,
+        water_name: &AsciiString,
+    ) -> Option<f32> {
+        if Self::is_grid_water_name(water_name) {
+            return Some(self.grid_water_handle.get_current_height());
+        }
+
+        if trigger_id >= 0 {
+            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
+                return Some(handle.get_current_height());
+            }
+            if let Some(trigger) = self.trigger_areas.get_by_id(trigger_id) {
+                if trigger.is_water_area() {
+                    if let Some(point) = trigger.get_point(0) {
+                        return Some(point.z as f32);
+                    }
+                }
+            }
+        }
+
+        self.water_handles
+            .get(water_name)
+            .map(|handle| handle.get_current_height())
+    }
+
+    fn update_polygon_water_height_by_id(
+        &mut self,
+        trigger_id: Int,
+        height: f32,
+    ) -> Option<(AsciiString, Region3D)> {
+        let trigger = self.trigger_areas.get_by_id_mut(trigger_id)?;
+        if !trigger.is_water_area() {
+            return None;
+        }
+
+        let point_count = trigger.get_num_points();
+        for idx in 0..point_count {
+            if let Some(mut point) = trigger.get_point(idx).cloned() {
+                point.z = height as Int;
+                trigger.set_point(point, idx);
+            }
+        }
+
+        let trigger_name = trigger.get_trigger_name().clone();
+        let bounds = Self::water_bounds_from_trigger(trigger, height);
+        Some((trigger_name, bounds))
+    }
+
+    fn update_polygon_water_height_by_name(
+        &mut self,
+        water_name: &AsciiString,
+        height: f32,
+    ) -> Option<(Int, AsciiString, Region3D)> {
+        let trigger = self.trigger_areas.get_by_name_mut(water_name.as_str())?;
+        if !trigger.is_water_area() {
+            return None;
+        }
+        let trigger_id = trigger.get_id();
+
+        let point_count = trigger.get_num_points();
+        for idx in 0..point_count {
+            if let Some(mut point) = trigger.get_point(idx).cloned() {
+                point.z = height as Int;
+                trigger.set_point(point, idx);
+            }
+        }
+
+        let trigger_name = trigger.get_trigger_name().clone();
+        let bounds = Self::water_bounds_from_trigger(trigger, height);
+        Some((trigger_id, trigger_name, bounds))
+    }
+
+    fn sync_water_handle_for_trigger(
+        &mut self,
+        trigger_id: Int,
+        trigger_name: &AsciiString,
+        height: f32,
+        bounds: Region3D,
+    ) {
+        if let Some(handle) = self.water_handles_by_trigger_id.get_mut(&trigger_id) {
+            handle.name = trigger_name.clone();
+            handle.set_height(height);
+            handle.bounds = bounds;
+        } else {
+            self.water_handles_by_trigger_id.insert(
+                trigger_id,
+                WaterHandle::new(trigger_name.clone(), height, bounds),
+            );
+        }
+
+        // Keep the name-keyed cache aligned with C++ first-match lookup behavior.
+        if self.resolve_water_trigger_id(trigger_name) == trigger_id {
+            if let Some(name_handle) = self.water_handles.get_mut(trigger_name) {
+                name_handle.set_height(height);
+                name_handle.bounds = bounds;
+            } else if let Some(trigger_handle) =
+                self.water_handles_by_trigger_id.get(&trigger_id).cloned()
+            {
+                self.water_handles
+                    .insert(trigger_name.clone(), trigger_handle);
+            }
+        }
+    }
+
+    fn sync_named_water_handle(
+        &mut self,
+        water_name: &AsciiString,
+        height: f32,
+        bounds: Option<Region3D>,
+    ) {
+        if let Some(handle) = self.water_handles.get_mut(water_name) {
+            handle.set_height(height);
+            if let Some(region) = bounds {
+                handle.bounds = region;
+            }
+        } else if let Some(region) = bounds {
+            self.water_handles.insert(
+                water_name.clone(),
+                WaterHandle::new(water_name.clone(), height, region),
+            );
+        }
+    }
+
+    fn apply_water_rise_damage(&self, affected_region: &Region3D, damage_amount: f32) {
+        if damage_amount <= 0.0 {
+            return;
+        }
+
+        let center = Coord3D::new(
+            (affected_region.lo.x + affected_region.hi.x) * 0.5,
+            (affected_region.lo.y + affected_region.hi.y) * 0.5,
+            0.0,
+        );
+        let width = affected_region.hi.x - affected_region.lo.x;
+        let height = affected_region.hi.y - affected_region.lo.y;
+        let max_dist = (width * width + height * height).sqrt();
+
+        let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+            return;
+        };
+
+        for object_id in partition.get_objects_in_range(&center, max_dist) {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(mut obj_guard) = obj_arc.write() else {
+                continue;
+            };
+            let pos = *obj_guard.get_position();
+            if self.is_underwater(pos.x, pos.y, None, None) {
+                let mut damage = DamageInfo::with_simple(
+                    damage_amount,
+                    crate::common::INVALID_ID,
+                    DamageType::Water,
+                    DeathType::Normal,
+                );
+                let _ = obj_guard.attempt_damage(&mut damage);
+            }
+        }
+    }
+
+    fn request_pathfind_recalculation(&self) {
+        let pathfinder = if let Ok(ai_guard) = THE_AI.read() {
+            ai_guard.pathfinder()
+        } else {
+            None
+        };
+        let Some(pathfinder) = pathfinder else {
+            return;
+        };
+        let mut pathfinder_guard = match pathfinder.write() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        pathfinder_guard.rebuild_from_terrain(self);
+    }
+
+    fn set_water_height_internal(
+        &mut self,
+        trigger_id: Int,
+        water_name: &AsciiString,
+        height: f32,
+        damage_amount: f32,
+        force_pathfind_update: bool,
+    ) {
+        if Self::is_grid_water_name(water_name) {
+            let previous_height = self.grid_water_handle.get_current_height();
+            self.grid_water_handle.set_height(height);
+
+            if damage_amount > 0.0 && height > previous_height {
+                let affected = self.grid_water_handle.get_bounds();
+                self.apply_water_rise_damage(affected, damage_amount);
+            }
+            if force_pathfind_update || (previous_height - height).abs() > f32::EPSILON {
+                self.request_pathfind_recalculation();
+            }
+            return;
+        }
+
+        let previous_height = self
+            .resolve_water_height_for_entry(trigger_id, water_name)
+            .unwrap_or(height);
+
+        let mut resolved_name = water_name.clone();
+        let mut resolved_trigger_id = trigger_id;
+        let mut affected_region = None;
+        if trigger_id >= 0 {
+            if let Some((name, bounds)) = self.update_polygon_water_height_by_id(trigger_id, height)
+            {
+                resolved_name = name;
+                resolved_trigger_id = trigger_id;
+                affected_region = Some(bounds);
+            }
+        } else if let Some((id, name, bounds)) =
+            self.update_polygon_water_height_by_name(water_name, height)
+        {
+            resolved_trigger_id = id;
+            resolved_name = name;
+            affected_region = Some(bounds);
+        }
+
+        if let Some(bounds) = affected_region {
+            if resolved_trigger_id >= 0 {
+                self.sync_water_handle_for_trigger(
+                    resolved_trigger_id,
+                    &resolved_name,
+                    height,
+                    bounds,
+                );
+            } else {
+                self.sync_named_water_handle(&resolved_name, height, Some(bounds));
+            }
+        } else {
+            if trigger_id >= 0 {
+                log::warn!(
+                    "TerrainLogic::set_water_height_internal missing water trigger id {}",
+                    trigger_id
+                );
+            }
+            self.sync_named_water_handle(&resolved_name, height, None);
+        }
+
+        if damage_amount > 0.0 && height > previous_height {
+            if let Some(region) = affected_region {
+                self.apply_water_rise_damage(&region, damage_amount);
+            }
+        }
+
+        if force_pathfind_update || (previous_height - height).abs() > f32::EPSILON {
+            self.request_pathfind_recalculation();
+        }
+    }
+
+    fn resolve_named_water_handle_identity(
+        &self,
+        water_name: &AsciiString,
+    ) -> Option<(Int, &WaterHandle)> {
+        if Self::is_grid_water_name(water_name) {
+            return Some((-1, &self.grid_water_handle));
+        }
+        let trigger_id = self.resolve_water_trigger_id(water_name);
+        if trigger_id >= 0 {
+            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
+                return Some((trigger_id, handle));
+            }
+        }
+        self.water_handles
+            .get(water_name)
+            .map(|handle| (-1, handle))
+    }
+
     /// Set water height
     pub fn set_water_height(
         &mut self,
         water_name: &AsciiString,
         height: f32,
-        _damage_amount: f32,
-        _force_pathfind_update: bool,
+        damage_amount: f32,
+        force_pathfind_update: bool,
     ) {
-        if let Some(water) = self.water_handles.get_mut(water_name) {
-            water.set_height(height);
-        }
+        self.set_water_height_internal(
+            self.resolve_water_trigger_id(water_name),
+            water_name,
+            height,
+            damage_amount,
+            force_pathfind_update,
+        );
     }
 
     /// Change water height over time
@@ -1321,24 +1858,155 @@ impl TerrainLogic {
         transition_time_seconds: f32,
         damage_amount: f32,
     ) {
-        if let Some(water) = self.water_handles.get(water_name) {
-            let frames_to_complete =
-                (transition_time_seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
-            if frames_to_complete > 0 {
-                let change_per_frame =
-                    (final_height - water.current_height) / frames_to_complete as f32;
+        let Some((trigger_id, water_handle)) = self.resolve_named_water_handle_identity(water_name)
+        else {
+            return;
+        };
+        let resolved_name = water_handle.get_name().clone();
+        let current_height = water_handle.get_current_height();
 
-                let entry = DynamicWaterEntry {
-                    water_handle: DynamicWaterHandle::new(Arc::new(RwLock::new(water.clone()))),
-                    change_per_frame,
-                    target_height: final_height,
-                    damage_amount,
-                    current_height: water.current_height,
-                };
+        // C++ parity: remove existing transition for this water handle before adding a new one.
+        self.water_to_update.retain(|entry| {
+            if trigger_id >= 0 && entry.trigger_id >= 0 {
+                entry.trigger_id != trigger_id
+            } else {
+                !entry
+                    .water_name
+                    .as_str()
+                    .eq_ignore_ascii_case(resolved_name.as_str())
+            }
+        });
 
-                self.water_to_update.push(entry);
+        // C++ parity: fixed-size dynamic water transition list.
+        if self.water_to_update.len() >= MAX_DYNAMIC_WATER_ENTRIES {
+            log::warn!(
+                "TerrainLogic dynamic water transition limit ({}) reached",
+                MAX_DYNAMIC_WATER_ENTRIES
+            );
+            return;
+        }
+
+        let frames_to_complete = (transition_time_seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
+        if frames_to_complete <= 0 {
+            return;
+        }
+
+        let change_per_frame = (final_height - current_height) / frames_to_complete as f32;
+        self.water_to_update.push(DynamicWaterEntry {
+            trigger_id,
+            water_name: resolved_name,
+            change_per_frame,
+            target_height: final_height,
+            damage_amount,
+            current_height,
+        });
+    }
+
+    fn resolve_water_trigger_id(&self, water_name: &AsciiString) -> Int {
+        for trigger in self.trigger_areas.get_triggers() {
+            if trigger.is_water_area() && trigger.get_trigger_name() == water_name {
+                return trigger.get_id();
             }
         }
+        -1
+    }
+
+    pub fn snapshot_dynamic_water_entries(&self) -> Vec<TerrainDynamicWaterSnapshotEntry> {
+        let mut entries = Vec::with_capacity(self.water_to_update.len());
+        for entry in &self.water_to_update {
+            entries.push(TerrainDynamicWaterSnapshotEntry {
+                trigger_id: if entry.trigger_id >= 0 {
+                    entry.trigger_id
+                } else {
+                    self.resolve_water_trigger_id(&entry.water_name)
+                },
+                water_name: entry.water_name.clone(),
+                change_per_frame: entry.change_per_frame,
+                target_height: entry.target_height,
+                damage_amount: entry.damage_amount,
+                current_height: entry.current_height,
+            });
+        }
+        entries
+    }
+
+    pub fn restore_dynamic_water_entries(
+        &mut self,
+        entries: Vec<TerrainDynamicWaterSnapshotEntry>,
+    ) -> Result<(), String> {
+        self.water_to_update.clear();
+        for mut entry in entries {
+            if self.water_to_update.len() >= MAX_DYNAMIC_WATER_ENTRIES {
+                return Err(format!(
+                    "TerrainLogic::restore_dynamic_water_entries exceeds max dynamic entries ({})",
+                    MAX_DYNAMIC_WATER_ENTRIES
+                ));
+            }
+            if entry.trigger_id >= 0 {
+                let trigger = self
+                    .trigger_areas
+                    .get_by_id(entry.trigger_id)
+                    .ok_or_else(|| {
+                        format!(
+                            "TerrainLogic::restore_dynamic_water_entries missing trigger id '{}'",
+                            entry.trigger_id
+                        )
+                    })?;
+                if trigger.get_water_handle().is_none() {
+                    return Err(format!(
+                        "TerrainLogic::restore_dynamic_water_entries trigger '{}' has no water handle",
+                        entry.trigger_id
+                    ));
+                }
+                if !self
+                    .water_handles_by_trigger_id
+                    .contains_key(&entry.trigger_id)
+                {
+                    return Err(format!(
+                        "TerrainLogic::restore_dynamic_water_entries missing water handle for trigger id '{}'",
+                        entry.trigger_id
+                    ));
+                }
+                entry.water_name = trigger.get_trigger_name().clone();
+            }
+
+            if entry.water_name.is_empty() {
+                return Err(
+                    "TerrainLogic::restore_dynamic_water_entries missing water handle name"
+                        .to_string(),
+                );
+            }
+
+            let is_grid_name = entry
+                .water_name
+                .as_str()
+                .eq_ignore_ascii_case(WATER_GRID_NAME_CPP)
+                || entry
+                    .water_name
+                    .as_str()
+                    .eq_ignore_ascii_case(WATER_GRID_NAME_LEGACY)
+                || entry.water_name == *self.grid_water_handle.get_name();
+
+            if !is_grid_name
+                && entry.trigger_id < 0
+                && self.get_water_handle_by_name(&entry.water_name).is_none()
+            {
+                return Err(format!(
+                    "TerrainLogic::restore_dynamic_water_entries missing water handle '{}'",
+                    entry.water_name
+                ));
+            }
+
+            self.water_to_update.push(DynamicWaterEntry {
+                trigger_id: entry.trigger_id,
+                water_name: entry.water_name,
+                change_per_frame: entry.change_per_frame,
+                target_height: entry.target_height,
+                damage_amount: entry.damage_amount,
+                current_height: entry.current_height,
+            });
+        }
+        Ok(())
     }
 
     /// Get first waypoint
@@ -1477,7 +2145,28 @@ impl TerrainLogic {
 
     /// Add a trigger area
     pub fn add_trigger_area(&mut self, trigger: PolygonTrigger) {
-        let trigger_name = trigger.get_trigger_name().to_string();
+        let trigger_name_ascii = trigger.get_trigger_name().clone();
+        let trigger_name = trigger_name_ascii.to_string();
+
+        if trigger.is_water_area() {
+            let trigger_id = trigger.get_id();
+            let water_height = trigger
+                .get_point(0)
+                .map(|point| point.z as f32)
+                .unwrap_or(self.grid_water_handle.get_current_height());
+            let bounds = trigger.get_bounds();
+            let water_bounds = Region3D::new(
+                Coord3D::new(bounds.lo.x as f32, bounds.lo.y as f32, water_height),
+                Coord3D::new(bounds.hi.x as f32, bounds.hi.y as f32, water_height),
+            );
+            let handle = WaterHandle::new(trigger_name_ascii.clone(), water_height, water_bounds);
+            self.water_handles_by_trigger_id
+                .insert(trigger_id, handle.clone());
+            self.water_handles
+                .entry(trigger_name_ascii.clone())
+                .or_insert(handle);
+        }
+
         self.trigger_areas.add(trigger);
 
         let area_tracker = crate::scripting::engine::get_area_tracker();
@@ -1521,17 +2210,26 @@ impl TerrainLogic {
 
     /// Delete the first bridge that contains the given location.
     pub fn delete_bridge_at(&mut self, location: &Coord3D) -> bool {
-        let mut current = &mut self.bridge_list_head;
-        while let Some(_) = current {
-            if current.as_ref().unwrap().is_point_on_bridge(location) {
-                let node = current.take().unwrap();
-                *current = node.next;
-                self.bridge_damage_states_changed = true;
-                return true;
+        let Some(bridge) = self.find_bridge_at(location) else {
+            return false;
+        };
+
+        let bridge_object_id = bridge.get_bridge_info().bridge_object_id;
+        let bridge_layer = bridge.get_layer();
+
+        if let Some(ai_guard) = THE_AI.read().ok() {
+            if let Some(pathfinder) = ai_guard.pathfinder() {
+                if let Ok(mut pathfinder_guard) = pathfinder.write() {
+                    pathfinder_guard.change_bridge_state(bridge_layer, false);
+                }
             }
-            current = &mut current.as_mut().unwrap().next;
         }
-        false
+
+        if bridge_object_id != crate::common::INVALID_ID {
+            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(bridge_object_id);
+        }
+
+        self.remove_bridge_at(location)
     }
 
     /// Find bridge at layer
@@ -1539,11 +2237,15 @@ impl TerrainLogic {
         &self,
         location: &Coord3D,
         layer: PathfindLayerEnum,
-        _clip: bool,
+        clip: bool,
     ) -> Option<&Bridge> {
+        if layer == PathfindLayerEnum::Ground {
+            return None;
+        }
+
         let mut current = self.bridge_list_head.as_deref();
         while let Some(bridge) = current {
-            if bridge.get_layer() == layer && bridge.is_point_on_bridge(location) {
+            if bridge.get_layer() == layer && (!clip || bridge.is_point_on_bridge(location)) {
                 return Some(bridge);
             }
             current = bridge.next.as_deref();
@@ -1562,7 +2264,10 @@ impl TerrainLogic {
             return false;
         }
         if layer == PathfindLayerEnum::Wall {
-            return matches!(obj.get_layer(), crate::common::PathfindLayerEnum::Wall);
+            if matches!(obj.get_layer(), crate::common::PathfindLayerEnum::Wall) {
+                return true;
+            }
+            return self.is_point_on_wall(obj.get_position());
         }
 
         let mut current = self.bridge_list_head.as_deref();
@@ -1640,6 +2345,9 @@ impl TerrainLogic {
     /// Add bridge to logic
     pub fn add_bridge_to_logic(&mut self, bridge_info: BridgeInfo, template_name: AsciiString) {
         let mut new_bridge = Box::new(Bridge::new(bridge_info, template_name));
+        let layer = Self::register_bridge_with_pathfinder(new_bridge.get_bridge_info())
+            .unwrap_or(PathfindLayerEnum::Bridge1);
+        new_bridge.set_layer(layer);
         new_bridge.next = self.bridge_list_head.take();
         self.bridge_list_head = Some(new_bridge);
     }
@@ -1649,26 +2357,10 @@ impl TerrainLogic {
     ///
     /// Landmark bridges are placed as objects in the map and need to be
     /// registered with the terrain system for pathfinding and height queries.
-    pub fn add_landmark_bridge_to_logic(&mut self, _bridge_obj: &Object) {
-        // Extract bridge geometry from the object
-        // The bridge object should have a box geometry with position and orientation
-        // that defines the bridge's bounds.
-
-        // Note: Full implementation requires:
-        // 1. Getting the object's geometry info (major/minor radius for box)
-        // 2. Calculating the 4 corners based on position and orientation
-        // 3. Creating BridgeInfo from the calculated corners
-        // 4. Adding to the bridge list
-
-        // For now, this is a placeholder that logs the intent
-        // Full implementation would be:
-        // let pos = bridge_obj.get_position();
-        // let angle = bridge_obj.get_orientation();
-        // let halfsize_x = bridge_obj.get_geometry_info().get_major_radius();
-        // let halfsize_y = bridge_obj.get_geometry_info().get_minor_radius();
-        // ... calculate corners and create BridgeInfo ...
-
-        log::debug!("add_landmark_bridge_to_logic called - placeholder implementation");
+    pub fn add_landmark_bridge_to_logic(&mut self, bridge_obj: &Object) {
+        let bridge_info = Self::bridge_info_from_object(bridge_obj);
+        let template_name = bridge_obj.get_template().get_name().clone();
+        self.add_bridge_to_logic(bridge_info, template_name);
     }
 
     /// Delete a specific bridge from the terrain system.
@@ -1676,27 +2368,6 @@ impl TerrainLogic {
     ///
     /// Removes the bridge from the list and destroys its associated object.
     pub fn delete_bridge(&mut self, location: &Coord3D) -> bool {
-        // Find the bridge at this location
-        let Some(bridge) = self.find_bridge_at(location) else {
-            return false;
-        };
-
-        // Get the bridge info before removing
-        let bridge_object_id = bridge.get_bridge_info().bridge_object_id;
-        let _layer = bridge.get_layer();
-
-        // Remove from pathfinder (would notify AI system)
-        // TheAI->pathfinder()->changeBridgeState(layer, false);
-        // Note: This requires integration with the AI pathfinder
-
-        // Destroy the bridge object if it exists
-        if bridge_object_id != crate::common::INVALID_ID {
-            // Would destroy the object through game logic
-            // TheGameLogic->destroyObject(bridgeObj);
-            // Note: This requires integration with the game logic system
-        }
-
-        // Remove from list
         self.delete_bridge_at(location)
     }
 
@@ -1830,7 +2501,11 @@ impl TerrainLogic {
 
     /// Update dynamic water tables
     fn update_dynamic_water(&mut self) {
-        self.water_to_update.retain_mut(|entry| {
+        let do_damage_this_frame =
+            crate::helpers::TheGameLogic::get_frame() % LOGICFRAMES_PER_SECOND == 0;
+        let mut retained = Vec::with_capacity(self.water_to_update.len());
+        let mut entries = std::mem::take(&mut self.water_to_update);
+        for mut entry in entries.drain(..) {
             entry.current_height += entry.change_per_frame;
 
             let reached_target = if entry.change_per_frame > 0.0 {
@@ -1841,14 +2516,30 @@ impl TerrainLogic {
 
             if reached_target {
                 entry.current_height = entry.target_height;
-                if let Ok(mut guard) = entry.water_handle.get().write() {
-                    guard.set_height(entry.current_height);
-                }
-                false // Remove this entry
+                self.set_water_height_internal(
+                    entry.trigger_id,
+                    &entry.water_name,
+                    entry.current_height,
+                    entry.damage_amount,
+                    true,
+                );
             } else {
-                true // Keep updating
+                let per_frame_damage = if do_damage_this_frame {
+                    entry.damage_amount
+                } else {
+                    0.0
+                };
+                self.set_water_height_internal(
+                    entry.trigger_id,
+                    &entry.water_name,
+                    entry.current_height,
+                    per_frame_damage,
+                    false,
+                );
+                retained.push(entry);
             }
-        });
+        }
+        self.water_to_update = retained;
     }
 
     /// Update bridge damage states
@@ -2264,6 +2955,43 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
+    fn bridge_info_from_parts_matches_expected_rectangle() {
+        let bridge_info = TerrainLogic::bridge_info_from_parts(
+            Coord3D::new(10.0, 20.0, 3.0),
+            0.0,
+            6.0,
+            2.0,
+            INVALID_ID,
+        );
+
+        assert_eq!(bridge_info.from_left, Coord3D::new(4.0, 22.0, 3.0));
+        assert_eq!(bridge_info.from_right, Coord3D::new(4.0, 18.0, 3.0));
+        assert_eq!(bridge_info.to_left, Coord3D::new(16.0, 22.0, 3.0));
+        assert_eq!(bridge_info.to_right, Coord3D::new(16.0, 18.0, 3.0));
+        assert_eq!(bridge_info.bridge_width, 4.0);
+    }
+
+    #[test]
+    fn delete_bridge_at_removes_bridge_from_list() {
+        let bridge_info = TerrainLogic::bridge_info_from_parts(
+            Coord3D::new(10.0, 20.0, 0.0),
+            0.0,
+            6.0,
+            2.0,
+            INVALID_ID,
+        );
+
+        let mut terrain = TerrainLogic::new();
+        let mut bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("TestBridge")));
+        bridge.set_layer(PathfindLayerEnum::Bridge1);
+        terrain.bridge_list_head = Some(bridge);
+
+        let hit_point = Coord3D::new(10.0, 20.0, 0.0);
+        assert!(terrain.delete_bridge_at(&hit_point));
+        assert!(terrain.find_bridge_at(&hit_point).is_none());
+    }
+
+    #[test]
     fn bridge_point_test_rejects_bounds_only_false_positive() {
         let mut info = BridgeInfo::new();
         info.from_left = Coord3D::new(0.0, 0.0, 0.0);
@@ -2301,6 +3029,32 @@ mod tests {
         assert!(!loaded);
 
         let _ = std::fs::remove_file(&map_path);
+    }
+
+    #[test]
+    fn terrain_query_load_skips_new_map_finalization() {
+        let mut terrain = TerrainLogic::new();
+
+        terrain.add_waypoint_from_map(&MapWaypoint {
+            id: 1,
+            name: "WaveGuide1".to_string(),
+            location: crate::system::map_loader::Coord3D::new(20.0, 20.0, 5.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+
+        terrain.query_load_pending = true;
+        terrain.new_map(false);
+
+        assert!(
+            !terrain.water_grid_enabled,
+            "query-mode load should skip the follow-up new_map side effects"
+        );
+        assert!(terrain
+            .get_waypoint_by_name(&AsciiString::from("WaveGuide1"))
+            .is_some());
     }
 
     #[test]
