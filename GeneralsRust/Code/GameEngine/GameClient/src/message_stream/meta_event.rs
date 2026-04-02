@@ -423,6 +423,8 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS"
         | "DEMO_ADDCASH"
         | "DEMO_BATTLE_CRY"
+        | "DEBUG_DUMP_ALL_PLAYER_OBJECTS"
+        | "DEBUG_DUMP_PLAYER_OBJECTS"
         | "DEMO_CYCLE_LOD_LEVEL"
         | "DEMO_FREE_BUILD"
         | "DEMO_GIVE_ALL_SCIENCES"
@@ -499,8 +501,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "CHEAT_DESHROUD" => true,
         "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEBUG_DRAWABLE_ID_PERFORMANCE" => true,
-        "DEBUG_DUMP_ALL_PLAYER_OBJECTS" => true,
-        "DEBUG_DUMP_PLAYER_OBJECTS" => true,
         "DEBUG_OBJECT_ID_PERFORMANCE" => true,
         "DEBUG_SLEEPY_UPDATE_PERFORMANCE" => true,
         "DEMO_BEGIN_ADJUST_FOV" => true,
@@ -738,6 +738,60 @@ fn local_selection_object_ids() -> Vec<u32> {
                 .map(|selection| selection.get_selected_objects())
         })
         .unwrap_or_default()
+}
+
+fn dump_player_object_counts(include_all_objects: bool) {
+    let Ok(player_list) = ThePlayerList().read() else {
+        return;
+    };
+
+    TheInGameUI::message("*******************************");
+    TheInGameUI::message("Dumping player object counts");
+
+    for i in 0..player_list.get_player_count() {
+        let Some(player_arc) = player_list.get_player(i as i32).cloned() else {
+            continue;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            continue;
+        };
+        if !player_guard.is_playable_side() {
+            continue;
+        }
+
+        let mut object_count = 0;
+        let mut object_lines: Vec<String> = Vec::new();
+        let _ = player_guard.iterate_objects(|object_arc| {
+            let Ok(object_guard) = object_arc.read() else {
+                return Ok(());
+            };
+            if object_guard.is_effectively_dead() {
+                return Ok(());
+            }
+
+            object_count += 1;
+            if include_all_objects || object_count <= 5 {
+                object_lines.push(format!(
+                    "Object {} ({})",
+                    object_guard.get_id(),
+                    object_guard.get_template().get_name().to_string()
+                ));
+            }
+            Ok(())
+        });
+
+        TheInGameUI::message(&format!(
+            "Player {i} ({}) has {object_count} non-dead objects",
+            player_guard.get_player_display_name()
+        ));
+
+        if object_count > 0 && (include_all_objects || object_count <= 5) {
+            TheInGameUI::message("Objects are:");
+            for line in object_lines {
+                TheInGameUI::message(&line);
+            }
+        }
+    }
 }
 
 fn kill_local_player_selection() {
@@ -1969,6 +2023,22 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record
+        .name
+        .eq_ignore_ascii_case("DEBUG_DUMP_PLAYER_OBJECTS")
+    {
+        dump_player_object_counts(false);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEBUG_DUMP_ALL_PLAYER_OBJECTS")
+    {
+        dump_player_object_counts(true);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_NETWORK") {
         toggle_demo_network_runtime();
         return Some(GameMessageDisposition::DestroyMessage);
@@ -2585,6 +2655,8 @@ mod tests {
         for alias in [
             "CHEAT_ADD_CASH",
             "CHEAT_RUNSCRIPT3",
+            "DEBUG_DUMP_ALL_PLAYER_OBJECTS",
+            "DEBUG_DUMP_PLAYER_OBJECTS",
             "DEMO_CYCLE_LOD_LEVEL",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_MUSIC_NEXT_TRACK",
@@ -3288,6 +3360,19 @@ mod tests {
             );
             assert_eq!(game_engine::common::game_lod::get_dynamic_lod(), expected);
         }
+    }
+
+    #[test]
+    fn test_debug_dump_player_object_aliases_are_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEBUG_DUMP_PLAYER_OBJECTS")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEBUG_DUMP_ALL_PLAYER_OBJECTS")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
     }
 
     #[test]
