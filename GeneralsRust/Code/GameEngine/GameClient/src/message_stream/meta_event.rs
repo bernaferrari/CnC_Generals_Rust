@@ -31,7 +31,7 @@ use gamelogic::commands::get_selection_manager;
 use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
 use gamelogic::common::ModelConditionFlags;
-use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory, TheVictoryConditions};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 use gamelogic::scripting::engine::get_script_engine;
@@ -1772,6 +1772,25 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_WIN") {
+        TheVictoryConditions::set_local_allied_victory(true);
+        if let Ok(list) = ThePlayerList().read() {
+            if let Some(local_player) = list.get_local_player() {
+                if let Ok(mut guard) = local_player.write() {
+                    guard.set_defeated(false);
+                }
+            }
+        }
+        let script_engine = get_script_engine();
+        if let Ok(mut guard) = script_engine.write() {
+            if let Some(engine) = guard.as_mut() {
+                engine.start_end_game_timer();
+            }
+        }
+        TheInGameUI::message("Instant Win");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_ZOOM_LOCK") {
         let zoom_limited = with_tactical_view(|view| {
             let next = !view.is_zoom_limited();
@@ -2766,6 +2785,33 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(global_data.read().dump_performance_statistics);
+    }
+
+    #[test]
+    fn test_demo_win_alias_sets_local_victory_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let local_player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut guard = local_player.write().expect("player lock");
+            guard.set_defeated(true);
+        }
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&local_player));
+            list.set_local_player_index(0);
+        }
+        TheVictoryConditions::set_local_allied_victory(false);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_WIN")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(TheVictoryConditions::is_local_allied_victory());
+        assert!(!local_player.read().expect("player lock").is_defeated());
+
+        ThePlayerList().write().expect("player list lock").clear();
     }
 
     #[test]
