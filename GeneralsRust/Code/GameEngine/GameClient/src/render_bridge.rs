@@ -528,7 +528,9 @@ impl RenderBridge {
 
     fn resolve_model(&mut self, name: &str) -> Option<Arc<dyn RenderObject>> {
         if let Some(obj) = self.asset_manager.create_render_obj(name) {
-            return Some(Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>));
+            return Some(Arc::from(
+                Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>
+            ));
         }
 
         for search_path in &self.asset_search_paths {
@@ -536,7 +538,9 @@ impl RenderBridge {
             if candidate.exists() {
                 if self.asset_manager.load_3d_assets(&candidate).is_ok() {
                     if let Some(obj) = self.asset_manager.create_render_obj(name) {
-                        return Some(Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>));
+                        return Some(Arc::from(
+                            Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>
+                        ));
                     }
                 }
             }
@@ -609,8 +613,7 @@ impl RenderBridge {
     }
 
     pub fn is_model_loaded(&self, model_name: &str) -> bool {
-        self.model_cache
-            .contains_key(&model_name.to_lowercase())
+        self.model_cache.contains_key(&model_name.to_lowercase())
     }
 
     pub fn pending_count(&self) -> usize {

@@ -657,7 +657,8 @@ impl PerformanceManager {
             if let Some(last_time) = *last_time_lock {
                 let time_diff = current_time.duration_since(last_time).as_secs_f64();
                 if time_diff > 0.0 {
-                    let alloc_diff = current_allocs.saturating_sub(LAST_ALLOC_COUNT.load(Ordering::Relaxed));
+                    let alloc_diff =
+                        current_allocs.saturating_sub(LAST_ALLOC_COUNT.load(Ordering::Relaxed));
                     self.metrics.memory.allocations_per_second =
                         (alloc_diff as f64 / time_diff) as u64;
                 }

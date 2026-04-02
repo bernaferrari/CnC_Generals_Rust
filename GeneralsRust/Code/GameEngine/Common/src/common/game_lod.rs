@@ -7,7 +7,7 @@ use std::sync::{OnceLock, RwLock};
 
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::ini::ini_game_lod::{
-    get_game_lod_manager, StaticGameLODLevel, StaticGameLODInfo,
+    get_game_lod_manager, StaticGameLODInfo, StaticGameLODLevel,
 };
 
 /// LOD levels

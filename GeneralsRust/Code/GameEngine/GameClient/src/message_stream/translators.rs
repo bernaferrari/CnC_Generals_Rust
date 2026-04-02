@@ -18,11 +18,14 @@ use super::place_event_translator::PlaceEventTranslator;
 use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator as SelectionTranslatorXlat;
 use super::window_xlat::WindowTranslator;
+use crate::core::game_client::CommandEvaluateType as ClientCommandEvaluateType;
 use crate::display::view::{with_tactical_view_ref, IPoint2};
+use crate::drawable::Drawable;
 use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::system::beacon_display;
+use crate::system::GameMessageResult;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::attack::{AbleToAttackType, CanAttackResult};
@@ -35,9 +38,11 @@ use gamelogic::common::{
 use gamelogic::damage::DamageType;
 use gamelogic::helpers::TheTerrainLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
 use gamelogic::path::SURFACE_CLIFF;
 use gamelogic::player::player_list;
 use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+use gamelogic::weapon::WeaponSlotType;
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -58,6 +63,12 @@ fn screen_to_terrain(pos: &ICoord2D) -> Option<Coord3D> {
 fn is_alternate_mouse_enabled() -> bool {
     get_global_data()
         .map(|data| data.read().use_alternate_mouse)
+        .unwrap_or(false)
+}
+
+fn is_double_click_attack_move_enabled() -> bool {
+    get_global_data()
+        .map(|data| data.read().double_click_attack_move)
         .unwrap_or(false)
 }
 
@@ -83,6 +94,7 @@ const CMD_NEED_TARGET_ALLY_OBJECT: u32 = 0x0000_0004;
 const CMD_NEED_TARGET_PRISONER: u32 = 0x0000_0008;
 const CMD_ALLOW_SHRUBBERY_TARGET: u32 = 0x0000_0010;
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
+const CMD_CONTEXTMODE_COMMAND: u32 = 0x0000_0200;
 const CMD_ALLOW_MINE_TARGET: u32 = 0x0000_0800;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
 const SPECIAL_POWER_INVALID: u32 = 0;
@@ -117,14 +129,20 @@ fn selection_has_flame_weapon(selection: &HashSet<ObjectID>) -> bool {
         if guard.is_destroyed() {
             continue;
         }
-        if guard.weapon_set.has_weapon_to_deal_damage_type(DamageType::Flame) {
+        if guard
+            .weapon_set
+            .has_weapon_to_deal_damage_type(DamageType::Flame)
+        {
             return true;
         }
     }
     false
 }
 
-fn context_pick_profile(force_attack_mode: bool, selection: &HashSet<ObjectID>) -> ContextPickProfile {
+fn context_pick_profile(
+    force_attack_mode: bool,
+    selection: &HashSet<ObjectID>,
+) -> ContextPickProfile {
     let mut profile = ContextPickProfile::default();
     if force_attack_mode {
         profile.include_force_attackable = true;
@@ -229,11 +247,268 @@ fn pending_command_target_allowed(options: u32, local_player_id: i32, target_id:
     false
 }
 
+fn weapon_slot_from_u32(value: u32) -> WeaponSlotType {
+    match value {
+        1 => WeaponSlotType::Secondary,
+        2 => WeaponSlotType::Tertiary,
+        _ => WeaponSlotType::Primary,
+    }
+}
+
+fn pending_weapon_slot(pending: &PendingCommand) -> WeaponSlotType {
+    weapon_slot_from_u32(pending.source_object_id)
+}
+
+fn pending_special_power_payload(
+) -> Option<(crate::helpers::PendingSpecialPower, SpecialPowerTemplate)> {
+    let power = TheInGameUI::get_pending_special_power()?;
+    let store = get_special_power_store()?;
+    let template = store
+        .find_special_power_template_by_id(power.power_id)?
+        .clone();
+    Some((power, template))
+}
+
+fn pending_fire_weapon_can_target_object(
+    pending: &PendingCommand,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    let slot = pending_weapon_slot(pending);
+    let mut saw_owned_source = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+        saw_owned_source = true;
+
+        if ActionManager::can_fire_weapon_at_object(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+            slot,
+        ) {
+            return true;
+        }
+    }
+
+    !saw_owned_source
+}
+
+fn pending_fire_weapon_can_target_position(
+    pending: &PendingCommand,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    position: &Coord3D,
+    object_in_way: Option<ObjectID>,
+) -> bool {
+    let slot = pending_weapon_slot(pending);
+    let logic_pos = LogicCoord3D::new(position.x, position.y, position.z);
+    let object_in_way_obj = object_in_way.and_then(|id| OBJECT_REGISTRY.get_object(id));
+    let mut saw_owned_source = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+        saw_owned_source = true;
+        let object_in_way_guard = object_in_way_obj.as_ref().and_then(|obj| obj.read().ok());
+
+        if ActionManager::can_fire_weapon_at_location(
+            &sel_guard,
+            &logic_pos,
+            CommandSourceType::FromPlayer,
+            slot,
+            object_in_way_guard.as_deref(),
+        ) {
+            return true;
+        }
+    }
+
+    !saw_owned_source
+}
+
+fn pending_special_power_can_target_object(
+    pending: &PendingCommand,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    let Some((power, template)) = pending_special_power_payload() else {
+        // Keep legacy permissive behavior when special-power metadata isn't available yet.
+        return true;
+    };
+    let mut saw_owned_source = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if power.source_object_id != gamelogic::common::INVALID_ID
+            && sel_guard.get_id() != power.source_object_id
+        {
+            continue;
+        }
+        saw_owned_source = true;
+
+        if ActionManager::can_do_special_power_at_object(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+            &template,
+            power.options,
+            true,
+        ) {
+            return true;
+        }
+    }
+
+    !saw_owned_source
+}
+
+fn pending_special_power_can_target_position(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    position: &Coord3D,
+    object_in_way: Option<ObjectID>,
+) -> bool {
+    let Some((power, template)) = pending_special_power_payload() else {
+        // Keep legacy permissive behavior when special-power metadata isn't available yet.
+        return true;
+    };
+    let logic_pos = LogicCoord3D::new(position.x, position.y, position.z);
+    let object_in_way_obj = object_in_way.and_then(|id| OBJECT_REGISTRY.get_object(id));
+    let mut saw_owned_source = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if power.source_object_id != gamelogic::common::INVALID_ID
+            && sel_guard.get_id() != power.source_object_id
+        {
+            continue;
+        }
+        saw_owned_source = true;
+        let object_in_way_guard = object_in_way_obj.as_ref().and_then(|obj| obj.read().ok());
+
+        if ActionManager::can_do_special_power_at_location(
+            &sel_guard,
+            &logic_pos,
+            CommandSourceType::FromPlayer,
+            &template,
+            object_in_way_guard.as_deref(),
+            power.options,
+            true,
+        ) {
+            return true;
+        }
+    }
+
+    !saw_owned_source
+}
+
 fn pending_command_for_object(
     pending: &PendingCommand,
     target: ObjectID,
 ) -> Option<GameMessageType> {
     match pending.command_type {
+        CommandType::CombatDropAtObject => Some(GameMessageType::CombatDropAtObject(target)),
+        CommandType::DoWeaponAtObject | CommandType::DoAttackObject => {
+            if pending.options & CMD_ATTACK_OBJECTS_POSITION != 0 {
+                None
+            } else {
+                Some(GameMessageType::DoWeaponAtObject(
+                    pending.source_object_id,
+                    target,
+                ))
+            }
+        }
+        CommandType::DoSpecialPowerAtObject | CommandType::DoSpecialPower => {
+            if !pending_command_accepts_object(pending.options) {
+                return None;
+            }
+            TheInGameUI::get_pending_special_power().map(|power| {
+                GameMessageType::DoSpecialPowerAtObject(
+                    power.power_id,
+                    target,
+                    power.options,
+                    power.source_object_id,
+                )
+            })
+        }
         CommandType::ConvertToCarbomb => Some(GameMessageType::ConvertToCarbomb(
             pending.source_object_id,
             target,
@@ -320,6 +595,9 @@ fn pending_command_hint_for_position(
     match pending.command_type {
         CommandType::DoAttackMoveTo => Some(GameMessageType::DoAttackMoveToHint(position)),
         CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPointHint(position)),
+        CommandType::DoSpecialPowerAtLocation
+        | CommandType::DoWeaponAtLocation
+        | CommandType::CombatDropAtLocation => None,
         CommandType::DoGuardPosition => None,
         CommandType::DoGuardObject => None,
         CommandType::PlaceBeacon | CommandType::RemoveBeacon => None,
@@ -333,10 +611,45 @@ fn pending_command_hint_for_position(
 fn pending_command_for_position(
     pending: &PendingCommand,
     position: Coord3D,
+    object_in_way: Option<ObjectID>,
 ) -> Option<GameMessageType> {
     match pending.command_type {
+        CommandType::CombatDropAtLocation => Some(GameMessageType::CombatDropAtLocation(position)),
+        CommandType::DoWeaponAtLocation | CommandType::DoAttackObject => {
+            if !(pending_command_accepts_position(pending.options)
+                || pending.options & CMD_ATTACK_OBJECTS_POSITION != 0)
+            {
+                return None;
+            }
+            Some(GameMessageType::DoWeaponAtLocation(
+                pending.source_object_id,
+                position,
+            ))
+        }
+        CommandType::DoSpecialPowerAtLocation | CommandType::DoSpecialPower => {
+            if !pending_command_accepts_position(pending.options) {
+                return None;
+            }
+            TheInGameUI::get_pending_special_power().map(|power| {
+                GameMessageType::DoSpecialPowerAtLocation(
+                    power.power_id,
+                    position,
+                    -1.0,
+                    object_in_way.unwrap_or(gamelogic::common::INVALID_ID),
+                    power.options,
+                    power.source_object_id,
+                )
+            })
+        }
         CommandType::DoAttackMoveTo => Some(GameMessageType::DoAttackMoveTo(position)),
         CommandType::DoGuardPosition => Some(GameMessageType::DoGuardPosition(position, 0)),
+        CommandType::Evacuate => {
+            if pending_command_accepts_position(pending.options) {
+                Some(GameMessageType::EvacuateAtLocation(position))
+            } else {
+                Some(GameMessageType::Evacuate)
+            }
+        }
         CommandType::PlaceBeacon => Some(GameMessageType::PlaceBeacon(position.clone())),
         CommandType::RemoveBeacon => Some(GameMessageType::RemoveBeacon(position.clone())),
         CommandType::SetRallyPoint => Some(GameMessageType::SetRallyPoint(
@@ -345,6 +658,26 @@ fn pending_command_for_position(
         )),
         _ => None,
     }
+}
+
+fn pending_command_messages_for_position(
+    pending: &PendingCommand,
+    position: Coord3D,
+    selection: &HashSet<ObjectID>,
+    object_in_way: Option<ObjectID>,
+) -> Vec<GameMessageType> {
+    if pending.command_type == CommandType::SetRallyPoint {
+        let mut ids: Vec<ObjectID> = selection.iter().copied().collect();
+        ids.sort_unstable();
+        return ids
+            .into_iter()
+            .map(|id| GameMessageType::SetRallyPoint(id, position.clone()))
+            .collect();
+    }
+
+    pending_command_for_position(pending, position, object_in_way)
+        .into_iter()
+        .collect()
 }
 
 fn selection_source_object_id(
@@ -404,7 +737,8 @@ fn selection_can_override_special_power_destination(
                 let Ok(behavior_lock) = behavior_arc.lock() else {
                     continue;
                 };
-                let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() else {
+                let Some(sp_module) = behavior_lock.get_special_power_module_interface_const()
+                else {
                     continue;
                 };
                 let Some(template) = sp_module.get_special_power_template_full() else {
@@ -507,6 +841,256 @@ fn selection_attack_result(
     }
 }
 
+fn selection_force_attack_object_result(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+) -> CanAttackResult {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return CanAttackResult::NotPossible;
+    };
+    let Ok(target_guard) = target.read() else {
+        return CanAttackResult::NotPossible;
+    };
+
+    let mut saw_invalid_shot = false;
+    let mut saw_possible_after_moving = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine || !sel_guard.is_able_to_attack() {
+            continue;
+        }
+
+        match force_attack_object_result_for_attacker(&sel_guard, &target_guard) {
+            CanAttackResult::Possible => return CanAttackResult::Possible,
+            CanAttackResult::PossibleAfterMoving => saw_possible_after_moving = true,
+            CanAttackResult::InvalidShot => saw_invalid_shot = true,
+            CanAttackResult::NotPossible => {}
+        }
+    }
+
+    if saw_possible_after_moving {
+        CanAttackResult::PossibleAfterMoving
+    } else if saw_invalid_shot {
+        CanAttackResult::InvalidShot
+    } else {
+        CanAttackResult::NotPossible
+    }
+}
+
+fn closest_spawn_slave_id_for_position(
+    owner: &gamelogic::object::Object,
+    pos: &LogicCoord3D,
+) -> Option<ObjectID> {
+    for module in owner.behavior_modules() {
+        let mut closest: Option<ObjectID> = None;
+        module.with_module_downcast::<
+            gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModule,
+            _,
+            _,
+        >(|spawn_module| {
+            closest = gamelogic::object::behavior::spawn_behavior::SpawnBehaviorInterface::get_closest_slave(
+                spawn_module.behavior_mut(),
+                pos,
+            )
+            .and_then(|slave| slave.read().ok().map(|guard| guard.get_id()));
+        });
+        if closest.is_some() {
+            return closest;
+        }
+    }
+
+    None
+}
+
+fn closest_contained_rider_id_for_position(
+    owner: &gamelogic::object::Object,
+    pos: &LogicCoord3D,
+) -> Option<ObjectID> {
+    let contain = owner.get_contain()?;
+    let contain_guard = contain.lock().ok()?;
+
+    let mut closest = None;
+    let mut closest_dist_sq = f32::INFINITY;
+
+    for &rider_id in contain_guard.get_contained_objects() {
+        let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) else {
+            continue;
+        };
+        let Ok(rider_guard) = rider.read() else {
+            continue;
+        };
+        if rider_guard.is_effectively_dead() {
+            continue;
+        }
+
+        let rider_pos = rider_guard.get_position();
+        let dx = rider_pos.x - pos.x;
+        let dy = rider_pos.y - pos.y;
+        let dist_sq = dx * dx + dy * dy;
+        if dist_sq < closest_dist_sq {
+            closest_dist_sq = dist_sq;
+            closest = Some(rider_id);
+        }
+    }
+
+    closest
+}
+
+fn force_attack_object_result_for_attacker(
+    attacker: &gamelogic::object::Object,
+    target: &gamelogic::object::Object,
+) -> CanAttackResult {
+    let mut result = ActionManager::get_can_attack_object(
+        attacker,
+        target,
+        CommandSourceType::FromPlayer,
+        AbleToAttackType::CanAttackArea,
+    );
+
+    if !attacker.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+        return result;
+    }
+
+    let target_pos = target.get_position();
+
+    if !matches!(
+        result,
+        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+    ) {
+        if let Some(slave_id) = closest_spawn_slave_id_for_position(attacker, target_pos) {
+            if let Some(slave) = OBJECT_REGISTRY.get_object(slave_id) {
+                if let Ok(slave_guard) = slave.read() {
+                    result = slave_guard.get_able_to_attack_specific_object(
+                        AbleToAttackType::CanAttackArea,
+                        target,
+                        CommandSourceType::FromPlayer,
+                    );
+                }
+            }
+        }
+    } else if let Some(rider_id) = closest_contained_rider_id_for_position(attacker, target_pos) {
+        if let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) {
+            if let Ok(rider_guard) = rider.read() {
+                let rider_result = rider_guard.get_able_to_attack_specific_object(
+                    AbleToAttackType::CanAttackArea,
+                    target,
+                    CommandSourceType::FromPlayer,
+                );
+                if rider_result != CanAttackResult::NotPossible {
+                    return rider_result;
+                }
+            }
+        }
+    }
+
+    result
+}
+
+fn force_attack_position_result_for_attacker(
+    attacker: &gamelogic::object::Object,
+    pos: &LogicCoord3D,
+) -> CanAttackResult {
+    let mut test_attacker = attacker.get_id();
+
+    if attacker.is_kind_of(KindOf::Immobile) || attacker.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+        if let Some(slave_id) = closest_spawn_slave_id_for_position(attacker, pos) {
+            test_attacker = slave_id;
+        } else {
+            let result = attacker.get_able_to_use_weapon_against_position(
+                AbleToAttackType::CanAttackSpecific,
+                pos,
+                CommandSourceType::FromPlayer,
+            );
+            if result != CanAttackResult::Possible {
+                if let Some(rider_id) = closest_contained_rider_id_for_position(attacker, pos) {
+                    test_attacker = rider_id;
+                }
+            }
+        }
+    }
+
+    if test_attacker == attacker.get_id() {
+        return attacker.get_able_to_use_weapon_against_position(
+            AbleToAttackType::CanAttackSpecific,
+            pos,
+            CommandSourceType::FromPlayer,
+        );
+    }
+
+    let Some(test_obj) = OBJECT_REGISTRY.get_object(test_attacker) else {
+        return CanAttackResult::NotPossible;
+    };
+    let Ok(test_guard) = test_obj.read() else {
+        return CanAttackResult::NotPossible;
+    };
+
+    test_guard.get_able_to_use_weapon_against_position(
+        AbleToAttackType::CanAttackSpecific,
+        pos,
+        CommandSourceType::FromPlayer,
+    )
+}
+
+fn selection_force_attack_position_result(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    world: &Coord3D,
+) -> CanAttackResult {
+    let logic_pos = LogicCoord3D::new(world.x, world.y, world.z);
+    let mut saw_invalid_shot = false;
+    let mut saw_possible_after_moving = false;
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine || !sel_guard.is_able_to_attack() {
+            continue;
+        }
+
+        match force_attack_position_result_for_attacker(&sel_guard, &logic_pos) {
+            CanAttackResult::Possible => return CanAttackResult::Possible,
+            CanAttackResult::PossibleAfterMoving => saw_possible_after_moving = true,
+            CanAttackResult::InvalidShot => saw_invalid_shot = true,
+            CanAttackResult::NotPossible => {}
+        }
+    }
+
+    if saw_possible_after_moving {
+        CanAttackResult::PossibleAfterMoving
+    } else if saw_invalid_shot {
+        CanAttackResult::InvalidShot
+    } else {
+        CanAttackResult::NotPossible
+    }
+}
+
 fn pending_command_selection_valid(
     pending: &PendingCommand,
     local_player: Option<u32>,
@@ -514,6 +1098,12 @@ fn pending_command_selection_valid(
     target_id: ObjectID,
 ) -> bool {
     match pending.command_type {
+        CommandType::DoAttackObject | CommandType::DoWeaponAtObject => {
+            pending_fire_weapon_can_target_object(pending, local_player, selection, target_id)
+        }
+        CommandType::DoSpecialPower | CommandType::DoSpecialPowerAtObject => {
+            pending_special_power_can_target_object(pending, local_player, selection, target_id)
+        }
         CommandType::Enter => selection_can_enter_target(local_player, selection, target_id),
         CommandType::DoRepair => selection_can_repair_target(local_player, selection, target_id),
         CommandType::GetRepaired => {
@@ -526,6 +1116,35 @@ fn pending_command_selection_valid(
             selection_can_resume_construction_target(local_player, selection, target_id)
         }
         CommandType::Dock => selection_can_dock_at_target(local_player, selection, target_id),
+        _ => true,
+    }
+}
+
+fn pending_command_position_valid(
+    pending: &PendingCommand,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    position: &Coord3D,
+    object_in_way: Option<ObjectID>,
+) -> bool {
+    match pending.command_type {
+        CommandType::DoAttackObject
+        | CommandType::DoWeaponAtObject
+        | CommandType::DoWeaponAtLocation => pending_fire_weapon_can_target_position(
+            pending,
+            local_player,
+            selection,
+            position,
+            object_in_way,
+        ),
+        CommandType::DoSpecialPower | CommandType::DoSpecialPowerAtLocation => {
+            pending_special_power_can_target_position(
+                local_player,
+                selection,
+                position,
+                object_in_way,
+            )
+        }
         _ => true,
     }
 }
@@ -585,15 +1204,34 @@ fn pick_context_target_for_click(
     }
 }
 
-fn is_pending_gui_non_context_command(command_type: CommandType) -> bool {
+fn is_locally_controlled_mine_target(object_id: ObjectID) -> bool {
+    OBJECT_REGISTRY
+        .get_object(object_id)
+        .and_then(|obj| {
+            obj.read()
+                .ok()
+                .map(|guard| guard.is_kind_of(KindOf::Mine) && guard.is_locally_controlled())
+        })
+        .unwrap_or(false)
+}
+
+fn is_pending_gui_non_context_command(pending: &PendingCommand) -> bool {
+    if (pending.options & CMD_CONTEXTMODE_COMMAND) != 0 {
+        return false;
+    }
+
     matches!(
-        command_type,
+        pending.command_type,
         CommandType::DoAttackMoveTo
             | CommandType::DoGuardPosition
             | CommandType::DoGuardObject
             | CommandType::SetRallyPoint
             | CommandType::PlaceBeacon
             | CommandType::RemoveBeacon
+            | CommandType::DoAttackObject
+            | CommandType::DoWeaponAtObject
+            | CommandType::DoWeaponAtLocation
+            | CommandType::Evacuate
     )
 }
 
@@ -603,6 +1241,10 @@ pub struct CommandTranslator {
     mouse_down_position: Option<ICoord2D>,
     drag_threshold: i32,
     mouse_down_modifiers: u32,
+    right_click_anchor: Option<ICoord2D>,
+    right_click_lift: Option<ICoord2D>,
+    right_click_down_time: u32,
+    right_click_up_time: u32,
 
     // State for selection operations
     current_selection: HashSet<ObjectID>,
@@ -622,6 +1264,10 @@ impl CommandTranslator {
             mouse_down_position: None,
             drag_threshold: 5, // pixels
             mouse_down_modifiers: 0,
+            right_click_anchor: None,
+            right_click_lift: None,
+            right_click_down_time: 0,
+            right_click_up_time: 0,
             current_selection: HashSet::new(),
             selection_anchor: None,
             force_attack_mode: false,
@@ -632,12 +1278,47 @@ impl CommandTranslator {
         }
     }
 
+    /// Evaluate a context-sensitive command against the current selection state.
+    ///
+    /// This keeps the command translator itself as the source of truth for context evaluation,
+    /// matching the C++ `GameClient` hookup where the registered command translator is also the
+    /// object consulted by context selection logic.
+    pub fn evaluate_context_command(
+        &mut self,
+        drawable: &dyn Drawable,
+        position: &Coord3D,
+        cmd_type: ClientCommandEvaluateType,
+    ) -> GameMessageResult<GameMessageType> {
+        self.sync_selection_from_logic();
+
+        let result = match cmd_type {
+            ClientCommandEvaluateType::Context
+            | ClientCommandEvaluateType::Primary
+            | ClientCommandEvaluateType::Secondary => {
+                if drawable.get_object_id().is_some() {
+                    self.handle_mouseover_drawable_hint(drawable.get_id().0)
+                        .into_iter()
+                        .next()
+                        .unwrap_or(GameMessageType::Invalid)
+                } else {
+                    self.handle_mouseover_location_hint(position)
+                        .into_iter()
+                        .next()
+                        .unwrap_or(GameMessageType::Invalid)
+                }
+            }
+        };
+
+        Ok(result)
+    }
+
     /// Process mouse button down events
     fn handle_mouse_button_down(
         &mut self,
         position: &ICoord2D,
         button: MouseButton,
         modifiers: u32,
+        time: u32,
     ) -> Vec<GameMessageType> {
         debug!("Mouse button {:?} down at {:?}", button, position);
 
@@ -649,17 +1330,10 @@ impl CommandTranslator {
                 vec![]
             }
             MouseButton::Right => {
-                // Right click typically issues commands to selected units
-                if !self.current_selection.is_empty() {
-                    let world = screen_to_terrain(position).unwrap_or(Coord3D {
-                        x: position.x as f32,
-                        y: position.y as f32,
-                        z: 0.0,
-                    });
-                    vec![GameMessageType::DoMoveToHint(world)]
-                } else {
-                    vec![]
-                }
+                // Mirrors C++ right-button click bookkeeping used by click/drag gating.
+                self.right_click_anchor = Some(position.clone());
+                self.right_click_down_time = time;
+                vec![]
             }
             MouseButton::Middle => {
                 vec![]
@@ -689,6 +1363,7 @@ impl CommandTranslator {
 
     fn clear_targeting_modes(&mut self) {
         TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
         TheInGameUI::set_force_attack_mode(false);
         TheInGameUI::set_force_move_to_mode(false);
         TheInGameUI::set_prefer_selection_mode(false);
@@ -739,8 +1414,10 @@ impl CommandTranslator {
         local_player_u32: Option<u32>,
         target: Option<ObjectID>,
         world: &Coord3D,
-    ) -> Option<GameMessageType> {
-        let pending = TheInGameUI::get_pending_command()?;
+    ) -> Vec<GameMessageType> {
+        let Some(pending) = TheInGameUI::get_pending_command() else {
+            return Vec::new();
+        };
 
         if let Some(object_id) = target {
             if pending_command_accepts_object(pending.options)
@@ -754,31 +1431,63 @@ impl CommandTranslator {
             {
                 if let Some(message) = pending_command_for_object(&pending, object_id) {
                     self.clear_targeting_modes();
-                    return Some(message);
+                    return vec![message];
                 }
             }
 
             if pending_command_accepts_position(pending.options) {
                 if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
                     if let Ok(obj_guard) = obj.read() {
-                        if let Some(message) = pending_command_for_position(
+                        let position = logic_to_message_coord(obj_guard.get_position());
+                        if pending_command_position_valid(
                             &pending,
-                            logic_to_message_coord(obj_guard.get_position()),
+                            local_player_u32,
+                            &self.current_selection,
+                            &position,
+                            Some(object_id),
                         ) {
-                            self.clear_targeting_modes();
-                            return Some(message);
+                            let messages = pending_command_messages_for_position(
+                                &pending,
+                                position,
+                                &self.current_selection,
+                                Some(object_id),
+                            );
+                            if !messages.is_empty() {
+                                self.clear_targeting_modes();
+                                return messages;
+                            }
                         }
                     }
                 }
             }
         } else if pending_command_accepts_position(pending.options) {
-            if let Some(message) = pending_command_for_position(&pending, world.clone()) {
-                self.clear_targeting_modes();
-                return Some(message);
+            if pending_command_position_valid(
+                &pending,
+                local_player_u32,
+                &self.current_selection,
+                world,
+                None,
+            ) {
+                let messages = pending_command_messages_for_position(
+                    &pending,
+                    world.clone(),
+                    &self.current_selection,
+                    None,
+                );
+                if !messages.is_empty() {
+                    self.clear_targeting_modes();
+                    return messages;
+                }
             }
         }
 
-        None
+        if pending_command_accepts_object(pending.options)
+            || pending_command_accepts_position(pending.options)
+        {
+            vec![GameMessageType::InvalidGUICommandHint]
+        } else {
+            Vec::new()
+        }
     }
 
     fn resolve_move_command(&self, world: Coord3D) -> GameMessageType {
@@ -814,16 +1523,28 @@ impl CommandTranslator {
         world: Coord3D,
     ) -> Option<GameMessageType> {
         if let Some(target_id) = target {
-            if selection_can_attack_target(local_player_u32, &self.current_selection, target_id) {
-                return Some(GameMessageType::DoForceAttackObject(target_id));
-            }
-            return None;
+            return match selection_force_attack_object_result(
+                local_player_u32,
+                &self.current_selection,
+                target_id,
+            ) {
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
+                    Some(GameMessageType::DoForceAttackObject(target_id))
+                }
+                // C++ DO_COMMAND force-attack path does not emit invalid hint messages.
+                CanAttackResult::InvalidShot | CanAttackResult::NotPossible => None,
+            };
         }
 
-        if selection_has_attack_capability(local_player_u32, &self.current_selection) {
-            Some(GameMessageType::DoForceAttackGround(world))
-        } else {
-            None
+        match selection_force_attack_position_result(
+            local_player_u32,
+            &self.current_selection,
+            &world,
+        ) {
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
+                Some(GameMessageType::DoForceAttackGround(world))
+            }
+            CanAttackResult::InvalidShot | CanAttackResult::NotPossible => None,
         }
     }
 
@@ -834,20 +1555,63 @@ impl CommandTranslator {
         world: Coord3D,
     ) -> Option<GameMessageType> {
         if let Some(target_id) = target {
-            match selection_attack_result(local_player_u32, &self.current_selection, target_id) {
+            return match selection_force_attack_object_result(
+                local_player_u32,
+                &self.current_selection,
+                target_id,
+            ) {
                 CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
-                    return Some(GameMessageType::DoForceAttackObjectHint(target_id));
+                    Some(GameMessageType::DoForceAttackObjectHint(target_id))
                 }
-                CanAttackResult::InvalidShot => return Some(GameMessageType::ImpossibleAttackHint),
-                CanAttackResult::NotPossible => return None,
-            }
+                CanAttackResult::InvalidShot => Some(GameMessageType::ImpossibleAttackHint),
+                CanAttackResult::NotPossible => None,
+            };
         }
 
-        if selection_has_attack_capability(local_player_u32, &self.current_selection) {
-            Some(GameMessageType::DoForceAttackGroundHint(world))
-        } else {
-            None
+        match selection_force_attack_position_result(
+            local_player_u32,
+            &self.current_selection,
+            &world,
+        ) {
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
+                Some(GameMessageType::DoForceAttackGroundHint(world))
+            }
+            CanAttackResult::InvalidShot => Some(GameMessageType::ImpossibleAttackHint),
+            CanAttackResult::NotPossible => None,
         }
+    }
+
+    fn try_double_click_guard_command(
+        &self,
+        region: &IRegion2D,
+        right_click: bool,
+    ) -> Option<GameMessageType> {
+        if region.width != 0 || region.height != 0 {
+            return None;
+        }
+
+        if !is_double_click_attack_move_enabled() {
+            return None;
+        }
+
+        let alternate_mouse = is_alternate_mouse_enabled();
+        let should_issue_guard = if right_click {
+            alternate_mouse
+        } else {
+            !alternate_mouse
+        };
+        if !should_issue_guard {
+            return None;
+        }
+
+        let click_pos = ICoord2D::new(region.x, region.y);
+        let world = screen_to_terrain(&click_pos).unwrap_or(Coord3D {
+            x: click_pos.x as f32,
+            y: click_pos.y as f32,
+            z: 0.0,
+        });
+
+        Some(GameMessageType::DoGuardPosition(world, 0))
     }
 
     fn evaluate_context_action(
@@ -928,11 +1692,15 @@ impl CommandTranslator {
             return Some(GameMessageType::Enter(0, target_id));
         }
 
-        match selection_attack_result(local_player_u32, &self.current_selection, target_id) {
+        let attack_result =
+            selection_attack_result(local_player_u32, &self.current_selection, target_id);
+        match attack_result {
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving => {
                 return Some(GameMessageType::DoAttackObject(target_id));
             }
-            CanAttackResult::InvalidShot | CanAttackResult::NotPossible => {}
+            // C++ evaluateContextCommand emits MSG_IMPOSSIBLE_ATTACK_HINT for invalid shots.
+            CanAttackResult::InvalidShot => return Some(GameMessageType::ImpossibleAttackHint),
+            CanAttackResult::NotPossible => {}
         }
 
         if selection_can_capture_building_target(
@@ -1000,7 +1768,9 @@ impl CommandTranslator {
             &self.current_selection,
             SPECIAL_POWER_INVALID,
         ) {
-            return Some(GameMessageType::DoSpecialPowerOverrideDestinationHint(world));
+            return Some(GameMessageType::DoSpecialPowerOverrideDestinationHint(
+                world,
+            ));
         }
 
         let attack_result =
@@ -1112,6 +1882,10 @@ impl CommandTranslator {
             return Vec::new();
         }
 
+        if right_click && is_alternate_mouse_enabled() && !self.right_click_is_click_gesture() {
+            return Vec::new();
+        }
+
         let click_pos = ICoord2D::new(region.x, region.y);
         let world = screen_to_terrain(&click_pos).unwrap_or(Coord3D {
             x: click_pos.x as f32,
@@ -1127,10 +1901,13 @@ impl CommandTranslator {
         };
         let alternate_mouse = is_alternate_mouse_enabled();
         let pending_command_active = TheInGameUI::get_pending_command().is_some();
-        let target = self.pick_context_target(region, local_player_u32);
+        let target = self
+            .pick_context_target(region, local_player_u32)
+            .filter(|object_id| !is_locally_controlled_mine_target(*object_id));
 
-        // Right click cancels active targeted command modes.
-        if right_click && pending_command_active {
+        // In C++, right-click in alternate mouse mode still evaluates context/pending
+        // commands; non-alternate right-click cancels pending targeting.
+        if right_click && pending_command_active && !alternate_mouse {
             self.clear_targeting_modes();
             TheInGameUI::clear_attack_move_to_mode();
             return Vec::new();
@@ -1140,17 +1917,18 @@ impl CommandTranslator {
             return Vec::new();
         }
 
-        if !right_click {
-            if let Some(message) =
-                self.resolve_pending_command_click(local_player, local_player_u32, target, &world)
-            {
+        // C++ pending GUI command execution happens on left-click paths; right-click
+        // is used to cancel GUI mode by SelectionXlat.
+        let should_resolve_pending = pending_command_active && !right_click;
+        if should_resolve_pending {
+            let messages =
+                self.resolve_pending_command_click(local_player, local_player_u32, target, &world);
+            if !messages.is_empty() {
                 TheInGameUI::clear_attack_move_to_mode();
-                return vec![message];
+                return messages;
             }
-            if pending_command_active {
-                // Targeting mode stays active until fulfilled/cancelled.
-                return Vec::new();
-            }
+            // Targeting mode stays active until fulfilled/cancelled.
+            return Vec::new();
         }
 
         if self.current_selection.is_empty() {
@@ -1178,8 +1956,16 @@ impl CommandTranslator {
 
         TheInGameUI::clear_attack_move_to_mode();
 
-        if command.is_none() && target.is_some() {
-            return Vec::new();
+        if command.is_none() {
+            if let Some(target_id) = target {
+                if !force_attack_active
+                    && selection_attack_result(local_player_u32, &self.current_selection, target_id)
+                        == CanAttackResult::InvalidShot
+                {
+                    return vec![GameMessageType::ImpossibleAttackHint];
+                }
+                return Vec::new();
+            }
         }
 
         command.map(|msg| vec![msg]).unwrap_or_default()
@@ -1198,8 +1984,23 @@ impl CommandTranslator {
         };
 
         if let Some(pending) = TheInGameUI::get_pending_command() {
-            if let Some(hint) = pending_command_hint_for_position(&pending, pos.clone()) {
-                return vec![hint];
+            if pending_command_accepts_position(pending.options) {
+                if !pending_command_position_valid(
+                    &pending,
+                    local_player_u32,
+                    &self.current_selection,
+                    pos,
+                    None,
+                ) {
+                    return vec![GameMessageType::InvalidGUICommandHint];
+                }
+                if let Some(hint) = pending_command_hint_for_position(&pending, pos.clone()) {
+                    return vec![hint];
+                }
+                return vec![GameMessageType::ValidGUICommandHint];
+            }
+            if pending_command_accepts_object(pending.options) {
+                return vec![GameMessageType::InvalidGUICommandHint];
             }
         }
 
@@ -1216,7 +2017,9 @@ impl CommandTranslator {
             &self.current_selection,
             SPECIAL_POWER_INVALID,
         ) {
-            return vec![GameMessageType::DoSpecialPowerOverrideDestinationHint(pos.clone())];
+            return vec![GameMessageType::DoSpecialPowerOverrideDestinationHint(
+                pos.clone(),
+            )];
         }
 
         vec![self.resolve_move_hint(pos.clone())]
@@ -1243,15 +2046,43 @@ impl CommandTranslator {
             })
             .unwrap_or_default();
 
+        // C++ evaluateContextCommand treats locally controlled mines as position
+        // interactions instead of object-target interactions.
+        if is_locally_controlled_mine_target(target_id) {
+            return self.handle_mouseover_location_hint(&world);
+        }
+
         if let Some(pending) = TheInGameUI::get_pending_command() {
-            if let Some(hint) = pending_command_hint_for_object(
-                &pending,
-                local_player,
-                local_player_u32,
-                &self.current_selection,
-                target_id,
-            ) {
-                return vec![hint];
+            if pending_command_accepts_object(pending.options) {
+                if pending_command_target_allowed(pending.options, local_player, target_id)
+                    && pending_command_selection_valid(
+                        &pending,
+                        local_player_u32,
+                        &self.current_selection,
+                        target_id,
+                    )
+                {
+                    // C++ GUI context-command hover uses generic valid/invalid GUI
+                    // command hints rather than per-command hint message variants.
+                    return vec![GameMessageType::ValidGUICommandHint];
+                }
+                return vec![GameMessageType::InvalidGUICommandHint];
+            }
+
+            if pending_command_accepts_position(pending.options) {
+                if !pending_command_position_valid(
+                    &pending,
+                    local_player_u32,
+                    &self.current_selection,
+                    &world,
+                    Some(target_id),
+                ) {
+                    return vec![GameMessageType::InvalidGUICommandHint];
+                }
+                if let Some(hint) = pending_command_hint_for_position(&pending, world.clone()) {
+                    return vec![hint];
+                }
+                return vec![GameMessageType::ValidGUICommandHint];
             }
         }
 
@@ -1278,6 +2109,7 @@ impl CommandTranslator {
         position: &ICoord2D,
         button: MouseButton,
         modifiers: u32,
+        time: u32,
     ) -> Vec<GameMessageType> {
         debug!("Mouse button {:?} up at {:?}", button, position);
 
@@ -1311,41 +2143,35 @@ impl CommandTranslator {
                 messages
             }
             MouseButton::Right => {
-                if TheInGameUI::get_pending_command().is_some() {
-                    TheInGameUI::clear_pending_command();
-                    TheInGameUI::set_force_attack_mode(false);
-                    TheInGameUI::set_force_move_to_mode(false);
-                    TheInGameUI::set_prefer_selection_mode(false);
-                    self.force_attack_mode = false;
-                    self.force_move_mode = false;
-                    self.prefer_selection_mode = false;
-                    return Vec::new();
+                // C++ raw right-button-up only updates click/drag bookkeeping and does not
+                // directly issue command messages; context commands are generated on click events.
+                self.right_click_lift = Some(position.clone());
+                self.right_click_up_time = time;
+                // C++ parity (CommandXlat.cpp MSG_RAW_MOUSE_RIGHT_BUTTON_UP):
+                // right-click click gesture cancels pending build-placement mode.
+                if self.right_click_is_click_gesture() {
+                    TheInGameUI::place_build_available(None, None);
                 }
-                // Issue move command
-                if !self.current_selection.is_empty() {
-                    let world_pos = screen_to_terrain(position).unwrap_or(Coord3D {
-                        x: position.x as f32,
-                        y: position.y as f32,
-                        z: 0.0,
-                    });
-
-                    if self.force_attack_mode {
-                        vec![GameMessageType::DoForceAttackGround(world_pos)]
-                    } else if self.force_move_mode {
-                        vec![GameMessageType::DoForceMoveTO(world_pos)]
-                    } else if self.waypoint_mode {
-                        vec![GameMessageType::AddWaypoint(world_pos)]
-                    } else {
-                        vec![GameMessageType::DoMoveTo(world_pos)]
-                    }
-                } else {
-                    vec![]
-                }
+                vec![]
             }
             MouseButton::Middle => {
                 vec![]
             }
         }
+    }
+
+    fn right_click_is_click_gesture(&self) -> bool {
+        let (Some(anchor), Some(lift)) = (&self.right_click_anchor, &self.right_click_lift) else {
+            return false;
+        };
+        let dx = (anchor.x - lift.x).abs();
+        let dy = (anchor.y - lift.y).abs();
+        let dt = self
+            .right_click_up_time
+            .wrapping_sub(self.right_click_down_time);
+
+        // C++ Mouse::isClick parity: movement within drag tolerance and short click duration.
+        dx <= self.drag_threshold && dy <= self.drag_threshold && dt <= 250
     }
 
     fn handle_selection_region(
@@ -1367,90 +2193,33 @@ impl CommandTranslator {
             None
         };
 
-        let (mut mine, mut other) =
-            collect_selectable_objects(
-                region,
-                is_point,
-                PICK_RADIUS_WORLD,
-                local_player_u32,
-                ContextPickProfile::default(),
-            );
+        let (mut mine, mut other) = collect_selectable_objects(
+            region,
+            is_point,
+            PICK_RADIUS_WORLD,
+            local_player_u32,
+            ContextPickProfile::default(),
+        );
 
         if is_point {
             let picked_object = pick_closest(&mut mine).or_else(|| pick_closest(&mut other));
 
-            if let Some(pending) = TheInGameUI::get_pending_command() {
-                if let Some(object_id) = picked_object {
-                    if pending_command_accepts_object(pending.options)
-                        && pending_command_target_allowed(pending.options, local_player, object_id)
-                        && pending_command_selection_valid(
-                            &pending,
-                            local_player_u32,
-                            &self.current_selection,
-                            object_id,
-                        )
-                    {
-                        if let Some(message) = pending_command_for_object(&pending, object_id) {
-                            TheInGameUI::clear_pending_command();
-                            TheInGameUI::set_force_attack_mode(false);
-                            TheInGameUI::set_force_move_to_mode(false);
-                            TheInGameUI::set_prefer_selection_mode(false);
-                            self.force_attack_mode = false;
-                            self.force_move_mode = false;
-                            self.prefer_selection_mode = false;
-                            return vec![message];
-                        }
-                    }
-
-                    if pending_command_accepts_position(pending.options) {
-                        if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                            if let Ok(obj_guard) = obj.read() {
-                                let position = logic_to_message_coord(obj_guard.get_position());
-                                if let Some(message) =
-                                    pending_command_for_position(&pending, position)
-                                {
-                                    TheInGameUI::clear_pending_command();
-                                    TheInGameUI::set_force_attack_mode(false);
-                                    TheInGameUI::set_force_move_to_mode(false);
-                                    TheInGameUI::set_prefer_selection_mode(false);
-                                    self.force_attack_mode = false;
-                                    self.force_move_mode = false;
-                                    self.prefer_selection_mode = false;
-                                    return vec![message];
-                                }
-                            }
-                        }
-                    }
-                } else if pending_command_accepts_position(pending.options) {
-                    if let Some(world) = screen_to_terrain(&ICoord2D::new(region.x, region.y)) {
-                        if let Some(message) = pending_command_for_position(&pending, world) {
-                            TheInGameUI::clear_pending_command();
-                            TheInGameUI::set_force_attack_mode(false);
-                            TheInGameUI::set_force_move_to_mode(false);
-                            TheInGameUI::set_prefer_selection_mode(false);
-                            self.force_attack_mode = false;
-                            self.force_move_mode = false;
-                            self.prefer_selection_mode = false;
-                            return vec![message];
-                        }
-                    }
-                    let position = Coord3D {
+            if TheInGameUI::get_pending_command().is_some() {
+                let world =
+                    screen_to_terrain(&ICoord2D::new(region.x, region.y)).unwrap_or(Coord3D {
                         x: region.x as f32,
                         y: region.y as f32,
                         z: 0.0,
-                    };
-                    if let Some(message) = pending_command_for_position(&pending, position) {
-                        TheInGameUI::clear_pending_command();
-                        TheInGameUI::set_force_attack_mode(false);
-                        TheInGameUI::set_force_move_to_mode(false);
-                        TheInGameUI::set_prefer_selection_mode(false);
-                        self.force_attack_mode = false;
-                        self.force_move_mode = false;
-                        self.prefer_selection_mode = false;
-                        return vec![message];
-                    }
+                    });
+                let messages = self.resolve_pending_command_click(
+                    local_player,
+                    local_player_u32,
+                    picked_object,
+                    &world,
+                );
+                if !messages.is_empty() {
+                    return messages;
                 }
-
                 // Targeting mode active: ignore selection changes until command is fulfilled/cancelled.
                 return Vec::new();
             }
@@ -1810,6 +2579,18 @@ impl GameMessageTranslator for CommandTranslator {
                 self.handle_point_click(region, false),
                 GameMessageDisposition::DestroyMessage,
             ),
+            GameMessageType::MouseRightDoubleClick(region, _modifiers) => (
+                self.try_double_click_guard_command(region, true)
+                    .map(|msg| vec![msg])
+                    .unwrap_or_else(|| self.handle_point_click(region, true)),
+                GameMessageDisposition::DestroyMessage,
+            ),
+            GameMessageType::MouseLeftDoubleClick(region, _modifiers) => (
+                self.try_double_click_guard_command(region, false)
+                    .map(|msg| vec![msg])
+                    .unwrap_or_else(|| self.handle_point_click(region, false)),
+                GameMessageDisposition::DestroyMessage,
+            ),
             GameMessageType::MouseoverLocationHint(pos) => (
                 self.handle_mouseover_location_hint(pos),
                 GameMessageDisposition::KeepMessage,
@@ -1818,37 +2599,37 @@ impl GameMessageTranslator for CommandTranslator {
                 self.handle_mouseover_drawable_hint(*drawable),
                 GameMessageDisposition::KeepMessage,
             ),
-            GameMessageType::RawMouseLeftButtonDown(pos, _modifiers, _time) => (
-                self.handle_mouse_button_down(pos, MouseButton::Left, *_modifiers),
+            GameMessageType::RawMouseLeftButtonDown(pos, _modifiers, time) => (
+                self.handle_mouse_button_down(pos, MouseButton::Left, *_modifiers, *time),
+                GameMessageDisposition::KeepMessage,
+            ),
+            GameMessageType::RawMouseRightButtonDown(pos, _modifiers, time) => (
+                self.handle_mouse_button_down(pos, MouseButton::Right, *_modifiers, *time),
+                GameMessageDisposition::KeepMessage,
+            ),
+            GameMessageType::RawMouseMiddleButtonDown(pos, _modifiers, time) => (
+                self.handle_mouse_button_down(pos, MouseButton::Middle, *_modifiers, *time),
                 GameMessageDisposition::DestroyMessage,
             ),
-            GameMessageType::RawMouseRightButtonDown(pos, _modifiers, _time) => (
-                self.handle_mouse_button_down(pos, MouseButton::Right, *_modifiers),
-                GameMessageDisposition::DestroyMessage,
+            GameMessageType::RawMouseLeftButtonUp(pos, _modifiers, time) => (
+                self.handle_mouse_button_up(pos, MouseButton::Left, *_modifiers, *time),
+                GameMessageDisposition::KeepMessage,
             ),
-            GameMessageType::RawMouseMiddleButtonDown(pos, _modifiers, _time) => (
-                self.handle_mouse_button_down(pos, MouseButton::Middle, *_modifiers),
-                GameMessageDisposition::DestroyMessage,
+            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, time) => (
+                self.handle_mouse_button_up(pos, MouseButton::Right, *_modifiers, *time),
+                GameMessageDisposition::KeepMessage,
             ),
-            GameMessageType::RawMouseLeftButtonUp(pos, _modifiers, _time) => (
-                self.handle_mouse_button_up(pos, MouseButton::Left, *_modifiers),
-                GameMessageDisposition::DestroyMessage,
-            ),
-            GameMessageType::RawMouseRightButtonUp(pos, _modifiers, _time) => (
-                self.handle_mouse_button_up(pos, MouseButton::Right, *_modifiers),
-                GameMessageDisposition::DestroyMessage,
-            ),
-            GameMessageType::RawMouseMiddleButtonUp(pos, _modifiers, _time) => (
-                self.handle_mouse_button_up(pos, MouseButton::Middle, *_modifiers),
+            GameMessageType::RawMouseMiddleButtonUp(pos, _modifiers, time) => (
+                self.handle_mouse_button_up(pos, MouseButton::Middle, *_modifiers, *time),
                 GameMessageDisposition::DestroyMessage,
             ),
             GameMessageType::RawKeyDown(key) => (
                 self.handle_keyboard(*key, true),
-                GameMessageDisposition::DestroyMessage,
+                GameMessageDisposition::KeepMessage,
             ),
             GameMessageType::RawKeyUp(key) => (
                 self.handle_keyboard(*key, false),
-                GameMessageDisposition::DestroyMessage,
+                GameMessageDisposition::KeepMessage,
             ),
             _ => {
                 // Pass through other messages unchanged
@@ -2796,6 +3577,7 @@ fn dispatch_translated_message(message: &GameMessageType) {
         }
         Exit(_)
         | Evacuate
+        | EvacuateAtLocation(_)
         | ExecuteRailedTransport
         | DoAttackSquad(_)
         | DoGuardObject(_, _)
@@ -2902,6 +3684,11 @@ fn dispatch_translated_message(message: &GameMessageType) {
             TheInGameUI::issue_stop_command();
         }
         _ => {
+            if let Some(visual) = hint_visual_for_message(message) {
+                apply_hint_visual(message, &visual);
+                TheInGameUI::military_subtitle(&visual.text, 2000);
+                return;
+            }
             debug!("Unhandled translated message {:?}", message);
         }
     }
@@ -3004,14 +3791,18 @@ impl GUICommandTranslator {
 
     fn clear_pending_gui_command_mode(&self) {
         TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
         TheInGameUI::clear_attack_move_to_mode();
     }
 
-    fn handle_pending_non_context_gui_click(&mut self, region: &IRegion2D) -> GameMessageDisposition {
+    fn handle_pending_non_context_gui_click(
+        &mut self,
+        region: &IRegion2D,
+    ) -> GameMessageDisposition {
         let Some(pending) = TheInGameUI::get_pending_command() else {
             return GameMessageDisposition::KeepMessage;
         };
-        if !is_pending_gui_non_context_command(pending.command_type) {
+        if !is_pending_gui_non_context_command(&pending) {
             return GameMessageDisposition::KeepMessage;
         }
 
@@ -3044,7 +3835,7 @@ impl GUICommandTranslator {
             TheInGameUI::is_in_force_attack_mode(),
         );
 
-        let mut translated: Option<GameMessageType> = None;
+        let mut translated: Vec<GameMessageType> = Vec::new();
         if let Some(target_id) = target {
             if pending_command_accepts_object(pending.options)
                 && pending_command_target_allowed(pending.options, local_player, target_id)
@@ -3055,27 +3846,52 @@ impl GUICommandTranslator {
                     target_id,
                 )
             {
-                translated = pending_command_for_object(&pending, target_id);
+                if let Some(message) = pending_command_for_object(&pending, target_id) {
+                    translated.push(message);
+                }
             }
 
-            if translated.is_none() && pending_command_accepts_position(pending.options) {
+            if translated.is_empty() && pending_command_accepts_position(pending.options) {
                 if let Some(obj) = OBJECT_REGISTRY.get_object(target_id) {
                     if let Ok(obj_guard) = obj.read() {
-                        translated = pending_command_for_position(
+                        let position = logic_to_message_coord(obj_guard.get_position());
+                        if pending_command_position_valid(
                             &pending,
-                            logic_to_message_coord(obj_guard.get_position()),
-                        );
+                            local_player_u32,
+                            &selection_ids,
+                            &position,
+                            Some(target_id),
+                        ) {
+                            translated = pending_command_messages_for_position(
+                                &pending,
+                                position,
+                                &selection_ids,
+                                Some(target_id),
+                            );
+                        }
                     }
                 }
             }
         } else if pending_command_accepts_position(pending.options) {
-            translated = pending_command_for_position(&pending, world);
+            if pending_command_position_valid(
+                &pending,
+                local_player_u32,
+                &selection_ids,
+                &world,
+                None,
+            ) {
+                translated =
+                    pending_command_messages_for_position(&pending, world, &selection_ids, None);
+            }
         }
 
-        if let Some(message) = translated.as_ref() {
+        for message in &translated {
             dispatch_translated_message(message);
         }
 
+        // C++ GUICommandTranslator suppresses one alternate-mouse blank-click deselect
+        // after completing a non-context GUI command.
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(true);
         // Non-context GUI command clicks complete this mode even when target validation fails.
         self.clear_pending_gui_command_mode();
         GameMessageDisposition::DestroyMessage
@@ -3091,7 +3907,7 @@ impl Default for GUICommandTranslator {
 impl GameMessageTranslator for GUICommandTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
         if let Some(pending) = TheInGameUI::get_pending_command() {
-            if is_pending_gui_non_context_command(pending.command_type) {
+            if is_pending_gui_non_context_command(&pending) {
                 match msg.get_type() {
                     // Consume raw left input while in pending GUI command mode so selection
                     // translators do not start click/drag selection.
@@ -3138,28 +3954,193 @@ struct HintVisual {
     radius_cursor: bool,
 }
 
+fn is_gui_command_hint_message(msg: &GameMessageType) -> bool {
+    matches!(
+        msg,
+        GameMessageType::ValidGUICommandHint | GameMessageType::InvalidGUICommandHint
+    )
+}
+
+fn apply_hint_visual(msg: &GameMessageType, hint: &HintVisual) {
+    TheInGameUI::set_hint_text(&hint.text);
+    TheInGameUI::set_cursor_by_name(hint.cursor);
+    if hint.radius_cursor {
+        if is_gui_command_hint_message(msg) {
+            if let Some(pending) = TheInGameUI::get_pending_command() {
+                TheInGameUI::set_radius_cursor_active_with_type(&pending.radius_cursor_type);
+            } else {
+                TheInGameUI::set_radius_cursor_active();
+            }
+        } else {
+            TheInGameUI::set_radius_cursor_active();
+        }
+    } else {
+        TheInGameUI::set_radius_cursor_none();
+    }
+}
+
 impl HintSpy {
     pub fn new() -> Self {
         Self { last_hint: None }
     }
 
-    fn process_hint(&mut self, hint: HintVisual) {
+    fn process_hint(&mut self, msg: &GameMessageType, hint: HintVisual) {
         debug!("Processing hint: {}", hint.text);
-        self.last_hint = Some(hint.text);
-        if let Some(last_hint) = &self.last_hint {
-            TheInGameUI::set_hint_text(last_hint);
-        }
-        TheInGameUI::set_cursor_by_name(hint.cursor);
-        if hint.radius_cursor {
-            TheInGameUI::set_radius_cursor_active();
-        } else {
-            TheInGameUI::set_radius_cursor_none();
-        }
+        self.last_hint = Some(hint.text.clone());
+        apply_hint_visual(msg, &hint);
     }
 }
 
 fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisual> {
     use GameMessageType::*;
+
+    fn normalize_cursor_name(cursor_name: &str, fallback: &'static str) -> &'static str {
+        match cursor_name {
+            "ARROW" => "ARROW",
+            "CROSS" => "CROSS",
+            "SELECTING" => "SELECTING",
+            "MOVETO" => "MOVETO",
+            "ATTACKMOVETO" => "ATTACKMOVETO",
+            "WAYPOINT" => "WAYPOINT",
+            "ATTACK_OBJECT" => "ATTACK_OBJECT",
+            "OUTRANGE" => "OUTRANGE",
+            "FORCE_ATTACK_OBJECT" => "FORCE_ATTACK_OBJECT",
+            "FORCE_ATTACK_GROUND" => "FORCE_ATTACK_GROUND",
+            "GET_REPAIRED" => "GET_REPAIRED",
+            "DOCK" => "DOCK",
+            "GET_HEALED" => "GET_HEALED",
+            "DO_REPAIR" => "DO_REPAIR",
+            "RESUME_CONSTRUCTION" => "RESUME_CONSTRUCTION",
+            "ENTER_FRIENDLY" => "ENTER_FRIENDLY",
+            "ENTER_AGGRESSIVELY" => "ENTER_AGGRESSIVELY",
+            "DEFECTOR" => "DEFECTOR",
+            "CAPTUREBUILDING" => "CAPTUREBUILDING",
+            "HACK" => "HACK",
+            "GENERIC_INVALID" => "GENERIC_INVALID",
+            "SET_RALLY_POINT" => "SET_RALLY_POINT",
+            "PARTICLE_UPLINK_CANNON" => "PARTICLE_UPLINK_CANNON",
+            _ => fallback,
+        }
+    }
+
+    fn pending_command_uses_context_cursor_behavior(pending: &PendingCommand) -> bool {
+        (pending.options & CMD_CONTEXTMODE_COMMAND) != 0
+            || matches!(
+                pending.command_type,
+                CommandType::SpecialPower
+                    | CommandType::DoSpecialPowerAtLocation
+                    | CommandType::DoSpecialPowerAtObject
+            )
+    }
+
+    fn normalize_radius_cursor_type(radius_cursor_type: &str) -> Option<&'static str> {
+        let radius_type = radius_cursor_type.trim();
+        if radius_type.is_empty() || radius_type.eq_ignore_ascii_case("NONE") {
+            return None;
+        }
+
+        const KNOWN_TYPES: &[&str] = &[
+            "ATTACK_DAMAGE_AREA",
+            "ATTACK_SCATTER_AREA",
+            "ATTACK_CONTINUE_AREA",
+            "CLEARMINES",
+            "GUARD_AREA",
+            "FRIENDLY_SPECIALPOWER",
+            "OFFENSIVE_SPECIALPOWER",
+            "SUPERWEAPON_SCATTER_AREA",
+            "EMERGENCY_REPAIR",
+            "PARTICLECANNON",
+            "A10STRIKE",
+            "SPECTREGUNSHIP",
+            "HELIX_NAPALM_BOMB",
+            "DAISYCUTTER",
+            "CARPETBOMB",
+            "PARADROP",
+            "SPYSATELLITE",
+            "NUCLEARMISSILE",
+            "EMPPULSE",
+            "ARTILLERYBARRAGE",
+            "FRENZY",
+            "NAPALMSTRIKE",
+            "CLUSTERMINES",
+            "SCUDSTORM",
+            "ANTHRAXBOMB",
+            "AMBUSH",
+            "RADAR",
+            "SPYDRONE",
+            "AMBULANCE",
+        ];
+
+        KNOWN_TYPES
+            .iter()
+            .copied()
+            .find(|known| radius_type.eq_ignore_ascii_case(known))
+    }
+
+    fn radius_cursor_requires_special_power_payload(radius_cursor_type: &str) -> bool {
+        matches!(
+            radius_cursor_type,
+            "FRIENDLY_SPECIALPOWER"
+                | "OFFENSIVE_SPECIALPOWER"
+                | "SUPERWEAPON_SCATTER_AREA"
+                | "EMERGENCY_REPAIR"
+                | "PARTICLECANNON"
+                | "A10STRIKE"
+                | "SPECTREGUNSHIP"
+                | "HELIX_NAPALM_BOMB"
+                | "DAISYCUTTER"
+                | "CARPETBOMB"
+                | "PARADROP"
+                | "SPYSATELLITE"
+                | "NUCLEARMISSILE"
+                | "EMPPULSE"
+                | "ARTILLERYBARRAGE"
+                | "FRENZY"
+                | "NAPALMSTRIKE"
+                | "CLUSTERMINES"
+                | "SCUDSTORM"
+                | "ANTHRAXBOMB"
+                | "AMBUSH"
+                | "RADAR"
+                | "SPYDRONE"
+                | "AMBULANCE"
+        )
+    }
+
+    fn pending_command_radius_cursor_active(pending: &PendingCommand) -> bool {
+        let Some(radius_type) = normalize_radius_cursor_type(&pending.radius_cursor_type) else {
+            return false;
+        };
+
+        let should_attempt_radius = pending_command_uses_context_cursor_behavior(pending)
+            || pending_command_accepts_position(pending.options)
+            || pending_command_accepts_object(pending.options);
+        if !should_attempt_radius {
+            return false;
+        }
+
+        if radius_cursor_requires_special_power_payload(radius_type) {
+            return TheInGameUI::get_pending_special_power().is_some();
+        }
+
+        true
+    }
+
+    fn pending_command_hint_cursor(pending: &PendingCommand, valid: bool) -> &'static str {
+        let cursor_name = if valid {
+            pending.cursor_name.as_str()
+        } else if pending_command_uses_context_cursor_behavior(pending) {
+            pending.invalid_cursor_name.as_str()
+        } else {
+            pending.cursor_name.as_str()
+        };
+        let fallback = "CROSS";
+        if cursor_name.trim().is_empty() {
+            fallback
+        } else {
+            normalize_cursor_name(cursor_name, fallback)
+        }
+    }
 
     let visual = match msg {
         MouseoverDrawableHint(drawable) => HintVisual {
@@ -3172,18 +4153,36 @@ fn hint_visual_for_message(msg: &GameMessageType) -> Option<HintVisual> {
             cursor: "ARROW",
             radius_cursor: false,
         },
-        ValidGUICommandHint => HintVisual {
-            text: "Valid GUI command".to_string(),
-            cursor: "CROSS",
-            radius_cursor: TheInGameUI::get_pending_command().is_some()
-                || TheInGameUI::get_pending_special_power().is_some(),
-        },
-        InvalidGUICommandHint => HintVisual {
-            text: "Invalid GUI command".to_string(),
-            cursor: "GENERIC_INVALID",
-            radius_cursor: TheInGameUI::get_pending_command().is_some()
-                || TheInGameUI::get_pending_special_power().is_some(),
-        },
+        ValidGUICommandHint => {
+            let pending = TheInGameUI::get_pending_command();
+            let radius_from_pending = pending
+                .as_ref()
+                .map(pending_command_radius_cursor_active)
+                .unwrap_or(false);
+            HintVisual {
+                text: "Valid GUI command".to_string(),
+                cursor: pending
+                    .as_ref()
+                    .map(|cmd| pending_command_hint_cursor(cmd, true))
+                    .unwrap_or("CROSS"),
+                radius_cursor: radius_from_pending,
+            }
+        }
+        InvalidGUICommandHint => {
+            let pending = TheInGameUI::get_pending_command();
+            let radius_from_pending = pending
+                .as_ref()
+                .map(pending_command_radius_cursor_active)
+                .unwrap_or(false);
+            HintVisual {
+                text: "Invalid GUI command".to_string(),
+                cursor: pending
+                    .as_ref()
+                    .map(|cmd| pending_command_hint_cursor(cmd, false))
+                    .unwrap_or("GENERIC_INVALID"),
+                radius_cursor: radius_from_pending,
+            }
+        }
         AreaSelectionHint(region) => HintVisual {
             text: format!("Area selection {:?}", region),
             cursor: "SELECTING",
@@ -3334,7 +4333,7 @@ impl Default for HintSpy {
 impl GameMessageTranslator for HintSpy {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
         if let Some(hint) = hint_visual_for_message(msg.get_type()) {
-            self.process_hint(hint);
+            self.process_hint(msg.get_type(), hint);
             GameMessageDisposition::DestroyMessage
         } else {
             GameMessageDisposition::KeepMessage
@@ -3351,7 +4350,7 @@ impl TranslatorFactory {
     }
 
     /// Create a command translator
-    pub fn create_command_translator() -> Arc<RwLock<dyn GameMessageTranslator>> {
+    pub fn create_command_translator() -> Arc<RwLock<CommandTranslator>> {
         Arc::new(RwLock::new(CommandTranslator::new()))
     }
 
@@ -3397,6 +4396,9 @@ impl TranslatorFactory {
 
     /// Create the standard set of translators with appropriate priorities
     pub fn create_standard_translator_set() -> Vec<(Arc<RwLock<dyn GameMessageTranslator>>, u32)> {
+        let command_translator: Arc<RwLock<dyn GameMessageTranslator>> =
+            Self::create_command_translator();
+
         vec![
             (Self::create_window_translator(), 10), // Window input handling
             (Self::create_meta_event_translator(), 20), // Meta key remapping
@@ -3405,7 +4407,7 @@ impl TranslatorFactory {
             (Self::create_gui_command_translator(), 40), // UI commands
             (Self::create_selection_translator(), 50), // Selection handling
             (Self::create_look_at_translator(), 60), // Camera movement
-            (Self::create_command_translator(), 70), // Command processing
+            (command_translator, 70),               // Command processing
             (Self::create_hint_spy(), 100),         // Hints and feedback
         ]
     }
@@ -3420,9 +4422,19 @@ impl Default for TranslatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn test_state_lock() -> MutexGuard<'static, ()> {
+        static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_STATE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("translator test state lock poisoned")
+    }
 
     #[test]
     fn test_command_translator() {
+        let _guard = test_state_lock();
         let mut translator = CommandTranslator::new();
 
         // Test mouse button down
@@ -3433,16 +4445,17 @@ mod tests {
         ));
 
         let result = translator.translate_game_message(&down_msg);
-        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+        assert_eq!(result, GameMessageDisposition::KeepMessage);
 
         // Test keyboard input
         let key_msg = GameMessage::new(GameMessageType::RawKeyDown(0x53)); // 'S' key
         let result = translator.translate_game_message(&key_msg);
-        assert_eq!(result, GameMessageDisposition::DestroyMessage);
+        assert_eq!(result, GameMessageDisposition::KeepMessage);
     }
 
     #[test]
     fn test_selection_translator() {
+        let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
         // Test area selection
@@ -3465,6 +4478,7 @@ mod tests {
 
     #[test]
     fn test_gui_command_translator() {
+        let _guard = test_state_lock();
         let mut translator = GUICommandTranslator::new();
 
         // Test control bar toggle
@@ -3485,6 +4499,7 @@ mod tests {
 
     #[test]
     fn test_gui_command_translator_consumes_pending_non_context_raw_left_input() {
+        let _guard = test_state_lock();
         TheInGameUI::clear_pending_command();
         TheInGameUI::set_pending_command(CommandType::DoAttackMoveTo, CMD_NEED_TARGET_POS, 0);
 
@@ -3514,7 +4529,11 @@ mod tests {
 
     #[test]
     fn test_gui_command_translator_click_executes_and_clears_pending_non_context_command() {
+        let _guard = test_state_lock();
         TheInGameUI::clear_pending_command();
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
         TheInGameUI::set_pending_command(CommandType::DoAttackMoveTo, CMD_NEED_TARGET_POS, 0);
 
         let mut translator = GUICommandTranslator::new();
@@ -3533,10 +4552,122 @@ mod tests {
             GameMessageDisposition::DestroyMessage
         );
         assert!(TheInGameUI::get_pending_command().is_none());
+        assert!(
+            TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click()
+        );
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
+    }
+
+    #[test]
+    fn test_gui_command_translator_click_executes_fire_weapon_pending_command() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::DoAttackObject,
+            CMD_NEED_TARGET_POS,
+            0,
+            "FORCE_ATTACK_GROUND".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "ATTACK_DAMAGE_AREA".to_string(),
+        );
+
+        let mut translator = GUICommandTranslator::new();
+        let click_msg = GameMessage::new(GameMessageType::MouseLeftClick(
+            IRegion2D {
+                x: 64,
+                y: 96,
+                width: 0,
+                height: 0,
+            },
+            0,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&click_msg),
+            GameMessageDisposition::DestroyMessage
+        );
+        assert!(TheInGameUI::get_pending_command().is_none());
+        assert!(
+            TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click()
+        );
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
+    }
+
+    #[test]
+    fn test_gui_command_translator_click_executes_evacuate_pending_command() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::Evacuate,
+            CMD_NEED_TARGET_POS,
+            0,
+            "MOVETO".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "NONE".to_string(),
+        );
+
+        let mut translator = GUICommandTranslator::new();
+        let click_msg = GameMessage::new(GameMessageType::MouseLeftClick(
+            IRegion2D {
+                x: 25,
+                y: 35,
+                width: 0,
+                height: 0,
+            },
+            0,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&click_msg),
+            GameMessageDisposition::DestroyMessage
+        );
+        assert!(TheInGameUI::get_pending_command().is_none());
+        assert!(
+            TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click()
+        );
+        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+            false,
+        );
+    }
+
+    #[test]
+    fn test_gui_command_translator_respects_context_flag_for_pending_command() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(
+            CommandType::DoAttackMoveTo,
+            CMD_NEED_TARGET_POS | CMD_CONTEXTMODE_COMMAND,
+            0,
+        );
+
+        let mut translator = GUICommandTranslator::new();
+        let down_msg = GameMessage::new(GameMessageType::RawMouseLeftButtonDown(
+            ICoord2D { x: 10, y: 20 },
+            0,
+            1,
+        ));
+        assert_eq!(
+            translator.translate_game_message(&down_msg),
+            GameMessageDisposition::KeepMessage
+        );
+        assert!(TheInGameUI::get_pending_command().is_some());
+
+        TheInGameUI::clear_pending_command();
     }
 
     #[test]
     fn test_gui_command_translator_keeps_context_pending_command_for_command_translator() {
+        let _guard = test_state_lock();
         TheInGameUI::clear_pending_command();
         TheInGameUI::set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
 
@@ -3558,6 +4689,7 @@ mod tests {
 
     #[test]
     fn test_hint_spy() {
+        let _guard = test_state_lock();
         let mut hint_spy = HintSpy::new();
 
         assert!(hint_spy.last_hint.is_none());
@@ -3629,7 +4761,212 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_gui_hint_uses_pending_context_invalid_cursor_and_radius() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::Enter,
+            CMD_NEED_TARGET_ENEMY_OBJECT | CMD_CONTEXTMODE_COMMAND,
+            0,
+            "ATTACK_OBJECT".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "GUARD_AREA".to_string(),
+        );
+
+        let visual = hint_visual_for_message(&GameMessageType::InvalidGUICommandHint)
+            .expect("invalid GUI hint should resolve to a visual");
+        assert_eq!(visual.cursor, "GENERIC_INVALID");
+        assert!(visual.radius_cursor);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_invalid_gui_hint_for_non_context_pending_uses_primary_cursor_without_radius() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::Enter,
+            CMD_NEED_TARGET_ENEMY_OBJECT,
+            0,
+            "ATTACK_OBJECT".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "NONE".to_string(),
+        );
+
+        let visual = hint_visual_for_message(&GameMessageType::InvalidGUICommandHint)
+            .expect("invalid GUI hint should resolve to a visual");
+        assert_eq!(visual.cursor, "ATTACK_OBJECT");
+        assert!(!visual.radius_cursor);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_valid_gui_hint_empty_radius_type_disables_radius() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::Enter,
+            CMD_NEED_TARGET_ENEMY_OBJECT | CMD_CONTEXTMODE_COMMAND,
+            0,
+            "ATTACK_OBJECT".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "   ".to_string(),
+        );
+
+        let visual = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        assert_eq!(visual.cursor, "ATTACK_OBJECT");
+        assert!(!visual.radius_cursor);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_valid_gui_hint_unknown_radius_type_disables_radius() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::Enter,
+            CMD_NEED_TARGET_ENEMY_OBJECT | CMD_CONTEXTMODE_COMMAND,
+            0,
+            "ATTACK_OBJECT".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "UNKNOWN_RADIUS_TYPE".to_string(),
+        );
+
+        let visual = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        assert!(!visual.radius_cursor);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_invalid_gui_hint_unknown_radius_type_disables_radius() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::Enter,
+            CMD_NEED_TARGET_ENEMY_OBJECT | CMD_CONTEXTMODE_COMMAND,
+            0,
+            "ATTACK_OBJECT".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "UNKNOWN_RADIUS_TYPE".to_string(),
+        );
+
+        let visual = hint_visual_for_message(&GameMessageType::InvalidGUICommandHint)
+            .expect("invalid GUI hint should resolve to a visual");
+        assert_eq!(visual.cursor, "GENERIC_INVALID");
+        assert!(!visual.radius_cursor);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_special_power_radius_requires_pending_special_power_payload() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::DoSpecialPowerAtLocation,
+            CMD_NEED_TARGET_POS,
+            0,
+            "PARTICLE_UPLINK_CANNON".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "PARTICLECANNON".to_string(),
+        );
+
+        let without_payload = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        assert!(!without_payload.radius_cursor);
+
+        TheInGameUI::set_pending_special_power(42, CMD_NEED_TARGET_POS, 7);
+        let with_payload = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        assert!(with_payload.radius_cursor);
+
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_non_target_non_context_pending_with_radius_type_disables_radius() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::DoGuardPosition,
+            0,
+            0,
+            "MOVETO".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "GUARD_AREA".to_string(),
+        );
+
+        let visual = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        assert!(!visual.radius_cursor);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_valid_and_invalid_gui_hint_share_radius_decision() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::DoSpecialPowerAtLocation,
+            CMD_NEED_TARGET_POS,
+            0,
+            "PARTICLE_UPLINK_CANNON".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "PARTICLECANNON".to_string(),
+        );
+
+        let valid_without = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        let invalid_without = hint_visual_for_message(&GameMessageType::InvalidGUICommandHint)
+            .expect("invalid GUI hint should resolve to a visual");
+        assert_eq!(valid_without.radius_cursor, invalid_without.radius_cursor);
+        assert!(!valid_without.radius_cursor);
+
+        TheInGameUI::set_pending_special_power(99, CMD_NEED_TARGET_POS, 3);
+        let valid_with = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        let invalid_with = hint_visual_for_message(&GameMessageType::InvalidGUICommandHint)
+            .expect("invalid GUI hint should resolve to a visual");
+        assert_eq!(valid_with.radius_cursor, invalid_with.radius_cursor);
+        assert!(valid_with.radius_cursor);
+
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_gui_hint_does_not_force_radius_from_pending_special_power_alone() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::set_pending_special_power(99, CMD_NEED_TARGET_POS, 0);
+
+        let valid = hint_visual_for_message(&GameMessageType::ValidGUICommandHint)
+            .expect("valid GUI hint should resolve to a visual");
+        assert_eq!(valid.cursor, "CROSS");
+        assert!(!valid.radius_cursor);
+
+        let invalid = hint_visual_for_message(&GameMessageType::InvalidGUICommandHint)
+            .expect("invalid GUI hint should resolve to a visual");
+        assert_eq!(invalid.cursor, "GENERIC_INVALID");
+        assert!(!invalid.radius_cursor);
+
+        TheInGameUI::clear_pending_special_power();
+    }
+
+    #[test]
     fn test_translator_factory() {
+        let _guard = test_state_lock();
         let factory = TranslatorFactory::new();
 
         // Test individual translator creation
@@ -3671,6 +5008,7 @@ mod tests {
 
     #[test]
     fn test_command_translator_modes() {
+        let _guard = test_state_lock();
         let mut translator = CommandTranslator::new();
 
         // Test force attack mode
@@ -3698,6 +5036,7 @@ mod tests {
 
     #[test]
     fn test_selection_translator_groups() {
+        let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
         // Simulate having selected objects
@@ -3725,30 +5064,203 @@ mod tests {
 
     #[test]
     fn test_pending_command_for_beacon_position() {
+        let _guard = test_state_lock();
         let position = Coord3D::new(123.0, 456.0, 7.0);
         let place = PendingCommand {
             command_type: CommandType::PlaceBeacon,
             options: 0x20,
             source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
         };
         let remove = PendingCommand {
             command_type: CommandType::RemoveBeacon,
             options: 0x20,
             source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
         };
 
         assert!(matches!(
-            pending_command_for_position(&place, position.clone()),
+            pending_command_for_position(&place, position.clone(), None),
             Some(GameMessageType::PlaceBeacon(_))
         ));
         assert!(matches!(
-            pending_command_for_position(&remove, position),
+            pending_command_for_position(&remove, position, None),
             Some(GameMessageType::RemoveBeacon(_))
         ));
     }
 
     #[test]
+    fn test_pending_command_for_evacuate_position_emits_location_payload() {
+        let _guard = test_state_lock();
+        let target = Coord3D::new(11.0, 22.0, 0.0);
+        let evac_need_pos = PendingCommand {
+            command_type: CommandType::Evacuate,
+            options: CMD_NEED_TARGET_POS,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let evac_no_pos = PendingCommand {
+            command_type: CommandType::Evacuate,
+            options: 0,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+
+        assert_eq!(
+            pending_command_for_position(&evac_need_pos, target.clone(), None),
+            Some(GameMessageType::EvacuateAtLocation(target))
+        );
+        assert_eq!(
+            pending_command_for_position(&evac_no_pos, Coord3D::new(1.0, 2.0, 0.0), None),
+            Some(GameMessageType::Evacuate)
+        );
+    }
+
+    #[test]
+    fn test_pending_command_maps_special_power_and_combatdrop_variants() {
+        let _guard = test_state_lock();
+        let pos = Coord3D::new(50.0, 60.0, 0.0);
+        let target = 222;
+
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::set_pending_special_power(17, CMD_NEED_TARGET_POS, 88);
+
+        let special_obj = PendingCommand {
+            command_type: CommandType::DoSpecialPowerAtObject,
+            options: CMD_NEED_TARGET_ENEMY_OBJECT,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let special_pos = PendingCommand {
+            command_type: CommandType::DoSpecialPowerAtLocation,
+            options: CMD_NEED_TARGET_POS,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let combat_obj = PendingCommand {
+            command_type: CommandType::CombatDropAtObject,
+            options: CMD_NEED_TARGET_ENEMY_OBJECT,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let combat_pos = PendingCommand {
+            command_type: CommandType::CombatDropAtLocation,
+            options: CMD_NEED_TARGET_POS,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let fire_obj = PendingCommand {
+            command_type: CommandType::DoAttackObject,
+            options: CMD_NEED_TARGET_ENEMY_OBJECT,
+            source_object_id: 1,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let fire_pos = PendingCommand {
+            command_type: CommandType::DoAttackObject,
+            options: CMD_NEED_TARGET_ENEMY_OBJECT | CMD_ATTACK_OBJECTS_POSITION,
+            source_object_id: 2,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+
+        assert_eq!(
+            pending_command_for_object(&special_obj, target),
+            Some(GameMessageType::DoSpecialPowerAtObject(
+                17,
+                target,
+                CMD_NEED_TARGET_POS,
+                88
+            ))
+        );
+        assert_eq!(
+            pending_command_for_position(&special_pos, pos.clone(), None),
+            Some(GameMessageType::DoSpecialPowerAtLocation(
+                17,
+                pos.clone(),
+                -1.0,
+                gamelogic::common::INVALID_ID,
+                CMD_NEED_TARGET_POS,
+                88,
+            ))
+        );
+        assert_eq!(
+            pending_command_for_position(&special_pos, pos.clone(), Some(target)),
+            Some(GameMessageType::DoSpecialPowerAtLocation(
+                17,
+                pos.clone(),
+                -1.0,
+                target,
+                CMD_NEED_TARGET_POS,
+                88,
+            ))
+        );
+        assert_eq!(
+            pending_command_for_object(&combat_obj, target),
+            Some(GameMessageType::CombatDropAtObject(target))
+        );
+        assert_eq!(
+            pending_command_for_position(&combat_pos, pos.clone(), None),
+            Some(GameMessageType::CombatDropAtLocation(pos))
+        );
+        assert_eq!(
+            pending_command_for_object(&fire_obj, target),
+            Some(GameMessageType::DoWeaponAtObject(1, target))
+        );
+        assert_eq!(pending_command_for_object(&fire_pos, target), None);
+        assert_eq!(
+            pending_command_for_position(&fire_pos, Coord3D::new(7.0, 8.0, 0.0), Some(target)),
+            Some(GameMessageType::DoWeaponAtLocation(
+                2,
+                Coord3D::new(7.0, 8.0, 0.0)
+            ))
+        );
+
+        TheInGameUI::clear_pending_special_power();
+    }
+
+    #[test]
+    fn test_pending_special_power_hover_uses_valid_gui_hint() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
+        TheInGameUI::set_pending_command(
+            CommandType::DoSpecialPowerAtLocation,
+            CMD_NEED_TARGET_POS,
+            0,
+        );
+        TheInGameUI::set_pending_special_power(42, CMD_NEED_TARGET_POS, 9);
+
+        let mut translator = CommandTranslator::new();
+        translator.current_selection.insert(1);
+        let hints = translator.handle_mouseover_location_hint(&Coord3D::new(1.0, 2.0, 0.0));
+        assert_eq!(hints, vec![GameMessageType::ValidGUICommandHint]);
+
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::clear_pending_special_power();
+    }
+
+    #[test]
     fn test_pending_command_helper_masks_and_object_mapping() {
+        let _guard = test_state_lock();
         assert!(pending_command_accepts_object(CMD_NEED_TARGET_ENEMY_OBJECT));
         assert!(pending_command_accepts_position(CMD_NEED_TARGET_POS));
         assert!(!pending_command_accepts_object(CMD_NEED_TARGET_POS));
@@ -3760,6 +5272,9 @@ mod tests {
             command_type: CommandType::Dock,
             options: 0,
             source_object_id: 99,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
         };
         assert!(matches!(
             pending_command_for_object(&pending, 321),
@@ -3768,12 +5283,217 @@ mod tests {
     }
 
     #[test]
+    fn test_pending_command_click_falls_back_to_invalid_gui_hint_when_unresolved() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
+
+        let mut translator = CommandTranslator::new();
+        let result = translator.resolve_pending_command_click(
+            0,
+            Some(0),
+            None,
+            &Coord3D::new(0.0, 0.0, 0.0),
+        );
+
+        assert_eq!(result, vec![GameMessageType::InvalidGUICommandHint]);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_pending_set_rally_point_fans_out_to_all_selected_sources() {
+        let _guard = test_state_lock();
+        let pending = PendingCommand {
+            command_type: CommandType::SetRallyPoint,
+            options: CMD_NEED_TARGET_POS,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        let mut selection = HashSet::new();
+        selection.insert(7);
+        selection.insert(3);
+        let position = Coord3D::new(11.0, 22.0, 0.0);
+
+        let messages =
+            pending_command_messages_for_position(&pending, position.clone(), &selection, None);
+        assert_eq!(
+            messages,
+            vec![
+                GameMessageType::SetRallyPoint(3, position.clone()),
+                GameMessageType::SetRallyPoint(7, position),
+            ]
+        );
+    }
+
+    #[test]
     fn test_point_click_is_actionable_matches_cpp_gating() {
+        let _guard = test_state_lock();
         assert!(point_click_is_actionable(false, false, false));
         assert!(!point_click_is_actionable(false, true, false));
         assert!(point_click_is_actionable(false, true, true));
         assert!(!point_click_is_actionable(true, false, false));
         assert!(point_click_is_actionable(true, true, false));
         assert!(point_click_is_actionable(true, false, true));
+    }
+
+    #[test]
+    fn test_raw_right_button_up_does_not_issue_commands() {
+        let _guard = test_state_lock();
+        let mut translator = CommandTranslator::new();
+        translator.current_selection.insert(42);
+        translator.force_attack_mode = true;
+
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
+        let messages =
+            translator.handle_mouse_button_up(&ICoord2D::new(50, 75), MouseButton::Right, 0, 2);
+        assert!(messages.is_empty());
+        assert!(TheInGameUI::get_pending_command().is_some());
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_raw_right_button_up_click_clears_pending_build_placement() {
+        let _guard = test_state_lock();
+        let mut translator = CommandTranslator::new();
+
+        TheInGameUI::place_build_available(Some("TestStructure".to_string()), Some(77));
+        assert_eq!(TheInGameUI::get_pending_place_source_object_id(), 77);
+
+        let down = GameMessage::new(GameMessageType::RawMouseRightButtonDown(
+            ICoord2D::new(10, 20),
+            0,
+            100,
+        ));
+        let up = GameMessage::new(GameMessageType::RawMouseRightButtonUp(
+            ICoord2D::new(10, 20),
+            0,
+            120,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&down),
+            GameMessageDisposition::KeepMessage
+        );
+        assert_eq!(
+            translator.translate_game_message(&up),
+            GameMessageDisposition::KeepMessage
+        );
+        assert_eq!(TheInGameUI::get_pending_place_source_object_id(), 0);
+        assert!(TheInGameUI::get_pending_place_template().is_none());
+    }
+
+    #[test]
+    fn test_command_translator_keeps_raw_right_down_up_for_cpp_forwarding_parity() {
+        let _guard = test_state_lock();
+        let mut translator = CommandTranslator::new();
+
+        let down = GameMessage::new(GameMessageType::RawMouseRightButtonDown(
+            ICoord2D::new(30, 40),
+            0,
+            10,
+        ));
+        let up = GameMessage::new(GameMessageType::RawMouseRightButtonUp(
+            ICoord2D::new(30, 40),
+            0,
+            20,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&down),
+            GameMessageDisposition::KeepMessage
+        );
+        assert_eq!(
+            translator.translate_game_message(&up),
+            GameMessageDisposition::KeepMessage
+        );
+    }
+
+    #[test]
+    fn test_pending_object_command_hovering_location_returns_invalid_gui_hint() {
+        let _guard = test_state_lock();
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
+
+        let mut translator = CommandTranslator::new();
+        translator.current_selection.insert(1);
+        let hints = translator.handle_mouseover_location_hint(&Coord3D::new(10.0, 20.0, 0.0));
+        assert_eq!(hints, vec![GameMessageType::InvalidGUICommandHint]);
+
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_right_click_alt_mouse_does_not_execute_pending_position_command() {
+        let _guard = test_state_lock();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        let previous_alt_mouse = get_global_data()
+            .map(|data| data.read().use_alternate_mouse)
+            .unwrap_or(false);
+        if let Some(data) = get_global_data() {
+            data.write().use_alternate_mouse = true;
+        }
+
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command(CommandType::DoAttackMoveTo, CMD_NEED_TARGET_POS, 0);
+
+        let mut translator = CommandTranslator::new();
+        let region = IRegion2D {
+            x: 10,
+            y: 20,
+            width: 0,
+            height: 0,
+        };
+        let messages = translator.handle_point_click(&region, true);
+        assert!(messages.is_empty());
+        assert!(TheInGameUI::get_pending_command().is_some());
+
+        if let Some(data) = get_global_data() {
+            data.write().use_alternate_mouse = previous_alt_mouse;
+        }
+        TheInGameUI::clear_pending_command();
+    }
+
+    #[test]
+    fn test_double_click_guard_command_gated_by_mouse_mode() {
+        let _guard = test_state_lock();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        let (previous_alt_mouse, previous_double_click_attack_move) = get_global_data()
+            .map(|data| {
+                let data = data.read();
+                (data.use_alternate_mouse, data.double_click_attack_move)
+            })
+            .unwrap_or((false, false));
+
+        if let Some(data) = get_global_data() {
+            let mut data = data.write();
+            data.use_alternate_mouse = true;
+            data.double_click_attack_move = true;
+        }
+
+        let translator = CommandTranslator::new();
+        let region = IRegion2D {
+            x: 4,
+            y: 6,
+            width: 0,
+            height: 0,
+        };
+
+        let right = translator.try_double_click_guard_command(&region, true);
+        assert!(matches!(
+            right,
+            Some(GameMessageType::DoGuardPosition(_, 0))
+        ));
+        let left = translator.try_double_click_guard_command(&region, false);
+        assert!(left.is_none());
+
+        if let Some(data) = get_global_data() {
+            let mut data = data.write();
+            data.use_alternate_mouse = previous_alt_mouse;
+            data.double_click_attack_move = previous_double_click_attack_move;
+        }
     }
 }

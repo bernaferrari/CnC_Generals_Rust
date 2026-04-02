@@ -688,8 +688,8 @@ fn xfer_matrix3d_rows_legacy(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
     }
 
     let rebuilt_cols = [
-        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2],
-        row2[2], 0.0, row0[3], row1[3], row2[3], 1.0,
+        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2], row2[2],
+        0.0, row0[3], row1[3], row2[3], 1.0,
     ];
     *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
 }
@@ -1454,7 +1454,9 @@ impl Drawable {
 
                 for entry in modules_for_type.into_iter().take(module_count as usize) {
                     let mut module_identifier = entry
-                        .with_module(|module| NameKeyGenerator::key_to_name(module.get_module_tag_name_key()))
+                        .with_module(|module| {
+                            NameKeyGenerator::key_to_name(module.get_module_tag_name_key())
+                        })
                         .unwrap_or_default();
                     if module_identifier.is_empty() {
                         panic!(

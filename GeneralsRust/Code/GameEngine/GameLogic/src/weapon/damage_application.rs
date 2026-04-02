@@ -51,7 +51,7 @@ pub struct DamageInfoInput {
 impl Default for DamageInfoInput {
     fn default() -> Self {
         Self {
-            damage_type: DamageType::Explosion,  // C++ Damage.h:243 default
+            damage_type: DamageType::Explosion, // C++ Damage.h:243 default
             death_type: DeathType::Normal,
             source_id: 0,
             source_player_mask: PlayerMaskType::empty(),
@@ -60,7 +60,7 @@ impl Default for DamageInfoInput {
             shockwave_amount: 0.0,
             shockwave_vector: Coord3D::new(0.0, 0.0, 0.0),
             shockwave_radius: 0.0,
-            shockwave_taper_off: 0.0,  // C++ Damage.h:253 default
+            shockwave_taper_off: 0.0, // C++ Damage.h:253 default
         }
     }
 }

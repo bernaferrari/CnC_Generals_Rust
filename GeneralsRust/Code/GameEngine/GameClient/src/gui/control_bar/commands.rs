@@ -3,8 +3,8 @@
 use super::{CommandButton, CommandOption, CommandSourceType};
 use crate::helpers::TheInGameUI;
 use crate::message_stream::{get_message_stream, GameMessageType};
-use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::commands::command::CommandType;
+use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheThingFactory;
 use gamelogic::object::registry::OBJECT_REGISTRY;
@@ -37,8 +37,27 @@ impl ControlBarCommandProcessor {
                 }
             }
 
+            let pending_payload = if button.command_type == CommandType::FireWeapon {
+                get_control_bar_bridge()
+                    .and_then(|bridge| {
+                        bridge
+                            .find_command_button_by_name(&button.command_name)
+                            .map(|logic_button| logic_button.get_weapon_slot() as u32)
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
             TheInGameUI::clear_pending_special_power();
-            TheInGameUI::set_pending_command(button.command_type, button.options, 0);
+            TheInGameUI::set_pending_command_with_visual(
+                button.command_type,
+                button.options,
+                pending_payload,
+                button.cursor_name.clone(),
+                button.invalid_cursor_name.clone(),
+                button.radius_cursor_type.clone(),
+            );
             TheInGameUI::set_force_attack_mode(false);
             TheInGameUI::set_force_move_to_mode(false);
             TheInGameUI::set_prefer_selection_mode(false);
@@ -106,11 +125,7 @@ impl ControlBarCommandProcessor {
                 true
             }
             CommandType::RemoveBeacon => {
-                TheInGameUI::set_pending_command(
-                    CommandType::RemoveBeacon,
-                    CMD_NEED_TARGET_POS,
-                    0,
-                );
+                TheInGameUI::set_pending_command(CommandType::RemoveBeacon, CMD_NEED_TARGET_POS, 0);
                 true
             }
             _ => false,
@@ -135,7 +150,8 @@ impl ControlBarCommandProcessor {
         let Some(control_bar) = get_control_bar_bridge() else {
             return false;
         };
-        let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name) else {
+        let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name)
+        else {
             return false;
         };
         let selected = selected_objects_for_local_player();

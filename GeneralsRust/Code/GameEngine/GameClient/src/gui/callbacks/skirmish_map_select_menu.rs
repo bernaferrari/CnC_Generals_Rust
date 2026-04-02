@@ -25,6 +25,8 @@ use std::sync::{Arc, Mutex};
 const KEY_ESC: u32 = 0x1B;
 const KEY_STATE_UP: u32 = 0x0001;
 const MAX_SLOTS: usize = 8;
+const MAP_SELECT_PARENT_NAME: &str = "SkirmishMapSelectMenu.wnd:SkrimishMapSelectMenuParent";
+const UNKNOWN_MAP_IMAGE: &str = "UnknownMap";
 const SUPPLY_TECH_SIZE: i32 = 15;
 
 #[derive(Default)]
@@ -75,22 +77,35 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
     let Some(win) = win else {
         return;
     };
-    if image_name.is_empty() {
-        return;
-    }
+    let image_name = if image_name.trim().is_empty() {
+        UNKNOWN_MAP_IMAGE
+    } else {
+        image_name
+    };
 
-    let (width, height) = if let Some(collection) = get_mapped_image_collection().try_read() {
+    let mut resolved_name = image_name;
+    let mut resolved_size = None;
+    if let Some(collection) = get_mapped_image_collection().try_read() {
         if let Some(found) = collection.find_image_by_name(image_name) {
             let size = found.get_image_size();
-            (size.x, size.y)
-        } else {
-            (0, 0)
+            resolved_size = Some((size.x, size.y));
+        } else if image_name != UNKNOWN_MAP_IMAGE {
+            if let Some(found) = collection.find_image_by_name(UNKNOWN_MAP_IMAGE) {
+                let size = found.get_image_size();
+                resolved_name = UNKNOWN_MAP_IMAGE;
+                resolved_size = Some((size.x, size.y));
+            }
         }
-    } else {
-        (0, 0)
+    }
+
+    let Some((width, height)) = resolved_size else {
+        let mut win_guard = win.borrow_mut();
+        let _ = win_guard.clear_status(WindowStatus::IMAGE);
+        return;
     };
+
     let image = WindowImage {
-        name: image_name.to_string(),
+        name: resolved_name.to_string(),
         width,
         height,
     };
@@ -99,6 +114,12 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
     if win_guard.set_enabled_image(0, image).is_ok() {
         win_guard.set_status(WindowStatus::IMAGE);
     }
+}
+
+fn resolve_preview_image_name(preview_name: Option<String>) -> String {
+    preview_name
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| UNKNOWN_MAP_IMAGE.to_string())
 }
 
 fn update_selected_map(state: &mut SkirmishMapSelectState) {
@@ -189,7 +210,7 @@ fn position_start_buttons(state: &mut SkirmishMapSelectState, meta: Option<&MapM
 
 fn update_preview(state: &mut SkirmishMapSelectState) {
     let Some(map_name) = state.selected_map.clone() else {
-        set_window_image(&state.map_preview, "");
+        set_window_image(&state.map_preview, UNKNOWN_MAP_IMAGE);
         if let Some(preview) = state.map_preview.as_ref() {
             preview
                 .borrow_mut()
@@ -198,7 +219,7 @@ fn update_preview(state: &mut SkirmishMapSelectState) {
         position_start_buttons(state, None);
         return;
     };
-    let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
+    let preview_name = resolve_preview_image_name(get_map_preview_image(&map_name));
     set_window_image(&state.map_preview, &preview_name);
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap();
@@ -218,7 +239,7 @@ pub fn skirmish_map_select_menu_init(
         .lock()
         .expect("SkirmishMapSelectMenu state lock poisoned");
 
-    state.parent_id = name_to_id("SkirmishMapSelectMenu.wnd:SkirmishMapSelectMenuParent");
+    state.parent_id = name_to_id(MAP_SELECT_PARENT_NAME);
     state.listbox_map_id = name_to_id("SkirmishMapSelectMenu.wnd:ListboxMap");
     state.button_ok_id = name_to_id("SkirmishMapSelectMenu.wnd:ButtonOK");
     state.button_back_id = name_to_id("SkirmishMapSelectMenu.wnd:ButtonBack");
@@ -321,7 +342,10 @@ pub fn skirmish_map_select_menu_system(
         .expect("SkirmishMapSelectMenu state lock poisoned");
 
     match msg {
-        WindowMessage::InputFocus => return WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // C++ parity: acknowledge focus handoff explicitly so the menu can take keyboard focus.
+            return WindowMsgHandled::Handled;
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {
@@ -675,4 +699,30 @@ pub fn draw_map_preview(window: &GameWindow, _inst: &WindowInstanceData) {
     });
 
     draw_skinny_border(x - 1, y - 1, w + 2, h + 2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_image_name_falls_back_to_unknown_map() {
+        assert_eq!(resolve_preview_image_name(None), UNKNOWN_MAP_IMAGE);
+        assert_eq!(
+            resolve_preview_image_name(Some(String::new())),
+            UNKNOWN_MAP_IMAGE
+        );
+        assert_eq!(
+            resolve_preview_image_name(Some("SkirmishPreview".to_string())),
+            "SkirmishPreview"
+        );
+    }
+
+    #[test]
+    fn map_select_parent_name_preserves_legacy_typo() {
+        assert_eq!(
+            MAP_SELECT_PARENT_NAME,
+            "SkirmishMapSelectMenu.wnd:SkrimishMapSelectMenuParent"
+        );
+    }
 }

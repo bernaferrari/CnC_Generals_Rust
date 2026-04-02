@@ -10,6 +10,7 @@
 
 pub use crate::common::rts::NameKeyType;
 use crate::common::{
+    ini::ini_upgrade::{get_upgrade_center, UpgradeTemplate},
     rts::AsciiString,
     system::{build_assistant::ObjectID, Snapshotable, Xfer},
 };
@@ -297,6 +298,9 @@ pub trait Object: Send + Sync {
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn Object>>> {
         None
     }
+
+    /// Remove an upgrade from the object.
+    fn remove_upgrade(&self, _upgrade_template: Option<&UpgradeTemplate>) {}
 }
 
 pub trait Drawable: Send + Sync {
@@ -486,12 +490,29 @@ impl UpgradeMuxData {
         }
     }
 
-    pub fn mux_data_process_upgrade_removal(&self, _obj: &dyn Object) {
-        if !self.removal_upgrade_names.is_empty() {
-            for _upgrade_name in &self.removal_upgrade_names {
-                // Find upgrade template and remove from object
-                // TheUpgradeCenter->findUpgrade(*it)
-                // obj->removeUpgrade(theTemplate)
+    pub fn mux_data_process_upgrade_removal(&self, obj: &dyn Object) {
+        if self.removal_upgrade_names.is_empty() {
+            return;
+        }
+
+        if let Some(upgrade_center) = get_upgrade_center() {
+            for upgrade_name in &self.removal_upgrade_names {
+                let lookup_name =
+                    crate::common::ascii_string::AsciiString::from(upgrade_name.as_str());
+                let the_template = if lookup_name.is_empty() || lookup_name.is_none() {
+                    None
+                } else {
+                    upgrade_center.find_template(&lookup_name)
+                };
+
+                if the_template.is_none() && !lookup_name.is_empty() && !lookup_name.is_none() {
+                    panic!(
+                        "An upgrade module references {}, which is not an Upgrade",
+                        lookup_name.as_str()
+                    );
+                }
+
+                obj.remove_upgrade(the_template);
             }
         }
     }

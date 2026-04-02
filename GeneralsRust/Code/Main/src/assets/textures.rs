@@ -327,7 +327,10 @@ impl TextureManager {
 
         // Return cached texture if available
         if self.gpu_cache.contains_key(&texture_key) {
-            return Ok(self.gpu_cache.get(&texture_key).unwrap());
+            return Ok(self
+                .gpu_cache
+                .get(&texture_key)
+                .expect("gpu_cache key existed but value disappeared"));
         }
 
         let raw_texture = self
@@ -492,7 +495,10 @@ impl TextureManager {
 
         // Return cached texture if available
         if self.gpu_cache.contains_key(&texture_key) {
-            return self.gpu_cache.get(&texture_key).unwrap();
+            return self
+                .gpu_cache
+                .get(&texture_key)
+                .expect("gpu_cache key existed but value disappeared");
         }
 
         if self.is_known_missing_texture(texture_name) {

@@ -3,12 +3,17 @@
 //! minimal.
 
 use std::collections::{HashMap, VecDeque};
+use std::convert::TryFrom;
+use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::{
+    display::view::{with_tactical_view, with_tactical_view_ref, Point3},
     drawable::Drawable,
+    effects::particle_manager::xfer_particle_system_manager_state,
     game_text::GameText,
+    gui::campaign_manager::{get_campaign_manager, XferHelper as CampaignXferHelper},
     gui::window_video_manager::{with_window_video_manager, WindowVideoPlayType},
     helpers::{InGameUiHooks, PendingCommand, PendingSpecialPower},
     message_stream::game_message::{ICoord2D, ObjectID},
@@ -22,13 +27,619 @@ use crate::{
         get_video_player, init_video_player, VideoPlayerInterface as GlobalVideoPlayerInterface,
     },
 };
+use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::System::XferVersion;
+use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
+use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
 use gamelogic::helpers::{TerrainTreeRegistration, TheAudio, TheScriptEngine};
+use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
 use kira::manager::{AudioManager, AudioManagerSettings};
 
-use crate::core::game_client::{InGameUI, VideoPlayerInterface};
+use crate::core::game_client::{
+    run_live_game_client_load_post_process, xfer_live_game_client_state, InGameUI,
+    VideoPlayerInterface,
+};
+
+fn xfer_bool_flag(xfer: &mut dyn Xfer, value: &mut bool) -> Result<(), XferStatus> {
+    xfer.xfer_bool(value)
+}
+
+fn xfer_string_value(xfer: &mut dyn Xfer, value: &mut String) -> Result<(), XferStatus> {
+    xfer.xfer_string(value)
+}
+
+fn xfer_option_coord2d(
+    xfer: &mut dyn Xfer,
+    value: &mut Option<ICoord2D>,
+) -> Result<(), XferStatus> {
+    let mut present = value.is_some();
+    xfer.xfer_bool(&mut present)?;
+    if present {
+        let mut coord = value.clone().unwrap_or_default();
+        xfer.xfer_int(&mut coord.x)?;
+        xfer.xfer_int(&mut coord.y)?;
+        *value = Some(coord);
+    } else {
+        *value = None;
+    }
+    Ok(())
+}
+
+fn xfer_option_string(xfer: &mut dyn Xfer, value: &mut Option<String>) -> Result<(), XferStatus> {
+    let mut present = value.is_some();
+    xfer.xfer_bool(&mut present)?;
+    if present {
+        let mut text = value.clone().unwrap_or_default();
+        xfer.xfer_string(&mut text)?;
+        *value = Some(text);
+    } else {
+        *value = None;
+    }
+    Ok(())
+}
+
+fn xfer_ascii_value(xfer: &mut dyn Xfer, value: &mut AsciiString) -> Result<(), XferStatus> {
+    let mut as_string = value.to_string();
+    xfer.xfer_string(&mut as_string)?;
+    *value = AsciiString::from(as_string.as_str());
+    Ok(())
+}
+
+fn runtime_xfer_status_to_io(status: XferStatus) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, format!("{status:?}"))
+}
+
+struct CampaignRuntimeXferAdapter<'a> {
+    xfer: &'a mut dyn Xfer,
+}
+
+impl<'a> CampaignRuntimeXferAdapter<'a> {
+    fn new(xfer: &'a mut dyn Xfer) -> Self {
+        Self { xfer }
+    }
+}
+
+impl CampaignXferHelper for CampaignRuntimeXferAdapter<'_> {
+    fn xfer_version(&mut self, version: &mut u16, current: u16) -> io::Result<()> {
+        let mut runtime_version = u8::try_from(*version)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "campaign version overflow"))?;
+        let runtime_current = u8::try_from(current)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "campaign version overflow"))?;
+        self.xfer
+            .xfer_version(&mut runtime_version, runtime_current)
+            .map_err(runtime_xfer_status_to_io)?;
+        *version = runtime_version as u16;
+        Ok(())
+    }
+
+    fn xfer_ascii_string(&mut self, s: &mut String) -> io::Result<()> {
+        self.xfer
+            .xfer_ascii_string(s)
+            .map_err(runtime_xfer_status_to_io)
+    }
+
+    fn xfer_int(&mut self, value: &mut i32) -> io::Result<()> {
+        self.xfer.xfer_int(value).map_err(runtime_xfer_status_to_io)
+    }
+
+    fn xfer_bool(&mut self, value: &mut bool) -> io::Result<()> {
+        self.xfer
+            .xfer_bool(value)
+            .map_err(runtime_xfer_status_to_io)
+    }
+
+    fn xfer_user<T>(&mut self, value: &mut T) -> io::Result<()> {
+        let len = std::mem::size_of::<T>();
+        let ptr = value as *mut T as *mut u8;
+        // SAFETY: `ptr` is derived from a valid mutable reference and `len` matches `T`.
+        unsafe { self.xfer.xfer_user(ptr, len) }.map_err(runtime_xfer_status_to_io)
+    }
+
+    fn is_loading(&self) -> bool {
+        self.xfer.get_xfer_mode() == XferMode::Load
+    }
+}
+
+fn xfer_w3d_tree_draw_module_data(
+    xfer: &mut dyn Xfer,
+    data: &mut W3DTreeDrawModuleData,
+) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    xfer.xfer_unsigned_int(&mut data.module_tag_name_key)?;
+    xfer_ascii_value(xfer, &mut data.model_name)?;
+    xfer_ascii_value(xfer, &mut data.texture_name)?;
+    xfer.xfer_unsigned_int(&mut data.frames_to_move_outward)?;
+    xfer.xfer_unsigned_int(&mut data.frames_to_move_inward)?;
+    xfer.xfer_real(&mut data.max_outward_movement)?;
+    xfer.xfer_real(&mut data.darkening)?;
+
+    let mut topple_fx = data.topple_fx.as_ref().map(|value| value.to_string());
+    xfer_option_string(xfer, &mut topple_fx)?;
+    data.topple_fx = topple_fx.map(|value| AsciiString::from(value.as_str()));
+
+    let mut bounce_fx = data.bounce_fx.as_ref().map(|value| value.to_string());
+    xfer_option_string(xfer, &mut bounce_fx)?;
+    data.bounce_fx = bounce_fx.map(|value| AsciiString::from(value.as_str()));
+
+    xfer_ascii_value(xfer, &mut data.stump_name)?;
+    xfer.xfer_real(&mut data.initial_velocity_percent)?;
+    xfer.xfer_real(&mut data.initial_accel_percent)?;
+    xfer.xfer_real(&mut data.bounce_velocity_percent)?;
+    xfer.xfer_real(&mut data.minimum_topple_speed)?;
+    xfer.xfer_bool(&mut data.kill_when_toppled)?;
+    xfer.xfer_bool(&mut data.do_topple)?;
+    xfer.xfer_unsigned_int(&mut data.sink_frames)?;
+    xfer.xfer_real(&mut data.sink_distance)?;
+    xfer.xfer_bool(&mut data.do_shadow)?;
+
+    Ok(())
+}
+
+fn xfer_terrain_tree_registration(
+    xfer: &mut dyn Xfer,
+    tree: &mut TerrainTreeRegistration,
+) -> Result<(), XferStatus> {
+    xfer.xfer_unsigned_int(&mut tree.drawable_id)?;
+    xfer.xfer_real(&mut tree.location.x)?;
+    xfer.xfer_real(&mut tree.location.y)?;
+    xfer.xfer_real(&mut tree.location.z)?;
+    xfer.xfer_real(&mut tree.scale)?;
+    xfer.xfer_real(&mut tree.angle)?;
+    xfer.xfer_real(&mut tree.random_scale_amount)?;
+    xfer_w3d_tree_draw_module_data(xfer, &mut tree.module_data)?;
+    Ok(())
+}
+
+fn xfer_terrain_visual_state(
+    terrain: &mut TerrainVisualStub,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let mut entries = if xfer.get_xfer_mode() == XferMode::Save {
+        let mut trees = terrain.tree_registrations();
+        trees.sort_by_key(|entry| entry.drawable_id);
+        trees
+    } else {
+        Vec::new()
+    };
+
+    let mut tree_count = entries.len() as u32;
+    xfer.xfer_unsigned_int(&mut tree_count)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        entries.clear();
+        entries.reserve(tree_count as usize);
+        for _ in 0..tree_count {
+            let mut tree = TerrainTreeRegistration {
+                drawable_id: 0,
+                location: Vec3::ZERO,
+                scale: 1.0,
+                angle: 0.0,
+                random_scale_amount: 0.0,
+                module_data: W3DTreeDrawModuleData::new(),
+            };
+            xfer_terrain_tree_registration(xfer, &mut tree)?;
+            entries.push(tree);
+        }
+        terrain.registered_trees.clear();
+        for tree in entries {
+            terrain.registered_trees.insert(tree.drawable_id, tree);
+        }
+    } else {
+        for tree in &mut entries {
+            xfer_terrain_tree_registration(xfer, tree)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_pending_special_power(
+    xfer: &mut dyn Xfer,
+    value: &mut Option<PendingSpecialPower>,
+) -> Result<(), XferStatus> {
+    let mut present = value.is_some();
+    xfer.xfer_bool(&mut present)?;
+    if present {
+        let mut power = value.clone().unwrap_or(PendingSpecialPower {
+            power_id: 0,
+            options: 0,
+            source_object_id: 0,
+        });
+        xfer.xfer_unsigned_int(&mut power.power_id)?;
+        xfer.xfer_unsigned_int(&mut power.options)?;
+        xfer.xfer_unsigned_int(&mut power.source_object_id)?;
+        *value = Some(power);
+    } else {
+        *value = None;
+    }
+    Ok(())
+}
+
+fn xfer_pending_command(
+    xfer: &mut dyn Xfer,
+    value: &mut Option<PendingCommand>,
+) -> Result<(), XferStatus> {
+    let mut present = value.is_some();
+    xfer.xfer_bool(&mut present)?;
+    if present {
+        let mut command = value.clone().unwrap_or(PendingCommand {
+            command_type: CommandType::Invalid,
+            options: 0,
+            source_object_id: 0,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        });
+
+        let mut command_type = command.command_type as u16;
+        xfer.xfer_unsigned_short(&mut command_type)?;
+        command.command_type = CommandType::try_from(command_type).unwrap_or(CommandType::Invalid);
+        xfer.xfer_unsigned_int(&mut command.options)?;
+        xfer.xfer_unsigned_int(&mut command.source_object_id)?;
+        xfer.xfer_string(&mut command.cursor_name)?;
+        xfer.xfer_string(&mut command.invalid_cursor_name)?;
+        xfer.xfer_string(&mut command.radius_cursor_type)?;
+        *value = Some(command);
+    } else {
+        *value = None;
+    }
+    Ok(())
+}
+
+fn xfer_in_game_ui_state(
+    ui: &mut InGameUISubsystem,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    xfer_option_string(xfer, &mut ui.pending_place_template)?;
+    xfer.xfer_unsigned_int(&mut ui.pending_place_source_object_id)?;
+    xfer_option_coord2d(xfer, &mut ui.placement_start)?;
+    xfer_option_coord2d(xfer, &mut ui.placement_end)?;
+    xfer.xfer_real(&mut ui.placement_angle)?;
+    xfer_bool_flag(xfer, &mut ui.radius_cursor_active)?;
+    xfer_string_value(xfer, &mut ui.radius_cursor_type)?;
+    xfer_bool_flag(xfer, &mut ui.attack_move_to_mode)?;
+    xfer_bool_flag(xfer, &mut ui.force_attack_mode)?;
+    xfer_bool_flag(xfer, &mut ui.force_move_to_mode)?;
+    xfer_bool_flag(xfer, &mut ui.prefer_selection_mode)?;
+    xfer_bool_flag(
+        xfer,
+        &mut ui.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click,
+    )?;
+    xfer_pending_special_power(xfer, &mut ui.pending_special_power)?;
+    xfer_pending_command(xfer, &mut ui.pending_command)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        if !ui.radius_cursor_active {
+            ui.radius_cursor_type.clear();
+        }
+    }
+
+    Ok(())
+}
+
+fn radar_ping_kind_to_u8(kind: RadarPingKind) -> u8 {
+    match kind {
+        RadarPingKind::Generic => 0,
+        RadarPingKind::Attack => 1,
+        RadarPingKind::Ally => 2,
+    }
+}
+
+fn radar_ping_kind_from_u8(value: u8) -> RadarPingKind {
+    match value {
+        1 => RadarPingKind::Attack,
+        2 => RadarPingKind::Ally,
+        _ => RadarPingKind::Generic,
+    }
+}
+
+fn xfer_radar_state(ui: &mut InGameUISubsystem, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let mut pings: Vec<RadarPingEvent> = if xfer.get_xfer_mode() == XferMode::Save {
+        ui.radar_pings.iter().cloned().collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut ping_count = pings.len() as u32;
+    xfer.xfer_unsigned_int(&mut ping_count)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        pings.clear();
+        pings.reserve(ping_count as usize);
+        for _ in 0..ping_count {
+            let mut ping = RadarPingEvent {
+                position: Coord3D::new(0.0, 0.0, 0.0),
+                kind: RadarPingKind::Generic,
+                age_seconds: 0.0,
+            };
+            xfer.xfer_real(&mut ping.position.x)?;
+            xfer.xfer_real(&mut ping.position.y)?;
+            xfer.xfer_real(&mut ping.position.z)?;
+            let mut kind_value = 0u8;
+            xfer.xfer_unsigned_byte(&mut kind_value)?;
+            ping.kind = radar_ping_kind_from_u8(kind_value);
+            xfer.xfer_real(&mut ping.age_seconds)?;
+            pings.push(ping);
+        }
+        ui.radar_pings = pings.into_iter().collect();
+    } else {
+        for ping in &mut pings {
+            xfer.xfer_real(&mut ping.position.x)?;
+            xfer.xfer_real(&mut ping.position.y)?;
+            xfer.xfer_real(&mut ping.position.z)?;
+            let mut kind_value = radar_ping_kind_to_u8(ping.kind);
+            xfer.xfer_unsigned_byte(&mut kind_value)?;
+            xfer.xfer_real(&mut ping.age_seconds)?;
+            ping.kind = radar_ping_kind_from_u8(kind_value);
+        }
+    }
+
+    Ok(())
+}
+
+struct InGameUISnapshotBridge {
+    ui: Arc<Mutex<InGameUISubsystem>>,
+}
+
+impl InGameUISnapshotBridge {
+    fn new(ui: Arc<Mutex<InGameUISubsystem>>) -> Self {
+        Self { ui }
+    }
+}
+
+impl XferSnapshotTrait for InGameUISnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut guard = self.ui.lock().map_err(|_| XferStatus::InvalidData)?;
+        xfer_in_game_ui_state(&mut guard, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+pub fn register_in_game_ui_snapshot_block(ui: Arc<Mutex<InGameUISubsystem>>) {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_InGameUI".to_string(),
+        Box::new(InGameUISnapshotBridge::new(ui)),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
+
+struct RadarSnapshotBridge {
+    ui: Arc<Mutex<InGameUISubsystem>>,
+}
+
+impl RadarSnapshotBridge {
+    fn new(ui: Arc<Mutex<InGameUISubsystem>>) -> Self {
+        Self { ui }
+    }
+}
+
+impl XferSnapshotTrait for RadarSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut guard = self.ui.lock().map_err(|_| XferStatus::InvalidData)?;
+        xfer_radar_state(&mut guard, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+pub fn register_radar_snapshot_block(ui: Arc<Mutex<InGameUISubsystem>>) {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_Radar".to_string(),
+        Box::new(RadarSnapshotBridge::new(ui)),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
+
+struct CampaignSnapshotBridge;
+
+impl XferSnapshotTrait for CampaignSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut manager = get_campaign_manager();
+        let mut adapter = CampaignRuntimeXferAdapter::new(xfer);
+        manager
+            .xfer(&mut adapter)
+            .map_err(|_| XferStatus::InvalidData)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        let mut manager = get_campaign_manager();
+        manager.load_post_process();
+        Ok(())
+    }
+}
+
+pub fn register_campaign_snapshot_block() {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_Campaign".to_string(),
+        Box::new(CampaignSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
+
+fn xfer_tactical_view_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let mut position = with_tactical_view_ref(|view| *view.position());
+    let mut angle = with_tactical_view_ref(|view| view.angle());
+    let mut pitch = with_tactical_view_ref(|view| view.pitch());
+    let mut zoom = with_tactical_view_ref(|view| view.zoom());
+    let mut height_above_ground = with_tactical_view_ref(|view| view.height_above_ground());
+    let mut field_of_view = with_tactical_view_ref(|view| view.field_of_view());
+
+    xfer.xfer_real(&mut position.x)?;
+    xfer.xfer_real(&mut position.y)?;
+    xfer.xfer_real(&mut position.z)?;
+    xfer.xfer_real(&mut angle)?;
+    xfer.xfer_real(&mut pitch)?;
+    xfer.xfer_real(&mut zoom)?;
+    xfer.xfer_real(&mut height_above_ground)?;
+    xfer.xfer_real(&mut field_of_view)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        with_tactical_view(|view| {
+            view.set_position(&Point3::new(position.x, position.y, position.z));
+            view.set_angle(angle);
+            view.set_pitch(pitch);
+            view.set_zoom(zoom);
+            view.set_height_above_ground(height_above_ground);
+            view.set_field_of_view(field_of_view);
+        });
+    }
+
+    Ok(())
+}
+
+struct TacticalViewSnapshotBridge;
+
+impl XferSnapshotTrait for TacticalViewSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_tactical_view_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+pub fn register_tactical_view_snapshot_block() {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_TacticalView".to_string(),
+        Box::new(TacticalViewSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
+
+struct GameClientSnapshotBridge;
+
+impl XferSnapshotTrait for GameClientSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_live_game_client_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        run_live_game_client_load_post_process()
+    }
+}
+
+pub fn register_game_client_snapshot_block() {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_GameClient".to_string(),
+        Box::new(GameClientSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
+
+struct TerrainVisualSnapshotBridge {
+    terrain_visual: Arc<Mutex<TerrainVisualStub>>,
+}
+
+impl TerrainVisualSnapshotBridge {
+    fn new(terrain_visual: Arc<Mutex<TerrainVisualStub>>) -> Self {
+        Self { terrain_visual }
+    }
+}
+
+impl XferSnapshotTrait for TerrainVisualSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut guard = self
+            .terrain_visual
+            .lock()
+            .map_err(|_| XferStatus::InvalidData)?;
+        xfer_terrain_visual_state(&mut guard, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+pub fn register_terrain_visual_snapshot_block(terrain_visual: Arc<Mutex<TerrainVisualStub>>) {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_TerrainVisual".to_string(),
+        Box::new(TerrainVisualSnapshotBridge::new(terrain_visual)),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
+
+struct ParticleSystemSnapshotBridge;
+
+impl XferSnapshotTrait for ParticleSystemSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_particle_system_manager_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+pub fn register_particle_system_snapshot_block() {
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_ParticleSystem".to_string(),
+        Box::new(ParticleSystemSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
 
 /// Thin wrapper around the existing font library module.
 #[derive(Default)]
@@ -150,6 +761,9 @@ impl SubsystemInterface for HeaderTemplateManagerSubsystem {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(audio) = TheAudio::get() {
+            audio.update();
+        }
         Ok(())
     }
 }
@@ -196,10 +810,12 @@ pub struct InGameUISubsystem {
     placement_end: Option<ICoord2D>,
     placement_angle: f32,
     radius_cursor_active: bool,
+    radius_cursor_type: String,
     attack_move_to_mode: bool,
     force_attack_mode: bool,
     force_move_to_mode: bool,
     prefer_selection_mode: bool,
+    prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
     pending_special_power: Option<PendingSpecialPower>,
     pending_command: Option<PendingCommand>,
 }
@@ -435,8 +1051,24 @@ impl InGameUISubsystem {
         self.placement_angle = angle;
     }
 
+    fn set_radius_cursor_active(&mut self, radius_cursor_type: Option<String>) {
+        match radius_cursor_type {
+            Some(radius_cursor_type) => {
+                let radius_type = radius_cursor_type.trim().to_string();
+                self.radius_cursor_active =
+                    !radius_type.is_empty() && !radius_type.eq_ignore_ascii_case("NONE");
+                self.radius_cursor_type = radius_type;
+            }
+            None => {
+                self.radius_cursor_active = true;
+                self.radius_cursor_type.clear();
+            }
+        }
+    }
+
     fn set_radius_cursor_none(&mut self) {
         self.radius_cursor_active = false;
+        self.radius_cursor_type.clear();
     }
 
     fn display_cant_build_message(&mut self, message: &str) {
@@ -484,6 +1116,17 @@ impl InGameUISubsystem {
         self.prefer_selection_mode = enabled;
     }
 
+    fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+        &mut self,
+        enabled: bool,
+    ) {
+        self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
+    }
+
+    fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
+        self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
+    }
+
     fn clear_runtime_state(&mut self) {
         self.beacon_markers.clear();
         self.pending_beacon_events.clear();
@@ -497,10 +1140,12 @@ impl InGameUISubsystem {
         self.placement_end = None;
         self.placement_angle = 0.0;
         self.radius_cursor_active = false;
+        self.radius_cursor_type.clear();
         self.attack_move_to_mode = false;
         self.force_attack_mode = false;
         self.force_move_to_mode = false;
         self.prefer_selection_mode = false;
+        self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = false;
         self.pending_special_power = None;
         self.pending_command = None;
     }
@@ -795,6 +1440,12 @@ impl InGameUiHooks for InGameUiHandle {
         }
     }
 
+    fn set_radius_cursor_active(&self, radius_cursor_type: Option<String>) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_radius_cursor_active(radius_cursor_type);
+        }
+    }
+
     fn display_cant_build_message(&self, message: &str) {
         if let Ok(mut ui) = self.inner.lock() {
             ui.display_cant_build_message(message);
@@ -863,6 +1514,22 @@ impl InGameUiHooks for InGameUiHandle {
         if let Ok(mut ui) = self.inner.lock() {
             ui.set_prefer_selection_mode(enabled);
         }
+    }
+
+    fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+        &self,
+        enabled: bool,
+    ) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled);
+        }
+    }
+
+    fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click())
+            .unwrap_or(false)
     }
 
     fn play_movie(&self, movie_name: &str) -> bool {
@@ -935,6 +1602,9 @@ impl SubsystemInterface for AudioSubsystem {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(audio) = TheAudio::get() {
+            audio.update();
+        }
         Ok(())
     }
 }
@@ -1230,6 +1900,7 @@ mod tests {
         ui.force_attack_mode = true;
         ui.force_move_to_mode = true;
         ui.prefer_selection_mode = true;
+        ui.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = true;
         ui.pending_special_power = Some(PendingSpecialPower {
             power_id: 11,
             options: 12,
@@ -1239,6 +1910,9 @@ mod tests {
             command_type: CommandType::Invalid,
             options: 22,
             source_object_id: 23,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
         });
 
         ui.reset().unwrap();
@@ -1259,7 +1933,29 @@ mod tests {
         assert!(!ui.force_attack_mode);
         assert!(!ui.force_move_to_mode);
         assert!(!ui.prefer_selection_mode);
+        assert!(!ui.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click);
         assert!(ui.pending_special_power.is_none());
         assert!(ui.pending_command.is_none());
+    }
+
+    #[test]
+    fn in_game_ui_radius_cursor_type_state_transitions() {
+        let mut ui = InGameUISubsystem::default();
+
+        ui.set_radius_cursor_active(Some("   ".to_string()));
+        assert!(!ui.radius_cursor_active);
+        assert_eq!(ui.radius_cursor_type, "");
+
+        ui.set_radius_cursor_active(Some("NONE".to_string()));
+        assert!(!ui.radius_cursor_active);
+        assert_eq!(ui.radius_cursor_type, "NONE");
+
+        ui.set_radius_cursor_active(Some("GUARD_AREA".to_string()));
+        assert!(ui.radius_cursor_active);
+        assert_eq!(ui.radius_cursor_type, "GUARD_AREA");
+
+        ui.set_radius_cursor_none();
+        assert!(!ui.radius_cursor_active);
+        assert_eq!(ui.radius_cursor_type, "");
     }
 }

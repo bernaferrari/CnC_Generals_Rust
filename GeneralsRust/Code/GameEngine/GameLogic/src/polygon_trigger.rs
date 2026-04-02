@@ -509,6 +509,12 @@ impl PolygonTriggerList {
             .map(|&idx| &self.triggers[idx])
     }
 
+    /// Get mutable polygon trigger by ID.
+    pub fn get_by_id_mut(&mut self, trigger_id: PolygonTriggerId) -> Option<&mut PolygonTrigger> {
+        let idx = *self.id_index.get(&trigger_id)?;
+        self.triggers.get_mut(idx)
+    }
+
     /// Get polygon trigger by name
     /// Matches C++ getPolygonTriggerByName
     pub fn get_by_name(&self, name: &str) -> Option<&PolygonTrigger> {

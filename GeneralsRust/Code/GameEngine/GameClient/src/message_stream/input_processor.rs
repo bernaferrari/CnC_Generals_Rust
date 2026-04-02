@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use super::game_message::*;
-use super::message_stream::{GameMessageDisposition, GameMessageTranslator, MessageStream};
+use super::message_stream::{take_emitted_messages, GameMessageDisposition, GameMessageTranslator};
 use super::selection_xlat::SelectionTranslator;
 use super::translators::CommandTranslator;
 use crate::helpers::TheInGameUI;
@@ -171,34 +171,34 @@ impl InputProcessor {
         // Convert input event to game messages
         let raw_messages = self.convert_input_to_messages(event);
 
-        // Process through translator pipeline.
-        // Selection translation remains separate, but command semantics come from the active
-        // translator implementation instead of the legacy `command_xlat` copy.
+        // Match C++ message-stream behavior more closely: keep track of every message generated
+        // by this input event (raw + translator-emitted follow-ups), while still allowing each
+        // translator to consume/replace messages for downstream processing.
         let mut processed_messages = Vec::new();
+        let mut messages_to_process: VecDeque<GameMessage> = raw_messages.into_iter().collect();
 
-        for msg in raw_messages {
-            // First through selection translator
+        // Clear any stale emitted messages before this event's pipeline run.
+        let _ = take_emitted_messages();
+
+        while let Some(msg) = messages_to_process.pop_front() {
+            processed_messages.push(msg.clone());
+
             let selection_result = self.selection_translator.translate_game_message(&msg);
+            if matches!(selection_result, GameMessageDisposition::KeepMessage) {
+                let _ = self.command_translator.translate_game_message(&msg);
+            }
 
-            match selection_result {
-                GameMessageDisposition::KeepMessage => {
-                    // Pass through to command translator
-                    let command_result = self.command_translator.translate_game_message(&msg);
-
-                    match command_result {
-                        GameMessageDisposition::KeepMessage => {
-                            processed_messages.push(msg);
-                        }
-                        GameMessageDisposition::DestroyMessage => {
-                            // Message consumed
-                        }
-                    }
-                }
-                GameMessageDisposition::DestroyMessage => {
-                    // Message consumed by selection translator
+            let emitted = take_emitted_messages();
+            if !emitted.is_empty() {
+                for new_msg in emitted.into_iter().rev() {
+                    messages_to_process.push_front(new_msg);
                 }
             }
         }
+
+        self.messages_generated = self
+            .messages_generated
+            .saturating_add(processed_messages.len() as u64);
 
         // Log if debug enabled
         if self.config.debug_logging && !processed_messages.is_empty() {
@@ -335,6 +335,13 @@ impl InputProcessor {
                 raw_key_msg.append_integer_argument(self.build_key_state(modifiers, true) as i32);
                 messages.push(raw_key_msg);
 
+                if matches!(key, KeyCode::LeftAlt | KeyCode::RightAlt) {
+                    messages.push(GameMessage::with_player(
+                        GameMessageType::MetaBeginForceAttack,
+                        player_id,
+                    ));
+                }
+
                 if key == KeyCode::Escape {
                     TheInGameUI::clear_pending_command();
                     TheInGameUI::clear_pending_special_power();
@@ -392,6 +399,13 @@ impl InputProcessor {
                 raw_key_msg.append_integer_argument(key_code as i32);
                 raw_key_msg.append_integer_argument(self.build_key_state(modifiers, false) as i32);
                 messages.push(raw_key_msg);
+
+                if matches!(key, KeyCode::LeftAlt | KeyCode::RightAlt) {
+                    messages.push(GameMessage::with_player(
+                        GameMessageType::MetaEndForceAttack,
+                        player_id,
+                    ));
+                }
             }
 
             InputEvent::KeyRepeat {

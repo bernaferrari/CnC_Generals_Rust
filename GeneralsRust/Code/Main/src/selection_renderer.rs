@@ -96,7 +96,10 @@ impl SelectionRenderer {
         window_size: (f32, f32),
     ) -> Vec<UIRenderCommand> {
         let mut commands = Vec::new();
-        let logic = game_logic.lock().unwrap();
+        let Ok(logic) = game_logic.lock() else {
+            log::warn!("Skipping render_selection: game logic lock poisoned");
+            return commands;
+        };
 
         // Render selection circles for selected objects
         for &object_id in unit_control.get_selected_objects() {

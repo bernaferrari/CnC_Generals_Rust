@@ -622,11 +622,16 @@ impl RoadSegment {
             indices.extend_from_slice(&[base + 1, base, base + 2, base + 1, base + 2, base + 3]);
         }
 
+        let uvs = vertices
+            .iter()
+            .map(|vertex| Point2::new(vertex.tex_coords[0], vertex.tex_coords[1]))
+            .collect();
+        let colors = vertices.iter().map(|vertex| vertex.color).collect();
         Ok(RoadGeometry {
             vertices,
             indices,
-            uvs: Vec::new(),
-            colors: Vec::new(),
+            uvs,
+            colors,
             edge_geometry: None,
             marking_geometry: None,
         })
@@ -1525,7 +1530,9 @@ impl RoadManager {
             let Some(geometry) = segment.geometry.as_mut() else {
                 continue;
             };
-            let clamp_surface_rows = segment.properties.synthetic_intersection.is_none();
+            // C++ `loadFloat4PtSection` collapses projected rows for all road strips,
+            // including synthetic tee/four-way joins and alpha caps.
+            let clamp_surface_rows = true;
 
             Self::project_vertices_to_terrain(
                 &mut geometry.vertices,
@@ -2143,6 +2150,43 @@ mod tests {
             assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
             assert!((pair[0].normal[1] - 1.0).abs() < 1.0e-4);
             assert!((pair[1].normal[1] - 1.0).abs() < 1.0e-4);
+        }
+    }
+
+    #[test]
+    fn test_apply_terrain_heights_and_normals_clamps_synthetic_intersections_too() {
+        let mut manager = RoadManager::new();
+        let road_id = manager.create_road(
+            "Synthetic Height Project".to_string(),
+            RoadType::DirtPath { wear_factor: 0.2 },
+        );
+        let segment_id = manager
+            .create_segment(
+                road_id,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(20.0, 0.0, 0.0),
+                Some(4.0),
+            )
+            .unwrap();
+        {
+            let segment = manager.get_segment_mut(segment_id).unwrap();
+            segment.properties.synthetic_intersection = Some(RoadSyntheticIntersectionKind::Tee);
+        }
+        manager.update_geometry().unwrap();
+
+        manager.apply_terrain_heights_and_normals(
+            |pos| if pos.x < 10.0 { 2.0 } else { 7.0 },
+            |_| Vec3::new(0.0, 1.0, 0.0),
+        );
+
+        let geometry = manager
+            .get_segment(segment_id)
+            .and_then(|s| s.geometry.as_ref())
+            .unwrap();
+        let expected = 7.0 + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS;
+        for pair in geometry.vertices.chunks_exact(2) {
+            assert!((pair[0].position[1] - expected).abs() < 1.0e-4);
+            assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
         }
     }
 

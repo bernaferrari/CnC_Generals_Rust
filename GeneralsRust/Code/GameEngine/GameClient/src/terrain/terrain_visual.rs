@@ -11,7 +11,10 @@ use std::sync::Arc;
 use glam::{Mat4, Vec2, Vec3, Vec4Swizzles};
 use log::{debug, warn};
 use wgpu::util::DeviceExt;
-use wgpu::{BindGroup, BindGroupLayout, Buffer, RenderPass, Sampler, Texture, TextureView};
+use wgpu::{
+    BindGroup, BindGroupLayout, Buffer, RenderPass, Sampler, SamplerDescriptor, Texture,
+    TextureView,
+};
 
 use crate::display::image::GameImageError;
 use crate::system::SubsystemInterface;
@@ -368,6 +371,9 @@ pub struct TerrainVisualImpl {
     /// Terrain texture sampler used by the shader
     terrain_sampler: Option<wgpu::Sampler>,
 
+    /// Current terrain sampler mode mirrored from GlobalData settings.
+    terrain_sampler_mode: Option<TerrainSamplerMode>,
+
     /// Per-chunk texture bind groups and slot maps
     chunk_texture_bindings: HashMap<ChunkId, ChunkTextureBinding>,
 
@@ -410,6 +416,39 @@ struct GpuRoadMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TerrainSamplerMode {
+    texture_lod_bias: u32,
+}
+
+impl TerrainSamplerMode {
+    fn current() -> Self {
+        let texture_lod_bias = get_global_data()
+            .map(|global_data| {
+                let data = global_data.read();
+                data.texture_reduction_factor.clamp(0, 4) as u32
+            })
+            .unwrap_or(0);
+
+        Self { texture_lod_bias }
+    }
+
+    fn to_descriptor(self) -> SamplerDescriptor<'static> {
+        SamplerDescriptor {
+            label: Some("Terrain Texture Sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            lod_min_clamp: self.texture_lod_bias as f32,
+            lod_max_clamp: 32.0,
+            ..Default::default()
+        }
+    }
 }
 
 const DEFAULT_TERRAIN_COLORS: [[u8; 4]; 4] = [
@@ -472,6 +511,7 @@ impl TerrainVisualImpl {
             terrain_texture_bind_group_layout: None,
             terrain_camera_bind_group: None,
             terrain_sampler: None,
+            terrain_sampler_mode: None,
             chunk_texture_bindings: HashMap::new(),
             active_chunk_texture_ids: None,
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
@@ -499,6 +539,16 @@ impl TerrainVisualImpl {
     /// Number of visible chunks; used to accumulate draw-call stats.
     pub fn chunk_draw_count(&self) -> usize {
         self.visible_chunk_ids_for_draw_area().len()
+    }
+
+    /// Apply texture-LOD side effects immediately after a runtime LOD adjustment.
+    ///
+    /// Matches the intent of C++ `TheTerrainRenderObject->setTextureLOD(...)` called from
+    /// `W3DGameClient::adjustLOD`.
+    pub fn apply_texture_lod_reduction(&mut self, _reduction: i32) {
+        self.terrain_sampler = None;
+        self.terrain_sampler_mode = None;
+        self.chunk_texture_bindings.clear();
     }
 
     fn map_sample_dimensions(&self) -> Option<(i32, i32)> {
@@ -2256,17 +2306,14 @@ impl TerrainVisualImpl {
             None => return Ok(()),
         };
 
-        if self.terrain_sampler.is_none() {
-            self.terrain_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("Terrain Texture Sampler"),
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            }));
+        let sampler_mode = TerrainSamplerMode::current();
+        let sampler_changed = self.terrain_sampler_mode != Some(sampler_mode);
+        if self.terrain_sampler.is_none() || sampler_changed {
+            self.terrain_sampler = Some(device.create_sampler(&sampler_mode.to_descriptor()));
+            self.terrain_sampler_mode = Some(sampler_mode);
+            if sampler_changed {
+                self.chunk_texture_bindings.clear();
+            }
         }
 
         let sampler = self
@@ -3787,6 +3834,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.texture_rules.clear();
         self.chunk_texture_bindings.clear();
         self.active_chunk_texture_ids = None;
+        self.terrain_sampler = None;
+        self.terrain_sampler_mode = None;
         self.water_plane = None;
         self.road_meshes.clear();
         self.skybox_background_view = None;

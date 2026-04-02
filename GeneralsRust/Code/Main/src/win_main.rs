@@ -369,13 +369,7 @@ fn build_window_attributes(
 
     Ok((
         event_loop,
-        startup_window_attributes(
-            width,
-            height,
-            is_windowed,
-            is_fullscreen,
-            startup_position,
-        ),
+        startup_window_attributes(width, height, is_windowed, is_fullscreen, startup_position),
     ))
 }
 
@@ -486,20 +480,12 @@ mod tests {
         APPLICATION_IS_WINDOWED.store(false, Ordering::Relaxed);
 
         unsafe {
-            assert!(initialize_app_windows(
-                std::ptr::null_mut(),
-                1,
-                true
-            ));
+            assert!(initialize_app_windows(std::ptr::null_mut(), 1, true));
         }
         assert!(APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
 
         unsafe {
-            assert!(initialize_app_windows(
-                std::ptr::null_mut(),
-                1,
-                false
-            ));
+            assert!(initialize_app_windows(std::ptr::null_mut(), 1, false));
         }
         assert!(!APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
     }

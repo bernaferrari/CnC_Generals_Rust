@@ -10,7 +10,6 @@
 
 use crate::common::audio::{
     audio_event_rts::{AudioEventRts, AudioHandle},
-    audio_request::{AudioRequest, RequestType},
     game_audio::with_sound_playback_hook,
 };
 
@@ -106,33 +105,40 @@ impl MusicManagerImpl {
 
     /// Play a music track using the provided audio event
     pub fn play_track(&mut self, event_to_use: AudioEventRts) {
-        if let Some(result) = with_sound_playback_hook(|hook| hook.play(&event_to_use)) {
-            if result.is_ok() {
+        match with_sound_playback_hook(|hook| hook.play(&event_to_use)) {
+            Some(Ok(())) => {
                 self.current_handle = Some(event_to_use.get_playing_handle());
                 self.is_playing = true;
-                return;
             }
-        }
-
-        let audio_request = AudioRequest::new_with_event(RequestType::Play, event_to_use);
-        if let Some(event) = audio_request.get_pending_event() {
-            self.current_handle = Some(event.get_playing_handle());
-            self.is_playing = true;
+            Some(Err(err)) => {
+                self.current_handle = None;
+                self.is_playing = false;
+                log::debug!(
+                    "MusicManagerImpl::play_track backend rejected '{}': {}",
+                    event_to_use.get_event_name(),
+                    err
+                );
+            }
+            None => {
+                self.current_handle = None;
+                self.is_playing = false;
+                log::debug!(
+                    "MusicManagerImpl::play_track called with no playback hook for '{}'",
+                    event_to_use.get_event_name()
+                );
+            }
         }
     }
 
     /// Stop the currently playing track
     pub fn stop_track(&mut self, event_to_remove: AudioHandle) {
-        let audio_request = AudioRequest::new_with_handle(RequestType::Stop, event_to_remove);
+        let _ = with_sound_playback_hook(|hook| hook.stop(event_to_remove));
 
         // Reset our state
         if Some(event_to_remove) == self.current_handle {
             self.current_handle = None;
             self.is_playing = false;
         }
-
-        // In a real implementation, we would:
-        // TheAudio->appendAudioRequest(audio_request);
     }
 
     /// Add a new track to our collection

@@ -32,6 +32,7 @@ use crate::helpers::{
     TheAudio, TheEva, TheGameLogic, TheGameText, TheInGameUI, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::{
+    AIUpdateInterfaceExt, ContainModuleInterfaceExt,
     SpecialPowerModuleInterface as EngineSpecialPowerModuleInterface,
     SpecialPowerUpdateInterface as EngineSpecialPowerUpdateInterface,
 };
@@ -3068,6 +3069,83 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_evacuate_command(
+        &self,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        // Mirrors MSG_EVACUATE / AIGroup::groupEvacuate for the current selection.
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        // C++ dispatch unlocks the entire selected group first, then issues
+        // evacuation commands.
+        for object_id in &selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
+                continue;
+            };
+            let Ok(mut guard) = obj.write() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+            guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+        }
+
+        for object_id in selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+
+            let ai = guard.get_ai_update_interface();
+            let is_aircraft = guard.is_kind_of(KindOf::Aircraft);
+            let is_airborne_target = guard.is_airborne_target();
+            let position = *guard.get_position();
+            let contain = if ai.is_none() && guard.is_kind_of(KindOf::Structure) {
+                guard.get_contain()
+            } else {
+                None
+            };
+            drop(guard);
+
+            if let Some(ai) = ai {
+                if is_aircraft && is_airborne_target {
+                    let mut drop_position = position;
+                    if let Some(terrain) = TheTerrainLogic::get() {
+                        let layer = terrain.get_highest_layer_for_destination(&drop_position);
+                        drop_position.z =
+                            terrain.get_layer_height(drop_position.x, drop_position.y, layer);
+                    }
+                    ai.ai_move_to_and_evacuate(&drop_position, CommandSourceType::FromPlayer);
+                } else if let Ok(mut ai_guard) = ai.lock() {
+                    let params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::Evacuate,
+                        CommandSourceType::FromPlayer,
+                    );
+                    let _ = ai_guard.execute_command(&params);
+                }
+            } else if let Some(contain) = contain {
+                let _ = contain.order_all_passengers_to_exit(CommandSourceType::FromPlayer, false);
+            }
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_enable_retaliation(
         &self,
         command: &QueuedCommand,
@@ -3324,6 +3402,7 @@ impl CommandHandler for DefaultCommandHandler {
             | CommandType::DoSpecialPowerOverrideDestination => {
                 self.execute_special_power(command, context)
             }
+            CommandType::Evacuate => self.execute_evacuate_command(context),
             CommandType::DoGuardPosition => self.execute_guard_position(command, context),
             CommandType::DoGuardObject => self.execute_guard_object(command, context),
             CommandType::DoCheer => self.execute_cheer(command),
@@ -3415,6 +3494,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DoSpecialPowerAtLocation
                 | CommandType::DoSpecialPowerAtObject
                 | CommandType::DoSpecialPowerOverrideDestination
+                | CommandType::Evacuate
                 | CommandType::DoGuardPosition
                 | CommandType::DoGuardObject
                 | CommandType::DoCheer

@@ -281,33 +281,46 @@ impl Snapshotable for FirestormDynamicGeometryInfoUpdate {
                 )
             })?;
         xfer.xfer_real(&mut self.logic.initial_height)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer initial_height: {:?}", e))?;
-        xfer.xfer_real(&mut self.logic.initial_major_radius).map_err(|e| {
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer initial_height: {:?}",
+                    e
+                )
+            })?;
+        xfer.xfer_real(&mut self.logic.initial_major_radius)
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer initial_major_radius: {:?}",
+                    e
+                )
+            })?;
+        xfer.xfer_real(&mut self.logic.initial_minor_radius)
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer initial_minor_radius: {:?}",
+                    e
+                )
+            })?;
+        xfer.xfer_real(&mut self.logic.final_height).map_err(|e| {
             format!(
-                "FirestormDynamicGeometryInfoUpdate xfer initial_major_radius: {:?}",
+                "FirestormDynamicGeometryInfoUpdate xfer final_height: {:?}",
                 e
             )
         })?;
-        xfer.xfer_real(&mut self.logic.initial_minor_radius).map_err(|e| {
-            format!(
-                "FirestormDynamicGeometryInfoUpdate xfer initial_minor_radius: {:?}",
-                e
-            )
-        })?;
-        xfer.xfer_real(&mut self.logic.final_height)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer final_height: {:?}", e))?;
-        xfer.xfer_real(&mut self.logic.final_major_radius).map_err(|e| {
-            format!(
-                "FirestormDynamicGeometryInfoUpdate xfer final_major_radius: {:?}",
-                e
-            )
-        })?;
-        xfer.xfer_real(&mut self.logic.final_minor_radius).map_err(|e| {
-            format!(
-                "FirestormDynamicGeometryInfoUpdate xfer final_minor_radius: {:?}",
-                e
-            )
-        })?;
+        xfer.xfer_real(&mut self.logic.final_major_radius)
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer final_major_radius: {:?}",
+                    e
+                )
+            })?;
+        xfer.xfer_real(&mut self.logic.final_minor_radius)
+            .map_err(|e| {
+                format!(
+                    "FirestormDynamicGeometryInfoUpdate xfer final_minor_radius: {:?}",
+                    e
+                )
+            })?;
         xfer.xfer_unsigned_int(&mut self.logic.transition_time)
             .map_err(|e| {
                 format!(

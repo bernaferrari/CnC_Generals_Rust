@@ -6283,7 +6283,8 @@ struct TransportStatus {
     unit_count: i32,
 }
 
-static TRANSPORT_STATUSES: std::sync::Mutex<Vec<TransportStatus>> = std::sync::Mutex::new(Vec::new());
+static TRANSPORT_STATUSES: std::sync::Mutex<Vec<TransportStatus>> =
+    std::sync::Mutex::new(Vec::new());
 
 #[async_trait]
 impl ScriptCondition for UnitEmptiedCondition {
@@ -6320,9 +6321,9 @@ impl ScriptCondition for UnitEmptiedCondition {
 
         let frame_num = TheGameLogic::get_frame();
 
-        let mut statuses = TRANSPORT_STATUSES
-            .lock()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to lock transport statuses: {}", e)))?;
+        let mut statuses = TRANSPORT_STATUSES.lock().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to lock transport statuses: {}", e))
+        })?;
 
         let existing_idx = statuses.iter().position(|s| s.obj_id == obj_id);
 

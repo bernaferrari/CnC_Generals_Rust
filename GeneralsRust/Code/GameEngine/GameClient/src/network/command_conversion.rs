@@ -215,6 +215,13 @@ pub fn encode_game_message(message: &GameMessage) -> Option<GameCommandData> {
             parameters: HashMap::new(),
             checksum: 0,
         }),
+        GameMessageType::EvacuateAtLocation(coord) => Some(GameCommandData {
+            command_type: CommandType::Evacuate as u32,
+            target_id: None,
+            position: Some((coord.x, coord.y, coord.z)),
+            parameters: HashMap::new(),
+            checksum: 0,
+        }),
         GameMessageType::ExecuteRailedTransport => Some(GameCommandData {
             command_type: CommandType::ExecuteRailedTransport as u32,
             target_id: None,
@@ -787,7 +794,15 @@ pub fn decode_game_command(data: &GameCommandData, player_id: u8) -> Option<Game
             let object = parameter_to_object_id(params.get(0)?)?;
             Some(GameMessage::new(GameMessageType::Exit(object)))
         }
-        CommandType::Evacuate => Some(GameMessage::new(GameMessageType::Evacuate)),
+        CommandType::Evacuate => {
+            if let Some(position_tuple) = data.position {
+                Some(GameMessage::new(GameMessageType::EvacuateAtLocation(
+                    coord_from_tuple(&position_tuple),
+                )))
+            } else {
+                Some(GameMessage::new(GameMessageType::Evacuate))
+            }
+        }
         CommandType::ExecuteRailedTransport => {
             Some(GameMessage::new(GameMessageType::ExecuteRailedTransport))
         }
@@ -1211,4 +1226,76 @@ pub fn log_unsupported_command(data: &GameCommandData) {
         "Unsupported network command type {} (target: {:?})",
         data.command_type, data.target_id
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_evacuate_at_location_sets_position_payload() {
+        let message = GameMessage::with_player(
+            GameMessageType::EvacuateAtLocation(Coord3D::new(11.0, 22.0, 1.5)),
+            1,
+        );
+
+        let encoded = encode_game_message(&message).expect("evacuate should encode");
+
+        assert_eq!(encoded.command_type, CommandType::Evacuate as u32);
+        assert_eq!(encoded.position, Some((11.0, 22.0, 1.5)));
+        assert!(encoded.parameters.is_empty());
+    }
+
+    #[test]
+    fn encode_then_decode_evacuate_at_location_round_trip() {
+        let source = GameMessage::new(GameMessageType::EvacuateAtLocation(Coord3D::new(
+            15.0, 25.0, 5.0,
+        )));
+        let encoded = encode_game_message(&source).expect("evacuate should encode");
+        assert_eq!(encoded.command_type, CommandType::Evacuate as u32);
+        assert_eq!(encoded.position, Some((15.0, 25.0, 5.0)));
+
+        let decoded =
+            decode_game_command(&encoded, 3).expect("evacuate command should decode to message");
+        assert_eq!(
+            decoded.get_type(),
+            &GameMessageType::EvacuateAtLocation(Coord3D::new(15.0, 25.0, 5.0))
+        );
+        assert_eq!(decoded.get_player_index(), 3);
+    }
+
+    #[test]
+    fn decode_evacuate_with_position_uses_location_variant() {
+        let data = GameCommandData {
+            command_type: CommandType::Evacuate as u32,
+            target_id: None,
+            position: Some((7.0, 8.0, 9.0)),
+            parameters: HashMap::new(),
+            checksum: 0,
+        };
+
+        let decoded = decode_game_command(&data, 2).expect("evacuate should decode");
+
+        assert_eq!(decoded.get_player_index(), 2);
+        assert_eq!(
+            decoded.get_type(),
+            &GameMessageType::EvacuateAtLocation(Coord3D::new(7.0, 8.0, 9.0))
+        );
+    }
+
+    #[test]
+    fn decode_evacuate_without_position_keeps_plain_variant() {
+        let data = GameCommandData {
+            command_type: CommandType::Evacuate as u32,
+            target_id: None,
+            position: None,
+            parameters: HashMap::new(),
+            checksum: 0,
+        };
+
+        let decoded = decode_game_command(&data, 4).expect("evacuate should decode");
+
+        assert_eq!(decoded.get_player_index(), 4);
+        assert_eq!(decoded.get_type(), &GameMessageType::Evacuate);
+    }
 }

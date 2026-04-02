@@ -1703,6 +1703,20 @@ impl EnhancedControlBar {
         let shortcut_special_power = command
             .get_special_power_template()
             .filter(|template| template.is_shortcut_power());
+        let (cursor_name, invalid_cursor_name, radius_cursor_type) = get_ini_control_bar()
+            .as_ref()
+            .and_then(|control_bar| {
+                control_bar
+                    .find_command_button_resolved(command.get_name())
+                    .map(|button| {
+                        (
+                            button.cursor_name.clone(),
+                            button.invalid_cursor_name.clone(),
+                            button.radius_cursor_type.clone(),
+                        )
+                    })
+            })
+            .unwrap_or_else(|| (String::new(), String::new(), String::new()));
         if command_type == gamelogic::commands::command::CommandType::SpecialPower {
             if let Some(template) = shortcut_special_power {
                 if let Some(best_source) =
@@ -1736,10 +1750,23 @@ impl EnhancedControlBar {
             )
         {
             if let Some(power) = command.get_special_power_template() {
+                let source_for_command = if power.is_shortcut_power() {
+                    source_object
+                } else {
+                    gamelogic::common::INVALID_ID
+                };
                 TheInGameUI::set_pending_special_power(
                     power.get_id(),
                     command.get_options_bits(),
-                    source_object,
+                    source_for_command,
+                );
+                TheInGameUI::set_pending_command_with_visual(
+                    command_type,
+                    command.get_options_bits(),
+                    source_for_command,
+                    cursor_name.clone(),
+                    invalid_cursor_name.clone(),
+                    radius_cursor_type.clone(),
                 );
             }
             return Ok(());
@@ -1755,10 +1782,18 @@ impl EnhancedControlBar {
         );
         if command_type != gamelogic::commands::command::CommandType::SpecialPower && needs_target {
             TheInGameUI::clear_pending_special_power();
-            TheInGameUI::set_pending_command(
+            let pending_payload = if command_type == gamelogic::commands::command::CommandType::FireWeapon {
+                command.get_weapon_slot() as u32
+            } else {
+                source_object
+            };
+            TheInGameUI::set_pending_command_with_visual(
                 command_type,
                 command.get_options_bits(),
-                source_object,
+                pending_payload,
+                cursor_name.clone(),
+                invalid_cursor_name.clone(),
+                radius_cursor_type.clone(),
             );
             TheInGameUI::set_force_attack_mode(command_options.intersects(
                 CommandOption::NEED_TARGET_ENEMY_OBJECT | CommandOption::ATTACK_OBJECTS_POSITION,

@@ -206,6 +206,7 @@ impl MessageSerializer {
                 vec![GameMessageArgumentType::Location(coord.clone())]
             }
             Exit(unit) => vec![GameMessageArgumentType::ObjectID(*unit)],
+            EvacuateAtLocation(coord) => vec![GameMessageArgumentType::Location(coord.clone())],
             GetRepaired(target)
             | GetHealed(target)
             | DoRepair(target)
@@ -387,7 +388,14 @@ impl MessageSerializer {
                 DoAttackSquad(units)
             }
             104 => Exit(reader.read_object_id()?),
-            105 => Evacuate,
+            105 => {
+                if reader.index < reader.args.len() {
+                    let coord = reader.read_location()?;
+                    EvacuateAtLocation(coord)
+                } else {
+                    Evacuate
+                }
+            }
             106 => ExecuteRailedTransport,
             88 => DoWeapon(reader.read_int()? as u32),
             89 => {
@@ -1013,7 +1021,7 @@ impl MessageSerializer {
             DozerCancelConstruct(..) => 102,
             Sell(..) => 103,
             Exit(..) => 104,
-            Evacuate => 105,
+            Evacuate | EvacuateAtLocation(..) => 105,
             ExecuteRailedTransport => 106,
             CombatDropAtLocation(..) => 107,
             CombatDropAtObject(..) => 108,
@@ -1280,6 +1288,27 @@ mod tests {
 
         let deserialized = MessageBatch::deserialize_batch(&serialized).unwrap();
         assert_eq!(deserialized.len(), 2);
+    }
+
+    #[test]
+    fn test_evacuate_optional_location_round_trip() {
+        let no_location = GameMessage::new(GameMessageType::Evacuate);
+        let no_location_bytes = MessageSerializer::serialize(&no_location).unwrap();
+        let no_location_round_trip = MessageSerializer::deserialize(&no_location_bytes).unwrap();
+        assert_eq!(
+            no_location_round_trip.get_type(),
+            &GameMessageType::Evacuate
+        );
+
+        let target = Coord3D::new(10.0, 20.0, 3.0);
+        let with_location = GameMessage::new(GameMessageType::EvacuateAtLocation(target.clone()));
+        let with_location_bytes = MessageSerializer::serialize(&with_location).unwrap();
+        let with_location_round_trip =
+            MessageSerializer::deserialize(&with_location_bytes).unwrap();
+        assert_eq!(
+            with_location_round_trip.get_type(),
+            &GameMessageType::EvacuateAtLocation(target)
+        );
     }
 
     #[test]

@@ -10,6 +10,10 @@ use std::error::Error;
 use std::sync::Arc;
 
 pub use crate::core::DrawableId;
+use crate::display::view::{with_tactical_view_ref, Point3};
+use crate::draw_group_info::get_draw_group_info;
+use crate::gui::display_string::get_display_string_manager;
+use crate::gui::font::{get_font_library, FontDesc};
 use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
@@ -17,6 +21,9 @@ use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionBitFlags};
 use game_engine::common::ini::{get_anim2d_collection, Anim2DTemplate};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use gamelogic::common::types::FormationID;
+use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::{Mutex, RwLock};
 
 /// Downcasting support for Drawable trait objects
@@ -1415,6 +1422,45 @@ impl BasicDrawable {
 
         flags
     }
+
+    fn find_hotkey_squad_number(player: &mut Player, object_id: u32) -> Option<i32> {
+        for squad_number in 0..NUM_HOTKEY_SQUADS {
+            if let Some(squad) = player.get_hotkey_squad(squad_number as i32) {
+                if squad.is_on_squad_by_id(object_id) {
+                    return Some(squad_number as i32);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn draw_caption_string(
+        text_handle: &crate::gui::display_string::DisplayStringHandle,
+        x: i32,
+        y: i32,
+        color: u32,
+        drop_color: u32,
+        font_name: &str,
+        font_size: i32,
+        font_is_bold: bool,
+        drop_shadow_offset_x: i32,
+        drop_shadow_offset_y: i32,
+    ) {
+        let mut text = text_handle.borrow_mut();
+        let font_desc = FontDesc::new(font_name, font_size, font_is_bold);
+        if let Ok(font) = get_font_library().get_font(&font_desc) {
+            text.set_font(font);
+        }
+        text.draw_with_drop(
+            x,
+            y,
+            color,
+            drop_color,
+            drop_shadow_offset_x,
+            drop_shadow_offset_y,
+        );
+    }
 }
 
 impl Drawable for BasicDrawable {
@@ -1705,6 +1751,109 @@ impl Drawable for BasicDrawable {
 
     fn set_terrain_decal_type(&mut self, decal_type: TerrainDecalType) {
         self.terrain_decal_type = decal_type;
+    }
+
+    fn draw_ui_text(&self) -> Result<(), Box<dyn Error>> {
+        let Some(object_id) = self.object_id else {
+            return Ok(());
+        };
+
+        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return Ok(());
+        };
+        let Ok(object_guard) = object_arc.read() else {
+            return Ok(());
+        };
+
+        let Some(screen_pos) = with_tactical_view_ref(|view| {
+            view.world_to_screen(&Point3::new(
+                object_guard.get_position().x,
+                object_guard.get_position().y,
+                object_guard.get_position().z,
+            ))
+        }) else {
+            return Ok(());
+        };
+
+        let draw_group_info = get_draw_group_info()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+
+        let mut text_color = draw_group_info.color_for_text;
+        if draw_group_info.use_player_color {
+            if let Some(player_arc) = object_guard.get_controlling_player() {
+                if let Ok(player_guard) = player_arc.read() {
+                    text_color = player_guard.get_player_color().to_argb_u32();
+                }
+            }
+        }
+
+        let anchor_width = 32.0_f32;
+        let base_x = if draw_group_info.using_pixel_offset_x {
+            screen_pos.x
+        } else {
+            screen_pos.x + (anchor_width * draw_group_info.percent_offset_x) as i32
+        };
+        let base_y = if draw_group_info.using_pixel_offset_y {
+            screen_pos.y + draw_group_info.pixel_offset_y
+        } else {
+            screen_pos.y
+        };
+
+        let mut drew_anything = false;
+
+        if let Some(player_arc) = object_guard.get_controlling_player() {
+            if let Ok(mut player_guard) = player_arc.write() {
+                if let Some(group_number) =
+                    Self::find_hotkey_squad_number(&mut player_guard, object_guard.get_id())
+                {
+                    if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
+                        let mut manager = get_display_string_manager();
+                        if let Some(group_text) = manager.get_group_numeral_string(group_number) {
+                            Self::draw_caption_string(
+                                &group_text,
+                                base_x,
+                                base_y,
+                                text_color,
+                                draw_group_info.color_for_text_drop_shadow,
+                                &draw_group_info.font_name,
+                                draw_group_info.font_size,
+                                draw_group_info.font_is_bold,
+                                draw_group_info.drop_shadow_offset_x,
+                                draw_group_info.drop_shadow_offset_y,
+                            );
+                            drew_anything = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if object_guard.get_formation_id() != FormationID::NONE {
+            let mut manager = get_display_string_manager();
+            if let Some(formation_text) = manager.get_formation_letter_string() {
+                Self::draw_caption_string(
+                    &formation_text,
+                    base_x + 10,
+                    base_y,
+                    text_color,
+                    draw_group_info.color_for_text_drop_shadow,
+                    &draw_group_info.font_name,
+                    draw_group_info.font_size,
+                    draw_group_info.font_is_bold,
+                    draw_group_info.drop_shadow_offset_x,
+                    draw_group_info.drop_shadow_offset_y,
+                );
+                drew_anything = true;
+            }
+        }
+
+        if drew_anything {
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     fn set_current_frame(&mut self, frame: u32) {
@@ -2137,6 +2286,26 @@ mod tests {
 
         drawable.set_selected(false);
         assert!(!drawable.is_selected());
+    }
+
+    #[test]
+    fn test_hotkey_squad_resolution() {
+        let mut player = gamelogic::player::Player::new(0);
+        player.init_from_dict_defaults();
+
+        let squad = player
+            .get_hotkey_squad(3)
+            .expect("expected squad slot to exist after init");
+        squad.add_object_id(77);
+
+        assert_eq!(
+            BasicDrawable::find_hotkey_squad_number(&mut player, 77),
+            Some(3)
+        );
+        assert_eq!(
+            BasicDrawable::find_hotkey_squad_number(&mut player, 99),
+            None
+        );
     }
 
     #[test]

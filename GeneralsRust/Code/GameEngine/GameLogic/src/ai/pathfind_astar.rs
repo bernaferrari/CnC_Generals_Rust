@@ -618,6 +618,11 @@ impl AStarPathfinder {
         }
     }
 
+    /// Get cell type at coordinates.
+    pub fn get_cell_type(&self, coord: GridCoord) -> Option<PathfindCellType> {
+        self.get_cell(coord).map(|cell| cell.get_type())
+    }
+
     /// Mark a cell as pinched (surrounded by obstacles)
     pub fn set_pinched(&mut self, coord: GridCoord, pinched: bool) {
         if let Some(cell) = self.get_cell_mut(coord) {

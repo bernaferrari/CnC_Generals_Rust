@@ -16,7 +16,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::ptr::{null_mut, NonNull};
+use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
@@ -336,7 +336,7 @@ pub struct W3DMaterialC {
 }
 
 // Global device instance for C compatibility
-static GLOBAL_W3D_DEVICE: std::sync::Mutex<Option<NonNull<W3DDeviceC>>> = std::sync::Mutex::new(None);
+static GLOBAL_W3D_DEVICE: std::sync::Mutex<Option<usize>> = std::sync::Mutex::new(None);
 const TEMP_MESH_PREFIX: &str = "__w3d_c_api_temp_";
 const TEMP_MESH_RING_SIZE: u64 = 4096;
 const D3DFVF_XYZ: u32 = 0x002;
@@ -486,7 +486,7 @@ unsafe fn create_w3d_device_with_config(config: W3DConfig) -> Result<W3D_DEVICE>
     });
 
     let device_ptr = Box::into_raw(device_c);
-    *GLOBAL_W3D_DEVICE.lock().unwrap() = NonNull::new(device_ptr);
+    *GLOBAL_W3D_DEVICE.lock().unwrap() = Some(device_ptr as usize);
 
     Ok(device_ptr)
 }
@@ -2218,7 +2218,6 @@ pub unsafe extern "C" fn W3DDevice_Destroy(device: W3D_DEVICE) -> i32 {
         return 0; // Failure
     }
 
-    let destroying_ptr = NonNull::new(device);
     let device_box = Box::from_raw(device);
     if let Ok(mut texture_handles) = device_box.texture_handles.lock() {
         for (_, handle) in texture_handles.drain() {
@@ -2233,7 +2232,7 @@ pub unsafe extern "C" fn W3DDevice_Destroy(device: W3D_DEVICE) -> i32 {
 
     // Clear global reference
     let mut global_device = GLOBAL_W3D_DEVICE.lock().unwrap();
-    if global_device.map_or(false, |p| p == destroying_ptr.unwrap()) {
+    if global_device.map_or(false, |p| p == device as usize) {
         *global_device = None;
     }
 
@@ -4470,7 +4469,7 @@ fn detail_blend_mode_from_color_op(color_op: u32) -> u8 {
         D3DTOP_ADDSIGNED | D3DTOP_ADDSIGNED2X => 2,
         D3DTOP_BLENDCURRENTALPHA => 3,
         D3DTOP_ADD | D3DTOP_ADDSMOOTH => 2, // Approximate ADD as ADDSIGNED
-        _ => 1, // Default to MODULATE for unknown ops
+        _ => 1,                             // Default to MODULATE for unknown ops
     }
 }
 

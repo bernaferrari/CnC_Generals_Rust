@@ -23,6 +23,7 @@ use hound::WavReader;
 use lewton::inside_ogg::OggStreamReader;
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -43,6 +44,8 @@ pub trait SoundPlaybackHook: Send + Sync {
     fn pause(&self, handle: AudioHandle);
     fn resume(&self, handle: AudioHandle);
     fn is_playing(&self, handle: AudioHandle) -> bool;
+    fn set_listener_position(&self, _position: &Coord3D) {}
+    fn set_event_volume(&self, _event: &AudioEventRts) {}
 }
 
 static SOUND_PLAYBACK_HOOK: OnceLock<Arc<dyn SoundPlaybackHook>> = OnceLock::new();
@@ -122,6 +125,26 @@ const ST_EVERYONE: u32 = 0x0100;
 #[inline]
 fn affect_has(mask: AudioAffect, flag: AudioAffect) -> bool {
     ((mask as u32) & (flag as u32)) != 0
+}
+
+fn event_matches_audio_affect(event: &AudioEventRts, which: AudioAffect) -> bool {
+    if affect_has(which, AudioAffect::All) {
+        return true;
+    }
+
+    let event_affect = match event.get_audio_event_info().map(|info| info.sound_type) {
+        Some(AudioType::Music) => AudioAffect::Music,
+        Some(AudioType::Streaming) => AudioAffect::Speech,
+        _ => {
+            if event.is_positional_audio() {
+                AudioAffect::Sound3D
+            } else {
+                AudioAffect::Sound
+            }
+        }
+    };
+
+    affect_has(which, event_affect)
 }
 
 /// Speaker types for audio configuration
@@ -297,6 +320,7 @@ pub struct AudioManager {
     listener_position: Coord3D,
     listener_orientation: Coord3D,
     audio_requests: Vec<AudioRequest>,
+    active_audio_events: HashMap<AudioHandle, AudioEventRts>,
     music_tracks: Vec<AsciiString>,
 
     // Audio event registry
@@ -350,6 +374,7 @@ impl AudioManager {
                 z: 0.0,
             },
             audio_requests: Vec::new(),
+            active_audio_events: HashMap::new(),
             music_tracks: Vec::new(),
             all_audio_event_info: HashMap::new(),
             audio_handle_pool: 1000, // Start at some reasonable value
@@ -414,6 +439,7 @@ impl AudioManager {
     pub fn reset(&mut self) {
         // Clear out any adjusted volumes
         self.adjusted_volumes.clear();
+        self.active_audio_events.clear();
 
         // Reset scripted volumes
         self.script_music_volume = 1.0;
@@ -439,6 +465,7 @@ impl AudioManager {
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.update();
         }
+        self.purge_inactive_events();
 
         if let Some(resolver) = AUDIO_VIEW_RESOLVER.get() {
             let ground_pos = resolver.get_tactical_view_position();
@@ -581,7 +608,8 @@ impl AudioManager {
         match sound_type {
             AudioType::Music => {
                 if let Some(music_mgr) = &mut self.music_manager {
-                    music_mgr.add_audio_event(audio_event);
+                    music_mgr.add_audio_event(audio_event.clone());
+                    self.track_active_event(&audio_event);
                     handle
                 } else {
                     AHSV_NO_SOUND
@@ -589,7 +617,8 @@ impl AudioManager {
             }
             _ => {
                 if let Some(sound_mgr) = &mut self.sound_manager {
-                    if sound_mgr.add_audio_event(audio_event).is_ok() {
+                    if sound_mgr.add_audio_event(audio_event.clone()).is_ok() {
+                        self.track_active_event(&audio_event);
                         handle
                     } else {
                         AHSV_NO_SOUND
@@ -624,6 +653,7 @@ impl AudioManager {
             return;
         }
 
+        self.active_audio_events.remove(&audio_event);
         let request = AudioRequest::new_with_handle(RequestType::Stop, audio_event);
         self.append_audio_request(request);
     }
@@ -846,6 +876,11 @@ impl AudioManager {
             return;
         }
 
+        // C++ parity: live playing sounds are adjusted when setting an explicit override.
+        if new_volume != -1.0 {
+            self.adjust_volume_of_playing_audio(&event_to_affect, new_volume);
+        }
+
         // Find existing adjustment
         for (name, volume) in &mut self.adjusted_volumes {
             if *name == event_to_affect {
@@ -956,7 +991,9 @@ impl AudioManager {
         // Clamp
         self.sound_3d_volume = self.sound_3d_volume.clamp(0.0, 1.0);
 
-        self.volume_has_changed = true;
+        if !self.has_3d_sensitive_streams_playing() {
+            self.volume_has_changed = true;
+        }
     }
 
     pub fn set_listener_position(
@@ -969,6 +1006,7 @@ impl AudioManager {
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.set_listener_position(new_listener_pos);
         }
+        let _ = with_sound_playback_hook(|hook| hook.set_listener_position(new_listener_pos));
     }
 
     pub fn get_listener_position(&self) -> &Coord3D {
@@ -977,7 +1015,7 @@ impl AudioManager {
 
     pub fn allocate_audio_request(&self, use_audio_event: Bool) -> AudioRequest {
         let mut request = AudioRequest::default();
-        // request.use_pending_event = use_audio_event;
+        request.use_pending_event = use_audio_event;
         request.requires_check_for_sample = false;
         request
     }
@@ -992,6 +1030,7 @@ impl AudioManager {
             match request.request {
                 RequestType::Stop => {
                     if let Some(handle) = request.get_handle() {
+                        self.active_audio_events.remove(&handle);
                         let _ = with_sound_playback_hook(|hook| {
                             hook.stop(handle);
                         });
@@ -1000,7 +1039,9 @@ impl AudioManager {
                 RequestType::Play => {
                     if let Some(event) = request.get_pending_event() {
                         if let Some(sound_mgr) = &mut self.sound_manager {
-                            let _ = sound_mgr.add_audio_event(event.clone());
+                            if sound_mgr.add_audio_event(event.clone()).is_ok() {
+                                self.track_active_event(event);
+                            }
                         }
                     }
                 }
@@ -1094,19 +1135,64 @@ impl AudioManager {
             self.system_speech_volume,
         ]);
 
-        self.set_volume(0.0, AudioAffect::All);
+        self.system_music_volume = 0.0;
+        self.system_sound_volume = 0.0;
+        self.system_sound_3d_volume = 0.0;
+        self.system_speech_volume = 0.0;
+        self.music_volume = self.script_music_volume * self.system_music_volume;
+        self.sound_volume = self.script_sound_volume * self.system_sound_volume;
+        self.sound_3d_volume = self.script_sound_3d_volume * self.system_sound_3d_volume;
+        self.speech_volume = self.script_speech_volume * self.system_speech_volume;
+        self.volume_has_changed = true;
     }
 
     pub fn regain_focus(&mut self) {
         if let Some(saved) = self.saved_values.take() {
-            self.set_volume(saved[0], AudioAffect::Music);
-            self.set_volume(saved[1], AudioAffect::Sound);
-            self.set_volume(saved[2], AudioAffect::Sound3D);
-            self.set_volume(saved[3], AudioAffect::Speech);
+            self.system_music_volume = saved[0];
+            self.system_sound_volume = saved[1];
+            self.system_sound_3d_volume = saved[2];
+            self.system_speech_volume = saved[3];
+            self.music_volume = self.script_music_volume * self.system_music_volume;
+            self.sound_volume = self.script_sound_volume * self.system_sound_volume;
+            self.sound_3d_volume = self.script_sound_3d_volume * self.system_sound_3d_volume;
+            self.speech_volume = self.script_speech_volume * self.system_speech_volume;
+            self.volume_has_changed = true;
         }
     }
 
+    pub fn pause_audio(&mut self, which: AudioAffect) {
+        let handles: Vec<AudioHandle> = self
+            .active_audio_events
+            .values()
+            .filter(|event| event_matches_audio_affect(event, which))
+            .map(|event| event.get_playing_handle())
+            .collect();
+
+        let _ = with_sound_playback_hook(|hook| {
+            for handle in handles {
+                hook.pause(handle);
+            }
+        });
+    }
+
     pub fn resume_audio(&mut self, which: AudioAffect) {
+        let handles: Vec<AudioHandle> = self
+            .active_audio_events
+            .values()
+            .filter(|event| event_matches_audio_affect(event, which))
+            .map(|event| event.get_playing_handle())
+            .collect();
+
+        if with_sound_playback_hook(|hook| {
+            for handle in handles {
+                hook.resume(handle);
+            }
+        })
+        .is_some()
+        {
+            return;
+        }
+
         if affect_has(which, AudioAffect::SoundEffects) || affect_has(which, AudioAffect::All) {
             if let Some(sound_mgr) = &mut self.sound_manager {
                 sound_mgr.reset();
@@ -1237,22 +1323,19 @@ impl AudioManager {
         // Count how many instances of this event name are already playing.
         let event_name = event.get_event_name();
         let playing_count = with_sound_playback_hook(|hook| {
-            self.audio_requests
-                .iter()
-                .filter(|req| {
-                    if req.request != RequestType::Play {
-                        return false;
-                    }
-                    req.get_pending_event()
-                        .map(|e| {
-                            e.get_event_name() == event_name
-                                && hook.is_playing(e.get_playing_handle())
-                        })
-                        .unwrap_or(false)
+            self.active_audio_events
+                .values()
+                .filter(|e| {
+                    e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle())
                 })
                 .count() as Int
         })
-        .unwrap_or(0);
+        .unwrap_or_else(|| {
+            self.active_audio_events
+                .values()
+                .filter(|e| e.get_event_name() == event_name)
+                .count() as Int
+        });
 
         playing_count >= event_info.limit
     }
@@ -1263,23 +1346,22 @@ impl AudioManager {
         let event_priority = event.get_audio_priority();
 
         with_sound_playback_hook(|hook| {
-            self.audio_requests
-                .iter()
-                .filter_map(|req| {
-                    if req.request != RequestType::Play {
-                        return None;
+            self.active_audio_events
+                .values()
+                .filter_map(|e| {
+                    if hook.is_playing(e.get_playing_handle()) {
+                        Some(e.get_audio_priority())
+                    } else {
+                        None
                     }
-                    req.get_pending_event().and_then(|e| {
-                        if hook.is_playing(e.get_playing_handle()) {
-                            Some(e.get_audio_priority())
-                        } else {
-                            None
-                        }
-                    })
                 })
                 .any(|priority| priority < event_priority)
         })
-        .unwrap_or(false)
+        .unwrap_or_else(|| {
+            self.active_audio_events
+                .values()
+                .any(|e| e.get_audio_priority() < event_priority)
+        })
     }
 
     /// Check if a sound with the same event name is already playing.
@@ -1288,26 +1370,23 @@ impl AudioManager {
         let event_name = event.get_event_name();
 
         with_sound_playback_hook(|hook| {
-            self.audio_requests
-                .iter()
-                .filter_map(|req| {
-                    if req.request != RequestType::Play {
-                        return None;
+            self.active_audio_events
+                .values()
+                .filter_map(|e| {
+                    if e.get_event_name() == event_name && hook.is_playing(e.get_playing_handle()) {
+                        Some(())
+                    } else {
+                        None
                     }
-                    req.get_pending_event().and_then(|e| {
-                        if e.get_event_name() == event_name
-                            && hook.is_playing(e.get_playing_handle())
-                        {
-                            Some(())
-                        } else {
-                            None
-                        }
-                    })
                 })
                 .next()
                 .is_some()
         })
-        .unwrap_or(false)
+        .unwrap_or_else(|| {
+            self.active_audio_events
+                .values()
+                .any(|e| e.get_event_name() == event_name)
+        })
     }
 
     /// Check if a specific object is currently playing a voice sound.
@@ -1316,31 +1395,34 @@ impl AudioManager {
         const ST_VOICE: u32 = 0x00000010;
 
         with_sound_playback_hook(|hook| {
-            self.audio_requests
-                .iter()
-                .filter_map(|req| {
-                    if req.request != RequestType::Play {
-                        return None;
+            self.active_audio_events
+                .values()
+                .filter_map(|e| {
+                    let is_voice = e
+                        .get_audio_event_info()
+                        .map(|info| (info.type_field & ST_VOICE) != 0)
+                        .unwrap_or(false);
+                    if is_voice
+                        && e.get_object_id() == object_id
+                        && hook.is_playing(e.get_playing_handle())
+                    {
+                        Some(())
+                    } else {
+                        None
                     }
-                    req.get_pending_event().and_then(|e| {
-                        let is_voice = e
-                            .get_audio_event_info()
-                            .map(|info| (info.type_field & ST_VOICE) != 0)
-                            .unwrap_or(false);
-                        if is_voice
-                            && e.get_object_id() == object_id
-                            && hook.is_playing(e.get_playing_handle())
-                        {
-                            Some(())
-                        } else {
-                            None
-                        }
-                    })
                 })
                 .next()
                 .is_some()
         })
-        .unwrap_or(false)
+        .unwrap_or_else(|| {
+            self.active_audio_events.values().any(|e| {
+                let is_voice = e
+                    .get_audio_event_info()
+                    .map(|info| (info.type_field & ST_VOICE) != 0)
+                    .unwrap_or(false);
+                is_voice && e.get_object_id() == object_id
+            })
+        })
     }
 
     /// Remove all audio requests from the queue
@@ -1360,13 +1442,10 @@ impl AudioManager {
 
     /// Adjust the volume of currently playing audio events matching the given name
     pub fn adjust_volume_of_playing_audio(&mut self, event_name: &str, new_volume: Real) {
-        for request in &mut self.audio_requests {
-            if request.request == RequestType::Play {
-                if let Some(event) = request.get_pending_event_mut() {
-                    if event.get_event_name() == event_name {
-                        event.set_volume(new_volume);
-                    }
-                }
+        for event in self.active_audio_events.values_mut() {
+            if event.get_event_name() == event_name {
+                event.set_volume(new_volume);
+                let _ = with_sound_playback_hook(|hook| hook.set_event_volume(event));
             }
         }
     }
@@ -1374,19 +1453,14 @@ impl AudioManager {
     /// Remove all playing audio events matching the given name
     pub fn remove_playing_audio(&mut self, event_name: &str) {
         let handles_to_stop: Vec<AudioHandle> = self
-            .audio_requests
-            .iter()
-            .filter_map(|req| {
-                if req.request != RequestType::Play {
-                    return None;
+            .active_audio_events
+            .values()
+            .filter_map(|e| {
+                if e.get_event_name() == event_name {
+                    Some(e.get_playing_handle())
+                } else {
+                    None
                 }
-                req.get_pending_event().and_then(|e| {
-                    if e.get_event_name() == event_name {
-                        Some(e.get_playing_handle())
-                    } else {
-                        None
-                    }
-                })
             })
             .collect();
 
@@ -1398,19 +1472,14 @@ impl AudioManager {
     /// Remove all disabled audio events (volume = 0)
     pub fn remove_all_disabled_audio(&mut self) {
         let handles_to_stop: Vec<AudioHandle> = self
-            .audio_requests
-            .iter()
-            .filter_map(|req| {
-                if req.request != RequestType::Play {
-                    return None;
+            .active_audio_events
+            .values()
+            .filter_map(|e| {
+                if e.get_volume() <= 0.0 {
+                    Some(e.get_playing_handle())
+                } else {
+                    None
                 }
-                req.get_pending_event().and_then(|e| {
-                    if e.get_volume() <= 0.0 {
-                        Some(e.get_playing_handle())
-                    } else {
-                        None
-                    }
-                })
             })
             .collect();
 
@@ -1422,24 +1491,37 @@ impl AudioManager {
     /// Check if there are any 3D-sensitive streams currently playing
     pub fn has_3d_sensitive_streams_playing(&self) -> Bool {
         with_sound_playback_hook(|hook| {
-            self.audio_requests
-                .iter()
-                .filter_map(|req| {
-                    if req.request != RequestType::Play {
-                        return None;
+            self.active_audio_events
+                .values()
+                .filter_map(|e| {
+                    if e.is_positional_audio() && hook.is_playing(e.get_playing_handle()) {
+                        Some(())
+                    } else {
+                        None
                     }
-                    req.get_pending_event().and_then(|e| {
-                        if e.is_positional_audio() && hook.is_playing(e.get_playing_handle()) {
-                            Some(())
-                        } else {
-                            None
-                        }
-                    })
                 })
                 .next()
                 .is_some()
         })
-        .unwrap_or(false)
+        .unwrap_or_else(|| {
+            self.active_audio_events
+                .values()
+                .any(AudioEventRts::is_positional_audio)
+        })
+    }
+
+    fn track_active_event(&mut self, event: &AudioEventRts) {
+        let handle = event.get_playing_handle();
+        if handle >= AHSV_FIRST_HANDLE {
+            self.active_audio_events.insert(handle, event.clone());
+        }
+    }
+
+    fn purge_inactive_events(&mut self) {
+        let _ = with_sound_playback_hook(|hook| {
+            self.active_audio_events
+                .retain(|handle, _| hook.is_playing(*handle));
+        });
     }
 }
 
@@ -1449,21 +1531,32 @@ impl Default for AudioManager {
     }
 }
 
-
 fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
-    static HANDLE: std::sync::OnceLock<OutputStreamHandle> = std::sync::OnceLock::new();
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| {
-        if let Ok((_, h)) = OutputStream::try_default() {
-            let _ = HANDLE.set(h);
+    thread_local! {
+        static STATE: RefCell<Option<(OutputStream, OutputStreamHandle)>> = const { RefCell::new(None) };
+    }
+
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        if state.is_none() {
+            if let Ok((stream, handle)) = OutputStream::try_default() {
+                *state = Some((stream, handle));
+            }
         }
-    });
-    HANDLE.get().cloned()
+
+        state.as_ref().map(|(_, handle)| handle.clone())
+    })
 }
 
 struct RodioPlaybackHook {
-    sinks: Mutex<HashMap<AudioHandle, Arc<Mutex<Sink>>>>,
+    sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
     listener_position: Mutex<Coord3D>,
+}
+
+struct RodioSinkState {
+    sink: Arc<Mutex<Sink>>,
+    base_volume: Real,
+    position: Option<Coord3D>,
 }
 
 impl RodioPlaybackHook {
@@ -1475,24 +1568,53 @@ impl RodioPlaybackHook {
         }
     }
 
-    fn resolve_audio_file_path(&self, event: &AudioEventRts) -> Option<String> {
-        let filename = event.get_filename();
-        if filename.is_empty() {
-            return None;
+    fn build_path_candidates(filename: &str) -> Vec<String> {
+        let trimmed = filename.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
         }
-        let normalized = filename.replace('\\', "/");
-        if std::path::Path::new(&normalized).exists() {
-            return Some(normalized);
+
+        let normalized = trimmed.replace('\\', "/");
+        let mut candidates = vec![trimmed.to_string()];
+        if normalized != trimmed {
+            candidates.push(normalized.clone());
         }
-        let slash_variant = filename.replace('\\', "/");
-        if std::path::Path::new(&slash_variant).exists() {
-            return Some(slash_variant);
+
+        if std::path::Path::new(trimmed).extension().is_none() {
+            for ext in [".wav", ".mp3", ".ogg"] {
+                candidates.push(format!("{trimmed}{ext}"));
+                if normalized != trimmed {
+                    candidates.push(format!("{normalized}{ext}"));
+                }
+            }
         }
-        Some(normalized)
+
+        candidates.sort();
+        candidates.dedup();
+        candidates
+    }
+
+    fn resolve_audio_data(&self, event: &AudioEventRts) -> Option<(String, Vec<u8>)> {
+        for candidate in Self::build_path_candidates(event.get_filename()) {
+            if let Some(data) = AudioManager::read_from_virtual_file_system(&candidate) {
+                return Some((candidate, data));
+            }
+
+            if let Ok(data) = std::fs::read(&candidate) {
+                return Some((candidate, data));
+            }
+        }
+
+        None
     }
 
     fn calculate_3d_volume_falloff(&self, position: &Coord3D) -> Real {
-        let listener = self.listener_position.lock().ok().map(|l| *l).unwrap_or_else(|| Coord3D::new());
+        let listener = self
+            .listener_position
+            .lock()
+            .ok()
+            .map(|l| *l)
+            .unwrap_or_else(|| Coord3D::new());
         let dx = position.x - listener.x;
         let dy = position.y - listener.y;
         let dz = position.z - listener.z;
@@ -1508,6 +1630,21 @@ impl RodioPlaybackHook {
             falloff.clamp(0.0, 1.0)
         }
     }
+
+    fn effective_volume(&self, state: &RodioSinkState) -> Real {
+        let base = state.base_volume.clamp(0.0, 1.0);
+        if let Some(pos) = state.position.as_ref() {
+            base * self.calculate_3d_volume_falloff(pos)
+        } else {
+            base
+        }
+    }
+
+    fn refresh_sink_volume(&self, state: &RodioSinkState) {
+        if let Ok(sink) = state.sink.lock() {
+            sink.set_volume(self.effective_volume(state));
+        }
+    }
 }
 
 impl SoundPlaybackHook for RodioPlaybackHook {
@@ -1516,67 +1653,102 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         if handle == 0 {
             return Err("No handle assigned".to_string());
         }
-        let file_path = self.resolve_audio_file_path(event).ok_or_else(|| {
-            format!("Could not resolve file path for event '{}'", event.get_event_name())
-        })?;
-        let audio_data = std::fs::read(&file_path).map_err(|e| {
-            format!("Failed to read audio file '{}': {}", file_path, e)
+        let (file_path, audio_data) = self.resolve_audio_data(event).ok_or_else(|| {
+            format!(
+                "Could not resolve audio data for event '{}' (filename '{}')",
+                event.get_event_name(),
+                event.get_filename()
+            )
         })?;
         let cursor = Cursor::new(audio_data);
-        let source = Decoder::new(cursor).map_err(|e| {
-            format!("Failed to decode audio file '{}': {}", file_path, e)
-        })?;
-        let stream_handle = get_rodio_stream_handle().ok_or_else(|| {
-            "Audio output stream not available".to_string()
-        })?;
-        let sink = Sink::try_new(&stream_handle).map_err(|e| {
-            format!("Failed to create audio sink: {}", e)
-        })?;
+        let source = Decoder::new(cursor)
+            .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
+        let stream_handle = get_rodio_stream_handle()
+            .ok_or_else(|| "Audio output stream not available".to_string())?;
+        let sink = Sink::try_new(&stream_handle)
+            .map_err(|e| format!("Failed to create audio sink: {}", e))?;
         let volume = event.get_volume().clamp(0.0, 1.0);
-        sink.set_volume(volume);
         let pitch = event.get_effective_pitch();
         if (pitch - 1.0).abs() > 0.01 {
             sink.append(source.speed(pitch));
         } else {
             sink.append(source);
         }
-        if event.is_positional_audio() {
-            let pos = event.get_position();
-            let distance_volume = self.calculate_3d_volume_falloff(pos);
-            sink.set_volume(volume * distance_volume);
-        }
-        self.sinks.lock().unwrap().insert(handle, Arc::new(Mutex::new(sink)));
+        let state = RodioSinkState {
+            sink: Arc::new(Mutex::new(sink)),
+            base_volume: volume,
+            position: event.is_positional_audio().then(|| *event.get_position()),
+        };
+        self.refresh_sink_volume(&state);
+        self.sinks.lock().unwrap().insert(handle, state);
         Ok(())
     }
 
     fn stop(&self, handle: AudioHandle) {
-        if let Some(sink) = self.sinks.lock().unwrap().remove(&handle) {
-            let s = sink.lock().unwrap();
+        if let Some(state) = self.sinks.lock().unwrap().remove(&handle) {
+            let s = state.sink.lock().unwrap();
             s.stop();
         }
     }
 
     fn pause(&self, handle: AudioHandle) {
-        if let Some(sink) = self.sinks.lock().unwrap().get(&handle) {
-            let s = sink.lock().unwrap();
+        if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
+            let s = state.sink.lock().unwrap();
             s.pause();
         }
     }
 
     fn resume(&self, handle: AudioHandle) {
-        if let Some(sink) = self.sinks.lock().unwrap().get(&handle) {
-            let s = sink.lock().unwrap();
+        if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
+            let s = state.sink.lock().unwrap();
             s.play();
         }
     }
 
     fn is_playing(&self, handle: AudioHandle) -> bool {
-        if let Some(sink) = self.sinks.lock().unwrap().get(&handle) {
-            let s = sink.lock().unwrap();
+        let mut sinks = self.sinks.lock().unwrap();
+        let Some(state) = sinks.get(&handle) else {
+            return false;
+        };
+
+        let is_playing = if let Ok(s) = state.sink.lock() {
             !s.empty()
         } else {
             false
+        };
+
+        if !is_playing {
+            sinks.remove(&handle);
         }
+
+        is_playing
+    }
+
+    fn set_listener_position(&self, position: &Coord3D) {
+        if let Ok(mut listener) = self.listener_position.lock() {
+            *listener = *position;
+        }
+        if let Ok(sinks) = self.sinks.lock() {
+            for state in sinks.values() {
+                if state.position.is_some() {
+                    self.refresh_sink_volume(state);
+                }
+            }
+        }
+    }
+
+    fn set_event_volume(&self, event: &AudioEventRts) {
+        let handle = event.get_playing_handle();
+        let mut sinks = self.sinks.lock().unwrap();
+        let Some(state) = sinks.get_mut(&handle) else {
+            return;
+        };
+
+        state.base_volume = event.get_volume();
+        if event.is_positional_audio() {
+            state.position = Some(*event.get_position());
+        }
+        self.refresh_sink_volume(state);
     }
 }
 

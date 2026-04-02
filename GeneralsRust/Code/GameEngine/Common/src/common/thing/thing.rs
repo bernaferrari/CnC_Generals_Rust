@@ -23,31 +23,27 @@ pub type KindOfMaskType = u64;
 
 /// Global terrain height provider, registered from GameLogic during init.
 /// Returns ground height at (x, y). Falls back to 0.0 if not registered.
-static GROUND_HEIGHT_PROVIDER: OnceLock<
-    Mutex<Box<dyn Fn(f32, f32) -> f32 + Send + Sync>>,
-> = OnceLock::new();
+static GROUND_HEIGHT_PROVIDER: OnceLock<Mutex<Box<dyn Fn(f32, f32) -> f32 + Send + Sync>>> =
+    OnceLock::new();
 
 /// Global underwater check provider, registered from GameLogic during init.
 /// Returns (is_underwater, water_level). Falls back to (false, 0.0) if not registered.
-static UNDERWATER_PROVIDER: OnceLock<
-    Mutex<Box<dyn Fn(f32, f32) -> (bool, f32) + Send + Sync>>,
-> = OnceLock::new();
+static UNDERWATER_PROVIDER: OnceLock<Mutex<Box<dyn Fn(f32, f32) -> (bool, f32) + Send + Sync>>> =
+    OnceLock::new();
 
 /// Register a terrain height provider from the GameLogic layer.
 /// This is called once during game initialization.
 pub fn register_terrain_height_provider(
     provider: impl Fn(f32, f32) -> f32 + Send + Sync + 'static,
 ) {
-    GROUND_HEIGHT_PROVIDER
-        .get_or_init(|| Mutex::new(Box::new(provider)));
+    GROUND_HEIGHT_PROVIDER.get_or_init(|| Mutex::new(Box::new(provider)));
 }
 
 /// Register an underwater check provider from the GameLogic layer.
 pub fn register_underwater_provider(
     provider: impl Fn(f32, f32) -> (bool, f32) + Send + Sync + 'static,
 ) {
-    UNDERWATER_PROVIDER
-        .get_or_init(|| Mutex::new(Box::new(provider)));
+    UNDERWATER_PROVIDER.get_or_init(|| Mutex::new(Box::new(provider)));
 }
 
 /// Cache flags for optimizing recalculations

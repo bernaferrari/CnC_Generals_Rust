@@ -142,6 +142,11 @@ fn convert_game_message(message: &GameMessage) -> Option<Command> {
         }
         Exit(unit) => Some(single_object_command(CommandType::Exit, *unit, player)),
         Evacuate => Some(basic_command(CommandType::Evacuate, player)),
+        EvacuateAtLocation(coord) => {
+            let mut command = basic_command(CommandType::Evacuate, player);
+            command.append_location_argument(to_logic_coord(coord));
+            Some(command)
+        }
         ExecuteRailedTransport => Some(basic_command(CommandType::ExecuteRailedTransport, player)),
         DoAttackSquad(units) => Some(list_object_command(
             CommandType::DoAttackSquad,
@@ -595,4 +600,39 @@ fn to_logic_region(region: &IRegion2D) -> LogicRegion2D {
     let lo = IVec2::new(region.x, region.y);
     let hi = IVec2::new(region.x + region.width, region.y + region.height);
     LogicRegion2D::new(lo, hi)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gamelogic::commands::command::CommandArgumentType;
+
+    #[test]
+    fn convert_evacuate_without_location_uses_basic_command() {
+        let msg = GameMessage::with_player(GameMessageType::Evacuate, 3);
+        let command = convert_game_message(&msg).expect("evacuate should route");
+
+        assert_eq!(command.get_type(), CommandType::Evacuate);
+        assert_eq!(command.get_argument_count(), 0);
+        assert!(command.get_argument(0).is_none());
+        assert_eq!(command.get_player_index(), 3);
+    }
+
+    #[test]
+    fn convert_evacuate_with_location_appends_location_argument() {
+        let target = Coord3D::new(12.0, 34.0, 5.0);
+        let msg = GameMessage::with_player(GameMessageType::EvacuateAtLocation(target), 7);
+        let command = convert_game_message(&msg).expect("targeted evacuate should route");
+
+        assert_eq!(command.get_type(), CommandType::Evacuate);
+        assert_eq!(command.get_player_index(), 7);
+        match command.get_argument(0) {
+            Some(CommandArgumentType::Location(location)) => {
+                assert_eq!(location.x, 12.0);
+                assert_eq!(location.y, 34.0);
+                assert_eq!(location.z, 5.0);
+            }
+            other => panic!("expected location argument, got {other:?}"),
+        }
+    }
 }

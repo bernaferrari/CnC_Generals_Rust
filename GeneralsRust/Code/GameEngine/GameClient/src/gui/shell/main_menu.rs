@@ -47,6 +47,7 @@ use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
 use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::system::SubsystemInterface;
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -57,7 +58,6 @@ use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::tear_down_gamespy;
 use game_network::gamespy::peer_thread::get_peer_message_queue;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
-use crate::system::SubsystemInterface;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -2337,7 +2337,10 @@ mod tests {
         assert!(focus);
 
         focus = false;
-        assert!(MainMenu::write_input_focus_response(0, (&mut focus as *mut bool) as usize));
+        assert!(MainMenu::write_input_focus_response(
+            0,
+            (&mut focus as *mut bool) as usize
+        ));
         assert!(!focus);
     }
 
@@ -2387,7 +2390,8 @@ mod tests {
             global.shell_map_on = false;
         }
 
-        let previous_first_time = FIRST_TIME_RUNNING_GAME.swap(false, std::sync::atomic::Ordering::SeqCst);
+        let previous_first_time =
+            FIRST_TIME_RUNNING_GAME.swap(false, std::sync::atomic::Ordering::SeqCst);
 
         let mut menu = MainMenu::new();
         let (layout, _info) = with_window_manager(|manager| {
@@ -2502,8 +2506,7 @@ mod tests {
 
         let mut skirmish_state = MainMenuState::default();
         skirmish_state.window_ids = ids.clone();
-        menu
-            .handle_button_selected(&mut skirmish_state, ids.skirmish_id)
+        menu.handle_button_selected(&mut skirmish_state, ids.skirmish_id)
             .unwrap();
         let skirmish_hooks = skirmish_state
             .pending_actions
@@ -2517,8 +2520,7 @@ mod tests {
 
         let mut network_state = MainMenuState::default();
         network_state.window_ids = ids.clone();
-        menu
-            .handle_button_selected(&mut network_state, ids.network_id)
+        menu.handle_button_selected(&mut network_state, ids.network_id)
             .unwrap();
         let network_hooks = network_state
             .pending_actions
@@ -2533,8 +2535,7 @@ mod tests {
         let mut options_state = MainMenuState::default();
         options_state.window_ids = ids;
         let options_id = options_state.window_ids.options_id;
-        menu
-            .handle_button_selected(&mut options_state, options_id)
+        menu.handle_button_selected(&mut options_state, options_id)
             .unwrap();
         let options_hooks = options_state
             .pending_actions

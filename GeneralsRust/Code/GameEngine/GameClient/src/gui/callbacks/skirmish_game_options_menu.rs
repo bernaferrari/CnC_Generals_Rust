@@ -7,8 +7,8 @@ use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, with_window_manager, GameWindow,
-    SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, with_window_manager,
+    GameWindow, SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     WindowStatus,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
@@ -1184,12 +1184,15 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         return;
     }
 
-    let mut max_fps = with_window_manager(|manager| manager.get_window_by_id(state.slider_game_speed_id))
-        .and_then(|slider_window| {
-            let mut slider_guard = slider_window.borrow_mut();
-            slider_guard.horizontal_slider_mut().map(|slider| slider.value())
-        })
-        .unwrap_or(MAX_FPS_SLIDER_VALUE);
+    let mut max_fps =
+        with_window_manager(|manager| manager.get_window_by_id(state.slider_game_speed_id))
+            .and_then(|slider_window| {
+                let mut slider_guard = slider_window.borrow_mut();
+                slider_guard
+                    .horizontal_slider_mut()
+                    .map(|slider| slider.value())
+            })
+            .unwrap_or(MAX_FPS_SLIDER_VALUE);
     if max_fps > MAX_FPS_SLIDER_VALUE {
         max_fps = GREATER_NO_FPS_LIMIT;
     }
@@ -1378,7 +1381,9 @@ pub fn skirmish_game_options_menu_init(
         if let Some(start_button) =
             with_window_manager(|manager| manager.get_window_by_id(state.button_start_id))
         {
-            let _ = start_button.borrow_mut().set_text(&GameText::fetch("GUI:Start"));
+            let _ = start_button
+                .borrow_mut()
+                .set_text(&GameText::fetch("GUI:Start"));
         }
 
         state.is_shutting_down = false;

@@ -14,6 +14,8 @@ use crate::core::DrawableId;
 use crate::system::SubsystemInterface;
 use game_engine::common::ini::INI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::System::XferVersion;
+use game_engine::{Xfer, XferMode, XferStatus};
 
 /// Maximum number of keyframes for particle animation
 pub const MAX_KEYFRAMES: usize = 8;
@@ -83,6 +85,14 @@ impl ParticlePriorityType {
             _ => None,
         }
     }
+}
+
+fn particle_priority_to_u8(priority: ParticlePriorityType) -> u8 {
+    priority as u8
+}
+
+fn particle_priority_from_u8(value: u8) -> ParticlePriorityType {
+    ParticlePriorityType::from_index(value as usize).unwrap_or(ParticlePriorityType::Critical)
 }
 
 /// Particle shader types (matches C++ exactly)
@@ -558,11 +568,24 @@ impl ParticleSystemManager {
         create_slaves: bool,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
         let system_id = self.next_system_id;
-        self.next_system_id += 1;
+        self.create_particle_system_with_id(template, system_id, create_slaves)
+    }
+
+    /// Create a particle system using an explicit ID (used by save/load restore paths).
+    pub fn create_particle_system_with_id(
+        &mut self,
+        template: &Arc<ParticleSystemTemplate>,
+        system_id: ParticleSystemId,
+        create_slaves: bool,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
+        if system_id == INVALID_PARTICLE_SYSTEM_ID {
+            return Err(ParticleSystemError::InvalidSystemId(system_id));
+        }
 
         let system = ParticleSystem::new(template.clone(), system_id, create_slaves);
         self.active_systems.insert(system_id, Box::new(system));
-        self.system_count += 1;
+        self.system_count = self.active_systems.len();
+        self.next_system_id = self.next_system_id.max(system_id.saturating_add(1));
 
         Ok(system_id)
     }
@@ -1093,6 +1116,154 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
     })?;
 
     *manager_guard = Some(ParticleSystemManager::new());
+    Ok(())
+}
+
+/// Transfer save/load state for the particle system manager block.
+///
+/// This mirrors CHUNK_ParticleSystem ownership in C++ by persisting the runtime
+/// manager bookkeeping (LOD controls, deterministic ID counters, frame metadata).
+/// Active particle system instances are currently rebuilt by gameplay systems.
+pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 2;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let mut manager_guard =
+        get_particle_system_manager_mut().map_err(|_| XferStatus::InvalidData)?;
+    let manager = manager_guard.get_or_insert_with(ParticleSystemManager::new);
+
+    xfer.xfer_unsigned_int(&mut manager.next_system_id)?;
+    xfer.xfer_unsigned_int(&mut manager.last_logic_frame_update)?;
+    xfer.xfer_int(&mut manager.local_player_index)?;
+
+    let mut max_particle_count = manager.max_particle_count as u32;
+    let mut max_field_particle_count = manager.max_field_particle_count as u32;
+    xfer.xfer_unsigned_int(&mut max_particle_count)?;
+    xfer.xfer_unsigned_int(&mut max_field_particle_count)?;
+    manager.max_particle_count = max_particle_count as usize;
+    manager.max_field_particle_count = max_field_particle_count as usize;
+
+    let mut min_dynamic_priority = particle_priority_to_u8(manager.min_dynamic_particle_priority);
+    let mut min_dynamic_skip_priority =
+        particle_priority_to_u8(manager.min_dynamic_particle_skip_priority);
+    xfer.xfer_unsigned_byte(&mut min_dynamic_priority)?;
+    xfer.xfer_unsigned_byte(&mut min_dynamic_skip_priority)?;
+    manager.min_dynamic_particle_priority = particle_priority_from_u8(min_dynamic_priority);
+    manager.min_dynamic_particle_skip_priority =
+        particle_priority_from_u8(min_dynamic_skip_priority);
+
+    xfer.xfer_unsigned_int(&mut manager.particle_skip_mask)?;
+    xfer.xfer_unsigned_int(&mut manager.particle_generation_count)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        manager.active_systems.clear();
+        manager.particle_count = 0;
+        manager.field_particle_count = 0;
+        manager.system_count = 0;
+        manager.on_screen_particle_count = 0;
+    }
+
+    if version >= 2 {
+        let mut systems = if xfer.get_xfer_mode() == XferMode::Load {
+            Vec::new()
+        } else {
+            let mut items: Vec<_> = manager
+                .active_systems
+                .values()
+                .map(|system| {
+                    let is_serializable = !system.is_destroyed() && system.is_saveable();
+                    let template_name = if is_serializable {
+                        system.template().name().to_string()
+                    } else {
+                        String::new()
+                    };
+                    (
+                        system.system_id(),
+                        template_name,
+                        system.attached_drawable_id().0,
+                        system.attached_object().unwrap_or(0),
+                        system.position(),
+                    )
+                })
+                .collect();
+            items.sort_by_key(|(system_id, _, _, _, _)| *system_id);
+            items
+        };
+
+        let mut system_count = systems.len() as u32;
+        xfer.xfer_unsigned_int(&mut system_count)?;
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            systems.reserve(system_count as usize);
+            for _ in 0..system_count {
+                let mut system_id = INVALID_PARTICLE_SYSTEM_ID;
+                let mut template_name = String::new();
+                let mut attached_drawable_id = 0u32;
+                let mut attached_object_id = 0u32;
+                let mut position_x = 0.0f32;
+                let mut position_y = 0.0f32;
+                let mut position_z = 0.0f32;
+                xfer.xfer_unsigned_int(&mut system_id)?;
+                xfer.xfer_string(&mut template_name)?;
+                xfer.xfer_unsigned_int(&mut attached_drawable_id)?;
+                xfer.xfer_unsigned_int(&mut attached_object_id)?;
+                xfer.xfer_real(&mut position_x)?;
+                xfer.xfer_real(&mut position_y)?;
+                xfer.xfer_real(&mut position_z)?;
+                systems.push((
+                    system_id,
+                    template_name,
+                    attached_drawable_id,
+                    attached_object_id,
+                    Point3::new(position_x, position_y, position_z),
+                ));
+            }
+
+            let mut max_loaded_system_id = manager.next_system_id.saturating_sub(1);
+            for (system_id, template_name, attached_drawable_id, attached_object_id, position) in
+                systems
+            {
+                if template_name.is_empty() || system_id == INVALID_PARTICLE_SYSTEM_ID {
+                    continue;
+                }
+                let Some(template) = manager.find_template(template_name.as_str()) else {
+                    return Err(XferStatus::InvalidData);
+                };
+                manager
+                    .create_particle_system_with_id(&template, system_id, true)
+                    .map_err(|_| XferStatus::InvalidData)?;
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_position(position);
+                    if attached_drawable_id != 0 {
+                        system.attach_to_drawable(DrawableId(attached_drawable_id));
+                    }
+                    if attached_object_id != 0 {
+                        system.attach_to_object(attached_object_id);
+                    }
+                }
+                max_loaded_system_id = max_loaded_system_id.max(system_id);
+            }
+
+            manager.next_system_id = manager
+                .next_system_id
+                .max(max_loaded_system_id.saturating_add(1));
+            manager.system_count = manager.active_systems.len();
+        } else {
+            for (system_id, template_name, attached_drawable_id, attached_object_id, position) in
+                &mut systems
+            {
+                xfer.xfer_unsigned_int(system_id)?;
+                xfer.xfer_string(template_name)?;
+                xfer.xfer_unsigned_int(attached_drawable_id)?;
+                xfer.xfer_unsigned_int(attached_object_id)?;
+                xfer.xfer_real(&mut position.x)?;
+                xfer.xfer_real(&mut position.y)?;
+                xfer.xfer_real(&mut position.z)?;
+            }
+        }
+    }
+
     Ok(())
 }
 
