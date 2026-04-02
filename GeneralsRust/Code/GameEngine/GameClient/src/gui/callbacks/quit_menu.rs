@@ -157,7 +157,7 @@ fn exit_quit_menu() {
     stream.append_message(GameMessageType::ClearGameData);
 
     if !TheGameLogic::is_in_multiplayer_game() {
-        TheGameLogic::set_game_paused(false, false);
+        TheGameLogic::set_game_paused(false, true);
     }
     TheInGameUI::set_client_quiet(true);
 }
@@ -286,7 +286,7 @@ pub fn hide_quit_menu() {
         });
     }
     if !TheGameLogic::is_in_multiplayer_game() {
-        TheGameLogic::set_game_paused(false, false);
+        TheGameLogic::set_game_paused(false, true);
     }
 }
 
@@ -346,7 +346,7 @@ pub fn toggle_quit_menu() {
             });
         }
         if !TheGameLogic::is_in_multiplayer_game() {
-            TheGameLogic::set_game_paused(false, false);
+            TheGameLogic::set_game_paused(false, true);
         }
         if let Some(layout) = state.quit_menu_layout.as_ref() {
             let group = if state
@@ -435,7 +435,7 @@ pub fn toggle_quit_menu() {
                         .set_text(&GameText::fetch("GUI:Surrender"));
                 }
             } else {
-                TheGameLogic::set_game_paused(true, false);
+                TheGameLogic::set_game_paused(true, true);
             }
 
             let disable_restart = if TheGameLogic::is_in_skirmish_game() {
@@ -474,7 +474,7 @@ pub fn toggle_quit_menu() {
                         .set_text(&GameText::fetch("GUI:ExitMission"));
                 }
             }
-            TheGameLogic::set_game_paused(true, false);
+            TheGameLogic::set_game_paused(true, true);
         }
 
         if let Some(window) = state.quit_confirmation_window.take() {

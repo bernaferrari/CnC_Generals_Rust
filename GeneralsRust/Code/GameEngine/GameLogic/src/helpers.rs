@@ -711,6 +711,7 @@ pub struct TheGameLogic;
 static GAME_PAUSED: AtomicBool = AtomicBool::new(false);
 static GAME_PAUSE_MUSIC: AtomicBool = AtomicBool::new(false);
 static INTRO_MOVIE_PLAYING: AtomicBool = AtomicBool::new(false);
+static START_NEW_GAME_REQUESTED: AtomicBool = AtomicBool::new(false);
 static GAME_START_RANK_POINTS: AtomicI32 = AtomicI32::new(0);
 static GLOBAL_DIFFICULTY: AtomicI32 = AtomicI32::new(0);
 static LOCAL_ALLIED_VICTORY: AtomicBool = AtomicBool::new(false);
@@ -846,8 +847,35 @@ impl TheGameLogic {
 
     /// Set the paused state of the game (matches C++ TheGameLogic::setGamePaused).
     pub fn set_game_paused(paused: Bool, pause_music: Bool) {
+        let current = GAME_PAUSED.load(Ordering::Relaxed);
+        if current == paused {
+            return;
+        }
+
         GAME_PAUSED.store(paused, Ordering::Relaxed);
-        GAME_PAUSE_MUSIC.store(pause_music, Ordering::Relaxed);
+        GAME_PAUSE_MUSIC.store(paused && pause_music, Ordering::Relaxed);
+
+        if let Some(hooks) = game_pause_hooks() {
+            hooks.on_game_pause_state_changed(paused);
+        }
+
+        if let Some(audio) = TheAudio::get() {
+            if paused {
+                if pause_music {
+                    audio.pause_audio(EngineAudioAffect::All);
+                } else {
+                    audio.pause_audio(EngineAudioAffect::Sound);
+                    audio.pause_audio(EngineAudioAffect::Sound3D);
+                    audio.pause_audio(EngineAudioAffect::Speech);
+                }
+            } else if pause_music {
+                audio.resume_audio(EngineAudioAffect::All);
+            } else {
+                audio.resume_audio(EngineAudioAffect::Sound);
+                audio.resume_audio(EngineAudioAffect::Sound3D);
+                audio.resume_audio(EngineAudioAffect::Speech);
+            }
+        }
     }
 
     /// Return the paused state of the game.
@@ -926,6 +954,7 @@ impl TheGameLogic {
     /// Prepare for a new game (matches C++ GameLogic::prepareNewGame).
     pub fn prepare_new_game(game_mode: Int, difficulty: Int, rank_points: Int) {
         TheScriptEngine::set_global_difficulty(difficulty);
+        Self::clear_start_new_game_request();
         if let Some(hooks) = prepare_new_game_hooks() {
             hooks.ensure_background_window();
         }
@@ -949,6 +978,13 @@ impl TheGameLogic {
 
     /// Start a prepared game (C++ parity: GameLogic::startNewGame(FALSE)).
     pub fn start_new_game(is_load_game: Bool) -> Result<(), String> {
+        if !is_load_game {
+            Self::request_start_new_game();
+            return Ok(());
+        }
+
+        Self::clear_start_new_game_request();
+
         let map_path = get_engine_global_data()
             .map(|data| data.read().map_name.clone())
             .unwrap_or_default();
@@ -997,6 +1033,21 @@ impl TheGameLogic {
         }
 
         init_result
+    }
+
+    /// Request that the next game-logic update complete a staged new-game start.
+    pub fn request_start_new_game() {
+        START_NEW_GAME_REQUESTED.store(true, Ordering::Relaxed);
+    }
+
+    /// Check whether a staged new-game start is waiting to be completed.
+    pub fn is_start_new_game_requested() -> Bool {
+        START_NEW_GAME_REQUESTED.load(Ordering::Relaxed)
+    }
+
+    /// Clear any staged new-game start request.
+    pub fn clear_start_new_game_request() {
+        START_NEW_GAME_REQUESTED.store(false, Ordering::Relaxed);
     }
 
     fn to_init_game_mode(mode: Int) -> crate::system::game_initialization::GameMode {
@@ -2653,14 +2704,31 @@ pub trait PrepareNewGameHooks: Send + Sync {
 
 static PREPARE_NEW_GAME_HOOKS: OnceLock<Arc<dyn PrepareNewGameHooks>> = OnceLock::new();
 
+/// Hooks provided by GameClient so pause transitions can mirror the original
+/// C++ cursor/input restore behavior.
+pub trait GamePauseHooks: Send + Sync {
+    fn on_game_pause_state_changed(&self, paused: Bool);
+}
+
+static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
+
 /// Hooks provided by GameClient so gameplay-side audio locality can query
 /// observer camera focus when the local player is dead/spectating.
 pub trait ObserverAudioLocalityHooks: Send + Sync {
     fn get_observer_look_at_player_index(&self) -> Option<Int>;
 }
 
+/// Hooks provided by GameClient so gameplay-side audio view resolver can pull
+/// tactical-view/camera state instead of using zeroed placeholders.
+pub trait ObserverAudioViewHooks: Send + Sync {
+    fn get_tactical_view_position(&self) -> Option<(Real, Real, Real)>;
+    fn get_tactical_view_angle(&self) -> Option<Real>;
+    fn get_3d_camera_position(&self) -> Option<(Real, Real, Real)>;
+}
+
 static OBSERVER_AUDIO_LOCALITY_HOOKS: OnceLock<Arc<dyn ObserverAudioLocalityHooks>> =
     OnceLock::new();
+static OBSERVER_AUDIO_VIEW_HOOKS: OnceLock<Arc<dyn ObserverAudioViewHooks>> = OnceLock::new();
 
 pub fn register_prepare_new_game_hooks(hooks: Arc<dyn PrepareNewGameHooks>) -> bool {
     PREPARE_NEW_GAME_HOOKS.set(hooks).is_ok()
@@ -2670,12 +2738,28 @@ fn prepare_new_game_hooks() -> Option<&'static Arc<dyn PrepareNewGameHooks>> {
     PREPARE_NEW_GAME_HOOKS.get()
 }
 
+pub fn register_game_pause_hooks(hooks: Arc<dyn GamePauseHooks>) -> bool {
+    GAME_PAUSE_HOOKS.set(hooks).is_ok()
+}
+
+fn game_pause_hooks() -> Option<&'static Arc<dyn GamePauseHooks>> {
+    GAME_PAUSE_HOOKS.get()
+}
+
 pub fn register_observer_audio_locality_hooks(hooks: Arc<dyn ObserverAudioLocalityHooks>) -> bool {
     OBSERVER_AUDIO_LOCALITY_HOOKS.set(hooks).is_ok()
 }
 
 fn observer_audio_locality_hooks() -> Option<&'static Arc<dyn ObserverAudioLocalityHooks>> {
     OBSERVER_AUDIO_LOCALITY_HOOKS.get()
+}
+
+pub fn register_observer_audio_view_hooks(hooks: Arc<dyn ObserverAudioViewHooks>) -> bool {
+    OBSERVER_AUDIO_VIEW_HOOKS.set(hooks).is_ok()
+}
+
+fn observer_audio_view_hooks() -> Option<&'static Arc<dyn ObserverAudioViewHooks>> {
+    OBSERVER_AUDIO_VIEW_HOOKS.get()
 }
 
 /// Global data singleton (matches C++ TheGlobalData)
@@ -4664,21 +4748,33 @@ struct GameLogicAudioViewResolver;
 
 impl AudioViewResolver for GameLogicAudioViewResolver {
     fn get_tactical_view_position(&self) -> EngineCoord3D {
-        // C++ reads TheTacticalView->getPosition().
-        // Until the game client tactical view is wired up, return a reasonable
-        // default (center of map, typical camera height).
+        if let Some((x, y, z)) = observer_audio_view_hooks()
+            .and_then(|hooks| hooks.get_tactical_view_position())
+        {
+            return EngineCoord3D { x, y, z };
+        }
+
+        // C++ reads TheTacticalView->getPosition(). Fallback remains deterministic.
         EngineCoord3D { x: 0.0, y: 0.0, z: 0.0 }
     }
 
     fn get_tactical_view_angle(&self) -> f32 {
-        // C++ reads TheTacticalView->getAngle().
-        // Default angle of 0.0 (north-facing).
+        if let Some(angle) = observer_audio_view_hooks().and_then(|hooks| hooks.get_tactical_view_angle()) {
+            return angle;
+        }
+
+        // C++ reads TheTacticalView->getAngle(). Fallback remains deterministic.
         0.0
     }
 
     fn get_3d_camera_position(&self) -> EngineCoord3D {
-        // C++ reads TheTacticalView->get3DCameraPosition().
-        // Return the tactical view position until the real camera is wired.
+        if let Some((x, y, z)) = observer_audio_view_hooks()
+            .and_then(|hooks| hooks.get_3d_camera_position())
+        {
+            return EngineCoord3D { x, y, z };
+        }
+
+        // C++ reads TheTacticalView->get3DCameraPosition(). Fallback remains deterministic.
         EngineCoord3D { x: 0.0, y: 0.0, z: 0.0 }
     }
 
@@ -4873,11 +4969,19 @@ impl TheAudio {
         }
     }
 
+    pub fn update(&self) {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        let manager_lock = manager.lock();
+        if let Ok(mut guard) = manager_lock {
+            guard.update();
+        }
+    }
+
     pub fn pause_audio(&self, affect: EngineAudioAffect) {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let manager_lock = manager.lock();
         if let Ok(mut guard) = manager_lock {
-            guard.set_on(false, affect);
+            guard.pause_audio(affect);
         }
     }
 
@@ -4885,7 +4989,7 @@ impl TheAudio {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let manager_lock = manager.lock();
         if let Ok(mut guard) = manager_lock {
-            guard.set_on(true, affect);
+            guard.resume_audio(affect);
         }
     }
 
@@ -4909,8 +5013,7 @@ impl TheAudio {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let manager_lock = manager.lock();
         if let Ok(mut guard) = manager_lock {
-            // `game_audio` does not expose hard delete-by-name yet; force-disable as best-effort parity.
-            guard.set_audio_event_volume_override(event_name.to_string(), 0.0);
+            guard.remove_playing_audio(event_name);
         }
     }
 
@@ -4918,8 +5021,7 @@ impl TheAudio {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let manager_lock = manager.lock();
         if let Ok(mut guard) = manager_lock {
-            // Clear all per-event overrides (including disabled entries).
-            guard.set_audio_event_volume_override(String::new(), -1.0);
+            guard.remove_all_disabled_audio();
         }
     }
 }
@@ -5194,6 +5296,14 @@ impl TheScriptEngine {
             .read()
             .ok()
             .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen_script()))
+            .unwrap_or(false)
+    }
+
+    pub fn is_time_frozen_debug() -> Bool {
+        crate::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen_debug()))
             .unwrap_or(false)
     }
 
