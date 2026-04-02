@@ -1,6 +1,7 @@
 //! Meta event translator for key and mouse remapping.
 
 use std::collections::HashSet;
+use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
@@ -28,6 +29,7 @@ use crate::core::script_action_handler::{
     stop_script_display_movie, toggle_script_display_letter_box,
     toggle_script_display_movie_capture,
 };
+use crate::drawable::drawable_manager::with_drawable_manager_ref;
 use crate::display::display::DebugDisplayCallback;
 use crate::display::view::{with_tactical_view, FilterMode, FilterType};
 use crate::gui::shell::get_shell;
@@ -126,6 +128,8 @@ static OBJECTIVE_MOVIE_INDEX: OnceLock<RwLock<i32>> = OnceLock::new();
 static MOTION_BLUR_ZOOM_SATURATE: OnceLock<RwLock<bool>> = OnceLock::new();
 static CYCLE_LOD_LEVEL_STATE: OnceLock<RwLock<DynamicGameLODLevel>> = OnceLock::new();
 static LAST_PLANE_LOCK_OBJECT_ID: OnceLock<RwLock<Option<u32>>> = OnceLock::new();
+static VTUNE_ENABLED: OnceLock<RwLock<bool>> = OnceLock::new();
+static SKATE_DISTANCE_OVERRIDE: OnceLock<RwLock<f32>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 
@@ -435,7 +439,9 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEBUG_OBJECT_ID_PERFORMANCE"
         | "DEBUG_SLEEPY_UPDATE_PERFORMANCE"
         | "DEMO_CYCLE_LOD_LEVEL"
+        | "DEMO_DECR_ANIM_SKATE_SPEED"
         | "DEMO_DESHROUD"
+        | "DEMO_DUMP_ASSETS"
         | "DEMO_ENSHROUD"
         | "DEMO_FREE_BUILD"
         | "DEMO_GIVE_ALL_SCIENCES"
@@ -443,6 +449,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_GIVE_SCIENCEPURCHASEPOINTS"
         | "DEMO_GIVE_VETERANCY"
         | "DEMO_INSTANT_BUILD"
+        | "DEMO_INCR_ANIM_SKATE_SPEED"
         | "DEMO_KILL_ALL_ENEMIES"
         | "DEMO_KILL_SELECTION"
         | "DEMO_LOCK_CAMERA_TO_PLANES"
@@ -496,6 +503,8 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_VISIONDEBUG"
         | "DEMO_TOGGLE_WATERPLANE"
         | "DEMO_TOGGLE_ZOOM_LOCK"
+        | "DEMO_VTUNE_OFF"
+        | "DEMO_VTUNE_ON"
         | "HELP"
         | "DEMO_WIN" => true,
         _ => {
@@ -518,17 +527,14 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_BEGIN_ADJUST_PITCH" => true,
         "DEMO_CYCLE_EXTENT_TYPE" => true,
         "DEMO_DEBUG_SELECTION" => true,
-        "DEMO_DECR_ANIM_SKATE_SPEED" => true,
         "DEMO_DECR_EXTENT_HEIGHT" => true,
         "DEMO_DECR_EXTENT_HEIGHT_LARGE" => true,
         "DEMO_DECR_EXTENT_MAJOR" => true,
         "DEMO_DECR_EXTENT_MAJOR_LARGE" => true,
         "DEMO_DECR_EXTENT_MINOR" => true,
         "DEMO_DECR_EXTENT_MINOR_LARGE" => true,
-        "DEMO_DUMP_ASSETS" => true,
         "DEMO_END_ADJUST_FOV" => true,
         "DEMO_END_ADJUST_PITCH" => true,
-        "DEMO_INCR_ANIM_SKATE_SPEED" => true,
         "DEMO_INCR_EXTENT_HEIGHT" => true,
         "DEMO_INCR_EXTENT_HEIGHT_LARGE" => true,
         "DEMO_INCR_EXTENT_MAJOR" => true,
@@ -539,8 +545,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_TOGGLE_BW_VIEW" => true,
         "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEMO_TOGGLE_HURT_ME_MODE" => true,
-        "DEMO_VTUNE_OFF" => true,
-        "DEMO_VTUNE_ON" => true,
         _ => false,
     }
 }
@@ -641,6 +645,69 @@ fn toggle_demo_network_runtime() {
     {
         let _ = game_network::get_network();
     }
+}
+
+fn vtune_enabled_state() -> &'static RwLock<bool> {
+    VTUNE_ENABLED.get_or_init(|| RwLock::new(false))
+}
+
+fn set_vtune_enabled(enabled: bool) {
+    if let Ok(mut guard) = vtune_enabled_state().write() {
+        *guard = enabled;
+    }
+}
+
+#[cfg(test)]
+fn is_vtune_enabled_for_tests() -> bool {
+    vtune_enabled_state()
+        .read()
+        .map(|guard| *guard)
+        .unwrap_or(false)
+}
+
+fn skate_distance_override_state() -> &'static RwLock<f32> {
+    SKATE_DISTANCE_OVERRIDE.get_or_init(|| RwLock::new(0.0))
+}
+
+fn adjust_skate_distance_override(delta: f32) -> f32 {
+    if let Ok(mut guard) = skate_distance_override_state().write() {
+        *guard += delta;
+        return *guard;
+    }
+    0.0
+}
+
+#[cfg(test)]
+fn set_skate_distance_override_for_tests(value: f32) {
+    if let Ok(mut guard) = skate_distance_override_state().write() {
+        *guard = value;
+    }
+}
+
+fn dump_used_map_assets() -> std::io::Result<()> {
+    let mut names = Vec::new();
+    with_drawable_manager_ref(|manager| {
+        for drawable_id in manager.get_all_drawable_ids() {
+            let Some(drawable) = manager.get_drawable(drawable_id) else {
+                continue;
+            };
+            let Some(name) = drawable.get_template_name() else {
+                continue;
+            };
+            if !name.is_empty() {
+                names.push(name.to_string());
+            }
+        }
+    });
+    names.sort();
+    names.dedup();
+
+    let mut output = String::new();
+    for name in names {
+        output.push_str(&name);
+        output.push('\n');
+    }
+    fs::write("UsedMapAssets.txt", output)
 }
 
 fn cycle_lod_level_state() -> &'static RwLock<DynamicGameLODLevel> {
@@ -1580,6 +1647,35 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_ENSHROUD") {
         shroud_local_player_map();
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_DUMP_ASSETS") {
+        let _ = dump_used_map_assets();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_VTUNE_ON") {
+        set_vtune_enabled(true);
+        TheInGameUI::message("VTune Gathering is ON");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_VTUNE_OFF") {
+        set_vtune_enabled(false);
+        TheInGameUI::message("VTune Gathering is OFF");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_INCR_ANIM_SKATE_SPEED") {
+        let value = adjust_skate_distance_override(0.25);
+        TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
+        return None;
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_DECR_ANIM_SKATE_SPEED") {
+        let value = adjust_skate_distance_override(-0.25);
+        TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
         return None;
     }
 
@@ -2830,7 +2926,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_VTUNE_ON")),
+            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -2853,7 +2949,10 @@ mod tests {
             "DEBUG_OBJECT_ID_PERFORMANCE",
             "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
             "DEMO_CYCLE_LOD_LEVEL",
+            "DEMO_DECR_ANIM_SKATE_SPEED",
             "DEMO_DESHROUD",
+            "DEMO_DUMP_ASSETS",
+            "DEMO_INCR_ANIM_SKATE_SPEED",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_LOCK_CAMERA_TO_PLANES",
             "DEMO_LOD_DECREASE",
@@ -2871,6 +2970,8 @@ mod tests {
             "DEMO_TOGGLE_PARTICLEDEBUG",
             "DEMO_TOGGLE_RED_VIEW",
             "DEMO_ENSHROUD",
+            "DEMO_VTUNE_OFF",
+            "DEMO_VTUNE_ON",
             "HELP",
             "DEMO_WIN",
         ] {
@@ -2937,6 +3038,57 @@ mod tests {
             dispatch_map_entry(&alias_record("HELP")),
             Some(GameMessageDisposition::DestroyMessage)
         );
+    }
+
+    #[test]
+    fn test_demo_vtune_aliases_toggle_compat_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        set_vtune_enabled(false);
+        assert!(!is_vtune_enabled_for_tests());
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_VTUNE_ON")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(is_vtune_enabled_for_tests());
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_VTUNE_OFF")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(!is_vtune_enabled_for_tests());
+    }
+
+    #[test]
+    fn test_demo_skate_speed_aliases_keep_message_and_adjust_value() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        set_skate_distance_override_for_tests(0.0);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_INCR_ANIM_SKATE_SPEED")),
+            None
+        );
+        assert!((adjust_skate_distance_override(0.0) - 0.25).abs() < f32::EPSILON);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_DECR_ANIM_SKATE_SPEED")),
+            None
+        );
+        assert!((adjust_skate_distance_override(0.0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_demo_dump_assets_alias_is_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let output_path = PathBuf::from("UsedMapAssets.txt");
+        let _ = fs::remove_file(&output_path);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_DUMP_ASSETS")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(output_path.exists());
+        let _ = fs::remove_file(&output_path);
     }
 
     #[test]
