@@ -965,6 +965,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let _ = with_local_player_mut(|player| {
                 player.add_science_purchase_points(1);
             });
+            TheInGameUI::message("Adding a SciencePurchasePoint");
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -976,6 +977,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         let _ = with_local_player_mut(|player| {
             player.add_science_purchase_points(1);
         });
+        TheInGameUI::message("Adding a SciencePurchasePoint");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -991,6 +993,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                     }
                 }
             });
+            TheInGameUI::message("Granting all sciences!");
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1005,6 +1008,23 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 }
             }
         });
+        TheInGameUI::message("Granting all sciences!");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_GIVE_RANKLEVEL") {
+        let _ = with_local_player_mut(|player| {
+            let _ = player.set_rank_level(player.get_rank_level() + 1);
+        });
+        TheInGameUI::message("Adding a RankLevel");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TAKE_RANKLEVEL") {
+        let _ = with_local_player_mut(|player| {
+            let _ = player.set_rank_level(player.get_rank_level() - 1);
+        });
+        TheInGameUI::message("Subtracting a RankLevel");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -1204,6 +1224,24 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 let mut global = global_data.write();
                 global.show_object_health = !global.show_object_health;
             }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_TOGGLE_MESSAGE_TEXT") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            TheInGameUI::toggle_messages();
+            if TheInGameUI::is_messages_on() {
+                TheInGameUI::message("GUI:MessagesOn");
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MESSAGE_TEXT") {
+        TheInGameUI::toggle_messages();
+        if TheInGameUI::is_messages_on() {
+            TheInGameUI::message("GUI:MessagesOn");
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1789,5 +1827,65 @@ mod tests {
         }
 
         ThePlayerList().write().expect("player list lock").clear();
+    }
+
+    #[test]
+    fn test_demo_rank_level_aliases_adjust_local_player_rank() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let local_player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut local_guard = local_player.write().expect("player lock");
+            let _ = local_guard.set_rank_level(1);
+        }
+
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&local_player));
+            list.set_local_player_index(0);
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_GIVE_RANKLEVEL")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_GIVE_RANKLEVEL")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TAKE_RANKLEVEL")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+
+        {
+            let local_guard = local_player.read().expect("player lock");
+            assert_eq!(local_guard.get_rank_level(), 2);
+        }
+
+        ThePlayerList().write().expect("player list lock").clear();
+    }
+
+    #[test]
+    fn test_message_text_aliases_toggle_ingame_ui_message_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        if !TheInGameUI::is_messages_on() {
+            TheInGameUI::toggle_messages();
+        }
+        assert!(TheInGameUI::is_messages_on());
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MESSAGE_TEXT")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(!TheInGameUI::is_messages_on());
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_TOGGLE_MESSAGE_TEXT")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert!(TheInGameUI::is_messages_on());
     }
 }
