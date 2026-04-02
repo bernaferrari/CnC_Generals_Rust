@@ -27,7 +27,7 @@ use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use crate::display::view::with_tactical_view;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::commands::command::CommandType;
-use gamelogic::helpers::{TheGameLogic, TheThingFactory};
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 
 const MOD_CTRL: u32 = 1;
@@ -1272,6 +1272,17 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_BATTLE_CRY") {
+        if get_global_audio_manager().is_some() {
+            let Some(audio) = TheAudio::get() else {
+                return Some(GameMessageDisposition::DestroyMessage);
+            };
+            let misc = TheAudio::get_misc_audio();
+            let _ = audio.add_misc_audio_event(&misc.battle_cry_sound);
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_VETERANCY")
         || record.name.eq_ignore_ascii_case("DEMO_TAKE_VETERANCY")
     {
@@ -2451,6 +2462,15 @@ mod tests {
         assert_eq!(parse_runscript_alias("DEMO_RUNSCRIPT9"), Some((false, 9)));
         assert_eq!(parse_runscript_alias("CHEAT_RUNSCRIPT0"), None);
         assert_eq!(parse_runscript_alias("DEMO_RUNSCRIPT10"), None);
+    }
+
+    #[test]
+    fn test_demo_battle_cry_alias_is_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_BATTLE_CRY")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
     }
 
     #[test]
