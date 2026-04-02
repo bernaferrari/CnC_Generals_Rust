@@ -1330,7 +1330,11 @@ fn local_player_index_u32() -> Option<u32> {
 }
 
 fn adjust_texture_reduction_factor(delta: i32) {
-    let _ = crate::core::game_client::adjust_lod_texture_reduction(delta);
+    let Some(global_data) = get_global_data() else {
+        return;
+    };
+    let mut global = global_data.write();
+    global.texture_reduction_factor = (global.texture_reduction_factor + delta).clamp(0, 4);
 }
 
 fn reveal_local_player_map_permanently() {
