@@ -10,12 +10,14 @@
 **  pipeline.
 */
 
-use crate::game_text::GameText;
 use crate::display::view::with_tactical_view_ref;
+use crate::game_text::GameText;
 use crate::gui::{get_shell, with_window_manager, WindowLayout, WindowStatus};
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
-use gamelogic::helpers::{register_game_pause_hooks, GamePauseHooks, TheGameLogic, TheScriptEngine};
+use gamelogic::helpers::{
+    register_game_pause_hooks, GamePauseHooks, TheGameLogic, TheScriptEngine,
+};
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -189,6 +191,8 @@ pub trait ControlBarHooks: Send + Sync {
     fn show_special_power_shortcut(&self);
     fn hide_special_power_shortcut(&self);
     fn animate_special_power_shortcut(&self, enabled: bool);
+    fn init_special_power_shortcut_bar_for_player(&self, _player_side: &str) {}
+    fn set_control_bar_scheme_by_player(&self, _player_side: &str) {}
     fn toggle_control_bar_stage(&self);
     fn get_observer_look_at_player_index(&self) -> Option<i32>;
 }
@@ -328,8 +332,9 @@ impl gamelogic::helpers::ObserverAudioViewHooks for GameClientObserverAudioViewH
 }
 
 pub fn register_observer_audio_view_hooks() {
-    let _ =
-        gamelogic::helpers::register_observer_audio_view_hooks(Arc::new(GameClientObserverAudioViewHooks));
+    let _ = gamelogic::helpers::register_observer_audio_view_hooks(Arc::new(
+        GameClientObserverAudioViewHooks,
+    ));
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -791,13 +796,10 @@ impl TheInGameUI {
         guard.messages_on
     }
 
-    pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-        enabled: bool,
-    ) {
+    pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled: bool) {
         if with_backend(|backend| {
-            backend.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-                enabled,
-            )
+            backend
+                .set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled)
         }) {
             return;
         }
@@ -1363,6 +1365,20 @@ impl TheControlBar {
     pub fn animate_special_power_shortcut(enabled: bool) {
         if !with_control_bar_backend(|backend| backend.animate_special_power_shortcut(enabled)) {
             info!("Request to animate special power shortcut UI: {enabled}");
+        }
+    }
+
+    pub fn init_special_power_shortcut_bar_for_player(player_side: &str) {
+        if !with_control_bar_backend(|backend| {
+            backend.init_special_power_shortcut_bar_for_player(player_side)
+        }) {
+            info!("Request to initialize special power shortcut bar for side {player_side}");
+        }
+    }
+
+    pub fn set_control_bar_scheme_by_player(player_side: &str) {
+        if !with_control_bar_backend(|backend| backend.set_control_bar_scheme_by_player(player_side)) {
+            info!("Request to set control bar scheme by side {player_side}");
         }
     }
 

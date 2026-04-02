@@ -20,14 +20,19 @@ use super::game_message::{
     IRegion2D,
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
+use crate::core::script_action_handler::stop_script_display_movie;
+use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::shell::get_shell;
-use crate::helpers::TheInGameUI;
+use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use crate::display::view::with_tactical_view;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::commands::command::CommandType;
+use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
+use gamelogic::common::ModelConditionFlags;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
+use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 
 const MOD_CTRL: u32 = 1;
@@ -655,7 +660,40 @@ fn adjust_local_selection_veterancy(delta: i32) {
     }
 }
 
-fn set_local_player_index_with_refresh(index: i32) {
+fn clear_local_player_selection() {
+    let local_player_id = get_local_player_id();
+    if let Ok(mut manager) = get_selection_manager().write() {
+        if manager.get_player_selection_ref(local_player_id).is_none() {
+            manager.initialize_player(local_player_id);
+        }
+        if let Some(selection) = manager.get_player_selection(local_player_id) {
+            selection.clear_selection();
+        }
+    }
+}
+
+fn local_player_side_name() -> Option<String> {
+    let list = ThePlayerList().read().ok()?;
+    let index = list.get_local_player_index();
+    if index == PLAYER_INDEX_INVALID || index < 0 {
+        return None;
+    }
+    let player = list.get_player(index)?;
+    let guard = player.read().ok()?;
+    Some(guard.get_side().to_string())
+}
+
+fn apply_local_player_switch_side_effects(initialize_shortcut_bar: bool) {
+    clear_local_player_selection();
+    if let Some(side) = local_player_side_name() {
+        if initialize_shortcut_bar {
+            TheControlBar::init_special_power_shortcut_bar_for_player(&side);
+        }
+        TheControlBar::set_control_bar_scheme_by_player(&side);
+    }
+}
+
+fn set_local_player_index_with_refresh(index: i32, initialize_shortcut_bar: bool) {
     {
         let Ok(mut list) = ThePlayerList().write() else {
             return;
@@ -666,6 +704,7 @@ fn set_local_player_index_with_refresh(index: i32) {
     if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
         shroud.refresh_shroud_for_local_player();
     }
+    apply_local_player_switch_side_effects(initialize_shortcut_bar);
 }
 
 fn switch_to_next_non_neutral_player() -> bool {
@@ -674,7 +713,7 @@ fn switch_to_next_non_neutral_player() -> bool {
     };
 
     let player_count = list.get_player_count() as i32;
-    if player_count <= 1 {
+    if player_count <= 0 {
         return false;
     }
 
@@ -692,28 +731,30 @@ fn switch_to_next_non_neutral_player() -> bool {
         }
     });
 
-    let mut idx = current;
-    loop {
-        idx += 1;
-        if idx >= player_count {
-            idx = 0;
-        }
+    let mut target = current;
+    if player_count > 1 {
+        let mut idx = current;
+        loop {
+            idx += 1;
+            if idx >= player_count {
+                idx = 0;
+            }
 
-        if idx == current {
-            return false;
-        }
-        if neutral_index == Some(idx) {
-            continue;
-        }
+            if idx == current {
+                break;
+            }
+            if neutral_index == Some(idx) {
+                continue;
+            }
 
-        list.set_local_player_index(idx);
-        drop(list);
-        set_local_player_id(idx);
-        if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
-            shroud.refresh_shroud_for_local_player();
+            target = idx;
+            break;
         }
-        return true;
     }
+
+    drop(list);
+    set_local_player_index_with_refresh(target, true);
+    target != current
 }
 
 fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
@@ -752,10 +793,50 @@ fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
     drop(list);
 
     if let Some(index) = target_index {
-        set_local_player_index_with_refresh(index);
+        set_local_player_index_with_refresh(index, false);
         true
     } else {
         false
+    }
+}
+
+fn stop_movies_for_sound_toggle() {
+    let _ = stop_script_display_movie();
+    with_window_video_manager(|manager| manager.stop_all_movies());
+}
+
+fn map_meta_time_of_day_to_logic_time_of_day(time_of_day: TimeOfDay) -> LogicTimeOfDay {
+    match time_of_day {
+        TimeOfDay::Morning => LogicTimeOfDay::Morning,
+        TimeOfDay::Afternoon => LogicTimeOfDay::Day,
+        TimeOfDay::Evening => LogicTimeOfDay::Evening,
+        TimeOfDay::Night => LogicTimeOfDay::Night,
+        TimeOfDay::Invalid => LogicTimeOfDay::Day,
+    }
+}
+
+fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
+    let mapped = map_meta_time_of_day_to_logic_time_of_day(time_of_day);
+    for object in OBJECT_REGISTRY.get_all_objects() {
+        let drawable = object.read().ok().and_then(|guard| guard.get_drawable());
+        let Some(drawable) = drawable else {
+            continue;
+        };
+        let mut drawable_guard = match drawable.write() {
+            Ok(guard) => guard,
+            Err(_) => continue,
+        };
+        drawable_guard.set_time_of_day(mapped);
+    }
+}
+
+fn refresh_drawable_model_conditions() {
+    let clear = ModelConditionFlags::empty();
+    let set = ModelConditionFlags::empty();
+    for object in OBJECT_REGISTRY.get_all_objects() {
+        if let Ok(mut object_guard) = object.write() {
+            let _ = object_guard.clear_and_set_model_condition_flags(clear, set);
+        }
     }
 }
 
@@ -1214,10 +1295,13 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_SWITCH_TEAMS") {
-        if !TheGameLogic::is_in_multiplayer_game() && TheGameLogic::is_in_game() {
-            let _ = switch_to_next_non_neutral_player();
+        if !TheGameLogic::is_in_multiplayer_game() {
+            if TheGameLogic::is_in_game() {
+                let _ = switch_to_next_non_neutral_player();
+            }
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_ALL_SCIENCES") {
@@ -1324,12 +1408,14 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_SOUND") {
-        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        if let Ok(mut audio) = manager.lock() {
-            if audio.is_on(AudioAffect::Sound) {
-                audio.set_on(false, AudioAffect::All);
-            } else {
-                audio.set_on(true, AudioAffect::All);
+        if let Some(manager) = get_global_audio_manager() {
+            if let Ok(mut audio) = manager.lock() {
+                if audio.is_on(AudioAffect::Sound) {
+                    stop_movies_for_sound_toggle();
+                    audio.set_on(false, AudioAffect::All);
+                } else {
+                    audio.set_on(true, AudioAffect::All);
+                }
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -1367,14 +1453,23 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_TIME_OF_DAY") {
         if let Some(global_data) = get_global_data() {
-            let mut global = global_data.write();
-            let tod = match global.time_of_day {
-                TimeOfDay::Morning => TimeOfDay::Afternoon,
-                TimeOfDay::Afternoon => TimeOfDay::Evening,
-                TimeOfDay::Evening => TimeOfDay::Night,
-                TimeOfDay::Night | TimeOfDay::Invalid => TimeOfDay::Morning,
+            let (next_time_of_day, changed_time_of_day, force_model_refresh) = {
+                let mut global = global_data.write();
+                let tod = match global.time_of_day {
+                    TimeOfDay::Morning => TimeOfDay::Afternoon,
+                    TimeOfDay::Afternoon => TimeOfDay::Evening,
+                    TimeOfDay::Evening => TimeOfDay::Night,
+                    TimeOfDay::Night | TimeOfDay::Invalid => TimeOfDay::Morning,
+                };
+                let changed = global.set_time_of_day(tod);
+                (tod, changed, global.force_models_to_follow_time_of_day)
             };
-            let _ = global.set_time_of_day(tod);
+            if changed_time_of_day {
+                refresh_drawable_time_of_day(next_time_of_day);
+                if force_model_refresh {
+                    refresh_drawable_model_conditions();
+                }
+            }
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1946,7 +2041,7 @@ mod tests {
     use super::*;
     use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
     use gamelogic::player::Player;
-    use gamelogic::system::game_logic::{get_game_logic, GAME_NONE, GAME_SINGLE_PLAYER};
+    use gamelogic::system::game_logic::{get_game_logic, GAME_LAN, GAME_NONE, GAME_SINGLE_PLAYER};
     use crate::message_stream::player_state::get_local_player_id;
     use std::sync::{Arc, RwLock};
     use std::sync::{Mutex, OnceLock};
@@ -2467,6 +2562,48 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_SWITCH_TEAMS_CHINA_USA")),
             Some(GameMessageDisposition::DestroyMessage)
         );
+        assert_eq!(
+            ThePlayerList().read().expect("player list lock").get_local_player_index(),
+            0
+        );
+        assert_eq!(get_local_player_id(), 0);
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+        ThePlayerList().write().expect("player list lock").clear();
+    }
+
+    #[test]
+    fn test_cheat_switch_teams_keeps_message_in_multiplayer() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let player_usa = Arc::new(RwLock::new(Player::new(0)));
+        let player_china = Arc::new(RwLock::new(Player::new(1)));
+        {
+            let mut usa = player_usa.write().expect("player lock");
+            usa.set_side("America");
+            usa.set_player_type(PlayerType::Human, false);
+        }
+        {
+            let mut china = player_china.write().expect("player lock");
+            china.set_side("China");
+            china.set_player_type(PlayerType::Human, false);
+        }
+
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&player_usa));
+            list.add_player(Arc::clone(&player_china));
+            list.set_local_player_index(0);
+        }
+        set_local_player_id(0);
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_LAN);
+        }
+
+        assert_eq!(dispatch_map_entry(&alias_record("CHEAT_SWITCH_TEAMS")), None);
         assert_eq!(
             ThePlayerList().read().expect("player list lock").get_local_player_index(),
             0
