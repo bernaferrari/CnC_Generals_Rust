@@ -19,11 +19,12 @@ use super::game_message::{
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::gui::shell::get_shell;
 use crate::helpers::TheInGameUI;
+use crate::message_stream::player_state::set_local_player_id;
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use crate::display::view::with_tactical_view;
 use gamelogic::commands::command::CommandType;
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
-use gamelogic::player::ThePlayerList;
+use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 
 const MOD_CTRL: u32 = 1;
 const MOD_ALT: u32 = 2;
@@ -567,6 +568,110 @@ fn parse_objective_movie_alias(name: &str) -> Option<i32> {
     }
 }
 
+fn set_local_player_index_with_refresh(index: i32) {
+    {
+        let Ok(mut list) = ThePlayerList().write() else {
+            return;
+        };
+        list.set_local_player_index(index);
+    }
+    set_local_player_id(index);
+    if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+        shroud.refresh_shroud_for_local_player();
+    }
+}
+
+fn switch_to_next_non_neutral_player() -> bool {
+    let Ok(mut list) = ThePlayerList().write() else {
+        return false;
+    };
+
+    let player_count = list.get_player_count() as i32;
+    if player_count <= 1 {
+        return false;
+    }
+
+    let current = list.get_local_player_index();
+    if current == PLAYER_INDEX_INVALID || current < 0 || current >= player_count {
+        return false;
+    }
+
+    let neutral_index = list.iter().enumerate().find_map(|(idx, player)| {
+        let guard = player.read().ok()?;
+        if guard.get_player_type() == PlayerType::Neutral {
+            Some(idx as i32)
+        } else {
+            None
+        }
+    });
+
+    let mut idx = current;
+    loop {
+        idx += 1;
+        if idx >= player_count {
+            idx = 0;
+        }
+
+        if idx == current {
+            return false;
+        }
+        if neutral_index == Some(idx) {
+            continue;
+        }
+
+        list.set_local_player_index(idx);
+        drop(list);
+        set_local_player_id(idx);
+        if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+            shroud.refresh_shroud_for_local_player();
+        }
+        return true;
+    }
+}
+
+fn switch_local_player_between_sides(side_a: &str, side_b: &str) -> bool {
+    let Ok(list) = ThePlayerList().read() else {
+        return false;
+    };
+
+    let current = list.get_local_player_index();
+    if current == PLAYER_INDEX_INVALID || current < 0 {
+        return false;
+    }
+
+    let Some(current_player) = list.get_player(current) else {
+        return false;
+    };
+    let Ok(current_guard) = current_player.read() else {
+        return false;
+    };
+    let target_side = if current_guard.get_side().eq_ignore_ascii_case(side_a) {
+        side_b
+    } else if current_guard.get_side().eq_ignore_ascii_case(side_b) {
+        side_a
+    } else {
+        return false;
+    };
+    drop(current_guard);
+
+    let target_index = list.iter().enumerate().find_map(|(idx, player)| {
+        let guard = player.read().ok()?;
+        if guard.get_side().eq_ignore_ascii_case(target_side) {
+            Some(idx as i32)
+        } else {
+            None
+        }
+    });
+    drop(list);
+
+    if let Some(index) = target_index {
+        set_local_player_index_with_refresh(index);
+        true
+    } else {
+        false
+    }
+}
+
 fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> {
     ini.read_line()?;
     if ini.is_eof() {
@@ -1015,6 +1120,13 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("CHEAT_SWITCH_TEAMS") {
+        if !TheGameLogic::is_in_multiplayer_game() && TheGameLogic::is_in_game() {
+            let _ = switch_to_next_non_neutral_player();
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_ALL_SCIENCES") {
         let _ = with_local_player_mut(|player| {
             if let Some(science_store) = get_science_store() {
@@ -1042,6 +1154,22 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let _ = player.set_rank_level(player.get_rank_level() - 1);
         });
         TheInGameUI::message("Subtracting a RankLevel");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_SWITCH_TEAMS") {
+        if TheGameLogic::is_in_game() {
+            let _ = switch_to_next_non_neutral_player();
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_CHINA_USA")
+        || record
+            .name
+            .eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_BETWEEN_CHINA_USA")
+    {
+        let _ = switch_local_player_between_sides("America", "China");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -1588,6 +1716,7 @@ mod tests {
     use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
     use gamelogic::player::Player;
     use gamelogic::system::game_logic::{get_game_logic, GAME_NONE, GAME_SINGLE_PLAYER};
+    use crate::message_stream::player_state::get_local_player_id;
     use std::sync::{Arc, RwLock};
     use std::sync::{Mutex, OnceLock};
 
@@ -2040,5 +2169,67 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(global_data.read().time_of_day, GlobalTimeOfDay::Evening);
+    }
+
+    #[test]
+    fn test_switch_team_aliases_cycle_or_swap_local_player_index() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let player_usa = Arc::new(RwLock::new(Player::new(0)));
+        let player_china = Arc::new(RwLock::new(Player::new(1)));
+        let player_neutral = Arc::new(RwLock::new(Player::new(2)));
+        {
+            let mut usa = player_usa.write().expect("player lock");
+            usa.set_side("America");
+            usa.set_player_type(PlayerType::Human, false);
+        }
+        {
+            let mut china = player_china.write().expect("player lock");
+            china.set_side("China");
+            china.set_player_type(PlayerType::Human, false);
+        }
+        {
+            let mut neutral = player_neutral.write().expect("player lock");
+            neutral.set_side("Neutral");
+            neutral.set_player_type(PlayerType::Neutral, false);
+        }
+
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&player_usa));
+            list.add_player(Arc::clone(&player_china));
+            list.add_player(Arc::clone(&player_neutral));
+            list.set_local_player_index(0);
+        }
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_SINGLE_PLAYER);
+        }
+        set_local_player_id(0);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_SWITCH_TEAMS")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            ThePlayerList().read().expect("player list lock").get_local_player_index(),
+            1
+        );
+        assert_eq!(get_local_player_id(), 1);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_SWITCH_TEAMS_CHINA_USA")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            ThePlayerList().read().expect("player list lock").get_local_player_index(),
+            0
+        );
+        assert_eq!(get_local_player_id(), 0);
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+        ThePlayerList().write().expect("player list lock").clear();
     }
 }
