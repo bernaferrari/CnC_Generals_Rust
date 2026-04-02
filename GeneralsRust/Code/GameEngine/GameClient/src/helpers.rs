@@ -11,13 +11,15 @@
 */
 
 use crate::game_text::GameText;
+use crate::display::view::with_tactical_view_ref;
 use crate::gui::{get_shell, with_window_manager, WindowLayout, WindowStatus};
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
-use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
+use gamelogic::helpers::{register_game_pause_hooks, GamePauseHooks, TheGameLogic, TheScriptEngine};
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Trait implemented by the real in-game UI layer so the legacy
@@ -45,6 +47,7 @@ pub trait InGameUiHooks: Send + Sync {
     fn get_placement_points(&self) -> Option<(ICoord2D, ICoord2D)>;
     fn get_placement_angle(&self) -> f32;
     fn set_placement_angle(&self, angle: f32);
+    fn set_radius_cursor_active(&self, _radius_cursor_type: Option<String>) {}
     fn set_radius_cursor_none(&self);
     fn display_cant_build_message(&self, message: &str);
     fn message(&self, text: &str);
@@ -60,6 +63,14 @@ pub trait InGameUiHooks: Send + Sync {
     fn set_force_attack_mode(&self, enabled: bool);
     fn set_force_move_to_mode(&self, enabled: bool);
     fn set_prefer_selection_mode(&self, enabled: bool);
+    fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+        &self,
+        _enabled: bool,
+    ) {
+    }
+    fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
+        false
+    }
 
     fn play_movie(&self, _movie_name: &str) -> bool {
         // Optional backend-specific playback (e.g., radar/in-game movie windows).
@@ -119,14 +130,24 @@ fn mouse_backend_slot() -> &'static Mutex<Option<Arc<Mutex<Mouse>>>> {
     BACKEND.get_or_init(|| Mutex::new(None))
 }
 
+static MOUSE_CURSOR_VISIBLE: AtomicBool = AtomicBool::new(true);
+
 pub fn register_mouse_backend(mouse: Arc<Mutex<Mouse>>) {
+    let visible = MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed);
     let mut slot = mouse_backend_slot()
         .lock()
         .expect("Mouse backend lock poisoned");
     *slot = Some(mouse);
+
+    if let Some(mouse) = slot.as_ref() {
+        if let Ok(mut mouse) = mouse.lock() {
+            mouse.set_cursor_visible(visible);
+        }
+    }
 }
 
 pub fn set_mouse_cursor_visibility(visible: bool) {
+    MOUSE_CURSOR_VISIBLE.store(visible, Ordering::Relaxed);
     let backend = {
         let slot = mouse_backend_slot()
             .lock()
@@ -139,6 +160,23 @@ pub fn set_mouse_cursor_visibility(visible: bool) {
             mouse.set_cursor_visible(visible);
         }
     }
+}
+
+pub fn is_mouse_cursor_visible() -> bool {
+    let backend = {
+        let slot = mouse_backend_slot()
+            .lock()
+            .expect("Mouse backend lock poisoned");
+        slot.clone()
+    };
+
+    if let Some(mouse) = backend {
+        if let Ok(mouse) = mouse.lock() {
+            return mouse.state().is_cursor_visible();
+        }
+    }
+
+    MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed)
 }
 
 /// Trait implemented by the control bar layer so legacy control bar calls can
@@ -250,6 +288,7 @@ pub fn register_prepare_new_game_hooks() {
     let _ = gamelogic::helpers::register_prepare_new_game_hooks(Arc::new(
         GameClientPrepareNewGameHooks,
     ));
+    let _ = register_game_pause_hooks(Arc::new(GameClientPauseHooks));
 }
 
 struct GameClientObserverAudioLocalityHooks;
@@ -266,6 +305,83 @@ pub fn register_observer_audio_locality_hooks() {
     ));
 }
 
+struct GameClientObserverAudioViewHooks;
+
+impl gamelogic::helpers::ObserverAudioViewHooks for GameClientObserverAudioViewHooks {
+    fn get_tactical_view_position(&self) -> Option<(f32, f32, f32)> {
+        Some(with_tactical_view_ref(|view| {
+            let pos = view.position();
+            (pos.x, pos.y, pos.z)
+        }))
+    }
+
+    fn get_tactical_view_angle(&self) -> Option<f32> {
+        Some(with_tactical_view_ref(|view| view.angle()))
+    }
+
+    fn get_3d_camera_position(&self) -> Option<(f32, f32, f32)> {
+        Some(with_tactical_view_ref(|view| {
+            let camera = view.get_3d_camera_position();
+            (camera.x, camera.y, camera.z)
+        }))
+    }
+}
+
+pub fn register_observer_audio_view_hooks() {
+    let _ =
+        gamelogic::helpers::register_observer_audio_view_hooks(Arc::new(GameClientObserverAudioViewHooks));
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PauseTransitionState {
+    input_enabled_memory: bool,
+    mouse_visible_memory: bool,
+}
+
+impl Default for PauseTransitionState {
+    fn default() -> Self {
+        Self {
+            input_enabled_memory: true,
+            mouse_visible_memory: true,
+        }
+    }
+}
+
+fn pause_transition_state() -> &'static Mutex<PauseTransitionState> {
+    static STATE: OnceLock<Mutex<PauseTransitionState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(PauseTransitionState::default()))
+}
+
+struct GameClientPauseHooks;
+
+impl GamePauseHooks for GameClientPauseHooks {
+    fn on_game_pause_state_changed(&self, paused: bool) {
+        let (input_enabled_memory, mouse_visible_memory) = {
+            let mut state = pause_transition_state()
+                .lock()
+                .expect("Pause transition state lock poisoned");
+            if paused {
+                state.input_enabled_memory = TheInGameUI::get_input_enabled();
+                state.mouse_visible_memory = is_mouse_cursor_visible();
+            }
+            (state.input_enabled_memory, state.mouse_visible_memory)
+        };
+
+        if paused {
+            set_mouse_cursor_visibility(true);
+            TheInGameUI::set_cursor_arrow();
+            if input_enabled_memory {
+                TheInGameUI::set_input_enabled(false);
+            }
+        } else {
+            set_mouse_cursor_visibility(mouse_visible_memory);
+            if input_enabled_memory {
+                TheInGameUI::set_input_enabled(true);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct InGameUIPlacementState {
     pending_template: Option<String>,
@@ -274,6 +390,7 @@ struct InGameUIPlacementState {
     placement_end: Option<ICoord2D>,
     placement_angle: f32,
     radius_cursor_active: bool,
+    radius_cursor_type: String,
     attack_move_to_mode: bool,
     force_attack_mode: bool,
     force_move_to_mode: bool,
@@ -291,6 +408,7 @@ impl Default for InGameUIPlacementState {
             placement_end: None,
             placement_angle: 0.0,
             radius_cursor_active: false,
+            radius_cursor_type: String::new(),
             attack_move_to_mode: false,
             force_attack_mode: false,
             force_move_to_mode: false,
@@ -313,6 +431,9 @@ pub struct PendingCommand {
     pub command_type: gamelogic::commands::command::CommandType,
     pub options: u32,
     pub source_object_id: u32,
+    pub cursor_name: String,
+    pub invalid_cursor_name: String,
+    pub radius_cursor_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -378,6 +499,7 @@ struct InGameUIStatusState {
     scroll_amount_x: f32,
     scroll_amount_y: f32,
     cursor: CursorType,
+    prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
 }
 
 impl Default for InGameUIStatusState {
@@ -391,6 +513,7 @@ impl Default for InGameUIStatusState {
             scroll_amount_x: 0.0,
             scroll_amount_y: 0.0,
             cursor: CursorType::Arrow,
+            prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
         }
     }
 }
@@ -651,6 +774,34 @@ impl TheInGameUI {
         guard.client_quiet
     }
 
+    pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+        enabled: bool,
+    ) {
+        if with_backend(|backend| {
+            backend.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+                enabled,
+            )
+        }) {
+            return;
+        }
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
+    }
+
+    pub fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click() -> bool {
+        if let Some(value) = with_backend_result(|backend| {
+            backend.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click()
+        }) {
+            return value;
+        }
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
+    }
+
     pub fn set_cursor_arrow() {
         Self::set_cursor(CursorType::Arrow);
     }
@@ -667,10 +818,29 @@ impl TheInGameUI {
     }
 
     pub fn set_radius_cursor_active() {
+        if with_backend(|backend| backend.set_radius_cursor_active(None)) {
+            return;
+        }
         let mut guard = fallback_placement_state()
             .lock()
             .expect("In-game UI placement state lock poisoned");
         guard.radius_cursor_active = true;
+        guard.radius_cursor_type.clear();
+    }
+
+    pub fn set_radius_cursor_active_with_type(radius_cursor_type: &str) {
+        if with_backend(|backend| {
+            backend.set_radius_cursor_active(Some(radius_cursor_type.to_string()))
+        }) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        let radius_type = radius_cursor_type.trim();
+        guard.radius_cursor_active =
+            !radius_type.is_empty() && !radius_type.eq_ignore_ascii_case("NONE");
+        guard.radius_cursor_type = radius_type.to_string();
     }
 
     pub fn get_pending_place_template() -> Option<String> {
@@ -765,6 +935,34 @@ impl TheInGameUI {
             command_type,
             options,
             source_object_id,
+            cursor_name: String::new(),
+            invalid_cursor_name: String::new(),
+            radius_cursor_type: String::new(),
+        };
+        if with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.pending_command = Some(pending);
+    }
+
+    pub fn set_pending_command_with_visual(
+        command_type: gamelogic::commands::command::CommandType,
+        options: u32,
+        source_object_id: u32,
+        cursor_name: String,
+        invalid_cursor_name: String,
+        radius_cursor_type: String,
+    ) {
+        let pending = PendingCommand {
+            command_type,
+            options,
+            source_object_id,
+            cursor_name,
+            invalid_cursor_name,
+            radius_cursor_type,
         };
         if with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
             return;
@@ -860,6 +1058,7 @@ impl TheInGameUI {
             .lock()
             .expect("In-game UI placement state lock poisoned");
         guard.radius_cursor_active = false;
+        guard.radius_cursor_type.clear();
     }
 
     pub fn display_cant_build_message(message: &str) {
