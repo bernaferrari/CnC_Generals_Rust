@@ -31,6 +31,10 @@ use crate::ui::{
 };
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
+use game_engine::common::game_engine::{register_game_client_factory, GameClientInterface};
+use game_engine::common::system::subsystem_interface::{
+    SubsystemError, SubsystemResult, SubsystemState,
+};
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3};
 #[cfg(feature = "integration-diagnostics")]
@@ -1250,6 +1254,87 @@ struct StartupCameraDefaults {
     camera_height: f32,
     max_camera_height: f32,
 }
+
+#[cfg(feature = "game_client")]
+struct RegisteredGameClientBridge {
+    client: crate::subsystem_manager::GameClientSubsystem,
+    active: bool,
+    state: SubsystemState,
+}
+
+#[cfg(feature = "game_client")]
+impl RegisteredGameClientBridge {
+    fn new() -> SubsystemResult<Self> {
+        Ok(Self {
+            client: crate::subsystem_manager::GameClientSubsystem::new(),
+            active: true,
+            state: SubsystemState::Uninitialized,
+        })
+    }
+}
+
+#[cfg(feature = "game_client")]
+impl GameClientInterface for RegisteredGameClientBridge {
+    fn init(&mut self) -> SubsystemResult<()> {
+        self.state = SubsystemState::Initializing;
+        self.client
+            .init()
+            .map_err(|err| SubsystemError::InitializationFailed(err.to_string()))?;
+        self.state = SubsystemState::Running;
+        Ok(())
+    }
+
+    fn update(&mut self, delta_time: std::time::Duration) -> SubsystemResult<()> {
+        self.client
+            .update(delta_time.as_secs_f32())
+            .map_err(|err| SubsystemError::UpdateFailed(err.to_string()))
+    }
+
+    fn render(&mut self) -> SubsystemResult<()> {
+        // Rendering is owned by the Main runtime event loop.
+        Ok(())
+    }
+
+    fn reset(&mut self) -> SubsystemResult<()> {
+        self.client
+            .reset()
+            .map_err(|err| SubsystemError::OperationFailed(err.to_string()))?;
+        self.state = SubsystemState::Running;
+        Ok(())
+    }
+
+    fn shutdown(&mut self) -> SubsystemResult<()> {
+        self.state = SubsystemState::ShuttingDown;
+        self.client
+            .shutdown()
+            .map_err(|err| SubsystemError::OperationFailed(err.to_string()))?;
+        self.active = false;
+        self.state = SubsystemState::Shutdown;
+        Ok(())
+    }
+
+    fn get_state(&self) -> SubsystemState {
+        self.state
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
+    }
+
+    fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+}
+
+#[cfg(feature = "game_client")]
+fn register_real_game_client_bootstrap() {
+    register_game_client_factory(|| {
+        Ok(Box::new(RegisteredGameClientBridge::new()?))
+    });
+}
+
+#[cfg(not(feature = "game_client"))]
+fn register_real_game_client_bootstrap() {}
 
 impl CnCGameEngine {
     fn append_message_argument_to_common_stream(
@@ -7785,6 +7870,8 @@ pub async fn run_cnc_game(
     cmd_args: Arc<CommandLineArgs>,
 ) -> Result<()> {
     info!("🎮 Starting Command & Conquer Generals Zero Hour - Real Game");
+
+    register_real_game_client_bootstrap();
 
     let mut pending_window_attributes = Some(window_attributes);
     let mut window: Option<Arc<Window>> = None;
