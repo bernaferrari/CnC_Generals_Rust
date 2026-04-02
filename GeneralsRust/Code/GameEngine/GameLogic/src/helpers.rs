@@ -4524,6 +4524,7 @@ pub struct MiscAudioEvents {
     pub crate_salvage: AudioEvent,
     pub crate_free_unit: AudioEvent,
     pub crate_money: AudioEvent,
+    pub battle_cry_sound: AudioEvent,
     pub money_deposit: AudioEvent,
     pub money_withdraw: AudioEvent,
     pub sabotage_shut_down_building: AudioEvent,
@@ -4538,6 +4539,7 @@ impl Default for MiscAudioEvents {
             crate_salvage: AudioEvent::new(0, "crate_salvage"),
             crate_free_unit: AudioEvent::new(0, "crate_free_unit"),
             crate_money: AudioEvent::new(0, "crate_money"),
+            battle_cry_sound: AudioEvent::new(0, "battle_cry_sound"),
             money_deposit: AudioEvent::new(0, "money_deposit"),
             money_withdraw: AudioEvent::new(0, "money_withdraw"),
             sabotage_shut_down_building: AudioEvent::new(0, "sabotage_shut_down_building"),
@@ -4822,6 +4824,8 @@ impl TheAudio {
             let crate_free_unit =
                 AudioEvent::new(0, misc_audio.crate_free_unit.sound_file.as_str());
             let crate_money = AudioEvent::new(0, misc_audio.crate_money.sound_file.as_str());
+            let battle_cry_sound =
+                AudioEvent::new(0, misc_audio.battle_cry_sound.sound_file.as_str());
             let money_deposit =
                 AudioEvent::new(0, misc_audio.money_deposit_sound.sound_file.as_str());
             let money_withdraw =
@@ -4841,6 +4845,7 @@ impl TheAudio {
                 crate_salvage,
                 crate_free_unit,
                 crate_money,
+                battle_cry_sound,
                 money_deposit,
                 money_withdraw,
                 sabotage_shut_down_building,
@@ -4890,6 +4895,12 @@ impl TheAudio {
         }
 
         manager.add_audio_event(&engine_event)
+    }
+
+    pub fn add_misc_audio_event(&self, event: &AudioEvent) -> u32 {
+        let mut mapped = AudioEventRts::new(event.sound_type.as_str());
+        mapped.object_id = event.object_id;
+        self.add_audio_event(&mapped)
     }
 
     pub fn remove_audio_event(&self, handle: u32) {
