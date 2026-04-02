@@ -22,10 +22,11 @@ use super::game_message::{
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::core::script_action_handler::{
     get_script_display_debug_callback, set_script_display_debug_callback,
-    stop_script_display_movie, toggle_script_display_movie_capture,
+    stop_script_display_movie, toggle_script_display_letter_box,
+    toggle_script_display_movie_capture,
 };
 use crate::display::display::DebugDisplayCallback;
-use crate::display::view::with_tactical_view;
+use crate::display::view::{with_tactical_view, FilterMode, FilterType};
 use crate::gui::shell::get_shell;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::helpers::{TheControlBar, TheInGameUI};
@@ -117,6 +118,7 @@ static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 static LOWER_DETAIL_TOGGLE_STATE: OnceLock<RwLock<LowerDetailToggleState>> = OnceLock::new();
 static OBJECTIVE_MOVIE_INDEX: OnceLock<RwLock<i32>> = OnceLock::new();
+static MOTION_BLUR_ZOOM_SATURATE: OnceLock<RwLock<bool>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 
@@ -153,6 +155,10 @@ fn get_lower_detail_toggle_state() -> &'static RwLock<LowerDetailToggleState> {
 
 fn get_objective_movie_index() -> &'static RwLock<i32> {
     OBJECTIVE_MOVIE_INDEX.get_or_init(|| RwLock::new(1))
+}
+
+fn get_motion_blur_zoom_saturate_state() -> &'static RwLock<bool> {
+    MOTION_BLUR_ZOOM_SATURATE.get_or_init(|| RwLock::new(false))
 }
 
 fn ensure_meta_map_loaded() {
@@ -448,14 +454,18 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_FEATHER_WATER"
         | "DEMO_TOGGLE_FOGOFWAR"
         | "DEMO_TOGGLE_GRAPHICALFRAMERATEBAR"
+        | "DEMO_TOGGLE_GREEN_VIEW"
         | "DEMO_TOGGLE_MESSAGE_TEXT"
         | "DEMO_TOGGLE_METRICS"
         | "DEMO_TOGGLE_MILITARY_SUBTITLES"
+        | "DEMO_TOGGLE_MOTION_BLUR_ZOOM"
         | "DEMO_TOGGLE_MUSIC"
         | "DEMO_TOGGLE_NO_DRAW"
         | "DEMO_TOGGLE_PARTICLEDEBUG"
         | "DEMO_TOGGLE_PROJECTILEDEBUG"
+        | "DEMO_TOGGLE_RED_VIEW"
         | "DEMO_TOGGLE_RENDER"
+        | "DEMO_TOGGLE_LETTERBOX"
         | "DEMO_TOGGLE_SHADOW_VOLUMES"
         | "DEMO_TOGGLE_SOUND"
         | "DEMO_TOGGLE_SPECIAL_POWER_DELAYS"
@@ -614,6 +624,55 @@ fn toggle_script_display_debug_callback(target: DebugDisplayCallback) {
         .map(|callback| callback as usize == target as usize)
         .unwrap_or(false);
     let _ = set_script_display_debug_callback(if same_callback { None } else { Some(target) });
+}
+
+fn toggle_bw_color_view(mode: FilterMode) {
+    with_tactical_view(|view| {
+        if view.get_view_filter_type() == FilterType::BlackAndWhite {
+            view.set_view_filter_mode(FilterMode::Null);
+            view.set_view_filter(FilterType::Null);
+            view.set_fade_parameters(30, -1);
+            return;
+        }
+
+        view.set_view_filter_mode(mode);
+        view.set_view_filter(FilterType::BlackAndWhite);
+        view.set_fade_parameters(30, 1);
+    });
+}
+
+fn toggle_motion_blur_zoom_filter() {
+    with_tactical_view(|view| {
+        if view.get_view_filter_type() == FilterType::MotionBlur {
+            view.set_view_filter_mode(FilterMode::Null);
+            view.set_view_filter(FilterType::Null);
+            return;
+        }
+
+        let saturate = if let Ok(mut state) = get_motion_blur_zoom_saturate_state().write() {
+            let current = *state;
+            *state = !*state;
+            current
+        } else {
+            false
+        };
+
+        let mut mode = if saturate {
+            FilterMode::MBInAndOutSaturate
+        } else {
+            FilterMode::MBInAndOutAlpha
+        };
+        if view.camera_lock_id().is_some() {
+            mode = FilterMode::MBPanAlpha;
+        }
+
+        let mut filter_pos = *view.position();
+        filter_pos.x += 200.0;
+        filter_pos.y += 200.0;
+        view.set_view_filter_pos(&filter_pos);
+        view.set_view_filter_mode(mode);
+        view.set_view_filter(FilterType::MotionBlur);
+    });
 }
 
 fn run_key_script_alias(script_index: i32) {
@@ -1637,6 +1696,37 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_LETTERBOX") {
+        if get_shell().is_shell_active() {
+            let mut shell = get_shell();
+            if let Some(layout) = shell.top() {
+                let hide = !layout.is_hidden();
+                layout.hide(hide);
+            }
+        } else {
+            let _ = toggle_script_display_letter_box();
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_MOTION_BLUR_ZOOM")
+    {
+        toggle_motion_blur_zoom_filter();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_RED_VIEW") {
+        toggle_bw_color_view(FilterMode::BWRedAndWhite);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_GREEN_VIEW") {
+        toggle_bw_color_view(FilterMode::BWGreenAndWhite);
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT")
@@ -2425,7 +2515,11 @@ mod tests {
             "DEMO_TOGGLE_AUDIODEBUG",
             "DEMO_TOGGLE_AVI",
             "DEMO_TOGGLE_DEBUG_STATS",
+            "DEMO_TOGGLE_GREEN_VIEW",
+            "DEMO_TOGGLE_LETTERBOX",
+            "DEMO_TOGGLE_MOTION_BLUR_ZOOM",
             "DEMO_TOGGLE_PARTICLEDEBUG",
+            "DEMO_TOGGLE_RED_VIEW",
             "DEMO_WIN",
         ] {
             assert!(is_dispatch_handled_cpp_command_name(alias));
@@ -3004,6 +3098,65 @@ mod tests {
                 "alias {alias} should be consumed"
             );
         }
+    }
+
+    #[test]
+    fn test_demo_view_filter_aliases_toggle_expected_filter_modes() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        with_tactical_view(|view| {
+            view.set_view_filter_mode(FilterMode::Null);
+            view.set_view_filter(FilterType::Null);
+            view.set_fade_parameters(0, -1);
+            view.set_camera_lock(None);
+            view.set_position(&crate::display::view::Point3::new(0.0, 0.0, 0.0));
+        });
+        if let Ok(mut saturate) = get_motion_blur_zoom_saturate_state().write() {
+            *saturate = false;
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_RED_VIEW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        with_tactical_view(|view| {
+            assert_eq!(view.get_view_filter_type(), FilterType::BlackAndWhite);
+            assert_eq!(view.get_view_filter_mode(), FilterMode::BWRedAndWhite);
+        });
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_RED_VIEW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        with_tactical_view(|view| {
+            assert_eq!(view.get_view_filter_type(), FilterType::Null);
+            assert_eq!(view.get_view_filter_mode(), FilterMode::Null);
+        });
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_GREEN_VIEW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        with_tactical_view(|view| {
+            assert_eq!(view.get_view_filter_type(), FilterType::BlackAndWhite);
+            assert_eq!(view.get_view_filter_mode(), FilterMode::BWGreenAndWhite);
+        });
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MOTION_BLUR_ZOOM")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        with_tactical_view(|view| {
+            assert_eq!(view.get_view_filter_type(), FilterType::MotionBlur);
+            assert_eq!(view.get_view_filter_mode(), FilterMode::MBInAndOutAlpha);
+        });
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MOTION_BLUR_ZOOM")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        with_tactical_view(|view| {
+            assert_eq!(view.get_view_filter_type(), FilterType::Null);
+            assert_eq!(view.get_view_filter_mode(), FilterMode::Null);
+        });
     }
 
     #[test]
