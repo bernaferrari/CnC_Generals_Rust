@@ -34,6 +34,7 @@ use gamelogic::common::ModelConditionFlags;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
+use gamelogic::scripting::engine::get_script_engine;
 
 const MOD_CTRL: u32 = 1;
 const MOD_ALT: u32 = 2;
@@ -805,6 +806,31 @@ fn stop_movies_for_sound_toggle() {
     with_window_video_manager(|manager| manager.stop_all_movies());
 }
 
+fn cycle_music_track(next: bool) -> Option<String> {
+    let manager = get_global_audio_manager()?;
+    let mut audio = manager.lock().ok()?;
+
+    let script_engine = get_script_engine();
+    let mut script_guard = script_engine.write().ok()?;
+    let engine = script_guard.as_mut()?;
+    let current = engine.get_current_track_name().to_string();
+    let next_track = if next {
+        audio.next_track_name(&current)
+    } else {
+        audio.prev_track_name(&current)
+    };
+
+    if next_track.is_empty() {
+        return None;
+    }
+
+    if let Some(action_handler) = engine.action_handler() {
+        let _ = action_handler.music_set_track(&next_track, false, false);
+    }
+    engine.set_current_track_name(next_track.clone());
+    Some(next_track)
+}
+
 fn map_meta_time_of_day_to_logic_time_of_day(time_of_day: TimeOfDay) -> LogicTimeOfDay {
     match time_of_day {
         TimeOfDay::Morning => LogicTimeOfDay::Morning,
@@ -1573,6 +1599,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_camera = !global.debug_camera;
+            TheInGameUI::message(if global.debug_camera {
+                "Debug Camera Mode is On"
+            } else {
+                "Debug Camera Mode is OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1581,6 +1612,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_visibility = !global.debug_visibility;
+            TheInGameUI::message(if global.debug_visibility {
+                "Debug Vision Mode is On"
+            } else {
+                "Debug Vision Mode is OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1592,6 +1628,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.debug_projectile_path = !global.debug_projectile_path;
+            TheInGameUI::message(if global.debug_projectile_path {
+                "Debug Projectile Path Mode is On"
+            } else {
+                "Debug Projectile Path Mode is OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1703,6 +1744,20 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_MUSIC_NEXT_TRACK") {
+        if let Some(track_name) = cycle_music_track(true) {
+            TheInGameUI::message(&format!("Playing Track: {track_name}"));
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_MUSIC_PREV_TRACK") {
+        if let Some(track_name) = cycle_music_track(false) {
+            TheInGameUI::message(&format!("Playing Track: {track_name}"));
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record
         .name
         .eq_ignore_ascii_case("DEMO_PERFORM_STATISTICAL_DUMP")
@@ -1766,6 +1821,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             if let Some(global_data) = get_global_data() {
                 let mut global = global_data.write();
                 global.show_object_health = !global.show_object_health;
+                TheInGameUI::message(if global.show_object_health {
+                    "Object Health ON"
+                } else {
+                    "Object Health OFF"
+                });
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -1797,6 +1857,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             if let Some(global_data) = get_global_data() {
                 let mut global = global_data.write();
                 global.special_power_uses_delay = !global.special_power_uses_delay;
+                TheInGameUI::message(if global.special_power_uses_delay {
+                    "Special Power (Superweapon) Delay: ON"
+                } else {
+                    "Special Power (Superweapon) Delay: OFF"
+                });
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -2679,6 +2744,15 @@ mod tests {
             let audio = manager.lock().expect("audio lock");
             assert!(audio.is_on(AudioAffect::Music));
         }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_MUSIC_NEXT_TRACK")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_MUSIC_PREV_TRACK")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
     }
 
     #[test]
