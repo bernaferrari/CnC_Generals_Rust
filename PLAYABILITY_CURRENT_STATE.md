@@ -1,10 +1,79 @@
-# GeneralsRust Playability State (2026-03-10)
+# GeneralsRust Playability State (2026-04-02)
 
 ## Scope
 - Non-network parity only (project policy).
 - Multiplayer/network behavior remains deferred until non-network systems are complete.
 
-## Latest Validated Closures (2026-03-10)
+## Current Assessment
+- The Rust port is materially further along than the older snapshot in this file, but it is still not fully playable end-to-end.
+- Recent parity work has closed several high-value slices in rendering, audio, terrain, and gameplay flow.
+- Core build health is currently good for the main gameplay crates:
+  - `cargo check -q -p gamelogic`
+  - `cargo check -q -p game_engine`
+  - `cargo check -q -p game-client-rust --features internal`
+- The file parity tracker remains at 100% for existence/mapping, so the remaining work is now behavior parity, not file coverage.
+
+## Recent Validated Closures (2026-04-02)
+- Terrain bridge runtime parity:
+  - `hq-p58f` closed.
+  - `TerrainLogic::addBridgeToLogic()` / `addLandmarkBridgeToLogic()` now register bridges with the pathfinder and assign the returned bridge layer.
+  - `deleteBridge()` / `deleteBridgeAt()` now disable bridge state in the pathfinder and destroy the bridge object when present.
+  - Validation: `cargo check -q -p gamelogic` plus targeted bridge tests passed.
+- W3D renderer batch submission parity:
+  - `hq-xo41` closed.
+  - `W3DRenderer` now binds real mesh/material snapshots, vertex/index buffers, and indexed/non-indexed draws instead of the placeholder fullscreen triangle path.
+  - Validation: `cargo check -q -p game_engine_device`, `cargo check -q -p game_engine`, and `cargo check -q -p game-client-rust --features internal` passed.
+- Audio view-resolution parity:
+  - `hq-dur9` closed.
+  - `AudioViewResolver` is already wired through GameClient init and GameLogic resolver registration, and the new regression test proves it is consumed by `GameAudio::update()`.
+  - Validation: `cargo test -q -p game_engine --features internal --test audio_view_resolver_tests -- --exact --test-threads=1` passed.
+- Audio suspend/resume parity:
+  - `hq-dxxk` closed.
+  - Script suspend/resume now pauses and resumes active handles instead of only toggling audio enable state.
+- Shell/flow parity:
+  - `hq-dwel`, `hq-c8a0`, `hq-b53m`, and `hq-afm` are closed.
+  - That means map-select legacy keying, underlying-options visibility, shell scheme ordering, and command translator context routing are all improved on the gameplay-flow side.
+- Terrain parity slices already closed earlier in this session remain validated:
+  - dynamic water dedupe and authoritative z updates
+  - wall-hit source parity
+  - identity-stable water-handle mapping follow-up work
+
+## Current Subsystem Status
+- Rendering: improved, but not complete. Real mesh/material submission is now in place, yet the deeper W3D/material/state parity backlog still exists.
+- Terrain: improved materially. Bridge runtime and water-related slices are closer to C++ behavior, but the broader terrain visuals/water/snow work remains open.
+- Audio: improved materially. Core resolver and suspend/resume parity are in place, but the broader audio system and edge-case routing work remain open.
+- UI/flow: better than before, especially shell and map-select behavior, but bootstrap/menu/game-start parity still has open work.
+- AI: still a major blocker. The system remains far from the breadth of the C++ implementation.
+- Drawable: still a major blocker. Icon management, model conditions, shadows, and animation-state parity are incomplete.
+- Particles: still a major blocker. The system remains heavily placeholder-based.
+- Save/load: improved in multiple slices, but still not a clean full parity story for all gameplay objects.
+- Memory: still a structural concern because the Rust allocation model intentionally diverges from the C++ pool allocator behavior.
+
+## What Is Still Blocking Playability
+1. `hq-eo4` and related startup/bootstrap flow work:
+   - Common startup still needs to consistently drive the real GameClient bootstrap path under the default game flow.
+2. `hq-81ok` AI:
+   - Skirmish AI is still the largest single gameplay blocker.
+3. `hq-fos8` Drawable:
+   - Missing visual state, animation, shadow, and icon parity still prevents full visual playability.
+4. `hq-gq7n` Particles:
+   - Explosions, smoke, fire, and other feedback effects are still incomplete.
+5. `hq-zhvn` GameMemory:
+   - The memory model still diverges from the C++ pool allocator semantics.
+6. `hq-7zxm` Audio:
+   - Core audio is improving, but the broader system still has placeholder and routing gaps.
+7. `hq-aqxu` Terrain visuals:
+   - Terrain rendering, water animation, snow, deformation, and pathfinding integration remain incomplete.
+
+## Recommended Next Order
+1. Finish bootstrap/startup parity (`hq-eo4`) so the real client path is the default.
+2. Push AI parity (`hq-81ok`) enough to make skirmish gameplay viable.
+3. Continue Drawable parity (`hq-fos8`) because it gates visible gameplay feedback.
+4. Fill the particle system gaps (`hq-gq7n`) after Drawable is stable.
+5. Reduce the memory-model divergence (`hq-zhvn`) to lower risk across save/load and runtime behavior.
+6. Continue terrain/audio edge cases in `hq-aqxu` and `hq-7zxm`.
+
+## Earlier Validated Closures
 - Shared W3D gadget text/clip parity improved (2026-03-12):
   - `GameClient/src/gui/w3d_gadget_draw.rs` now matches more of the original shared gadget behavior instead of carrying Rust-specific text state across draws.
   - `W3DGadgetStaticText*` now applies hotkey highlighting when `WIN_STATUS_HOTKEY_TEXT` is set, clips to the full window rect during draw, and clears the clip state afterward.
