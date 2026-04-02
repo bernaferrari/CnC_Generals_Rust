@@ -1,8 +1,10 @@
 //! Meta event translator for key and mouse remapping.
 
 use std::collections::HashSet;
+use std::hint::black_box;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
+use std::time::Instant;
 
 use game_engine::common::audio::game_audio::{
     get_global_audio_manager, initialize_global_audio_manager, AudioAffect,
@@ -38,7 +40,8 @@ use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
 use gamelogic::common::ModelConditionFlags;
-use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory, TheVictoryConditions};
+use gamelogic::helpers::{TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions};
+use gamelogic::object::drawable::Drawable;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
 use gamelogic::scripting::engine::get_script_engine;
@@ -425,6 +428,8 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_BATTLE_CRY"
         | "DEBUG_DUMP_ALL_PLAYER_OBJECTS"
         | "DEBUG_DUMP_PLAYER_OBJECTS"
+        | "DEBUG_DRAWABLE_ID_PERFORMANCE"
+        | "DEBUG_OBJECT_ID_PERFORMANCE"
         | "DEBUG_SLEEPY_UPDATE_PERFORMANCE"
         | "DEMO_CYCLE_LOD_LEVEL"
         | "DEMO_FREE_BUILD"
@@ -501,8 +506,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
     match name.to_ascii_uppercase().as_str() {
         "CHEAT_DESHROUD" => true,
         "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
-        "DEBUG_DRAWABLE_ID_PERFORMANCE" => true,
-        "DEBUG_OBJECT_ID_PERFORMANCE" => true,
         "DEMO_BEGIN_ADJUST_FOV" => true,
         "DEMO_BEGIN_ADJUST_PITCH" => true,
         "DEMO_CYCLE_EXTENT_TYPE" => true,
@@ -791,6 +794,36 @@ fn dump_player_object_counts(include_all_objects: bool) {
                 TheInGameUI::message(&line);
             }
         }
+    }
+}
+
+fn report_object_id_lookup_performance() {
+    for number_lookups in [10_000_u32, 100_000_u32, 1_000_000_u32] {
+        let start = Instant::now();
+        for test_index in 1..number_lookups {
+            black_box(TheGameLogic::find_object_by_id(test_index));
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        let next_index = TheGameLogic::get_object_id_counter();
+        TheInGameUI::message(&format!(
+            "Time to run {number_lookups} ObjectID lookups is {elapsed:.6}. Next index is {next_index}."
+        ));
+    }
+}
+
+fn report_drawable_id_lookup_performance() {
+    let maybe_client = TheGameClient::get();
+    for number_lookups in [10_000_u32, 100_000_u32, 1_000_000_u32] {
+        let start = Instant::now();
+        for test_index in 1..number_lookups {
+            let value = maybe_client.and_then(|client| client.find_drawable_by_id(test_index));
+            black_box(value);
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        let next_index = Drawable::get_drawable_id_counter();
+        TheInGameUI::message(&format!(
+            "Time to run {number_lookups} DrawableID lookups is {elapsed:.6}. Next index is {next_index}."
+        ));
     }
 }
 
@@ -2041,6 +2074,22 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record
         .name
+        .eq_ignore_ascii_case("DEBUG_OBJECT_ID_PERFORMANCE")
+    {
+        report_object_id_lookup_performance();
+        return None;
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEBUG_DRAWABLE_ID_PERFORMANCE")
+    {
+        report_drawable_id_lookup_performance();
+        return None;
+    }
+
+    if record
+        .name
         .eq_ignore_ascii_case("DEBUG_SLEEPY_UPDATE_PERFORMANCE")
     {
         let count = TheGameLogic::get_number_sleepy_updates();
@@ -2644,7 +2693,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
+            dispatch_map_entry(&alias_record("DEMO_DECR_EXTENT_MAJOR")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -2666,6 +2715,8 @@ mod tests {
             "CHEAT_RUNSCRIPT3",
             "DEBUG_DUMP_ALL_PLAYER_OBJECTS",
             "DEBUG_DUMP_PLAYER_OBJECTS",
+            "DEBUG_DRAWABLE_ID_PERFORMANCE",
+            "DEBUG_OBJECT_ID_PERFORMANCE",
             "DEBUG_SLEEPY_UPDATE_PERFORMANCE",
             "DEMO_CYCLE_LOD_LEVEL",
             "DEMO_KILL_ALL_ENEMIES",
@@ -3390,6 +3441,19 @@ mod tests {
         let _guard = test_state_lock().lock().expect("lock poisoned");
         assert_eq!(
             dispatch_map_entry(&alias_record("DEBUG_SLEEPY_UPDATE_PERFORMANCE")),
+            None
+        );
+    }
+
+    #[test]
+    fn test_debug_id_performance_aliases_keep_message() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
+            None
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEBUG_DRAWABLE_ID_PERFORMANCE")),
             None
         );
     }

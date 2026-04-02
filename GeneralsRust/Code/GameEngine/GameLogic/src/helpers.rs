@@ -763,6 +763,14 @@ impl TheGameLogic {
             .unwrap_or(0)
     }
 
+    /// Get the next object-id counter value from GameLogic.
+    pub fn get_object_id_counter() -> ObjectID {
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .map(|logic| logic.get_object_id_counter())
+            .unwrap_or(1)
+    }
+
     /// Get whether draw icon UI indicators are enabled.
     pub fn get_draw_icon_ui() -> Bool {
         crate::system::game_logic::get_game_logic()
