@@ -1771,18 +1771,36 @@ impl GameClientInterface for HardwareGameClient {
 }
 
 /// Global game engine instance (matching C++ TheGameEngine)
-static GAME_ENGINE_INSTANCE: OnceLock<Arc<Mutex<GameEngine>>> = OnceLock::new();
+static GAME_ENGINE_INSTANCE: OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>> = OnceLock::new();
+
+fn game_engine_slot() -> &'static Mutex<Option<Arc<Mutex<GameEngine>>>> {
+    GAME_ENGINE_INSTANCE.get_or_init(|| Mutex::new(None))
+}
 
 /// Get the global game engine instance.
 pub fn get_game_engine() -> Option<Arc<Mutex<GameEngine>>> {
-    GAME_ENGINE_INSTANCE.get().cloned()
+    game_engine_slot().lock().clone()
+}
+
+/// Install the global game engine instance.
+pub fn set_game_engine(engine: GameEngine) -> Arc<Mutex<GameEngine>> {
+    let engine = Arc::new(Mutex::new(engine));
+    *game_engine_slot().lock() = Some(Arc::clone(&engine));
+    engine
+}
+
+/// Clear the global game engine instance.
+pub fn clear_game_engine() {
+    *game_engine_slot().lock() = None;
 }
 
 /// Initialize (or retrieve) the global game engine instance.
 pub fn init_game_engine() -> Arc<Mutex<GameEngine>> {
-    GAME_ENGINE_INSTANCE
-        .get_or_init(|| Arc::new(Mutex::new(GameEngine::new())))
-        .clone()
+    if let Some(engine) = get_game_engine() {
+        engine
+    } else {
+        set_game_engine(GameEngine::new())
+    }
 }
 
 /// Factory function matching C++ CreateGameEngine()
