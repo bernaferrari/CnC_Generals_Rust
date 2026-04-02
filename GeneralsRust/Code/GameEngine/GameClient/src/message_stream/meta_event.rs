@@ -22,9 +22,10 @@ use super::game_message::{
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::gui::shell::get_shell;
 use crate::helpers::TheInGameUI;
-use crate::message_stream::player_state::set_local_player_id;
+use crate::message_stream::player_state::{get_local_player_id, set_local_player_id};
 use crate::message_stream::selection_xlat::DRAG_TOLERANCE;
 use crate::display::view::with_tactical_view;
+use gamelogic::commands::get_selection_manager;
 use gamelogic::commands::command::CommandType;
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
@@ -569,6 +570,67 @@ fn parse_objective_movie_alias(name: &str) -> Option<i32> {
     } else {
         None
     }
+}
+
+fn parse_runscript_alias(name: &str) -> Option<(bool, i32)> {
+    let upper = name.to_ascii_uppercase();
+    if let Some(suffix) = upper.strip_prefix("CHEAT_RUNSCRIPT") {
+        let value = suffix.parse::<i32>().ok()?;
+        return (1..=9).contains(&value).then_some((true, value));
+    }
+
+    if let Some(suffix) = upper.strip_prefix("DEMO_RUNSCRIPT") {
+        let value = suffix.parse::<i32>().ok()?;
+        return (1..=9).contains(&value).then_some((false, value));
+    }
+
+    None
+}
+
+fn run_key_script_alias(script_index: i32) {
+    let script_name = format!("KEY_F{script_index}");
+    let script_engine = gamelogic::scripting::engine::get_script_engine();
+    let Ok(mut engine_guard) = script_engine.write() else {
+        return;
+    };
+    let Some(engine) = engine_guard.as_mut() else {
+        return;
+    };
+    let _ = engine.execute_subroutine_by_name(&script_name);
+}
+
+fn kill_local_player_selection() {
+    let selection_manager = get_selection_manager();
+    let selected_ids = selection_manager
+        .read()
+        .ok()
+        .and_then(|manager| {
+            manager
+                .get_player_selection_ref(get_local_player_id())
+                .map(|selection| selection.get_selected_objects())
+        })
+        .unwrap_or_default();
+
+    for object_id in selected_ids {
+        if let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(mut object) = object_arc.write() {
+                object.kill(None, None);
+            }
+        }
+    }
+}
+
+fn first_selected_object_id_for_local_player() -> Option<u32> {
+    let selection_manager = get_selection_manager();
+    selection_manager
+        .read()
+        .ok()
+        .and_then(|manager| {
+            manager
+                .get_player_selection_ref(get_local_player_id())
+                .map(|selection| selection.get_selected_objects())
+        })
+        .and_then(|selected| selected.into_iter().next())
 }
 
 fn set_local_player_index_with_refresh(index: i32) {
@@ -1173,6 +1235,38 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             .eq_ignore_ascii_case("DEMO_SWITCH_TEAMS_BETWEEN_CHINA_USA")
     {
         let _ = switch_local_player_between_sides("America", "China");
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_KILL_SELECTION") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            kill_local_player_selection();
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_KILL_SELECTION") {
+        kill_local_player_selection();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_LOCK_CAMERA_TO_SELECTION") {
+        let selected_id = first_selected_object_id_for_local_player();
+        with_tactical_view(|view| {
+            let mut next_camera_lock = selected_id;
+            if next_camera_lock.is_some() && view.camera_lock_id() == next_camera_lock {
+                next_camera_lock = None;
+                view.force_redraw();
+            }
+            view.set_camera_lock(next_camera_lock);
+        });
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if let Some((is_cheat_alias, script_index)) = parse_runscript_alias(&record.name) {
+        if !is_cheat_alias || !TheGameLogic::is_in_multiplayer_game() {
+            run_key_script_alias(script_index);
+        }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -2311,5 +2405,65 @@ mod tests {
             let audio = manager.lock().expect("audio lock");
             assert!(audio.is_on(AudioAffect::Music));
         }
+    }
+
+    #[test]
+    fn test_runscript_alias_parsing_accepts_cpp_ranges() {
+        assert_eq!(parse_runscript_alias("CHEAT_RUNSCRIPT1"), Some((true, 1)));
+        assert_eq!(parse_runscript_alias("CHEAT_RUNSCRIPT9"), Some((true, 9)));
+        assert_eq!(parse_runscript_alias("DEMO_RUNSCRIPT2"), Some((false, 2)));
+        assert_eq!(parse_runscript_alias("DEMO_RUNSCRIPT9"), Some((false, 9)));
+        assert_eq!(parse_runscript_alias("CHEAT_RUNSCRIPT0"), None);
+        assert_eq!(parse_runscript_alias("DEMO_RUNSCRIPT10"), None);
+    }
+
+    #[test]
+    fn test_kill_selection_and_runscript_aliases_are_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        if let Ok(mut manager) = get_selection_manager().write() {
+            manager.initialize_player(0);
+            if let Some(selection) = manager.get_player_selection(0) {
+                selection.clear_selection();
+            }
+        }
+        set_local_player_id(0);
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_KILL_SELECTION")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_KILL_SELECTION")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_RUNSCRIPT3")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_RUNSCRIPT7")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+    }
+
+    #[test]
+    fn test_demo_lock_camera_to_selection_alias_clears_lock_when_no_selection() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        if let Ok(mut manager) = get_selection_manager().write() {
+            manager.initialize_player(0);
+            if let Some(selection) = manager.get_player_selection(0) {
+                selection.clear_selection();
+            }
+        }
+        set_local_player_id(0);
+
+        with_tactical_view(|view| view.set_camera_lock(Some(42)));
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_LOCK_CAMERA_TO_SELECTION")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(crate::display::view::with_tactical_view_ref(|view| view.camera_lock_id()), None);
     }
 }
