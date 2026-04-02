@@ -10,7 +10,8 @@ use game_engine::common::audio::game_audio::{
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
-    get_global_data, register_block_parser, INIError, INILoadType, INIResult, TimeOfDay, INI,
+    get_global_data, register_block_parser, DynamicGameLODLevel, INIError, INILoadType,
+    INIResult, TimeOfDay, INI,
 };
 use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 use log::debug;
@@ -119,6 +120,7 @@ static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 static LOWER_DETAIL_TOGGLE_STATE: OnceLock<RwLock<LowerDetailToggleState>> = OnceLock::new();
 static OBJECTIVE_MOVIE_INDEX: OnceLock<RwLock<i32>> = OnceLock::new();
 static MOTION_BLUR_ZOOM_SATURATE: OnceLock<RwLock<bool>> = OnceLock::new();
+static CYCLE_LOD_LEVEL_STATE: OnceLock<RwLock<DynamicGameLODLevel>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 
@@ -421,6 +423,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS"
         | "DEMO_ADDCASH"
         | "DEMO_BATTLE_CRY"
+        | "DEMO_CYCLE_LOD_LEVEL"
         | "DEMO_FREE_BUILD"
         | "DEMO_GIVE_ALL_SCIENCES"
         | "DEMO_GIVE_RANKLEVEL"
@@ -503,7 +506,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_BEGIN_ADJUST_FOV" => true,
         "DEMO_BEGIN_ADJUST_PITCH" => true,
         "DEMO_CYCLE_EXTENT_TYPE" => true,
-        "DEMO_CYCLE_LOD_LEVEL" => true,
         "DEMO_DEBUG_SELECTION" => true,
         "DEMO_DECR_ANIM_SKATE_SPEED" => true,
         "DEMO_DECR_EXTENT_HEIGHT" => true,
@@ -633,6 +635,34 @@ fn toggle_demo_network_runtime() {
     #[cfg(feature = "network")]
     {
         let _ = game_network::get_network();
+    }
+}
+
+fn cycle_lod_level_state() -> &'static RwLock<DynamicGameLODLevel> {
+    CYCLE_LOD_LEVEL_STATE.get_or_init(|| RwLock::new(DynamicGameLODLevel::VeryHigh))
+}
+
+fn cycle_dynamic_lod_level() {
+    let next = {
+        let mut guard = cycle_lod_level_state().write().expect("LOD cycle lock poisoned");
+        *guard = match *guard {
+            DynamicGameLODLevel::VeryHigh => DynamicGameLODLevel::High,
+            DynamicGameLODLevel::High => DynamicGameLODLevel::Medium,
+            DynamicGameLODLevel::Medium => DynamicGameLODLevel::Low,
+            _ => DynamicGameLODLevel::VeryHigh,
+        };
+        *guard
+    };
+
+    game_engine::common::game_lod::set_dynamic_lod_from_string(next.to_str());
+    let message = format!("Dynamic Game Detail {}", next.to_str());
+    TheInGameUI::message(&message);
+}
+
+#[cfg(test)]
+fn set_cycle_lod_level_state_for_tests(level: DynamicGameLODLevel) {
+    if let Ok(mut guard) = cycle_lod_level_state().write() {
+        *guard = level;
     }
 }
 
@@ -1944,6 +1974,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_CYCLE_LOD_LEVEL") {
+        cycle_dynamic_lod_level();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_PARTICLEDEBUG")
@@ -2550,6 +2585,7 @@ mod tests {
         for alias in [
             "CHEAT_ADD_CASH",
             "CHEAT_RUNSCRIPT3",
+            "DEMO_CYCLE_LOD_LEVEL",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_MUSIC_NEXT_TRACK",
             "DEMO_PLAY_CAMEO_MOVIE",
@@ -3237,6 +3273,20 @@ mod tests {
                 );
                 assert_eq!(network.is_network_on(), !current);
             }
+        }
+    }
+
+    #[test]
+    fn test_demo_cycle_lod_level_alias_matches_cpp_decrement_wrap_order() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        set_cycle_lod_level_state_for_tests(DynamicGameLODLevel::VeryHigh);
+
+        for expected in ["High", "Medium", "Low", "VeryHigh"] {
+            assert_eq!(
+                dispatch_map_entry(&alias_record("DEMO_CYCLE_LOD_LEVEL")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert_eq!(game_engine::common::game_lod::get_dynamic_lod(), expected);
         }
     }
 
