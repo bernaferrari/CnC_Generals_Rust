@@ -1118,9 +1118,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_ADDCASH") {
-        let _ = with_local_player_mut(|player| {
-            player.get_money_mut().deposit_money(10_000);
-        });
+        if !TheGameLogic::is_in_multiplayer_game() {
+            let _ = with_local_player_mut(|player| {
+                player.get_money_mut().deposit_money(10_000);
+            });
+        }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
