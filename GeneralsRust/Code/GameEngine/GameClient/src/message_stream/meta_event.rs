@@ -1224,8 +1224,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let _ = with_local_player_mut(|player| {
                 player.get_money_mut().deposit_money(10_000);
             });
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_ADDCASH") {
@@ -1245,8 +1246,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                     player.toggle_instant_build();
                 });
             }
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_INSTANT_BUILD") {
@@ -1288,8 +1290,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 player.add_science_purchase_points(1);
             });
             TheInGameUI::message("Adding a SciencePurchasePoint");
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record
@@ -1316,8 +1319,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 }
             });
             TheInGameUI::message("Granting all sciences!");
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_SWITCH_TEAMS") {
@@ -1379,8 +1383,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     if record.name.eq_ignore_ascii_case("CHEAT_KILL_SELECTION") {
         if !TheGameLogic::is_in_multiplayer_game() {
             kill_local_player_selection();
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_KILL_SELECTION") {
@@ -1427,9 +1432,10 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if let Some((is_cheat_alias, script_index)) = parse_runscript_alias(&record.name) {
-        if !is_cheat_alias || !TheGameLogic::is_in_multiplayer_game() {
-            run_key_script_alias(script_index);
+        if is_cheat_alias && TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
+        run_key_script_alias(script_index);
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -1846,8 +1852,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                     "Object Health OFF"
                 });
             }
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_TOGGLE_MESSAGE_TEXT") {
@@ -1856,8 +1863,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             if TheInGameUI::is_messages_on() {
                 TheInGameUI::message("GUI:MessagesOn");
             }
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MESSAGE_TEXT") {
@@ -1882,8 +1890,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                     "Special Power (Superweapon) Delay: OFF"
                 });
             }
+            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     // C++ consumes these command-map keybinds by appending the corresponding
@@ -2707,6 +2716,47 @@ mod tests {
             0
         );
         assert_eq!(get_local_player_id(), 0);
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+        ThePlayerList().write().expect("player list lock").clear();
+    }
+
+    #[test]
+    fn test_multiplayer_gated_cheat_aliases_keep_message() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let local_player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&local_player));
+            list.set_local_player_index(0);
+        }
+        set_local_player_id(0);
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_LAN);
+        }
+
+        let aliases = [
+            "CHEAT_ADD_CASH",
+            "CHEAT_GIVE_ALL_SCIENCES",
+            "CHEAT_GIVE_SCIENCEPURCHASEPOINTS",
+            "CHEAT_INSTANT_BUILD",
+            "CHEAT_KILL_SELECTION",
+            "CHEAT_RUNSCRIPT3",
+            "CHEAT_SHOW_HEALTH",
+            "CHEAT_TOGGLE_MESSAGE_TEXT",
+            "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS",
+        ];
+        for alias in aliases {
+            assert_eq!(
+                dispatch_map_entry(&alias_record(alias)),
+                None,
+                "{alias} should keep message in multiplayer"
+            );
+        }
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
