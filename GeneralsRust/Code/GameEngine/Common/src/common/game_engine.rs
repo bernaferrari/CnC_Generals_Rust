@@ -83,6 +83,34 @@ pub trait GameClientInterface: Send + Sync {
     fn set_active(&mut self, active: bool);
 }
 
+type GameClientFactory =
+    dyn Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static;
+
+static GAME_CLIENT_FACTORY: OnceLock<Mutex<Option<Arc<GameClientFactory>>>> = OnceLock::new();
+
+fn game_client_factory_slot() -> &'static Mutex<Option<Arc<GameClientFactory>>> {
+    GAME_CLIENT_FACTORY.get_or_init(|| Mutex::new(None))
+}
+
+/// Register a runtime factory that builds the concrete `GameClient` bridge.
+pub fn register_game_client_factory(
+    factory: impl Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static,
+) {
+    let mut slot = game_client_factory_slot().lock();
+    *slot = Some(Arc::new(factory));
+}
+
+/// Clear the runtime game-client factory.
+pub fn clear_game_client_factory() {
+    let mut slot = game_client_factory_slot().lock();
+    *slot = None;
+}
+
+fn create_registered_game_client() -> Option<SubsystemResult<Box<dyn GameClientInterface>>> {
+    let factory = game_client_factory_slot().lock().clone()?;
+    Some(factory())
+}
+
 pub trait AudioManagerInterface: Send + Sync {
     fn init(&mut self) -> SubsystemResult<()>;
     fn update(&mut self, delta_time: Duration) -> SubsystemResult<()>;
@@ -1341,7 +1369,35 @@ impl GameEngine {
     async fn init_game_client(&mut self) -> SubsystemResult<()> {
         info!("Initializing game client system");
 
-        // Detect graphics capability and create appropriate client
+        if let Some(factory_result) = create_registered_game_client() {
+            match factory_result {
+                Ok(mut game_client) => {
+                    info!("Using registered game client bootstrap");
+                    match game_client.init() {
+                        Ok(()) => {
+                            self.game_client = Some(game_client);
+                            info!("Game client system initialized successfully");
+                            return Ok(());
+                        }
+                        Err(err) => {
+                            warn!(
+                                "Registered game client bootstrap failed during init: {}; falling back to stub client",
+                                err
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        "Registered game client bootstrap failed to create client: {}; falling back to stub client",
+                        err
+                    );
+                }
+            }
+        }
+
+        // Detect graphics capability and create appropriate stub client when no real
+        // bootstrap has been registered by the host runtime.
         let graphics_mode = self.detect_graphics_mode().await;
         info!("Detected graphics mode: {:?}", graphics_mode);
 
@@ -1743,6 +1799,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
     struct CountingGameLogic {
         updates: Arc<AtomicUsize>,
     }
@@ -1806,6 +1864,85 @@ mod tests {
         fn is_frame_data_ready(&self) -> bool {
             self.frame_ready
         }
+    }
+
+    struct RegisteredGameClient {
+        init_calls: Arc<AtomicUsize>,
+        active: bool,
+        state: SubsystemState,
+    }
+
+    impl RegisteredGameClient {
+        fn new(init_calls: Arc<AtomicUsize>) -> Self {
+            Self {
+                init_calls,
+                active: true,
+                state: SubsystemState::Uninitialized,
+            }
+        }
+    }
+
+    impl GameClientInterface for RegisteredGameClient {
+        fn init(&mut self) -> SubsystemResult<()> {
+            self.init_calls.fetch_add(1, Ordering::Relaxed);
+            self.state = SubsystemState::Running;
+            Ok(())
+        }
+
+        fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn render(&mut self) -> SubsystemResult<()> {
+            Ok(())
+        }
+
+        fn reset(&mut self) -> SubsystemResult<()> {
+            self.state = SubsystemState::Running;
+            Ok(())
+        }
+
+        fn shutdown(&mut self) -> SubsystemResult<()> {
+            self.state = SubsystemState::Shutdown;
+            Ok(())
+        }
+
+        fn get_state(&self) -> SubsystemState {
+            self.state
+        }
+
+        fn is_active(&self) -> bool {
+            self.active
+        }
+
+        fn set_active(&mut self, active: bool) {
+            self.active = active;
+        }
+    }
+
+    #[test]
+    fn test_registered_game_client_factory_is_used_when_available() {
+        let _guard = TEST_LOCK.lock();
+        clear_game_client_factory();
+
+        let init_calls = Arc::new(AtomicUsize::new(0));
+        let factory_calls = Arc::clone(&init_calls);
+        register_game_client_factory(move || {
+            Ok(Box::new(RegisteredGameClient::new(Arc::clone(&factory_calls))))
+        });
+
+        let mut engine = GameEngine::new();
+        let result = tokio_test::block_on(engine.init_game_client());
+        assert!(result.is_ok(), "registered client init failed: {:?}", result);
+
+        let client = engine
+            .game_client
+            .as_ref()
+            .expect("registered client should have been installed");
+        assert_eq!(init_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(client.get_state(), SubsystemState::Running);
+
+        clear_game_client_factory();
     }
 
     #[tokio::test]
