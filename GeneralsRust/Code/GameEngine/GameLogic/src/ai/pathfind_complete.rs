@@ -4,7 +4,7 @@
 
 use super::object_footprint_positions;
 use super::path_optimization::PathOptimizer;
-use super::pathfind_astar::{
+pub use super::pathfind_astar::{
     AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
     COST_ORTHOGONAL, PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F,
 };
@@ -844,6 +844,13 @@ impl PathfindingSystem {
         }
     }
 
+    /// Find a bridge layer by its assigned pathfinder layer id.
+    pub fn bridge_by_layer_id(&self, layer_id: u32) -> Option<&BridgeLayer> {
+        self.bridges
+            .iter()
+            .find(|bridge| bridge.layer_id == layer_id)
+    }
+
     /// Clear path cache
     pub fn clear_cache(&self) {
         if let Ok(mut cache) = self.path_cache.lock() {
@@ -857,6 +864,13 @@ impl PathfindingSystem {
         if let Ok(mut pathfinder) = self.pathfinder.lock() {
             pathfinder.set_cell_type(coord, cell_type);
         }
+    }
+
+    /// Get cell type at world position.
+    pub fn get_cell_type(&self, pos: &Coord3D) -> Option<PathfindCellType> {
+        let coord = GridCoord::from_world(pos);
+        let pathfinder = self.pathfinder.lock().ok()?;
+        pathfinder.get_cell_type(coord)
     }
 
     /// Quick validity check for a locomotor position (C++ validMovementPosition usage).
