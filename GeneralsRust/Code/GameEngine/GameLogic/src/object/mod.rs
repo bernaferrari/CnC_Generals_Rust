@@ -2060,9 +2060,10 @@ pub struct Object {
     name: AsciiString,
     thing_template: Arc<dyn ThingTemplate>,
 
-    // Linked list pointers for efficient iteration
-    next: Option<Arc<RwLock<Object>>>,
-    prev: Option<Weak<RwLock<Object>>>,
+    // Intrusive list shadow links for efficient iteration.
+    // C++ stores raw pointers here; Rust keeps IDs and resolves through the registry.
+    next_object_id: Option<ObjectID>,
+    prev_object_id: Option<ObjectID>,
 
     // Status and state
     status: ObjectStatusMaskType,
@@ -2308,8 +2309,8 @@ impl Object {
             name: AsciiString::new(),
             thing_template: Arc::clone(&thing_template),
 
-            next: None,
-            prev: None,
+            next_object_id: None,
+            prev_object_id: None,
 
             status: object_status_mask,
             private_status: 0,
@@ -2560,8 +2561,30 @@ impl Object {
     }
 
     // Linked list navigation
+    pub fn get_next_object_id(&self) -> Option<ObjectID> {
+        self.next_object_id
+    }
+
+    pub fn get_prev_object_id(&self) -> Option<ObjectID> {
+        self.prev_object_id
+    }
+
+    pub(crate) fn set_next_object_id(&mut self, next_object_id: Option<ObjectID>) {
+        self.next_object_id = next_object_id.filter(|id| *id != INVALID_ID);
+    }
+
+    pub(crate) fn set_prev_object_id(&mut self, prev_object_id: Option<ObjectID>) {
+        self.prev_object_id = prev_object_id.filter(|id| *id != INVALID_ID);
+    }
+
     pub fn get_next_object(&self) -> Option<Arc<RwLock<Object>>> {
-        self.next.clone()
+        self.next_object_id
+            .and_then(|object_id| OBJECT_REGISTRY.get_object(object_id))
+    }
+
+    pub fn get_prev_object(&self) -> Option<Arc<RwLock<Object>>> {
+        self.prev_object_id
+            .and_then(|object_id| OBJECT_REGISTRY.get_object(object_id))
     }
 
     // Producer/Builder relationships
@@ -11705,6 +11728,15 @@ impl game_engine::common::rts::player::SkillPointObject for Object {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
+        static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_STATE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test state lock poisoned")
+    }
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 
     //=========================================================================
@@ -11958,6 +11990,57 @@ mod tests {
 
         // Object should now be dead
         assert!(obj.is_effectively_dead());
+    }
+
+    #[test]
+    fn test_next_and_prev_object_ids_resolve_through_registry() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+
+        let first = Arc::new(RwLock::new(Object::new_test(101, 100.0)));
+        let second = Arc::new(RwLock::new(Object::new_test(202, 100.0)));
+
+        OBJECT_REGISTRY.register_object(101, &first);
+        OBJECT_REGISTRY.register_object(202, &second);
+
+        {
+            let mut first_guard = first.write().expect("first object lock should be available");
+            first_guard.set_next_object_id(Some(202));
+        }
+        {
+            let mut second_guard = second.write().expect("second object lock should be available");
+            second_guard.set_prev_object_id(Some(101));
+        }
+
+        let next = first
+            .read()
+            .expect("first object lock should be readable")
+            .get_next_object()
+            .expect("next object should resolve through registry");
+        assert_eq!(next.read().unwrap().get_id(), 202);
+
+        let prev = second
+            .read()
+            .expect("second object lock should be readable")
+            .get_prev_object()
+            .expect("prev object should resolve through registry");
+        assert_eq!(prev.read().unwrap().get_id(), 101);
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_link_ids_treat_invalid_id_as_none() {
+        let _guard = test_state_lock();
+        let mut obj = Object::new_test(303, 100.0);
+
+        obj.set_next_object_id(Some(INVALID_ID));
+        obj.set_prev_object_id(Some(INVALID_ID));
+
+        assert_eq!(obj.get_next_object_id(), None);
+        assert_eq!(obj.get_prev_object_id(), None);
+        assert!(obj.get_next_object().is_none());
+        assert!(obj.get_prev_object().is_none());
     }
 }
 

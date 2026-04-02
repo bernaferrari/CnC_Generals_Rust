@@ -1869,6 +1869,27 @@ impl GameLogic {
         // Process all dead objects
         for obj_id in drained {
             let mut object_position = None;
+            let object_index = self.all_objects.iter().position(|&id| id == obj_id);
+            let previous_object_id = object_index
+                .and_then(|index| index.checked_sub(1))
+                .and_then(|index| self.all_objects.get(index).copied());
+            let next_object_id = object_index
+                .and_then(|index| self.all_objects.get(index + 1).copied());
+
+            if let Some(previous_id) = previous_object_id {
+                if let Some(previous_object) = self.objects.get(&previous_id) {
+                    if let Ok(mut previous_guard) = previous_object.write() {
+                        previous_guard.set_next_object_id(next_object_id);
+                    }
+                }
+            }
+            if let Some(next_id) = next_object_id {
+                if let Some(next_object) = self.objects.get(&next_id) {
+                    if let Ok(mut next_guard) = next_object.write() {
+                        next_guard.set_prev_object_id(previous_object_id);
+                    }
+                }
+            }
 
             if let Some(obj_ref) = self.objects.remove(&obj_id) {
                 if let Ok(obj_read) = obj_ref.read() {
@@ -1880,6 +1901,8 @@ impl GameLogic {
                     // run the internal destroy routine that removes contained object links and
                     // invokes module onDelete hooks.
                     obj_write.on_destroy_internal();
+                    obj_write.set_next_object_id(None);
+                    obj_write.set_prev_object_id(None);
                 }
 
                 // Remove all update-module registrations for this object regardless of
@@ -2185,9 +2208,26 @@ impl GameLogic {
             ));
         }
 
+        let previous_object_id = self.all_objects.last().copied();
+
         // Add to object collections
         self.objects.insert(object_id, Arc::clone(&object));
         self.all_objects.push(object_id);
+
+        if let Some(previous_id) = previous_object_id {
+            if let Some(previous_object) = self.objects.get(&previous_id) {
+                if let Ok(mut previous_guard) = previous_object.write() {
+                    previous_guard.set_next_object_id(Some(object_id));
+                }
+            }
+            if let Ok(mut object_guard) = object.write() {
+                object_guard.set_prev_object_id(Some(previous_id));
+                object_guard.set_next_object_id(None);
+            }
+        } else if let Ok(mut object_guard) = object.write() {
+            object_guard.set_prev_object_id(None);
+            object_guard.set_next_object_id(None);
+        }
 
         // Register in global registry
         OBJECT_REGISTRY.register_object(object_id, &object);
@@ -2649,6 +2689,22 @@ impl GameLogic {
         self.objects.insert(object_id, Arc::clone(&object_arc));
         self.all_objects.push(object_id);
 
+        if self.all_objects.len() > 1 {
+            let previous_id = self.all_objects[self.all_objects.len() - 2];
+            if let Some(previous_object) = self.objects.get(&previous_id) {
+                if let Ok(mut previous_guard) = previous_object.write() {
+                    previous_guard.set_next_object_id(Some(object_id));
+                }
+            }
+            if let Ok(mut object_guard) = object_arc.write() {
+                object_guard.set_prev_object_id(Some(previous_id));
+                object_guard.set_next_object_id(None);
+            }
+        } else if let Ok(mut object_guard) = object_arc.write() {
+            object_guard.set_prev_object_id(None);
+            object_guard.set_next_object_id(None);
+        }
+
         // Register with partition manager
         if let Ok(obj) = object_arc.read() {
             let pos = obj.get_position();
@@ -2970,6 +3026,15 @@ pub fn lock_game_logic() -> Result<MutexGuard<'static, GameLogic>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
+        static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_STATE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test state lock poisoned")
+    }
 
     #[test]
     fn test_game_logic_creation() {
@@ -2997,6 +3062,79 @@ mod tests {
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_object_list_links_relink_on_cleanup() {
+        let _guard = test_state_lock();
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
+        use std::sync::{Arc, RwLock};
+
+        OBJECT_REGISTRY.clear();
+
+        let mut logic = GameLogic::new();
+        let first = Arc::new(RwLock::new(Object::new_test(11, 100.0)));
+        let middle = Arc::new(RwLock::new(Object::new_test(22, 100.0)));
+        let last = Arc::new(RwLock::new(Object::new_test(33, 100.0)));
+
+        OBJECT_REGISTRY.register_object(11, &first);
+        OBJECT_REGISTRY.register_object(22, &middle);
+        OBJECT_REGISTRY.register_object(33, &last);
+
+        logic.add_restored_object(Arc::clone(&first));
+        logic.add_restored_object(Arc::clone(&middle));
+        logic.add_restored_object(Arc::clone(&last));
+
+        assert_eq!(logic.all_objects, vec![11, 22, 33]);
+        assert_eq!(
+            first.read().unwrap().get_next_object().unwrap().read().unwrap().get_id(),
+            22
+        );
+        assert_eq!(
+            middle.read().unwrap().get_prev_object().unwrap().read().unwrap().get_id(),
+            11
+        );
+
+        logic.destroy_object(22);
+        assert!(logic.cleanup_dead_objects().is_ok());
+
+        assert_eq!(logic.all_objects, vec![11, 33]);
+        assert_eq!(
+            first.read().unwrap().get_next_object().unwrap().read().unwrap().get_id(),
+            33
+        );
+        assert_eq!(
+            last.read().unwrap().get_prev_object().unwrap().read().unwrap().get_id(),
+            11
+        );
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_register_object_sets_link_ids() {
+        let _guard = test_state_lock();
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
+        use std::sync::{Arc, RwLock};
+
+        OBJECT_REGISTRY.clear();
+
+        let mut logic = GameLogic::new();
+        let first = Arc::new(RwLock::new(Object::new_test(44, 100.0)));
+        let second = Arc::new(RwLock::new(Object::new_test(55, 100.0)));
+
+        assert_eq!(logic.register_object(Arc::clone(&first)).unwrap(), 44);
+        assert_eq!(logic.register_object(Arc::clone(&second)).unwrap(), 55);
+
+        assert_eq!(logic.all_objects, vec![44, 55]);
+        assert_eq!(first.read().unwrap().get_next_object_id(), Some(55));
+        assert_eq!(first.read().unwrap().get_prev_object_id(), None);
+        assert_eq!(second.read().unwrap().get_prev_object_id(), Some(44));
+        assert_eq!(second.read().unwrap().get_next_object_id(), None);
+
+        OBJECT_REGISTRY.clear();
     }
 
     #[test]
