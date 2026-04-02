@@ -162,19 +162,27 @@ fn load_meta_map_files() {
 }
 
 fn discover_command_map_files() -> Vec<PathBuf> {
-    let mut roots = HashSet::<PathBuf>::new();
-    roots.insert(PathBuf::from("."));
+    let mut roots = Vec::<PathBuf>::new();
+    let mut seen_roots = HashSet::<PathBuf>::new();
+
+    let mut push_root = |path: PathBuf| {
+        if seen_roots.insert(path.clone()) {
+            roots.push(path);
+        }
+    };
+
+    push_root(PathBuf::from("."));
     if let Ok(current) = std::env::current_dir() {
-        roots.insert(current.clone());
+        push_root(current.clone());
         for ancestor in current.ancestors() {
-            roots.insert(ancestor.to_path_buf());
+            push_root(ancestor.to_path_buf());
         }
     }
 
     if let Some(global) = get_global_data() {
         let mod_dir = global.read().mod_dir.clone();
         if !mod_dir.trim().is_empty() {
-            roots.insert(PathBuf::from(mod_dir.trim()));
+            push_root(PathBuf::from(mod_dir.trim()));
         }
     }
 
@@ -298,15 +306,11 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         .ok_or(INIError::InvalidData)?
         .to_string();
 
-    let meta = lookup_meta_message_type(&name);
-    let has_custom_handler = name.eq_ignore_ascii_case("PLACE_BEACON")
-        || name.eq_ignore_ascii_case("DELETE_BEACON")
-        || name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS");
-    // Keep debug/demo-only entries loadable when the Rust message enum still lacks coverage.
-    if meta.is_none() && !has_custom_handler && !is_unresolved_command_name_allowed(&name) {
+    if !is_supported_command_map_name(&name) {
         return Err(INIError::InvalidData);
     }
 
+    let meta = lookup_meta_message_type(&name);
     let mut record = MetaMapRec {
         name: name.clone(),
         meta,
@@ -374,12 +378,156 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
-fn is_unresolved_command_name_allowed(name: &str) -> bool {
-    let upper = name.to_ascii_uppercase();
-    upper.starts_with("DEMO_")
-        || upper.starts_with("CHEAT_")
-        || upper.starts_with("DEBUG_")
-        || upper == "HELP"
+fn is_unimplemented_cpp_command_name(name: &str) -> bool {
+    // C++ MetaEvent.cpp table entries that exist in CommandMap files but are not
+    // represented as typed Rust messages yet. Keep these accepted/consumed so keybind
+    // behavior stays aligned while the full message pipeline is still being ported.
+    match name.to_ascii_uppercase().as_str() {
+        "CHEAT_ADD_CASH" => true,
+        "CHEAT_DESHROUD" => true,
+        "CHEAT_GIVE_ALL_SCIENCES" => true,
+        "CHEAT_GIVE_SCIENCEPURCHASEPOINTS" => true,
+        "CHEAT_INSTANT_BUILD" => true,
+        "CHEAT_KILL_SELECTION" => true,
+        "CHEAT_RUNSCRIPT1" => true,
+        "CHEAT_RUNSCRIPT2" => true,
+        "CHEAT_RUNSCRIPT3" => true,
+        "CHEAT_RUNSCRIPT4" => true,
+        "CHEAT_RUNSCRIPT5" => true,
+        "CHEAT_RUNSCRIPT6" => true,
+        "CHEAT_RUNSCRIPT7" => true,
+        "CHEAT_RUNSCRIPT8" => true,
+        "CHEAT_RUNSCRIPT9" => true,
+        "CHEAT_SHOW_HEALTH" => true,
+        "CHEAT_SWITCH_TEAMS" => true,
+        "CHEAT_TOGGLE_HAND_OF_GOD_MODE" => true,
+        "CHEAT_TOGGLE_MESSAGE_TEXT" => true,
+        "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS" => true,
+        "DEBUG_DRAWABLE_ID_PERFORMANCE" => true,
+        "DEBUG_DUMP_ALL_PLAYER_OBJECTS" => true,
+        "DEBUG_DUMP_PLAYER_OBJECTS" => true,
+        "DEBUG_OBJECT_ID_PERFORMANCE" => true,
+        "DEBUG_SLEEPY_UPDATE_PERFORMANCE" => true,
+        "DEMO_ADDCASH" => true,
+        "DEMO_BATTLE_CRY" => true,
+        "DEMO_BEGIN_ADJUST_FOV" => true,
+        "DEMO_BEGIN_ADJUST_PITCH" => true,
+        "DEMO_CYCLE_EXTENT_TYPE" => true,
+        "DEMO_CYCLE_LOD_LEVEL" => true,
+        "DEMO_DEBUG_SELECTION" => true,
+        "DEMO_DECR_ANIM_SKATE_SPEED" => true,
+        "DEMO_DECR_EXTENT_HEIGHT" => true,
+        "DEMO_DECR_EXTENT_HEIGHT_LARGE" => true,
+        "DEMO_DECR_EXTENT_MAJOR" => true,
+        "DEMO_DECR_EXTENT_MAJOR_LARGE" => true,
+        "DEMO_DECR_EXTENT_MINOR" => true,
+        "DEMO_DECR_EXTENT_MINOR_LARGE" => true,
+        "DEMO_DESHROUD" => true,
+        "DEMO_DUMP_ASSETS" => true,
+        "DEMO_END_ADJUST_FOV" => true,
+        "DEMO_END_ADJUST_PITCH" => true,
+        "DEMO_ENSHROUD" => true,
+        "DEMO_GIVE_ALL_SCIENCES" => true,
+        "DEMO_GIVE_RANKLEVEL" => true,
+        "DEMO_GIVE_SCIENCEPURCHASEPOINTS" => true,
+        "DEMO_GIVE_VETERANCY" => true,
+        "DEMO_INCR_ANIM_SKATE_SPEED" => true,
+        "DEMO_INCR_EXTENT_HEIGHT" => true,
+        "DEMO_INCR_EXTENT_HEIGHT_LARGE" => true,
+        "DEMO_INCR_EXTENT_MAJOR" => true,
+        "DEMO_INCR_EXTENT_MAJOR_LARGE" => true,
+        "DEMO_INCR_EXTENT_MINOR" => true,
+        "DEMO_INCR_EXTENT_MINOR_LARGE" => true,
+        "DEMO_INSTANT_BUILD" => true,
+        "DEMO_KILL_ALL_ENEMIES" => true,
+        "DEMO_KILL_SELECTION" => true,
+        "DEMO_LOCK_CAMERA_TO_PLANES" => true,
+        "DEMO_LOCK_CAMERA_TO_SELECTION" => true,
+        "DEMO_LOD_DECREASE" => true,
+        "DEMO_LOD_INCREASE" => true,
+        "DEMO_MUSIC_NEXT_TRACK" => true,
+        "DEMO_MUSIC_PREV_TRACK" => true,
+        "DEMO_NEXT_OBJECTIVE_MOVIE" => true,
+        "DEMO_PERFORM_STATISTICAL_DUMP" => true,
+        "DEMO_PLAY_CAMEO_MOVIE" => true,
+        "DEMO_PLAY_OBJECTIVE_MOVIE1" => true,
+        "DEMO_PLAY_OBJECTIVE_MOVIE2" => true,
+        "DEMO_PLAY_OBJECTIVE_MOVIE3" => true,
+        "DEMO_PLAY_OBJECTIVE_MOVIE4" => true,
+        "DEMO_PLAY_OBJECTIVE_MOVIE5" => true,
+        "DEMO_PLAY_OBJECTIVE_MOVIE6" => true,
+        "DEMO_REMOVE_PREREQ" => true,
+        "DEMO_RUNSCRIPT1" => true,
+        "DEMO_RUNSCRIPT2" => true,
+        "DEMO_RUNSCRIPT3" => true,
+        "DEMO_RUNSCRIPT4" => true,
+        "DEMO_RUNSCRIPT5" => true,
+        "DEMO_RUNSCRIPT6" => true,
+        "DEMO_RUNSCRIPT7" => true,
+        "DEMO_RUNSCRIPT8" => true,
+        "DEMO_RUNSCRIPT9" => true,
+        "DEMO_SHOW_AUDIO_LOCATIONS" => true,
+        "DEMO_SHOW_EXTENTS" => true,
+        "DEMO_SHOW_HEALTH" => true,
+        "DEMO_SWITCH_TEAMS" => true,
+        "DEMO_SWITCH_TEAMS_CHINA_USA" => true,
+        "DEMO_TAKE_RANKLEVEL" => true,
+        "DEMO_TAKE_VETERANCY" => true,
+        "DEMO_TEST_SURRENDER" => true,
+        "DEMO_TIME_OF_DAY" => true,
+        "DEMO_TOGGLE_AI_DEBUG" => true,
+        "DEMO_TOGGLE_AUDIODEBUG" => true,
+        "DEMO_TOGGLE_AVI" => true,
+        "DEMO_TOGGLE_BEHIND_BUILDINGS" => true,
+        "DEMO_TOGGLE_BW_VIEW" => true,
+        "DEMO_TOGGLE_CAMERA_DEBUG" => true,
+        "DEMO_TOGGLE_CASHMAPDEBUG" => true,
+        "DEMO_TOGGLE_DEBUG_STATS" => true,
+        "DEMO_TOGGLE_FEATHER_WATER" => true,
+        "DEMO_TOGGLE_FOGOFWAR" => true,
+        "DEMO_TOGGLE_GRAPHICALFRAMERATEBAR" => true,
+        "DEMO_TOGGLE_GREEN_VIEW" => true,
+        "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
+        "DEMO_TOGGLE_HURT_ME_MODE" => true,
+        "DEMO_TOGGLE_LETTERBOX" => true,
+        "DEMO_TOGGLE_MESSAGE_TEXT" => true,
+        "DEMO_TOGGLE_METRICS" => true,
+        "DEMO_TOGGLE_MILITARY_SUBTITLES" => true,
+        "DEMO_TOGGLE_MOTION_BLUR_ZOOM" => true,
+        "DEMO_TOGGLE_MUSIC" => true,
+        "DEMO_TOGGLE_NETWORK" => true,
+        "DEMO_TOGGLE_NO_DRAW" => true,
+        "DEMO_TOGGLE_PARTICLEDEBUG" => true,
+        "DEMO_TOGGLE_PROJECTILEDEBUG" => true,
+        "DEMO_TOGGLE_RED_VIEW" => true,
+        "DEMO_TOGGLE_RENDER" => true,
+        "DEMO_TOGGLE_SHADOW_VOLUMES" => true,
+        "DEMO_TOGGLE_SOUND" => true,
+        "DEMO_TOGGLE_SPECIAL_POWER_DELAYS" => true,
+        "DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT" => true,
+        "DEMO_TOGGLE_THREATDEBUG" => true,
+        "DEMO_TOGGLE_TRACKMARKS" => true,
+        "DEMO_TOGGLE_VISIONDEBUG" => true,
+        "DEMO_TOGGLE_WATERPLANE" => true,
+        "DEMO_TOGGLE_ZOOM_LOCK" => true,
+        "DEMO_VTUNE_OFF" => true,
+        "DEMO_VTUNE_ON" => true,
+        "DEMO_WIN" => true,
+        "HELP" => true,
+        _ => false,
+    }
+}
+
+fn is_runtime_command_map_alias(name: &str) -> bool {
+    name.eq_ignore_ascii_case("PLACE_BEACON")
+        || name.eq_ignore_ascii_case("DELETE_BEACON")
+        || name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS")
+}
+
+fn is_supported_command_map_name(name: &str) -> bool {
+    lookup_meta_message_type(name).is_some()
+        || is_runtime_command_map_alias(name)
+        || is_unimplemented_cpp_command_name(name)
 }
 
 fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> {
@@ -491,6 +639,20 @@ fn lookup_key_code(name: &str) -> Option<u32> {
         "KEY_8" => Some(0x38),
         "KEY_9" => Some(0x39),
         "KEY_0" => Some(0x30),
+        "KEY_KP1" => Some(0x61),
+        "KEY_KP2" => Some(0x62),
+        "KEY_KP3" => Some(0x63),
+        "KEY_KP4" => Some(0x64),
+        "KEY_KP5" => Some(0x65),
+        "KEY_KP6" => Some(0x66),
+        "KEY_KP7" => Some(0x67),
+        "KEY_KP8" => Some(0x68),
+        "KEY_KP9" => Some(0x69),
+        "KEY_KP0" => Some(0x60),
+        "KEY_KPDEL" => Some(0x6E),
+        "KEY_KPSTAR" => Some(0x6A),
+        "KEY_KPMINUS" => Some(0x6D),
+        "KEY_KPPLUS" => Some(0x6B),
         "KEY_UP" => Some(0x26),
         "KEY_DOWN" => Some(0x28),
         "KEY_LEFT" => Some(0x25),
@@ -512,6 +674,9 @@ fn lookup_key_code(name: &str) -> Option<u32> {
         "KEY_COMMA" => Some(0xBC),
         "KEY_PERIOD" => Some(0xBE),
         "KEY_SLASH" => Some(0xBF),
+        "KEY_KPENTER" => Some(0x0D),
+        "KEY_KPSLASH" => Some(0x6F),
+        "KEY_NONE" => Some(0),
         _ => None,
     }
 }
@@ -595,7 +760,6 @@ fn lookup_meta_message_type(name: &str) -> Option<GameMessageType> {
         "CHAT_EVERYONE" => Some(GameMessageType::MetaChatEveryone),
         "DIPLOMACY" => Some(GameMessageType::MetaDiplomacy),
         "OPTIONS" => Some(GameMessageType::MetaOptions),
-        "TOGGLE_ATTACKMOVE" => Some(GameMessageType::MetaToggleAttackMove),
         "TOGGLE_CONTROL_BAR" => Some(GameMessageType::MetaToggleControlBar),
         "BEGIN_PATH_BUILD" => Some(GameMessageType::MetaBeginPathBuild),
         "END_PATH_BUILD" => Some(GameMessageType::MetaEndPathBuild),
@@ -703,6 +867,235 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 state.is_low_details = !state.is_low_details;
             }
         }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_NO_DRAW") {
+        // C++ CommandXlat.cpp handles MSG_NO_DRAW by setting m_noDraw = 2^32 - 1.
+        // This keeps CommandMap demo/debug parity without requiring MSG_NO_DRAW typing yet.
+        if let Some(global_data) = get_global_data() {
+            global_data.write().no_draw = u32::MAX;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_SHADOW_VOLUMES")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.use_shadow_volumes = !global.use_shadow_volumes;
+            global.use_shadow_decals = !global.use_shadow_decals;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_FOGOFWAR") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.fog_of_war_on = !global.fog_of_war_on;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_TRACKMARKS") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.make_track_marks = !global.make_track_marks;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_WATERPLANE") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.use_water_plane = !global.use_water_plane;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_RENDER") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.disable_render = !global.disable_render;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_BEHIND_BUILDINGS")
+    {
+        let show_markers = TheGameLogic::get_show_behind_building_markers();
+        if show_markers {
+            TheGameLogic::set_show_behind_building_markers(false);
+            TheInGameUI::message("GUI:ShowBehindBuildings");
+        } else {
+            TheGameLogic::set_show_behind_building_markers(true);
+            TheInGameUI::message("GUI:HideBehindBuildings");
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_supply_center_placement = !global.debug_supply_center_placement;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_CAMERA_DEBUG") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_camera = !global.debug_camera;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_VISIONDEBUG") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_visibility = !global.debug_visibility;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_PROJECTILEDEBUG")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_projectile_path = !global.debug_projectile_path;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_THREATDEBUG") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_threat_map = !global.debug_threat_map;
+            if global.debug_threat_map {
+                global.debug_cash_value_map = false;
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_CASHMAPDEBUG") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_cash_value_map = !global.debug_cash_value_map;
+            if global.debug_cash_value_map {
+                global.debug_threat_map = false;
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_GRAPHICALFRAMERATEBAR")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.debug_show_graphical_framerate = !global.debug_show_graphical_framerate;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_SHOW_EXTENTS") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.show_collision_extents = !global.show_collision_extents;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_SHOW_AUDIO_LOCATIONS")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.show_audio_locations = !global.show_audio_locations;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_SHOW_HEALTH") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.show_object_health = !global.show_object_health;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_METRICS") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.show_metrics = !global.show_metrics;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_SPECIAL_POWER_DELAYS")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.special_power_uses_delay = !global.special_power_uses_delay;
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_FEATHER_WATER")
+    {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.feather_water -= 1;
+            if global.feather_water < 0 {
+                global.feather_water = 5;
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("CHEAT_SHOW_HEALTH") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            if let Some(global_data) = get_global_data() {
+                let mut global = global_data.write();
+                global.show_object_health = !global.show_object_health;
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record
+        .name
+        .eq_ignore_ascii_case("CHEAT_TOGGLE_SPECIAL_POWER_DELAYS")
+    {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            if let Some(global_data) = get_global_data() {
+                let mut global = global_data.write();
+                global.special_power_uses_delay = !global.special_power_uses_delay;
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    // C++ consumes these command-map keybinds by appending the corresponding
+    // message type. Rust keeps input parity by consuming even when full message
+    // handlers are not ported yet.
+    if is_unimplemented_cpp_command_name(&record.name) {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -816,11 +1209,15 @@ impl GameMessageTranslator for MetaEventTranslator {
             }
 
             let shell_active = get_shell().is_shell_active();
+            let client_frame =
+                crate::core::game_client::with_live_game_client_mut(|client| client.get_frame())
+                    .unwrap_or(0);
 
             let map_guard = get_meta_map().read().expect("MetaMap lock poisoned");
             for map in map_guard.iter() {
-                // C++ parity: ignore game-only keybinds before frame 1 to avoid load-screen input bugs.
-                if map.usable_in == COMMANDUSABLE_GAME && TheGameLogic::get_frame() < 1 {
+                // C++ parity: ignore game-only keybinds before the GameClient reaches frame 1.
+                // This prevents load-screen input from getting stuck in frame-0 menu transitions.
+                if map.usable_in == COMMANDUSABLE_GAME && client_frame < 1 {
                     continue;
                 }
                 if shell_active && (map.usable_in & COMMANDUSABLE_SHELL) == 0 {
@@ -946,14 +1343,246 @@ impl GameMessageTranslator for MetaEventTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_state_lock() -> &'static Mutex<()> {
+        static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_STATE_LOCK.get_or_init(|| Mutex::new(()))
+    }
+    use std::fs;
+
+    fn repo_root() -> PathBuf {
+        let mut dir = std::env::current_dir().expect("current_dir");
+        loop {
+            if dir.join("GeneralsMD").is_dir() && dir.join("windows_game").is_dir() {
+                return dir;
+            }
+            if !dir.pop() {
+                panic!("failed to locate repository root");
+            }
+        }
+    }
+
+    fn active_command_map_names() -> Vec<String> {
+        let root = repo_root();
+        let paths = [
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMap.ini"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMapDebug.ini"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMapDemo.ini"),
+            root.join("windows_game/extracted_big_files_v2/EnglishZH/Data/English/CommandMap.ini"),
+            root.join(
+                "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/CommandMap.ini",
+            ),
+        ];
+
+        let mut names = Vec::new();
+        for path in paths {
+            let Ok(contents) = fs::read_to_string(&path) else {
+                continue;
+            };
+            for line in contents.lines() {
+                let line = line.trim_start();
+                if line.starts_with(';') {
+                    continue;
+                }
+                let Some(rest) = line.strip_prefix("CommandMap ") else {
+                    continue;
+                };
+                let Some(name) = rest.split_whitespace().find(|token| *token != "=") else {
+                    continue;
+                };
+                names.push(name.to_string());
+            }
+        }
+        names
+    }
+
+    fn alias_record(name: &str) -> MetaMapRec {
+        MetaMapRec {
+            name: name.to_string(),
+            meta: None,
+            key: 0,
+            transition: Transition::Down,
+            mod_state: 0,
+            usable_in: COMMANDUSABLE_NONE,
+            category: String::new(),
+            description: String::new(),
+            display_name: String::new(),
+        }
+    }
 
     #[test]
     fn test_lookup_meta_message_type_uses_cpp_attack_move_spelling() {
-        assert_eq!(
-            lookup_meta_message_type("TOGGLE_ATTACKMOVE"),
-            Some(GameMessageType::MetaToggleAttackMove)
-        );
+        assert_eq!(lookup_meta_message_type("TOGGLE_ATTACKMOVE"), None);
         assert_eq!(lookup_meta_message_type("TOGGLE_ATTACK_MOVE"), None);
-        assert_eq!(lookup_meta_message_type("HELP"), None);
+        assert!(!is_supported_command_map_name("TOGGLE_ATTACKMOVE"));
+        assert!(is_supported_command_map_name("PLACE_BEACON"));
+        assert!(is_supported_command_map_name("DELETE_BEACON"));
+        assert!(is_supported_command_map_name("TOGGLE_LOWER_DETAILS"));
+        assert!(is_supported_command_map_name("DEMO_TOGGLE_SOUND"));
+        assert!(is_supported_command_map_name("CHEAT_ADD_CASH"));
+        assert!(is_supported_command_map_name("DEBUG_OBJECT_ID_PERFORMANCE"));
+        assert!(is_supported_command_map_name("HELP"));
+        assert!(!is_supported_command_map_name("DEMO_NOT_A_REAL_COMMAND"));
+        assert!(!is_supported_command_map_name("CHEAT_NOT_A_REAL_COMMAND"));
+        assert!(!is_supported_command_map_name("DEBUG_NOT_A_REAL_COMMAND"));
+        assert!(!is_supported_command_map_name("UNKNOWN_WIDGET"));
+    }
+
+    #[test]
+    fn test_lookup_key_code_covers_cpp_keypad_entries() {
+        assert_eq!(lookup_key_code("KEY_KP0"), Some(0x60));
+        assert_eq!(lookup_key_code("KEY_KP9"), Some(0x69));
+        assert_eq!(lookup_key_code("KEY_KPDEL"), Some(0x6E));
+        assert_eq!(lookup_key_code("KEY_KPSTAR"), Some(0x6A));
+        assert_eq!(lookup_key_code("KEY_KPMINUS"), Some(0x6D));
+        assert_eq!(lookup_key_code("KEY_KPPLUS"), Some(0x6B));
+        assert_eq!(lookup_key_code("KEY_KPSLASH"), Some(0x6F));
+        assert_eq!(lookup_key_code("KEY_KPENTER"), Some(0x0D));
+        assert_eq!(lookup_key_code("KEY_NONE"), Some(0));
+    }
+
+    #[test]
+    fn test_discovered_command_map_names_are_either_mapped_or_intentionally_unresolved() {
+        let names = active_command_map_names();
+        assert!(!names.is_empty());
+
+        for name in names {
+            assert!(
+                is_supported_command_map_name(&name),
+                "unhandled CommandMap entry: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_alias_command_map_entries_use_runtime_dispatch_paths() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("PLACE_BEACON")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DELETE_BEACON")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("TOGGLE_LOWER_DETAILS")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+    }
+
+    #[test]
+    fn test_unimplemented_cpp_command_entries_are_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NO_DRAW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("HELP")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+    }
+
+    #[test]
+    fn test_demo_toggle_no_draw_sets_cpp_equivalent_runtime_value() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        global_data.write().no_draw = 0;
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NO_DRAW")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(global_data.read().no_draw, u32::MAX);
+    }
+
+    #[test]
+    fn test_demo_toggle_aliases_apply_cpp_global_data_side_effects() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        {
+            let mut global = global_data.write();
+            global.use_shadow_volumes = true;
+            global.use_shadow_decals = true;
+            global.fog_of_war_on = true;
+            global.make_track_marks = true;
+            global.use_water_plane = true;
+            global.disable_render = false;
+            global.debug_supply_center_placement = false;
+            global.debug_camera = false;
+            global.debug_visibility = false;
+            global.debug_projectile_path = false;
+            global.debug_threat_map = false;
+            global.debug_cash_value_map = true;
+            global.debug_show_graphical_framerate = false;
+            global.show_collision_extents = false;
+            global.show_audio_locations = false;
+            global.show_object_health = false;
+            global.show_metrics = false;
+            global.special_power_uses_delay = true;
+            global.feather_water = 0;
+        }
+        TheGameLogic::set_show_behind_building_markers(false);
+
+        let aliases = [
+            "DEMO_TOGGLE_SHADOW_VOLUMES",
+            "DEMO_TOGGLE_FOGOFWAR",
+            "DEMO_TOGGLE_TRACKMARKS",
+            "DEMO_TOGGLE_WATERPLANE",
+            "DEMO_TOGGLE_RENDER",
+            "DEMO_TOGGLE_BEHIND_BUILDINGS",
+            "DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT",
+            "DEMO_TOGGLE_CAMERA_DEBUG",
+            "DEMO_TOGGLE_VISIONDEBUG",
+            "DEMO_TOGGLE_PROJECTILEDEBUG",
+            "DEMO_TOGGLE_THREATDEBUG",
+            "DEMO_TOGGLE_GRAPHICALFRAMERATEBAR",
+            "DEMO_SHOW_EXTENTS",
+            "DEMO_SHOW_AUDIO_LOCATIONS",
+            "DEMO_SHOW_HEALTH",
+            "DEMO_TOGGLE_METRICS",
+            "DEMO_TOGGLE_SPECIAL_POWER_DELAYS",
+            "DEMO_TOGGLE_FEATHER_WATER",
+            "DEMO_TOGGLE_CASHMAPDEBUG",
+            "CHEAT_SHOW_HEALTH",
+            "CHEAT_TOGGLE_SPECIAL_POWER_DELAYS",
+        ];
+        for alias in aliases {
+            assert_eq!(
+                dispatch_map_entry(&alias_record(alias)),
+                Some(GameMessageDisposition::DestroyMessage),
+                "alias {alias} should be consumed"
+            );
+        }
+
+        let global = global_data.read();
+        assert!(!global.use_shadow_volumes);
+        assert!(!global.use_shadow_decals);
+        assert!(!global.fog_of_war_on);
+        assert!(!global.make_track_marks);
+        assert!(!global.use_water_plane);
+        assert!(global.disable_render);
+        assert!(global.debug_supply_center_placement);
+        assert!(global.debug_camera);
+        assert!(global.debug_visibility);
+        assert!(global.debug_projectile_path);
+        assert!(!global.debug_threat_map);
+        assert!(global.debug_cash_value_map);
+        assert!(global.debug_show_graphical_framerate);
+        assert!(global.show_collision_extents);
+        assert!(global.show_audio_locations);
+        assert!(!global.show_object_health);
+        assert!(global.show_metrics);
+        assert!(global.special_power_uses_delay);
+        assert_eq!(global.feather_water, 5);
+        assert!(TheGameLogic::get_show_behind_building_markers());
     }
 }
