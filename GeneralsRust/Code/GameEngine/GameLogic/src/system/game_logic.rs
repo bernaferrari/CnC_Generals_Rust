@@ -97,24 +97,28 @@ use crate::object::update::laser_update::LaserUpdateModule;
 use crate::object::update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule, SwayClientUpdateModule,
 };
-use crate::object::{registry::OBJECT_REGISTRY, Object};
+use crate::object::{registry::OBJECT_REGISTRY, Object, THE_GHOST_OBJECT_MANAGER};
 use crate::player::{player_list, GameDifficulty, Player, PlayerIndex, PlayerType};
 use crate::scripting::engine::{get_script_engine, initialize_script_engine, ScriptEngine};
+use crate::sides_list::get_sides_list;
 use crate::system::beacon_manager::{drain_beacon_updates, BeaconUpdate};
 use crate::system::game_logic_dispatch::{get_dispatch, GameLogicDispatch};
 use crate::system::radar_notifier;
 use crate::system::shroud_manager::get_shroud_manager;
 use crate::team::{flush_pending_team_script_events, get_team_factory, Team};
+use crate::terrain::{get_terrain_logic, TerrainDynamicWaterSnapshotEntry};
 use crate::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
 use game_engine::common::rts::energy::{
     set_energy_object_lookup, set_energy_owner_callbacks, EnergyObjectLookup, EnergyOwnerCallbacks,
 };
 use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
 use game_engine::common::system::build_assistant::init_build_assistant;
+use game_engine::System::XferVersion;
 use game_engine::System::{
     register_object_id_counter_hooks, register_save_load_lifecycle_hooks,
-    register_save_load_mission_hooks,
+    register_save_load_mission_hooks, register_save_lock_ghost_objects_hook,
 };
+use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use log::{debug, info, trace, warn};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
@@ -199,6 +203,749 @@ pub fn set_fp_mode() {}
 
 /// Maximum number of sleepy updates to process per frame to avoid runaway execution
 const MAX_SLEEPY_UPDATES_PER_FRAME: usize = 256;
+
+fn xfer_sorted_string_int_map(
+    xfer: &mut dyn Xfer,
+    map: &mut HashMap<String, Int>,
+) -> Result<(), XferStatus> {
+    let mut count = if xfer.get_xfer_mode() == XferMode::Load {
+        0u32
+    } else {
+        map.len() as u32
+    };
+    xfer.xfer_unsigned_int(&mut count)?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            let mut entries: Vec<_> = map
+                .iter()
+                .map(|(key, value)| (key.clone(), *value))
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            for (mut key, mut value) in entries {
+                xfer.xfer_string(&mut key)?;
+                xfer.xfer_int(&mut value)?;
+            }
+        }
+        XferMode::Load => {
+            map.clear();
+            for _ in 0..count {
+                let mut key = String::new();
+                let mut value: Int = 0;
+                xfer.xfer_string(&mut key)?;
+                xfer.xfer_int(&mut value)?;
+                map.insert(key, value);
+            }
+        }
+        XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+    }
+
+    Ok(())
+}
+
+fn xfer_sorted_string_unit_map(
+    xfer: &mut dyn Xfer,
+    map: &mut HashMap<String, ()>,
+) -> Result<(), XferStatus> {
+    let mut count = if xfer.get_xfer_mode() == XferMode::Load {
+        0u32
+    } else {
+        map.len() as u32
+    };
+    xfer.xfer_unsigned_int(&mut count)?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            let mut keys: Vec<_> = map.keys().cloned().collect();
+            keys.sort();
+            for mut key in keys {
+                xfer.xfer_string(&mut key)?;
+            }
+        }
+        XferMode::Load => {
+            map.clear();
+            for _ in 0..count {
+                let mut key = String::new();
+                xfer.xfer_string(&mut key)?;
+                map.insert(key, ());
+            }
+        }
+        XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+    }
+
+    Ok(())
+}
+
+fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    xfer.xfer_real(&mut logic.width)?;
+    xfer.xfer_real(&mut logic.height)?;
+    xfer.xfer_unsigned_int(&mut logic.frame)?;
+    xfer.xfer_real(&mut logic.game_time)?;
+    xfer.xfer_bool(&mut logic.is_in_update)?;
+    xfer.xfer_unsigned_int(&mut logic.next_object_id)?;
+    let mut random_seed = logic.random_seed as i64;
+    xfer.xfer_int64(&mut random_seed)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        logic.random_seed = random_seed as u64;
+    }
+
+    // The game state block owns the heavyweight object graph.  This provider keeps
+    // the portable runtime flags that affect save/load behavior and UI state.
+    xfer.xfer_int(&mut logic.game_mode)?;
+    xfer.xfer_bool(&mut logic.loading_map)?;
+    xfer.xfer_bool(&mut logic.loading_save)?;
+    xfer.xfer_bool(&mut logic.is_scoring_enabled)?;
+    xfer.xfer_bool(&mut logic.show_behind_building_markers)?;
+    xfer.xfer_bool(&mut logic.draw_icon_ui)?;
+    xfer.xfer_bool(&mut logic.show_dynamic_lod)?;
+    xfer.xfer_int(&mut logic.rank_level_limit)?;
+    xfer.xfer_unsigned_short(&mut logic.superweapon_restriction)?;
+    xfer_sorted_string_int_map(xfer, &mut logic.buildable_status_overrides)?;
+    xfer_sorted_string_unit_map(xfer, &mut logic.control_bar_overrides)?;
+
+    let mut rank_points = crate::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+    xfer.xfer_int(&mut rank_points)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        crate::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(rank_points);
+    }
+
+    let mut hulk_max_lifetime = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+    xfer.xfer_int(&mut hulk_max_lifetime)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(hulk_max_lifetime);
+    }
+
+    Ok(())
+}
+
+fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    xfer.xfer_real(&mut logic.partition_manager.cell_size)?;
+
+    let mut entries: Vec<(ObjectID, Coord3D)> =
+        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            let mut snapshot = logic
+                .partition_manager
+                .object_positions
+                .iter()
+                .map(|(&object_id, position)| (object_id, *position))
+                .collect::<Vec<_>>();
+            snapshot.sort_by_key(|(object_id, _)| *object_id);
+            snapshot
+        } else {
+            Vec::new()
+        };
+
+    let mut count = entries.len() as u32;
+    xfer.xfer_unsigned_int(&mut count)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        logic.partition_manager.grid.clear();
+        logic.partition_manager.object_cells.clear();
+        logic.partition_manager.object_positions.clear();
+
+        entries.reserve(count as usize);
+        for _ in 0..count {
+            let mut object_id: ObjectID = INVALID_ID;
+            let mut position = Coord3D::ZERO;
+            xfer.xfer_object_id(&mut object_id)?;
+            xfer.xfer_real(&mut position.x)?;
+            xfer.xfer_real(&mut position.y)?;
+            xfer.xfer_real(&mut position.z)?;
+            if object_id != INVALID_ID {
+                entries.push((object_id, position));
+            }
+        }
+
+        for (object_id, position) in entries {
+            logic
+                .partition_manager
+                .add_object(object_id, (position.x, position.y, position.z));
+        }
+    } else {
+        for (object_id, position) in &mut entries {
+            xfer.xfer_object_id(object_id)?;
+            xfer.xfer_real(&mut position.x)?;
+            xfer.xfer_real(&mut position.y)?;
+            xfer.xfer_real(&mut position.z)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let player_list = player_list();
+    let list_guard = player_list.write().map_err(|_| XferStatus::InvalidData)?;
+    let mut player_count = list_guard.get_player_count() as i32;
+    xfer.xfer_int(&mut player_count)?;
+
+    if player_count != list_guard.get_player_count() as i32 {
+        return Err(XferStatus::InvalidData);
+    }
+
+    for idx in 0..player_count.max(0) {
+        let player_arc = list_guard
+            .get_player(idx)
+            .cloned()
+            .ok_or(XferStatus::InvalidData)?;
+        let mut player = player_arc.write().map_err(|_| XferStatus::InvalidData)?;
+
+        let mut money = player.get_money().get_money();
+        xfer.xfer_int(&mut money)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            player.get_money_mut().set_money(money);
+        }
+
+        let mut power_production = player.get_energy().production();
+        xfer.xfer_int(&mut power_production)?;
+        let mut power_consumption = player.get_energy().consumption();
+        xfer.xfer_int(&mut power_consumption)?;
+        let mut power_sabotaged_till_frame = player.get_energy().get_power_sabotaged_till_frame();
+        xfer.xfer_unsigned_int(&mut power_sabotaged_till_frame)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let energy = player.get_energy_mut();
+            energy.reset();
+            if power_production > 0 {
+                energy.add_power_production(power_production);
+            }
+            if power_consumption > 0 {
+                energy.add_power_consumption(power_consumption);
+            }
+            energy.set_power_sabotaged_till_frame(power_sabotaged_till_frame);
+        }
+
+        let mut defeated = player.is_defeated();
+        xfer.xfer_bool(&mut defeated)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            player.set_defeated(defeated);
+        }
+
+        let mut observer = player.is_player_observer();
+        xfer.xfer_bool(&mut observer)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            player.set_observer(observer);
+        }
+
+        let mut rank_level = player.get_rank_level();
+        xfer.xfer_int(&mut rank_level)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let _ = player.set_rank_level(rank_level);
+        }
+
+        let mut science_points = player.get_science_purchase_points();
+        xfer.xfer_int(&mut science_points)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let delta = science_points - player.get_science_purchase_points();
+            if delta != 0 {
+                player.add_science_purchase_points(delta);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_team_factory_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let mut factory = get_team_factory()
+        .lock()
+        .map_err(|_| XferStatus::InvalidData)?;
+
+    let mut next_team_id = factory.get_next_team_id();
+    xfer.xfer_unsigned_int(&mut next_team_id)?;
+    let mut next_team_prototype_id = factory.get_next_team_prototype_id();
+    xfer.xfer_unsigned_int(&mut next_team_prototype_id)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        factory.set_next_team_ids(next_team_id, next_team_prototype_id);
+    }
+
+    let mut prototype_ids = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+        let mut ids = factory
+            .list_team_prototypes()
+            .into_iter()
+            .map(|prototype| prototype.get_id())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
+    } else {
+        Vec::new()
+    };
+    let mut prototype_count = prototype_ids.len() as u16;
+    xfer.xfer_unsigned_short(&mut prototype_count)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        if prototype_count as usize != factory.list_team_prototypes().len() {
+            return Err(XferStatus::InvalidData);
+        }
+        prototype_ids.reserve(prototype_count as usize);
+        for _ in 0..prototype_count {
+            let mut prototype_id = 0u32;
+            xfer.xfer_unsigned_int(&mut prototype_id)?;
+            if factory.find_team_prototype_by_id(prototype_id).is_none() {
+                return Err(XferStatus::InvalidData);
+            }
+            prototype_ids.push(prototype_id);
+        }
+    } else {
+        for prototype_id in &mut prototype_ids {
+            xfer.xfer_unsigned_int(prototype_id)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_sides_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let sides = get_sides_list();
+    let mut sides_guard = sides.write().map_err(|_| XferStatus::InvalidData)?;
+    let mut side_count = sides_guard.get_num_sides() as i32;
+    xfer.xfer_int(&mut side_count)?;
+    if side_count != sides_guard.get_num_sides() as i32 {
+        return Err(XferStatus::InvalidData);
+    }
+
+    for idx in 0..side_count.max(0) as usize {
+        let side = sides_guard
+            .get_side_info_mut(idx)
+            .ok_or(XferStatus::InvalidData)?;
+        let mut script_list_present = side.get_script_list().is_some();
+        xfer.xfer_bool(&mut script_list_present)?;
+        let has_runtime_script_list = side.get_script_list().is_some();
+        if script_list_present != has_runtime_script_list {
+            return Err(XferStatus::InvalidData);
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_terrain_logic_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    let current_version: XferVersion = 2;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)?;
+
+    let terrain = get_terrain_logic();
+    let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
+
+    let mut active_boundary = terrain_guard.get_active_boundary();
+    xfer.xfer_int(&mut active_boundary)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        terrain_guard.set_active_boundary(active_boundary);
+    }
+
+    if version >= 2 {
+        let mut entries = if xfer.get_xfer_mode() == XferMode::Load {
+            Vec::new()
+        } else {
+            terrain_guard.snapshot_dynamic_water_entries()
+        };
+
+        let mut entry_count = if xfer.get_xfer_mode() == XferMode::Load {
+            0i32
+        } else {
+            entries.len() as i32
+        };
+        xfer.xfer_int(&mut entry_count)?;
+        if entry_count < 0 {
+            return Err(XferStatus::InvalidData);
+        }
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            entries.reserve(entry_count as usize);
+            for _ in 0..entry_count {
+                let mut trigger_id: Int = -1;
+                xfer.xfer_int(&mut trigger_id)?;
+                let mut change_per_frame = 0.0f32;
+                let mut target_height = 0.0f32;
+                let mut damage_amount = 0.0f32;
+                let mut current_height = 0.0f32;
+                xfer.xfer_real(&mut change_per_frame)?;
+                xfer.xfer_real(&mut target_height)?;
+                xfer.xfer_real(&mut damage_amount)?;
+                xfer.xfer_real(&mut current_height)?;
+                entries.push(TerrainDynamicWaterSnapshotEntry {
+                    trigger_id,
+                    water_name: AsciiString::new(),
+                    change_per_frame,
+                    target_height,
+                    damage_amount,
+                    current_height,
+                });
+            }
+            terrain_guard
+                .restore_dynamic_water_entries(entries)
+                .map_err(|_| XferStatus::InvalidData)?;
+        } else {
+            for entry in &mut entries {
+                let mut trigger_id = entry.trigger_id;
+                xfer.xfer_int(&mut trigger_id)?;
+                xfer.xfer_real(&mut entry.change_per_frame)?;
+                xfer.xfer_real(&mut entry.target_height)?;
+                xfer.xfer_real(&mut entry.damage_amount)?;
+                xfer.xfer_real(&mut entry.current_height)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+struct GameLogicSnapshotBridge {
+    logic: &'static Mutex<GameLogic>,
+}
+
+impl GameLogicSnapshotBridge {
+    fn new(logic: &'static Mutex<GameLogic>) -> Self {
+        Self { logic }
+    }
+}
+
+impl XferSnapshotTrait for GameLogicSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut guard = self.logic.lock().map_err(|_| XferStatus::InvalidData)?;
+        xfer_game_logic_state(&mut guard, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct ScriptEngineSnapshotBridge {
+    script_engine: Arc<RwLock<Option<ScriptEngine>>>,
+}
+
+impl ScriptEngineSnapshotBridge {
+    fn new(script_engine: Arc<RwLock<Option<ScriptEngine>>>) -> Self {
+        Self { script_engine }
+    }
+
+    fn with_engine_mut<R, F>(&self, mut callback: F) -> Result<R, XferStatus>
+    where
+        F: FnMut(&mut ScriptEngine) -> Result<R, XferStatus>,
+    {
+        let mut guard = self
+            .script_engine
+            .write()
+            .map_err(|_| XferStatus::InvalidData)?;
+        if guard.is_none() {
+            *guard = Some(ScriptEngine::new().map_err(|_| XferStatus::InvalidData)?);
+        }
+        let engine = guard.as_mut().ok_or(XferStatus::InvalidData)?;
+        callback(engine)
+    }
+
+    fn difficulty_to_i32(difficulty: GameDifficulty) -> i32 {
+        match difficulty {
+            GameDifficulty::Easy => 0,
+            GameDifficulty::Normal => 1,
+            GameDifficulty::Hard => 2,
+            GameDifficulty::Brutal => 3,
+        }
+    }
+
+    fn difficulty_from_i32(value: i32) -> GameDifficulty {
+        match value {
+            0 => GameDifficulty::Easy,
+            2 => GameDifficulty::Hard,
+            3 => GameDifficulty::Brutal,
+            _ => GameDifficulty::Normal,
+        }
+    }
+
+    fn xfer_script_engine_state(
+        engine: &mut ScriptEngine,
+        xfer: &mut dyn Xfer,
+    ) -> Result<(), XferStatus> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+
+        let mut frame_object_count_changed = engine.get_frame_object_count_changed();
+        xfer.xfer_unsigned_int(&mut frame_object_count_changed)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            engine.set_frame_object_count_changed(frame_object_count_changed);
+        }
+
+        let mut shown_local_defeat_window = engine.has_shown_mp_local_defeat_window();
+        xfer.xfer_bool(&mut shown_local_defeat_window)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            engine.set_shown_mp_local_defeat_window(shown_local_defeat_window);
+        }
+
+        let mut freeze_script = engine.is_time_frozen_script();
+        xfer.xfer_bool(&mut freeze_script)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            if freeze_script {
+                engine.do_freeze_time();
+            } else {
+                engine.do_unfreeze_time();
+            }
+        }
+
+        let mut freeze_debug = engine.is_time_frozen_debug();
+        xfer.xfer_bool(&mut freeze_debug)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            engine.set_time_frozen_debug(freeze_debug);
+        }
+
+        let mut current_track = engine.get_current_track_name().to_string();
+        xfer.xfer_string(&mut current_track)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            engine.set_current_track_name(current_track);
+        }
+
+        let mut global_difficulty = Self::difficulty_to_i32(engine.get_global_difficulty());
+        xfer.xfer_int(&mut global_difficulty)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            engine.set_global_difficulty(Self::difficulty_from_i32(global_difficulty));
+        }
+
+        let mut choose_victim_normal = engine.get_choose_victim_always_uses_normal();
+        xfer.xfer_bool(&mut choose_victim_normal)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            engine.set_choose_victim_always_uses_normal(choose_victim_normal);
+        }
+
+        Ok(())
+    }
+}
+
+impl XferSnapshotTrait for ScriptEngineSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.with_engine_mut(|engine| Self::xfer_script_engine_state(engine, xfer))
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct PartitionSnapshotBridge {
+    logic: &'static Mutex<GameLogic>,
+}
+
+impl PartitionSnapshotBridge {
+    fn new(logic: &'static Mutex<GameLogic>) -> Self {
+        Self { logic }
+    }
+}
+
+impl XferSnapshotTrait for PartitionSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut guard = self.logic.lock().map_err(|_| XferStatus::InvalidData)?;
+        xfer_partition_state(&mut guard, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct GhostObjectSnapshotBridge {
+    manager: Arc<RwLock<crate::object::GhostObjectManager>>,
+}
+
+impl GhostObjectSnapshotBridge {
+    fn new(manager: Arc<RwLock<crate::object::GhostObjectManager>>) -> Self {
+        Self { manager }
+    }
+}
+
+impl XferSnapshotTrait for GhostObjectSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut guard = self.manager.write().map_err(|_| XferStatus::InvalidData)?;
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+        let mut local_player = guard.get_local_player_index();
+        xfer.xfer_int(&mut local_player)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            guard.set_local_player_index(local_player);
+        }
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct PlayerListSnapshotBridge;
+
+impl XferSnapshotTrait for PlayerListSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_player_list_runtime_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct TeamFactorySnapshotBridge;
+
+impl XferSnapshotTrait for TeamFactorySnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_team_factory_runtime_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct SidesListSnapshotBridge;
+
+impl XferSnapshotTrait for SidesListSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_sides_list_runtime_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+struct TerrainLogicSnapshotBridge;
+
+impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_terrain_logic_runtime_state(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), XferStatus> {
+        Ok(())
+    }
+}
+
+fn register_game_logic_snapshot_block() {
+    let logic = GAME_LOGIC.get_or_init(|| Mutex::new(GameLogic::default()));
+    let script_engine = get_script_engine();
+    let mut state = game_engine::System::get_game_state();
+    state.add_snapshot_block(
+        "CHUNK_TerrainLogic".to_string(),
+        Box::new(TerrainLogicSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_TeamFactory".to_string(),
+        Box::new(TeamFactorySnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_TeamFactory".to_string(),
+        Box::new(TeamFactorySnapshotBridge),
+        game_engine::System::SnapshotType::DeepCrcLogicOnly,
+    );
+    state.add_snapshot_block(
+        "CHUNK_Players".to_string(),
+        Box::new(PlayerListSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_Players".to_string(),
+        Box::new(PlayerListSnapshotBridge),
+        game_engine::System::SnapshotType::DeepCrcLogicOnly,
+    );
+    state.add_snapshot_block(
+        "CHUNK_GameLogic".to_string(),
+        Box::new(GameLogicSnapshotBridge::new(logic)),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_GameLogic".to_string(),
+        Box::new(GameLogicSnapshotBridge::new(logic)),
+        game_engine::System::SnapshotType::DeepCrcLogicOnly,
+    );
+    state.add_snapshot_block(
+        "CHUNK_ScriptEngine".to_string(),
+        Box::new(ScriptEngineSnapshotBridge::new(script_engine.clone())),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_ScriptEngine".to_string(),
+        Box::new(ScriptEngineSnapshotBridge::new(script_engine)),
+        game_engine::System::SnapshotType::DeepCrcLogicOnly,
+    );
+    state.add_snapshot_block(
+        "CHUNK_SidesList".to_string(),
+        Box::new(SidesListSnapshotBridge),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_SidesList".to_string(),
+        Box::new(SidesListSnapshotBridge),
+        game_engine::System::SnapshotType::DeepCrcLogicOnly,
+    );
+    state.add_snapshot_block(
+        "CHUNK_Partition".to_string(),
+        Box::new(PartitionSnapshotBridge::new(logic)),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+    state.add_snapshot_block(
+        "CHUNK_Partition".to_string(),
+        Box::new(PartitionSnapshotBridge::new(logic)),
+        game_engine::System::SnapshotType::DeepCrcLogicOnly,
+    );
+    state.add_snapshot_block(
+        "CHUNK_GhostObject".to_string(),
+        Box::new(GhostObjectSnapshotBridge::new(Arc::clone(
+            &THE_GHOST_OBJECT_MANAGER,
+        ))),
+        game_engine::System::SnapshotType::SaveLoad,
+    );
+}
 
 /// Game mode constants (matching C++ enum values)
 pub const GAME_SINGLE_PLAYER: Int = 0;
@@ -828,6 +1575,7 @@ impl GameLogic {
         self.game_mode = GAME_NONE;
         self.loading_map = false;
         self.loading_save = false;
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
         self.is_scoring_enabled = true;
         self.show_behind_building_markers = true;
         self.draw_icon_ui = true;
@@ -1035,6 +1783,15 @@ impl GameLogic {
         // run their AI/physics updates.
         if let Err(e) = self.process_command_queue() {
             warn!("Command processing phase failed: {}", e);
+        }
+        // C++ parity: MSG_NEW_GAME only arms the request in the command phase.
+        // The expensive start is completed here once movies stop playing.
+        if crate::helpers::TheGameLogic::is_start_new_game_requested()
+            && !crate::helpers::TheGameLogic::is_intro_movie_playing()
+        {
+            if let Err(e) = self.start_new_game_now(false) {
+                warn!("Deferred new-game start failed: {}", e);
+            }
         }
         self.process_beacon_updates();
         self.process_radar_updates();
@@ -2511,7 +3268,89 @@ impl GameLogic {
     }
 
     pub fn is_loading_map(&self) -> Bool {
-        self.loading_map
+        self.loading_map || crate::helpers::TheGameLogic::is_start_new_game_requested()
+    }
+
+    /// Complete the heavy new-game initialization path.
+    ///
+    /// The request is staged first, then this method performs the actual map
+    /// load once the movie gate allows it.
+    pub(crate) fn start_new_game_now(&mut self, loading_save_game: Bool) -> Result<(), String> {
+        let map_path = game_engine::common::ini::get_global_data()
+            .map(|data| data.read().map_name.clone())
+            .unwrap_or_default();
+
+        if map_path.is_empty() {
+            crate::helpers::TheGameLogic::clear_start_new_game_request();
+            return Err("Cannot start game: global map_name is empty".to_string());
+        }
+
+        if !loading_save_game {
+            let mut state = game_engine::System::get_game_state();
+            state.set_pristine_map_name(map_path.clone());
+            if state.is_in_save_directory(std::path::Path::new(&map_path)) {
+                log::error!(
+                    "Pristine map name points to save directory map '{}'; sidecar lookup may diverge from C++ expected source-map semantics",
+                    map_path
+                );
+            }
+        }
+
+        // Match C++ startNewGame(): the transition re-applies FP mode and clears the
+        // staged start request before the actual map load begins.
+        set_fp_mode();
+        self.set_loading_map(true);
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
+
+        let game_mode = match self.get_game_mode() {
+            GAME_SHELL => crate::system::game_initialization::GameMode::ShellMap,
+            GAME_SKIRMISH => crate::system::game_initialization::GameMode::Skirmish,
+            GAME_LAN | GAME_INTERNET => crate::system::game_initialization::GameMode::Multiplayer,
+            GAME_REPLAY => crate::system::game_initialization::GameMode::Replay,
+            _ => crate::system::game_initialization::GameMode::SinglePlayer,
+        };
+
+        let difficulty = match crate::helpers::TheScriptEngine::get_global_difficulty() {
+            0 => crate::system::game_initialization::GameDifficulty::Easy,
+            2 => crate::system::game_initialization::GameDifficulty::Hard,
+            3 => crate::system::game_initialization::GameDifficulty::Brutal,
+            _ => crate::system::game_initialization::GameDifficulty::Normal,
+        };
+
+        let num_players = if let Ok(sides_guard) = crate::sides_list::get_sides_list().read() {
+            let count = sides_guard.get_num_sides().max(1) as usize;
+            count.min(crate::system::player_init::MAX_PLAYER_COUNT)
+        } else if let Ok(player_list) = crate::player::ThePlayerList().read() {
+            let count = player_list.iter().count();
+            if count > 0 {
+                count.min(crate::system::player_init::MAX_PLAYER_COUNT)
+            } else {
+                2
+            }
+        } else {
+            2
+        };
+
+        let params = crate::system::game_initialization::GameInitParams {
+            map_path,
+            game_mode,
+            difficulty,
+            num_players,
+            player_templates: Vec::new(),
+            victory_type: crate::system::victory_conditions::VictoryType::Annihilation,
+            score_limit: None,
+            time_limit: None,
+            fog_of_war_enabled: true,
+            starting_resources: 0,
+            ai_script: "DefaultAI".to_string(),
+        };
+
+        let init_result =
+            crate::system::game_initialization::GameInitializer::initialize_game(params)
+                .map(|_| ())
+                .map_err(|err| format!("Game initialization failed: {}", err));
+        self.set_loading_map(false);
+        init_result
     }
 
     pub fn set_loading_save(&mut self, loading: Bool) {
@@ -2949,6 +3788,14 @@ fn install_save_game_counter_integration() {
         })),
         None,
     );
+
+    register_save_lock_ghost_objects_hook(Some(Arc::new(|enable| {
+        if let Ok(mut manager) = THE_GHOST_OBJECT_MANAGER.write() {
+            manager.save_lock_ghost_objects(enable);
+        }
+    })));
+
+    register_game_logic_snapshot_block();
 }
 
 // =============================================================================
@@ -3331,6 +4178,24 @@ mod tests {
         assert!(!logic.is_loading_save());
         logic.set_loading_save(true);
         assert!(logic.is_loading_save());
+    }
+
+    #[test]
+    fn test_new_game_start_request_waits_for_movie_gate() {
+        let mut logic = GameLogic::new();
+
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
+        crate::helpers::TheGameLogic::set_intro_movie_playing(true);
+        crate::helpers::TheGameLogic::request_start_new_game();
+
+        assert!(logic.is_loading_map());
+
+        assert!(logic.update(0).is_ok());
+        assert!(crate::helpers::TheGameLogic::is_start_new_game_requested());
+        assert!(logic.is_loading_map());
+
+        crate::helpers::TheGameLogic::set_intro_movie_playing(false);
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
     }
 
     #[test]

@@ -31,7 +31,7 @@ use crate::player::{
 use crate::sides_list::get_sides_list;
 use crate::team::get_team_factory;
 use crate::team::MAX_GENERIC_SCRIPTS;
-use game_engine::common::ini::ini::{INI, INILoadType};
+use game_engine::common::ini::ini::{INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::resource_manager::get_resource_manager;
 use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
@@ -42,6 +42,12 @@ use game_engine::System::get_game_state;
 use std::fs;
 use std::io;
 use std::path::Path;
+
+#[cfg(test)]
+thread_local! {
+    static START_NEW_GAME_REQUEST_AT_INIT_ENTRY: std::cell::Cell<bool> =
+        std::cell::Cell::new(false);
+}
 
 /// Game mode enumeration
 /// Matches C++ GameMode from GameLogic
@@ -177,6 +183,11 @@ impl GameInitializer {
     ///
     /// Matches C++ flow from GameLogic.cpp startNewGame()
     pub fn initialize_game(params: GameInitParams) -> io::Result<GameState> {
+        #[cfg(test)]
+        START_NEW_GAME_REQUEST_AT_INIT_ENTRY.with(|slot| {
+            slot.set(crate::helpers::TheGameLogic::is_start_new_game_requested());
+        });
+
         let mut game_state = GameState::new();
 
         // PHASE 1: MAP LOADING
@@ -355,11 +366,7 @@ impl GameInitializer {
                 continue;
             }
 
-            let resource = line
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .trim();
+            let resource = line.split_whitespace().next().unwrap_or("").trim();
             if !resource.is_empty() {
                 resources.push(resource.to_string());
             }
@@ -1343,6 +1350,46 @@ mod tests {
 
         assert!(!state.is_initialized);
         assert!(state.player_list.is_empty());
+    }
+
+    #[test]
+    fn test_start_new_game_request_is_cleared_before_initialize_game_entry() {
+        use crate::system::game_logic::{GameLogic, GAME_SKIRMISH};
+        use game_engine::common::ini::get_global_data;
+        use std::sync::Mutex;
+
+        static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+        let _guard = TEST_LOCK.lock().unwrap();
+
+        let original_map_name = get_global_data()
+            .map(|data| data.read().map_name.clone())
+            .unwrap_or_default();
+
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
+        crate::helpers::TheGameLogic::request_start_new_game();
+        START_NEW_GAME_REQUEST_AT_INIT_ENTRY.with(|slot| slot.set(false));
+
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.map_name = "__definitely_missing_startup_map__.map".to_string();
+        }
+
+        let mut logic = GameLogic::new();
+        logic.set_game_mode(GAME_SKIRMISH);
+
+        let _ = logic.start_new_game_now(false);
+
+        assert!(
+            !START_NEW_GAME_REQUEST_AT_INIT_ENTRY.with(|slot| slot.get()),
+            "startup request must be cleared before initialize_game() begins"
+        );
+
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.map_name = original_map_name;
+        }
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
     }
 
     #[test]
