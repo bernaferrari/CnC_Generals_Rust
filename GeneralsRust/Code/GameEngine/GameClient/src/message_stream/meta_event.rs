@@ -915,6 +915,48 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("CHEAT_INSTANT_BUILD") {
+        if !TheGameLogic::is_in_multiplayer_game() {
+            #[cfg(any(debug_assertions, feature = "internal"))]
+            {
+                let _ = with_local_player_mut(|player| {
+                    player.toggle_instant_build();
+                });
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_INSTANT_BUILD") {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            let _ = with_local_player_mut(|player| {
+                player.toggle_instant_build();
+            });
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_FREE_BUILD") {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            let _ = with_local_player_mut(|player| {
+                player.toggle_free_build();
+            });
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_REMOVE_PREREQ") {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            let _ = with_local_player_mut(|player| {
+                player.toggle_ignore_prereqs();
+            });
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record
         .name
         .eq_ignore_ascii_case("CHEAT_GIVE_SCIENCEPURCHASEPOINTS")
@@ -1709,6 +1751,41 @@ mod tests {
             let local_guard = local_player.read().expect("player lock");
             assert_eq!(local_guard.get_money().get_money(), 10_000);
             assert_eq!(local_guard.get_science_purchase_points(), 1);
+        }
+
+        ThePlayerList().write().expect("player list lock").clear();
+    }
+
+    #[test]
+    fn test_demo_build_mode_aliases_toggle_local_player_debug_flags() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let local_player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut list = ThePlayerList().write().expect("player list lock");
+            list.clear();
+            list.add_player(Arc::clone(&local_player));
+            list.set_local_player_index(0);
+        }
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_INSTANT_BUILD")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_FREE_BUILD")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_REMOVE_PREREQ")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+
+        {
+            let local_guard = local_player.read().expect("player lock");
+            assert!(local_guard.builds_instantly());
+            assert!(local_guard.builds_for_free());
+            assert!(local_guard.ignores_prereqs());
         }
 
         ThePlayerList().write().expect("player list lock").clear();
