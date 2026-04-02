@@ -5,7 +5,7 @@
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
@@ -318,6 +318,31 @@ impl ResourceManager {
         info!("Cleared resource cache ({} resources)", count);
     }
 
+    /// Free all loaded resources except the named exclusions.
+    ///
+    /// Matches the C++ smart purge path: an empty exclusion list clears everything.
+    pub fn free_resources_with_exclusion_list(&self, exclusion_names: &[&str]) -> usize {
+        let exclusion_keys: HashSet<NameKeyType> = exclusion_names
+            .iter()
+            .map(|name| NameKeyGenerator::name_to_key_lowercase(name))
+            .collect();
+
+        let mut resources = self.resources.write().unwrap();
+        let mut names = self.resource_names.write().unwrap();
+        let before_count = resources.len();
+        resources.retain(|key, _| exclusion_keys.contains(key));
+        names.retain(|key, _| exclusion_keys.contains(key));
+
+        let removed_count = before_count.saturating_sub(resources.len());
+        info!(
+            "Freed {} resources with {} exclusions ({} retained)",
+            removed_count,
+            exclusion_names.len(),
+            resources.len()
+        );
+        removed_count
+    }
+
     /// Get resource loading statistics
     pub fn get_stats(&self) -> LoadStats {
         let stats = self.stats.lock().unwrap();
@@ -486,5 +511,36 @@ mod tests {
 
         let stats = manager.get_stats();
         assert_eq!(stats.load_failures, 0); // load_resource doesn't increment failures, only preload does
+    }
+
+    #[test]
+    fn test_free_resources_with_exclusion_list() -> Result<()> {
+        let temp_dir = tempdir()?;
+
+        for (name, content) in [("keep.txt", b"keep".as_slice()), ("drop.txt", b"drop".as_slice())] {
+            let path = temp_dir.path().join(name);
+            let mut file = File::create(&path)?;
+            file.write_all(content)?;
+        }
+
+        let mut manager = ResourceManager::new();
+        manager.add_search_path(temp_dir.path());
+
+        let keep = manager.load_resource("keep.txt")?;
+        let drop = manager.load_resource("drop.txt")?;
+        assert!(Arc::ptr_eq(&keep, &manager.load_resource("keep.txt")?));
+        assert!(Arc::ptr_eq(&drop, &manager.load_resource("drop.txt")?));
+
+        let removed = manager.free_resources_with_exclusion_list(&["keep.txt"]);
+        assert_eq!(removed, 1);
+        assert!(manager.is_loaded("keep.txt"));
+        assert!(!manager.is_loaded("drop.txt"));
+        assert_eq!(manager.get_loaded_resources(), vec!["keep.txt".to_string()]);
+
+        let removed_all = manager.free_resources_with_exclusion_list(&[]);
+        assert_eq!(removed_all, 1);
+        assert!(manager.get_loaded_resources().is_empty());
+
+        Ok(())
     }
 }

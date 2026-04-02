@@ -275,8 +275,8 @@ impl GameInitializer {
         }
 
         // C++ parity note: Display::doSmartAssetPurgeAndPreload consumes this file.
-        // We preload listed assets through ResourceManager as a parity approximation.
-        Self::preload_asset_usage_manifest(&format!("{map_dir}/AssetUsage.txt"));
+        // Missing files still trigger a purge with an empty exclusion list.
+        Self::smart_asset_purge_from_usage_manifest(&format!("{map_dir}/AssetUsage.txt"));
     }
 
     fn resolve_sidecar_map_path(map_path: &str) -> String {
@@ -332,29 +332,31 @@ impl GameInitializer {
         }
     }
 
-    fn preload_asset_usage_manifest(path: &str) {
-        if !Self::file_exists(path) {
-            return;
-        }
+    fn smart_asset_purge_from_usage_manifest(path: &str) {
+        let resources = Self::read_asset_usage_manifest(path);
 
+        let manager_arc = get_resource_manager();
+        let manager_lock = manager_arc.lock();
+        if let Ok(manager_guard) = manager_lock {
+            let refs = resources.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+            let _ = manager_guard.free_resources_with_exclusion_list(&refs);
+        }
+    }
+
+    fn read_asset_usage_manifest(path: &str) -> Vec<String> {
         let Some(contents) = Self::read_text_file(path) else {
-            log::warn!("Failed to read asset usage manifest '{}'", path);
-            return;
+            return Vec::new();
         };
 
         let mut resources = Vec::new();
         for raw_line in contents.lines() {
             let line = raw_line.trim();
-            if line.is_empty()
-                || line.starts_with("//")
-                || line.starts_with('#')
-                || line.starts_with(';')
-            {
+            if line.is_empty() || line.starts_with(';') {
                 continue;
             }
 
             let resource = line
-                .split(|c: char| c.is_whitespace() || c == ',')
+                .split_whitespace()
                 .next()
                 .unwrap_or("")
                 .trim();
@@ -363,16 +365,7 @@ impl GameInitializer {
             }
         }
 
-        if resources.is_empty() {
-            return;
-        }
-
-        let manager_arc = get_resource_manager();
-        let manager_lock = manager_arc.lock();
-        if let Ok(manager_guard) = manager_lock {
-            let refs = resources.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-            let _ = manager_guard.preload_resources(&refs);
-        }
+        resources
     }
 
     fn find_existing_case_variants(candidates: &[String]) -> Option<String> {
