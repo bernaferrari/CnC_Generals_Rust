@@ -2,12 +2,14 @@
 
 use super::game_message::{GameMessage, GameMessageType, ICoord2D};
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
-use crate::core::script_action_handler::{is_script_display_movie_playing, stop_script_display_movie};
+use crate::core::script_action_handler::{
+    is_script_display_movie_playing, stop_script_display_movie,
+};
 use crate::display::view::with_tactical_view_ref;
-use crate::helpers::TheInGameUI;
 use crate::gui::game_window::{WindowInputReturnCode, WindowMessage};
 use crate::gui::shell::get_shell;
 use crate::gui::window_manager::with_window_manager;
+use crate::helpers::TheInGameUI;
 use game_engine::common::ini::get_global_data;
 
 fn pack_legacy_mouse_data(x: i32, y: i32) -> u32 {
@@ -212,6 +214,9 @@ mod tests {
 
     #[test]
     fn raw_mouse_wheel_zero_is_ignored() {
-        assert_eq!(raw_mouse_to_window_message(&GameMessageType::RawMouseWheel(0)), None);
+        assert_eq!(
+            raw_mouse_to_window_message(&GameMessageType::RawMouseWheel(0)),
+            None
+        );
     }
 }

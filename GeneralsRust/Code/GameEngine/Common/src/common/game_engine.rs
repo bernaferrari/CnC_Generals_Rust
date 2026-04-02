@@ -1946,12 +1946,18 @@ mod tests {
         let init_calls = Arc::new(AtomicUsize::new(0));
         let factory_calls = Arc::clone(&init_calls);
         register_game_client_factory(move || {
-            Ok(Box::new(RegisteredGameClient::new(Arc::clone(&factory_calls))))
+            Ok(Box::new(RegisteredGameClient::new(Arc::clone(
+                &factory_calls,
+            ))))
         });
 
         let mut engine = GameEngine::new();
         let result = tokio_test::block_on(engine.init_game_client());
-        assert!(result.is_ok(), "registered client init failed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "registered client init failed: {:?}",
+            result
+        );
 
         let client = engine
             .game_client

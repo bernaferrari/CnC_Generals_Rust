@@ -407,6 +407,11 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
+    /// Mirrors legacy `W3DView::set3DWireFrameMode`.
+    fn set_3d_wireframe_mode(&self, _enabled: bool) -> GameLogicResult<()> {
+        Ok(())
+    }
+
     /// Mirrors ScriptActions::doSkyBox.
     fn set_skybox_enabled(&self, _enabled: bool) -> GameLogicResult<()> {
         Ok(())
@@ -850,6 +855,7 @@ pub struct ScriptEngine {
 
     // System state
     freeze_by_script: bool,
+    freeze_by_debug: bool,
     objects_should_receive_difficulty_bonus: bool,
     choose_victim_always_uses_normal: bool,
     shown_mp_local_defeat_window: bool,
@@ -1183,6 +1189,7 @@ impl ScriptEngine {
             game_difficulty: crate::player::GameDifficulty::Normal,
 
             freeze_by_script: false,
+            freeze_by_debug: false,
             objects_should_receive_difficulty_bonus: true,
             choose_victim_always_uses_normal: false,
             shown_mp_local_defeat_window: false,
@@ -1856,6 +1863,7 @@ impl ScriptEngine {
         self.game_difficulty = crate::player::GameDifficulty::Normal;
 
         self.freeze_by_script = false;
+        self.freeze_by_debug = false;
         self.objects_should_receive_difficulty_bonus = true;
         self.choose_victim_always_uses_normal = false;
         self.shown_mp_local_defeat_window = false;
@@ -1905,6 +1913,11 @@ impl ScriptEngine {
                 log::info!("Close window timer expired");
                 // In real implementation, this would close UI windows
             }
+        }
+
+        // C++ parity: freeze-by-debug stops further script update progression.
+        if self.is_time_frozen_debug() {
+            return Ok(());
         }
 
         // Update counters that are countdown timers
@@ -2975,6 +2988,16 @@ impl ScriptEngine {
         self.freeze_by_script
     }
 
+    /// Set debug freeze state.
+    pub fn set_time_frozen_debug(&mut self, frozen: bool) {
+        self.freeze_by_debug = frozen;
+    }
+
+    /// Check if time is frozen by debug controls.
+    pub fn is_time_frozen_debug(&self) -> bool {
+        self.freeze_by_debug
+    }
+
     /// Check if time is frozen by any mechanism (script or debug).
     ///
     /// ## C++ Reference: GameLogic.cpp lines 3603-3604
@@ -2982,7 +3005,7 @@ impl ScriptEngine {
     ///        TheScriptEngine->isTimeFrozenDebug() ||
     ///        TheScriptEngine->isTimeFrozenScript();`
     pub fn is_time_frozen(&self) -> bool {
-        self.freeze_by_script
+        self.freeze_by_debug || self.freeze_by_script
     }
 
     /// Get breeze info
@@ -3081,6 +3104,34 @@ impl ScriptEngine {
 
     pub fn get_choose_victim_always_uses_normal(&self) -> bool {
         self.choose_victim_always_uses_normal
+    }
+
+    /// Mirrors C++ `ScriptEngine::setEnableVTune`.
+    ///
+    /// C++ stores this as static script-engine runtime state; Rust keeps the same
+    /// singleton-style behavior in `engine.rs` shared state.
+    pub fn set_enable_vtune(&mut self, enabled: bool) {
+        set_enable_vtune(enabled);
+    }
+
+    /// Mirrors C++ `ScriptEngine::getEnableVTune`.
+    pub fn get_enable_vtune(&self) -> bool {
+        get_enable_vtune()
+    }
+
+    /// Command-level parity hook for `TheSkateDistOverride` style debug state.
+    pub fn set_skate_distance_override(&mut self, value: f32) {
+        set_skate_distance_override(value);
+    }
+
+    /// Command-level parity hook for `TheSkateDistOverride` style debug state.
+    pub fn adjust_skate_distance_override(&mut self, delta: f32) -> f32 {
+        adjust_skate_distance_override(delta)
+    }
+
+    /// Command-level parity hook for `TheSkateDistOverride` style debug state.
+    pub fn get_skate_distance_override(&self) -> f32 {
+        get_skate_distance_override()
     }
 
     /// Get action template
@@ -4101,6 +4152,8 @@ lazy_static::lazy_static! {
     static ref EVENT_MANAGER: Arc<EventManager> = Arc::new(EventManager::new());
     static ref NAMED_OBJECT_TRACKER: Arc<NamedObjectTracker> = Arc::new(NamedObjectTracker::new());
     static ref AREA_TRACKER: Arc<AreaTracker> = Arc::new(AreaTracker::new());
+    static ref VTUNE_ENABLED_STATE: RwLock<bool> = RwLock::new(false);
+    static ref SKATE_DISTANCE_OVERRIDE_STATE: RwLock<f32> = RwLock::new(0.0);
 }
 
 /// Initialize the global script engine
@@ -4119,6 +4172,45 @@ pub fn initialize_script_engine() -> GameLogicResult<()> {
 /// Get reference to global script engine
 pub fn get_script_engine() -> Arc<RwLock<Option<ScriptEngine>>> {
     SCRIPT_ENGINE.clone()
+}
+
+/// ScriptEngine parity state for `ScriptEngine::setEnableVTune/getEnableVTune`.
+pub fn set_enable_vtune(enabled: bool) {
+    if let Ok(mut guard) = VTUNE_ENABLED_STATE.write() {
+        *guard = enabled;
+    }
+}
+
+/// ScriptEngine parity state for `ScriptEngine::setEnableVTune/getEnableVTune`.
+pub fn get_enable_vtune() -> bool {
+    VTUNE_ENABLED_STATE
+        .read()
+        .map(|guard| *guard)
+        .unwrap_or(false)
+}
+
+/// Debug parity state for `TheSkateDistOverride` command plumbing.
+pub fn set_skate_distance_override(value: f32) {
+    if let Ok(mut guard) = SKATE_DISTANCE_OVERRIDE_STATE.write() {
+        *guard = value;
+    }
+}
+
+/// Debug parity state for `TheSkateDistOverride` command plumbing.
+pub fn adjust_skate_distance_override(delta: f32) -> f32 {
+    if let Ok(mut guard) = SKATE_DISTANCE_OVERRIDE_STATE.write() {
+        *guard += delta;
+        return *guard;
+    }
+    0.0
+}
+
+/// Debug parity state for `TheSkateDistOverride` command plumbing.
+pub fn get_skate_distance_override() -> f32 {
+    SKATE_DISTANCE_OVERRIDE_STATE
+        .read()
+        .map(|guard| *guard)
+        .unwrap_or(0.0)
 }
 
 /// Get reference to global event manager
@@ -4224,6 +4316,32 @@ mod tests {
 
         engine.do_unfreeze_time();
         assert!(!engine.is_time_frozen_script());
+    }
+
+    #[test]
+    fn test_debug_freeze_stops_update_progression() {
+        let mut engine = ScriptEngine::new().unwrap();
+        engine.set_timer("freeze_timer", 10).unwrap();
+        engine.set_time_frozen_debug(true);
+
+        engine
+            .update()
+            .expect("update should succeed while debug-frozen");
+        let frozen_counter = engine.get_counter("freeze_timer").unwrap();
+        assert_eq!(
+            frozen_counter.value, 10,
+            "debug freeze should prevent countdown-timer advancement"
+        );
+
+        engine.set_time_frozen_debug(false);
+        engine
+            .update()
+            .expect("update should succeed when debug freeze is cleared");
+        let resumed_counter = engine.get_counter("freeze_timer").unwrap();
+        assert_eq!(
+            resumed_counter.value, 9,
+            "timer should resume once debug freeze is cleared"
+        );
     }
 
     #[test]
@@ -4458,5 +4576,33 @@ mod tests {
         let index = engine.allocate_counter("negative_test").unwrap();
         let counter = engine.counters[index].as_ref().unwrap();
         assert_eq!(counter.value, -2);
+    }
+
+    #[test]
+    fn vtune_enable_parity_state_round_trips_through_script_engine() {
+        let _lock = crate::test_sync::lock();
+        set_enable_vtune(false);
+
+        let mut engine = ScriptEngine::new().unwrap();
+        assert!(!engine.get_enable_vtune());
+        engine.set_enable_vtune(true);
+        assert!(engine.get_enable_vtune());
+        engine.set_enable_vtune(false);
+        assert!(!engine.get_enable_vtune());
+    }
+
+    #[test]
+    fn skate_override_parity_state_matches_cxx_delta_steps() {
+        let _lock = crate::test_sync::lock();
+        set_skate_distance_override(0.0);
+
+        let mut engine = ScriptEngine::new().unwrap();
+        let up = engine.adjust_skate_distance_override(0.25);
+        assert!((up - 0.25).abs() < f32::EPSILON);
+        assert!((engine.get_skate_distance_override() - 0.25).abs() < f32::EPSILON);
+
+        let down = engine.adjust_skate_distance_override(-0.25);
+        assert!(down.abs() < f32::EPSILON);
+        assert!(engine.get_skate_distance_override().abs() < f32::EPSILON);
     }
 }

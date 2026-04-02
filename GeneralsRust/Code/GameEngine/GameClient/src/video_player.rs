@@ -258,7 +258,10 @@ impl VideoPlayerInterface for VideoPlayer {
         let provider = match get_video_stream_provider() {
             Some(p) => p,
             None => {
-                warn!("cutscene skipped (no video stream provider registered): {}", movie_title);
+                warn!(
+                    "cutscene skipped (no video stream provider registered): {}",
+                    movie_title
+                );
                 return None;
             }
         };
@@ -272,7 +275,10 @@ impl VideoPlayerInterface for VideoPlayer {
         let provider = match get_video_stream_provider() {
             Some(p) => p,
             None => {
-                warn!("video load skipped (no video stream provider registered): {}", movie_title);
+                warn!(
+                    "video load skipped (no video stream provider registered): {}",
+                    movie_title
+                );
                 return None;
             }
         };

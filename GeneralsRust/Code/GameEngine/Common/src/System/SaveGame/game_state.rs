@@ -6,7 +6,9 @@ use super::super::xfer::*;
 use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
 use super::game_state_map::GameStateMap;
-use super::{notify_clear_game_data, notify_get_mission_start_args};
+use super::{
+    notify_clear_game_data, notify_get_mission_start_args, notify_save_lock_ghost_objects,
+};
 use crate::common::game_engine::get_game_engine;
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::message_stream::{get_message_stream, GameMessageType};
@@ -233,6 +235,21 @@ impl Snapshot for NullSnapshot {
     }
 }
 
+struct GhostObjectSaveLockGuard;
+
+impl GhostObjectSaveLockGuard {
+    fn new() -> Self {
+        notify_save_lock_ghost_objects(true);
+        Self
+    }
+}
+
+impl Drop for GhostObjectSaveLockGuard {
+    fn drop(&mut self) {
+        notify_save_lock_ghost_objects(false);
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 // GameState - Main save/load management structure
 // ------------------------------------------------------------------------------------------------
@@ -289,6 +306,11 @@ impl GameState {
 
     /// Initialize the game state system
     pub fn init(&mut self) {
+        self.add_snapshot_block(
+            "CHUNK_GameStateMap".to_string(),
+            Box::new(GameStateMap::new(self.save_directory.clone())),
+            SnapshotType::SaveLoad,
+        );
         // C++ parity: register and keep canonical snapshot block ordering at init time.
         self.ensure_snapshot_block_order(SnapshotType::SaveLoad);
         self.ensure_snapshot_block_order(SnapshotType::DeepCrcLogicOnly);
@@ -559,7 +581,8 @@ impl GameState {
 
     /// Load a game
     pub fn load_game(&mut self, game_info: AvailableGameInfo) -> Result<SaveCode, XferStatus> {
-        let requested_mission_save = game_info.save_game_info.save_file_type == SaveFileType::Mission;
+        let requested_mission_save =
+            game_info.save_game_info.save_file_type == SaveFileType::Mission;
 
         // Check if file exists
         let filepath = self.get_file_path_in_save_directory(&game_info.filename);
@@ -609,9 +632,17 @@ impl GameState {
         // Set load flag
         self.is_in_load_game = true;
 
-        // Load save data
-        let load_result = self.xfer_save_data(&mut xfer_load, SnapshotType::SaveLoad);
-        let close_result = xfer_load.close();
+        // Match C++: keep ghost objects save-locked only during the actual load deserialization.
+        let (load_result, close_result) = {
+            let _ghost_object_save_lock = GhostObjectSaveLockGuard::new();
+
+            // Load save data
+            let load_result = self.xfer_save_data(&mut xfer_load, SnapshotType::SaveLoad);
+            let close_result = xfer_load.close();
+
+            (load_result, close_result)
+        };
+
         let post_process_result = self.game_state_post_process_load();
 
         self.is_in_load_game = false;
@@ -728,7 +759,9 @@ impl GameState {
                     if block_name.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
                         self.xfer(xfer)?;
                     } else {
-                        let snapshot = self.snapshot_block_lists[index][block_pos].snapshot.as_mut();
+                        let snapshot = self.snapshot_block_lists[index][block_pos]
+                            .snapshot
+                            .as_mut();
                         xfer.xfer_snapshot(snapshot)?;
                     }
 
@@ -977,13 +1010,17 @@ impl Snapshot for GameState {
         // User description
         xfer.xfer_unicode_string(&mut self.game_info.description)?;
 
-        if xfer.get_xfer_mode() == XferMode::Save && self.game_info.map_label.is_empty() {
-            if let Some(global) = crate::common::ini::ini_game_data::get_global_data() {
-                let global = global.read();
-                if !global.map_name.is_empty() {
-                    self.game_info.map_label = self.get_map_leaf_name(&global.map_name);
-                }
-            }
+        if xfer.get_xfer_mode() == XferMode::Save {
+            self.game_info.map_label = crate::common::ini::ini_game_data::get_global_data()
+                .map(|global| {
+                    let global = global.read();
+                    if global.map_name.is_empty() {
+                        String::new()
+                    } else {
+                        self.get_map_leaf_name(&global.map_name)
+                    }
+                })
+                .unwrap_or_default();
         }
         xfer.xfer_ascii_string(&mut self.game_info.map_label)?;
 
@@ -1020,7 +1057,61 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct CountingSnapshot {
+        payload: Arc<Mutex<u32>>,
+        xfer_calls: Arc<Mutex<u32>>,
+        crc_calls: Arc<Mutex<u32>>,
+        post_process_calls: Arc<Mutex<u32>>,
+    }
+
+    impl CountingSnapshot {
+        fn new(
+            payload: Arc<Mutex<u32>>,
+            xfer_calls: Arc<Mutex<u32>>,
+            crc_calls: Arc<Mutex<u32>>,
+            post_process_calls: Arc<Mutex<u32>>,
+        ) -> Self {
+            Self {
+                payload,
+                xfer_calls,
+                crc_calls,
+                post_process_calls,
+            }
+        }
+    }
+
+    impl Snapshot for CountingSnapshot {
+        fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+            *self.crc_calls.lock().expect("crc counter lock") += 1;
+            let mut payload = *self.payload.lock().expect("payload lock");
+            xfer.xfer_unsigned_int(&mut payload)?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                *self.payload.lock().expect("payload lock") = payload;
+            }
+            Ok(())
+        }
+
+        fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+            *self.xfer_calls.lock().expect("xfer counter lock") += 1;
+            let mut payload = *self.payload.lock().expect("payload lock");
+            xfer.xfer_unsigned_int(&mut payload)?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                *self.payload.lock().expect("payload lock") = payload;
+            }
+            Ok(())
+        }
+
+        fn load_post_process(&mut self) -> Result<(), XferStatus> {
+            *self
+                .post_process_calls
+                .lock()
+                .expect("post process counter lock") += 1;
+            Ok(())
+        }
+    }
 
     fn unique_temp_save_dir(label: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -1051,6 +1142,26 @@ mod tests {
             info.pristine_map_name = "Maps\\PristineTest.map".to_string();
         }
         state
+    }
+
+    fn register_counting_snapshot(
+        state: &mut GameState,
+        block_name: &str,
+        payload: Arc<Mutex<u32>>,
+        xfer_calls: Arc<Mutex<u32>>,
+        crc_calls: Arc<Mutex<u32>>,
+        post_process_calls: Arc<Mutex<u32>>,
+    ) {
+        state.add_snapshot_block(
+            block_name.to_string(),
+            Box::new(CountingSnapshot::new(
+                payload,
+                xfer_calls,
+                crc_calls,
+                post_process_calls,
+            )),
+            SnapshotType::SaveLoad,
+        );
     }
 
     fn write_game_state_block(path: &Path, token: &str, state: &mut GameState) {
@@ -1113,6 +1224,120 @@ mod tests {
             .expect_err("mixed-case block token should be rejected");
 
         assert_eq!(err, XferStatus::UnknownBlock);
+
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    #[test]
+    fn save_game_refreshes_map_label_from_runtime_map_name() {
+        let save_dir = unique_temp_save_dir("map_label_refresh");
+        let path = save_dir.join("00000001.sav");
+
+        crate::common::ini::ini_game_data::init_global_data();
+        if let Some(global) = crate::common::ini::ini_game_data::get_global_data() {
+            global.write().map_name = "Maps\\Skirmish\\FrozenValley.map".to_string();
+        }
+
+        let mut state = GameState::new(save_dir.clone());
+        {
+            let info = state.get_save_game_info_mut();
+            info.map_label = "Stale Label".to_string();
+            info.save_file_type = SaveFileType::Normal;
+        }
+
+        let mut xfer_save = XferSave::new();
+        xfer_save
+            .open(path.to_string_lossy().into_owned())
+            .expect("open save file");
+
+        state.xfer(&mut xfer_save).expect("save game header");
+        xfer_save.close().expect("close save file");
+
+        assert_eq!(state.get_save_game_info().map_label, "FrozenValley.map");
+        assert_ne!(state.get_save_game_info().date.year, 0);
+
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    #[test]
+    fn registered_snapshot_blocks_replace_placeholders_and_round_trip() {
+        let save_dir = unique_temp_save_dir("snapshot_bridge");
+        let path = save_dir.join("00000001.sav");
+        let writer_payload = Arc::new(Mutex::new(0xDEADBEEF));
+        let reader_payload = Arc::new(Mutex::new(0u32));
+        let xfer_calls = Arc::new(Mutex::new(0));
+        let crc_calls = Arc::new(Mutex::new(0));
+        let post_process_calls = Arc::new(Mutex::new(0));
+
+        let mut writer_state = GameState::new(save_dir.clone());
+        writer_state.init();
+        register_counting_snapshot(
+            &mut writer_state,
+            "CHUNK_InGameUI",
+            Arc::clone(&writer_payload),
+            Arc::clone(&xfer_calls),
+            Arc::clone(&crc_calls),
+            Arc::clone(&post_process_calls),
+        );
+
+        let save_block_names: Vec<String> = writer_state.snapshot_block_lists
+            [SnapshotType::SaveLoad as usize]
+            .iter()
+            .map(|block| block.block_name.clone())
+            .collect();
+        let expected_block_names: Vec<String> = SAVELOAD_BLOCK_NAMES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        assert_eq!(save_block_names, expected_block_names);
+        assert_eq!(
+            save_block_names
+                .iter()
+                .filter(|block_name| block_name.eq_ignore_ascii_case("CHUNK_InGameUI"))
+                .count(),
+            1
+        );
+
+        let mut xfer_save = XferSave::new();
+        xfer_save
+            .open(path.to_string_lossy().into_owned())
+            .expect("open save file");
+        writer_state
+            .xfer_save_data(&mut xfer_save, SnapshotType::SaveLoad)
+            .expect("save snapshot blocks");
+        xfer_save.close().expect("close save file");
+
+        assert_eq!(*xfer_calls.lock().expect("xfer counter"), 1);
+        assert_eq!(*crc_calls.lock().expect("crc counter"), 0);
+        assert_eq!(*writer_payload.lock().expect("writer payload"), 0xDEADBEEF);
+
+        let mut reader_state = GameState::new(save_dir.clone());
+        reader_state.init();
+        register_counting_snapshot(
+            &mut reader_state,
+            "CHUNK_InGameUI",
+            Arc::clone(&reader_payload),
+            Arc::clone(&xfer_calls),
+            Arc::clone(&crc_calls),
+            Arc::clone(&post_process_calls),
+        );
+
+        let mut xfer_load = XferLoad::new();
+        xfer_load
+            .open(path.to_string_lossy().into_owned())
+            .expect("open save file for load");
+        reader_state
+            .xfer_save_data(&mut xfer_load, SnapshotType::SaveLoad)
+            .expect("load snapshot blocks");
+        reader_state
+            .game_state_post_process_load()
+            .expect("post-process loaded snapshot blocks");
+        xfer_load.close().expect("close load file");
+
+        assert_eq!(*xfer_calls.lock().expect("xfer counter"), 2);
+        assert_eq!(*crc_calls.lock().expect("crc counter"), 0);
+        assert_eq!(*post_process_calls.lock().expect("post process counter"), 1);
+        assert_eq!(*reader_payload.lock().expect("reader payload"), 0xDEADBEEF);
 
         let _ = fs::remove_dir_all(save_dir);
     }

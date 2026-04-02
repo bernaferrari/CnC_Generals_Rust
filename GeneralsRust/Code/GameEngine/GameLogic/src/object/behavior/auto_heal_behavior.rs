@@ -25,7 +25,9 @@ use crate::upgrade::upgrade_mask_for_ascii;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::rts::NameKeyType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
-use game_engine::common::thing::module::{Module, ModuleData, Thing as ModuleThing};
+use game_engine::common::thing::module::{
+    Module, ModuleData, Object as ModuleObjectTrait, Thing as ModuleThing,
+};
 use log::warn;
 use std::any::Any;
 use std::fmt;
@@ -37,6 +39,42 @@ const NEVER: UnsignedInt = u32::MAX;
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
+
+#[derive(Debug, Clone)]
+struct AutoHealObjectHandle {
+    object: Arc<RwLock<GameObject>>,
+}
+
+impl ModuleObjectTrait for AutoHealObjectHandle {
+    fn get_object_id(&self) -> ObjectID {
+        self.object
+            .read()
+            .map(|guard| guard.get_id())
+            .unwrap_or(OBJECT_INVALID_ID)
+    }
+
+    fn remove_upgrade(
+        &self,
+        upgrade_template: Option<&game_engine::common::ini::ini_upgrade::UpgradeTemplate>,
+    ) {
+        let Some(template) = upgrade_template else {
+            return;
+        };
+        let upgrade_name = template.name.as_str();
+        if upgrade_name.is_empty() {
+            return;
+        }
+
+        let mask_bits = upgrade_mask_for_ascii(upgrade_name);
+        if mask_bits.is_empty() {
+            return;
+        }
+
+        if let Ok(mut guard) = self.object.write() {
+            guard.remove_upgrade_mask(mask_bits);
+        }
+    }
+}
 
 fn object_matches_kind_mask(obj: &GameObject, mask: KindOfMaskType) -> bool {
     if mask == KIND_OF_MASK_ALL {
@@ -1130,11 +1168,10 @@ impl UpgradeModuleInterface for AutoHealBehavior {
         if activation_mask.is_empty() || upgrade_mask.intersects(activation_mask) {
             self.undo_upgrade();
             if let Some(object) = self.get_object() {
-                if let Ok(thing) = object.read() {
-                    self.module_data
-                        .upgrade_mux_data
-                        .mux_data_process_upgrade_removal(&*thing);
-                }
+                let object_handle = AutoHealObjectHandle { object };
+                self.module_data
+                    .upgrade_mux_data
+                    .mux_data_process_upgrade_removal(&object_handle);
             }
         }
     }

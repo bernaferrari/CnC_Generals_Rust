@@ -87,6 +87,7 @@ use crate::common::{
     ObjectShroudStatus, ObjectStatusMaskType, PathfindLayerEnum, PlayerId, PlayerMaskType, Real,
     Relationship, Snapshot, TeamMemberList, Thing, ThingTemplate, TurretType, UnsignedByte,
     UnsignedInt, UpgradeMaskType, VeterancyLevel, WeaponBonusConditionFlags,
+    geometry_type_from_u32, geometry_type_to_u32,
     LOGICFRAMES_PER_SECOND,
 };
 use game_engine::common::game_common::FOREVER;
@@ -142,6 +143,7 @@ use crate::stealth_update::StealthUpdateHandle;
 use crate::team::{Team, TeamID};
 use crate::upgrade::center::get_upgrade_center;
 use crate::upgrade::UpgradeTemplate;
+use crate::upgrade_legacy::upgrade_mask_for_ascii;
 use crate::weapon::{
     Weapon, WeaponAntiMask, WeaponBonusConditionType as WeaponModuleBonusConditionType,
     WeaponChoiceCriteria, WeaponLockType, WeaponSet, WeaponSetFlags, WeaponSetType, WeaponSlotType,
@@ -3440,11 +3442,7 @@ impl Object {
                                 let killer_is_ally = relationship != Relationship::Enemy;
                                 let experience_value =
                                     victim_guard.get_experience_value(victim_cost, killer_is_ally);
-                                tracker_guard.add_experience_points(
-                                    experience_value,
-                                    true,
-                                    &[],
-                                );
+                                tracker_guard.add_experience_points(experience_value, true, &[]);
                             }
                         }
                     }
@@ -3879,7 +3877,8 @@ impl Object {
     ///
     /// Matches C++ Object::hasWeaponToDealDamageType() from Object.h line 454
     pub fn has_weapon_to_deal_damage_type(&self, damage_type: crate::weapon::DamageType) -> bool {
-        self.weapon_set.has_weapon_to_deal_damage_type(damage_type.into())
+        self.weapon_set
+            .has_weapon_to_deal_damage_type(damage_type.into())
     }
 
     /// Check if this object shares reload time across all weapons
@@ -3914,11 +3913,27 @@ impl Object {
         pos: &Coord3D,
         cmd_source: CommandSourceType,
     ) -> CanAttackResult {
-        let _ = pos;
-        self.weapon_set.get_able_to_attack_specific_object(
+        self.weapon_set.get_able_to_use_weapon_against_target(
             attack_type,
             self.get_id(),
-            victim.get_id(),
+            Some(victim.get_id()),
+            Some(pos),
+            cmd_source,
+            None,
+        )
+    }
+
+    pub fn get_able_to_use_weapon_against_position(
+        &self,
+        attack_type: AbleToAttackType,
+        pos: &Coord3D,
+        cmd_source: CommandSourceType,
+    ) -> CanAttackResult {
+        self.weapon_set.get_able_to_use_weapon_against_target(
+            attack_type,
+            self.get_id(),
+            None,
+            Some(pos),
             cmd_source,
             None,
         )
@@ -5287,7 +5302,9 @@ impl Object {
             };
             if guard.get_module_name_key() == key {
                 if let Some(f) = func.take() {
-                    return (&mut *guard as &mut dyn std::any::Any).downcast_mut::<T>().map(f);
+                    return (&mut *guard as &mut dyn std::any::Any)
+                        .downcast_mut::<T>()
+                        .map(f);
                 }
             }
         }
@@ -5296,7 +5313,9 @@ impl Object {
             let result = entry.with_module(|module| {
                 if module.get_module_name_key() == key {
                     if let Some(f) = func.take() {
-                        return (module as &mut dyn std::any::Any).downcast_mut::<T>().map(f);
+                        return (module as &mut dyn std::any::Any)
+                            .downcast_mut::<T>()
+                            .map(f);
                     }
                 }
                 None
@@ -10964,6 +10983,30 @@ impl ModuleObjectTrait for ObjectThingHandle {
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn engine_module::Object>>> {
         None
     }
+
+    fn remove_upgrade(
+        &self,
+        upgrade_template: Option<&game_engine::common::ini::ini_upgrade::UpgradeTemplate>,
+    ) {
+        let Some(template) = upgrade_template else {
+            return;
+        };
+        let upgrade_name = template.name.as_str();
+        if upgrade_name.is_empty() {
+            return;
+        }
+
+        let mask_bits = upgrade_mask_for_ascii(upgrade_name);
+        if mask_bits.is_empty() {
+            return;
+        }
+
+        if let Some(arc) = self.object.upgrade() {
+            if let Ok(mut guard) = arc.write() {
+                guard.remove_upgrade_mask(mask_bits);
+            }
+        }
+    }
 }
 
 impl ModuleThing for ObjectThingHandle {
@@ -11149,7 +11192,7 @@ impl Snapshot for Object {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
-        let current_version: u8 = 9;
+        let current_version: u8 = 10;
         let mut version = current_version;
         let _ = xfer.xfer_version(&mut version, current_version);
 
@@ -11231,6 +11274,14 @@ impl Snapshot for Object {
         xfer_coord3d_values(xfer, &mut self.geometry_info.bounds.min);
         xfer_coord3d_values(xfer, &mut self.geometry_info.bounds.max);
         let _ = xfer.xfer_real(&mut self.geometry_info.height_above_terrain);
+        if version >= 10 {
+            let mut geometry_type = geometry_type_to_u32(self.geometry_info.geometry_type);
+            let _ = xfer.xfer_unsigned_int(&mut geometry_type);
+            if is_loading {
+                self.geometry_info.geometry_type = geometry_type_from_u32(geometry_type);
+            }
+            let _ = xfer.xfer_bool(&mut self.geometry_info.is_small);
+        }
 
         xfer_sighting_info(xfer, &mut self.partition_last_look);
         if version >= 9 {
@@ -12004,11 +12055,15 @@ mod tests {
         OBJECT_REGISTRY.register_object(202, &second);
 
         {
-            let mut first_guard = first.write().expect("first object lock should be available");
+            let mut first_guard = first
+                .write()
+                .expect("first object lock should be available");
             first_guard.set_next_object_id(Some(202));
         }
         {
-            let mut second_guard = second.write().expect("second object lock should be available");
+            let mut second_guard = second
+                .write()
+                .expect("second object lock should be available");
             second_guard.set_prev_object_id(Some(101));
         }
 

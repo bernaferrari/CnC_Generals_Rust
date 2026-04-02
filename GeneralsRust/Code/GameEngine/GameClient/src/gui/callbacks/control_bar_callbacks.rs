@@ -16,8 +16,8 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::radar::{
     get_radar_system, ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
 };
-use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::commands::command::CommandType;
+use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use gamelogic::player::ThePlayerList;
 use std::sync::{Arc, RwLock};
@@ -493,7 +493,8 @@ impl LeftHUDCallbacks {
         } else {
             let message_stream = get_message_stream();
             let mut stream = message_stream.write().unwrap();
-            let world_pos = crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
+            let world_pos =
+                crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
 
             if let Some(pending_power) = TheInGameUI::get_pending_special_power() {
                 if (pending_power.options & (CMD_NEED_TARGET_POS | CMD_ATTACK_OBJECTS_POSITION))

@@ -10,7 +10,6 @@
 
 use crate::common::audio::{
     audio_event_rts::{AudioEventRts, AudioHandle, AudioPriority, Coord3D, ObjectId},
-    audio_request::{AudioRequest, RequestType},
     game_audio::with_sound_playback_hook,
 };
 use std::sync::{Arc, OnceLock};
@@ -497,20 +496,18 @@ impl super::game_audio::SoundManager for SoundManagerImpl {
             return Err("Cannot play sound now".to_string());
         }
 
-        // Track the sound
-        self.track_sound(&mut event);
+        match with_sound_playback_hook(|hook| hook.play(&event)) {
+            Some(Ok(())) => {}
+            Some(Err(err)) => return Err(format!("Sound backend error: {err}")),
+            None => return Err("No sound playback hook registered".to_string()),
+        }
 
-        // Update counters
+        // Track only after backend accept, matching C++ "playing" accounting.
+        self.track_sound(&mut event);
         if event.is_positional_audio() {
             self.notify_of_3d_sample_start();
         } else {
             self.notify_of_2d_sample_start();
-        }
-
-        let _audio_request = AudioRequest::new_with_event(RequestType::Play, event.clone());
-
-        if let Some(result) = with_sound_playback_hook(|hook| hook.play(&event)) {
-            result.map_err(|err| format!("Sound backend error: {err}"))?;
         }
 
         Ok(())

@@ -661,7 +661,10 @@ impl AssetManager {
 
         // Return cached model if available
         if self.model_cache.contains_key(&unit_key) {
-            return Ok(self.model_cache.get(&unit_key).unwrap());
+            return Ok(self
+                .model_cache
+                .get(&unit_key)
+                .expect("model_cache key existed but value disappeared"));
         }
 
         info!("Loading C&C model: {}", unit_name);
@@ -674,7 +677,9 @@ impl AssetManager {
             .map_err(|e| anyhow!("Failed to load model {}: {}", unit_name, e))?;
 
         self.model_cache.insert(unit_key.clone(), model);
-        Ok(self.model_cache.get(&unit_key).unwrap())
+        self.model_cache
+            .get(&unit_key)
+            .ok_or_else(|| anyhow!("Model cache insert failed for '{}'", unit_name))
     }
 
     /// Load texture from BIG archives
@@ -1476,7 +1481,10 @@ pub fn toggle_cnc_music() {
     if let Some(manager_arc) = get_asset_manager() {
         // We need to spawn a task for the async lock
         tokio::spawn(async move {
-            let manager = manager_arc.lock().unwrap();
+            let Ok(manager) = manager_arc.lock() else {
+                log::warn!("Skipping toggle_cnc_music: asset manager lock poisoned");
+                return;
+            };
             manager.toggle_background_music();
         });
     }

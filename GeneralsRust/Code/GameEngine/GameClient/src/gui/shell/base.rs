@@ -54,7 +54,7 @@ use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -671,29 +671,47 @@ fn push_shell_menu_scheme_ini_file(
     }
 }
 
-fn discover_shell_menu_scheme_ini_files() -> Vec<PathBuf> {
-    let mut roots = HashSet::<PathBuf>::new();
-    roots.insert(PathBuf::from("."));
+fn push_unique_root(roots: &mut Vec<PathBuf>, root: PathBuf) {
+    if !roots.iter().any(|existing| existing == &root) {
+        roots.push(root);
+    }
+}
+
+fn ordered_shell_menu_scheme_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let mut ancestors: Vec<PathBuf> = parent.ancestors().map(Path::to_path_buf).collect();
+            ancestors.reverse();
+            for ancestor in ancestors {
+                push_unique_root(&mut roots, ancestor);
+            }
+        }
+    }
+
     if let Ok(current) = std::env::current_dir() {
-        roots.insert(current.clone());
-        for ancestor in current.ancestors() {
-            roots.insert(ancestor.to_path_buf());
+        let mut ancestors: Vec<PathBuf> = current.ancestors().map(Path::to_path_buf).collect();
+        ancestors.reverse();
+        for ancestor in ancestors {
+            push_unique_root(&mut roots, ancestor);
         }
     }
 
     if let Some(global) = get_global_data() {
         let mod_dir = global.read().mod_dir.clone();
         if !mod_dir.trim().is_empty() {
-            roots.insert(PathBuf::from(mod_dir.trim()));
+            push_unique_root(&mut roots, PathBuf::from(mod_dir.trim()));
         }
     }
 
-    let mut ordered_roots: Vec<PathBuf> = roots.into_iter().collect();
-    ordered_roots.sort();
+    roots
+}
 
+fn discover_shell_menu_scheme_ini_files() -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut seen = HashSet::new();
-    for root in ordered_roots {
+    for root in ordered_shell_menu_scheme_roots() {
         push_shell_menu_scheme_ini_file(
             &mut files,
             &mut seen,
@@ -3044,7 +3062,10 @@ mod tests {
         assert_eq!(layout.get_state(), LayoutState::Initializing);
 
         // Missing .wnd files should fail to initialize instead of silently succeeding.
-        assert!(matches!(layout.run_init(None), Err(ShellError::LayoutError(_))));
+        assert!(matches!(
+            layout.run_init(None),
+            Err(ShellError::LayoutError(_))
+        ));
         assert!(layout.is_hidden());
         assert_eq!(layout.get_state(), LayoutState::Initializing);
 
@@ -3124,6 +3145,110 @@ mod tests {
         assert_eq!(manager.current_scheme.as_deref(), Some("test_scheme"));
         manager.set_shell_menu_scheme("");
         assert!(manager.current_scheme.is_none());
+    }
+
+    #[test]
+    fn test_shell_menu_scheme_discovery_uses_deterministic_order() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let _guard = shell_global_test_lock().lock().unwrap();
+
+        struct CwdGuard(PathBuf);
+        impl Drop for CwdGuard {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.0);
+            }
+        }
+
+        struct ModDirGuard(Option<String>);
+        impl Drop for ModDirGuard {
+            fn drop(&mut self) {
+                if let Some(global) = get_global_data() {
+                    global.write().mod_dir = self.0.take().unwrap_or_default();
+                }
+            }
+        }
+
+        let original_dir = std::env::current_dir().unwrap();
+        let _cwd_guard = CwdGuard(original_dir);
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "shell_menu_scheme_order_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp_root.join("Data/INI/Default")).unwrap();
+        fs::create_dir_all(temp_root.join("Data/INI")).unwrap();
+        fs::create_dir_all(
+            temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI/Default"),
+        )
+        .unwrap();
+        fs::create_dir_all(temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI"))
+            .unwrap();
+        fs::create_dir_all(
+            temp_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Default"),
+        )
+        .unwrap();
+        fs::create_dir_all(temp_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI"))
+            .unwrap();
+
+        for path in [
+            temp_root.join("Data/INI/Default/ShellMenuScheme.ini"),
+            temp_root.join("Data/INI/ShellMenuScheme.ini"),
+            temp_root.join(
+                "windows_game/extracted_big_files/INIZH/Data/INI/Default/ShellMenuScheme.ini",
+            ),
+            temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI/ShellMenuScheme.ini"),
+            temp_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/ShellMenuScheme.ini",
+            ),
+            temp_root
+                .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ShellMenuScheme.ini"),
+        ] {
+            fs::write(path, b"").unwrap();
+        }
+
+        std::env::set_current_dir(&temp_root).unwrap();
+
+        let old_mod_dir = if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            let old = global.mod_dir.clone();
+            global.mod_dir.clear();
+            Some(old)
+        } else {
+            None
+        };
+        let _mod_dir_guard = ModDirGuard(old_mod_dir);
+
+        let files = discover_shell_menu_scheme_ini_files();
+        let expected = vec![
+            fs::canonicalize(temp_root.join("Data/INI/Default/ShellMenuScheme.ini")).unwrap(),
+            fs::canonicalize(temp_root.join("Data/INI/ShellMenuScheme.ini")).unwrap(),
+            fs::canonicalize(temp_root.join(
+                "windows_game/extracted_big_files/INIZH/Data/INI/Default/ShellMenuScheme.ini",
+            ))
+            .unwrap(),
+            fs::canonicalize(
+                temp_root
+                    .join("windows_game/extracted_big_files/INIZH/Data/INI/ShellMenuScheme.ini"),
+            )
+            .unwrap(),
+            fs::canonicalize(temp_root.join(
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/ShellMenuScheme.ini",
+            ))
+            .unwrap(),
+            fs::canonicalize(
+                temp_root
+                    .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ShellMenuScheme.ini"),
+            )
+            .unwrap(),
+        ];
+
+        assert_eq!(files, expected);
     }
 
     #[test]
@@ -3341,10 +3466,16 @@ mod tests {
 
         let event_log = events.borrow();
         assert!(event_log.iter().any(|event| event == "destroy:stack.wnd"));
-        assert!(!event_log.iter().any(|event| event == "destroy:save_load.wnd"));
-        assert!(!event_log.iter().any(|event| event == "destroy:popup_replay.wnd"));
+        assert!(!event_log
+            .iter()
+            .any(|event| event == "destroy:save_load.wnd"));
+        assert!(!event_log
+            .iter()
+            .any(|event| event == "destroy:popup_replay.wnd"));
         assert!(!event_log.iter().any(|event| event == "destroy:options.wnd"));
-        assert!(!event_log.iter().any(|event| event == "destroy:background.wnd"));
+        assert!(!event_log
+            .iter()
+            .any(|event| event == "destroy:background.wnd"));
     }
 
     #[test]

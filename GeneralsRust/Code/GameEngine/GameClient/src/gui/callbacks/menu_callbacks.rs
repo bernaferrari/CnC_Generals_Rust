@@ -3,6 +3,7 @@
 //! This module contains callback functions for all the shell menus,
 //! including main menu, single player menu, options menu, etc.
 
+use crate::core::game_client::apply_lod_texture_reduction;
 use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
 use crate::gui::campaign_manager::get_campaign_manager;
@@ -964,7 +965,6 @@ impl OptionsMenu {
             global.use_heat_effects = heat_effects;
             global.enable_behind_building_markers = building_occlusion;
             global.use_trees = show_props;
-            global.texture_reduction_factor = texture_reduction;
             global.max_particle_count = particle_cap;
             global.display_gamma = Self::slider_to_gamma(gamma_slider);
             global.anti_alias_box_value = anti_aliasing;
@@ -979,6 +979,7 @@ impl OptionsMenu {
             global.writable.enable_dynamic_lod = !no_dynamic_lod;
             global.writable.use_fps_limit = !unlock_fps;
         }
+        let _ = apply_lod_texture_reduction(texture_reduction);
 
         game_engine::common::game_lod::set_static_lod_from_string(detail_name);
         game_engine::common::game_lod::set_ideal_static_lod_from_string(detail_name);

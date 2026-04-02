@@ -35,9 +35,10 @@
 
 use std::collections::HashMap;
 use std::io::Cursor;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -49,10 +50,12 @@ use crate::core::script_action_handler::{
     GameClientScriptActionHandler,
 };
 use crate::core::subsystems::{
-    create_keyboard, create_mouse, AudioSubsystem, DisplayStringManagerSubsystem,
-    FontLibrarySubsystem, HeaderTemplateManagerSubsystem, HotKeyManagerSubsystem,
-    InGameUISubsystem, InGameUiHandle, KeyboardHandle, MouseHandle, TerrainVisualStub,
-    VideoPlayerSubsystem, WindowManagerSubsystem,
+    create_keyboard, create_mouse, register_campaign_snapshot_block,
+    register_game_client_snapshot_block, register_particle_system_snapshot_block,
+    register_radar_snapshot_block, register_terrain_visual_snapshot_block, AudioSubsystem,
+    DisplayStringManagerSubsystem, FontLibrarySubsystem, HeaderTemplateManagerSubsystem,
+    HotKeyManagerSubsystem, InGameUISubsystem, InGameUiHandle, KeyboardHandle, MouseHandle,
+    TerrainVisualStub, VideoPlayerSubsystem, WindowManagerSubsystem,
 };
 use crate::core::Region3D;
 use crate::display::display::Display as GraphicsDisplay;
@@ -64,12 +67,11 @@ use crate::effects::weather_complete::{get_weather_system_mut, initialize_weathe
 use crate::effects::{DecalManager, DecalSettings, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
-use crate::gui::{
-    get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer,
-    WindowStatus,
-};
 use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::ime_manager::get_ime_manager;
+use crate::gui::{
+    get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer, WindowStatus,
+};
 use crate::helpers::{register_in_game_ui_backend, register_mouse_backend};
 use crate::input::*;
 use crate::message_stream::command_list::get_command_list;
@@ -77,7 +79,9 @@ use crate::message_stream::command_router::route_commands_to_gamelogic;
 use crate::message_stream::game_message::GameMessageType;
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::message_stream::player_state::set_local_player_id;
-use crate::message_stream::translators::TranslatorFactory;
+use crate::message_stream::translators::{
+    CommandTranslator as CommandTranslatorImpl, TranslatorFactory,
+};
 use crate::message_stream::{GameMessage, GameMessageDisposition, GameMessageTranslator};
 use crate::network::{is_network_command_message, NetworkBridgeHandle};
 use crate::platform::PlatformContext;
@@ -90,14 +94,21 @@ use crate::video_player::{
     VideoPlayerInterface as GlobalVideoPlayerInterface,
 };
 use game_engine::common::game_lod::prefers_low_res_movies;
+use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::ini::{get_global_data, get_global_language_read, INILoadType, INI};
 use game_engine::common::recorder::{init_recorder, with_recorder_mut};
-use game_engine::common::system::{geometry::Matrix3D, Snapshotable, Xfer, XferVersion};
+use game_engine::common::system::{
+    geometry::Matrix3D, Snapshot as CommonSnapshotData, Snapshotable, Xfer,
+    XferMode as CommonXferMode, XferStatus as CommonXferStatus, XferVersion,
+};
 use game_engine::common::thing::{get_thing_factory, ThingTemplate};
 use game_engine::common::user_preferences::UserPreferences;
 use game_engine::System::{
     register_drawable_id_counter_hooks, register_save_load_mission_hooks,
     register_save_load_skirmish_hooks,
+};
+use game_engine::{
+    Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus,
 };
 use nalgebra::Point3;
 
@@ -129,6 +140,456 @@ impl DrawableId {
 }
 
 static GLOBAL_NEXT_DRAWABLE_ID: AtomicU32 = AtomicU32::new(1);
+static LIVE_GAME_CLIENT_PTR: OnceLock<Mutex<Option<usize>>> = OnceLock::new();
+const TEXTURE_REDUCTION_MIN: i32 = 0;
+const TEXTURE_REDUCTION_MAX: i32 = 4;
+const WW3D_TEXTURE_REDUCTION_MIN_DIMENSION: u32 = 32;
+
+fn live_game_client_slot() -> &'static Mutex<Option<usize>> {
+    LIVE_GAME_CLIENT_PTR.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn register_live_game_client(client: &mut GameClient) {
+    if let Ok(mut slot) = live_game_client_slot().lock() {
+        *slot = Some(client as *mut GameClient as usize);
+    }
+}
+
+pub(crate) fn clear_live_game_client(client: &mut GameClient) {
+    if let Ok(mut slot) = live_game_client_slot().lock() {
+        let current = client as *mut GameClient as usize;
+        if slot.is_some_and(|stored| stored == current) {
+            *slot = None;
+        }
+    }
+}
+
+pub(crate) fn with_live_game_client_mut<R>(
+    callback: impl FnOnce(&mut GameClient) -> R,
+) -> Option<R> {
+    let raw = live_game_client_slot().lock().ok().and_then(|slot| *slot)?;
+    // The pointer is set from GameClient::init and cleared in Drop. Snapshot operations
+    // occur while the owning GameClient is alive on the main thread.
+    let client = unsafe { (raw as *mut GameClient).as_mut()? };
+    Some(callback(client))
+}
+
+/// Apply a texture-reduction target immediately, mirroring C++ `W3DGameClient::adjustLOD`.
+///
+/// C++ reference:
+/// - `W3DGameClient.cpp` `W3DGameClient::adjustLOD` (clamp [0,4], `WW3D::Set_Texture_Reduction`,
+///   `TheTerrainRenderObject->setTextureLOD`)
+pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
+    let global_data = get_global_data()?;
+    let clamped = target_factor.clamp(TEXTURE_REDUCTION_MIN, TEXTURE_REDUCTION_MAX);
+    let previous = {
+        let mut global = global_data.write();
+        let previous = global
+            .texture_reduction_factor
+            .clamp(TEXTURE_REDUCTION_MIN, TEXTURE_REDUCTION_MAX);
+        global.texture_reduction_factor = clamped;
+        previous
+    };
+
+    if let Ok(mut runtime_global) = runtime_global_data::write_safe() {
+        runtime_global.texture_reduction_factor = clamped;
+    }
+
+    let renderer_previous = ww3d_renderer_3d::rendering::texture_quality::texture_reduction();
+    if renderer_previous != clamped as u32 {
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            clamped as u32,
+            WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
+        );
+    }
+
+    if previous != clamped || renderer_previous != clamped as u32 {
+        if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
+            if let Some(terrain) = terrain_guard.as_mut() {
+                terrain.apply_texture_lod_reduction(clamped);
+            }
+        }
+    }
+
+    Some(clamped)
+}
+
+/// Delta-based texture reduction adjustment wrapper (C++ `adjustLOD(adj)` semantics).
+pub fn adjust_lod_texture_reduction(delta: i32) -> Option<i32> {
+    let global_data = get_global_data()?;
+    let current = {
+        let global = global_data.read();
+        global.texture_reduction_factor
+    };
+    apply_lod_texture_reduction(current.saturating_add(delta))
+}
+
+fn runtime_status_to_common(status: RuntimeXferStatus) -> CommonXferStatus {
+    match status {
+        RuntimeXferStatus::Invalid => CommonXferStatus::Invalid,
+        RuntimeXferStatus::Ok => CommonXferStatus::Ok,
+        RuntimeXferStatus::Eof => CommonXferStatus::Eof,
+        RuntimeXferStatus::FileNotFound => CommonXferStatus::FileNotFound,
+        RuntimeXferStatus::FileNotOpen => CommonXferStatus::FileNotOpen,
+        RuntimeXferStatus::FileAlreadyOpen => CommonXferStatus::FileAlreadyOpen,
+        RuntimeXferStatus::ReadError => CommonXferStatus::ReadError,
+        RuntimeXferStatus::WriteError => CommonXferStatus::WriteError,
+        RuntimeXferStatus::ModeUnknown => CommonXferStatus::ModeUnknown,
+        RuntimeXferStatus::SkipError => CommonXferStatus::SkipError,
+        RuntimeXferStatus::BeginEndMismatch => CommonXferStatus::BeginEndMismatch,
+        RuntimeXferStatus::OutOfMemory => CommonXferStatus::OutOfMemory,
+        RuntimeXferStatus::StringError => CommonXferStatus::StringError,
+        RuntimeXferStatus::InvalidVersion => CommonXferStatus::InvalidVersion,
+        RuntimeXferStatus::InvalidParameters => CommonXferStatus::InvalidParameters,
+        RuntimeXferStatus::InvalidData => CommonXferStatus::InvalidData,
+        RuntimeXferStatus::ListNotEmpty => CommonXferStatus::ListNotEmpty,
+        RuntimeXferStatus::UnknownString => CommonXferStatus::UnknownString,
+        RuntimeXferStatus::UnknownBlock | RuntimeXferStatus::ErrorUnknown => {
+            CommonXferStatus::ErrorUnknown
+        }
+    }
+}
+
+fn common_status_to_runtime(status: CommonXferStatus) -> RuntimeXferStatus {
+    match status {
+        CommonXferStatus::Invalid => RuntimeXferStatus::Invalid,
+        CommonXferStatus::Ok => RuntimeXferStatus::Ok,
+        CommonXferStatus::Eof => RuntimeXferStatus::Eof,
+        CommonXferStatus::FileNotFound => RuntimeXferStatus::FileNotFound,
+        CommonXferStatus::FileNotOpen => RuntimeXferStatus::FileNotOpen,
+        CommonXferStatus::FileAlreadyOpen => RuntimeXferStatus::FileAlreadyOpen,
+        CommonXferStatus::ReadError => RuntimeXferStatus::ReadError,
+        CommonXferStatus::WriteError => RuntimeXferStatus::WriteError,
+        CommonXferStatus::ModeUnknown => RuntimeXferStatus::ModeUnknown,
+        CommonXferStatus::SkipError => RuntimeXferStatus::SkipError,
+        CommonXferStatus::BeginEndMismatch => RuntimeXferStatus::BeginEndMismatch,
+        CommonXferStatus::OutOfMemory => RuntimeXferStatus::OutOfMemory,
+        CommonXferStatus::StringError => RuntimeXferStatus::StringError,
+        CommonXferStatus::InvalidVersion => RuntimeXferStatus::InvalidVersion,
+        CommonXferStatus::InvalidParameters => RuntimeXferStatus::InvalidParameters,
+        CommonXferStatus::InvalidData => RuntimeXferStatus::InvalidData,
+        CommonXferStatus::ListNotEmpty => RuntimeXferStatus::ListNotEmpty,
+        CommonXferStatus::UnknownString => RuntimeXferStatus::UnknownString,
+        CommonXferStatus::ErrorUnknown => RuntimeXferStatus::ErrorUnknown,
+    }
+}
+
+fn runtime_status_to_io(status: RuntimeXferStatus) -> io::Error {
+    io::Error::new(
+        match status {
+            RuntimeXferStatus::Eof => ErrorKind::UnexpectedEof,
+            RuntimeXferStatus::FileNotFound => ErrorKind::NotFound,
+            RuntimeXferStatus::InvalidParameters | RuntimeXferStatus::InvalidVersion => {
+                ErrorKind::InvalidInput
+            }
+            RuntimeXferStatus::InvalidData
+            | RuntimeXferStatus::UnknownString
+            | RuntimeXferStatus::UnknownBlock => ErrorKind::InvalidData,
+            RuntimeXferStatus::WriteError => ErrorKind::WriteZero,
+            _ => ErrorKind::Other,
+        },
+        format!("{status:?}"),
+    )
+}
+
+struct RuntimeCommonXferAdapter<'a> {
+    inner: &'a mut dyn RuntimeXfer,
+}
+
+impl<'a> RuntimeCommonXferAdapter<'a> {
+    fn new(inner: &'a mut dyn RuntimeXfer) -> Self {
+        Self { inner }
+    }
+}
+
+impl Xfer for RuntimeCommonXferAdapter<'_> {
+    fn get_xfer_mode(&self) -> CommonXferMode {
+        match self.inner.get_xfer_mode() {
+            RuntimeXferMode::Invalid => CommonXferMode::Invalid,
+            RuntimeXferMode::Save => CommonXferMode::Save,
+            RuntimeXferMode::Load => CommonXferMode::Load,
+            RuntimeXferMode::Crc => CommonXferMode::Crc,
+        }
+    }
+
+    fn get_identifier(&self) -> &str {
+        self.inner.get_identifier()
+    }
+
+    fn set_options(&mut self, options: u32) {
+        self.inner.set_options(options);
+    }
+
+    fn clear_options(&mut self, options: u32) {
+        self.inner.clear_options(options);
+    }
+
+    fn get_options(&self) -> u32 {
+        self.inner.get_options()
+    }
+
+    fn open(&mut self, identifier: &str) -> Result<(), CommonXferStatus> {
+        self.inner
+            .open(identifier.to_string())
+            .map_err(runtime_status_to_common)
+    }
+
+    fn close(&mut self) -> Result<(), CommonXferStatus> {
+        self.inner.close().map_err(runtime_status_to_common)
+    }
+
+    fn begin_block(
+        &mut self,
+    ) -> Result<game_engine::common::system::XferBlockSize, CommonXferStatus> {
+        self.inner.begin_block().map_err(runtime_status_to_common)
+    }
+
+    fn end_block(&mut self) -> Result<(), CommonXferStatus> {
+        self.inner.end_block().map_err(runtime_status_to_common)
+    }
+
+    fn skip(&mut self, data_size: i32) -> Result<(), CommonXferStatus> {
+        self.inner.skip(data_size).map_err(runtime_status_to_common)
+    }
+
+    fn xfer_snapshot(
+        &mut self,
+        _snapshot: &mut CommonSnapshotData,
+    ) -> Result<(), CommonXferStatus> {
+        Err(CommonXferStatus::ModeUnknown)
+    }
+
+    fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
+        self.inner
+            .xfer_ascii_string(ascii_string_data)
+            .map_err(runtime_status_to_io)
+    }
+
+    fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
+        self.inner
+            .xfer_unicode_string(unicode_string_data)
+            .map_err(runtime_status_to_io)
+    }
+
+    unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
+        unsafe { self.inner.xfer_implementation(data, data_size) }.map_err(runtime_status_to_io)
+    }
+}
+
+pub(crate) fn xfer_live_game_client_state(
+    xfer: &mut dyn RuntimeXfer,
+) -> Result<(), RuntimeXferStatus> {
+    with_live_game_client_mut(|client| {
+        let current_version: u8 = 3;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+
+        // Backward-compatibility with older Rust save chunk version before
+        // the C++-ordered envelope was introduced.
+        if version <= 1 {
+            xfer.xfer_unsigned_int(&mut client.frame)?;
+            xfer.xfer_int(&mut client.local_player_id)?;
+            xfer.xfer_unsigned_int(&mut client.rendered_object_count)?;
+
+            let mut next_drawable_id = client.next_drawable_id.0;
+            xfer.xfer_unsigned_int(&mut next_drawable_id)?;
+            client.next_drawable_id = DrawableId(next_drawable_id.max(1));
+
+            let mut startup_sizzle_pending = client.startup_sizzle_pending;
+            xfer.xfer_bool(&mut startup_sizzle_pending)?;
+            client.startup_sizzle_pending = startup_sizzle_pending;
+
+            let mut drawable_count = client.drawable_map.len() as u32;
+            xfer.xfer_unsigned_int(&mut drawable_count)?;
+
+            if xfer.get_xfer_mode() == RuntimeXferMode::Load {
+                if client.next_drawable_id.0 <= 1 && !client.drawable_map.is_empty() {
+                    let max_id = client.drawable_map.keys().map(|id| id.0).max().unwrap_or(1);
+                    client.next_drawable_id = DrawableId(max_id.saturating_add(1));
+                }
+                client.set_drawable_id_counter(client.next_drawable_id.0);
+            }
+            return Ok(());
+        }
+
+        // C++ parity envelope:
+        // v3, frame, drawable TOC, drawable archive blocks, briefing history (v2+)
+        xfer.xfer_unsigned_int(&mut client.frame)?;
+        {
+            let mut adapter = RuntimeCommonXferAdapter::new(xfer);
+            client
+                .xfer_drawable_toc(&mut adapter)
+                .map_err(|_| RuntimeXferStatus::InvalidData)?;
+
+            let save_entries = if adapter.is_writing() {
+                client
+                    .collect_saveable_drawables_sorted()
+                    .map_err(|_| RuntimeXferStatus::InvalidData)?
+            } else {
+                client.drawable_map.clear();
+                client.drawable_object_map.clear();
+                Vec::new()
+            };
+
+            let mut drawable_count: u16 = save_entries
+                .len()
+                .try_into()
+                .map_err(|_| RuntimeXferStatus::InvalidData)?;
+            adapter
+                .xfer_unsigned_short(&mut drawable_count)
+                .map_err(|_| RuntimeXferStatus::InvalidData)?;
+
+            if adapter.is_writing() {
+                let toc_lookup: HashMap<String, u16> = client
+                    .drawable_toc
+                    .iter()
+                    .map(|entry| (entry.name.clone(), entry.id))
+                    .collect();
+
+                for (drawable_id, template_name) in save_entries {
+                    let Some(drawable) = client.drawable_map.get_mut(&drawable_id) else {
+                        return Err(RuntimeXferStatus::InvalidData);
+                    };
+                    let mut toc_id = toc_lookup
+                        .get(&template_name)
+                        .copied()
+                        .ok_or(RuntimeXferStatus::InvalidData)?;
+                    adapter
+                        .xfer_unsigned_short(&mut toc_id)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+
+                    adapter.begin_block().map_err(common_status_to_runtime)?;
+                    let mut object_id: ObjectID = drawable.get_object_id().unwrap_or(INVALID_ID);
+                    adapter
+                        .xfer_unsigned_int(&mut object_id)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                    GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                    adapter.end_block().map_err(common_status_to_runtime)?;
+                }
+            } else {
+                let factory_guard =
+                    get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
+                let factory = factory_guard
+                    .as_ref()
+                    .ok_or(RuntimeXferStatus::InvalidData)?;
+
+                for _ in 0..drawable_count {
+                    let mut toc_id: u16 = 0;
+                    adapter
+                        .xfer_unsigned_short(&mut toc_id)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+
+                    let toc_name = client
+                        .find_toc_entry_by_id(toc_id)
+                        .map(|entry| entry.name.clone())
+                        .ok_or(RuntimeXferStatus::InvalidData)?;
+
+                    let data_size = adapter.begin_block().map_err(common_status_to_runtime)?;
+
+                    let Some(template) = factory.find_template(&toc_name, false) else {
+                        adapter.skip(data_size).map_err(common_status_to_runtime)?;
+                        continue;
+                    };
+
+                    let mut object_id: ObjectID = INVALID_ID;
+                    adapter
+                        .xfer_unsigned_int(&mut object_id)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                    if object_id != INVALID_ID && OBJECT_REGISTRY.get_object(object_id).is_none() {
+                        return Err(RuntimeXferStatus::InvalidData);
+                    }
+
+                    let mut reuse_id = None;
+                    if object_id != INVALID_ID {
+                        if let Some(existing_id) = client.get_drawable_for_object(object_id) {
+                            reuse_id = Some(existing_id);
+                        }
+                    }
+
+                    let mut drawable = if let Some(existing_id) = reuse_id {
+                        let needs_replace = client
+                            .drawable_map
+                            .get(&existing_id)
+                            .map(|existing| {
+                                !GameClient::drawable_matches_saved_template(
+                                    existing.as_ref(),
+                                    &template,
+                                    factory,
+                                )
+                            })
+                            .unwrap_or(true);
+                        if needs_replace {
+                            client
+                                .destroy_drawable(existing_id)
+                                .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                            None
+                        } else {
+                            client.drawable_map.remove(&existing_id)
+                        }
+                    } else {
+                        None
+                    };
+
+                    if drawable.is_none() {
+                        let created_id = client
+                            .create_drawable_from_template(template.as_ref())
+                            .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                        let mut created = client
+                            .drawable_map
+                            .remove(&created_id)
+                            .ok_or(RuntimeXferStatus::InvalidData)?;
+                        if object_id != INVALID_ID {
+                            created.set_object_id(Some(object_id));
+                        }
+                        drawable = Some(created);
+                    }
+
+                    let mut drawable = drawable.ok_or(RuntimeXferStatus::InvalidData)?;
+                    GameClient::xfer_drawable_snapshot(drawable.as_mut(), &mut adapter)
+                        .map_err(|_| RuntimeXferStatus::InvalidData)?;
+
+                    let id = drawable.get_id();
+                    if let Some(object_id) = drawable.get_object_id() {
+                        client.drawable_object_map.insert(object_id, id);
+                    }
+                    client.drawable_map.insert(id, drawable);
+
+                    adapter.end_block().map_err(common_status_to_runtime)?;
+
+                    if object_id != INVALID_ID {
+                        if OBJECT_REGISTRY.get_object(object_id).is_some() {
+                            let _ = client.bind_drawable_to_object(id, object_id);
+                        } else {
+                            return Err(RuntimeXferStatus::InvalidData);
+                        }
+                    }
+                }
+            }
+        }
+
+        if version >= 2 {
+            let mut briefing_entry_count: i32 = 0;
+            xfer.xfer_int(&mut briefing_entry_count)?;
+            for _ in 0..briefing_entry_count.max(0) {
+                let mut entry = String::new();
+                xfer.xfer_string(&mut entry)?;
+            }
+        }
+
+        Ok(())
+    })
+    .unwrap_or(Err(RuntimeXferStatus::InvalidData))
+}
+
+pub(crate) fn run_live_game_client_load_post_process() -> Result<(), RuntimeXferStatus> {
+    with_live_game_client_mut(|client| {
+        client
+            .load_post_process()
+            .map_err(|_| RuntimeXferStatus::InvalidData)
+    })
+    .unwrap_or(Err(RuntimeXferStatus::InvalidData))
+}
 
 /// Error types for GameClient operations
 #[derive(Debug, thiserror::Error)]
@@ -570,6 +1031,28 @@ impl GameMessageTranslator for DispatcherTranslator {
     }
 }
 
+struct CommandTranslatorMessageAdapter {
+    translator: Arc<RwLock<CommandTranslatorImpl>>,
+}
+
+impl CommandTranslatorMessageAdapter {
+    fn new(translator: Arc<RwLock<CommandTranslatorImpl>>) -> Self {
+        Self { translator }
+    }
+}
+
+impl GameMessageTranslator for CommandTranslatorMessageAdapter {
+    fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        match self.translator.write() {
+            Ok(mut translator) => translator.translate_game_message(msg),
+            Err(err) => {
+                log::warn!("Command translator lock poisoned: {}", err);
+                GameMessageDisposition::KeepMessage
+            }
+        }
+    }
+}
+
 /// Trait for message filtering components
 pub trait MessageFilter {
     fn should_keep_message(&self, msg: &GameMessage) -> bool;
@@ -615,6 +1098,20 @@ pub enum CommandEvaluateType {
     Context,
 }
 
+impl CommandTranslator for RwLock<CommandTranslatorImpl> {
+    fn evaluate_context_command(
+        &self,
+        drawable: &dyn Drawable,
+        position: &Coord3D,
+        cmd_type: CommandEvaluateType,
+    ) -> GameMessageResult<GameMessageType> {
+        let mut translator = self.write().map_err(|err| {
+            GameClientError::SubsystemError(format!("Command translator lock poisoned: {err}"))
+        })?;
+        translator.evaluate_context_command(drawable, position, cmd_type)
+    }
+}
+
 impl GameClient {
     /// Creates a new GameClient instance
     pub fn new() -> GameClientResult<Self> {
@@ -653,6 +1150,8 @@ impl GameClient {
                 "GameClient already initialized".to_string(),
             ));
         }
+
+        register_live_game_client(self);
 
         reset_script_action_runtime_state();
         init_video_player();
@@ -719,6 +1218,11 @@ impl GameClient {
         self.update_input()?;
         self.update_audio()?;
         self.update_drawables(visual_delta)?;
+        if self.should_skip_visual_updates_for_no_draw() {
+            self.rendered_object_count = 0;
+            self.finish_frame_timing(current_time);
+            return Ok(());
+        }
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
         self.update_display()?;
@@ -1112,7 +1616,6 @@ impl GameClient {
     /// Sets the current frame number
     pub fn set_frame(&mut self, frame: u32) {
         self.frame = frame;
-        self.last_visual_time_frame = u32::MAX;
     }
 
     /// Sets the local player identifier used for command routing.
@@ -1854,17 +2357,21 @@ impl GameClient {
 
     fn init_game_subsystems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing game subsystems");
+        register_campaign_snapshot_block();
+        register_game_client_snapshot_block();
         crate::snow::register_weather_definition_parser();
         crate::eva::initialize_eva_system()
             .map_err(|err| GameClientError::SubsystemError(format!("Eva init failed: {err}")))?;
         if self.subsystem_manager.terrain_visual.is_none() {
             let mut terrain_visual = TerrainVisualStub::default();
             terrain_visual.init()?;
-            self.subsystem_manager.terrain_visual = Some(Arc::new(Mutex::new(terrain_visual)));
+            let terrain_visual = Arc::new(Mutex::new(terrain_visual));
+            self.subsystem_manager.terrain_visual = Some(terrain_visual);
         }
 
         if let Some(terrain_visual) = self.subsystem_manager.terrain_visual.as_ref() {
             let terrain_visual = Arc::clone(terrain_visual);
+            register_terrain_visual_snapshot_block(Arc::clone(&terrain_visual));
             let _ = register_terrain_tree_hook(Arc::new(move |event| {
                 if let Ok(mut terrain) = terrain_visual.lock() {
                     match event {
@@ -1893,6 +2400,7 @@ impl GameClient {
             )));
         }
         crate::effects::particle_manager::register_particle_system_manager_bridge();
+        register_particle_system_snapshot_block();
         if let Err(e) = initialize_weather_system() {
             return Err(GameClientError::SubsystemError(format!(
                 "Weather system init failed: {e}"
@@ -1929,11 +2437,15 @@ impl GameClient {
             ui.init()?;
             let ui_arc = Arc::new(Mutex::new(ui));
             register_in_game_ui_backend(Arc::new(InGameUiHandle::new(ui_arc.clone())));
+            crate::core::subsystems::register_in_game_ui_snapshot_block(ui_arc.clone());
+            register_radar_snapshot_block(ui_arc.clone());
             self.subsystem_manager.in_game_ui = Some(ui_arc);
         }
+        crate::core::subsystems::register_tactical_view_snapshot_block();
 
         crate::helpers::register_prepare_new_game_hooks();
         crate::helpers::register_observer_audio_locality_hooks();
+        crate::helpers::register_observer_audio_view_hooks();
         self.install_script_action_handler();
 
         let _ = crate::snow::initialize_snow_manager();
@@ -1987,13 +2499,32 @@ impl GameClient {
 
         self.num_translators = 0;
 
-        for (translator, priority) in TranslatorFactory::create_standard_translator_set() {
+        let mut register_translator = |translator, priority| {
             let id = stream.attach_translator(translator, priority);
             if self.num_translators < self.translators.len() {
                 self.translators[self.num_translators] = id;
                 self.num_translators += 1;
             }
-        }
+        };
+
+        register_translator(TranslatorFactory::create_window_translator(), 10);
+        register_translator(TranslatorFactory::create_meta_event_translator(), 20);
+        register_translator(TranslatorFactory::create_hot_key_translator(), 25);
+        register_translator(TranslatorFactory::create_place_event_translator(), 30);
+        register_translator(TranslatorFactory::create_gui_command_translator(), 40);
+        register_translator(TranslatorFactory::create_selection_translator(), 50);
+        register_translator(TranslatorFactory::create_look_at_translator(), 60);
+
+        let command_translator = TranslatorFactory::create_command_translator();
+        self.command_translator = Some(command_translator.clone());
+        register_translator(
+            Arc::new(RwLock::new(CommandTranslatorMessageAdapter::new(
+                command_translator,
+            ))),
+            70,
+        );
+
+        register_translator(TranslatorFactory::create_hint_spy(), 100);
 
         let dispatcher_translator = Arc::new(RwLock::new(DispatcherTranslator::new(Arc::clone(
             &self.message_dispatcher,
@@ -2189,11 +2720,34 @@ impl GameClient {
         let camera_frozen = with_tactical_view_ref(|view| {
             view.is_time_frozen() && !view.is_camera_movement_finished()
         });
-        let mut freeze_time =
-            camera_frozen || TheScriptEngine::is_time_frozen() || TheGameLogic::is_game_paused();
-        freeze_time = freeze_time || (self.last_visual_time_frame == self.frame);
-        self.last_visual_time_frame = self.frame;
+        let mut freeze_time = camera_frozen
+            || TheScriptEngine::is_time_frozen_debug()
+            || TheScriptEngine::is_time_frozen_script()
+            || TheGameLogic::is_game_paused();
+        // C++ compares against simulation frame (m_frame), not client update count.
+        let logic_frame = TheGameLogic::get_frame();
+        freeze_time = freeze_time || (self.last_visual_time_frame == logic_frame);
+        self.last_visual_time_frame = logic_frame;
         freeze_time
+    }
+
+    #[inline]
+    fn should_skip_visual_updates_for_no_draw(&self) -> bool {
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            let logic_frame = TheGameLogic::get_frame();
+            if logic_frame == 0 {
+                return false;
+            }
+            return get_global_data()
+                .map(|global| global.read().no_draw > logic_frame)
+                .unwrap_or(false);
+        }
+
+        #[cfg(not(any(debug_assertions, feature = "internal")))]
+        {
+            false
+        }
     }
 
     fn preload_template_assets_from_factory(
@@ -2331,9 +2885,11 @@ impl GameClient {
     }
 
     fn show_low_memory_legal_page(&self, display: &mut GraphicsDisplay) -> GameClientResult<()> {
-        let Some((layout, _info)) =
-            with_window_manager(|manager| manager.create_layout_with_windows("Menus/LegalPage.wnd").ok())
-        else {
+        let Some((layout, _info)) = with_window_manager(|manager| {
+            manager
+                .create_layout_with_windows("Menus/LegalPage.wnd")
+                .ok()
+        }) else {
             return Ok(());
         };
 
@@ -2764,6 +3320,7 @@ impl Snapshotable for GameClient {
 impl Drop for GameClient {
     fn drop(&mut self) {
         log::info!("GameClient shutting down");
+        clear_live_game_client(self);
         GameClient::reset_global_video_player_streams();
         reset_script_action_runtime_state();
         register_script_display_bridge(None);
@@ -2905,17 +3462,38 @@ impl Default for GameClientMessageDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drawable::Drawable;
+    use crate::message_stream::game_message::GameMessageType;
     use crate::network::is_network_command_message;
+    use crate::system::{Coord3D, GameMessageResult};
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use game_engine::common::thing::{
         get_thing_factory, init_thing_factory, ThingFactory as CommonThingFactory,
     };
-    use game_engine::common::{ini::get_global_data, recorder::Recorder};
+    use game_engine::common::{
+        global_data as runtime_global_data,
+        ini::{get_global_data, ini_game_data::init_global_data},
+        recorder::Recorder,
+    };
     use gamelogic::common::types::ObjectStatusMaskType;
     use gamelogic::thing_template::DefaultThingTemplate as LogicDefaultThingTemplate;
     use std::io::Cursor;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    struct StubCommandTranslator;
+
+    impl CommandTranslator for StubCommandTranslator {
+        fn evaluate_context_command(
+            &self,
+            _drawable: &dyn Drawable,
+            _position: &Coord3D,
+            _cmd_type: CommandEvaluateType,
+        ) -> GameMessageResult<GameMessageType> {
+            Ok(GameMessageType::ValidGUICommandHint)
+        }
+    }
 
     fn serialize_client(client: &mut GameClient) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -3028,6 +3606,150 @@ mod tests {
     }
 
     #[test]
+    fn test_context_command_uses_stored_translator() {
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        client.command_translator = Some(Arc::new(StubCommandTranslator));
+
+        insert_basic_drawable_for_test(
+            &mut client,
+            42,
+            "ContextProbe",
+            Vector3::new(3.0, 4.0, 0.0),
+        );
+        let drawable = client
+            .drawable_map
+            .get(&DrawableId(42))
+            .expect("drawable should exist");
+
+        let result = client
+            .evaluate_context_command(
+                drawable.as_ref(),
+                &Coord3D::new(3.0, 4.0, 0.0),
+                CommandEvaluateType::Context,
+            )
+            .expect("context evaluation should succeed");
+
+        assert_eq!(result, GameMessageType::ValidGUICommandHint);
+    }
+
+    #[test]
+    fn test_no_draw_skip_condition_matches_cpp_guard() {
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        let saved_no_draw = global_data.read().no_draw;
+        let saved_logic_frame = gamelogic::system::game_logic::get_game_logic()
+            .lock()
+            .map(|logic| logic.get_current_frame())
+            .unwrap_or(0);
+
+        {
+            global_data.write().no_draw = 10;
+            if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                logic.set_current_frame(1);
+            }
+            let client = GameClient::new().expect("GameClient::new should succeed");
+            assert!(client.should_skip_visual_updates_for_no_draw());
+        }
+
+        {
+            global_data.write().no_draw = 1;
+            if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                logic.set_current_frame(1);
+            }
+            let client = GameClient::new().expect("GameClient::new should succeed");
+            assert!(!client.should_skip_visual_updates_for_no_draw());
+        }
+
+        {
+            global_data.write().no_draw = u32::MAX;
+            if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                logic.set_current_frame(0);
+            }
+            let client = GameClient::new().expect("GameClient::new should succeed");
+            assert!(!client.should_skip_visual_updates_for_no_draw());
+        }
+
+        global_data.write().no_draw = saved_no_draw;
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_current_frame(saved_logic_frame);
+        }
+    }
+
+    #[test]
+    fn test_freeze_visual_time_same_frame_guard_uses_logic_frame() {
+        let saved_logic_frame = gamelogic::system::game_logic::get_game_logic()
+            .lock()
+            .map(|logic| logic.get_current_frame())
+            .unwrap_or(0);
+        let saved_paused = TheGameLogic::is_game_paused();
+        let (saved_script_frozen, saved_debug_frozen) =
+            if let Ok(engine_guard) = gamelogic::get_script_engine().read() {
+                if let Some(engine) = engine_guard.as_ref() {
+                    (
+                        engine.is_time_frozen_script(),
+                        engine.is_time_frozen_debug(),
+                    )
+                } else {
+                    (false, false)
+                }
+            } else {
+                (false, false)
+            };
+
+        TheGameLogic::set_game_paused(false, false);
+        if let Ok(mut engine_guard) = gamelogic::get_script_engine().write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                engine.do_unfreeze_time();
+                engine.set_time_frozen_debug(false);
+            }
+        }
+
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_current_frame(100);
+        }
+
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        client.frame = 1;
+        assert!(
+            !client.should_freeze_visual_time(),
+            "first pass at a logic frame should not freeze when no freeze flags are set"
+        );
+        assert!(
+            client.should_freeze_visual_time(),
+            "second pass in the same logic frame should freeze (C++ lastFrame == m_frame guard)"
+        );
+
+        // Changing client frame alone should not bypass same-frame freeze; logic frame drives this.
+        client.frame = client.frame.wrapping_add(1);
+        assert!(
+            client.should_freeze_visual_time(),
+            "same logic frame must remain frozen even if client update counter changes"
+        );
+
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_current_frame(101);
+        }
+        assert!(
+            !client.should_freeze_visual_time(),
+            "advancing simulation frame should clear same-frame freeze guard"
+        );
+
+        TheGameLogic::set_game_paused(saved_paused, false);
+        if let Ok(mut engine_guard) = gamelogic::get_script_engine().write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                if saved_script_frozen {
+                    engine.do_freeze_time();
+                } else {
+                    engine.do_unfreeze_time();
+                }
+                engine.set_time_frozen_debug(saved_debug_frozen);
+            }
+        }
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_current_frame(saved_logic_frame);
+        }
+    }
+
+    #[test]
     fn test_drawable_id_creation() {
         let id = DrawableId(42);
         assert!(id.is_valid());
@@ -3093,6 +3815,44 @@ mod tests {
 
         assert_ne!(id1, id2);
         assert_eq!(id1.0 + 1, id2.0);
+    }
+
+    #[test]
+    fn test_apply_lod_texture_reduction_clamps_and_updates_renderer_state() {
+        init_global_data();
+        let global_data = get_global_data().expect("global data should be available for LOD test");
+        global_data.write().texture_reduction_factor = 0;
+        if let Ok(mut runtime_global) = runtime_global_data::write_safe() {
+            runtime_global.texture_reduction_factor = 0;
+        }
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            0,
+            WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
+        );
+
+        assert_eq!(apply_lod_texture_reduction(9), Some(4));
+        assert_eq!(global_data.read().texture_reduction_factor, 4);
+        assert_eq!(runtime_global_data::read().texture_reduction_factor, 4);
+        assert_eq!(
+            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+            4
+        );
+    }
+
+    #[test]
+    fn test_adjust_lod_texture_reduction_respects_cpp_delta_clamp() {
+        init_global_data();
+        let global_data = get_global_data().expect("global data should be available for LOD test");
+        global_data.write().texture_reduction_factor = 0;
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            0,
+            WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
+        );
+
+        assert_eq!(adjust_lod_texture_reduction(-1), Some(0));
+        assert_eq!(adjust_lod_texture_reduction(5), Some(4));
+        assert_eq!(adjust_lod_texture_reduction(-20), Some(0));
+        assert_eq!(global_data.read().texture_reduction_factor, 0);
     }
 
     #[test]

@@ -309,6 +309,9 @@ pub enum GameMessageType {
     // Unit commands
     Exit(ObjectID),
     Evacuate,
+    /// C++ `MSG_EVACUATE` can carry an optional world destination for
+    /// NEED_TARGET_POS evacuate commands.
+    EvacuateAtLocation(Coord3D),
     ExecuteRailedTransport,
     CombatDropAtLocation(Coord3D),
     CombatDropAtObject(ObjectID),

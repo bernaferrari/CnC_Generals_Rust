@@ -29,7 +29,12 @@ pub fn emit_message(message: GameMessage) {
     EMITTED_MESSAGES.with(|slot| slot.borrow_mut().push(message));
 }
 
-fn take_emitted_messages() -> Vec<GameMessage> {
+/// Drain translator-emitted messages for custom propagation pipelines.
+///
+/// `MessageStream::propagate_messages` uses this internally. The input processor
+/// also consumes it to mirror C++ raw-input translation order without routing
+/// through the global stream object.
+pub fn take_emitted_messages() -> Vec<GameMessage> {
     EMITTED_MESSAGES.with(|slot| slot.borrow_mut().drain(..).collect())
 }
 

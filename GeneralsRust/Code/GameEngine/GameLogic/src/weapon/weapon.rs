@@ -1105,7 +1105,9 @@ impl Weapon {
             let mid_range = (self.template.get_attack_range(bonus) + min_attack_range) / 2.0;
             let mut dir_x = source_pos.x - target_pos.x;
             let mut dir_y = source_pos.y - target_pos.y;
-            let dir_len = (dir_x * dir_x + dir_y * dir_y).sqrt().max(f32::MIN_POSITIVE);
+            let dir_len = (dir_x * dir_x + dir_y * dir_y)
+                .sqrt()
+                .max(f32::MIN_POSITIVE);
             dir_x /= dir_len;
             dir_y /= dir_len;
 

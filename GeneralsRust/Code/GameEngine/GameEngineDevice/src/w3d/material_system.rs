@@ -888,7 +888,10 @@ impl W3DShaderManager {
 
     /// Create vertex buffer layout from vertex attributes
     #[cfg(feature = "w3d")]
-    fn create_vertex_buffer_layout(&self, attributes: &[VertexAttribute]) -> VertexBufferLayout<'static> {
+    fn create_vertex_buffer_layout(
+        &self,
+        attributes: &[VertexAttribute],
+    ) -> VertexBufferLayout<'static> {
         let wgpu_attributes: Vec<wgpu::VertexAttribute> = attributes
             .iter()
             .enumerate()
@@ -903,7 +906,8 @@ impl W3DShaderManager {
             .last()
             .map(|attr| attr.offset + attr.format.size())
             .unwrap_or(0);
-        let leaked: &'static [wgpu::VertexAttribute] = Box::leak(wgpu_attributes.into_boxed_slice());
+        let leaked: &'static [wgpu::VertexAttribute] =
+            Box::leak(wgpu_attributes.into_boxed_slice());
         VertexBufferLayout {
             array_stride: stride,
             step_mode: wgpu::VertexStepMode::Vertex,

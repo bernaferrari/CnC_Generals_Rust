@@ -1,9 +1,9 @@
 #![cfg(feature = "internal")]
 
+use game_engine::common::audio::audio_event_rts::Coord3D;
 use game_engine::common::audio::game_audio::{
     register_audio_view_resolver, AudioManager, AudioViewResolver, Real,
 };
-use game_engine::common::audio::audio_event_rts::Coord3D;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 

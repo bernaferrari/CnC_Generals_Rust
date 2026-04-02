@@ -18,7 +18,8 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic, TheThingFactory,
+    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
+    TheThingFactory,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule;
@@ -1964,16 +1965,15 @@ impl WeaponTemplate {
             return primary_damage;
         };
 
-        let source_id =
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj) {
-                if let Ok(source_guard) = source_arc.read() {
-                    source_guard.get_id()
-                } else {
-                    source_obj
-                }
+        let source_id = if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj) {
+            if let Ok(source_guard) = source_arc.read() {
+                source_guard.get_id()
             } else {
                 source_obj
-            };
+            }
+        } else {
+            source_obj
+        };
 
         let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) else {
             return primary_damage;
@@ -2691,13 +2691,12 @@ impl Weapon {
         target_pos: Option<&Coord3D>,
     ) -> f32 {
         let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
-        self.template
-            .estimate_weapon_template_damage(
-                source_obj as crate::common::ObjectID,
-                target_obj.map(|id| id as crate::common::ObjectID),
-                target_pos,
-                &bonus,
-            )
+        self.template.estimate_weapon_template_damage(
+            source_obj as crate::common::ObjectID,
+            target_obj.map(|id| id as crate::common::ObjectID),
+            target_pos,
+            &bonus,
+        )
     }
 
     /// Check if target is within attack range
@@ -2791,23 +2790,21 @@ impl Weapon {
     /// Matches C++ Weapon::getAttackDistance() from Weapon.cpp line 2352.
     /// Returns `getAttackRange(source)` plus the bounding circle radii of both
     /// the source and victim objects (2D path via ATTACK_RANGE_IS_2D).
-    pub fn get_attack_distance(
-        &self,
-        source_obj: ObjectId,
-        victim_obj: Option<ObjectId>,
-    ) -> f32 {
+    pub fn get_attack_distance(&self, source_obj: ObjectId, victim_obj: Option<ObjectId>) -> f32 {
         let mut range = self.get_attack_range(source_obj);
 
         if let Some(victim_id) = victim_obj {
-            let source_radius = match crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) {
-                Some(arc) => match arc.read() {
-                    Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
-                    Err(_) => 0.0,
-                },
-                None => 0.0,
-            };
+            let source_radius =
+                match crate::object::registry::OBJECT_REGISTRY.get_object(source_obj) {
+                    Some(arc) => match arc.read() {
+                        Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
+                        Err(_) => 0.0,
+                    },
+                    None => 0.0,
+                };
 
-            let victim_radius = match crate::object::registry::OBJECT_REGISTRY.get_object(victim_id) {
+            let victim_radius = match crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
+            {
                 Some(arc) => match arc.read() {
                     Ok(guard) => guard.get_geometry_info().get_bounding_circle_radius(),
                     Err(_) => 0.0,
@@ -2841,8 +2838,8 @@ impl Weapon {
         let tgt_pos = if let Some(pos) = target_pos {
             *pos
         } else if let Some(target_id) = target_obj {
-            let Some(target) = crate::object::registry::OBJECT_REGISTRY
-                .get_object(target_id) else {
+            let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+            else {
                 return false;
             };
             let Ok(target_guard) = target.read() else {
@@ -3300,7 +3297,9 @@ impl Weapon {
             return true;
         };
         let source_pos = source_guard.get_position();
-        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let source_height = source_guard
+            .get_geometry_info()
+            .get_max_height_above_position();
         let origin = CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height);
         drop(source_guard);
 
@@ -3312,8 +3311,11 @@ impl Weapon {
             return true;
         };
         let target_pos = target_guard.get_position();
-        let target_height = target_guard.get_geometry_info().get_max_height_above_position();
-        let victim_pos = CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
+        let target_height = target_guard
+            .get_geometry_info()
+            .get_max_height_above_position();
+        let victim_pos =
+            CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
 
         crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
             None,
@@ -3340,16 +3342,15 @@ impl Weapon {
             return true;
         };
         let source_pos = source_guard.get_position();
-        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let source_height = source_guard
+            .get_geometry_info()
+            .get_max_height_above_position();
         let origin = CollideCoord::new(source_pos.x, source_pos.y, source_pos.z + source_height);
 
         let victim = CollideCoord::new(victim_pos.x, victim_pos.y, victim_pos.z);
 
         crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
-            None,
-            &origin,
-            None,
-            &victim,
+            None, &origin, None, &victim,
         )
     }
 
@@ -3372,7 +3373,9 @@ impl Weapon {
         let Ok(source_guard) = source_arc.read() else {
             return true;
         };
-        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let source_height = source_guard
+            .get_geometry_info()
+            .get_max_height_above_position();
         let origin = CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height);
         drop(source_guard);
 
@@ -3384,8 +3387,11 @@ impl Weapon {
             return true;
         };
         let target_pos = target_guard.get_position();
-        let target_height = target_guard.get_geometry_info().get_max_height_above_position();
-        let victim_pos = CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
+        let target_height = target_guard
+            .get_geometry_info()
+            .get_max_height_above_position();
+        let victim_pos =
+            CollideCoord::new(target_pos.x, target_pos.y, target_pos.z + target_height);
 
         crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
             None,
@@ -3412,16 +3418,15 @@ impl Weapon {
         let Ok(source_guard) = source_arc.read() else {
             return true;
         };
-        let source_height = source_guard.get_geometry_info().get_max_height_above_position();
+        let source_height = source_guard
+            .get_geometry_info()
+            .get_max_height_above_position();
         let origin = CollideCoord::new(goal_pos.x, goal_pos.y, goal_pos.z + source_height);
 
         let victim = CollideCoord::new(victim_pos.x, victim_pos.y, victim_pos.z);
 
         crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
-            None,
-            &origin,
-            None,
-            &victim,
+            None, &origin, None, &victim,
         )
     }
 

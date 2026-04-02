@@ -98,11 +98,12 @@ impl TerrainManager {
             return Ok(());
         }
 
+        self.texture_layers = paths.iter().map(|p| p.to_string()).collect();
+
         match super::terrain_visual::get_terrain_visual() {
             Ok(mut guard) => {
                 if let Some(visual) = guard.as_mut() {
                     visual.load_textures(paths)?;
-                    self.texture_layers = paths.iter().map(|p| p.to_string()).collect();
                 } else {
                     warn!("TerrainVisual is not initialised; cannot load texture layers");
                 }

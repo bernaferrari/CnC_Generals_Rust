@@ -295,7 +295,15 @@ impl GlobalData {
     /// Set initial file to load (from command line)
     pub fn set_initial_file<S: Into<String>>(&mut self, file: S) {
         self.initial_file = normalize_startup_map_path(file.into());
+        self.sync_runtime_view();
         info!("Initial file set to: {}", self.initial_file);
+    }
+
+    /// Set pending startup file and immediately mirror runtime authority.
+    pub fn set_pending_file<S: Into<String>>(&mut self, file: S) {
+        self.pending_file = normalize_startup_map_path(file.into());
+        self.sync_runtime_view();
+        info!("Pending file set to: {}", self.pending_file);
     }
 
     /// Apply quick start behavior (skip intros/shell map).
@@ -305,6 +313,7 @@ impl GlobalData {
             self.apply_intro_disabled();
         }
         self.shell_map_on = false;
+        self.sync_runtime_view();
         #[cfg(any(debug_assertions, feature = "internal"))]
         info!("QuickStart applied: intros disabled, shell map off");
 
@@ -316,6 +325,7 @@ impl GlobalData {
     fn apply_intro_disabled(&mut self) {
         self.play_intro = false;
         self.after_intro = true;
+        self.sync_runtime_view();
     }
 
     /// Override the current language (matches -lang).

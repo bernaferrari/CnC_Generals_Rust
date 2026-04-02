@@ -223,7 +223,10 @@ impl UnitInputHandler {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap();
+        let Ok(mut logic) = game_logic.lock() else {
+            log::warn!("Skipping delete_selected_units: game logic lock poisoned");
+            return;
+        };
 
         for &object_id in &selected_objects {
             logic.destroy_object(object_id);
@@ -238,7 +241,10 @@ impl UnitInputHandler {
 
     /// Cycle through selected units
     async fn cycle_selected_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
-        let logic = game_logic.lock().unwrap();
+        let Ok(logic) = game_logic.lock() else {
+            log::warn!("Skipping cycle_selected_units read: game logic lock poisoned");
+            return;
+        };
 
         // Get all selectable units for the local player
         let mut all_units: Vec<crate::game_logic::ObjectId> = logic
@@ -276,7 +282,10 @@ impl UnitInputHandler {
         self.unit_control.selected_objects.push(next_unit);
 
         drop(logic);
-        let mut logic = game_logic.lock().unwrap();
+        let Ok(mut logic) = game_logic.lock() else {
+            log::warn!("Skipping cycle_selected_units write: game logic lock poisoned");
+            return;
+        };
         logic.select_objects(self.local_player_id, vec![next_unit]);
 
         log::debug!("Cycled to unit {}", next_unit);
@@ -297,7 +306,10 @@ impl UnitInputHandler {
         &self,
         game_logic: &Arc<AsyncMutex<GameLogic>>,
     ) -> Option<glam::Vec3> {
-        let logic = game_logic.lock().unwrap();
+        let Ok(logic) = game_logic.lock() else {
+            log::warn!("Skipping get_selection_center: game logic lock poisoned");
+            return None;
+        };
         self.unit_control.get_selection_center(&logic)
     }
 
