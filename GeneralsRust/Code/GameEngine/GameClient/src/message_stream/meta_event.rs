@@ -434,6 +434,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_MUSIC_PREV_TRACK"
         | "DEMO_NEXT_OBJECTIVE_MOVIE"
         | "DEMO_PERFORM_STATISTICAL_DUMP"
+        | "DEMO_PLAY_CAMEO_MOVIE"
         | "DEMO_REMOVE_PREREQ"
         | "DEMO_SHOW_AUDIO_LOCATIONS"
         | "DEMO_SHOW_EXTENTS"
@@ -525,16 +526,11 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_LOCK_CAMERA_TO_PLANES" => true,
         "DEMO_LOD_DECREASE" => true,
         "DEMO_LOD_INCREASE" => true,
-        "DEMO_PLAY_CAMEO_MOVIE" => true,
         "DEMO_TEST_SURRENDER" => true,
         "DEMO_TOGGLE_BW_VIEW" => true,
-        "DEMO_TOGGLE_GREEN_VIEW" => true,
         "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEMO_TOGGLE_HURT_ME_MODE" => true,
-        "DEMO_TOGGLE_LETTERBOX" => true,
-        "DEMO_TOGGLE_MOTION_BLUR_ZOOM" => true,
         "DEMO_TOGGLE_NETWORK" => true,
-        "DEMO_TOGGLE_RED_VIEW" => true,
         "DEMO_VTUNE_OFF" => true,
         "DEMO_VTUNE_ON" => true,
         "HELP" => true,
@@ -1614,6 +1610,32 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_PLAY_CAMEO_MOVIE") {
+        if TheGameLogic::is_in_game() {
+            const CAMEO_MOVIE: &str = "CameoMovie";
+            if !TheInGameUI::is_movie_playing(CAMEO_MOVIE) {
+                let _ = TheInGameUI::play_movie(CAMEO_MOVIE);
+            } else {
+                let target_window = [
+                    "ControlBar.wnd:CameoMovieWindow",
+                    "ControlBar.wnd:RightHUD",
+                ]
+                .into_iter()
+                .find_map(|window_name| {
+                    let window_id =
+                        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                            window_name,
+                        ) as i32;
+                    crate::gui::with_window_manager_ref(|manager| manager.get_window_by_id(window_id))
+                });
+                if let Some(window) = target_window {
+                    with_window_video_manager(|manager| manager.stop_movie(&window));
+                }
+            }
+        }
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record.name.eq_ignore_ascii_case("DEMO_TIME_OF_DAY") {
         if let Some(global_data) = get_global_data() {
             let (next_time_of_day, changed_time_of_day, force_model_refresh) = {
@@ -2511,6 +2533,7 @@ mod tests {
             "CHEAT_RUNSCRIPT3",
             "DEMO_KILL_ALL_ENEMIES",
             "DEMO_MUSIC_NEXT_TRACK",
+            "DEMO_PLAY_CAMEO_MOVIE",
             "DEMO_PLAY_OBJECTIVE_MOVIE2",
             "DEMO_TOGGLE_AUDIODEBUG",
             "DEMO_TOGGLE_AVI",
@@ -2863,6 +2886,22 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(global_data.read().time_of_day, GlobalTimeOfDay::Evening);
+    }
+
+    #[test]
+    fn test_demo_play_cameo_movie_alias_is_consumed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_SINGLE_PLAYER);
+        }
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_PLAY_CAMEO_MOVIE")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
     }
 
     #[test]
