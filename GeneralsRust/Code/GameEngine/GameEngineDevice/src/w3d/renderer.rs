@@ -25,7 +25,7 @@ use wgpu::{
     BufferDescriptor, BufferUsages, Color, ColorTargetState, ColorWrites, CommandBuffer,
     CommandEncoder, CompareFunction, ComputePass, ComputePipeline, ComputePipelineDescriptor,
     DepthBiasState, DepthStencilState, Device, Extent3d, Face, FilterMode, FragmentState,
-    FrontFace, LoadOp, MultisampleState, Operations, Origin3d, PipelineLayout,
+    FrontFace, IndexFormat, LoadOp, MultisampleState, Operations, Origin3d, PipelineLayout,
     PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPass,
     RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
     RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
@@ -43,14 +43,20 @@ const MAX_BONES: usize = 256;
 const MAX_INSTANCES: usize = 1024;
 /// Shadow map cascade count
 const CASCADE_COUNT: usize = 4;
+/// Depth/stencil format used for the main frame buffer when stencil operations are required.
+const FRAME_DEPTH_STENCIL_FORMAT: TextureFormat = TextureFormat::Depth24PlusStencil8;
 
 /// Advanced render batch for efficient GPU rendering
 #[derive(Debug, Clone)]
 pub struct RenderBatch {
     /// Mesh ID for draw submission
     pub mesh_id: String,
+    /// Optional mesh snapshot for direct GPU submission.
+    pub mesh: Option<Mesh>,
     /// Material ID (optional for default material path)
     pub material_id: Option<String>,
+    /// Optional material snapshot for direct GPU submission.
+    pub material: Option<Material>,
     /// Instance data
     pub instances: Vec<InstanceData>,
     /// Distance from camera for sorting
@@ -59,6 +65,13 @@ pub struct RenderBatch {
     pub priority: u32,
     /// Alpha blending enabled
     pub transparent: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderSubmissionKind {
+    Opaque,
+    Transparent,
+    Ui,
 }
 
 /// Instance data for rendering multiple objects with same mesh/material
@@ -113,7 +126,7 @@ impl Default for RenderState {
             uniform_bind_groups: Vec::new(),
             texture_bind_groups: Vec::new(),
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: FRAME_DEPTH_STENCIL_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
@@ -176,6 +189,11 @@ pub struct W3DRenderer {
     gbuffer_normal: Option<Texture>,
     gbuffer_material: Option<Texture>,
     gbuffer_depth: Option<Texture>,
+
+    /// Frame color target used for actual command submission in this renderer.
+    frame_color_target: Option<Texture>,
+    frame_color_view: Option<TextureView>,
+    frame_target_size: Option<(u32, u32)>,
 
     /// Shadow mapping
     shadow_map_texture: Option<Texture>,
@@ -262,6 +280,9 @@ impl W3DRenderer {
             gbuffer_normal: None,
             gbuffer_material: None,
             gbuffer_depth: None,
+            frame_color_target: None,
+            frame_color_view: None,
+            frame_target_size: None,
             shadow_map_texture: None,
             shadow_map_size: 2048,
             shadow_render_pipeline: None,
@@ -293,6 +314,8 @@ impl W3DRenderer {
 
     /// Initialize render targets for the frame
     pub async fn init_render_targets(&mut self, width: u32, height: u32) -> Result<()> {
+        self.frame_target_size = Some((width, height));
+
         // Create depth texture
         let depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("W3D Depth Texture"),
@@ -302,9 +325,9 @@ impl W3DRenderer {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: self.state.multisample_state.count,
+            sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
+            format: FRAME_DEPTH_STENCIL_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -317,6 +340,30 @@ impl W3DRenderer {
         // Create G-Buffer textures for deferred rendering
         self.create_gbuffer_textures(width, height)?;
 
+        // Create a single-sampled frame color target that this renderer can actually submit into.
+        // The surface present step lives above this file in W3DDevice; here we keep the render
+        // submission path concrete and encoder-backed.
+        let frame_color_target = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("W3D Frame Color Target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let frame_color_view =
+            frame_color_target.create_view(&wgpu::TextureViewDescriptor::default());
+        self.frame_color_target = Some(frame_color_target);
+        self.frame_color_view = Some(frame_color_view);
+
         // Create shadow map if needed
         if self.shadow_map_texture.is_none() {
             self.create_shadow_map()?;
@@ -324,6 +371,17 @@ impl W3DRenderer {
 
         tracing::debug!("Initialized render targets {}x{}", width, height);
         Ok(())
+    }
+
+    /// Ensure render targets exist and match the requested dimensions.
+    pub async fn ensure_render_targets(&mut self, width: u32, height: u32) -> Result<()> {
+        if self.frame_target_size == Some((width, height))
+            && self.frame_color_view.is_some()
+            && self.depth_texture_view.is_some()
+        {
+            return Ok(());
+        }
+        self.init_render_targets(width, height).await
     }
 
     /// Create G-Buffer textures for deferred rendering
@@ -410,6 +468,14 @@ impl W3DRenderer {
         Ok(())
     }
 
+    /// Returns whether the current frame depth target is stencil-capable.
+    pub fn supports_stencil(&self) -> bool {
+        self.state
+            .depth_stencil
+            .as_ref()
+            .is_some_and(|state| matches!(state.format, TextureFormat::Depth24PlusStencil8))
+    }
+
     /// Set camera for rendering
     pub async fn set_camera(&mut self, camera: &Camera) -> Result<()> {
         self.current_camera = Some(camera.clone());
@@ -448,7 +514,9 @@ impl W3DRenderer {
         let transparent = effective_batch_transparency(material, transparent_override);
         let batch = RenderBatch {
             mesh_id: mesh.id.clone(),
+            mesh: Some(mesh.clone()),
             material_id: material.map(|m| m.id.clone()),
+            material: material.cloned(),
             instances: vec![InstanceData {
                 model_matrix,
                 normal_matrix,
@@ -474,19 +542,65 @@ impl W3DRenderer {
 
     /// End frame and submit render commands
     pub async fn end_frame(&mut self) -> Result<()> {
+        self.end_frame_with_view(None).await
+    }
+
+    /// End frame and submit render commands to an optional external color target view.
+    pub async fn end_frame_with_view(
+        &mut self,
+        external_color_view: Option<&TextureView>,
+    ) -> Result<()> {
         // Sort render queue for optimal rendering
         self.sort_render_queue();
 
-        // Submit render commands
-        for batch in &self.opaque_queue {
-            self.submit_render_batch(batch).await?;
+        let opaque_batches = std::mem::take(&mut self.opaque_queue);
+        let transparent_batches = std::mem::take(&mut self.transparent_queue);
+        let ui_batches = std::mem::take(&mut self.ui_queue);
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("W3D Frame Encoder"),
+            });
+
+        let color_view = if let Some(view) = external_color_view {
+            view.clone()
+        } else if let Some(view) = self.frame_color_view.as_ref() {
+            view.clone()
+        } else {
+            tracing::trace!(
+                "Skipping W3D frame submission because no frame color target is initialized"
+            );
+            return Ok(());
+        };
+
+        // Clear the frame target once, then let each batch load from it.
+        self.clear_frame_target(&mut encoder, &color_view);
+
+        for batch in &opaque_batches {
+            self.submit_render_batch(
+                &mut encoder,
+                &color_view,
+                batch,
+                RenderSubmissionKind::Opaque,
+            )
+            .await?;
         }
-        for batch in &self.transparent_queue {
-            self.submit_render_batch(batch).await?;
+        for batch in &transparent_batches {
+            self.submit_render_batch(
+                &mut encoder,
+                &color_view,
+                batch,
+                RenderSubmissionKind::Transparent,
+            )
+            .await?;
         }
-        for batch in &self.ui_queue {
-            self.submit_render_batch(batch).await?;
+        for batch in &ui_batches {
+            self.submit_render_batch(&mut encoder, &color_view, batch, RenderSubmissionKind::Ui)
+                .await?;
         }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
 
         Ok(())
     }
@@ -514,11 +628,835 @@ impl W3DRenderer {
         sort_transparent_batches(self.transparent_queue.make_contiguous());
     }
 
+    fn clear_frame_target(&self, encoder: &mut CommandEncoder, color_view: &TextureView) {
+        let depth_attachment =
+            self.depth_texture_view
+                .as_ref()
+                .map(|view| RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(1.0),
+                        store: StoreOp::Store,
+                    }),
+                    stencil_ops: if self.supports_stencil() {
+                        Some(Operations {
+                            load: LoadOp::Clear(0),
+                            store: StoreOp::Store,
+                        })
+                    } else {
+                        None
+                    },
+                });
+        let _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("W3D Frame Clear"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color::BLACK),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: depth_attachment,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+    }
+
     /// Submit a render batch to the GPU
-    async fn submit_render_batch(&self, _batch: &RenderBatch) -> Result<()> {
-        // In a real implementation, this would submit actual draw calls
-        // to the graphics API (Vulkan, DirectX, etc.)
+    async fn submit_render_batch(
+        &mut self,
+        encoder: &mut CommandEncoder,
+        color_view: &TextureView,
+        batch: &RenderBatch,
+        kind: RenderSubmissionKind,
+    ) -> Result<()> {
+        if let Some(mesh) = batch.mesh.as_ref() {
+            if let Some(mesh_layout) = mesh_vertex_buffer_layout(mesh.vertex_format) {
+                let blend_state = match kind {
+                    RenderSubmissionKind::Opaque => None,
+                    RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui => {
+                        Some(BlendState::ALPHA_BLENDING)
+                    }
+                };
+                let cull_mode = if batch
+                    .material
+                    .as_ref()
+                    .is_some_and(|material| material.properties.double_sided)
+                {
+                    None
+                } else {
+                    Some(Face::Back)
+                };
+                let topology = mesh_primitive_topology(mesh.topology);
+                let shader_source = batch_shader_source(mesh.vertex_format);
+                let shader = self.device.create_shader_module(ShaderModuleDescriptor {
+                    label: Some("W3D Batch Submission Shader"),
+                    source: ShaderSource::Wgsl(shader_source.into()),
+                });
+
+                let frame_uniform = batch_frame_uniform(self.current_camera.as_ref());
+                let frame_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("W3D Batch Frame Uniform Buffer"),
+                    contents: bytemuck::bytes_of(&frame_uniform),
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                });
+                let frame_bind_group_layout =
+                    self.device
+                        .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                            label: Some("W3D Batch Frame Bind Group Layout"),
+                            entries: &[BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: ShaderStages::VERTEX,
+                                ty: BindingType::Buffer {
+                                    ty: BufferBindingType::Uniform,
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            }],
+                        });
+                let frame_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+                    label: Some("W3D Batch Frame Bind Group"),
+                    layout: &frame_bind_group_layout,
+                    entries: &[BindGroupEntry {
+                        binding: 0,
+                        resource: frame_buffer.as_entire_binding(),
+                    }],
+                });
+
+                let material_uniform = batch_material_uniform(batch, kind);
+                let material_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("W3D Batch Material Uniform Buffer"),
+                    contents: bytemuck::bytes_of(&material_uniform),
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                });
+                let material_bind_group_layout =
+                    self.device
+                        .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                            label: Some("W3D Batch Material Bind Group Layout"),
+                            entries: &[BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: ShaderStages::FRAGMENT,
+                                ty: BindingType::Buffer {
+                                    ty: BufferBindingType::Uniform,
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            }],
+                        });
+                let material_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+                    label: Some("W3D Batch Material Bind Group"),
+                    layout: &material_bind_group_layout,
+                    entries: &[BindGroupEntry {
+                        binding: 0,
+                        resource: material_buffer.as_entire_binding(),
+                    }],
+                });
+
+                let pipeline_layout =
+                    self.device
+                        .create_pipeline_layout(&PipelineLayoutDescriptor {
+                            label: Some("W3D Batch Submission Layout"),
+                            bind_group_layouts: &[
+                                &frame_bind_group_layout,
+                                &material_bind_group_layout,
+                            ],
+                            push_constant_ranges: &[],
+                        });
+                let pipeline = self
+                    .device
+                    .create_render_pipeline(&RenderPipelineDescriptor {
+                        label: Some("W3D Batch Submission Pipeline"),
+                        layout: Some(&pipeline_layout),
+                        vertex: VertexState {
+                            module: &shader,
+                            entry_point: Some("vs_main"),
+                            compilation_options: Default::default(),
+                            buffers: &[mesh_layout, instance_vertex_layout()],
+                        },
+                        fragment: Some(FragmentState {
+                            module: &shader,
+                            entry_point: Some("fs_main"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(ColorTargetState {
+                                format: self.surface_format,
+                                blend: blend_state,
+                                write_mask: ColorWrites::ALL,
+                            })],
+                        }),
+                        primitive: PrimitiveState {
+                            topology,
+                            strip_index_format: if matches!(
+                                topology,
+                                PrimitiveTopology::TriangleStrip | PrimitiveTopology::LineStrip
+                            ) {
+                                Some(IndexFormat::Uint32)
+                            } else {
+                                None
+                            },
+                            front_face: FrontFace::Ccw,
+                            cull_mode,
+                            unclipped_depth: false,
+                            polygon_mode: PolygonMode::Fill,
+                            conservative: false,
+                        },
+                        depth_stencil: if matches!(kind, RenderSubmissionKind::Ui) {
+                            None
+                        } else {
+                            Some(DepthStencilState {
+                                format: FRAME_DEPTH_STENCIL_FORMAT,
+                                depth_write_enabled: matches!(kind, RenderSubmissionKind::Opaque),
+                                depth_compare: CompareFunction::LessEqual,
+                                stencil: StencilState::default(),
+                                bias: DepthBiasState::default(),
+                            })
+                        },
+                        multisample: MultisampleState::default(),
+                        multiview: None,
+                        cache: None,
+                    });
+
+                let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("W3D Batch Vertex Buffer"),
+                    contents: &mesh.vertices,
+                    usage: BufferUsages::VERTEX,
+                });
+
+                let index_data = batch_index_data(mesh);
+                let index_buffer = if index_data.is_empty() {
+                    None
+                } else {
+                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("W3D Batch Index Buffer"),
+                        contents: bytemuck::cast_slice(index_data.as_slice()),
+                        usage: BufferUsages::INDEX,
+                    }))
+                };
+
+                let instances = if batch.instances.is_empty() {
+                    vec![InstanceData {
+                        model_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+                        normal_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+                        material_index: 0,
+                        lod_level: 0,
+                        animation_frame: 0.0,
+                        custom_data: 0.0,
+                        color: [1.0, 1.0, 1.0, 1.0],
+                        material_params: [1.0, 1.0, 1.0, 1.0],
+                    }]
+                } else {
+                    batch.instances.clone()
+                };
+                let instance_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("W3D Batch Instance Buffer"),
+                    contents: bytemuck::cast_slice(instances.as_slice()),
+                    usage: BufferUsages::VERTEX,
+                });
+                let instance_count = instances.len() as u32;
+                let draw_range = if index_data.is_empty() {
+                    mesh_vertex_count(mesh).unwrap_or(3)
+                } else {
+                    index_data.len() as u32
+                };
+
+                let depth_attachment = if matches!(kind, RenderSubmissionKind::Ui) {
+                    None
+                } else {
+                    self.depth_texture_view
+                        .as_ref()
+                        .map(|view| RenderPassDepthStencilAttachment {
+                            view,
+                            depth_ops: Some(Operations {
+                                load: LoadOp::Load,
+                                store: StoreOp::Store,
+                            }),
+                            stencil_ops: if self.supports_stencil() {
+                                Some(Operations {
+                                    load: LoadOp::Load,
+                                    store: StoreOp::Store,
+                                })
+                            } else {
+                                None
+                            },
+                        })
+                };
+
+                let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("W3D Batch Submission Pass"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        view: color_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Load,
+                            store: StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: depth_attachment,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                render_pass.set_pipeline(&pipeline);
+                render_pass.set_bind_group(0, &frame_bind_group, &[]);
+                render_pass.set_bind_group(1, &material_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+
+                let triangle_count = batch_triangle_count(mesh, &index_data);
+                if let Some(index_buffer) = index_buffer.as_ref() {
+                    render_pass.set_index_buffer(index_buffer.slice(..), IndexFormat::Uint32);
+                    if draw_range > 0 {
+                        render_pass.draw_indexed(0..draw_range, 0, 0..instance_count);
+                    }
+                } else if draw_range > 0 {
+                    render_pass.draw(0..draw_range, 0..instance_count);
+                }
+
+                self.stats.draw_calls += 1;
+                self.stats.instances += instance_count;
+                self.stats.triangles += triangle_count;
+                self.stats.vertices += mesh_vertex_count(mesh).unwrap_or(0) * instance_count;
+                if matches!(
+                    kind,
+                    RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui
+                ) {
+                    self.stats.pipeline_switches += 1;
+                }
+                return Ok(());
+            }
+        }
+
+        let blend_state = match kind {
+            RenderSubmissionKind::Opaque => None,
+            RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui => {
+                Some(BlendState::ALPHA_BLENDING)
+            }
+        };
+        let output_color = submission_color(kind, batch);
+        let shader_source = submission_shader_source(output_color);
+        let shader = self.device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("W3D Batch Submission Shader"),
+            source: ShaderSource::Wgsl(shader_source.into()),
+        });
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("W3D Batch Submission Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+        let pipeline = self
+            .device
+            .create_render_pipeline(&RenderPipelineDescriptor {
+                label: Some("W3D Batch Submission Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(ColorTargetState {
+                        format: self.surface_format,
+                        blend: blend_state,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                }),
+                primitive: PrimitiveState {
+                    topology: PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("W3D Batch Submission Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass.set_pipeline(&pipeline);
+        let instance_count = batch.instances.len().max(1) as u32;
+        render_pass.draw(0..3, 0..instance_count);
+
+        self.stats.draw_calls += 1;
+        self.stats.instances += batch.instances.len() as u32;
+        self.stats.triangles += 1;
+        self.stats.vertices += 3;
+        if matches!(
+            kind,
+            RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui
+        ) {
+            self.stats.pipeline_switches += 1;
+        }
+
         Ok(())
+    }
+}
+
+fn submission_color(kind: RenderSubmissionKind, batch: &RenderBatch) -> Color {
+    match kind {
+        RenderSubmissionKind::Opaque => {
+            let tint = ((batch.priority % 5) as f64) * 0.1 + 0.45;
+            Color {
+                r: tint,
+                g: tint,
+                b: tint,
+                a: 1.0,
+            }
+        }
+        RenderSubmissionKind::Transparent => Color {
+            r: 0.25,
+            g: 0.65,
+            b: 0.95,
+            a: 0.45,
+        },
+        RenderSubmissionKind::Ui => Color {
+            r: 0.95,
+            g: 0.78,
+            b: 0.18,
+            a: 0.9,
+        },
+    }
+}
+
+fn submission_shader_source(color: Color) -> String {
+    format!(
+        r#"
+@vertex
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4<f32> {{
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0),
+        vec2<f32>( 3.0,  1.0),
+        vec2<f32>(-1.0,  1.0)
+    );
+    let p = positions[vertex_index];
+    return vec4<f32>(p, 0.0, 1.0);
+}}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {{
+    return vec4<f32>({:.6}, {:.6}, {:.6}, {:.6});
+}}
+"#,
+        color.r, color.g, color.b, color.a
+    )
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct BatchFrameUniform {
+    view_projection_matrix: [[f32; 4]; 4],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct BatchMaterialUniform {
+    base_color: [f32; 4],
+    material_params: [f32; 4],
+    emissive_color: [f32; 4],
+}
+
+fn batch_frame_uniform(camera: Option<&Camera>) -> BatchFrameUniform {
+    let view_projection_matrix = camera.map_or(Mat4::IDENTITY, |camera| {
+        Mat4::from_cols_array_2d(&camera.projection_matrix)
+            * Mat4::from_cols_array_2d(&camera.view_matrix)
+    });
+    BatchFrameUniform {
+        view_projection_matrix: view_projection_matrix.to_cols_array_2d(),
+    }
+}
+
+fn batch_material_uniform(batch: &RenderBatch, kind: RenderSubmissionKind) -> BatchMaterialUniform {
+    let material = batch.material.as_ref();
+    let base_color = material
+        .map(|material| material.properties.diffuse_color)
+        .unwrap_or_else(|| color_to_array(submission_color(kind, batch)));
+    let emissive_color = material
+        .map(|material| {
+            [
+                material.properties.emissive_color[0],
+                material.properties.emissive_color[1],
+                material.properties.emissive_color[2],
+                1.0,
+            ]
+        })
+        .unwrap_or([0.0, 0.0, 0.0, 0.0]);
+    BatchMaterialUniform {
+        base_color,
+        material_params: batch_material_params(material),
+        emissive_color,
+    }
+}
+
+fn color_to_array(color: Color) -> [f32; 4] {
+    [
+        color.r as f32,
+        color.g as f32,
+        color.b as f32,
+        color.a as f32,
+    ]
+}
+
+fn mesh_vertex_count(mesh: &Mesh) -> Option<u32> {
+    let stride = mesh_vertex_stride(mesh.vertex_format)?;
+    if stride == 0 {
+        return None;
+    }
+    let count = mesh.vertices.len() as u64 / stride;
+    if count == 0 {
+        None
+    } else {
+        Some(count as u32)
+    }
+}
+
+fn batch_triangle_count(mesh: &Mesh, index_data: &[u32]) -> u32 {
+    let count = if index_data.is_empty() {
+        mesh_vertex_count(mesh).unwrap_or(0)
+    } else {
+        index_data.len() as u32
+    };
+    match mesh.topology {
+        super::PrimitiveTopology::TriangleList | super::PrimitiveTopology::TriangleFan => count / 3,
+        super::PrimitiveTopology::TriangleStrip => count.saturating_sub(2),
+        super::PrimitiveTopology::LineList | super::PrimitiveTopology::LineStrip => 0,
+        super::PrimitiveTopology::PointList => 0,
+    }
+}
+
+fn mesh_vertex_stride(format: super::VertexFormat) -> Option<u64> {
+    match format {
+        super::VertexFormat::Position => Some(12),
+        super::VertexFormat::PositionNormal => Some(24),
+        super::VertexFormat::PositionUv => Some(20),
+        super::VertexFormat::PositionNormalUv => Some(32),
+        super::VertexFormat::PositionNormalUvColor => Some(48),
+        super::VertexFormat::Skinned => return None,
+    }
+}
+
+fn mesh_vertex_buffer_layout(format: super::VertexFormat) -> Option<VertexBufferLayout<'static>> {
+    match format {
+        super::VertexFormat::Position => Some(VertexBufferLayout {
+            array_stride: 12,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &POSITION_ATTRIBUTES,
+        }),
+        super::VertexFormat::PositionNormal => Some(VertexBufferLayout {
+            array_stride: 24,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &POSITION_NORMAL_ATTRIBUTES,
+        }),
+        super::VertexFormat::PositionUv => Some(VertexBufferLayout {
+            array_stride: 20,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &POSITION_UV_ATTRIBUTES,
+        }),
+        super::VertexFormat::PositionNormalUv => Some(VertexBufferLayout {
+            array_stride: 32,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &POSITION_NORMAL_UV_ATTRIBUTES,
+        }),
+        super::VertexFormat::PositionNormalUvColor => Some(VertexBufferLayout {
+            array_stride: 48,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &POSITION_NORMAL_UV_COLOR_ATTRIBUTES,
+        }),
+        super::VertexFormat::Skinned => None,
+    }
+}
+
+fn instance_vertex_layout() -> VertexBufferLayout<'static> {
+    VertexBufferLayout {
+        array_stride: std::mem::size_of::<InstanceData>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &INSTANCE_ATTRIBUTES,
+    }
+}
+
+fn mesh_primitive_topology(topology: super::PrimitiveTopology) -> PrimitiveTopology {
+    match topology {
+        super::PrimitiveTopology::TriangleList => PrimitiveTopology::TriangleList,
+        super::PrimitiveTopology::TriangleStrip => PrimitiveTopology::TriangleStrip,
+        super::PrimitiveTopology::TriangleFan => PrimitiveTopology::TriangleList,
+        super::PrimitiveTopology::LineList => PrimitiveTopology::LineList,
+        super::PrimitiveTopology::LineStrip => PrimitiveTopology::LineStrip,
+        super::PrimitiveTopology::PointList => PrimitiveTopology::PointList,
+    }
+}
+
+fn batch_shader_source(vertex_format: super::VertexFormat) -> String {
+    let (vertex_input, vertex_color_expr) = match vertex_format {
+        super::VertexFormat::Position => (
+            "    @location(0) position: vec3<f32>,\n",
+            "material.base_color",
+        ),
+        super::VertexFormat::PositionNormal => (
+            "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n",
+            "material.base_color",
+        ),
+        super::VertexFormat::PositionUv => (
+            "    @location(0) position: vec3<f32>,\n    @location(1) uv: vec2<f32>,\n",
+            "material.base_color",
+        ),
+        super::VertexFormat::PositionNormalUv => (
+            "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n",
+            "material.base_color",
+        ),
+        super::VertexFormat::PositionNormalUvColor => (
+            "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n    @location(3) color: vec4<f32>,\n",
+            "material.base_color * input.color",
+        ),
+        super::VertexFormat::Skinned => (
+            "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n    @location(3) color: vec4<f32>,\n    @location(4) bone_indices: vec4<u32>,\n    @location(5) bone_weights: vec4<f32>,\n",
+            "material.base_color * input.color",
+        ),
+    };
+
+    format!(
+        r#"
+struct FrameUniform {{
+    view_projection_matrix: mat4x4<f32>,
+}}
+
+struct MaterialUniform {{
+    base_color: vec4<f32>,
+    material_params: vec4<f32>,
+    emissive_color: vec4<f32>,
+}}
+
+struct InstanceInput {{
+    @location(8) model_0: vec4<f32>,
+    @location(9) model_1: vec4<f32>,
+    @location(10) model_2: vec4<f32>,
+    @location(11) model_3: vec4<f32>,
+    @location(12) color: vec4<f32>,
+}}
+
+struct VertexInput {{
+{vertex_input}    @location(8) instance_model_0: vec4<f32>,
+    @location(9) instance_model_1: vec4<f32>,
+    @location(10) instance_model_2: vec4<f32>,
+    @location(11) instance_model_3: vec4<f32>,
+    @location(12) instance_color: vec4<f32>,
+}}
+
+struct VertexOutput {{
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+}}
+
+@group(0) @binding(0) var<uniform> frame: FrameUniform;
+@group(1) @binding(0) var<uniform> material: MaterialUniform;
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {{
+    var output: VertexOutput;
+    let model = mat4x4<f32>(
+        input.instance_model_0,
+        input.instance_model_1,
+        input.instance_model_2,
+        input.instance_model_3,
+    );
+    let world = model * vec4<f32>(input.position, 1.0);
+    output.position = frame.view_projection_matrix * world;
+    output.color = {vertex_color_expr} * input.instance_color + material.emissive_color;
+    return output;
+}}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {{
+    let alpha = input.color.a * material.material_params.x;
+    return vec4<f32>(input.color.rgb, alpha);
+}}
+"#
+    )
+}
+
+const POSITION_ATTRIBUTES: [wgpu::VertexAttribute; 1] = [wgpu::VertexAttribute {
+    offset: 0,
+    shader_location: 0,
+    format: wgpu::VertexFormat::Float32x3,
+}];
+
+const POSITION_NORMAL_ATTRIBUTES: [wgpu::VertexAttribute; 2] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+];
+
+const POSITION_UV_ATTRIBUTES: [wgpu::VertexAttribute; 2] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+];
+
+const POSITION_NORMAL_UV_ATTRIBUTES: [wgpu::VertexAttribute; 3] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 24,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+];
+
+const POSITION_NORMAL_UV_COLOR_ATTRIBUTES: [wgpu::VertexAttribute; 4] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 24,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 32,
+        shader_location: 3,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+];
+
+const SKINNED_ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x3,
+    },
+    wgpu::VertexAttribute {
+        offset: 24,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 32,
+        shader_location: 3,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 128,
+        shader_location: 4,
+        format: wgpu::VertexFormat::Uint32x2,
+    },
+    wgpu::VertexAttribute {
+        offset: 136,
+        shader_location: 5,
+        format: wgpu::VertexFormat::Float32x2,
+    },
+];
+
+const INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 5] = [
+    wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 8,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 16,
+        shader_location: 9,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 32,
+        shader_location: 10,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 48,
+        shader_location: 11,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+    wgpu::VertexAttribute {
+        offset: 144,
+        shader_location: 12,
+        format: wgpu::VertexFormat::Float32x4,
+    },
+];
+
+fn batch_index_data(mesh: &Mesh) -> Vec<u32> {
+    match mesh.topology {
+        super::PrimitiveTopology::TriangleFan => {
+            let source: Vec<u32> = if mesh.indices.is_empty() {
+                match mesh_vertex_count(mesh) {
+                    Some(vertex_count) if vertex_count >= 3 => (0..vertex_count).collect(),
+                    _ => return Vec::new(),
+                }
+            } else {
+                mesh.indices.clone()
+            };
+            if source.len() < 3 {
+                return Vec::new();
+            }
+            let mut expanded = Vec::with_capacity((source.len() - 2) * 3);
+            for i in 1..(source.len() - 1) {
+                expanded.push(source[0]);
+                expanded.push(source[i]);
+                expanded.push(source[i + 1]);
+            }
+            expanded
+        }
+        _ => mesh.indices.clone(),
     }
 }
 
@@ -691,7 +1629,9 @@ mod tests {
     fn sample_batch(mesh_id: &str, material_id: Option<&str>, distance: f32) -> RenderBatch {
         RenderBatch {
             mesh_id: mesh_id.to_string(),
+            mesh: None,
             material_id: material_id.map(ToString::to_string),
+            material: None,
             instances: Vec::new(),
             camera_distance: distance,
             priority: 0,
@@ -898,5 +1838,16 @@ mod tests {
 
         material.properties.unlit = true;
         assert_eq!(batch_priority(Some(&material)), 5);
+    }
+
+    #[test]
+    fn render_state_defaults_to_a_stencil_capable_depth_format() {
+        let state = RenderState::default();
+        let depth_state = state
+            .depth_stencil
+            .as_ref()
+            .expect("render state should enable depth by default");
+
+        assert_eq!(depth_state.format, wgpu::TextureFormat::Depth24PlusStencil8);
     }
 }

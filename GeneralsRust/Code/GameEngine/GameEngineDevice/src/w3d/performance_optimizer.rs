@@ -1179,7 +1179,9 @@ impl InstanceManager {
                         (Vec3::from_slice(&obj.world_bounds.center()) - camera_pos).length();
                     let batch = RenderBatch {
                         mesh_id: obj.mesh_id.clone(),
+                        mesh: None,
                         material_id: obj.material_id.clone(),
+                        material: None,
                         instances: vec![instances[instance_index]],
                         camera_distance: distance,
                         priority: obj.priority,
@@ -1210,7 +1212,9 @@ impl InstanceManager {
 
                     let batch = RenderBatch {
                         mesh_id: first_obj.mesh_id.clone(),
+                        mesh: None,
                         material_id: first_obj.material_id.clone(),
+                        material: None,
                         instances: instance_chunk.to_vec(),
                         camera_distance: avg_distance,
                         priority: first_obj.priority,
@@ -1522,7 +1526,9 @@ mod tests {
         let mut batches = vec![
             RenderBatch {
                 mesh_id: "opaque".to_string(),
+                mesh: None,
                 material_id: Some("mat".to_string()),
+                material: None,
                 instances: Vec::new(),
                 camera_distance: 100.0,
                 priority: 0,
@@ -1530,7 +1536,9 @@ mod tests {
             },
             RenderBatch {
                 mesh_id: "transparent_near".to_string(),
+                mesh: None,
                 material_id: Some("mat".to_string()),
+                material: None,
                 instances: Vec::new(),
                 camera_distance: 10.0,
                 priority: 0,
@@ -1538,7 +1546,9 @@ mod tests {
             },
             RenderBatch {
                 mesh_id: "transparent_far".to_string(),
+                mesh: None,
                 material_id: Some("mat".to_string()),
+                material: None,
                 instances: Vec::new(),
                 camera_distance: 50.0,
                 priority: 0,
@@ -1585,7 +1595,9 @@ mod tests {
         let mut batches = vec![
             RenderBatch {
                 mesh_id: "mesh_a".to_string(),
+                mesh: None,
                 material_id: Some("mat_b".to_string()),
+                material: None,
                 instances: Vec::new(),
                 camera_distance: 5.0,
                 priority: 10,
@@ -1593,7 +1605,9 @@ mod tests {
             },
             RenderBatch {
                 mesh_id: "mesh_b".to_string(),
+                mesh: None,
                 material_id: Some("mat_a".to_string()),
+                material: None,
                 instances: Vec::new(),
                 camera_distance: 50.0,
                 priority: 5,
