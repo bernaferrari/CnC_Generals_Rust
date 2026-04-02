@@ -67,6 +67,14 @@ pub fn is_script_display_movie_capture_enabled() -> bool {
     with_script_display(|display| display.is_movie_capture_enabled()).unwrap_or(false)
 }
 
+pub fn toggle_script_display_letter_box() -> bool {
+    with_script_display(|display| {
+        let enabled = !display.is_letter_box_enabled();
+        display.enable_letter_box(enabled);
+    })
+    .is_some()
+}
+
 pub fn set_script_display_debug_callback(callback: Option<DebugDisplayCallback>) -> bool {
     with_script_display(|display| display.set_debug_display_callback(callback, None)).is_some()
 }
