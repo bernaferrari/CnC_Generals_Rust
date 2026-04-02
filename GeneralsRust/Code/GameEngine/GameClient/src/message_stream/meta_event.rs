@@ -1028,10 +1028,14 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                         guard.tivo_fast_mode = !guard.tivo_fast_mode;
                         guard.tivo_fast_mode
                     };
-                    TheInGameUI::message(if enabled { "GUI:FF_ON" } else { "GUI:FF_OFF" });
+                    TheInGameUI::message(if enabled {
+                        "m_TiVOFastMode: ON"
+                    } else {
+                        "m_TiVOFastMode: OFF"
+                    });
                 }
             }
-            return Some(GameMessageDisposition::KeepMessage);
+            return Some(GameMessageDisposition::DestroyMessage);
         }
         emit_message(GameMessage::new(meta.clone()));
         return Some(GameMessageDisposition::DestroyMessage);
@@ -1956,6 +1960,18 @@ mod tests {
             description: String::new(),
             display_name: String::new(),
         }
+    }
+
+    #[test]
+    fn test_fast_forward_replay_meta_record_is_destroyed() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        let mut record = alias_record("TOGGLE_FAST_FORWARD_REPLAY");
+        record.meta = Some(GameMessageType::MetaToggleFastForwardReplay);
+        assert_eq!(
+            dispatch_map_entry(&record),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
     }
 
     #[test]
