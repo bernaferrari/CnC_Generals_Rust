@@ -788,6 +788,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_SUPPLY_CENTER_PLACEMENT"
         | "DEMO_TOGGLE_HAND_OF_GOD_MODE"
         | "DEMO_TOGGLE_HURT_ME_MODE"
+        | "DEMO_TEST_SURRENDER"
         | "DEMO_TOGGLE_THREATDEBUG"
         | "DEMO_TOGGLE_TRACKMARKS"
         | "DEMO_TOGGLE_VISIONDEBUG"
@@ -813,7 +814,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
 
     match name.to_ascii_uppercase().as_str() {
         "DEMO_CYCLE_EXTENT_TYPE" => true,
-        "DEMO_TEST_SURRENDER" => true,
         "DEMO_TOGGLE_BW_VIEW" => true,
         _ => false,
     }
@@ -2028,6 +2028,12 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         } else {
             "Debug-Selected-Item Mode is OFF"
         });
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
+    if record.name.eq_ignore_ascii_case("DEMO_TEST_SURRENDER") {
+        let local_player = get_local_player_id() as u32;
+        emit_message(GameMessage::new(GameMessageType::SelfDestruct(local_player)));
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -3279,10 +3285,6 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TEST_SURRENDER")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
     }
 
     #[test]
@@ -3328,6 +3330,7 @@ mod tests {
             "DEMO_MUSIC_NEXT_TRACK",
             "DEMO_PLAY_CAMEO_MOVIE",
             "DEMO_PLAY_OBJECTIVE_MOVIE2",
+            "DEMO_TEST_SURRENDER",
             "DEMO_TOGGLE_AUDIODEBUG",
             "DEMO_TOGGLE_AVI",
             "DEMO_TOGGLE_DEBUG_STATS",
