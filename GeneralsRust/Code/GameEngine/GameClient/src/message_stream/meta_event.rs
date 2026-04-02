@@ -461,6 +461,7 @@ fn is_dispatch_handled_cpp_command_name(name: &str) -> bool {
         | "DEMO_TOGGLE_MILITARY_SUBTITLES"
         | "DEMO_TOGGLE_MOTION_BLUR_ZOOM"
         | "DEMO_TOGGLE_MUSIC"
+        | "DEMO_TOGGLE_NETWORK"
         | "DEMO_TOGGLE_NO_DRAW"
         | "DEMO_TOGGLE_PARTICLEDEBUG"
         | "DEMO_TOGGLE_PROJECTILEDEBUG"
@@ -530,7 +531,6 @@ fn is_unimplemented_cpp_command_name(name: &str) -> bool {
         "DEMO_TOGGLE_BW_VIEW" => true,
         "DEMO_TOGGLE_HAND_OF_GOD_MODE" => true,
         "DEMO_TOGGLE_HURT_ME_MODE" => true,
-        "DEMO_TOGGLE_NETWORK" => true,
         "DEMO_VTUNE_OFF" => true,
         "DEMO_VTUNE_ON" => true,
         "HELP" => true,
@@ -620,6 +620,20 @@ fn toggle_script_display_debug_callback(target: DebugDisplayCallback) {
         .map(|callback| callback as usize == target as usize)
         .unwrap_or(false);
     let _ = set_script_display_debug_callback(if same_callback { None } else { Some(target) });
+}
+
+fn toggle_demo_network_runtime() {
+    #[cfg(not(feature = "network"))]
+    {
+        if let Some(network) = game_network::get_network() {
+            network.toggle_network_on();
+        }
+    }
+
+    #[cfg(feature = "network")]
+    {
+        let _ = game_network::get_network();
+    }
 }
 
 fn toggle_bw_color_view(mode: FilterMode) {
@@ -1925,6 +1939,11 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
+    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_NETWORK") {
+        toggle_demo_network_runtime();
+        return Some(GameMessageDisposition::DestroyMessage);
+    }
+
     if record
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_PARTICLEDEBUG")
@@ -2515,7 +2534,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -2541,6 +2560,7 @@ mod tests {
             "DEMO_TOGGLE_GREEN_VIEW",
             "DEMO_TOGGLE_LETTERBOX",
             "DEMO_TOGGLE_MOTION_BLUR_ZOOM",
+            "DEMO_TOGGLE_NETWORK",
             "DEMO_TOGGLE_PARTICLEDEBUG",
             "DEMO_TOGGLE_RED_VIEW",
             "DEMO_WIN",
@@ -3196,6 +3216,28 @@ mod tests {
             assert_eq!(view.get_view_filter_type(), FilterType::Null);
             assert_eq!(view.get_view_filter_mode(), FilterMode::Null);
         });
+    }
+
+    #[test]
+    fn test_demo_toggle_network_alias_is_consumed_and_toggles_compat_state() {
+        let _guard = test_state_lock().lock().expect("lock poisoned");
+
+        assert_eq!(
+            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
+            Some(GameMessageDisposition::DestroyMessage)
+        );
+
+        #[cfg(not(feature = "network"))]
+        {
+            if let Some(network) = game_network::get_network() {
+                let current = network.is_network_on();
+                assert_eq!(
+                    dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
+                    Some(GameMessageDisposition::DestroyMessage)
+                );
+                assert_eq!(network.is_network_on(), !current);
+            }
+        }
     }
 
     #[test]

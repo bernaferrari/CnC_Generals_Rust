@@ -6,6 +6,7 @@
 use game_engine::common::ascii_string::AsciiString;
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 #[path = "../../GameNetwork/src/game_info/mod.rs"]
@@ -31,7 +32,17 @@ pub mod game_info {
 #[derive(Default)]
 pub struct NetworkFacade;
 
+static NETWORK_ON: AtomicBool = AtomicBool::new(true);
+
 impl NetworkFacade {
+    pub fn toggle_network_on(&self) {
+        NETWORK_ON.fetch_xor(true, Ordering::SeqCst);
+    }
+
+    pub fn is_network_on(&self) -> bool {
+        NETWORK_ON.load(Ordering::SeqCst)
+    }
+
     pub async fn send_disconnect_chat_message(
         &self,
         _message: String,
