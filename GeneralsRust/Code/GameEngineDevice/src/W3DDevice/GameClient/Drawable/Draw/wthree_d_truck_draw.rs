@@ -135,16 +135,120 @@ impl W3DTruckDraw {
     /// 7. Rear/mid tires: spin + height offset
     /// 8. Emitter control: dust, dirt, powerslide
     /// 9. Audio: powerslide start/stop, landing sound
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+    pub fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix4<f32>,
+        show_client_physics: bool,
+        time_frozen: bool,
+        speed: f32,
+        is_motive: bool,
+        turning: i32,
+        is_significantly_above_terrain: bool,
+        moving_backwards: bool,
+        wheel_angle: f32,
+        has_path: bool,
+        angle_to_goal: f32,
+        cab_rotation_factor: f32,
+        trailer_rotation_factor: f32,
+        rotation_damping_factor: f32,
+        rotation_speed_multiplier: f32,
+        powerslide_rotation_addition: f32,
+    ) {
         // PARITY_NOTE: W3DModelDraw::doDrawModule(transformMtx)
-        // PARITY_NOTE: Full implementation requires:
-        // - RenderObjClass::Get_Bone_Index, Capture_Bone, Control_Bone
-        // - PhysicsBehavior for velocity, speed, isMotive, isAirborne, getTurning
-        // - TWheelInfo for suspension offsets and steering angle
-        // - AIUpdateInterface for path/goal angle
-        // - ThePartitionManager for angle calculation
-        // - ParticleSystem for dust/dirt/powerslide emitters
-        // - AudioEventRTS for sounds
+        let _ = transform_mtx;
+
+        if !show_client_physics || time_frozen {
+            return;
+        }
+
+        const ACCEL_THRESHOLD: f32 = 0.01;
+        const SIZE_CAP: f32 = 2.0;
+
+        // PARITY_NOTE: C++ checks getRenderObject()==NULL, return
+        // PARITY_NOTE: C++ checks getRenderObject() != m_prevRenderObj → updateBones()
+        // PARITY_NOTE: C++ gets Object, PhysicsBehavior, TWheelInfo, AIUpdateInterface, Locomotor
+
+        // Cab/trailer bone articulation with damping
+        if self.cab_bone != 0 {
+            let mut desired_angle = wheel_angle * cab_rotation_factor;
+
+            // C++: clamp desiredAngle to [min(angleToGoal, 0), max(angleToGoal, 0)]
+            if has_path {
+                if angle_to_goal < 0.0 {
+                    if desired_angle < angle_to_goal {
+                        desired_angle = angle_to_goal;
+                    }
+                    if desired_angle > 0.0 {
+                        desired_angle = 0.0;
+                    }
+                } else {
+                    if desired_angle > angle_to_goal {
+                        desired_angle = angle_to_goal;
+                    }
+                    if desired_angle < 0.0 {
+                        desired_angle = 0.0;
+                    }
+                }
+            }
+
+            let mut delta_angle = desired_angle - self.cur_cab_rotation;
+            delta_angle *= rotation_damping_factor;
+            self.cur_cab_rotation += delta_angle;
+            // PARITY_NOTE: Capture_Bone(cabBone), Control_Bone(cabBone, cabXfrm with Rotate_Z)
+
+            if self.trailer_bone != 0 {
+                let desired_trailer = -wheel_angle * trailer_rotation_factor;
+                let mut delta_trailer = desired_trailer - self.cur_trailer_rotation;
+                delta_trailer *= rotation_damping_factor;
+                self.cur_trailer_rotation += delta_trailer;
+                // PARITY_NOTE: Capture_Bone(trailerBone), Control_Bone(trailerBone, cabXfrm with Rotate_Z)
+            }
+        }
+
+        // Wheel rotation
+        if self.front_left_tire_bone != 0 || self.rear_left_tire_bone != 0 {
+            let effective_speed = if moving_backwards { -speed } else { speed };
+            let effective_powerslide = if moving_backwards {
+                -powerslide_rotation_addition
+            } else {
+                powerslide_rotation_addition
+            };
+
+            self.front_wheel_rotation += rotation_speed_multiplier * effective_speed;
+            if self.is_powersliding {
+                self.rear_wheel_rotation +=
+                    rotation_speed_multiplier * (effective_speed + effective_powerslide);
+            } else {
+                self.rear_wheel_rotation += rotation_speed_multiplier * effective_speed;
+            }
+            self.mid_front_wheel_rotation = self.front_wheel_rotation;
+            self.mid_rear_wheel_rotation = self.rear_wheel_rotation;
+
+            // PARITY_NOTE: Wheel bone transforms (Capture_Bone/Control_Bone):
+            // Front tires: Z translation (heightOffset) + Z rotation (wheelAngle) + Y rotation (spin)
+            // Rear tires: Y rotation (spin) + Z translation (heightOffset)
+            // Mid-front/mid-rear/mid-mid: same patterns with respective bone indices
+        }
+
+        // Emitter control
+        let was_powersliding = self.is_powersliding;
+        self.is_powersliding = false;
+
+        if is_motive && !is_significantly_above_terrain {
+            self.effects_initialized = true;
+            // PARITY_NOTE: enableEmitters(true) — createEmitters + start dust/dirt
+
+            // PARITY_NOTE: Dust size multiplier: min(speed, SIZE_CAP)
+            // PARITY_NOTE: Dirt spray on landing (framesAirborne > 3): trigger + landing sound
+            // PARITY_NOTE: Powerslide detection: if turning != TURN_NONE → isPowersliding=true, start powerslide effect
+            // PARITY_NOTE: Dirt stop: if !accelerating || speed > 2.0
+        } else {
+            // PARITY_NOTE: enableEmitters(false)
+        }
+
+        self.was_airborne = is_significantly_above_terrain;
+
+        // PARITY_NOTE: Powerslide sound start/stop (TheAudio->addAudioEvent/removeAudioEvent)
     }
 
     pub fn on_render_obj_recreated(&mut self) {

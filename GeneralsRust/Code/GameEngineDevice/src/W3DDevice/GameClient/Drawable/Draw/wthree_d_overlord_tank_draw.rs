@@ -9,7 +9,23 @@
 //! Note: W3DOverlordTankDrawModuleData has duplicate tread fields in the C++ header that
 //! are never initialized or parsed via INI. These are NOT ported.
 
-use cgmath::Matrix4;
+use cgmath::{Matrix4, Point3};
+
+/// State for the Overlord's rider drawable (the turret thing).
+/// C++ accesses this via me->getContain()->friend_getRider()->getDrawable().
+pub struct OverlordRiderState {
+    pub draw_requested: bool,
+    pub hidden: bool,
+}
+
+impl OverlordRiderState {
+    pub fn new() -> Self {
+        Self {
+            draw_requested: false,
+            hidden: false,
+        }
+    }
+}
 
 /// W3DOverlordTankDrawModuleData (extends W3DTankDrawModuleData with no extra INI fields)
 #[derive(Debug, Clone, Default)]
@@ -43,26 +59,29 @@ impl W3DOverlordTankDraw {
     /// 1. riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())
     /// 2. riderDraw->notifyDrawableDependencyCleared()
     /// 3. riderDraw->draw(NULL)
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+    pub fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix4<f32>,
+        rider_draw: &mut Option<OverlordRiderState>,
+    ) {
         // PARITY_NOTE: W3DTankDraw::doDrawModule(transformMtx)
+        let _ = transform_mtx;
 
-        // PARITY_NOTE: Rider draw propagation (no null checks, unlike Aircraft):
-        // Object *me = getDrawable()->getObject();
-        // if (me && me->getContain()) {
-        //     Object *rider = me->getContain()->friend_getRider();
-        //     if (rider && rider->getDrawable()) {
-        //         Drawable *riderDraw = rider->getDrawable();
-        //         riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope());
-        //         riderDraw->notifyDrawableDependencyCleared();
-        //         riderDraw->draw(NULL);
-        //     }
-        // }
+        // C++: get rider via me->getContain()->friend_getRider()->getDrawable()
+        // No null checks unlike Aircraft (C++ calls rider methods directly)
+        if let Some(rider) = rider_draw {
+            // PARITY_NOTE: riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())
+            // PARITY_NOTE: riderDraw->notifyDrawableDependencyCleared()
+            // PARITY_NOTE: riderDraw->draw(NULL)
+            rider.draw_requested = true;
+        }
     }
 
-    /// Calls W3DTankDraw::setHidden(h), then propagates to rider.
-    pub fn set_hidden(&mut self, hidden: bool) {
+    pub fn set_hidden(&mut self, hidden: bool, rider: Option<&mut OverlordRiderState>) {
         self.hidden = hidden;
-        // PARITY_NOTE: riderDraw->setDrawableHidden(h)
+        if let Some(r) = rider {
+            r.hidden = hidden;
+        }
     }
 
     pub fn set_shadows_enabled(&mut self, enable: bool) {
@@ -109,8 +128,10 @@ mod tests {
     fn test_wthree_d_overlord_tank_draw_basic() {
         let mut draw = W3DOverlordTankDraw::new();
         assert!(draw.is_visible());
-        draw.set_hidden(true);
+        draw.set_hidden(true, None);
         assert!(!draw.is_visible());
-        draw.do_draw_module(&Matrix4::identity());
+        let mut rider = Some(OverlordRiderState::new());
+        draw.do_draw_module(&Matrix4::identity(), &mut rider);
+        assert!(rider.unwrap().draw_requested);
     }
 }
