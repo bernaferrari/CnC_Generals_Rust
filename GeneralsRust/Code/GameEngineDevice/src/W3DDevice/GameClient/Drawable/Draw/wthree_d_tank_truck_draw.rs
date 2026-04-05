@@ -6,7 +6,7 @@
 //! W3DTankDraw (tread UV scrolling, tread debris). Has 10 tire bone slots,
 //! dust/dirt/powerslide particle emitters, and tread sub-object management.
 
-use cgmath::{Matrix4, Point3, Vector3};
+use cgmath::{Matrix4, Point3, Vector2, Vector3};
 
 /// Combined module data for TankTruckDraw (extends both W3DModelDrawModuleData and W3DTankDrawModuleData)
 #[derive(Debug, Clone)]
@@ -98,6 +98,7 @@ pub struct W3DTankTruckDraw {
     hidden: bool,
     fully_obscured_by_shroud: bool,
     shadow_enabled: bool,
+    last_direction: Vector3<f32>,
 }
 
 impl W3DTankTruckDraw {
@@ -129,15 +130,97 @@ impl W3DTankTruckDraw {
             hidden: false,
             fully_obscured_by_shroud: false,
             shadow_enabled: true,
+            last_direction: Vector3::new(1.0, 0.0, 0.0),
         }
     }
 
-    /// Main per-frame draw: W3DModelDraw + wheel rotation + tread scrolling + emitters.
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+    /// C++ parity: W3DModelDraw::doDrawModule first, then truck+tank physics.
+    pub fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix4<f32>,
+        show_client_physics: bool,
+        time_frozen: bool,
+        speed: f32,
+        max_speed: f32,
+        is_motive: bool,
+        turning: i32,
+        is_significantly_above_terrain: bool,
+        moving_backwards: bool,
+        wheel_angle: f32,
+    ) {
         // PARITY_NOTE: W3DModelDraw::doDrawModule(transformMtx)
-        // PARITY_NOTE: Full truck+tank logic requires:
-        // - All W3DTruckDraw APIs (bones, emitters, audio)
-        // - All W3DTankDraw APIs (tread sub-objects, UV scrolling)
+        let _ = transform_mtx;
+
+        if !show_client_physics || time_frozen {
+            return;
+        }
+
+        const ACCEL_THRESHOLD: f32 = 0.01;
+        const SIZE_CAP: f32 = 2.0;
+
+        // PARITY_NOTE: C++ checks getRenderObject()==NULL, return
+        // PARITY_NOTE: C++ checks getRenderObject() != m_prevRenderObj → updateBones() + updateTreadObjects()
+
+        // PARITY_NOTE: C++ gets Object, PhysicsBehavior, TWheelInfo, AIUpdateInterface
+        // For now, the caller provides pre-extracted physics state.
+
+        let rotation_factor = self.get_rotation_speed_multiplier();
+        let effective_speed = if moving_backwards { -speed } else { speed };
+        let powerslide_addition = self.get_powerslide_rotation_addition();
+
+        self.front_wheel_rotation += rotation_factor * effective_speed;
+        if self.is_powersliding {
+            self.rear_wheel_rotation += rotation_factor * (effective_speed + powerslide_addition);
+        } else {
+            self.rear_wheel_rotation += rotation_factor * effective_speed;
+        }
+        self.mid_front_wheel_rotation = self.front_wheel_rotation;
+        self.mid_rear_wheel_rotation = self.rear_wheel_rotation;
+
+        // PARITY_NOTE: Wheel bone transforms (Capture_Bone/Control_Bone):
+        // Front tires: Z translation + Z rotation (wheelAngle) + Y rotation (spin)
+        // Rear/mid tires: Y rotation (spin) + Z translation (height offset)
+
+        let was_powersliding = self.is_powersliding;
+        self.is_powersliding = false;
+
+        if is_motive && !is_significantly_above_terrain {
+            self.effects_initialized = true;
+            // PARITY_NOTE: enableEmitters(true) — createEmitters + start dust/dirt
+
+            // PARITY_NOTE: Dust size multiplier: min(speed, SIZE_CAP)
+            // PARITY_NOTE: Dirt spray on landing (framesAirborne > 3): trigger + landing sound
+            // PARITY_NOTE: Powerslide detection: if turning != TURN_NONE → isPowersliding=true, start powerslide effect
+            // PARITY_NOTE: Dirt stop: if !accelerating || speed > 2.0
+        } else {
+            // PARITY_NOTE: enableEmitters(false)
+        }
+
+        self.was_airborne = is_significantly_above_terrain;
+
+        // PARITY_NOTE: Powerslide sound start/stop (TheAudio->addAudioEvent/removeAudioEvent)
+
+        // Tread animation (C++: pivot is COMMENTED OUT for TankTruck — only drive mode)
+        if self.tread_count > 0 {
+            let tread_scroll_speed = self.get_tread_animation_rate();
+            let safe_max_speed = if max_speed > 0.001 {
+                max_speed
+            } else {
+                999999.0
+            };
+
+            // C++: pivot scrolling is commented out for TankTruckDraw
+            // Only drive mode:
+            if is_motive && speed / safe_max_speed >= self.get_tread_drive_speed_fraction() {
+                for tread in &mut self.treads[..self.tread_count] {
+                    let offset_u = tread.custom_uv_offset.x - tread_scroll_speed;
+                    tread.custom_uv_offset.x = offset_u - offset_u.floor();
+                }
+            }
+        }
+
+        // PARITY_NOTE: C++ also has #ifdef SHOW_TANK_DEBRIS block for tread debris
+        // (disabled in production, same as W3DTankDraw tread debris logic)
     }
 
     pub fn on_render_obj_recreated(&mut self) {
@@ -184,6 +267,19 @@ impl W3DTankTruckDraw {
         1
     }
     pub fn load_post_process(&mut self) {}
+
+    fn get_rotation_speed_multiplier(&self) -> f32 {
+        0.0
+    }
+    fn get_powerslide_rotation_addition(&self) -> f32 {
+        0.0
+    }
+    fn get_tread_animation_rate(&self) -> f32 {
+        0.0
+    }
+    fn get_tread_drive_speed_fraction(&self) -> f32 {
+        0.3
+    }
 }
 
 impl Default for W3DTankTruckDraw {

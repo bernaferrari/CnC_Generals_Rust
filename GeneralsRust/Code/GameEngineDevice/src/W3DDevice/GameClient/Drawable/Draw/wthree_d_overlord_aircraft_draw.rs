@@ -5,7 +5,9 @@
 //! Extends W3DModelDraw with rider draw propagation. Inherits from W3DModelDraw directly
 //! (NOT W3DTruckDraw), so does NOT get wheel rotation, treads, or particle emitters.
 
-use cgmath::Matrix4;
+use cgmath::{Matrix4, Point3};
+
+pub use super::wthree_d_overlord_tank_draw::OverlordRiderState;
 
 #[derive(Debug, Clone, Default)]
 pub struct W3DOverlordAircraftDrawModuleData {}
@@ -29,17 +31,33 @@ impl W3DOverlordAircraftDraw {
         }
     }
 
-    /// Calls W3DModelDraw::doDrawModule(transformMtx), then draws the rider.
-    /// Rider access: getDrawable()->getObject()->getContain()->friend_getRider()->getDrawable()
-    /// Copies tint, clears dependency, calls riderDraw->draw(NULL).
-    /// Note: C++ has a DEBUG_ASSERTCRASH after the null check (dead assert).
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+    pub fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix4<f32>,
+        rider_draw: &mut Option<OverlordRiderState>,
+        has_tint_envelope: bool,
+    ) {
         // PARITY_NOTE: W3DModelDraw::doDrawModule(transformMtx)
-        // PARITY_NOTE: Rider propagation with null checks on riderDraw and tintEnvelope
+        let _ = transform_mtx;
+
+        // C++ has extra null checks on riderDraw AND tintEnvelope (unlike Tank/Truck)
+        // C++ also has a DEBUG_ASSERTCRASH after the null check (dead assert)
+        if let Some(rider) = rider_draw {
+            if has_tint_envelope {
+                // PARITY_NOTE: riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())
+            }
+            // PARITY_NOTE: riderDraw->notifyDrawableDependencyCleared()
+            // PARITY_NOTE: riderDraw->draw(NULL)
+            rider.draw_requested = true;
+        }
+        // PARITY_NOTE: DEBUG_ASSERTCRASH(riderDraw, ("OverlordAircraftDraw finds no rider's drawable"))
     }
 
-    pub fn set_hidden(&mut self, hidden: bool) {
+    pub fn set_hidden(&mut self, hidden: bool, rider: Option<&mut OverlordRiderState>) {
         self.hidden = hidden;
+        if let Some(r) = rider {
+            r.hidden = hidden;
+        }
     }
 
     pub fn set_shadows_enabled(&mut self, enable: bool) {
@@ -83,8 +101,10 @@ mod tests {
     fn test_wthree_d_overlord_aircraft_draw_basic() {
         let mut draw = W3DOverlordAircraftDraw::new();
         assert!(draw.is_visible());
-        draw.set_hidden(true);
+        draw.set_hidden(true, None);
         assert!(!draw.is_visible());
-        draw.do_draw_module(&Matrix4::identity());
+        let mut rider = Some(OverlordRiderState::new());
+        draw.do_draw_module(&Matrix4::identity(), &mut rider, true);
+        assert!(rider.unwrap().draw_requested);
     }
 }
