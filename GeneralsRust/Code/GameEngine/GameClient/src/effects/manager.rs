@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use super::{
     calculate_effects_lod, particles::ParticleType, DecalId, DecalManager, DecalSettings,
-    EffectsConfig, EffectsError, EffectsLOD, EffectsStats, ParticleRenderer, ParticleSystem,
-    ParticleSystemDesc, ParticleSystemId, WeatherSystem, WeatherType,
+    EffectsConfig, EffectsError, EffectsLOD, EffectsStats, GenericParticleRenderer,
+    GenericParticleSystem, GenericParticleSystemId, ParticleSystemDesc, WeatherSystem, WeatherType,
 };
 use crate::system::SubsystemInterface;
 
@@ -19,9 +19,9 @@ pub struct EffectsManager {
     config: EffectsConfig,
 
     /// Particle systems management
-    particle_systems: HashMap<ParticleSystemId, ParticleSystem>,
-    particle_renderer: ParticleRenderer,
-    next_particle_id: ParticleSystemId,
+    particle_systems: HashMap<GenericParticleSystemId, GenericParticleSystem>,
+    particle_renderer: GenericParticleRenderer,
+    next_particle_id: GenericParticleSystemId,
 
     /// Weather system
     weather_system: WeatherSystem,
@@ -48,7 +48,7 @@ impl EffectsManager {
         Self {
             config: EffectsConfig::default(),
             particle_systems: HashMap::new(),
-            particle_renderer: ParticleRenderer::new(),
+            particle_renderer: GenericParticleRenderer::new(),
             next_particle_id: 1,
             weather_system: WeatherSystem::new(),
             decal_manager: DecalManager::new(),
@@ -110,7 +110,10 @@ impl EffectsManager {
     }
 
     /// Spawn a particle system
-    pub fn spawn_particle_system(&mut self, desc: ParticleSystemDesc) -> Option<ParticleSystemId> {
+    pub fn spawn_particle_system(
+        &mut self,
+        desc: ParticleSystemDesc,
+    ) -> Option<GenericParticleSystemId> {
         if !self.enabled || !self.config.particles_enabled {
             return None;
         }
@@ -141,17 +144,26 @@ impl EffectsManager {
     }
 
     /// Remove a particle system
-    pub fn remove_particle_system(&mut self, id: ParticleSystemId) -> Option<ParticleSystem> {
+    pub fn remove_particle_system(
+        &mut self,
+        id: GenericParticleSystemId,
+    ) -> Option<GenericParticleSystem> {
         self.particle_systems.remove(&id)
     }
 
     /// Get particle system by ID
-    pub fn get_particle_system(&self, id: ParticleSystemId) -> Option<&ParticleSystem> {
+    pub fn get_particle_system(
+        &self,
+        id: GenericParticleSystemId,
+    ) -> Option<&GenericParticleSystem> {
         self.particle_systems.get(&id)
     }
 
     /// Get mutable particle system by ID
-    pub fn get_particle_system_mut(&mut self, id: ParticleSystemId) -> Option<&mut ParticleSystem> {
+    pub fn get_particle_system_mut(
+        &mut self,
+        id: GenericParticleSystemId,
+    ) -> Option<&mut GenericParticleSystem> {
         self.particle_systems.get_mut(&id)
     }
 
@@ -293,7 +305,7 @@ impl EffectsManager {
     }
 
     /// Find oldest finished particle system for removal
-    fn find_oldest_finished_system(&self) -> Option<ParticleSystemId> {
+    fn find_oldest_finished_system(&self) -> Option<GenericParticleSystemId> {
         self.particle_systems
             .iter()
             .filter(|(_, system)| system.is_finished())
@@ -329,14 +341,17 @@ impl EffectsManager {
         &mut self,
         position: nalgebra::Point3<f32>,
         scale: f32,
-    ) -> Option<ParticleSystemId> {
+    ) -> Option<GenericParticleSystemId> {
         let desc = ParticleSystemDesc::explosion()
             .at_position(position.x, position.y, position.z)
             .with_scale(scale);
         self.spawn_particle_system(desc)
     }
 
-    pub fn create_fire(&mut self, position: nalgebra::Point3<f32>) -> Option<ParticleSystemId> {
+    pub fn create_fire(
+        &mut self,
+        position: nalgebra::Point3<f32>,
+    ) -> Option<GenericParticleSystemId> {
         let desc = ParticleSystemDesc::fire().at_position(position.x, position.y, position.z);
         self.spawn_particle_system(desc)
     }
@@ -345,7 +360,7 @@ impl EffectsManager {
         &mut self,
         position: nalgebra::Point3<f32>,
         duration: f32,
-    ) -> Option<ParticleSystemId> {
+    ) -> Option<GenericParticleSystemId> {
         let desc = ParticleSystemDesc::smoke()
             .at_position(position.x, position.y, position.z)
             .with_duration(duration);
