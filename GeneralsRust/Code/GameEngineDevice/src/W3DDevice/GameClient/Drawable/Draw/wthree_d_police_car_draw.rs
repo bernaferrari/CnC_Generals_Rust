@@ -9,7 +9,6 @@
 //! C++ author: Colin Day, May 2001
 
 use crate::W3DDevice::GameClient::wthree_d_dynamic_light::W3DDynamicLight;
-use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
 use cgmath::{Matrix4, Point3, Vector3};
 
 /// Light height above car (C++: floatAmt)
@@ -24,10 +23,19 @@ const ANIM_INCREMENT: f32 = 0.25;
 /// The animation advances by 0.25 frames per draw call.
 #[derive(Debug)]
 pub struct W3DPoliceCarDraw {
-    /// Dynamic point light for searchlight
-    light_id: Option<RenderObjectId>,
-    /// Current animation frame for color cycling (random initial offset)
+    /// Dynamic point light for searchlight (C++: m_light).
+    /// Created lazily via createDynamicLight().
+    light: Option<W3DDynamicLight>,
+    /// Current animation frame for color cycling (random initial offset).
+    /// C++: m_curFrame = GameClientRandomValueReal(0, 10)
     cur_frame: f32,
+    /// Total number of animation frames (from render object Peek_Animation).
+    /// Used to wrap cur_frame. C++: anim->Get_Num_Frames()
+    num_frames: f32,
+    /// Whether a render object exists (C++: getRenderObject() != NULL).
+    has_render_object: bool,
+    /// Drawable position for light placement (C++: getDrawable()->getPosition()).
+    drawable_pos: Point3<f32>,
     hidden: bool,
     fully_obscured_by_shroud: bool,
     shadow_enabled: bool,
@@ -36,9 +44,11 @@ pub struct W3DPoliceCarDraw {
 impl W3DPoliceCarDraw {
     pub fn new() -> Self {
         Self {
-            light_id: None,
-            // C++: GameClientRandomValueReal(0, 10)
+            light: None,
             cur_frame: fastrand::f32() * 10.0,
+            num_frames: 15.0,
+            has_render_object: false,
+            drawable_pos: Point3::new(0.0, 0.0, 0.0),
             hidden: false,
             fully_obscured_by_shroud: false,
             shadow_enabled: true,
@@ -47,30 +57,76 @@ impl W3DPoliceCarDraw {
 
     /// Main per-frame draw with light color cycling.
     ///
-    /// Color calculation (frame-based red/blue cycling):
-    /// - Frame 0-2.99: red=1, green=0.5
-    /// - Frame 3-5.99: red=1 (bright red)
-    /// - Frame 6-6.99: red=1, green=0.5 (fade)
-    /// - Frame 7-8.99: red transition, blue transition
-    /// - Frame 9-11.99: blue=1 (bright blue)
-    /// - Frame 12-14: green/blue/red fade
-    ///
-    /// Light positioned at drawable pos + (0, 0, 8.0).
-    /// Diffuse set to (red, green, blue), ambient to half that.
+    /// C++ parity (W3DPoliceCarDraw::doDrawModule):
+    /// 1. Get render object; return if NULL.
+    /// 2. Peek animation; advance m_curFrame by 0.25, wrap to 0 if >= numFrames-1.
+    /// 3. Compute light color from cur_frame.
+    /// 4. Create dynamic light if NULL.
+    /// 5. Set light: diffuse=(r,g,b), ambient=(r/2,g/2,b/2), far atten=(3,20),
+    ///    position=(pos.x, pos.y, pos.z+8.0).
+    /// 6. Call W3DTruckDraw::doDrawModule(transformMtx).
     pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
-        // PARITY_NOTE: W3DTruckDraw::doDrawModule(transformMtx)
+        // C++: RenderObjClass* policeCarRenderObj = getRenderObject();
+        // C++: if (policeCarRenderObj == NULL) return;
+        if !self.has_render_object {
+            return;
+        }
 
-        // PARITY_NOTE: Animation update:
-        // Peek HAnimClass from render object
-        // Increment m_curFrame by 0.25, wrap to 0 if >= num_frames - 1
-        // Set animation: renderObj->Set_Animation(anim, m_curFrame)
+        // C++: HAnimClass *anim = policeCarRenderObj->Peek_Animation();
+        // C++: if (anim) {
+        // C++:   Real frames = anim->Get_Num_Frames();
+        // C++:   m_curFrame += animAmt;  // animAmt = 0.25
+        // C++:   if (m_curFrame > frames-1) { m_curFrame = 0; }
+        // C++:   policeCarRenderObj->Set_Animation(anim, m_curFrame);
+        // C++: }
+        self.cur_frame += ANIM_INCREMENT;
+        if self.num_frames > 1.0 && self.cur_frame > self.num_frames - 1.0 {
+            self.cur_frame = 0.0;
+        }
+        // PARITY_NOTE: Set_Animation on render object via scene manager
 
         let (red, green, blue) = self.compute_light_color();
 
-        // PARITY_NOTE: Create light if NULL via W3DDisplay::m_3DScene->getADynamicLight()
-        // Set diffuse, ambient, far attenuation (3, 20), position
+        // C++: if (m_light == NULL) m_light = createDynamicLight();
+        if self.light.is_none() {
+            self.light = Some(self.create_dynamic_light());
+        }
 
-        let _ = (red, green, blue);
+        // C++: if (m_light) {
+        // C++:   Coord3D pos = *getDrawable()->getPosition();
+        // C++:   m_light->Set_Diffuse(Vector3(red, green, blue));
+        // C++:   m_light->Set_Ambient(Vector3(red/2, green/2, blue/2));
+        // C++:   m_light->Set_Far_Attenuation_Range(3, 20);
+        // C++:   m_light->Set_Position(Vector3(pos.x, pos.y, pos.z+floatAmt));
+        // C++: }
+        if let Some(light) = &mut self.light {
+            light.set_diffuse(Vector3::new(red, green, blue));
+            light.set_ambient(Vector3::new(red / 2.0, green / 2.0, blue / 2.0));
+            light.set_range(3.0, 20.0);
+            light.set_position(Vector3::new(
+                self.drawable_pos.x,
+                self.drawable_pos.y,
+                self.drawable_pos.z + LIGHT_HEIGHT,
+            ));
+        }
+
+        // PARITY_NOTE: W3DTruckDraw::doDrawModule(transformMtx) called last in C++.
+        // Parent class handles turret, treads, etc.
+    }
+
+    fn create_dynamic_light(&self) -> W3DDynamicLight {
+        // C++: W3DDynamicLight *light = W3DDisplay::m_3DScene->getADynamicLight();
+        // C++: light->setEnabled(TRUE);
+        // C++: light->Set_Ambient(Vector3(0,0,0));
+        // C++: light->Set_Diffuse(Vector3(0,0,0));  // No diffuse for searchlight
+        // C++: light->Set_Position(Vector3(0,0,0));
+        // C++: light->Set_Far_Attenuation_Range(5, 15);
+        let mut light = W3DDynamicLight::point();
+        light.set_enabled(true);
+        light.set_ambient(Vector3::new(0.0, 0.0, 0.0));
+        light.set_diffuse(Vector3::new(0.0, 0.0, 0.0));
+        light.set_range(5.0, 15.0);
+        light
     }
 
     fn compute_light_color(&self) -> (f32, f32, f32) {
@@ -121,9 +177,35 @@ impl W3DPoliceCarDraw {
     }
     pub fn load_post_process(&mut self) {}
 
+    pub fn set_has_render_object(&mut self, has: bool) {
+        self.has_render_object = has;
+    }
+
+    pub fn set_num_frames(&mut self, frames: f32) {
+        self.num_frames = frames;
+    }
+
+    pub fn set_drawable_pos(&mut self, pos: Point3<f32>) {
+        self.drawable_pos = pos;
+    }
+
+    pub fn get_cur_frame(&self) -> f32 {
+        self.cur_frame
+    }
+
     fn on_delete(&mut self) {
-        // PARITY_NOTE: If light exists, set frame fade out, enable decay
-        self.light_id = None;
+        // C++: if (m_light) {
+        // C++:   m_light->setFrameFade(0, 5);  // fade out over 5 frames
+        // C++:   m_light->setDecayRange();
+        // C++:   m_light->setDecayColor();
+        // C++:   m_light = NULL;
+        // C++: }
+        if let Some(light) = &mut self.light {
+            light.set_frame_fade(0, 5);
+            light.set_decay_range(true);
+            light.set_decay_color(true);
+        }
+        self.light = None;
     }
 }
 
@@ -142,11 +224,13 @@ impl Drop for W3DPoliceCarDraw {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_wthree_d_police_car_draw_basic() {
         let draw = W3DPoliceCarDraw::new();
         assert!(draw.is_visible());
     }
+
     #[test]
     fn test_wthree_d_police_car_light_color_red_phase() {
         let draw = W3DPoliceCarDraw {
@@ -158,6 +242,7 @@ mod tests {
         assert!((g - 0.5).abs() < 0.01);
         assert!((b - 0.0).abs() < 0.01);
     }
+
     #[test]
     fn test_wthree_d_police_car_light_color_blue_phase() {
         let draw = W3DPoliceCarDraw {
@@ -167,6 +252,7 @@ mod tests {
         let (r, g, b) = draw.compute_light_color();
         assert!((b - 1.0).abs() < 0.01);
     }
+
     #[test]
     fn test_wthree_d_police_car_light_color_transition() {
         let draw = W3DPoliceCarDraw {
@@ -176,5 +262,90 @@ mod tests {
         let (r, _g, b) = draw.compute_light_color();
         assert!(r > 0.0 && r < 1.0);
         assert!(b > 0.0 && b < 1.0);
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_no_render_object() {
+        let mut draw = W3DPoliceCarDraw::new();
+        let initial_frame = draw.cur_frame;
+        draw.do_draw_module(&Matrix4::identity());
+        assert_eq!(draw.cur_frame, initial_frame);
+        assert!(draw.light.is_none());
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_frame_advancement() {
+        let mut draw = W3DPoliceCarDraw::new();
+        draw.set_has_render_object(true);
+        draw.set_num_frames(15.0);
+        let initial_frame = draw.cur_frame;
+        draw.do_draw_module(&Matrix4::identity());
+        assert!((draw.cur_frame - (initial_frame + ANIM_INCREMENT)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_frame_wrapping() {
+        let mut draw = W3DPoliceCarDraw {
+            cur_frame: 14.5,
+            num_frames: 15.0,
+            has_render_object: true,
+            ..Default::default()
+        };
+        draw.do_draw_module(&Matrix4::identity());
+        assert_eq!(draw.cur_frame, 0.0);
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_light_creation() {
+        let mut draw = W3DPoliceCarDraw {
+            has_render_object: true,
+            drawable_pos: Point3::new(10.0, 20.0, 5.0),
+            ..Default::default()
+        };
+        draw.do_draw_module(&Matrix4::identity());
+        assert!(draw.light.is_some());
+        let light = draw.light.as_ref().unwrap();
+        assert!(light.enabled);
+        assert_eq!(light.position.z, 5.0 + LIGHT_HEIGHT);
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_light_color_update() {
+        let mut draw = W3DPoliceCarDraw {
+            has_render_object: true,
+            cur_frame: 10.0,
+            drawable_pos: Point3::new(0.0, 0.0, 0.0),
+            ..Default::default()
+        };
+        draw.do_draw_module(&Matrix4::identity());
+        let light = draw.light.as_ref().unwrap();
+        assert!((light.diffuse.z - 1.0).abs() < 0.01);
+        assert!((light.ambient.z - 0.5).abs() < 0.01);
+        assert!((light.diffuse.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_light_attenuation() {
+        let mut draw = W3DPoliceCarDraw {
+            has_render_object: true,
+            drawable_pos: Point3::new(0.0, 0.0, 0.0),
+            ..Default::default()
+        };
+        draw.do_draw_module(&Matrix4::identity());
+        let light = draw.light.as_ref().unwrap();
+        assert_eq!(light.far_atten_start, 3.0);
+        assert_eq!(light.far_atten_end, 20.0);
+    }
+
+    #[test]
+    fn test_wthree_d_police_car_draw_delete_fades_light() {
+        let mut draw = W3DPoliceCarDraw {
+            has_render_object: true,
+            ..Default::default()
+        };
+        draw.do_draw_module(&Matrix4::identity());
+        assert!(draw.light.is_some());
+        draw.on_delete();
+        assert!(draw.light.is_none());
     }
 }
