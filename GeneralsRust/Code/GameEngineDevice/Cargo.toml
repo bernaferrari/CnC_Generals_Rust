@@ -56,6 +56,7 @@ memmap2 = "0.9"                        # Memory-mapped file access
 # Audio integration (for positional audio)
 cpal = "0.15"                          # Cross-platform audio I/O
 hound = "3.5"                          # WAV file format support
+rodio = "0.19"                         # Audio playback backend (WAV, OGG, MP3, FLAC)
 
 # Error handling and logging
 thiserror = "1.0"

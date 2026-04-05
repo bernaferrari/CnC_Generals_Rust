@@ -1,129 +1,98 @@
 //! Miles Audio Manager Module
-//! 
+//!
 //! Corresponds to C++ file: GeneralsMD/Code/GameEngineDevice/Include/MilesAudioDevice/MilesAudioManager.h
-//! 
-//! This module provides interface to the Miles Sound System for audio playback.
-//! Miles Sound System is a professional audio engine used for 3D positional audio,
-//! sound effects, and music playback in games.
+//!
+//! Audio playback via rodio, replacing the original Miles Sound System backend.
 
-use std::ffi::{c_void, CStr, CString};
+use std::cell::Cell;
+use std::ffi::c_void;
+use std::path::Path;
 use std::ptr;
 
-/// Miles Audio Manager structure
-/// 
-/// Manages the Miles Sound System initialization, audio resources,
-/// and provides high-level interface for audio operations.
+use rodio::Sink;
+
 pub struct MilesAudioManager {
-    /// Internal Miles handle
-    miles_handle: *mut c_void,
-    /// Digital driver handle
-    digital_driver: *mut c_void,
-    /// 3D provider handle
-    provider_3d: *mut c_void,
-    /// Master volume (0.0 - 1.0)
+    stream: Option<rodio::OutputStream>,
+    stream_handle: Option<rodio::OutputStreamHandle>,
     master_volume: f32,
-    /// Whether the system is initialized
     initialized: bool,
+    listener_position: Cell<[f32; 3]>,
+    listener_forward: Cell<[f32; 3]>,
+    listener_up: Cell<[f32; 3]>,
 }
 
 impl MilesAudioManager {
-    /// Create a new MilesAudioManager
     pub fn new() -> Self {
         Self {
-            miles_handle: ptr::null_mut(),
-            digital_driver: ptr::null_mut(),
-            provider_3d: ptr::null_mut(),
+            stream: None,
+            stream_handle: None,
             master_volume: 1.0,
             initialized: false,
+            listener_position: Cell::new([0.0; 3]),
+            listener_forward: Cell::new([0.0, 0.0, -1.0]),
+            listener_up: Cell::new([0.0, 1.0, 0.0]),
         }
     }
 
-    /// Initialize the Miles Sound System
-    /// 
-    /// # Returns
-    /// 
-    /// `Ok(())` on success, `Err` on failure
     pub fn initialize(&mut self) -> Result<(), MilesError> {
         if self.initialized {
             return Ok(());
         }
 
-        // TODO: Initialize Miles Sound System
-        // 1. Initialize Miles library
-        // 2. Create digital driver
-        // 3. Initialize 3D provider
-        // 4. Set up audio buffers
-        
+        let (stream, handle) =
+            rodio::OutputStream::try_default().map_err(|_| MilesError::InitializationFailed)?;
+
+        self.stream = Some(stream);
+        self.stream_handle = Some(handle);
         self.initialized = true;
         Ok(())
     }
 
-    /// Shutdown the Miles Sound System
     pub fn shutdown(&mut self) {
         if !self.initialized {
             return;
         }
 
-        // TODO: Cleanup Miles resources
-        // 1. Release 3D provider
-        // 2. Release digital driver
-        // 3. Shutdown Miles library
-        
-        self.miles_handle = ptr::null_mut();
-        self.digital_driver = ptr::null_mut();
-        self.provider_3d = ptr::null_mut();
+        self.stream_handle = None;
+        self.stream = None;
         self.initialized = false;
     }
 
-    /// Set master volume
-    /// 
-    /// # Arguments
-    /// 
-    /// * `volume` - Volume level from 0.0 (silent) to 1.0 (full)
     pub fn set_master_volume(&mut self, volume: f32) {
         self.master_volume = volume.clamp(0.0, 1.0);
-        
-        // TODO: Apply volume to Miles system
-        if self.initialized {
-            // Update Miles master volume
-        }
     }
 
-    /// Get current master volume
     pub fn get_master_volume(&self) -> f32 {
         self.master_volume
     }
 
-    /// Load an audio sample
-    /// 
-    /// # Arguments
-    /// 
-    /// * `filename` - Path to the audio file
-    /// 
-    /// # Returns
-    /// 
-    /// Handle to the loaded sample, or error if loading failed
     pub fn load_sample(&self, filename: &str) -> Result<MilesSampleHandle, MilesError> {
         if !self.initialized {
             return Err(MilesError::NotInitialized);
         }
 
-        let c_filename = CString::new(filename)
-            .map_err(|_| MilesError::InvalidFilename)?;
+        let path = Path::new(filename);
+        let file = std::fs::File::open(path).map_err(|_| MilesError::SampleNotFound)?;
 
-        // TODO: Load sample using Miles API
-        // This would typically call AIL_file_type, AIL_decompress_ADPCM, etc.
-        
-        Ok(MilesSampleHandle::new(ptr::null_mut()))
+        use std::io::BufReader;
+        let decoder =
+            rodio::Decoder::new(BufReader::new(file)).map_err(|_| MilesError::SampleNotFound)?;
+
+        let sample_rate = decoder.sample_rate();
+        let channels = decoder.channels();
+        let samples: Vec<f32> = decoder.collect();
+
+        if samples.is_empty() {
+            return Err(MilesError::SampleNotFound);
+        }
+
+        Ok(MilesSampleHandle::from_decoded(
+            sample_rate,
+            channels,
+            samples,
+        ))
     }
 
-    /// Play a sample
-    /// 
-    /// # Arguments
-    /// 
-    /// * `sample` - Handle to the sample to play
-    /// * `volume` - Volume level (0.0 - 1.0)
-    /// * `looping` - Whether to loop the sample
     pub fn play_sample(
         &self,
         sample: &MilesSampleHandle,
@@ -133,20 +102,34 @@ impl MilesAudioManager {
         if !self.initialized {
             return Err(MilesError::NotInitialized);
         }
+        if !sample.is_valid() {
+            return Err(MilesError::SampleNotFound);
+        }
 
-        // TODO: Play sample using Miles API
-        // This would typically call AIL_start_sample, AIL_set_sample_volume, etc.
-        
+        let handle = self
+            .stream_handle
+            .as_ref()
+            .ok_or(MilesError::NotInitialized)?;
+        let sink = Sink::try_new(handle).map_err(|_| MilesError::HardwareError)?;
+
+        let source = rodio::buffer::SamplesBuffer::new(
+            sample.channels,
+            sample.sample_rate,
+            sample.samples.clone(),
+        );
+
+        sink.set_volume(volume * self.master_volume);
+
+        if looping {
+            sink.append(source.repeat_infinite());
+        } else {
+            sink.append(source);
+        }
+
+        sink.detach();
         Ok(())
     }
 
-    /// Set 3D listener position and orientation
-    /// 
-    /// # Arguments
-    /// 
-    /// * `position` - Listener position in 3D space
-    /// * `forward` - Forward vector
-    /// * `up` - Up vector
     pub fn set_3d_listener(
         &self,
         position: [f32; 3],
@@ -157,13 +140,25 @@ impl MilesAudioManager {
             return Err(MilesError::NotInitialized);
         }
 
-        // TODO: Set 3D listener using Miles API
-        // This would typically call AIL_set_3D_listener_position, etc.
-        
+        self.listener_position.set(position);
+        self.listener_forward.set(forward);
+        self.listener_up.set(up);
         Ok(())
     }
 
-    /// Check if Miles system is initialized
+    pub fn set_sample_position(&mut self, _position: [f32; 3]) -> Result<(), MilesError> {
+        if !self.initialized {
+            return Err(MilesError::NotInitialized);
+        }
+        Ok(())
+    }
+
+    pub fn update(&mut self) {
+        if !self.initialized {
+            return;
+        }
+    }
+
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
@@ -181,37 +176,46 @@ impl Drop for MilesAudioManager {
     }
 }
 
-/// Handle to a Miles audio sample
 pub struct MilesSampleHandle {
     handle: *mut c_void,
+    sample_rate: u32,
+    channels: u16,
+    samples: Vec<f32>,
 }
 
 impl MilesSampleHandle {
     pub fn new(handle: *mut c_void) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            sample_rate: 0,
+            channels: 0,
+            samples: Vec::new(),
+        }
+    }
+
+    pub fn from_decoded(sample_rate: u32, channels: u16, samples: Vec<f32>) -> Self {
+        Self {
+            handle: ptr::null_mut(),
+            sample_rate,
+            channels,
+            samples,
+        }
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.handle.is_null()
+        !self.samples.is_empty()
     }
 }
 
 /// Miles Sound System errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MilesError {
-    /// System not initialized
     NotInitialized,
-    /// Initialization failed
     InitializationFailed,
-    /// Invalid filename
     InvalidFilename,
-    /// Sample not found
     SampleNotFound,
-    /// Out of memory
     OutOfMemory,
-    /// Hardware error
     HardwareError,
-    /// Unknown error
     Unknown,
 }
 
@@ -219,7 +223,9 @@ impl std::fmt::Display for MilesError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MilesError::NotInitialized => write!(f, "Miles Audio Manager not initialized"),
-            MilesError::InitializationFailed => write!(f, "Failed to initialize Miles Audio Manager"),
+            MilesError::InitializationFailed => {
+                write!(f, "Failed to initialize Miles Audio Manager")
+            }
             MilesError::InvalidFilename => write!(f, "Invalid filename provided"),
             MilesError::SampleNotFound => write!(f, "Audio sample not found"),
             MilesError::OutOfMemory => write!(f, "Out of memory"),
@@ -245,13 +251,13 @@ mod tests {
     #[test]
     fn test_volume_clamping() {
         let mut manager = MilesAudioManager::new();
-        
+
         manager.set_master_volume(-0.5);
         assert_eq!(manager.get_master_volume(), 0.0);
-        
+
         manager.set_master_volume(1.5);
         assert_eq!(manager.get_master_volume(), 1.0);
-        
+
         manager.set_master_volume(0.5);
         assert_eq!(manager.get_master_volume(), 0.5);
     }

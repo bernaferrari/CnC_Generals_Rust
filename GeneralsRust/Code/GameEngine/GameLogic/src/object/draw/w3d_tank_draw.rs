@@ -15,7 +15,7 @@ use crate::common::*;
 use crate::helpers::{TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 /// Tread type classification
@@ -430,10 +430,18 @@ impl W3DTankDraw {
 }
 
 impl Module for W3DTankDraw {
+    fn on_object_created(&mut self) {
+        self.base.on_object_created();
+    }
+
     fn on_drawable_bound_to_object(&mut self) {
         self.base.on_drawable_bound_to_object();
         self.create_emitters();
         self.update_tread_objects();
+    }
+
+    fn preload_assets(&mut self, time_of_day: TimeOfDay) {
+        self.base.preload_assets(time_of_day);
     }
 
     fn on_delete(&mut self) {
