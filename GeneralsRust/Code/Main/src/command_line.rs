@@ -724,7 +724,9 @@ mod tests {
     static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_runtime_global_data_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let _guard = GLOBAL_DATA_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let snapshot = game_engine::common::global_data::read().clone();
         f();
         *game_engine::common::global_data::write() = snapshot;
