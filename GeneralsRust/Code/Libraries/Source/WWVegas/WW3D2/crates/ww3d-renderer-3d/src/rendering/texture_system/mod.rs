@@ -25,8 +25,11 @@ pub use texture_filter::*;
 pub use texture_loader::*;
 
 // Re-export new texture functionality
-pub use asset_texture_loader::{AssetTextureCacheStats, AssetTextureLoader};
-pub use dds_loader::{load_dds_file, load_dds_from_memory, DdsData, DdsTextureType};
+pub use asset_texture_loader::{ArchiveFileReader, AssetTextureCacheStats, AssetTextureLoader};
+pub use dds_loader::{
+    decode_dxt1, decode_dxt3, decode_dxt5, load_dds_file, load_dds_from_memory, DdsCompression,
+    DdsData, DdsTextureType,
+};
 pub use mipmap_generator::{MipmapConfig, MipmapFilter, MipmapGenerator, MipmapLevel};
 pub use texfcach::{TextureCacheConfig, TextureCacheStats, TextureFileCache};
 pub use texture_manager::{

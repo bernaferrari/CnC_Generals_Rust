@@ -19,35 +19,58 @@ use wgpu::{
 };
 use ww3d_assets::AssetManager;
 
+/// Trait for reading files from BIG archives (or any virtual file system).
+/// The caller provides an implementation that bridges to the concrete archive system.
+pub trait ArchiveFileReader: Send + Sync {
+    /// Try to read the file at `path` from archives. Returns `None` if not found.
+    fn read_from_archive(&self, path: &str) -> Option<Vec<u8>>;
+}
+
 /// Asset-integrated texture loader
 pub struct AssetTextureLoader {
     base_loader: TextureLoader,
     asset_manager: Arc<Mutex<AssetManager>>,
+    /// Optional archive reader for loading textures from BIG archives.
+    /// When present, `load_asset_data` checks archives first, then falls back to the filesystem.
+    archive_reader: Option<Arc<dyn ArchiveFileReader>>,
     texture_cache: HashMap<String, Arc<TextureBaseClass>>,
     search_paths: Vec<String>,
 }
 
 impl AssetTextureLoader {
-    /// Create new asset texture loader
     pub fn new(
         device: Arc<Device>,
         queue: Arc<Queue>,
         asset_manager: Arc<Mutex<AssetManager>>,
+    ) -> RendererResult<Self> {
+        Self::with_archive_reader(device, queue, asset_manager, None)
+    }
+
+    pub fn with_archive_reader(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        asset_manager: Arc<Mutex<AssetManager>>,
+        archive_reader: Option<Arc<dyn ArchiveFileReader>>,
     ) -> RendererResult<Self> {
         let base_loader = TextureLoader::new(device, queue)?;
 
         Ok(Self {
             base_loader,
             asset_manager,
+            archive_reader,
             texture_cache: HashMap::new(),
             search_paths: vec![
                 "Art/Textures/".to_string(),
                 "Art/".to_string(),
                 "Data/Art/Textures/".to_string(),
                 "Data/Art/".to_string(),
-                "".to_string(), // Current directory
+                "".to_string(),
             ],
         })
+    }
+
+    pub fn set_archive_reader(&mut self, reader: Arc<dyn ArchiveFileReader>) {
+        self.archive_reader = Some(reader);
     }
 
     /// Add search path for textures
@@ -136,13 +159,23 @@ impl AssetTextureLoader {
         )))
     }
 
-    /// Load raw asset data using currently available asset backends.
+    /// Load raw asset data. Tries the archive reader first (BIG archives),
+    /// then falls back to the local filesystem — matching C++ lookup order.
     fn load_asset_data(
         &self,
         asset_manager: &AssetManager,
         asset_path: &str,
     ) -> RendererResult<Option<Vec<u8>>> {
         let _ = asset_manager;
+
+        if let Some(ref reader) = self.archive_reader {
+            if let Some(data) = reader.read_from_archive(asset_path) {
+                if !data.is_empty() {
+                    return Ok(Some(data));
+                }
+            }
+        }
+
         let path = Path::new(asset_path);
         if !path.exists() {
             return Ok(None);
@@ -153,7 +186,6 @@ impl AssetTextureLoader {
             return Ok(None);
         }
 
-        let _ = asset_path;
         Ok(Some(data))
     }
 

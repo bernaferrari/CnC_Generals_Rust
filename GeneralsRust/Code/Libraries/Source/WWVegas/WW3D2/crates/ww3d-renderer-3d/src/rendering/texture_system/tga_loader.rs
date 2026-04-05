@@ -43,6 +43,9 @@ pub struct TgaData {
     pub height: u32,
     pub format: TextureFormat,
     pub data: Vec<u8>,
+    /// Original bits per pixel from the TGA header (before expansion to RGBA).
+    /// Useful for callers to determine alpha channel presence.
+    pub bits_per_pixel: u8,
 }
 
 impl TgaData {
@@ -53,6 +56,7 @@ impl TgaData {
             height: 0,
             format: TextureFormat::Rgba8UnormSrgb,
             data: Vec::new(),
+            bits_per_pixel: 0,
         }
     }
 }
@@ -75,24 +79,11 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
     // Skip ID field if present
     cursor.set_position(std::mem::size_of::<TgaHeader>() as u64 + header.id_length as u64);
 
-    // Skip color map if present
-    if header.color_map_type != 0 {
-        let color_map_length =
-            u16::from_le_bytes([header.color_map_spec[2], header.color_map_spec[3]]);
-        let color_map_entry_size = header.color_map_spec[4];
-        let color_map_size = (color_map_length as u32 * color_map_entry_size as u32 + 7) / 8;
-        cursor.set_position(cursor.position() + color_map_size as u64);
-    }
-
     let width = header.width as u32;
     let height = header.height as u32;
 
-    // Determine pixel format
-    let (format, bytes_per_pixel) = match header.bits_per_pixel {
-        8 => (TextureFormat::R8Unorm, 1),
-        16 => (TextureFormat::Rgba8UnormSrgb, 2), // Will expand to RGBA
-        24 => (TextureFormat::Rgba8UnormSrgb, 3), // Will expand to RGBA
-        32 => (TextureFormat::Rgba8UnormSrgb, 4),
+    let bytes_per_pixel: u32 = match header.bits_per_pixel {
+        8 | 16 | 24 | 32 => (header.bits_per_pixel as u32 + 7) / 8,
         _ => {
             return Err(Error::InvalidData(format!(
                 "Unsupported TGA bit depth: {}",
@@ -101,13 +92,72 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
         }
     };
 
-    // Load pixel data based on image type
-    let pixel_data = match header.image_type {
+    // Capture color map slice before cursor advances past it
+    let cmap_offset = cursor.position() as usize;
+    if header.color_map_type != 0 {
+        let color_map_length =
+            u16::from_le_bytes([header.color_map_spec[2], header.color_map_spec[3]]);
+        let color_map_entry_size = header.color_map_spec[4];
+        let color_map_size = (color_map_length as u32 * color_map_entry_size as u32 + 7) / 8;
+        cursor.set_position(cursor.position() + color_map_size as u64);
+    }
+    let pixel_data_start = cursor.position() as usize;
+    let color_map_data = if header.color_map_type != 0 {
+        Some(&data[cmap_offset..pixel_data_start])
+    } else {
+        None
+    };
+
+    // Load pixel data based on image type and convert to RGBA
+    let (rgba_data, format) = match header.image_type {
+        tga_type::UNCOMPRESSED_COLOR_MAPPED | tga_type::RLE_COLOR_MAPPED => {
+            let cmap = color_map_data.ok_or_else(|| {
+                Error::InvalidData("Color-mapped TGA has no color map".to_string())
+            })?;
+            let cmap_start_idx =
+                u16::from_le_bytes([header.color_map_spec[0], header.color_map_spec[1]]) as usize;
+            let cmap_entry_bits = header.color_map_spec[4];
+            let cmap_bytes_per_entry = (cmap_entry_bits as usize + 7) / 8;
+
+            let indices = if header.image_type == tga_type::UNCOMPRESSED_COLOR_MAPPED {
+                load_uncompressed_tga(&mut cursor, width, height, bytes_per_pixel)?
+            } else {
+                load_rle_tga(&mut cursor, width, height, bytes_per_pixel)?
+            };
+
+            let rgba = convert_color_mapped_to_rgba(
+                &indices,
+                cmap,
+                cmap_start_idx,
+                cmap_bytes_per_entry,
+                bytes_per_pixel as usize,
+                width * height,
+            )?;
+            (rgba, TextureFormat::Rgba8UnormSrgb)
+        }
         tga_type::UNCOMPRESSED_TRUE_COLOR | tga_type::UNCOMPRESSED_BLACK_WHITE => {
-            load_uncompressed_tga(&mut cursor, width, height, bytes_per_pixel)?
+            let pixel_data = load_uncompressed_tga(&mut cursor, width, height, bytes_per_pixel)?;
+            let fmt = if bytes_per_pixel == 1 {
+                TextureFormat::R8Unorm
+            } else {
+                TextureFormat::Rgba8UnormSrgb
+            };
+            (
+                convert_to_rgba(&pixel_data, bytes_per_pixel, width, height)?,
+                fmt,
+            )
         }
         tga_type::RLE_TRUE_COLOR | tga_type::RLE_BLACK_WHITE => {
-            load_rle_tga(&mut cursor, width, height, bytes_per_pixel)?
+            let pixel_data = load_rle_tga(&mut cursor, width, height, bytes_per_pixel)?;
+            let fmt = if bytes_per_pixel == 1 {
+                TextureFormat::R8Unorm
+            } else {
+                TextureFormat::Rgba8UnormSrgb
+            };
+            (
+                convert_to_rgba(&pixel_data, bytes_per_pixel, width, height)?,
+                fmt,
+            )
         }
         _ => {
             return Err(Error::InvalidData(format!(
@@ -117,12 +167,8 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
         }
     };
 
-    // Convert pixel data to RGBA format if needed
-    let rgba_data = convert_to_rgba(&pixel_data, bytes_per_pixel, width, height)?;
-
     // Check if image needs to be flipped vertically
     let final_data = if header.image_descriptor & 0x20 == 0 {
-        // Image is stored bottom-to-top, flip it
         flip_image_vertically(&rgba_data, width, height)
     } else {
         rgba_data
@@ -133,6 +179,7 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
         height,
         format,
         data: final_data,
+        bits_per_pixel: header.bits_per_pixel,
     })
 }
 
@@ -272,6 +319,73 @@ fn flip_image_vertically(data: &[u8], width: u32, height: u32) -> Vec<u8> {
     }
 
     flipped
+}
+
+/// Convert color-mapped pixel indices to RGBA using the TGA color map.
+fn convert_color_mapped_to_rgba(
+    indices: &[u8],
+    cmap: &[u8],
+    cmap_start_idx: usize,
+    cmap_bytes_per_entry: usize,
+    index_bytes: usize,
+    total_pixels: u32,
+) -> RendererResult<Vec<u8>> {
+    let total_pixels = total_pixels as usize;
+    let mut rgba = Vec::with_capacity(total_pixels * 4);
+
+    for i in 0..total_pixels {
+        let idx_start = i * index_bytes;
+        if idx_start + index_bytes > indices.len() {
+            return Err(Error::InvalidData(
+                "TGA color-mapped index data truncated".to_string(),
+            ));
+        }
+
+        let index = match index_bytes {
+            1 => indices[idx_start] as usize,
+            2 => u16::from_le_bytes([indices[idx_start], indices[idx_start + 1]]) as usize,
+            _ => {
+                return Err(Error::InvalidData(
+                    "Unsupported color map index size".to_string(),
+                ))
+            }
+        };
+
+        let cmap_index = index - cmap_start_idx;
+        let cmap_entry_count = cmap.len() / cmap_bytes_per_entry;
+        if cmap_index >= cmap_entry_count {
+            return Err(Error::InvalidData(
+                "TGA color map index out of range".to_string(),
+            ));
+        }
+
+        let entry_start = cmap_index * cmap_bytes_per_entry;
+        let entry = &cmap[entry_start..entry_start + cmap_bytes_per_entry];
+
+        match cmap_bytes_per_entry {
+            2 => {
+                let pixel = u16::from_le_bytes([entry[0], entry[1]]);
+                let r = ((pixel >> 10) & 0x1F) as u8;
+                let g = ((pixel >> 5) & 0x1F) as u8;
+                let b = (pixel & 0x1F) as u8;
+                let a = if pixel & 0x8000 != 0 { 255 } else { 0 };
+                rgba.extend_from_slice(&[(r * 255) / 31, (g * 255) / 31, (b * 255) / 31, a]);
+            }
+            3 => {
+                rgba.extend_from_slice(&[entry[2], entry[1], entry[0], 255]);
+            }
+            4 => {
+                rgba.extend_from_slice(&[entry[2], entry[1], entry[0], entry[3]]);
+            }
+            _ => {
+                return Err(Error::InvalidData(
+                    "Unsupported color map entry size".to_string(),
+                ))
+            }
+        }
+    }
+
+    Ok(rgba)
 }
 
 #[cfg(test)]
