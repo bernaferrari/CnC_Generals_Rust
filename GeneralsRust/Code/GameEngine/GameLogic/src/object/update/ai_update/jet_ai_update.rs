@@ -125,7 +125,30 @@ impl Snapshotable for JetAIUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        self.base.xfer(xfer)?;
+        xfer_io(xfer.xfer_real(&mut self.out_of_ammo_damage_per_second))?;
+        xfer_io(xfer.xfer_bool(&mut self.needs_runway))?;
+        xfer_io(xfer.xfer_bool(&mut self.keeps_parking_space_when_airborne))?;
+        xfer_io(xfer.xfer_real(&mut self.takeoff_dist_for_max_lift))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.takeoff_pause))?;
+        xfer_io(xfer.xfer_real(&mut self.min_height))?;
+        xfer_io(xfer.xfer_real(&mut self.parking_offset))?;
+        xfer_io(xfer.xfer_real(&mut self.sneaky_offset_when_attacking))?;
+        let mut attacking_loco = self.attacking_loco as i32;
+        xfer_io(xfer.xfer_int(&mut attacking_loco))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.attack_loco_persist_time))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.attackers_miss_persist_time))?;
+        let mut returning_loco = self.returning_loco as i32;
+        xfer_io(xfer.xfer_int(&mut returning_loco))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.lockon_time))?;
+        xfer_io(xfer.xfer_ascii_string(self.lockon_cursor.as_mut_string_buffer()))?;
+        xfer_io(xfer.xfer_real(&mut self.lockon_initial_dist))?;
+        xfer_io(xfer.xfer_real(&mut self.lockon_freq))?;
+        xfer_io(xfer.xfer_real(&mut self.lockon_angle_spin))?;
+        xfer_io(xfer.xfer_bool(&mut self.lockon_blinky))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.return_to_base_idle_time))?;
         Ok(())
     }
 
@@ -2316,12 +2339,12 @@ impl Module for JetAIUpdateModule {
 }
 
 impl Snapshotable for JetAIUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.data.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Arc::make_mut(&mut self.data).xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

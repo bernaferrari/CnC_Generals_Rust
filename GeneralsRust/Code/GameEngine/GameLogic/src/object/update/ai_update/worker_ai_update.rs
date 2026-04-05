@@ -84,7 +84,18 @@ impl Snapshotable for WorkerAIUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        self.base.xfer(xfer)?;
+        xfer_io(xfer.xfer_int(&mut self.max_boxes_data))?;
+        xfer_io(xfer.xfer_real(&mut self.repair_health_percent_per_second))?;
+        xfer_io(xfer.xfer_real(&mut self.bored_time))?;
+        xfer_io(xfer.xfer_real(&mut self.bored_range))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.center_delay))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.warehouse_delay))?;
+        xfer_io(xfer.xfer_real(&mut self.warehouse_scan_distance))?;
+        xfer_io(xfer.xfer_ascii_string(self.supplies_depleted_voice.as_mut_string_buffer()))?;
+        xfer_io(xfer.xfer_int(&mut self.upgraded_supply_boost))?;
         Ok(())
     }
 
@@ -367,12 +378,12 @@ impl Module for WorkerAIUpdateModule {
 }
 
 impl Snapshotable for WorkerAIUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.data.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Arc::make_mut(&mut self.data).xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

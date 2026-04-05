@@ -246,18 +246,17 @@ impl StealthUpgrade {
 
         // Grant stealth to spawns if applicable
         // Matches C++ StealthUpgrade.cpp:33-41
-        // Note: KINDOF_SPAWNS_ARE_THE_WEAPONS is not yet in the KindOf enum
-        // When it's added, uncomment and use: object.is_kind_of(KindOf::SpawnsAreTheWeapons)
-        // For now, we check if object has behavior modules and iterate to find SpawnBehavior
-        let _ = object.with_spawn_behavior_full_interface(|spawn_behavior| {
-            if let Err(e) = spawn_behavior.give_slaves_stealth_upgrade(true) {
-                warn!(
-                    "Failed to grant stealth to spawns for object {}: {}",
-                    object.get_object_id(),
-                    e
-                );
-            }
-        });
+        if object.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+            let _ = object.with_spawn_behavior_full_interface(|spawn_behavior| {
+                if let Err(e) = spawn_behavior.give_slaves_stealth_upgrade(true) {
+                    warn!(
+                        "Failed to grant stealth to spawns for object {}: {}",
+                        object.get_object_id(),
+                        e
+                    );
+                }
+            });
+        }
 
         Ok(())
     }

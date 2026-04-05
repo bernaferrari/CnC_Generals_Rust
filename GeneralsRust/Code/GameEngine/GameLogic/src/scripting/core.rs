@@ -1813,8 +1813,8 @@ impl ScriptList {
 }
 
 impl XferSnapshot for Script {
-    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        Ok(())
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -1834,8 +1834,8 @@ impl XferSnapshot for Script {
 }
 
 impl XferSnapshot for ScriptGroup {
-    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        Ok(())
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {

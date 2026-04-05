@@ -91,7 +91,15 @@ impl Snapshotable for DeployStyleAIUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        self.base.xfer(xfer)?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.unpack_time))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.pack_time))?;
+        xfer_io(xfer.xfer_bool(&mut self.reset_turret_before_packing))?;
+        xfer_io(xfer.xfer_bool(&mut self.turrets_function_only_when_deployed))?;
+        xfer_io(xfer.xfer_bool(&mut self.turrets_must_center_before_packing))?;
+        xfer_io(xfer.xfer_bool(&mut self.manual_deploy_animations))?;
         Ok(())
     }
 
@@ -243,12 +251,12 @@ impl Module for DeployStyleAIUpdateModule {
 }
 
 impl Snapshotable for DeployStyleAIUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.data.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Arc::make_mut(&mut self.data).xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

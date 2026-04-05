@@ -199,11 +199,7 @@ impl OclSpecialPower {
 
     /// Execute the OCL power at a location.
     /// Matches C++ OCLSpecialPower::doSpecialPowerAtLocation().
-    pub fn do_special_power_at_location(
-        &self,
-        loc: &Coord3D,
-        angle: Real,
-    ) -> Result<(), String> {
+    pub fn do_special_power_at_location(&self, loc: &Coord3D, angle: Real) -> Result<(), String> {
         // Check disabled
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
             if let Ok(owner_guard) = owner.read() {
@@ -219,10 +215,7 @@ impl OclSpecialPower {
 
         let Some(ocl) = TheObjectCreationListStore::find_object_creation_list(ocl_name.as_str())
         else {
-            log::warn!(
-                "OCLSpecialPower: OCL '{}' not found",
-                ocl_name.as_str()
-            );
+            log::warn!("OCLSpecialPower: OCL '{}' not found", ocl_name.as_str());
             return Ok(());
         };
 
@@ -242,18 +235,20 @@ impl OclSpecialPower {
         let creation_coord = match self.data.create_loc {
             OCLCreateLocType::CreateAtEdgeNearSource => {
                 let owner_pos = match TheGameLogic::find_object_by_id(self.owner_object_id) {
-                    Some(arc) => arc.read().ok().map(|g| *g.get_position()).unwrap_or(target_coord),
+                    Some(arc) => arc
+                        .read()
+                        .ok()
+                        .map(|g| *g.get_position())
+                        .unwrap_or(target_coord),
                     None => target_coord,
                 };
                 TheTerrainLogic::get()
                     .map(|terrain| terrain.find_closest_edge_point(&owner_pos))
                     .unwrap_or(owner_pos)
             }
-            OCLCreateLocType::CreateAtEdgeNearTarget => {
-                TheTerrainLogic::get()
-                    .map(|terrain| terrain.find_closest_edge_point(&target_coord))
-                    .unwrap_or(target_coord)
-            }
+            OCLCreateLocType::CreateAtEdgeNearTarget => TheTerrainLogic::get()
+                .map(|terrain| terrain.find_closest_edge_point(&target_coord))
+                .unwrap_or(target_coord),
             OCLCreateLocType::CreateAtEdgeFarthestFromTarget => {
                 let mut edge = TheTerrainLogic::get()
                     .map(|terrain| terrain.find_farthest_edge_point(&target_coord))
@@ -288,14 +283,7 @@ impl OclSpecialPower {
                 0,
             )
         } else {
-            ocl.create_with_angle(
-                &ctx,
-                None,
-                &creation_coord,
-                &target_coord,
-                angle,
-                0,
-            )
+            ocl.create_with_angle(&ctx, None, &creation_coord, &target_coord, angle, 0)
         };
 
         if let Some(created) = result {
@@ -374,10 +362,22 @@ impl OclSpecialPower {
 /// Simplified version - the full C++ version uses PartitionManager::findPositionAround
 /// with FPF_CLEAR_CELLS_ONLY flag and MAX_ADJUST_RADIUS.
 fn find_passable_position_near(target: &Coord3D) -> Option<Coord3D> {
-    // TODO: Wire up full PartitionManager::findPositionAround when available
-    // For now, return the target as-is (C++ falls back to original on failure)
-    let _ = MAX_ADJUST_RADIUS;
-    Some(*target)
+    let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+        return Some(*target);
+    };
+
+    let options = crate::helpers::FindPositionOptions {
+        max_radius: MAX_ADJUST_RADIUS,
+        flags: crate::helpers::FPF_CLEAR_CELLS_ONLY,
+        ..Default::default()
+    };
+
+    let mut result = *target;
+    if partition.find_position_around_with_options(target, &options, &mut result) {
+        Some(result)
+    } else {
+        Some(*target)
+    }
 }
 
 impl Module for OclSpecialPower {
@@ -437,9 +437,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 
@@ -448,7 +447,10 @@ fn parse_ocl_field(
     data: &mut OclSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.default_ocl = AsciiString::from(*token);
     Ok(())
 }
@@ -458,16 +460,17 @@ fn parse_create_location(
     data: &mut OclSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.create_loc = match *token {
         "CREATE_AT_EDGE_NEAR_SOURCE" => OCLCreateLocType::CreateAtEdgeNearSource,
         "CREATE_AT_EDGE_NEAR_TARGET" => OCLCreateLocType::CreateAtEdgeNearTarget,
         "CREATE_AT_LOCATION" => OCLCreateLocType::CreateAtLocation,
         "USE_OWNER_OBJECT" => OCLCreateLocType::UseOwnerObject,
         "CREATE_ABOVE_LOCATION" => OCLCreateLocType::CreateAboveLocation,
-        "CREATE_AT_EDGE_FARTHEST_FROM_TARGET" => {
-            OCLCreateLocType::CreateAtEdgeFarthestFromTarget
-        }
+        "CREATE_AT_EDGE_FARTHEST_FROM_TARGET" => OCLCreateLocType::CreateAtEdgeFarthestFromTarget,
         _ => {
             // Try to parse as index
             match token.parse::<u8>() {
@@ -489,7 +492,10 @@ fn parse_reference_object(
     data: &mut OclSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.reference_thing_name = AsciiString::from(*token);
     Ok(())
 }
@@ -499,7 +505,10 @@ fn parse_ocl_adjust_position(
     data: &mut OclSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.ocl_adjust_position_to_passable = INI::parse_bool(token)?;
     Ok(())
 }
@@ -598,7 +607,10 @@ mod tests {
         let arc_data = Arc::new(data);
         let power = OclSpecialPower::new(0, 0, arc_data);
         // Without a valid owner, falls back to default
-        assert_eq!(power.find_ocl_name(), Some(AsciiString::from("OCL_TestDefault")));
+        assert_eq!(
+            power.find_ocl_name(),
+            Some(AsciiString::from("OCL_TestDefault"))
+        );
     }
 
     #[test]

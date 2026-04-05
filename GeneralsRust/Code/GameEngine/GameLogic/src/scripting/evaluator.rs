@@ -254,9 +254,15 @@ impl ScriptEvaluator {
             // Camera movement finished (C++: TheTacticalView->isCameraMovementFinished())
             ConditionType::CameraMovementFinished => {
                 // C++ checks TheTacticalView->isCameraMovementFinished()
-                // ScriptActionHandler trait default returns true (no camera = no movement = finished)
-                // TODO: Wire to actual tactical view camera state when rendering is ported
-                Ok(true)
+                // Query the action handler for camera state; default true (no camera = no movement = finished)
+                let engine = self.engine.read().map_err(|e| {
+                    GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
+                })?;
+                Ok(engine
+                    .as_ref()
+                    .and_then(|e| e.action_handler())
+                    .map(|h| h.is_camera_movement_finished())
+                    .unwrap_or(true))
             }
 
             // Mission attempts comparison (C++: evaluateMissionAttempts - always returns false)
@@ -358,18 +364,71 @@ impl ScriptEvaluator {
             }
 
             // Multiplayer: local player's alliance was defeated
+            // C++: TheVictoryConditions->isLocalAlliedDefeat()
             ConditionType::MultiplayerAlliedDefeat => {
-                // C++: TheVictoryConditions->isLocalAlliedDefeat()
-                // Rust only tracks allied victory, so defeated = !victory for now
-                // TODO: Track is_local_allied_defeat separately when victory system is fully ported
-                Ok(false)
+                let Ok(list) = player_list().read() else {
+                    return Ok(false);
+                };
+                let Some(local_player_arc) = list.get_local_player() else {
+                    return Ok(false);
+                };
+                let Ok(local_player) = local_player_arc.read() else {
+                    return Ok(false);
+                };
+
+                let mut allied_count = 0usize;
+                for player_arc in list.iter() {
+                    if Arc::ptr_eq(player_arc, &local_player_arc) {
+                        allied_count += 1;
+                        if !local_player.is_defeated() {
+                            return Ok(false);
+                        }
+                        continue;
+                    }
+                    let Ok(player) = player_arc.read() else {
+                        continue;
+                    };
+                    if local_player.is_allied_with_player(&player) {
+                        allied_count += 1;
+                        if !player.is_defeated() {
+                            return Ok(false);
+                        }
+                    }
+                }
+                Ok(allied_count > 0)
             }
 
             // Multiplayer: local player individually defeated (not whole alliance)
+            // C++: TheVictoryConditions->isLocalDefeat() && !TheVictoryConditions->isLocalAlliedDefeat()
             ConditionType::MultiplayerPlayerDefeat => {
-                // C++: TheVictoryConditions->isLocalDefeat() && !TheVictoryConditions->isLocalAlliedDefeat()
-                // TODO: Implement isLocalDefeat when victory conditions system is fully ported
-                Ok(false)
+                let Ok(list) = player_list().read() else {
+                    return Ok(false);
+                };
+                let Some(local_player_arc) = list.get_local_player() else {
+                    return Ok(false);
+                };
+                let Ok(local_player) = local_player_arc.read() else {
+                    return Ok(false);
+                };
+
+                if !local_player.is_player_dead() {
+                    return Ok(false);
+                }
+
+                let mut has_alive_ally = false;
+                for player_arc in list.iter() {
+                    if Arc::ptr_eq(player_arc, &local_player_arc) {
+                        continue;
+                    }
+                    let Ok(player) = player_arc.read() else {
+                        continue;
+                    };
+                    if local_player.is_allied_with_player(&player) && !player.is_defeated() {
+                        has_alive_ally = true;
+                        break;
+                    }
+                }
+                Ok(has_alive_ally)
             }
 
             // Named unit has sighted an enemy/friendly/neutral unit belonging to a side
@@ -616,10 +675,9 @@ impl ScriptEvaluator {
             }
 
             // Unit completed sequential script execution
-            ConditionType::UnitCompletedSequentialExecution => {
-                // TODO: C++ sequential script tracking not yet ported
-                Ok(false)
-            }
+            // C++: NO case in switch — falls through to DEBUG_CRASH returning false.
+            // ScriptEngine::hasUnitCompletedSequentialScript() always returns FALSE.
+            ConditionType::UnitCompletedSequentialExecution => Ok(false),
 
             // Team completed sequential script execution
             ConditionType::TeamCompletedSequentialExecution => {
@@ -704,6 +762,7 @@ impl ScriptEvaluator {
             }
 
             // Player has comparison count of unit kind within a trigger area
+            // C++: evaluatePlayerHasUnitKindInArea filters by pObj->isKindOf((KindOfType)kindParam)
             ConditionType::PlayerHasComparisonUnitKindInTriggerArea => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
@@ -733,7 +792,7 @@ impl ScriptEvaluator {
 
                 let comparison = comparison_param.get_int() as u32;
                 let target_count = count_param.get_int();
-                let kind = kind_param.get_int();
+                let kind_of_type_int = kind_param.get_int();
                 let area_name = trigger_param.get_string();
 
                 let trigger = match self.get_trigger_area(area_name) {
@@ -748,10 +807,7 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
 
-                // C++ uses KindOfType enum cast from int parameter (sequential: Structure=0, Infantry=1, etc.)
-                // Rust KindOf is a bitflags struct with different layout — no direct int mapping exists.
-                // TODO: Bridge C++ KindOfType sequential ints to Rust KindOf bitflags when kind_of system is aligned
-                let _kind = kind; // suppress unused warning until bridged
+                let kind_of_filter = Self::kind_of_type_to_mask(kind_of_type_int);
                 let mut count = 0;
                 for obj_arc in player_guard.get_objects() {
                     let Ok(obj_guard) = obj_arc.read() else {
@@ -761,6 +817,11 @@ impl ScriptEvaluator {
                         continue;
                     }
                     if obj_guard.is_inside_trigger(&trigger) {
+                        if let Some(kind) = kind_of_filter {
+                            if !obj_guard.is_kind_of(kind) {
+                                continue;
+                            }
+                        }
                         count += 1;
                     }
                 }
@@ -1023,9 +1084,81 @@ impl ScriptEvaluator {
             }
 
             // Skirmish: tech building within distance of a location
+            // C++: ThePartitionManager->getClosestObject with KindOf::TECH_BUILDING + player filters
             ConditionType::SkirmishTechBuildingWithinDistance => {
-                // C++ uses PartitionManager with KindOf filters for TECH_BUILDING
-                // TODO: PartitionManager filtering not fully ported
+                let player_param = condition.get_parameter(0).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "SkirmishTechBuildingWithinDistance condition missing player parameter".to_string(),
+                    )
+                })?;
+                let distance_param = condition.get_parameter(1).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "SkirmishTechBuildingWithinDistance condition missing distance parameter".to_string(),
+                    )
+                })?;
+                let trigger_param = condition.get_parameter(2).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "SkirmishTechBuildingWithinDistance condition missing trigger parameter".to_string(),
+                    )
+                })?;
+
+                let distance = distance_param.get_real();
+                let area_name = trigger_param.get_string();
+
+                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                    return Ok(false);
+                };
+                let Ok(player_guard) = player_arc.read() else {
+                    return Ok(false);
+                };
+                let player_index = player_guard.get_player_index();
+
+                let trigger = match self.get_trigger_area(area_name) {
+                    Some(t) => t,
+                    None => return Ok(false),
+                };
+
+                let center = trigger.get_center_point();
+                let radius = trigger.get_radius() + distance;
+
+                let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+                    return Ok(false);
+                };
+
+                for obj_id in partition.get_objects_in_range(&center, radius) {
+                    let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
+                        continue;
+                    };
+                    let Ok(obj_guard) = obj_arc.read() else {
+                        continue;
+                    };
+                    if obj_guard.is_destroyed() || obj_guard.is_off_map() {
+                        continue;
+                    }
+                    if !obj_guard.is_kind_of(KindOf::TechBuilding) {
+                        continue;
+                    }
+
+                    let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                        continue;
+                    };
+                    if owner_id == player_index as u32 {
+                        continue;
+                    }
+                    if let Some(owner_arc) = player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(owner_id as i32).cloned())
+                    {
+                        if let Ok(owner_guard) = owner_arc.read() {
+                            if !player_guard.is_allied_with_player(&owner_guard) {
+                                continue;
+                            }
+                        }
+                    }
+
+                    return Ok(true);
+                }
                 Ok(false)
             }
 
@@ -1173,30 +1306,29 @@ impl ScriptEvaluator {
             }
 
             // Skirmish: player has prerequisites to build a specific object type
+            // C++: types.m_types->canBuildAny(player)
             ConditionType::SkirmishPlayerHasPrerequisiteToBuild => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "SkirmishPlayerHasPrerequisiteToBuild condition missing player parameter".to_string(),
                     )
                 })?;
-                let _type_param = condition.get_parameter(1).ok_or_else(|| {
+                let type_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "SkirmishPlayerHasPrerequisiteToBuild condition missing type parameter".to_string(),
                     )
                 })?;
 
-                // C++ calls types.m_types->canBuildAny(player)
-                // TODO: ObjectTypes::canBuildAny not yet ported; approximate with template lookup
+                let types = self.resolve_object_types(type_param);
+
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(_player_guard) = player_arc.read() else {
+                let Ok(player_guard) = player_arc.read() else {
                     return Ok(false);
                 };
 
-                // Best approximation: if the player exists and template exists, assume buildable
-                // Full implementation requires ObjectTypes prereq checking
-                Ok(false)
+                Ok(types.can_build_any(&player_guard))
             }
 
             // Skirmish: player's garrisoned building count meets comparison
@@ -1481,14 +1613,26 @@ impl ScriptEvaluator {
             }
 
             // Music track has completed playback
+            // C++: TheAudio->hasMusicTrackCompleted(str, param)
             ConditionType::MusicTrackHasCompleted => {
-                let _music_param = condition.get_parameter(0);
-                let _int_param = condition.get_parameter(1);
+                let music_param = condition.get_parameter(0).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "MusicTrackHasCompleted condition missing music parameter".to_string(),
+                    )
+                })?;
+                let int_param = condition.get_parameter(1);
 
-                // C++: TheAudio->hasMusicTrackCompleted(str, param)
-                // ScriptActionHandler trait default returns false; ScriptEngine doesn't implement it.
-                // TODO: Wire to audio subsystem when TheAudio is ported
-                Ok(false)
+                let track_name = music_param.get_string();
+                let param = int_param.map(|p| p.get_int()).unwrap_or(0);
+
+                let engine = self.engine.read().map_err(|e| {
+                    GameLogicError::Threading(format!("Failed to acquire engine lock: {}", e))
+                })?;
+                Ok(engine
+                    .as_ref()
+                    .and_then(|e| e.action_handler())
+                    .map(|h| h.has_music_track_completed(&track_name, param))
+                    .unwrap_or(false))
             }
 
             // Player lost all objects of a specific type (had them before, now fewer)
@@ -1792,6 +1936,113 @@ impl ScriptEvaluator {
         let pos = obj.get_position();
         let point = crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
         trigger.point_in_trigger_int(&point)
+    }
+
+    fn kind_of_type_to_mask(kind_of_type_int: i32) -> Option<KindOf> {
+        match kind_of_type_int {
+            0 => Some(KindOf::Obstacle),
+            1 => Some(KindOf::Selectable),
+            2 => Some(KindOf::Immobile),
+            3 => Some(KindOf::CanAttack),
+            4 => Some(KindOf::StickToTerrainSlope),
+            5 => Some(KindOf::CanCastReflections),
+            6 => Some(KindOf::Shrubbery),
+            7 => Some(KindOf::Structure),
+            8 => Some(KindOf::Infantry),
+            9 => Some(KindOf::Vehicle),
+            10 => Some(KindOf::Aircraft),
+            11 => Some(KindOf::HugeVehicle),
+            12 => Some(KindOf::Dozer),
+            13 => Some(KindOf::Harvester),
+            14 => Some(KindOf::CommandCenter),
+            15 => Some(KindOf::Prison),
+            16 => Some(KindOf::CollectsPrisonBounty),
+            17 => Some(KindOf::PowTruck),
+            18 => Some(KindOf::LineBuild),
+            19 => Some(KindOf::Salvager),
+            20 => Some(KindOf::WeaponSalvager),
+            21 => Some(KindOf::Transport),
+            22 => Some(KindOf::Bridge),
+            23 => Some(KindOf::LandmarkBridge),
+            24 => Some(KindOf::BridgeTower),
+            25 => Some(KindOf::Projectile),
+            26 => Some(KindOf::Preload),
+            27 => Some(KindOf::NoGarrison),
+            28 => Some(KindOf::WaveGuide),
+            29 => Some(KindOf::WaveEffect),
+            30 => Some(KindOf::NoCollide),
+            31 => Some(KindOf::RepairPad),
+            32 => Some(KindOf::HealPad),
+            33 => Some(KindOf::StealthGarrison),
+            34 => Some(KindOf::CashGenerator),
+            35 => Some(KindOf::DrawableOnly),
+            36 => Some(KindOf::CountsForVictory),
+            37 => Some(KindOf::RebuildHole),
+            38 => Some(KindOf::Score),
+            39 => Some(KindOf::ScoreCreate),
+            40 => Some(KindOf::ScoreDestroy),
+            41 => Some(KindOf::NoHealIcon),
+            42 => Some(KindOf::CanRappel),
+            43 => Some(KindOf::Parachutable),
+            44 => Some(KindOf::CanSurrender),
+            45 => Some(KindOf::CanBeRepulsed),
+            46 => Some(KindOf::MobNexus),
+            47 => Some(KindOf::IgnoredInGui),
+            48 => Some(KindOf::Crate),
+            49 => Some(KindOf::Capturable),
+            50 => Some(KindOf::ClearedByBuild),
+            51 => Some(KindOf::SmallMissile),
+            52 => Some(KindOf::AlwaysVisible),
+            53 => Some(KindOf::Unattackable),
+            54 => Some(KindOf::Mine),
+            55 => Some(KindOf::CleanupHazard),
+            56 => Some(KindOf::PortableStructure),
+            57 => Some(KindOf::AlwaysSelectable),
+            58 => Some(KindOf::AttackNeedsLineOfSight),
+            59 => Some(KindOf::WalkOnTopOfWall),
+            60 => Some(KindOf::DefensiveWall),
+            61 => Some(KindOf::FSPower),
+            64 => Some(KindOf::FSTechnology),
+            65 => Some(KindOf::AircraftPathAround),
+            66 => Some(KindOf::LowOverlappable),
+            67 => Some(KindOf::ForceAttackable),
+            68 => Some(KindOf::AutoRallypoint),
+            69 => Some(KindOf::TechBuilding),
+            70 => Some(KindOf::Powered),
+            71 => Some(KindOf::ProducedAtHelipad),
+            72 => Some(KindOf::Drone),
+            74 => Some(KindOf::BallisticMissile),
+            75 => Some(KindOf::ClickThrough),
+            76 => Some(KindOf::SupplySourceOnPreview),
+            78 => Some(KindOf::GarrisonableUntilDestroyed),
+            79 => Some(KindOf::Boat),
+            80 => Some(KindOf::ImmuneToCapture),
+            81 => Some(KindOf::Hulk),
+            82 => Some(KindOf::ShowPortraitWhenControlled),
+            83 => Some(KindOf::SpawnsAreTheWeapons),
+            84 => Some(KindOf::CannotBuildNearSupplies),
+            85 => Some(KindOf::SupplySource),
+            86 => Some(KindOf::RevealToAll),
+            87 => Some(KindOf::Disguiser),
+            88 => Some(KindOf::Inert),
+            89 => Some(KindOf::Hero),
+            90 => Some(KindOf::IgnoresSelectAll),
+            91 => Some(KindOf::DontAutoCrushInfantry),
+            92 => Some(KindOf::CliffJumper),
+            93 => Some(KindOf::FSSupplyDropzone),
+            94 => Some(KindOf::FSSuperweapon),
+            95 => Some(KindOf::FsBlackMarket),
+            96 => Some(KindOf::FSSupplyCenter),
+            97 => Some(KindOf::FSStrategyCenter),
+            98 => Some(KindOf::MoneyHacker),
+            99 => Some(KindOf::ArmorSalvager),
+            100 => Some(KindOf::RevealsEnemyPaths),
+            101 => Some(KindOf::BoobyTrap),
+            102 => Some(KindOf::FSFake),
+            103 => Some(KindOf::FSInternetCenter),
+            104 => Some(KindOf::BlastCrater),
+            _ => None,
+        }
     }
 
     fn evaluate_named_inside_area_condition(&self, condition: &Condition) -> GameLogicResult<bool> {

@@ -96,6 +96,7 @@ use crate::video_player::{
     get_video_player, init_video_player, shutdown_video_player,
     VideoPlayerInterface as GlobalVideoPlayerInterface,
 };
+use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::ini::{get_global_data, get_global_language_read, INILoadType, INI};
@@ -1199,7 +1200,6 @@ impl GameClient {
         }
 
         let current_time = Instant::now();
-        let delta_time = current_time.duration_since(self.last_update_time);
         self.last_update_time = current_time;
 
         self.frame = self.frame.wrapping_add(1);
@@ -1219,7 +1219,7 @@ impl GameClient {
         let mut visual_delta = if self.should_freeze_visual_time() {
             0.0
         } else {
-            delta_time.as_secs_f32()
+            SECONDS_PER_LOGICFRAME_REAL
         };
         let visual_speed = get_script_visual_speed_multiplier();
         visual_delta = if visual_speed <= 0 {
@@ -3178,7 +3178,66 @@ fn log_startup_shell_mapped_images() {
 }
 
 impl Snapshotable for GameClient {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 3;
+        xfer.xfer_version(&mut version, 3)
+            .map_err(|e| e.to_string())?;
+
+        let mut frame = self.frame;
+        xfer.xfer_unsigned_int(&mut frame)
+            .map_err(|e| e.to_string())?;
+
+        // Drawable TOC — inlined from xfer_drawable_toc (version 1)
+        let mut toc_version: XferVersion = 1;
+        xfer.xfer_version(&mut toc_version, 1)
+            .map_err(|e| e.to_string())?;
+
+        let mut toc_count: u32 = self.drawable_toc.len() as u32;
+        xfer.xfer_unsigned_int(&mut toc_count)
+            .map_err(|e| e.to_string())?;
+
+        for entry in &self.drawable_toc {
+            let mut name = entry.name.clone();
+            xfer.xfer_ascii_string(&mut name)
+                .map_err(|e| e.to_string())?;
+            let mut id = entry.id;
+            xfer.xfer_unsigned_short(&mut id)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let save_entries = self.collect_saveable_drawables_sorted()?;
+        let mut drawable_count: u16 = save_entries
+            .len()
+            .try_into()
+            .map_err(|_| "Too many drawables to CRC".to_string())?;
+        xfer.xfer_unsigned_short(&mut drawable_count)
+            .map_err(|e| e.to_string())?;
+
+        let toc_lookup: HashMap<String, u16> = self
+            .drawable_toc
+            .iter()
+            .map(|entry| (entry.name.clone(), entry.id))
+            .collect();
+
+        for (drawable_id, template_name) in &save_entries {
+            let mut toc_id = toc_lookup
+                .get(template_name)
+                .copied()
+                .ok_or_else(|| "TOC entry not found during CRC".to_string())?;
+            xfer.xfer_unsigned_short(&mut toc_id)
+                .map_err(|e| e.to_string())?;
+
+            xfer.begin_block().map_err(|e| format!("{:?}", e))?;
+
+            if let Some(drawable) = self.drawable_map.get(drawable_id) {
+                let mut object_id: ObjectID = drawable.get_object_id().unwrap_or(INVALID_ID);
+                xfer.xfer_unsigned_int(&mut object_id)
+                    .map_err(|e| e.to_string())?;
+            }
+
+            xfer.end_block().map_err(|e| format!("{:?}", e))?;
+        }
+
         Ok(())
     }
 

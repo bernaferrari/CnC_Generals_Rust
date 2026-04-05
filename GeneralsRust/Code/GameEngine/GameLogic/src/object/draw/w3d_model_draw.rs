@@ -2487,7 +2487,61 @@ impl ObjectDrawInterface for W3DModelDraw {
 }
 
 impl Snapshotable for W3DModelDraw {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ parity: W3DModelDraw::crc mirrors xfer (version 2) fields.
+        for slot in 0..WEAPONSLOT_COUNT {
+            let mut recoil_info_count = self
+                .weapon_recoil_info
+                .get(slot)
+                .map(|entries| entries.len())
+                .unwrap_or_default()
+                .min(u8::MAX as usize) as u8;
+            xfer.xfer_unsigned_byte(&mut recoil_info_count)
+                .map_err(|e| e.to_string())?;
+
+            if let Some(entries) = self.weapon_recoil_info.get(slot) {
+                for entry in entries.iter().take(recoil_info_count as usize) {
+                    let mut state_value = recoil_state_to_i32(entry.state);
+                    let mut shift = entry.shift;
+                    let mut recoil_rate = entry.recoil_rate;
+                    xfer.xfer_int(&mut state_value).map_err(|e| e.to_string())?;
+                    xfer.xfer_real(&mut shift).map_err(|e| e.to_string())?;
+                    xfer.xfer_real(&mut recoil_rate)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+
+        let mut sub_object_count = self.sub_object_vec.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut sub_object_count)
+            .map_err(|e| e.to_string())?;
+        for sub_obj in self.sub_object_vec.iter().take(sub_object_count as usize) {
+            let mut sub_obj_name = sub_obj.sub_obj_name.as_str().to_string();
+            let mut hide = sub_obj.hide;
+            xfer.xfer_ascii_string(&mut sub_obj_name)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut hide).map_err(|e| e.to_string())?;
+        }
+
+        let mut animation_payload_present =
+            self.which_anim_in_cur_state >= 0 && !self.is_current_transition_state();
+        xfer.xfer_bool(&mut animation_payload_present)
+            .map_err(|e| e.to_string())?;
+        if animation_payload_present {
+            let mut mode = self
+                .current_state()
+                .map(|state| anim_mode_to_i32(state.anim_mode))
+                .unwrap_or(0);
+            xfer.xfer_int(&mut mode).map_err(|e| e.to_string())?;
+
+            let mut percent = if self.current_anim_num_frames > 1 {
+                self.current_anim_frame as Real / (self.current_anim_num_frames - 1) as Real
+            } else {
+                0.0
+            };
+            xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 
