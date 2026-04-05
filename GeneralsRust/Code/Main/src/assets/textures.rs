@@ -10,7 +10,10 @@ use crate::assets::archive::ArchiveFileSystem;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
-use ww3d_renderer_3d::{load_dds_from_memory, load_tga_from_memory, DdsTextureType};
+use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
+    decode_dxt1, decode_dxt3, decode_dxt5, load_dds_from_memory, DdsCompression, DdsTextureType,
+};
+use ww3d_renderer_3d::rendering::texture_system::tga_loader::load_tga_from_memory;
 
 /// Texture formats supported by C&C Generals
 #[derive(Debug, Clone, Copy)]
@@ -42,14 +45,6 @@ impl TextureFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DdsCompression {
-    Dxt1,
-    Dxt3,
-    Dxt5,
-}
-
-/// Raw texture data
 #[derive(Debug, Clone)]
 pub struct RawTexture {
     pub name: String,
@@ -58,7 +53,7 @@ pub struct RawTexture {
     pub data: Vec<u8>,
     pub format: TextureFormat,
     pub has_alpha: bool,
-    dds_compression: Option<DdsCompression>,
+    pub dds_compression: Option<DdsCompression>,
 }
 
 #[derive(Debug, Clone)]
@@ -685,11 +680,10 @@ impl TextureManager {
                 .features()
                 .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
             {
-                let block_size = Self::dds_block_size_bytes(compression);
+                let block_size = compression.block_size_bytes();
                 let blocks_x = raw.width.div_ceil(4);
                 let blocks_y = raw.height.div_ceil(4);
-                let expected_size =
-                    Self::dds_expected_payload_size(raw.width, raw.height, compression);
+                let expected_size = compression.expected_payload_size(raw.width, raw.height);
 
                 if raw.data.len() >= expected_size {
                     let texture_size = wgpu::Extent3d {
@@ -704,7 +698,7 @@ impl TextureManager {
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
-                        format: Self::dds_compression_to_wgpu_format(compression),
+                        format: compression.to_wgpu_format(),
                         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                         view_formats: &[],
                     });
@@ -758,42 +752,41 @@ impl TextureManager {
                 );
             }
 
-            let mut rgba_data = Vec::new();
             let decode_result = match compression {
-                DdsCompression::Dxt1 => {
-                    self.decode_dxt1(&raw.data, &mut rgba_data, raw.width, raw.height)
-                }
-                DdsCompression::Dxt3 => {
-                    self.decode_dxt3(&raw.data, &mut rgba_data, raw.width, raw.height)
-                }
-                DdsCompression::Dxt5 => {
-                    self.decode_dxt5(&raw.data, &mut rgba_data, raw.width, raw.height)
+                DdsCompression::Dxt1 => decode_dxt1(&raw.data, raw.width, raw.height)
+                    .map_err(|e| anyhow!("DXT1 decode: {}", e)),
+                DdsCompression::Dxt3 => decode_dxt3(&raw.data, raw.width, raw.height)
+                    .map_err(|e| anyhow!("DXT3 decode: {}", e)),
+                DdsCompression::Dxt5 => decode_dxt5(&raw.data, raw.width, raw.height)
+                    .map_err(|e| anyhow!("DXT5 decode: {}", e)),
+            };
+
+            let rgba_data = match decode_result {
+                Ok(data) => data,
+                Err(e) => {
+                    warn!(
+                        "DDS '{}' CPU decode fallback failed; using solid fallback texture: {}",
+                        raw.name, e
+                    );
+                    let fallback = RawTexture::solid_color(
+                        raw.name.clone(),
+                        raw.width.max(1),
+                        raw.height.max(1),
+                        [150, 100, 50, 255],
+                    );
+                    return self.create_gpu_texture_from_rgba(
+                        device,
+                        queue,
+                        &fallback.name,
+                        fallback.width,
+                        fallback.height,
+                        &fallback.data,
+                    );
                 }
             };
 
-            if decode_result.is_ok() {
-                return self.create_gpu_texture_from_rgba(
-                    device, queue, &raw.name, raw.width, raw.height, &rgba_data,
-                );
-            }
-
-            warn!(
-                "DDS '{}' CPU decode fallback failed; using solid fallback texture",
-                raw.name
-            );
-            let fallback = RawTexture::solid_color(
-                raw.name.clone(),
-                raw.width.max(1),
-                raw.height.max(1),
-                [150, 100, 50, 255],
-            );
             return self.create_gpu_texture_from_rgba(
-                device,
-                queue,
-                &fallback.name,
-                fallback.width,
-                fallback.height,
-                &fallback.data,
+                device, queue, &raw.name, raw.width, raw.height, &rgba_data,
             );
         }
 
@@ -876,37 +869,6 @@ impl TextureManager {
         })
     }
 
-    fn dds_fourcc_to_compression(four_cc: [u8; 4]) -> Option<DdsCompression> {
-        match &four_cc {
-            b"DXT1" => Some(DdsCompression::Dxt1),
-            b"DXT3" => Some(DdsCompression::Dxt3),
-            b"DXT5" => Some(DdsCompression::Dxt5),
-            _ => None,
-        }
-    }
-
-    fn dds_compression_to_wgpu_format(compression: DdsCompression) -> wgpu::TextureFormat {
-        match compression {
-            DdsCompression::Dxt1 => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
-            DdsCompression::Dxt3 => wgpu::TextureFormat::Bc2RgbaUnormSrgb,
-            DdsCompression::Dxt5 => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
-        }
-    }
-
-    fn dds_block_size_bytes(compression: DdsCompression) -> u32 {
-        match compression {
-            DdsCompression::Dxt1 => 8,
-            DdsCompression::Dxt3 | DdsCompression::Dxt5 => 16,
-        }
-    }
-
-    fn dds_expected_payload_size(width: u32, height: u32, compression: DdsCompression) -> usize {
-        let blocks_x = width.div_ceil(4);
-        let blocks_y = height.div_ceil(4);
-        (blocks_x * blocks_y * Self::dds_block_size_bytes(compression)) as usize
-    }
-
-    /// Parse TGA texture format — delegates to the canonical WWVegas parser.
     fn parse_tga(&self, data: &[u8], name: String) -> Result<RawTexture> {
         debug!("Parsing TGA texture: {}", name);
 
@@ -923,7 +885,6 @@ impl TextureManager {
         })
     }
 
-    /// Parse DDS texture format — delegates to the canonical WWVegas parser.
     fn parse_dds(&self, data: &[u8], name: String) -> Result<RawTexture> {
         debug!("Parsing DDS texture: {}", name);
 
@@ -933,20 +894,7 @@ impl TextureManager {
             .get_level_data(0)
             .ok_or_else(|| anyhow!("DDS level 0 data missing"))?;
 
-        let dds_compression = match dds.format {
-            wgpu::TextureFormat::Bc1RgbaUnorm | wgpu::TextureFormat::Bc1RgbaUnormSrgb => {
-                Some(DdsCompression::Dxt1)
-            }
-            wgpu::TextureFormat::Bc2RgbaUnorm | wgpu::TextureFormat::Bc2RgbaUnormSrgb => {
-                Some(DdsCompression::Dxt3)
-            }
-            wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => {
-                Some(DdsCompression::Dxt5)
-            }
-            _ => None,
-        };
-
-        let has_alpha = dds_compression.map_or(false, |c| {
+        let has_alpha = dds.compression.map_or(false, |c| {
             matches!(c, DdsCompression::Dxt3 | DdsCompression::Dxt5)
         });
 
@@ -957,266 +905,8 @@ impl TextureManager {
             data: level0_data.to_vec(),
             format: TextureFormat::DDS,
             has_alpha,
-            dds_compression,
+            dds_compression: dds.compression,
         })
-    }
-
-    /// Decode DXT1 compressed texture
-    fn decode_dxt1(
-        &self,
-        data: &[u8],
-        rgba_data: &mut Vec<u8>,
-        width: u32,
-        height: u32,
-    ) -> Result<()> {
-        let blocks_x = width.div_ceil(4);
-        let blocks_y = height.div_ceil(4);
-        let expected_size = (blocks_x * blocks_y * 8) as usize;
-        if data.len() < expected_size {
-            return Err(anyhow!("DXT1 data truncated"));
-        }
-
-        rgba_data.clear();
-        rgba_data.resize((width * height * 4) as usize, 0);
-
-        for by in 0..blocks_y {
-            for bx in 0..blocks_x {
-                let block_offset = ((by * blocks_x + bx) * 8) as usize;
-                let c0 = u16::from_le_bytes([data[block_offset], data[block_offset + 1]]);
-                let c1 = u16::from_le_bytes([data[block_offset + 2], data[block_offset + 3]]);
-                let bitmap = u32::from_le_bytes([
-                    data[block_offset + 4],
-                    data[block_offset + 5],
-                    data[block_offset + 6],
-                    data[block_offset + 7],
-                ]);
-
-                let colors = Self::decode_dxt1_colors(c0, c1, true);
-
-                for py in 0..4 {
-                    for px in 0..4 {
-                        let x = bx * 4 + px;
-                        let y = by * 4 + py;
-                        if x < width && y < height {
-                            let bit_index = (py * 4 + px) * 2;
-                            let color_index = ((bitmap >> bit_index) & 3) as usize;
-                            let color = colors[color_index];
-                            let pixel_index = ((y * width + x) * 4) as usize;
-                            rgba_data[pixel_index..pixel_index + 4].copy_from_slice(&color);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Decode DXT3 compressed texture
-    fn decode_dxt3(
-        &self,
-        data: &[u8],
-        rgba_data: &mut Vec<u8>,
-        width: u32,
-        height: u32,
-    ) -> Result<()> {
-        let blocks_x = width.div_ceil(4);
-        let blocks_y = height.div_ceil(4);
-        let expected_size = (blocks_x * blocks_y * 16) as usize;
-        if data.len() < expected_size {
-            return Err(anyhow!("DXT3 data truncated"));
-        }
-
-        rgba_data.clear();
-        rgba_data.resize((width * height * 4) as usize, 0);
-
-        for by in 0..blocks_y {
-            for bx in 0..blocks_x {
-                let block_offset = ((by * blocks_x + bx) * 16) as usize;
-
-                let alpha_bits = u64::from_le_bytes([
-                    data[block_offset],
-                    data[block_offset + 1],
-                    data[block_offset + 2],
-                    data[block_offset + 3],
-                    data[block_offset + 4],
-                    data[block_offset + 5],
-                    data[block_offset + 6],
-                    data[block_offset + 7],
-                ]);
-
-                let color_offset = block_offset + 8;
-                let c0 = u16::from_le_bytes([data[color_offset], data[color_offset + 1]]);
-                let c1 = u16::from_le_bytes([data[color_offset + 2], data[color_offset + 3]]);
-                let bitmap = u32::from_le_bytes([
-                    data[color_offset + 4],
-                    data[color_offset + 5],
-                    data[color_offset + 6],
-                    data[color_offset + 7],
-                ]);
-                let colors = Self::decode_dxt1_colors(c0, c1, false);
-
-                for py in 0..4 {
-                    for px in 0..4 {
-                        let x = bx * 4 + px;
-                        let y = by * 4 + py;
-                        if x >= width || y >= height {
-                            continue;
-                        }
-
-                        let pixel = py * 4 + px;
-                        let color_index = ((bitmap >> (pixel * 2)) & 3) as usize;
-                        let mut color = colors[color_index];
-                        let alpha4 = ((alpha_bits >> (pixel * 4)) & 0xF) as u8;
-                        color[3] = alpha4 * 17;
-
-                        let dst = ((y * width + x) * 4) as usize;
-                        rgba_data[dst..dst + 4].copy_from_slice(&color);
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Decode DXT5 compressed texture
-    fn decode_dxt5(
-        &self,
-        data: &[u8],
-        rgba_data: &mut Vec<u8>,
-        width: u32,
-        height: u32,
-    ) -> Result<()> {
-        let blocks_x = width.div_ceil(4);
-        let blocks_y = height.div_ceil(4);
-        let expected_size = (blocks_x * blocks_y * 16) as usize;
-        if data.len() < expected_size {
-            return Err(anyhow!("DXT5 data truncated"));
-        }
-
-        rgba_data.clear();
-        rgba_data.resize((width * height * 4) as usize, 0);
-
-        for by in 0..blocks_y {
-            for bx in 0..blocks_x {
-                let block_offset = ((by * blocks_x + bx) * 16) as usize;
-
-                let alpha0 = data[block_offset];
-                let alpha1 = data[block_offset + 1];
-
-                let mut alpha_index_bits = 0u64;
-                for i in 0..6usize {
-                    alpha_index_bits |= (data[block_offset + 2 + i] as u64) << (8 * i);
-                }
-
-                let alpha_palette = Self::decode_dxt5_alpha_palette(alpha0, alpha1);
-
-                let color_offset = block_offset + 8;
-                let c0 = u16::from_le_bytes([data[color_offset], data[color_offset + 1]]);
-                let c1 = u16::from_le_bytes([data[color_offset + 2], data[color_offset + 3]]);
-                let bitmap = u32::from_le_bytes([
-                    data[color_offset + 4],
-                    data[color_offset + 5],
-                    data[color_offset + 6],
-                    data[color_offset + 7],
-                ]);
-                let colors = Self::decode_dxt1_colors(c0, c1, false);
-
-                for py in 0..4 {
-                    for px in 0..4 {
-                        let x = bx * 4 + px;
-                        let y = by * 4 + py;
-                        if x >= width || y >= height {
-                            continue;
-                        }
-
-                        let pixel = py * 4 + px;
-                        let color_index = ((bitmap >> (pixel * 2)) & 3) as usize;
-                        let alpha_index = ((alpha_index_bits >> (pixel * 3)) & 0x7) as usize;
-                        let mut color = colors[color_index];
-                        color[3] = alpha_palette[alpha_index];
-
-                        let dst = ((y * width + x) * 4) as usize;
-                        rgba_data[dst..dst + 4].copy_from_slice(&color);
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn rgb565_to_rgb(color: u16) -> [u8; 3] {
-        let r = ((color >> 11) & 0x1F) as u8;
-        let g = ((color >> 5) & 0x3F) as u8;
-        let b = (color & 0x1F) as u8;
-
-        [
-            (r << 3) | (r >> 2),
-            (g << 2) | (g >> 4),
-            (b << 3) | (b >> 2),
-        ]
-    }
-
-    fn decode_dxt1_colors(c0: u16, c1: u16, allow_1bit_alpha: bool) -> [[u8; 4]; 4] {
-        let color0 = Self::rgb565_to_rgb(c0);
-        let color1 = Self::rgb565_to_rgb(c1);
-        let c0_u16 = [color0[0] as u16, color0[1] as u16, color0[2] as u16];
-        let c1_u16 = [color1[0] as u16, color1[1] as u16, color1[2] as u16];
-
-        if !allow_1bit_alpha || c0 > c1 {
-            [
-                [color0[0], color0[1], color0[2], 255],
-                [color1[0], color1[1], color1[2], 255],
-                [
-                    ((2 * c0_u16[0] + c1_u16[0]) / 3) as u8,
-                    ((2 * c0_u16[1] + c1_u16[1]) / 3) as u8,
-                    ((2 * c0_u16[2] + c1_u16[2]) / 3) as u8,
-                    255,
-                ],
-                [
-                    ((c0_u16[0] + 2 * c1_u16[0]) / 3) as u8,
-                    ((c0_u16[1] + 2 * c1_u16[1]) / 3) as u8,
-                    ((c0_u16[2] + 2 * c1_u16[2]) / 3) as u8,
-                    255,
-                ],
-            ]
-        } else {
-            [
-                [color0[0], color0[1], color0[2], 255],
-                [color1[0], color1[1], color1[2], 255],
-                [
-                    ((c0_u16[0] + c1_u16[0]) / 2) as u8,
-                    ((c0_u16[1] + c1_u16[1]) / 2) as u8,
-                    ((c0_u16[2] + c1_u16[2]) / 2) as u8,
-                    255,
-                ],
-                [0, 0, 0, 0],
-            ]
-        }
-    }
-
-    fn decode_dxt5_alpha_palette(alpha0: u8, alpha1: u8) -> [u8; 8] {
-        let mut out = [0u8; 8];
-        out[0] = alpha0;
-        out[1] = alpha1;
-        if alpha0 > alpha1 {
-            out[2] = ((6 * alpha0 as u16 + alpha1 as u16) / 7) as u8;
-            out[3] = ((5 * alpha0 as u16 + 2 * alpha1 as u16) / 7) as u8;
-            out[4] = ((4 * alpha0 as u16 + 3 * alpha1 as u16) / 7) as u8;
-            out[5] = ((3 * alpha0 as u16 + 4 * alpha1 as u16) / 7) as u8;
-            out[6] = ((2 * alpha0 as u16 + 5 * alpha1 as u16) / 7) as u8;
-            out[7] = ((alpha0 as u16 + 6 * alpha1 as u16) / 7) as u8;
-        } else {
-            out[2] = ((4 * alpha0 as u16 + alpha1 as u16) / 5) as u8;
-            out[3] = ((3 * alpha0 as u16 + 2 * alpha1 as u16) / 5) as u8;
-            out[4] = ((2 * alpha0 as u16 + 3 * alpha1 as u16) / 5) as u8;
-            out[5] = ((alpha0 as u16 + 4 * alpha1 as u16) / 5) as u8;
-            out[6] = 0;
-            out[7] = 255;
-        }
-        out
     }
 
     /// Parse BMP texture format
@@ -1514,9 +1204,6 @@ mod tests {
 
     #[test]
     fn decode_dxt1_writes_row_major_across_blocks() {
-        let manager = TextureManager::new();
-        let mut decoded = Vec::new();
-
         let mut data = Vec::new();
         // Block 0 (left): solid red (index 0 for all pixels).
         data.extend_from_slice(&0xF800u16.to_le_bytes());
@@ -1527,9 +1214,7 @@ mod tests {
         data.extend_from_slice(&0x0000u16.to_le_bytes());
         data.extend_from_slice(&0u32.to_le_bytes());
 
-        manager
-            .decode_dxt1(&data, &mut decoded, 8, 4)
-            .expect("DXT1 decode should succeed");
+        let decoded = decode_dxt1(&data, 8, 4).expect("DXT1 decode should succeed");
 
         assert_eq!(rgba_at(&decoded, 8, 0, 0), [255, 0, 0, 255]);
         assert_eq!(rgba_at(&decoded, 8, 3, 3), [255, 0, 0, 255]);
@@ -1539,9 +1224,6 @@ mod tests {
 
     #[test]
     fn decode_dxt3_uses_explicit_4bit_alpha() {
-        let manager = TextureManager::new();
-        let mut decoded = Vec::new();
-
         let mut alpha_bits = 0u64;
         alpha_bits |= 0xF << 4; // pixel 1 -> full alpha
         alpha_bits |= 0x8 << 8; // pixel 2 -> mid alpha (8 * 17 = 136)
@@ -1552,9 +1234,7 @@ mod tests {
         data.extend_from_slice(&0x0000u16.to_le_bytes());
         data.extend_from_slice(&0u32.to_le_bytes());
 
-        manager
-            .decode_dxt3(&data, &mut decoded, 4, 4)
-            .expect("DXT3 decode should succeed");
+        let decoded = decode_dxt3(&data, 4, 4).expect("DXT3 decode should succeed");
 
         assert_eq!(rgba_at(&decoded, 4, 0, 0), [255, 255, 255, 0]);
         assert_eq!(rgba_at(&decoded, 4, 1, 0), [255, 255, 255, 255]);
@@ -1615,9 +1295,6 @@ mod tests {
 
     #[test]
     fn decode_dxt5_uses_interpolated_alpha_table() {
-        let manager = TextureManager::new();
-        let mut decoded = Vec::new();
-
         let alpha_indices = [0u64, 1, 2, 3, 4, 5, 6, 7];
         let mut alpha_index_bits = 0u64;
         for (i, idx) in alpha_indices.iter().enumerate() {
@@ -1634,9 +1311,7 @@ mod tests {
         data[10..12].copy_from_slice(&0x0000u16.to_le_bytes());
         data[12..16].copy_from_slice(&0u32.to_le_bytes());
 
-        manager
-            .decode_dxt5(&data, &mut decoded, 4, 4)
-            .expect("DXT5 decode should succeed");
+        let decoded = decode_dxt5(&data, 4, 4).expect("DXT5 decode should succeed");
 
         assert_eq!(rgba_at(&decoded, 4, 0, 0)[3], 0);
         assert_eq!(rgba_at(&decoded, 4, 1, 0)[3], 255);
@@ -1649,31 +1324,17 @@ mod tests {
     }
 
     #[test]
-    fn dds_fourcc_maps_to_bc_formats() {
+    fn dds_compression_maps_to_bc_formats() {
         assert_eq!(
-            TextureManager::dds_fourcc_to_compression(*b"DXT1"),
-            Some(DdsCompression::Dxt1)
-        );
-        assert_eq!(
-            TextureManager::dds_fourcc_to_compression(*b"DXT3"),
-            Some(DdsCompression::Dxt3)
-        );
-        assert_eq!(
-            TextureManager::dds_fourcc_to_compression(*b"DXT5"),
-            Some(DdsCompression::Dxt5)
-        );
-        assert_eq!(TextureManager::dds_fourcc_to_compression(*b"ATI2"), None);
-
-        assert_eq!(
-            TextureManager::dds_compression_to_wgpu_format(DdsCompression::Dxt1),
+            DdsCompression::Dxt1.to_wgpu_format(),
             wgpu::TextureFormat::Bc1RgbaUnormSrgb
         );
         assert_eq!(
-            TextureManager::dds_compression_to_wgpu_format(DdsCompression::Dxt3),
+            DdsCompression::Dxt3.to_wgpu_format(),
             wgpu::TextureFormat::Bc2RgbaUnormSrgb
         );
         assert_eq!(
-            TextureManager::dds_compression_to_wgpu_format(DdsCompression::Dxt5),
+            DdsCompression::Dxt5.to_wgpu_format(),
             wgpu::TextureFormat::Bc3RgbaUnormSrgb
         );
     }
