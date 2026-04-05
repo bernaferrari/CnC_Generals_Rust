@@ -529,7 +529,7 @@ pub fn load_dds_from_memory(data: &[u8]) -> RendererResult<DdsData> {
 
     let mut level_offsets = Vec::with_capacity(mip_levels as usize);
     let mut level_sizes = Vec::with_capacity(mip_levels as usize);
-    let mut data_offset = data_start_offset;
+    let mut data_offset = 0usize;
 
     for level in 0..mip_levels {
         let level_width = (width >> level).max(1);
@@ -550,11 +550,11 @@ pub fn load_dds_from_memory(data: &[u8]) -> RendererResult<DdsData> {
         data_offset += level_size as usize;
     }
 
-    if data.len() < data_offset {
+    if data.len() < data_start_offset + data_offset {
         return Err(Error::InvalidData("DDS file truncated".to_string()));
     }
 
-    let texture_data = data[data_start_offset..data_offset].to_vec();
+    let texture_data = data[data_start_offset..data_start_offset + data_offset].to_vec();
 
     Ok(DdsData {
         width,
