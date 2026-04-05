@@ -5,6 +5,7 @@
 //! This module provides comprehensive 3D view management, camera controls, rendering pipeline,
 //! viewport management, frustum culling, and object picking for the W3D graphics engine.
 
+use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
 use crate::W3DDevice::GameClient::wthree_d_scene::W3DScene;
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::{
     compute_line_perp, SegmentedLine, TextureMapMode,
@@ -769,7 +770,7 @@ impl W3DView {
     }
 
     /// Pick objects at screen coordinates
-    pub fn pick_object(&self, screen_coords: ICoord2D, _pick_type: PickType) -> Result<PickResult> {
+    pub fn pick_object(&self, screen_coords: ICoord2D, pick_type: PickType) -> Result<PickResult> {
         if self.viewport.width == 0 || self.viewport.height == 0 {
             return Err(W3DViewError::PickingError(
                 "Viewport dimensions must be non-zero".to_string(),
@@ -777,35 +778,90 @@ impl W3DView {
             .into());
         }
 
-        // Convert screen coordinates to normalized device coordinates
-        let ndc_x = (2.0 * screen_coords.x as f32) / self.viewport.width as f32 - 1.0;
-        let ndc_y = 1.0 - (2.0 * screen_coords.y as f32) / self.viewport.height as f32;
+        let viewport_x = self.viewport.x as f32;
+        let viewport_y = self.viewport.y as f32;
+        let viewport_w = self.viewport.width as f32;
+        let viewport_h = self.viewport.height as f32;
 
-        // Create ray from camera through screen point
-        let ray_start = self.camera.position;
-        let ray_end = {
-            let clip_coords = Vector4::new(ndc_x, ndc_y, 1.0, 1.0);
-            let inv_projection = self
-                .projection_matrix
-                .invert()
-                .ok_or(W3DViewError::MatrixError)?;
-            let view_coords = inv_projection * clip_coords;
-            let world_coords =
-                self.inverse_view_matrix * Vector4::new(view_coords.x, view_coords.y, -1.0, 0.0);
-            Point3::new(world_coords.x, world_coords.y, world_coords.z)
+        let view_x = (screen_coords.x as f32 - viewport_x) / viewport_w;
+        let view_y = (screen_coords.y as f32 - viewport_y) / viewport_h;
+        let ndc_x = view_x * 2.0 - 1.0;
+        let ndc_y = 1.0 - view_y * 2.0;
+
+        let inv_view_projection = self
+            .view_projection_matrix
+            .invert()
+            .ok_or(W3DViewError::MatrixError)?;
+
+        let unproject = |ndc_z: f32| -> Point3<f32> {
+            let clip = Vector4::new(ndc_x, ndc_y, ndc_z, 1.0);
+            let world = inv_view_projection * clip;
+            let inv_w = if world.w.abs() > f32::EPSILON {
+                1.0 / world.w
+            } else {
+                1.0
+            };
+            Point3::new(world.x * inv_w, world.y * inv_w, world.z * inv_w)
         };
 
-        let ray_direction = (ray_end - ray_start).normalize();
+        let ray_start = unproject(-1.0);
+        let ray_end = unproject(1.0);
+        let ray_vector = ray_end - ray_start;
+        let ray_length = ray_vector.magnitude();
+        if ray_length <= f32::EPSILON {
+            return Err(W3DViewError::PickingError(
+                "Failed to construct pick ray direction".to_string(),
+            )
+            .into());
+        }
+        let ray_direction = ray_vector / ray_length;
 
-        // PARITY_NOTE: C++ View::pickObject() uses RenderObjClass::Cast_Ray() to test
-        // ray intersection against all scene objects. Each RenderObjClass implements its own
-        // ray cast (mesh, HLod, etc.). Results are sorted by distance, nearest hit returned.
-        // Full port requires: scene object iteration, per-object Cast_Ray implementations.
+        let collision_mask = match pick_type {
+            PickType::Normal
+            | PickType::ForceAttack
+            | PickType::SelectionOnly
+            | PickType::TerrainOnly => u32::MAX,
+        };
 
+        let scene = W3DDisplay::global_scene();
+        let scene_guard = scene.read();
+
+        if let Some((hit_id, hit_distance)) = scene_guard
+            .cast_ray(ray_start, ray_direction, false, collision_mask)
+            .filter(|(_, hit_distance)| *hit_distance <= ray_length)
+        {
+            let world_position = ray_start + ray_direction * hit_distance;
+            let surface_normal = scene_guard
+                .get_render_object(hit_id)
+                .map(|obj| {
+                    let sphere = obj.get_bounding_sphere();
+                    let to_hit = world_position - sphere.center;
+                    if to_hit.magnitude2() > f32::EPSILON {
+                        to_hit.normalize()
+                    } else {
+                        Vector3::new(0.0, 1.0, 0.0)
+                    }
+                })
+                .unwrap_or_else(|| Vector3::new(0.0, 1.0, 0.0));
+
+            return Ok(PickResult {
+                object_id: u32::try_from(hit_id).ok(),
+                world_position,
+                distance: hit_distance,
+                surface_normal,
+            });
+        }
+
+        // PARITY_NOTE: C++ RTS3DScene::castRay() first does a fast sphere rejection, then refines the
+        // closest hit by calling RenderObjClass::Cast_Ray against per-object geometry and shortening
+        // the remaining ray segment after each hit. The Rust scene API currently exposes only the
+        // coarse scene-level cast_ray() path, so picking is limited to visible-object bounding-sphere
+        // tests until per-render-object Cast_Ray parity is available.
+        let miss_distance = ray_length;
         Ok(PickResult {
             object_id: None,
-            world_position: ray_start + ray_direction * 100.0,
-            distance: 100.0,
+            world_position: ray_end,
+            distance: miss_distance,
             surface_normal: Vector3::new(0.0, 1.0, 0.0),
         })
     }
