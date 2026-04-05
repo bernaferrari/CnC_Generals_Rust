@@ -496,10 +496,10 @@ impl CommandButtonHuntUpdate {
                 {
                     continue;
                 }
-                if matches!(relationship, Relationship::Ally | Relationship::Allies) {
+                if matches!(relationship, Relationship::Allies | Relationship::Allies) {
                     continue;
                 }
-            } else if relationship != Relationship::Enemy {
+            } else if relationship != Relationship::Enemies {
                 continue;
             }
 

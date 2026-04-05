@@ -104,9 +104,10 @@ impl WthreeDFileSystem {
             .resolve(name)
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, name.to_string()))?;
 
-        let bytes = self.read_from_game_fs(&path).or_else(|| fs::read(&path).ok()).ok_or_else(
-            || std::io::Error::new(std::io::ErrorKind::NotFound, name.to_string()),
-        )?;
+        let bytes = self
+            .read_from_game_fs(&path)
+            .or_else(|| fs::read(&path).ok())
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, name.to_string()))?;
 
         Ok(W3dFileHandle {
             path,
@@ -160,16 +161,20 @@ impl WthreeDFileSystem {
 
         match file_type {
             GameFileType::W3d => {
-                push_unique(Path::new("Data")
-                    .join(&self.language)
-                    .join("Art/W3D")
-                    .join(filename));
+                push_unique(
+                    Path::new("Data")
+                        .join(&self.language)
+                        .join("Art/W3D")
+                        .join(filename),
+                );
             }
             GameFileType::Tga | GameFileType::Dds => {
-                push_unique(Path::new("Data")
-                    .join(&self.language)
-                    .join("Art/Textures")
-                    .join(filename));
+                push_unique(
+                    Path::new("Data")
+                        .join(&self.language)
+                        .join("Art/Textures")
+                        .join(filename),
+                );
             }
             GameFileType::Unknown => {}
         }

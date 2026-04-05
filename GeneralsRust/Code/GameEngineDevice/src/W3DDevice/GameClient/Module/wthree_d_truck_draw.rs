@@ -1,7 +1,7 @@
 //! WthreeDTruckDraw Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTruckDraw.h
-//! 
+//!
 //! This module provides drawing and rendering functionality.
 
 use std::{

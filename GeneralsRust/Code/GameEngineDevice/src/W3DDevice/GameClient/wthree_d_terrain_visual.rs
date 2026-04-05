@@ -1,7 +1,7 @@
 //! WthreeDTerrainVisual Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DTerrainVisual.h
-//! 
+//!
 //! This module provides terrain rendering and management.
 
 use std::{

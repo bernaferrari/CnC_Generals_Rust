@@ -770,7 +770,7 @@ impl GarrisonContain {
                             .ok()
                             .map(|guard| guard.get_relationship_with_team(&observer_team_guard))
                             .unwrap_or(Relationship::Neutral);
-                        if !matches!(relation, Relationship::Ally | Relationship::Allies) {
+                        if !matches!(relation, Relationship::Allies | Relationship::Allies) {
                             if let Ok(original_guard) = original_team.upgrade()?.read() {
                                 if let Some(controller_id) =
                                     original_guard.get_controlling_player_id()

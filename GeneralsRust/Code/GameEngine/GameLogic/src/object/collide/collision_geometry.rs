@@ -21,6 +21,17 @@ pub enum GeometryType {
     Cylinder,
 }
 
+impl GeometryType {
+    /// C++ enum index for dispatch table: Sphere=0, Cylinder=1, Box=2
+    pub fn to_cpp_index(self) -> usize {
+        match self {
+            GeometryType::Sphere => 0,
+            GeometryType::Cylinder => 1,
+            GeometryType::Box => 2,
+        }
+    }
+}
+
 /// Geometry information for collision detection
 /// Matches C++ GeometryInfo struct in PartitionManager.cpp
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -32,6 +43,10 @@ pub struct GeometryInfo {
     minor_radius: f32,
     /// Whether this is a small object (affects collision priority)
     is_small: bool,
+    /// Z-axis height for box/cylinder geometries; equals major_radius for sphere.
+    /// Matches C++ GeometryInfo::m_height.
+    #[serde(default)]
+    height: f32,
 }
 
 impl GeometryInfo {
@@ -42,6 +57,7 @@ impl GeometryInfo {
             major_radius: width / 2.0,
             minor_radius: height / 2.0,
             is_small,
+            height,
         }
     }
 
@@ -52,6 +68,7 @@ impl GeometryInfo {
             major_radius: radius,
             minor_radius: radius,
             is_small,
+            height: radius,
         }
     }
 
@@ -62,6 +79,7 @@ impl GeometryInfo {
             major_radius: radius,
             minor_radius: height,
             is_small,
+            height,
         }
     }
 
@@ -87,6 +105,39 @@ impl GeometryInfo {
 
     pub fn set_minor_radius(&mut self, radius: f32) {
         self.minor_radius = radius;
+    }
+
+    pub fn get_height(&self) -> f32 {
+        self.height
+    }
+
+    pub fn set_height(&mut self, h: f32) {
+        self.height = h;
+    }
+
+    /// Matches C++ GeometryInfo::getMaxHeightAbovePosition
+    pub fn get_max_height_above_position(&self) -> f32 {
+        match self.geom_type {
+            GeometryType::Sphere => self.major_radius,
+            GeometryType::Box | GeometryType::Cylinder => self.height,
+        }
+    }
+
+    /// Matches C++ GeometryInfo::getMaxHeightBelowPosition
+    pub fn get_max_height_below_position(&self) -> f32 {
+        match self.geom_type {
+            GeometryType::Sphere => self.major_radius,
+            GeometryType::Box | GeometryType::Cylinder => 0.0,
+        }
+    }
+
+    /// C++ enum index for dispatch table: Sphere=0, Cylinder=1, Box=2
+    pub fn to_cpp_index(&self) -> usize {
+        match self.geom_type {
+            GeometryType::Sphere => 0,
+            GeometryType::Cylinder => 1,
+            GeometryType::Box => 2,
+        }
     }
 }
 
@@ -476,21 +527,282 @@ pub fn collision_test(
         }
         (GeometryType::Box, GeometryType::Box) => xy_collide_test_rect_rect(a, b, cinfo),
         (GeometryType::Sphere, GeometryType::Cylinder)
-        | (GeometryType::Cylinder, GeometryType::Sphere) => {
-            // Approximate with circle test in XY plane
-            xy_collide_test_circle_circle(
-                &a.position,
-                &b.position,
-                a.geom.get_major_radius(),
-                b.geom.get_major_radius(),
-                cinfo,
-            )
-        }
+        | (GeometryType::Cylinder, GeometryType::Sphere) => xy_collide_test_circle_circle(
+            &a.position,
+            &b.position,
+            a.geom.get_major_radius(),
+            b.geom.get_major_radius(),
+            cinfo,
+        ),
         (GeometryType::Box, GeometryType::Sphere) => xy_collide_test_rect_circle(a, b, cinfo),
         (GeometryType::Sphere, GeometryType::Box) => xy_collide_test_circle_rect(a, b, cinfo),
         (GeometryType::Box, GeometryType::Cylinder) => xy_collide_test_rect_circle(a, b, cinfo),
         (GeometryType::Cylinder, GeometryType::Box) => xy_collide_test_circle_rect(a, b, cinfo),
     }
+}
+
+// =========================================================================
+// C++-exact collision dispatch system (PartitionManager.cpp:559-735)
+// =========================================================================
+
+/// Function pointer type for collision test procedures.
+/// Matches C++ `typedef Bool (*CollideTestProc)(...)` in PartitionManager.cpp:136
+pub type CollideTestFn = fn(&CollideInfo, &CollideInfo, Option<&mut CollideLocAndNormal>) -> bool;
+
+/// 2D circle-circle collision test with CollideInfo signature.
+/// Matches C++ xy_collideTest_Circle_Circle (PartitionManager.cpp:491)
+fn xy_collide_test_ci_circle_circle(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    let diff = vec_diff_2d(&b.position, &a.position);
+    let dist_sqr = calc_sqr_dist_2d(&diff);
+    let touching_dist_sqr = (a.geom.get_major_radius() + b.geom.get_major_radius()).powi(2);
+    if dist_sqr <= touching_dist_sqr {
+        if let Some(info) = cinfo {
+            info.normal = normalize_coord_3d(&diff);
+            info.loc = a.position;
+            project_coord_3d(&mut info.loc, &info.normal, a.geom.get_major_radius());
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Z collision test: sphere vs non-sphere (cylinder or box).
+/// Matches C++ z_collideTest_Sphere_Nonsphere (PartitionManager.cpp:560)
+fn z_collide_test_sphere_nonsphere(
+    xyproc: CollideTestFn,
+    a: &CollideInfo,
+    b: &CollideInfo,
+    mut cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    // case 1: center of sphere is within the nonsphere z-space
+    if a.position.z >= b.position.z
+        && a.position.z <= b.position.z + b.geom.get_max_height_above_position()
+    {
+        if xyproc(a, b, cinfo.as_deref_mut()) {
+            if let Some(info) = &mut cinfo {
+                info.loc.z = a.position.z;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // case 2a: sphere is below the nonsphere
+    let b_bot = b.position.z;
+    if a.position.z < b_bot && a.position.z + a.geom.get_major_radius() >= b_bot {
+        let r_diff = b_bot - a.position.z;
+        let mut amod = *a;
+        amod.position.z = b_bot;
+        amod.geom.set_major_radius(
+            (a.geom.get_major_radius().powi(2) - r_diff * r_diff)
+                .sqrt()
+                .max(0.0),
+        );
+        return xyproc(&amod, b, cinfo.as_deref_mut());
+    }
+
+    // case 2b: sphere is above the nonsphere
+    let b_top = b.position.z + b.geom.get_max_height_above_position();
+    if a.position.z > b_top && a.position.z - a.geom.get_major_radius() <= b_top {
+        let r_diff = a.position.z - b_top;
+        let mut amod = *a;
+        amod.position.z = b_top;
+        amod.geom.set_major_radius(
+            (a.geom.get_major_radius().powi(2) - r_diff * r_diff)
+                .sqrt()
+                .max(0.0),
+        );
+        return xyproc(&amod, b, cinfo.as_deref_mut());
+    }
+
+    false
+}
+
+/// Z collision test: non-sphere vs non-sphere (cylinder/box pairs).
+/// Matches C++ z_collideTest_Nonsphere_Nonsphere (PartitionManager.cpp:621)
+fn z_collide_test_nonsphere_nonsphere(
+    xyproc: CollideTestFn,
+    a: &CollideInfo,
+    b: &CollideInfo,
+    mut cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    let d_sqr = (a.position.x - b.position.x).powi(2) + (a.position.y - b.position.y).powi(2);
+    let mut min_radius = a.geom.get_major_radius();
+    let mut r = a.geom.get_minor_radius();
+    if min_radius > r {
+        min_radius = r;
+    }
+    r = b.geom.get_major_radius();
+    if min_radius > r {
+        min_radius = r;
+    }
+    r = b.geom.get_minor_radius();
+    if min_radius > r {
+        min_radius = r;
+    }
+    let close_enough = min_radius * min_radius > d_sqr;
+
+    if close_enough || xyproc(a, b, cinfo.as_deref_mut()) {
+        if let Some(info) = &mut cinfo {
+            if b.position.z > a.position.z {
+                info.loc.z =
+                    (b.position.z + a.position.z + a.geom.get_max_height_above_position()) * 0.5;
+            } else {
+                info.loc.z =
+                    (a.position.z + b.position.z + b.geom.get_max_height_above_position()) * 0.5;
+            }
+        }
+        return true;
+    }
+    false
+}
+
+// -- 9 collide test functions matching C++ PartitionManager.cpp:662-735 --
+
+/// Matches C++ collideTest_Sphere_Sphere (PartitionManager.cpp:662)
+pub fn collide_test3d_sphere_sphere(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    let diff = vec_diff_3d(&b.position, &a.position);
+    let dist_sqr = calc_sqr_dist_3d(&diff);
+    let touching_dist_sqr = (a.geom.get_major_radius() + b.geom.get_major_radius()).powi(2);
+    if dist_sqr <= touching_dist_sqr {
+        if let Some(info) = cinfo {
+            info.normal = normalize_coord_3d(&diff);
+            info.loc = a.position;
+            project_coord_3d(&mut info.loc, &info.normal, a.geom.get_major_radius());
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Matches C++ collideTest_Sphere_Cylinder (PartitionManager.cpp:684)
+pub fn collide_test3d_sphere_cylinder(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    z_collide_test_sphere_nonsphere(xy_collide_test_ci_circle_circle, a, b, cinfo)
+}
+
+/// Matches C++ collideTest_Sphere_Box (PartitionManager.cpp:690)
+pub fn collide_test3d_sphere_box(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    z_collide_test_sphere_nonsphere(xy_collide_test_circle_rect, a, b, cinfo)
+}
+
+/// Matches C++ collideTest_Cylinder_Sphere (PartitionManager.cpp:696)
+pub fn collide_test3d_cylinder_sphere(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    mut cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    let result = z_collide_test_sphere_nonsphere(
+        xy_collide_test_ci_circle_circle,
+        b,
+        a,
+        cinfo.as_deref_mut(),
+    );
+    if result {
+        if let Some(info) = cinfo {
+            flip_coord_3d(&mut info.normal);
+        }
+    }
+    result
+}
+
+/// Matches C++ collideTest_Cylinder_Cylinder (PartitionManager.cpp:705)
+pub fn collide_test3d_cylinder_cylinder(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    mut cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    z_collide_test_nonsphere_nonsphere(xy_collide_test_ci_circle_circle, a, b, cinfo.as_deref_mut())
+}
+
+/// Matches C++ collideTest_Cylinder_Box (PartitionManager.cpp:711)
+pub fn collide_test3d_cylinder_box(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    z_collide_test_nonsphere_nonsphere(xy_collide_test_circle_rect, a, b, cinfo)
+}
+
+/// Matches C++ collideTest_Box_Sphere (PartitionManager.cpp:717)
+pub fn collide_test3d_box_sphere(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    mut cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    let result =
+        z_collide_test_sphere_nonsphere(xy_collide_test_circle_rect, b, a, cinfo.as_deref_mut());
+    if result {
+        if let Some(info) = cinfo {
+            flip_coord_3d(&mut info.normal);
+        }
+    }
+    result
+}
+
+/// Matches C++ collideTest_Box_Cylinder (PartitionManager.cpp:726)
+pub fn collide_test3d_box_cylinder(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    z_collide_test_nonsphere_nonsphere(xy_collide_test_rect_circle, a, b, cinfo)
+}
+
+/// Matches C++ collideTest_Box_Box (PartitionManager.cpp:732)
+pub fn collide_test3d_box_box(
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    z_collide_test_nonsphere_nonsphere(xy_collide_test_rect_rect, a, b, cinfo)
+}
+
+/// Dispatch table of 9 collision test function pointers.
+/// Indexed by `(geomA_cpp_index * 3 + geomB_cpp_index)` where
+/// Sphere=0, Cylinder=1, Box=2.
+/// Matches C++ theCollideTestProcs[] in PartitionManager.cpp.
+pub static THE_COLLIDE_TEST_PROCS: [CollideTestFn; 9] = [
+    collide_test3d_sphere_sphere,
+    collide_test3d_sphere_cylinder,
+    collide_test3d_sphere_box,
+    collide_test3d_cylinder_sphere,
+    collide_test3d_cylinder_cylinder,
+    collide_test3d_cylinder_box,
+    collide_test3d_box_sphere,
+    collide_test3d_box_cylinder,
+    collide_test3d_box_box,
+];
+
+/// Dispatch collision test using the C++ dispatch table.
+/// Matches C++ dispatch logic in geomCollidesWithGeom and collidesWith.
+#[inline]
+pub fn collide_test_dispatch(
+    this_geom: GeometryType,
+    that_geom: GeometryType,
+    a: &CollideInfo,
+    b: &CollideInfo,
+    cinfo: Option<&mut CollideLocAndNormal>,
+) -> bool {
+    let idx = this_geom.to_cpp_index() * 3 + that_geom.to_cpp_index();
+    THE_COLLIDE_TEST_PROCS[idx](a, b, cinfo)
 }
 
 #[cfg(test)]

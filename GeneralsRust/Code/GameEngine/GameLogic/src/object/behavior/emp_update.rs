@@ -397,7 +397,7 @@ impl EMPUpdate {
 
             if data.reject_mask & WeaponAffectsMask::ALLIES as Int != 0 {
                 let relationship = source_guard.relationship_to(&victim);
-                if matches!(relationship, Relationship::Ally | Relationship::Allies) {
+                if matches!(relationship, Relationship::Allies | Relationship::Allies) {
                     continue;
                 }
             }

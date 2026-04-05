@@ -1,7 +1,7 @@
 //! WthreeDSupplyDraw Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DSupplyDraw.h
-//! 
+//!
 //! This module provides drawing and rendering functionality.
 
 use std::{

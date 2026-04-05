@@ -8,10 +8,10 @@
 //   - W3DScene.cpp (global lighting)
 //   - GlobalData.cpp (lighting configuration)
 
-use std::sync::Arc;
-use super::sky_rendering::{SkyRenderingSystem, GlobalLightingConfig, TerrainLighting, TimeOfDay};
 use super::atmospheric_fog::{AtmosphericSystem, FogConfig};
-use super::sun_system::{CelestialSystem, SunConfig, MoonConfig};
+use super::sky_rendering::{GlobalLightingConfig, SkyRenderingSystem, TerrainLighting, TimeOfDay};
+use super::sun_system::{CelestialSystem, MoonConfig, SunConfig};
+use std::sync::Arc;
 
 /// Complete sky system integrating all rendering components
 pub struct CompleteSkySystem {
@@ -77,7 +77,8 @@ impl CompleteSkySystem {
     /// Synchronize all subsystems to current time of day
     fn sync_to_time_of_day(&mut self) {
         // Update skybox time
-        self.sky_renderer.set_time_of_day_progress(self.time_of_day_progress);
+        self.sky_renderer
+            .set_time_of_day_progress(self.time_of_day_progress);
 
         // Update atmosphere
         self.atmosphere.update_for_time(self.time_of_day_progress);
@@ -100,8 +101,7 @@ impl CompleteSkySystem {
         height: u32,
     ) -> Result<(), String> {
         self.sky_renderer.load_skybox_texture(
-            faces[0], faces[1], faces[2], faces[3], faces[4], faces[5],
-            width, height,
+            faces[0], faces[1], faces[2], faces[3], faces[4], faces[5], width, height,
         )
     }
 
@@ -114,12 +114,8 @@ impl CompleteSkySystem {
         camera_position: [f32; 3],
     ) {
         // Render skybox (background)
-        self.sky_renderer.render_skybox(
-            render_pass,
-            view_matrix,
-            proj_matrix,
-            camera_position,
-        );
+        self.sky_renderer
+            .render_skybox(render_pass, view_matrix, proj_matrix, camera_position);
 
         // Additional rendering (sun glow, stars, etc.) would go here
         // For now, skybox provides the background
@@ -129,8 +125,12 @@ impl CompleteSkySystem {
     /// Returns light parameters suitable for W3D scene lighting
     pub fn get_global_lights(&self) -> Vec<GlobalLight> {
         let terrain_lights = self.sky_renderer.get_current_global_lights(false);
-        let sun_dir = self.celestial.get_primary_light_direction(self.time_of_day_progress);
-        let (sun_color, sun_intensity) = self.celestial.get_primary_light_color(self.time_of_day_progress);
+        let sun_dir = self
+            .celestial
+            .get_primary_light_direction(self.time_of_day_progress);
+        let (sun_color, sun_intensity) = self
+            .celestial
+            .get_primary_light_color(self.time_of_day_progress);
 
         let mut lights = Vec::new();
 
@@ -149,8 +149,14 @@ impl CompleteSkySystem {
         }
 
         // Additional lights from terrain lighting config
-        for (i, tl) in terrain_lights.iter().enumerate().skip(if lights.is_empty() { 0 } else { 1 }) {
-            if i >= 3 { break; } // Max 3 lights
+        for (i, tl) in terrain_lights
+            .iter()
+            .enumerate()
+            .skip(if lights.is_empty() { 0 } else { 1 })
+        {
+            if i >= 3 {
+                break;
+            } // Max 3 lights
 
             lights.push(GlobalLight {
                 direction: tl.get_direction(),
@@ -188,7 +194,8 @@ impl CompleteSkySystem {
     pub fn set_auto_cycle(&mut self, enabled: bool, cycle_duration_seconds: f32) {
         self.auto_advance = enabled;
         self.cycle_speed = cycle_duration_seconds;
-        self.sky_renderer.set_auto_cycle(enabled, cycle_duration_seconds);
+        self.sky_renderer
+            .set_auto_cycle(enabled, cycle_duration_seconds);
     }
 
     /// Configure skybox parameters
@@ -220,10 +227,10 @@ impl CompleteSkySystem {
 /// Global directional light parameters
 #[derive(Debug, Clone, Copy)]
 pub struct GlobalLight {
-    pub direction: [f32; 3],  // Normalized direction TO light source
-    pub color: [f32; 3],      // RGB color
-    pub intensity: f32,       // Intensity multiplier
-    pub ambient: [f32; 3],    // Ambient contribution
+    pub direction: [f32; 3], // Normalized direction TO light source
+    pub color: [f32; 3],     // RGB color
+    pub intensity: f32,      // Intensity multiplier
+    pub ambient: [f32; 3],   // Ambient contribution
 }
 
 impl GlobalLight {
@@ -246,9 +253,9 @@ impl GlobalLight {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GlobalLightUniforms {
-    pub direction: [f32; 4],  // xyz = direction, w = padding
-    pub color: [f32; 4],      // RGB + alpha
-    pub ambient: [f32; 4],    // RGB + alpha
+    pub direction: [f32; 4], // xyz = direction, w = padding
+    pub color: [f32; 4],     // RGB + alpha
+    pub ambient: [f32; 4],   // RGB + alpha
 }
 
 /// Example usage and initialization

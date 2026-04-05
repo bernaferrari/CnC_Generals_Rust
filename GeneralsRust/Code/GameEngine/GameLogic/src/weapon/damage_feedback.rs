@@ -11,6 +11,16 @@
 //! triggers particle effects and sounds at a position. There is no persistent
 //! screen shake state machine or hit marker overlay system.
 //!
+//! Camera shake is triggered through ViewShakeFXNugget (FXList.cpp:359-414)
+//! which calls TheTacticalView->shake(). This is already wired in the Rust
+//! fx_list.rs via register_camera_shake_system() and the ViewShakeNugget
+//! implementation that calls CameraShakeSystem::add_camera_shake().
+//!
+//! Audio on damage is triggered through SoundFXNugget in FXList, which calls
+//! TheAudio->addAudioEvent(). The Rust fx_list.rs has register_fx_audio() for
+//! this hook, and AudioEventDispatcher in audio_events.rs handles unit/building
+//! audio events (Damaged, Died, etc.) via GameAudioManager.
+//!
 //! The DamageSoundEffect struct is retained because C++ does trigger sounds
 //! via FXList on damage events, though the actual sound IDs would come from
 //! INI data, not hardcoded here.
@@ -130,22 +140,31 @@ impl DamageFeedbackManager {
         Self {}
     }
 
-    /// Queue sound effect
+    /// Queue sound effect.
+    ///
+    /// PARITY_NOTE: No-op — C++ does not have a DamageFeedbackManager queue.
+    /// Sound is dispatched directly by FXList::SoundFXNugget via TheAudio->addAudioEvent().
+    /// Use fx_list::register_fx_audio() to hook into the real audio pipeline.
     pub fn queue_sound(&self, _sound: DamageSoundEffect) -> GameLogicResult<()> {
-        // Stub mode: FXList integration not wired yet.
         Ok(())
     }
 
-    /// Get and clear pending sound effects
+    /// Get and clear pending sound effects.
+    ///
+    /// PARITY_NOTE: Always returns empty — no internal queue exists in C++ either.
     pub fn consume_sound_effects(&self) -> GameLogicResult<Vec<DamageSoundEffect>> {
-        // Stub mode: no internal queue.
         Ok(Vec::new())
     }
 
     /// Add feedback for damage event.
     ///
-    /// PARITY_NOTE: Simplified — no screen shake or hit markers.
-    /// Only queues a sound effect, matching C++ FXList behavior.
+    /// PARITY_NOTE: No-op — C++ has no DamageFeedbackManager. Damage audio/visual
+    /// feedback is triggered by FXList execution on weapon impact. The relevant
+    /// FXList nuggets are:
+    ///   - ViewShakeFXNugget (FXList.cpp:359) → camera shake via TacticalView::shake()
+    ///   - SoundFXNugget (FXList.cpp) → audio via TheAudio->addAudioEvent()
+    /// Both are already wired in Rust fx_list.rs via register_camera_shake_system()
+    /// and register_fx_audio().
     pub fn add_damage_feedback(
         &self,
         _damage_type: DamageType,
@@ -154,11 +173,9 @@ impl DamageFeedbackManager {
         _is_critical: bool,
         _is_kill: bool,
     ) -> GameLogicResult<()> {
-        // Stub mode: use no hardcoded sound mapping; runtime should route through FXList.
         Ok(())
     }
 
-    /// Stub methods for removed fabricated systems.
     pub fn set_current_frame(&self, _frame: u32) -> GameLogicResult<()> {
         Ok(())
     }

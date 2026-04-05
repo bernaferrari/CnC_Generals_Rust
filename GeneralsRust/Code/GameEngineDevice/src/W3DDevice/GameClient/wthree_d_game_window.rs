@@ -3,13 +3,8 @@
 //! C++ reference: W3DDevice/GameClient/W3DGameWindow.h
 
 use game_client_rust::gui::{
-    with_window_manager_ref,
-    GameFont as ClientGameFont,
-    GameWindow,
-    WindowMessage,
-    WindowMsgData,
-    WindowMsgHandled,
-    WindowResult,
+    with_window_manager_ref, GameFont as ClientGameFont, GameWindow, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowResult,
 };
 
 /// W3D-backed game window.

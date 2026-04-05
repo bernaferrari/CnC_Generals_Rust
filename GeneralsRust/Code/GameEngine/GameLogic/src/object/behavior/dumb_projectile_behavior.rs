@@ -16,7 +16,7 @@ use crate::common::{
     AsciiString, Bool, Coord3D, Int, KindOf, KindOfMaskType, ModuleData, ObjectID,
     ObjectStatusMaskType, PathfindLayerEnum, Real, UnsignedInt, WeaponBonusConditionFlags,
     XferMode, XferVersion, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE, LOGICFRAMES_PER_SECOND,
-    SECONDS_PER_LOGICFRAME_REAL,
+    MODELCONDITION_JAMMED, SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::effects::FXList;
 use crate::helpers::{
@@ -1176,6 +1176,14 @@ impl UpdateModuleInterface for DumbProjectileBehavior {
 impl ProjectileUpdateInterface for DumbProjectileBehavior {
     fn projectile_update(&mut self, _object_id: ObjectID, _delta_time: Real) {
         let _ = UpdateModuleInterface::update(self);
+    }
+
+    fn projectile_now_jammed(&mut self) {
+        if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
+            if let Ok(mut guard) = object.write() {
+                guard.set_model_condition_state(MODELCONDITION_JAMMED);
+            }
+        }
     }
 }
 

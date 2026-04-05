@@ -1,43 +1,36 @@
 //! W3DView Module - Complete 3D View and Camera Management System
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/W3DView.cpp
-//! 
+//!
 //! This module provides comprehensive 3D view management, camera controls, rendering pipeline,
 //! viewport management, frustum culling, and object picking for the W3D graphics engine.
 
-use cgmath::{
-    Deg, Matrix4, Point3, Vector3, Vector4, 
-    EuclideanSpace, InnerSpace, SquareMatrix,
-};
-use wgpu::{
-    Device, Queue, Surface, SurfaceConfiguration, RenderPassDescriptor,
-    CommandEncoder, Buffer, BufferDescriptor, BufferUsages, BindGroup,
-    RenderPipeline, Sampler, Texture, TextureUsages, TextureView,
-    BindGroupLayout, BindGroupLayoutEntry, BindGroupLayoutDescriptor,
-    BindGroupDescriptor, BindGroupEntry, ShaderModuleDescriptor, ShaderSource,
-    PipelineLayoutDescriptor, RenderPipelineDescriptor, VertexState, FragmentState,
-    VertexBufferLayout, VertexAttribute, VertexFormat, VertexStepMode,
-    PrimitiveState, PrimitiveTopology, ColorTargetState, BlendState, BlendComponent,
-    ColorWrites, MultisampleState,
-    Color, Operations, LoadOp, StoreOp,
-};
-use bytemuck::{Pod, Zeroable};
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Duration,
-};
-use parking_lot::RwLock as ParkingRwLock;
-use smallvec::SmallVec;
-use slotmap::{SlotMap, DefaultKey};
-use anyhow::{Result, Context};
-use thiserror::Error;
-use game_network::NetworkInstant;
 use crate::W3DDevice::GameClient::wthree_d_scene::W3DScene;
-use crate::W3DDevice::GameClient::wthree_d_segmented_line::{SegmentedLine, TextureMapMode, compute_line_perp};
+use crate::W3DDevice::GameClient::wthree_d_segmented_line::{
+    compute_line_perp, SegmentedLine, TextureMapMode,
+};
+use anyhow::{Context, Result};
+use bytemuck::{Pod, Zeroable};
+use cgmath::{Deg, EuclideanSpace, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3, Vector4};
+use game_network::NetworkInstant;
 use image::io::Reader as ImageReader;
 use image::GenericImageView;
+use parking_lot::RwLock as ParkingRwLock;
+use slotmap::{DefaultKey, SlotMap};
+use smallvec::SmallVec;
 use std::path::Path;
+use std::{collections::HashMap, sync::Arc, time::Duration};
+use thiserror::Error;
+use wgpu::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BlendComponent, BlendState, Buffer, BufferDescriptor, BufferUsages,
+    Color, ColorTargetState, ColorWrites, CommandEncoder, Device, FragmentState, LoadOp,
+    MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology,
+    Queue, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, Sampler,
+    ShaderModuleDescriptor, ShaderSource, StoreOp, Surface, SurfaceConfiguration, Texture,
+    TextureUsages, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState,
+    VertexStepMode,
+};
 
 /// Maximum number of waypoints for camera movement
 pub const MAX_WAYPOINTS: usize = 25;
@@ -79,7 +72,11 @@ pub struct Coord3D {
 
 impl From<Point3<f32>> for Coord3D {
     fn from(point: Point3<f32>) -> Self {
-        Self { x: point.x, y: point.y, z: point.z }
+        Self {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        }
     }
 }
 
@@ -333,7 +330,7 @@ pub struct W3DView {
     pub queue: Option<Arc<Queue>>,
     pub surface: Option<Arc<Surface>>,
     pub surface_config: Option<SurfaceConfiguration>,
-    
+
     // Camera and view state
     pub camera: CameraState,
     pub viewport: ViewportConfig,
@@ -341,17 +338,17 @@ pub struct W3DView {
     pub projection_matrix: Matrix4<f32>,
     pub view_projection_matrix: Matrix4<f32>,
     pub inverse_view_matrix: Matrix4<f32>,
-    
+
     // Frustum culling
     pub frustum: ViewFrustum,
     pub frustum_dirty: bool,
-    
+
     // Animation and movement
     pub waypoint_info: Option<MoveAlongWaypointPathInfo>,
     pub rotation_info: Option<RotateCameraInfo>,
     pub pitch_info: Option<PitchCameraInfo>,
     pub zoom_info: Option<ZoomCameraInfo>,
-    
+
     // Rendering system
     pub render_queue: RenderQueue,
     pub render_pipeline: Option<Arc<RenderPipeline>>,
@@ -360,22 +357,22 @@ pub struct W3DView {
     pub line_renderer: Option<LineRenderer>,
     pub depth_stencil_texture: Option<Arc<Texture>>,
     pub depth_stencil_view: Option<Arc<TextureView>>,
-    
+
     // Resource management
     pub textures: HashMap<String, Arc<Texture>>,
     pub samplers: HashMap<String, Arc<Sampler>>,
     pub buffers: SlotMap<DefaultKey, Buffer>,
-    
+
     // Performance tracking
     pub metrics: ViewMetrics,
     pub last_frame_time: NetworkInstant,
-    
+
     // State flags
     pub initialized: bool,
     pub needs_redraw: bool,
     pub wireframe_mode: bool,
     pub debug_mode: bool,
-    
+
     // Thread safety
     pub state_lock: Arc<ParkingRwLock<()>>,
 }
@@ -493,9 +490,18 @@ impl W3DView {
 
     /// Render the current scene (lines/effects) to the surface.
     pub fn render_scene(&mut self, scene: &mut W3DScene) -> Result<()> {
-        let device = self.device.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
-        let queue = self.queue.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
-        let surface = self.surface.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
+        let device = self
+            .device
+            .as_ref()
+            .ok_or(W3DViewError::DeviceNotInitialized)?;
+        let queue = self
+            .queue
+            .as_ref()
+            .ok_or(W3DViewError::DeviceNotInitialized)?;
+        let surface = self
+            .surface
+            .as_ref()
+            .ok_or(W3DViewError::DeviceNotInitialized)?;
 
         let frame_time = self.advance_frame_clock();
         scene.update(frame_time.as_secs_f32());
@@ -503,7 +509,9 @@ impl W3DView {
         let output = surface
             .get_current_texture()
             .map_err(|err| W3DViewError::SurfaceConfigError(format!("{err:?}")))?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let depth_stencil_view = self
             .depth_stencil_view
             .as_ref()
@@ -566,8 +574,14 @@ impl W3DView {
 
     /// Load a texture from disk into the view's texture cache.
     pub fn load_texture_from_file(&mut self, name: &str, path: &Path) -> Result<()> {
-        let device = self.device.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
-        let queue = self.queue.as_ref().ok_or(W3DViewError::DeviceNotInitialized)?;
+        let device = self
+            .device
+            .as_ref()
+            .ok_or(W3DViewError::DeviceNotInitialized)?;
+        let queue = self
+            .queue
+            .as_ref()
+            .ok_or(W3DViewError::DeviceNotInitialized)?;
 
         let image = ImageReader::open(path)
             .with_context(|| format!("open texture {:?}", path))?
@@ -623,7 +637,7 @@ impl W3DView {
             self.camera.look_at,
             self.camera.up_vector,
         );
-        
+
         // Calculate projection matrix
         self.projection_matrix = cgmath::perspective(
             self.camera.field_of_view,
@@ -631,23 +645,22 @@ impl W3DView {
             self.camera.near_plane,
             self.camera.far_plane,
         );
-        
+
         // Calculate combined view-projection matrix
         self.view_projection_matrix = self.projection_matrix * self.view_matrix;
-        
+
         // Calculate inverse view matrix for world-space calculations
-        self.inverse_view_matrix = self.view_matrix.invert()
-            .ok_or(W3DViewError::MatrixError)?;
-        
+        self.inverse_view_matrix = self.view_matrix.invert().ok_or(W3DViewError::MatrixError)?;
+
         // Mark frustum as dirty for recalculation
         self.frustum_dirty = true;
-        
+
         // Update uniform buffer if available
         if let (Some(queue), Some(uniform_buffer)) = (&self.queue, &self.uniform_buffer) {
             let matrix_data = bytemuck::cast_slice(&[self.view_projection_matrix]);
             queue.write_buffer(uniform_buffer, 0, matrix_data);
         }
-        
+
         Ok(())
     }
 
@@ -656,9 +669,9 @@ impl W3DView {
         if !self.frustum_dirty {
             return Ok();
         }
-        
+
         let view_proj = self.view_projection_matrix;
-        
+
         // Extract frustum planes from view-projection matrix
         // Left plane: row4 + row1
         self.frustum.planes[0] = FrustumPlane {
@@ -669,7 +682,7 @@ impl W3DView {
             ),
             distance: view_proj.w.w + view_proj.x.w,
         };
-        
+
         // Right plane: row4 - row1
         self.frustum.planes[1] = FrustumPlane {
             normal: Vector3::new(
@@ -679,7 +692,7 @@ impl W3DView {
             ),
             distance: view_proj.w.w - view_proj.x.w,
         };
-        
+
         // Bottom plane: row4 + row2
         self.frustum.planes[2] = FrustumPlane {
             normal: Vector3::new(
@@ -689,7 +702,7 @@ impl W3DView {
             ),
             distance: view_proj.w.w + view_proj.y.w,
         };
-        
+
         // Top plane: row4 - row2
         self.frustum.planes[3] = FrustumPlane {
             normal: Vector3::new(
@@ -699,7 +712,7 @@ impl W3DView {
             ),
             distance: view_proj.w.w - view_proj.y.w,
         };
-        
+
         // Near plane: row4 + row3
         self.frustum.planes[4] = FrustumPlane {
             normal: Vector3::new(
@@ -709,7 +722,7 @@ impl W3DView {
             ),
             distance: view_proj.w.w + view_proj.z.w,
         };
-        
+
         // Far plane: row4 - row3
         self.frustum.planes[5] = FrustumPlane {
             normal: Vector3::new(
@@ -719,7 +732,7 @@ impl W3DView {
             ),
             distance: view_proj.w.w - view_proj.z.w,
         };
-        
+
         // Normalize planes
         for plane in &mut self.frustum.planes {
             let length = plane.normal.magnitude();
@@ -728,7 +741,7 @@ impl W3DView {
                 plane.distance /= length;
             }
         }
-        
+
         self.frustum_dirty = false;
         Ok(())
     }
@@ -767,7 +780,7 @@ impl W3DView {
         // Convert screen coordinates to normalized device coordinates
         let ndc_x = (2.0 * screen_coords.x as f32) / self.viewport.width as f32 - 1.0;
         let ndc_y = 1.0 - (2.0 * screen_coords.y as f32) / self.viewport.height as f32;
-        
+
         // Create ray from camera through screen point
         let ray_start = self.camera.position;
         let ray_end = {
@@ -777,17 +790,18 @@ impl W3DView {
                 .invert()
                 .ok_or(W3DViewError::MatrixError)?;
             let view_coords = inv_projection * clip_coords;
-            let world_coords = self.inverse_view_matrix * Vector4::new(
-                view_coords.x, view_coords.y, -1.0, 0.0
-            );
+            let world_coords =
+                self.inverse_view_matrix * Vector4::new(view_coords.x, view_coords.y, -1.0, 0.0);
             Point3::new(world_coords.x, world_coords.y, world_coords.z)
         };
-        
+
         let ray_direction = (ray_end - ray_start).normalize();
-        
-        // TODO: Implement actual object intersection testing
-        // This would involve testing the ray against all objects in the scene
-        
+
+        // PARITY_NOTE: C++ View::pickObject() uses RenderObjClass::Cast_Ray() to test
+        // ray intersection against all scene objects. Each RenderObjClass implements its own
+        // ray cast (mesh, HLod, etc.). Results are sorted by distance, nearest hit returned.
+        // Full port requires: scene object iteration, per-object Cast_Ray implementations.
+
         Ok(PickResult {
             object_id: None,
             world_position: ray_start + ray_direction * 100.0,
@@ -822,7 +836,7 @@ impl W3DView {
         self.viewport.width = clamped_width;
         self.viewport.height = clamped_height;
         self.camera.aspect_ratio = clamped_width as f32 / clamped_height as f32;
-        
+
         // Reconfigure surface and depth attachment if available
         let surface = self.surface.as_ref().cloned();
         let device = self.device.as_ref().cloned();
@@ -834,7 +848,7 @@ impl W3DView {
             }
             self.create_depth_stencil_resources(&device, clamped_width, clamped_height)?;
         }
-        
+
         self.update_camera_matrices()
     }
 
@@ -849,7 +863,9 @@ impl W3DView {
     /// Add object to render queue
     pub fn add_object_to_queue(&mut self, object_id: u32, is_transparent: bool, distance: f32) {
         if is_transparent {
-            self.render_queue.transparent_objects.push((object_id, distance));
+            self.render_queue
+                .transparent_objects
+                .push((object_id, distance));
         } else {
             self.render_queue.opaque_objects.push(object_id);
         }
@@ -858,8 +874,10 @@ impl W3DView {
     /// Sort render queue for optimal rendering
     pub fn sort_render_queue(&mut self) {
         // Sort transparent objects back-to-front by distance
-        self.render_queue.transparent_objects.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        
+        self.render_queue
+            .transparent_objects
+            .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
         // Opaque objects are typically sorted by material/texture to minimize state changes
         // For now, we'll leave them in insertion order
     }
@@ -876,13 +894,13 @@ impl W3DView {
         self.metrics.draw_calls = 0;
         self.metrics.texture_switches = 0;
         self.metrics.shader_switches = 0;
-        
+
         // Clear render queue
         self.clear_render_queue();
-        
+
         // Update frustum if needed
         self.calculate_frustum()?;
-        
+
         Ok(())
     }
 
@@ -898,12 +916,12 @@ impl W3DView {
     pub fn update(&mut self, delta_time: Duration) -> Result<()> {
         // Update camera animations
         self.update_camera_animations(delta_time)?;
-        
+
         // Update camera matrices if needed
         if self.frustum_dirty {
             self.update_camera_matrices()?;
         }
-        
+
         Ok(())
     }
 
@@ -911,16 +929,18 @@ impl W3DView {
     fn update_camera_animations(&mut self, delta_time: Duration) -> Result<()> {
         let dt_ms = delta_time.as_millis() as u32;
         let mut camera_dirty = false;
-        
+
         // Update waypoint movement
         if let Some(ref mut waypoint_info) = self.waypoint_info {
             waypoint_info.elapsed_time_milliseconds += dt_ms;
-            
+
             if waypoint_info.elapsed_time_milliseconds >= waypoint_info.total_time_milliseconds {
                 // Movement complete
                 if let Some(last) = waypoint_info.waypoints.last() {
-                    self.camera.position = Point3::new(last.position.x, last.position.y, last.position.z);
-                    self.camera.look_at = Point3::new(last.look_at.x, last.look_at.y, last.look_at.z);
+                    self.camera.position =
+                        Point3::new(last.position.x, last.position.y, last.position.z);
+                    self.camera.look_at =
+                        Point3::new(last.look_at.x, last.look_at.y, last.look_at.z);
                     self.camera.yaw = last.camera_angle;
                     camera_dirty = true;
                 }
@@ -931,15 +951,18 @@ impl W3DView {
                     let total_time = waypoint_info.total_time_milliseconds as f32;
                     let elapsed = waypoint_info.elapsed_time_milliseconds as f32;
                     let prev_elapsed = elapsed - dt_ms as f32;
-                    let ease = ParabolicEase::new(waypoint_info.ease_factor, waypoint_info.ease_factor);
+                    let ease =
+                        ParabolicEase::new(waypoint_info.ease_factor, waypoint_info.ease_factor);
                     let delta_time = ease.apply(elapsed / total_time)
                         - ease.apply((prev_elapsed / total_time).clamp(0.0, 1.0));
                     waypoint_info.cur_seg_distance += delta_time * waypoint_info.total_distance;
 
                     while waypoint_info.cur_segment < waypoint_info.way_seg_length.len()
-                        && waypoint_info.cur_seg_distance >= waypoint_info.way_seg_length[waypoint_info.cur_segment]
+                        && waypoint_info.cur_seg_distance
+                            >= waypoint_info.way_seg_length[waypoint_info.cur_segment]
                     {
-                        waypoint_info.cur_seg_distance -= waypoint_info.way_seg_length[waypoint_info.cur_segment];
+                        waypoint_info.cur_seg_distance -=
+                            waypoint_info.way_seg_length[waypoint_info.cur_segment];
                         waypoint_info.cur_segment += 1;
                         if waypoint_info.cur_segment + 1 >= waypoint_count {
                             break;
@@ -953,14 +976,17 @@ impl W3DView {
                         if waypoint_info.cur_shutter <= 0 {
                             waypoint_info.cur_shutter = waypoint_info.shutter;
 
-                            let seg_len = waypoint_info.way_seg_length[waypoint_info.cur_segment].max(0.0001);
+                            let seg_len =
+                                waypoint_info.way_seg_length[waypoint_info.cur_segment].max(0.0001);
                             let mut factor = waypoint_info.cur_seg_distance / seg_len;
                             factor = factor.clamp(0.0, 1.0);
                             let mut factor1 = 1.0 - factor;
                             let factor2 = 1.0 - factor1;
 
-                            let mut angle1 = waypoint_info.waypoints[waypoint_info.cur_segment].camera_angle;
-                            let mut angle2 = waypoint_info.waypoints[waypoint_info.cur_segment + 1].camera_angle;
+                            let mut angle1 =
+                                waypoint_info.waypoints[waypoint_info.cur_segment].camera_angle;
+                            let mut angle2 =
+                                waypoint_info.waypoints[waypoint_info.cur_segment + 1].camera_angle;
                             if angle2 - angle1 > std::f32::consts::PI {
                                 angle1 += 2.0 * std::f32::consts::PI;
                             }
@@ -977,21 +1003,28 @@ impl W3DView {
                                         waypoint_info.waypoints[prev_index].position,
                                         waypoint_info.waypoints[waypoint_info.cur_segment].position,
                                     );
-                                    let mid = waypoint_info.waypoints[waypoint_info.cur_segment].position;
+                                    let mid =
+                                        waypoint_info.waypoints[waypoint_info.cur_segment].position;
                                     let end = midpoint(
                                         waypoint_info.waypoints[waypoint_info.cur_segment].position,
-                                        waypoint_info.waypoints[waypoint_info.cur_segment + 1].position,
+                                        waypoint_info.waypoints[waypoint_info.cur_segment + 1]
+                                            .position,
                                     );
                                     (start, mid, end, factor + 0.5)
                                 } else {
-                                    let next_index = (waypoint_info.cur_segment + 2).min(waypoint_count - 1);
+                                    let next_index =
+                                        (waypoint_info.cur_segment + 2).min(waypoint_count - 1);
                                     let start = midpoint(
                                         waypoint_info.waypoints[waypoint_info.cur_segment].position,
-                                        waypoint_info.waypoints[waypoint_info.cur_segment + 1].position,
+                                        waypoint_info.waypoints[waypoint_info.cur_segment + 1]
+                                            .position,
                                     );
-                                    let mid = waypoint_info.waypoints[waypoint_info.cur_segment + 1].position;
+                                    let mid = waypoint_info.waypoints
+                                        [waypoint_info.cur_segment + 1]
+                                        .position;
                                     let end = midpoint(
-                                        waypoint_info.waypoints[waypoint_info.cur_segment + 1].position,
+                                        waypoint_info.waypoints[waypoint_info.cur_segment + 1]
+                                            .position,
                                         waypoint_info.waypoints[next_index].position,
                                     );
                                     (start, mid, end, factor - 0.5)
@@ -1025,11 +1058,11 @@ impl W3DView {
                 }
             }
         }
-        
+
         // Update rotation animation
         if let Some(ref mut rotation_info) = self.rotation_info {
             rotation_info.cur_frame += 1;
-            
+
             if rotation_info.cur_frame >= rotation_info.num_frames {
                 // Rotation complete
                 self.camera.yaw = rotation_info.end_angle;
@@ -1041,16 +1074,17 @@ impl W3DView {
                 let t = (rotation_info.cur_frame as f32 / denom).clamp(0.0, 1.0);
                 let ease = ParabolicEase::new(rotation_info.ease_factor, rotation_info.ease_factor);
                 let factor = ease.apply(t);
-                self.camera.yaw = lerp_angle(rotation_info.start_angle, rotation_info.end_angle, factor);
+                self.camera.yaw =
+                    lerp_angle(rotation_info.start_angle, rotation_info.end_angle, factor);
                 self.apply_camera_orbit();
                 camera_dirty = true;
             }
         }
-        
+
         // Update pitch animation
         if let Some(ref mut pitch_info) = self.pitch_info {
             pitch_info.cur_frame += 1;
-            
+
             if pitch_info.cur_frame >= pitch_info.num_frames {
                 // Pitch complete
                 self.camera.pitch = pitch_info.end_pitch;
@@ -1067,11 +1101,11 @@ impl W3DView {
                 camera_dirty = true;
             }
         }
-        
+
         // Update zoom animation
         if let Some(ref mut zoom_info) = self.zoom_info {
             zoom_info.cur_frame += 1;
-            
+
             if zoom_info.cur_frame >= zoom_info.num_frames {
                 // Zoom complete
                 self.camera.zoom_factor = zoom_info.end_zoom;
@@ -1092,7 +1126,7 @@ impl W3DView {
         if camera_dirty {
             self.update_camera_matrices()?;
         }
-        
+
         Ok(())
     }
 
@@ -1129,7 +1163,10 @@ impl W3DView {
     /// Enable or disable wireframe rendering mode
     pub fn set_wireframe_mode(&mut self, enabled: bool) {
         self.wireframe_mode = enabled;
-        // TODO: Recreate render pipeline with wireframe mode
+        // PARITY_NOTE: C++ W3DView uses DX8 render state D3DRS_FILLMODE (D3DFILL_WIREFrame/SOLID)
+        // to toggle wireframe. In WGPU, this requires modifying the render pipeline's
+        // polygon_mode to FillMode::Line/Fill. The pipeline must be recreated since
+        // WGPU doesn't allow dynamic fill mode changes on existing pipelines.
     }
 
     /// Enable or disable debug rendering
@@ -1155,7 +1192,7 @@ impl W3DView {
     /// Reset view to default state
     pub fn reset(&mut self) {
         let _lock = self.state_lock.write();
-        
+
         self.camera = CameraState::default();
         self.viewport = ViewportConfig::default();
         self.waypoint_info = None;
@@ -1165,7 +1202,7 @@ impl W3DView {
         self.clear_render_queue();
         self.frustum_dirty = true;
         self.needs_redraw = true;
-        
+
         if self.initialized {
             let _ = self.update_camera_matrices();
         }
@@ -1327,19 +1364,20 @@ impl LineRenderer {
             mapped_at_creation: false,
         });
 
-        let uniform_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("segmented_line_uniform_layout"),
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("segmented_line_uniform_layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let uniform_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("segmented_line_uniform_bind_group"),
@@ -1350,27 +1388,28 @@ impl LineRenderer {
             }],
         });
 
-        let texture_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("segmented_line_texture_layout"),
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("segmented_line_texture_layout"),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("segmented_line_sampler"),
@@ -1550,7 +1589,10 @@ impl LineRenderer {
 
         let (view, label) = if let Some(name) = name {
             if let Some(texture) = textures.get(name) {
-                (texture.create_view(&wgpu::TextureViewDescriptor::default()), name.to_string())
+                (
+                    texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    name.to_string(),
+                )
             } else {
                 (self.white_texture_view.clone(), "__white__".to_string())
             }
@@ -1603,7 +1645,12 @@ fn build_line_vertices(line: &SegmentedLine, camera_dir: Vector3<f32>) -> Vec<Li
     let mut length_accum = 0.0;
     let color = line.get_color();
     let opacity = line.get_opacity();
-    let color_rgba = [color.x * opacity, color.y * opacity, color.z * opacity, opacity];
+    let color_rgba = [
+        color.x * opacity,
+        color.y * opacity,
+        color.z * opacity,
+        opacity,
+    ];
     let half_width = line.get_width() * 0.5;
 
     for (idx, segment_len) in lengths.iter().enumerate() {
@@ -1687,7 +1734,7 @@ mod tests {
     #[test]
     fn test_frustum_culling_calculations() {
         let view = W3DView::new();
-        
+
         // Test point culling
         let test_point = Point3::new(0.0, 0.0, 0.0);
         // Note: frustum won't be valid until matrices are calculated
@@ -1699,7 +1746,7 @@ mod tests {
     fn test_camera_matrix_calculations() {
         let mut view = W3DView::new();
         let result = view.update_camera_matrices();
-        
+
         // Should succeed even without graphics device (for matrix math)
         assert!(result.is_ok());
         assert_ne!(view.view_matrix, Matrix4::identity());
@@ -1709,7 +1756,7 @@ mod tests {
     #[test]
     fn test_viewport_management() {
         let mut view = W3DView::new();
-        
+
         let result = view.set_viewport_size(1920, 1080);
         assert!(result.is_ok());
         assert_eq!(view.viewport.width, 1920);
@@ -1720,16 +1767,16 @@ mod tests {
     #[test]
     fn test_render_queue_management() {
         let mut view = W3DView::new();
-        
+
         view.add_object_to_queue(1, false, 0.0);
         view.add_object_to_queue(2, true, 50.0);
         view.add_object_to_queue(3, true, 25.0);
-        
+
         assert_eq!(view.render_queue.opaque_objects.len(), 1);
         assert_eq!(view.render_queue.transparent_objects.len(), 2);
-        
+
         view.sort_render_queue();
-        
+
         // Transparent objects should be sorted back-to-front
         assert_eq!(view.render_queue.transparent_objects[0].0, 2); // Furthest first
         assert_eq!(view.render_queue.transparent_objects[1].0, 3); // Closer second
@@ -1738,17 +1785,17 @@ mod tests {
     #[test]
     fn test_camera_controls() {
         let mut view = W3DView::new();
-        
+
         let new_position = Point3::new(100.0, 200.0, 300.0);
         let result = view.set_camera_position(new_position);
         assert!(result.is_ok());
         assert_eq!(view.camera.position, new_position);
-        
+
         let new_look_at = Point3::new(50.0, 0.0, 50.0);
         let result = view.set_camera_look_at(new_look_at);
         assert!(result.is_ok());
         assert_eq!(view.camera.look_at, new_look_at);
-        
+
         let new_fov = Deg(75.0);
         let result = view.set_field_of_view(new_fov);
         assert!(result.is_ok());

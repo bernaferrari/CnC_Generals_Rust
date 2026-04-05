@@ -10,9 +10,12 @@
 **  pipeline.
 */
 
-use crate::display::view::with_tactical_view_ref;
+use crate::display::view::{with_tactical_view, with_tactical_view_ref, Point3};
 use crate::game_text::GameText;
-use crate::gui::{get_shell, with_window_manager, WindowLayout, WindowStatus};
+use crate::gui::{
+    get_shell, with_window_manager, HintData, HintType, MouseCursor, MouseMode, WindowLayout,
+    WindowStatus,
+};
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
 use gamelogic::helpers::{
@@ -65,6 +68,19 @@ pub trait InGameUiHooks: Send + Sync {
     fn set_force_attack_mode(&self, enabled: bool);
     fn set_force_move_to_mode(&self, enabled: bool);
     fn set_prefer_selection_mode(&self, enabled: bool);
+    fn is_in_waypoint_mode(&self) -> bool;
+    fn set_waypoint_mode(&self, enabled: bool);
+    fn is_camera_rotating_left(&self) -> bool;
+    fn set_camera_rotate_left(&self, set: bool);
+    fn is_camera_rotating_right(&self) -> bool;
+    fn set_camera_rotate_right(&self, set: bool);
+    fn is_camera_zooming_in(&self) -> bool;
+    fn set_camera_zoom_in(&self, set: bool);
+    fn is_camera_zooming_out(&self) -> bool;
+    fn set_camera_zoom_out(&self, set: bool);
+    fn is_camera_tracking_drawable(&self) -> bool;
+    fn set_camera_tracking_drawable(&self, set: bool);
+    fn get_frame_selection_changed(&self) -> u32;
     fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
         &self,
         _enabled: bool,
@@ -400,6 +416,12 @@ struct InGameUIPlacementState {
     force_attack_mode: bool,
     force_move_to_mode: bool,
     prefer_selection_mode: bool,
+    waypoint_mode: bool,
+    camera_rotating_left: bool,
+    camera_rotating_right: bool,
+    camera_zooming_in: bool,
+    camera_zooming_out: bool,
+    camera_tracking_drawable: bool,
     pending_special_power: Option<PendingSpecialPower>,
     pending_command: Option<PendingCommand>,
 }
@@ -418,6 +440,12 @@ impl Default for InGameUIPlacementState {
             force_attack_mode: false,
             force_move_to_mode: false,
             prefer_selection_mode: false,
+            waypoint_mode: false,
+            camera_rotating_left: false,
+            camera_rotating_right: false,
+            camera_zooming_in: false,
+            camera_zooming_out: false,
+            camera_tracking_drawable: false,
             pending_special_power: None,
             pending_command: None,
         }
@@ -467,6 +495,15 @@ fn popup_message_state() -> Arc<Mutex<PopupMessageState>> {
     POPUP_MESSAGE_STATE.with(|state| state.clone())
 }
 
+thread_local! {
+    static HINT_DATA: Arc<Mutex<Vec<HintData>>> =
+        Arc::new(Mutex::new(Vec::new()));
+}
+
+fn hint_state() -> Arc<Mutex<Vec<HintData>>> {
+    HINT_DATA.with(|state| state.clone())
+}
+
 #[derive(Debug, Clone, Copy)]
 enum CursorType {
     Arrow,
@@ -505,6 +542,10 @@ struct InGameUIStatusState {
     scroll_amount_x: f32,
     scroll_amount_y: f32,
     cursor: CursorType,
+    mouse_cursor: MouseCursor,
+    mouse_mode: MouseMode,
+    mouse_mode_cursor: MouseCursor,
+    moused_over_drawable_id: u32,
     prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
 }
 
@@ -520,6 +561,10 @@ impl Default for InGameUIStatusState {
             scroll_amount_x: 0.0,
             scroll_amount_y: 0.0,
             cursor: CursorType::Arrow,
+            mouse_cursor: MouseCursor::Arrow,
+            mouse_mode: MouseMode::Default,
+            mouse_mode_cursor: MouseCursor::Arrow,
+            moused_over_drawable_id: 0,
             prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
         }
     }
@@ -1312,6 +1357,275 @@ impl TheInGameUI {
             TheGameLogic::set_game_paused(false, data.pause_music);
         }
     }
+
+    pub fn set_mouse_cursor(cursor: MouseCursor) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.mouse_cursor = cursor;
+    }
+
+    pub fn get_mouse_cursor() -> MouseCursor {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.mouse_cursor
+    }
+
+    pub fn set_mouse_mode(mode: MouseMode) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.mouse_mode = mode;
+        if mode != MouseMode::GuiCommand {
+            guard.mouse_mode_cursor = MouseCursor::Arrow;
+        }
+    }
+
+    pub fn get_mouse_mode() -> MouseMode {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.mouse_mode
+    }
+
+    pub fn get_mouse_mode_cursor() -> MouseCursor {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.mouse_mode_cursor
+    }
+
+    pub fn set_moused_over_drawable_id(id: u32) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.moused_over_drawable_id = id;
+    }
+
+    pub fn get_moused_over_drawable_id() -> u32 {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .expect("In-game UI status lock poisoned");
+        guard.moused_over_drawable_id
+    }
+
+    pub fn create_move_hint(
+        start: crate::message_stream::game_message::Coord3D,
+        end: crate::message_stream::game_message::Coord3D,
+        source_id: u32,
+    ) {
+        let hint = HintData {
+            hint_type: HintType::Move,
+            start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
+            end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
+            creation_frame: 0,
+            source_id,
+            lifetime_frames: 60,
+        };
+        let state = hint_state();
+        let mut guard = state.lock().expect("hint state lock poisoned");
+        guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
+        if guard.len() >= 256 {
+            if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
+                guard.remove(pos);
+            }
+        }
+        guard.push(hint);
+    }
+
+    pub fn create_attack_hint(
+        start: crate::message_stream::game_message::Coord3D,
+        end: crate::message_stream::game_message::Coord3D,
+        source_id: u32,
+    ) {
+        let hint = HintData {
+            hint_type: HintType::Attack,
+            start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
+            end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
+            creation_frame: 0,
+            source_id,
+            lifetime_frames: 60,
+        };
+        let state = hint_state();
+        let mut guard = state.lock().expect("hint state lock poisoned");
+        if guard.len() >= 256 {
+            if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
+                guard.remove(pos);
+            }
+        }
+        guard.push(hint);
+    }
+
+    pub fn begin_area_select_hint() {
+        let hint = HintData {
+            hint_type: HintType::AreaSelect,
+            start: gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
+            end: gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
+            creation_frame: 0,
+            source_id: 0,
+            lifetime_frames: 300,
+        };
+        let state = hint_state();
+        let mut guard = state.lock().expect("hint state lock poisoned");
+        guard.push(hint);
+    }
+
+    pub fn end_area_select_hint() {
+        let state = hint_state();
+        let mut guard = state.lock().expect("hint state lock poisoned");
+        if let Some(pos) = guard
+            .iter()
+            .rposition(|h| h.hint_type == HintType::AreaSelect)
+        {
+            guard.remove(pos);
+        }
+    }
+
+    pub fn expire_hints(current_frame: u32) {
+        let state = hint_state();
+        let mut guard = state.lock().expect("hint state lock poisoned");
+        guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames);
+    }
+
+    pub fn clear_hints() {
+        let state = hint_state();
+        let mut guard = state.lock().expect("hint state lock poisoned");
+        guard.clear();
+    }
+
+    pub fn get_hints() -> Vec<HintData> {
+        let state = hint_state();
+        let guard = state.lock().expect("hint state lock poisoned");
+        guard.clone()
+    }
+
+    pub fn is_in_waypoint_mode() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.is_in_waypoint_mode()) {
+            return value;
+        }
+        let guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.waypoint_mode
+    }
+
+    pub fn set_waypoint_mode(enabled: bool) {
+        if with_backend(|backend| backend.set_waypoint_mode(enabled)) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.waypoint_mode = enabled;
+    }
+
+    pub fn is_camera_rotating_left() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.is_camera_rotating_left()) {
+            return value;
+        }
+        let guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_rotating_left
+    }
+
+    pub fn set_camera_rotate_left(set: bool) {
+        if with_backend(|backend| backend.set_camera_rotate_left(set)) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_rotating_left = set;
+    }
+
+    pub fn is_camera_rotating_right() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.is_camera_rotating_right()) {
+            return value;
+        }
+        let guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_rotating_right
+    }
+
+    pub fn set_camera_rotate_right(set: bool) {
+        if with_backend(|backend| backend.set_camera_rotate_right(set)) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_rotating_right = set;
+    }
+
+    pub fn is_camera_zooming_in() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.is_camera_zooming_in()) {
+            return value;
+        }
+        let guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_zooming_in
+    }
+
+    pub fn set_camera_zoom_in(set: bool) {
+        if with_backend(|backend| backend.set_camera_zoom_in(set)) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_zooming_in = set;
+    }
+
+    pub fn is_camera_zooming_out() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.is_camera_zooming_out()) {
+            return value;
+        }
+        let guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_zooming_out
+    }
+
+    pub fn set_camera_zoom_out(set: bool) {
+        if with_backend(|backend| backend.set_camera_zoom_out(set)) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_zooming_out = set;
+    }
+
+    pub fn is_camera_tracking_drawable() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.is_camera_tracking_drawable()) {
+            return value;
+        }
+        let guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_tracking_drawable
+    }
+
+    pub fn set_camera_tracking_drawable(set: bool) {
+        if with_backend(|backend| backend.set_camera_tracking_drawable(set)) {
+            return;
+        }
+        let mut guard = fallback_placement_state()
+            .lock()
+            .expect("In-game UI placement state lock poisoned");
+        guard.camera_tracking_drawable = set;
+    }
+
+    pub fn get_frame_selection_changed() -> u32 {
+        if let Some(value) = with_backend_result(|backend| backend.get_frame_selection_changed()) {
+            return value;
+        }
+        0
+    }
 }
 
 /// Minimal stand-in for classic `TheControlBar` singleton.
@@ -1393,5 +1707,152 @@ impl TheControlBar {
     pub fn get_observer_look_at_player_index() -> Option<i32> {
         with_control_bar_backend_result(|backend| backend.get_observer_look_at_player_index())
             .flatten()
+    }
+}
+
+pub struct TacticalViewBridge;
+
+impl TacticalViewBridge {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl gamelogic::helpers::CameraViewBridge for TacticalViewBridge {
+    fn set_camera_lock(&self, id: Option<u32>) {
+        with_tactical_view(|v| v.set_camera_lock(id));
+    }
+    fn set_snap_mode(&self, lock_type: i32, distance: f32) {
+        use crate::display::view::CameraLockType;
+        let lt = match lock_type {
+            0 => CameraLockType::Follow,
+            _ => CameraLockType::Tether,
+        };
+        with_tactical_view(|v| v.set_snap_mode(lt, distance));
+    }
+    fn snap_to_camera_lock(&self) {
+        with_tactical_view(|v| v.snap_to_camera_lock());
+    }
+    fn move_camera_to(
+        &self,
+        x: f32,
+        y: f32,
+        z: f32,
+        ms: i32,
+        shutter: i32,
+        enabled: bool,
+        ease_in: f32,
+        ease_out: f32,
+    ) {
+        let target = Point3::new(x, y, z);
+        with_tactical_view(|v| v.move_camera_to(&target, ms, shutter, enabled, ease_in, ease_out));
+    }
+    fn zoom_camera(&self, zoom: f32, ms: i32, ease_in: f32, ease_out: f32) {
+        with_tactical_view(|v| v.zoom_camera(zoom, ms, ease_in, ease_out));
+    }
+    fn pitch_camera(&self, pitch: f32, ms: i32, ease_in: f32, ease_out: f32) {
+        with_tactical_view(|v| v.pitch_camera(pitch, ms, ease_in, ease_out));
+    }
+    fn rotate_camera(&self, rotations: f32, ms: i32, ease_in: f32, ease_out: f32) {
+        with_tactical_view(|v| v.rotate_camera(rotations, ms, ease_in, ease_out));
+    }
+    fn camera_mod_look_toward(&self, x: f32, y: f32, z: f32) {
+        let target = Point3::new(x, y, z);
+        with_tactical_view(|v| v.camera_mod_look_toward(&target));
+    }
+    fn camera_mod_final_look_toward(&self, x: f32, y: f32, z: f32) {
+        let target = Point3::new(x, y, z);
+        with_tactical_view(|v| v.camera_mod_final_look_toward(&target));
+    }
+    fn camera_mod_final_pitch(&self, pitch: f32, ease_in: f32, ease_out: f32) {
+        with_tactical_view(|v| v.camera_mod_final_pitch(pitch, ease_in, ease_out));
+    }
+    fn camera_mod_final_zoom(&self, zoom: f32, ease_in: f32, ease_out: f32) {
+        with_tactical_view(|v| v.camera_mod_final_zoom(zoom, ease_in, ease_out));
+    }
+    fn camera_mod_freeze_time(&self) {
+        with_tactical_view(|v| v.camera_mod_freeze_time());
+    }
+    fn camera_mod_freeze_angle(&self) {
+        with_tactical_view(|v| v.camera_mod_freeze_angle());
+    }
+    fn set_default_view(&self, pitch: f32, angle: f32, max_height: f32) {
+        with_tactical_view(|v| v.set_default_view(pitch, angle, max_height));
+    }
+    fn reset_camera(&self, x: f32, y: f32, z: f32, ms: i32, ease_in: f32, ease_out: f32) {
+        let target = Point3::new(x, y, z);
+        with_tactical_view(|v| v.reset_camera(&target, ms, ease_in, ease_out));
+    }
+    fn look_at(&self, x: f32, y: f32, z: f32) {
+        let target = Point3::new(x, y, z);
+        with_tactical_view(|v| v.look_at(&target));
+    }
+    fn set_view_filter(&self, filter_type: i32) -> bool {
+        use crate::display::view::FilterType;
+        let ft = match filter_type {
+            1 => FilterType::BlackAndWhite,
+            2 => FilterType::Crossfade,
+            3 => FilterType::MotionBlur,
+            _ => FilterType::Null,
+        };
+        with_tactical_view(|v| v.set_view_filter(ft))
+    }
+    fn set_view_filter_mode(&self, mode: i32) -> bool {
+        use crate::display::view::FilterMode;
+        let fm = match mode {
+            1 => FilterMode::BWBlackAndWhite,
+            2 => FilterMode::BWRedAndWhite,
+            3 => FilterMode::BWGreenAndWhite,
+            4 => FilterMode::CrossfadeFbMask,
+            5 => FilterMode::MBInAndOutAlpha,
+            6 => FilterMode::MBInAndOutSaturate,
+            7 => FilterMode::MBInAlpha,
+            8 => FilterMode::MBOutAlpha,
+            9 => FilterMode::MBInSaturate,
+            10 => FilterMode::MBOutSaturate,
+            11 => FilterMode::MBEndPanAlpha,
+            12 => FilterMode::MBPanAlpha,
+            13 => FilterMode::MBPanAlpha1,
+            14 => FilterMode::MBPanAlpha2,
+            _ => FilterMode::MBPanAlpha3,
+        };
+        with_tactical_view(|v| v.set_view_filter_mode(fm))
+    }
+    fn set_view_filter_pos(&self, x: f32, y: f32, z: f32) {
+        let pos = Point3::new(x, y, z);
+        with_tactical_view(|v| v.set_view_filter_pos(&pos));
+    }
+    fn rotate_camera_toward_object(
+        &self,
+        object_id: u32,
+        milliseconds: i32,
+        hold_milliseconds: i32,
+        ease_in: f32,
+        ease_out: f32,
+    ) {
+        with_tactical_view(|v| {
+            v.rotate_camera_toward_object(
+                object_id,
+                milliseconds,
+                hold_milliseconds,
+                ease_in,
+                ease_out,
+            )
+        });
+    }
+    fn rotate_camera_toward_position(
+        &self,
+        x: f32,
+        y: f32,
+        z: f32,
+        milliseconds: i32,
+        ease_in: f32,
+        ease_out: f32,
+        reverse: bool,
+    ) {
+        let pos = Point3::new(x, y, z);
+        with_tactical_view(|v| {
+            v.rotate_camera_toward_position(&pos, milliseconds, ease_in, ease_out, reverse)
+        });
     }
 }

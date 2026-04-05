@@ -10,7 +10,7 @@
 //! - Performance settings
 //! - Chunk importance
 
-use cgmath::{Point3, Vector3, InnerSpace};
+use cgmath::{InnerSpace, Point3, Vector3};
 
 /// Terrain LOD levels matching C++ `TerrainVisual.h` `_TerrainLOD`
 /// Keep the numeric discriminants in sync with `TerrainLODNames[]`.
@@ -70,7 +70,10 @@ impl TerrainLOD {
     pub fn use_cloud_map(&self) -> bool {
         matches!(
             self,
-            TerrainLOD::HalfClouds | TerrainLOD::StretchClouds | TerrainLOD::NoWater | TerrainLOD::Max
+            TerrainLOD::HalfClouds
+                | TerrainLOD::StretchClouds
+                | TerrainLOD::NoWater
+                | TerrainLOD::Max
         )
     }
 
@@ -78,7 +81,10 @@ impl TerrainLOD {
     pub fn use_light_map(&self) -> bool {
         matches!(
             self,
-            TerrainLOD::HalfClouds | TerrainLOD::StretchClouds | TerrainLOD::NoWater | TerrainLOD::Max
+            TerrainLOD::HalfClouds
+                | TerrainLOD::StretchClouds
+                | TerrainLOD::NoWater
+                | TerrainLOD::Max
         )
     }
 
@@ -89,7 +95,10 @@ impl TerrainLOD {
 
     /// Should use stretched terrain (lower vertex resolution)
     pub fn use_stretched_terrain(&self) -> bool {
-        matches!(self, TerrainLOD::StretchNoClouds | TerrainLOD::StretchClouds)
+        matches!(
+            self,
+            TerrainLOD::StretchNoClouds | TerrainLOD::StretchClouds
+        )
     }
 
     /// Should use half height map resolution
@@ -229,20 +238,20 @@ impl TerrainLODManager {
     /// Higher LOD = more vertices skipped
     pub fn get_vertex_skip_factor(lod: u32) -> usize {
         match lod {
-            0 => 1,  // No skip (full detail)
-            1 => 2,  // Skip every other vertex
-            2 => 4,  // Skip 3 out of 4 vertices
-            _ => 8,  // Skip 7 out of 8 vertices
+            0 => 1, // No skip (full detail)
+            1 => 2, // Skip every other vertex
+            2 => 4, // Skip 3 out of 4 vertices
+            _ => 8, // Skip 7 out of 8 vertices
         }
     }
 
     /// Calculate triangle budget for LOD level
     pub fn get_triangle_budget(lod: u32) -> usize {
         match lod {
-            0 => 2048,  // Maximum triangles
-            1 => 1024,  // Half
-            2 => 512,   // Quarter
-            _ => 256,   // Eighth
+            0 => 2048, // Maximum triangles
+            1 => 1024, // Half
+            2 => 512,  // Quarter
+            _ => 256,  // Eighth
         }
     }
 

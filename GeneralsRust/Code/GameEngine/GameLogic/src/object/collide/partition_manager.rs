@@ -5,7 +5,9 @@
 //!
 //! Matches C++ PartitionManager.cpp spatial partitioning system
 
-use super::collision_geometry::{CollideInfo, GeometryInfo};
+use super::collision_geometry::{
+    collide_test_dispatch, CollideInfo, CollideLocAndNormal, GeometryInfo,
+};
 use super::{CollisionError, Coord3D, GameObject, ObjectId};
 use crate::common::Relationship;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -130,6 +132,10 @@ struct TerrainExtremeAccum {
 /// Matches C++ PARTITION_CELL_SIZE
 const PARTITION_CELL_SIZE: f32 = 100.0;
 
+/// Maximum number of players in the game.
+/// Matches C++ `MAX_PLAYER_COUNT` from GameCommon.h.
+const MAX_PLAYER_COUNT: usize = 16;
+
 /// Maximum objects per cell before subdivision warning
 const MAX_OBJECTS_PER_CELL: usize = 64;
 
@@ -179,11 +185,14 @@ impl CellCoord {
     }
 }
 
-/// Partition cell containing objects
+/// Partition cell containing objects and per-player threat/cash values.
+/// Matches C++ `PartitionManager::PartitionCell`.
 #[derive(Debug)]
 struct PartitionCell {
     objects: HashSet<ObjectId>,
     dirty: bool,
+    threat_value: [u32; MAX_PLAYER_COUNT],
+    cash_value: [u32; MAX_PLAYER_COUNT],
 }
 
 impl PartitionCell {
@@ -191,6 +200,8 @@ impl PartitionCell {
         Self {
             objects: HashSet::new(),
             dirty: false,
+            threat_value: [0u32; MAX_PLAYER_COUNT],
+            cash_value: [0u32; MAX_PLAYER_COUNT],
         }
     }
 
@@ -217,6 +228,40 @@ impl PartitionCell {
 
     fn len(&self) -> usize {
         self.objects.len()
+    }
+
+    fn get_threat_value(&self, player_index: usize) -> u32 {
+        self.threat_value.get(player_index).copied().unwrap_or(0)
+    }
+
+    fn get_cash_value(&self, player_index: usize) -> u32 {
+        self.cash_value.get(player_index).copied().unwrap_or(0)
+    }
+
+    fn add_threat_value(&mut self, player_index: usize, amount: u32) {
+        if player_index < MAX_PLAYER_COUNT {
+            self.threat_value[player_index] =
+                self.threat_value[player_index].saturating_add(amount);
+        }
+    }
+
+    fn remove_threat_value(&mut self, player_index: usize, amount: u32) {
+        if player_index < MAX_PLAYER_COUNT {
+            self.threat_value[player_index] =
+                self.threat_value[player_index].saturating_sub(amount);
+        }
+    }
+
+    fn add_cash_value(&mut self, player_index: usize, amount: u32) {
+        if player_index < MAX_PLAYER_COUNT {
+            self.cash_value[player_index] = self.cash_value[player_index].saturating_add(amount);
+        }
+    }
+
+    fn remove_cash_value(&mut self, player_index: usize, amount: u32) {
+        if player_index < MAX_PLAYER_COUNT {
+            self.cash_value[player_index] = self.cash_value[player_index].saturating_sub(amount);
+        }
     }
 }
 
@@ -740,7 +785,7 @@ impl PartitionManager {
                     ) {
                         let relationship = rel_handle.get_relationship(&other_handle);
 
-                        let is_enemy = relationship == Relationship::Enemy;
+                        let is_enemy = relationship == Relationship::Enemies;
                         let is_ally_or_neutral = !is_enemy;
 
                         // Check if the other is a unit (infantry or vehicle)
@@ -1047,23 +1092,14 @@ impl PartitionManager {
         for (&cell_coord, cell) in &self.cells {
             let mut cell_value: i32 = 0;
 
-            for &obj_id in &cell.objects {
-                // Determine if this object belongs to an allowed player.
-                let handle = OBJECT_REGISTRY.get_object(obj_id)?;
-                // The C++ uses player masks stored per-cell; we approximate
-                // by checking the object's player mask bits.
-                let obj_player = handle.get_controlling_player();
-                let obj_mask = 1u32 << obj_player.value();
-                if (obj_mask & allowed_player_mask) == 0 {
+            for player_idx in 0..MAX_PLAYER_COUNT {
+                let mask = 1u32 << player_idx;
+                if (mask & allowed_player_mask) == 0 {
                     continue;
                 }
-
-                // Use a simple heuristic: each object contributes a base
-                // value.  A full implementation would use the cell's
-                // stored threat/cash value as computed by the AI.
                 let contribution = match val_type {
-                    ValueOrThreat::CashValue => 10,  // placeholder
-                    ValueOrThreat::ThreatValue => 5, // placeholder
+                    ValueOrThreat::CashValue => cell.get_cash_value(player_idx) as i32,
+                    ValueOrThreat::ThreatValue => cell.get_threat_value(player_idx) as i32,
                 };
                 cell_value += contribution;
             }
@@ -1116,17 +1152,14 @@ impl PartitionManager {
             let mut value: i32 = 0;
 
             if let Some(cell) = self.cells.get(&cell_coord) {
-                for &obj_id in &cell.objects {
-                    if let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) {
-                        let player = handle.get_controlling_player();
-                        let mask = 1u32 << player.value();
-                        if (mask & query.allowed_player_mask) != 0 {
-                            let contrib = match query.value_type {
-                                ValueOrThreat::CashValue => 10,
-                                ValueOrThreat::ThreatValue => 5,
-                            };
-                            value += contrib;
-                        }
+                for player_idx in 0..MAX_PLAYER_COUNT {
+                    let mask = 1u32 << player_idx;
+                    if (mask & query.allowed_player_mask) != 0 {
+                        let contrib = match query.value_type {
+                            ValueOrThreat::CashValue => cell.get_cash_value(player_idx) as i32,
+                            ValueOrThreat::ThreatValue => cell.get_threat_value(player_idx) as i32,
+                        };
+                        value += contrib;
                     }
                 }
             }
@@ -1235,6 +1268,292 @@ impl PartitionManager {
             accum.min_z_pos.unwrap_or((0.0, 0.0)),
             accum.max_z_pos.unwrap_or((0.0, 0.0)),
         ))
+    }
+
+    // ------------------------------------------------------------------
+    // do_threat_affect / do_value_affect
+    //     (C++ PartitionManager::doThreatAffect / doValueAffect)
+    // ------------------------------------------------------------------
+
+    /// Distribute `threat_value` from `player_index` across cells within
+    /// `radius` of world position `(cx, cy)`, applying linear distance
+    /// falloff: `cell_addition = value * clamp(1.0 - dist/radius, 0, 1)`.
+    ///
+    /// Matches C++ `PartitionManager::doThreatAffect`.
+    pub fn do_threat_affect(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        player_index: usize,
+        threat_value: u32,
+    ) {
+        self.distribute_cell_value(cx, cy, radius, player_index, threat_value, true);
+    }
+
+    /// Distribute `cash_value` from `player_index` across cells within
+    /// `radius` of world position `(cx, cy)`, applying linear distance
+    /// falloff: `cell_addition = value * clamp(1.0 - dist/radius, 0, 1)`.
+    ///
+    /// Matches C++ `PartitionManager::doValueAffect`.
+    pub fn do_value_affect(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        player_index: usize,
+        cash_value: u32,
+    ) {
+        self.distribute_cell_value(cx, cy, radius, player_index, cash_value, false);
+    }
+
+    pub fn remove_threat_affect(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        player_index: usize,
+        threat_value: u32,
+    ) {
+        self.distribute_cell_value_removal(cx, cy, radius, player_index, threat_value, true);
+    }
+
+    pub fn remove_value_affect(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        player_index: usize,
+        cash_value: u32,
+    ) {
+        self.distribute_cell_value_removal(cx, cy, radius, player_index, cash_value, false);
+    }
+
+    fn distribute_cell_value(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        player_index: usize,
+        value: u32,
+        is_threat: bool,
+    ) {
+        if radius <= 0.0 || value == 0 || player_index >= MAX_PLAYER_COUNT {
+            return;
+        }
+
+        let cell_radius = (radius / PARTITION_CELL_SIZE).ceil() as i32;
+        let center_cell = CellCoord::from_world_pos(&Coord3D::new(cx, cy, 0.0));
+
+        for dx in -cell_radius..=cell_radius {
+            for dy in -cell_radius..=cell_radius {
+                let cell_coord = CellCoord {
+                    x: center_cell.x + dx,
+                    y: center_cell.y + dy,
+                };
+
+                let cell_cx = cell_coord.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
+                let cell_cy = cell_coord.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
+
+                let dist = ((cell_cx - cx).hypot(cell_cy - cy)).max(0.0);
+                let mul_val = (1.0 - dist / radius).clamp(0.0, 1.0);
+                let cell_addition = (value as f32 * mul_val) as u32;
+
+                if cell_addition == 0 {
+                    continue;
+                }
+
+                let cell = self
+                    .cells
+                    .entry(cell_coord)
+                    .or_insert_with(PartitionCell::new);
+                if is_threat {
+                    cell.add_threat_value(player_index, cell_addition);
+                } else {
+                    cell.add_cash_value(player_index, cell_addition);
+                }
+            }
+        }
+    }
+
+    fn distribute_cell_value_removal(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        player_index: usize,
+        value: u32,
+        is_threat: bool,
+    ) {
+        if radius <= 0.0 || value == 0 || player_index >= MAX_PLAYER_COUNT {
+            return;
+        }
+
+        let cell_radius = (radius / PARTITION_CELL_SIZE).ceil() as i32;
+        let center_cell = CellCoord::from_world_pos(&Coord3D::new(cx, cy, 0.0));
+
+        for dx in -cell_radius..=cell_radius {
+            for dy in -cell_radius..=cell_radius {
+                let cell_coord = CellCoord {
+                    x: center_cell.x + dx,
+                    y: center_cell.y + dy,
+                };
+
+                let cell_cx = cell_coord.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
+                let cell_cy = cell_coord.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
+
+                let dist = ((cell_cx - cx).hypot(cell_cy - cy)).max(0.0);
+                let mul_val = (1.0 - dist / radius).clamp(0.0, 1.0);
+                let cell_addition = (value as f32 * mul_val) as u32;
+
+                if cell_addition == 0 {
+                    continue;
+                }
+
+                if let Some(cell) = self.cells.get_mut(&cell_coord) {
+                    if is_threat {
+                        cell.remove_threat_value(player_index, cell_addition);
+                    } else {
+                        cell.remove_cash_value(player_index, cell_addition);
+                    }
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // geom_collides_with_geom
+    //     (C++ PartitionManager::geomCollidesWithGeom)
+    // ------------------------------------------------------------------
+
+    /// Check if a geometry collides with another geometry.
+    /// Uses one-sided Z check (assumes ground-level objects).
+    /// Matches C++ PartitionManager::geomCollidesWithGeom (PartitionManager.cpp:1964)
+    pub fn geom_collides_with_geom(
+        &self,
+        pos1: &Coord3D,
+        geom1: &GeometryInfo,
+        angle1: f32,
+        pos2: &Coord3D,
+        geom2: &GeometryInfo,
+        angle2: f32,
+    ) -> bool {
+        let this_info = CollideInfo::new(*pos1, *geom1, angle1);
+        let that_info = CollideInfo::new(*pos2, *geom2, angle2);
+
+        // One-sided Z check: thisTop >= thatZ && thisZ <= thatTop
+        if this_info.position.z + this_info.geom.get_max_height_above_position()
+            >= that_info.position.z
+            && this_info.position.z
+                <= that_info.position.z + that_info.geom.get_max_height_above_position()
+        {
+            let mut cloc =
+                CollideLocAndNormal::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0));
+            return collide_test_dispatch(
+                geom1.get_geom_type(),
+                geom2.get_geom_type(),
+                &this_info,
+                &that_info,
+                Some(&mut cloc),
+            );
+        }
+
+        false
+    }
+
+    // ------------------------------------------------------------------
+    // is_colliding
+    //     (C++ PartitionManager::isColliding)
+    // ------------------------------------------------------------------
+
+    /// Check if two registered objects are colliding.
+    /// Uses full AABB Z check.
+    /// Matches C++ PartitionManager::isColliding (PartitionManager.cpp:3629)
+    pub fn is_colliding(&self, id_a: ObjectId, id_b: ObjectId) -> bool {
+        let obj_a = match self.objects.get(&id_a) {
+            Some(o) => o,
+            None => return false,
+        };
+        let obj_b = match self.objects.get(&id_b) {
+            Some(o) => o,
+            None => return false,
+        };
+
+        let this_info = CollideInfo::new(obj_a.position, obj_a.geometry, 0.0);
+        let that_info = CollideInfo::new(obj_b.position, obj_b.geometry, 0.0);
+
+        let this_top = this_info.position.z + this_info.geom.get_max_height_above_position();
+        let this_bot = this_info.position.z - this_info.geom.get_max_height_below_position();
+        let that_top = that_info.position.z + that_info.geom.get_max_height_above_position();
+        let that_bot = that_info.position.z - that_info.geom.get_max_height_below_position();
+
+        if this_top >= that_bot && this_bot <= that_top {
+            return collide_test_dispatch(
+                this_info.geom.get_geom_type(),
+                that_info.geom.get_geom_type(),
+                &this_info,
+                &that_info,
+                None,
+            );
+        }
+
+        false
+    }
+
+    // ------------------------------------------------------------------
+    // get_ground_or_structure_height
+    //     (C++ PartitionManager::getGroundOrStructureHeight)
+    // ------------------------------------------------------------------
+
+    /// Get ground height plus tallest structure height at a position.
+    /// Matches C++ PartitionManager::getGroundOrStructureHeight (PartitionManager.cpp:4674)
+    pub fn get_ground_or_structure_height(&self, posx: f32, posy: f32) -> f32 {
+        let terrain_height = if let Ok(terrain) = get_terrain_logic().read() {
+            terrain.get_ground_height(posx, posy, None)
+        } else {
+            0.0
+        };
+
+        const RANGE: f32 = 1.0;
+        let pos = Coord3D::new(posx, posy, terrain_height);
+
+        let mut tallest_height: f32 = 0.0;
+
+        let center_cell = CellCoord::from_world_pos(&pos);
+        for cell_coord in center_cell.neighbors() {
+            if let Some(cell) = self.cells.get(&cell_coord) {
+                for &obj_id in &cell.objects {
+                    if let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) {
+                        let guard = handle.read().ok();
+                        let is_structure = guard
+                            .as_ref()
+                            .map(|g| g.is_kind_of(crate::common::KindOf::Structure))
+                            .unwrap_or(false);
+                        if !is_structure {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    if let Some(pobj) = self.objects.get(&obj_id) {
+                        let dx = pobj.position.x - pos.x;
+                        let dy = pobj.position.y - pos.y;
+                        let dist_2d = (dx * dx + dy * dy).sqrt();
+                        let bounding_r = pobj.geometry.get_major_radius();
+
+                        if dist_2d - bounding_r <= RANGE {
+                            let this_height = pobj.geometry.get_max_height_above_position();
+                            if this_height > tallest_height {
+                                tallest_height = this_height;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        terrain_height + tallest_height
     }
 
     /// Clear all data

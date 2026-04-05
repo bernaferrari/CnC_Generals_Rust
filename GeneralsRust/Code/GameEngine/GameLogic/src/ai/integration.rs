@@ -236,6 +236,20 @@ impl IntegratedAiPlayer {
             }
         }
     }
+
+    pub fn is_supply_source_safe(&self, min_supplies: i32) -> bool {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player.is_supply_source_safe(min_supplies),
+            IntegratedAiPlayer::Skirmish(player) => player.is_supply_source_safe(min_supplies),
+        }
+    }
+
+    pub fn is_supply_source_attacked(&self) -> bool {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player.is_supply_source_attacked(),
+            IntegratedAiPlayer::Skirmish(player) => player.is_supply_source_attacked(),
+        }
+    }
 }
 
 /// AI Integration Manager - Coordinates all AI subsystems
@@ -418,6 +432,14 @@ impl AiIntegrationManager {
         F: FnOnce(&mut IntegratedAiPlayer) -> R,
     {
         let ai_player = self.ai_players.get_mut(&player_id)?;
+        Some(f(ai_player))
+    }
+
+    pub fn with_ai_player<F, R>(&self, player_id: u32, f: F) -> Option<R>
+    where
+        F: FnOnce(&IntegratedAiPlayer) -> R,
+    {
+        let ai_player = self.ai_players.get(&player_id)?;
         Some(f(ai_player))
     }
 

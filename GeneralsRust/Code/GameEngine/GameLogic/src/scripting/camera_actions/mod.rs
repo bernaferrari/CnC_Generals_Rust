@@ -7,60 +7,53 @@
 
 use async_trait::async_trait;
 use super::{ScriptContext, ScriptResult, ScriptValue};
-use super::actions::ExecutableScriptAction;
+use super::actions::ScriptAction;
 use crate::common::{AsciiString, Coord3D, Real, INVALID_OBJECT_ID, INVALID_ID};
-use crate::helpers::TheGameLogic;
-use crate::scripting::engine::get_script_engine;
+use crate::helpers::{get_camera_view_bridge, TheGameLogic};
+use crate::scripting::engine::get_named_object_tracker;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};
 use std::collections::HashMap;
 
-/// Placeholder tactical view - will be replaced with actual game client access
-struct TacticalView;
+// Local type definitions — GameLogic cannot import GameClient's View types, so we
+// define matching enum values here.  Integer discriminants must match the C++
+// ordering and the real Rust enums in GameClient/src/display/view.rs.
 
-impl TacticalView {
-    pub fn set_camera_lock(&mut self, _id: Option<u32>) {}
-    pub fn set_snap_mode(&mut self, _lock_type: LockType, _distance: f32) {}
-    pub fn snap_to_camera_lock(&mut self) {}
-    pub fn move_camera_to(&mut self, _target: &Point3, _ms: i32, _stutter: i32, _enabled: bool, _ease_in: i32, _ease_out: i32) {}
-    pub fn zoom_camera(&mut self, _zoom: f32, _ms: i32, _ease_in: i32, _ease_out: i32) {}
-    pub fn pitch_camera(&mut self, _pitch: f32, _ms: i32, _ease_in: i32, _ease_out: i32) {}
-    pub fn rotate_camera(&mut self, _rotations: f32, _ms: i32, _ease_in: i32, _ease_out: i32) {}
-    pub fn camera_mod_look_toward(&mut self, _target: &Point3) {}
-    pub fn camera_mod_final_look_toward(&mut self, _target: &Point3) {}
-    pub fn camera_mod_final_pitch(&mut self, _pitch: f32, _ease_in: f32, _ease_out: f32) {}
-    pub fn camera_mod_final_zoom(&mut self, _zoom: f32, _ease_in: f32, _ease_out: f32) {}
-    pub fn camera_mod_freeze_time(&mut self) {}
-    pub fn camera_mod_freeze_angle(&mut self) {}
-    pub fn set_default_view(&mut self, _pitch: f32, _angle: f32, _max_height: f32) {}
-    pub fn reset_camera(&mut self, _location: &Point3, _ms: i32, _ease_in: i32, _ease_out: i32) {}
-    pub fn look_at(&mut self, _target: &Point3) {}
-    pub fn set_view_filter(&mut self, _filter_type: FilterType) -> bool { false }
-    pub fn set_view_filter_mode(&mut self, _mode: FilterMode) {}
-    pub fn set_view_filter_pos(&mut self, _pos: &Point3) {}
-}
-
+/// Camera lock mode.  Matches `CameraLockType` in view.rs.
+#[repr(i32)]
 enum LockType {
-    Follow,
-    Tether,
+    Follow = 0,
+    Tether = 1,
 }
 
+/// Viewport post-process filter type.  Matches `FilterType` in view.rs.
+#[repr(i32)]
 enum FilterType {
-    MotionBlur,
+    Null = 0,
+    BlackAndWhite = 1,
+    Crossfade = 2,
+    MotionBlur = 3,
 }
 
+/// Viewport post-process filter mode.  Matches `FilterMode` in view.rs.
+#[repr(i32)]
 enum FilterMode {
-    MBInAlpha,
-    MBOutAlpha,
-    MBInSaturate,
-    MBOutSaturate,
-    MBInAndOutAlpha,
-    MBInAndOutSaturate,
-    MBEndPanAlpha,
-    MBPanAlpha,
-    MBPanAlpha1,
-    MBPanAlpha2,
-    MBPanAlpha3,
+    Null = 0,
+    BWBlackAndWhite = 1,
+    BWRedAndWhite = 2,
+    BWGreenAndWhite = 3,
+    CrossfadeFbMask = 4,
+    MBInAndOutAlpha = 5,
+    MBInAndOutSaturate = 6,
+    MBInAlpha = 7,
+    MBOutAlpha = 8,
+    MBInSaturate = 9,
+    MBOutSaturate = 10,
+    MBEndPanAlpha = 11,
+    MBPanAlpha = 12,
+    MBPanAlpha1 = 13,
+    MBPanAlpha2 = 14,
+    MBPanAlpha3 = 15,
 }
 
 impl FilterMode {
@@ -86,38 +79,28 @@ impl Point3 {
     }
 }
 
-/// Helper to get the tactical view (camera)
-fn get_tactical_view() -> GameLogicResult<TacticalView> {
-    // This would get the actual tactical view from the game client
-    // For now, we'll return a placeholder
-    Ok(TacticalView)
+/// Resolve the camera view bridge.  Returns an error when no bridge is
+/// registered (i.e. GameClient has not set one up yet).
+fn get_tactical_view() -> GameLogicResult<&'static dyn crate::helpers::CameraViewBridge> {
+    get_camera_view_bridge()
+        .map(|arc| arc.as_ref())
+        .ok_or_else(|| GameLogicError::Configuration("Camera view bridge not registered".into()))
 }
 
 /// Helper to find a waypoint by name
 fn find_waypoint(name: &str) -> GameLogicResult<Option<Coord3D>> {
     let terrain_logic = get_terrain_logic();
     let terrain = terrain_logic.read().map_err(|e| {
-        GameLogicError::Other(format!("Failed to acquire terrain lock: {}", e))
+        GameLogicError::Configuration(format!("Failed to acquire terrain lock: {}", e))
     })?;
 
-    // Find waypoint by name
-    for waypoint in terrain.get_waypoints() {
-        if waypoint.get_name() == name {
-            return Ok(Some(*waypoint.get_location()));
-        }
-    }
-
-    Ok(None)
+    let ascii_name = AsciiString::from(name);
+    Ok(terrain.get_waypoint_by_name(&ascii_name).map(|wp| *wp.get_location()))
 }
 
-/// Helper to find a named object
 fn find_named_object(name: &str) -> GameLogicResult<Option<u32>> {
-    let script_engine = get_script_engine();
-    let engine = script_engine.read().map_err(|e| {
-        GameLogicError::Other(format!("Failed to acquire script engine lock: {}", e))
-    })?;
-
-    Ok(engine.get_named_object_id(name))
+    let tracker = get_named_object_tracker();
+    tracker.get_object_id(name)
 }
 
 //=============================================================================
@@ -131,7 +114,7 @@ fn find_named_object(name: &str) -> GameLogicResult<Option<u32>> {
 pub struct CameraFollowNamedAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraFollowNamedAction {
+impl ScriptAction for CameraFollowNamedAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -140,7 +123,7 @@ impl ExecutableScriptAction for CameraFollowNamedAction {
         let unit_name = parameters
             .get("unit")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("unit parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("unit parameter required".into()))?;
 
         let snap_to_unit = parameters
             .get("snap")
@@ -150,19 +133,19 @@ impl ExecutableScriptAction for CameraFollowNamedAction {
         // Find the object
         let object_id = find_named_object(unit_name)?;
         if object_id.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         // Get the tactical view and set camera lock
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.set_camera_lock(object_id);
-        view.set_snap_mode(LockType::Follow, 0.0);
+        view.set_snap_mode(LockType::Follow as i32, 0.0);
 
         if snap_to_unit {
             view.snap_to_camera_lock();
         }
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -189,7 +172,7 @@ impl ExecutableScriptAction for CameraFollowNamedAction {
 pub struct CameraMoveToAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMoveToAction {
+impl ScriptAction for CameraMoveToAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -198,7 +181,7 @@ impl ExecutableScriptAction for CameraMoveToAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -223,24 +206,24 @@ impl ExecutableScriptAction for CameraMoveToAction {
         // Find the waypoint
         let destination = find_waypoint(waypoint_name)?;
         if destination.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let dest = destination.unwrap();
         let point = Point3::new(dest.x, dest.y, dest.z);
 
         // Move camera to waypoint
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.move_camera_to(
-            &point,
+            point.x, point.y, point.z,
             (sec * 1000.0) as i32,
             (camera_stutter_sec * 1000.0) as i32,
             true,
-            (ease_in * 1000.0) as i32,
-            (ease_out * 1000.0) as i32,
+            (ease_in * 1000.0) as f32,
+            (ease_out * 1000.0) as f32,
         );
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -267,7 +250,7 @@ impl ExecutableScriptAction for CameraMoveToAction {
 pub struct CameraZoomAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraZoomAction {
+impl ScriptAction for CameraZoomAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -276,7 +259,7 @@ impl ExecutableScriptAction for CameraZoomAction {
         let zoom = parameters
             .get("zoom")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("zoom parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("zoom parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -293,10 +276,10 @@ impl ExecutableScriptAction for CameraZoomAction {
             .and_then(|v| v.as_real())
             .unwrap_or(0.0);
 
-        let mut view = get_tactical_view()?;
-        view.zoom_camera(zoom, (sec * 1000.0) as i32, (ease_in * 1000.0) as i32, (ease_out * 1000.0) as i32);
+        let view = get_tactical_view()?;
+        view.zoom_camera(zoom as f32, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -323,7 +306,7 @@ impl ExecutableScriptAction for CameraZoomAction {
 pub struct CameraPitchAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraPitchAction {
+impl ScriptAction for CameraPitchAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -332,7 +315,7 @@ impl ExecutableScriptAction for CameraPitchAction {
         let pitch = parameters
             .get("pitch")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("pitch parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("pitch parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -349,10 +332,10 @@ impl ExecutableScriptAction for CameraPitchAction {
             .and_then(|v| v.as_real())
             .unwrap_or(0.0);
 
-        let mut view = get_tactical_view()?;
-        view.pitch_camera(pitch, (sec * 1000.0) as i32, (ease_in * 1000.0) as i32, (ease_out * 1000.0) as i32);
+        let view = get_tactical_view()?;
+        view.pitch_camera(pitch as f32, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -379,7 +362,7 @@ impl ExecutableScriptAction for CameraPitchAction {
 pub struct CameraRotateAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraRotateAction {
+impl ScriptAction for CameraRotateAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -388,7 +371,7 @@ impl ExecutableScriptAction for CameraRotateAction {
         let rotations = parameters
             .get("rotations")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("rotations parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("rotations parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -405,10 +388,10 @@ impl ExecutableScriptAction for CameraRotateAction {
             .and_then(|v| v.as_real())
             .unwrap_or(0.0);
 
-        let mut view = get_tactical_view()?;
-        view.rotate_camera(rotations, (sec * 1000.0) as i32, (ease_in * 1000.0) as i32, (ease_out * 1000.0) as i32);
+        let view = get_tactical_view()?;
+        view.rotate_camera(rotations as f32, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -435,7 +418,7 @@ impl ExecutableScriptAction for CameraRotateAction {
 pub struct CameraSetupAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraSetupAction {
+impl ScriptAction for CameraSetupAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -444,29 +427,29 @@ impl ExecutableScriptAction for CameraSetupAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         let zoom = parameters
             .get("zoom")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("zoom parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("zoom parameter required".into()))?;
 
         let pitch = parameters
             .get("pitch")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("pitch parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("pitch parameter required".into()))?;
 
         let look_at_waypoint = parameters
             .get("lookAtWaypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("lookAtWaypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("lookAtWaypoint parameter required".into()))?;
 
         // Find waypoints
         let camera_pos = find_waypoint(waypoint_name)?;
         let look_at_pos = find_waypoint(look_at_waypoint)?;
 
         if camera_pos.is_none() || look_at_pos.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let cam_pos = camera_pos.unwrap();
@@ -476,13 +459,13 @@ impl ExecutableScriptAction for CameraSetupAction {
         let look_point = Point3::new(look_pos.x, look_pos.y, look_pos.z);
 
         // Setup camera
-        let mut view = get_tactical_view()?;
-        view.move_camera_to(&cam_point, 0, 0, true, 0, 0);
-        view.camera_mod_look_toward(&look_point);
-        view.camera_mod_final_pitch(pitch, 0.0, 0.0);
-        view.camera_mod_final_zoom(zoom, 0.0, 0.0);
+        let view = get_tactical_view()?;
+        view.move_camera_to(cam_point.x, cam_point.y, cam_point.z, 0, 0, true, 0.0, 0.0);
+        view.camera_mod_look_toward(look_point.x, look_point.y, look_point.z);
+        view.camera_mod_final_pitch(pitch as f32, 0.0, 0.0);
+        view.camera_mod_final_zoom(zoom as f32, 0.0, 0.0);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -509,7 +492,7 @@ impl ExecutableScriptAction for CameraSetupAction {
 pub struct CameraMoveHomeAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMoveHomeAction {
+impl ScriptAction for CameraMoveHomeAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
@@ -517,7 +500,7 @@ impl ExecutableScriptAction for CameraMoveHomeAction {
     ) -> GameLogicResult<ScriptResult> {
         // This is currently a no-op in C++
         // Implementation would reset camera to home position
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -544,7 +527,7 @@ impl ExecutableScriptAction for CameraMoveHomeAction {
 pub struct CameraSetDefaultAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraSetDefaultAction {
+impl ScriptAction for CameraSetDefaultAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -553,22 +536,22 @@ impl ExecutableScriptAction for CameraSetDefaultAction {
         let pitch = parameters
             .get("pitch")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("pitch parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("pitch parameter required".into()))?;
 
         let angle = parameters
             .get("angle")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("angle parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("angle parameter required".into()))?;
 
         let max_height = parameters
             .get("maxHeight")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("maxHeight parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("maxHeight parameter required".into()))?;
 
-        let mut view = get_tactical_view()?;
-        view.set_default_view(pitch, angle, max_height);
+        let view = get_tactical_view()?;
+        view.set_default_view(pitch as f32, angle as f32, max_height as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -599,7 +582,7 @@ impl ExecutableScriptAction for CameraSetDefaultAction {
 pub struct CameraTetherNamedAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraTetherNamedAction {
+impl ScriptAction for CameraTetherNamedAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -608,7 +591,7 @@ impl ExecutableScriptAction for CameraTetherNamedAction {
         let unit_name = parameters
             .get("unit")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("unit parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("unit parameter required".into()))?;
 
         let snap_to_unit = parameters
             .get("snap")
@@ -623,19 +606,19 @@ impl ExecutableScriptAction for CameraTetherNamedAction {
         // Find the object
         let object_id = find_named_object(unit_name)?;
         if object_id.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         // Get the tactical view and set camera tether
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.set_camera_lock(object_id);
-        view.set_snap_mode(LockType::Tether, play);
+        view.set_snap_mode(LockType::Tether as i32, play as f32);
 
         if snap_to_unit {
             view.snap_to_camera_lock();
         }
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -662,16 +645,16 @@ impl ExecutableScriptAction for CameraTetherNamedAction {
 pub struct CameraStopTetherNamedAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraStopTetherNamedAction {
+impl ScriptAction for CameraStopTetherNamedAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.set_camera_lock(None);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -702,7 +685,7 @@ impl ExecutableScriptAction for CameraStopTetherNamedAction {
 pub struct CameraLookTowardObjectAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraLookTowardObjectAction {
+impl ScriptAction for CameraLookTowardObjectAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -711,7 +694,7 @@ impl ExecutableScriptAction for CameraLookTowardObjectAction {
         let unit_name = parameters
             .get("unit")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("unit parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("unit parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -736,15 +719,15 @@ impl ExecutableScriptAction for CameraLookTowardObjectAction {
         // Find the object
         let object_id = find_named_object(unit_name)?;
         if object_id.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
-        // Rotate camera toward object
-        let mut view = get_tactical_view()?;
-        // Implementation would use object_id to get position and rotate toward it
-        // view.rotate_camera_toward_object(object_id.unwrap(), (sec * 1000.0) as i32, (hold_sec * 1000.0) as i32, (ease_in * 1000.0) as i32, (ease_out * 1000.0) as i32);
+        let view = get_tactical_view()?;
+        let ms = (sec * 1000.0) as i32;
+        let hold_ms = (hold_sec * 1000.0) as i32;
+        view.rotate_camera_toward_object(object_id.unwrap(), ms, hold_ms, ease_in as f32, ease_out as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -771,7 +754,7 @@ impl ExecutableScriptAction for CameraLookTowardObjectAction {
 pub struct CameraLookTowardWaypointAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraLookTowardWaypointAction {
+impl ScriptAction for CameraLookTowardWaypointAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -780,7 +763,7 @@ impl ExecutableScriptAction for CameraLookTowardWaypointAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -805,18 +788,17 @@ impl ExecutableScriptAction for CameraLookTowardWaypointAction {
         // Find the waypoint
         let waypoint_pos = find_waypoint(waypoint_name)?;
         if waypoint_pos.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let pos = waypoint_pos.unwrap();
         let point = Point3::new(pos.x, pos.y, pos.z);
 
-        // Rotate camera toward waypoint
-        let mut view = get_tactical_view()?;
-        // Implementation would rotate toward position
-        // view.rotate_camera_toward_position(&point, (sec * 1000.0) as i32, (ease_in * 1000.0) as i32, (ease_out * 1000.0) as i32, reverse_rotation);
+        let view = get_tactical_view()?;
+        let ms = (sec * 1000.0) as i32;
+        view.rotate_camera_toward_position(point.x, point.y, point.z, ms, ease_in as f32, ease_out as f32, reverse_rotation);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -843,7 +825,7 @@ impl ExecutableScriptAction for CameraLookTowardWaypointAction {
 pub struct CameraModLookTowardAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraModLookTowardAction {
+impl ScriptAction for CameraModLookTowardAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -852,21 +834,21 @@ impl ExecutableScriptAction for CameraModLookTowardAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         // Find the waypoint
         let waypoint_pos = find_waypoint(waypoint_name)?;
         if waypoint_pos.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let pos = waypoint_pos.unwrap();
         let point = Point3::new(pos.x, pos.y, pos.z);
 
-        let mut view = get_tactical_view()?;
-        view.camera_mod_look_toward(&point);
+        let view = get_tactical_view()?;
+        view.camera_mod_look_toward(point.x, point.y, point.z);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -893,7 +875,7 @@ impl ExecutableScriptAction for CameraModLookTowardAction {
 pub struct CameraModFinalLookTowardAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraModFinalLookTowardAction {
+impl ScriptAction for CameraModFinalLookTowardAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -902,21 +884,21 @@ impl ExecutableScriptAction for CameraModFinalLookTowardAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         // Find the waypoint
         let waypoint_pos = find_waypoint(waypoint_name)?;
         if waypoint_pos.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let pos = waypoint_pos.unwrap();
         let point = Point3::new(pos.x, pos.y, pos.z);
 
-        let mut view = get_tactical_view()?;
-        view.camera_mod_final_look_toward(&point);
+        let view = get_tactical_view()?;
+        view.camera_mod_final_look_toward(point.x, point.y, point.z);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -947,7 +929,7 @@ impl ExecutableScriptAction for CameraModFinalLookTowardAction {
 pub struct ResetCameraAction;
 
 #[async_trait]
-impl ExecutableScriptAction for ResetCameraAction {
+impl ScriptAction for ResetCameraAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -956,7 +938,7 @@ impl ExecutableScriptAction for ResetCameraAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         let sec = parameters
             .get("sec")
@@ -976,17 +958,16 @@ impl ExecutableScriptAction for ResetCameraAction {
         // Find the waypoint
         let waypoint_pos = find_waypoint(waypoint_name)?;
         if waypoint_pos.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let pos = waypoint_pos.unwrap();
         let point = Point3::new(pos.x, pos.y, pos.z);
 
-        // Reset camera
-        let mut view = get_tactical_view()?;
-        view.reset_camera(&point, (sec * 1000.0) as i32, (ease_in * 1000.0) as i32, (ease_out * 1000.0) as i32);
+        let view = get_tactical_view()?;
+        view.reset_camera(point.x, point.y, point.z, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1017,7 +998,7 @@ impl ExecutableScriptAction for ResetCameraAction {
 pub struct CameraMotionBlurAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMotionBlurAction {
+impl ScriptAction for CameraMotionBlurAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -1026,16 +1007,15 @@ impl ExecutableScriptAction for CameraMotionBlurAction {
         let zoom_in = parameters
             .get("zoomIn")
             .and_then(|v| v.as_bool())
-            .ok_or_else(|| GameLogicError::InvalidParameter("zoomIn parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("zoomIn parameter required".into()))?;
 
         let saturate = parameters
             .get("saturate")
             .and_then(|v| v.as_bool())
-            .ok_or_else(|| GameLogicError::InvalidParameter("saturate parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("saturate parameter required".into()))?;
 
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
 
-        // Set motion blur filter
         let mode = if saturate {
             if zoom_in {
                 FilterMode::MBInSaturate
@@ -1050,10 +1030,14 @@ impl ExecutableScriptAction for CameraMotionBlurAction {
             }
         };
 
-        view.set_view_filter(FilterType::MotionBlur);
-        view.set_view_filter_mode(mode);
+        // C++ parity: if setViewFilter returns false, restore to FT_NULL_FILTER
+        if !view.set_view_filter(FilterType::MotionBlur as i32) {
+            view.set_view_filter(FilterType::Null as i32);
+        } else {
+            view.set_view_filter_mode(mode as i32);
+        }
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1080,7 +1064,7 @@ impl ExecutableScriptAction for CameraMotionBlurAction {
 pub struct CameraMotionBlurJumpAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMotionBlurJumpAction {
+impl ScriptAction for CameraMotionBlurJumpAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -1089,7 +1073,7 @@ impl ExecutableScriptAction for CameraMotionBlurJumpAction {
         let waypoint_name = parameters
             .get("waypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::InvalidParameter("waypoint parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("waypoint parameter required".into()))?;
 
         let saturate = parameters
             .get("saturate")
@@ -1099,30 +1083,31 @@ impl ExecutableScriptAction for CameraMotionBlurJumpAction {
         // Find the waypoint
         let waypoint_pos = find_waypoint(waypoint_name)?;
         if waypoint_pos.is_none() {
-            return Ok(ScriptResult::Continue);
+            return Ok(ScriptResult::Success(None));
         }
 
         let pos = waypoint_pos.unwrap();
         let point = Point3::new(pos.x, pos.y, pos.z);
 
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
 
-        // Set motion blur filter
         let mode = if saturate {
             FilterMode::MBInAndOutSaturate
         } else {
             FilterMode::MBInAndOutAlpha
         };
 
-        if view.set_view_filter(FilterType::MotionBlur) {
-            view.set_view_filter_mode(mode);
-            view.set_view_filter_pos(&point);
+        if view.set_view_filter(FilterType::MotionBlur as i32) {
+            view.set_view_filter_mode(mode as i32);
+            view.set_view_filter_pos(point.x, point.y, point.z);
         } else {
-            // If filter failed, just move camera
-            view.look_at(&point);
+            // C++ parity: if setViewFilter returns false, restore to FT_NULL_FILTER
+            // and fall back to lookAt
+            view.set_view_filter(FilterType::Null as i32);
+            view.look_at(point.x, point.y, point.z);
         }
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1149,7 +1134,7 @@ impl ExecutableScriptAction for CameraMotionBlurJumpAction {
 pub struct CameraMotionBlurFollowAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMotionBlurFollowAction {
+impl ScriptAction for CameraMotionBlurFollowAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -1158,14 +1143,14 @@ impl ExecutableScriptAction for CameraMotionBlurFollowAction {
         let amount = parameters
             .get("amount")
             .and_then(|v| v.as_int())
-            .ok_or_else(|| GameLogicError::InvalidParameter("amount parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("amount parameter required".into()))?;
 
-        let mut view = get_tactical_view()?;
-        let mode = FilterMode::from_pan_amount(amount);
-        view.set_view_filter_mode(mode);
-        view.set_view_filter(FilterType::MotionBlur);
+        let view = get_tactical_view()?;
+        let mode = FilterMode::from_pan_amount(amount as i32);
+        view.set_view_filter_mode(mode as i32);
+        view.set_view_filter(FilterType::MotionBlur as i32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1192,17 +1177,17 @@ impl ExecutableScriptAction for CameraMotionBlurFollowAction {
 pub struct CameraMotionBlurEndFollowAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMotionBlurEndFollowAction {
+impl ScriptAction for CameraMotionBlurEndFollowAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
-        let mut view = get_tactical_view()?;
-        view.set_view_filter_mode(FilterMode::MBEndPanAlpha);
-        view.set_view_filter(FilterType::MotionBlur);
+        let view = get_tactical_view()?;
+        view.set_view_filter_mode(FilterMode::MBEndPanAlpha as i32);
+        view.set_view_filter(FilterType::MotionBlur as i32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1233,16 +1218,16 @@ impl ExecutableScriptAction for CameraMotionBlurEndFollowAction {
 pub struct CameraStopFollowAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraStopFollowAction {
+impl ScriptAction for CameraStopFollowAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.set_camera_lock(None);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1273,7 +1258,7 @@ impl ExecutableScriptAction for CameraStopFollowAction {
 pub struct CameraModFinalPitchAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraModFinalPitchAction {
+impl ScriptAction for CameraModFinalPitchAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -1282,7 +1267,7 @@ impl ExecutableScriptAction for CameraModFinalPitchAction {
         let pitch = parameters
             .get("pitch")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("pitch parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("pitch parameter required".into()))?;
 
         let ease_in = parameters
             .get("easeIn")
@@ -1294,10 +1279,10 @@ impl ExecutableScriptAction for CameraModFinalPitchAction {
             .and_then(|v| v.as_real())
             .unwrap_or(0.0);
 
-        let mut view = get_tactical_view()?;
-        view.camera_mod_final_pitch(pitch, ease_in, ease_out);
+        let view = get_tactical_view()?;
+        view.camera_mod_final_pitch(pitch as f32, ease_in as f32, ease_out as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1324,7 +1309,7 @@ impl ExecutableScriptAction for CameraModFinalPitchAction {
 pub struct CameraModFinalZoomAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraModFinalZoomAction {
+impl ScriptAction for CameraModFinalZoomAction {
     async fn execute(
         &self,
         parameters: &HashMap<String, ScriptValue>,
@@ -1333,7 +1318,7 @@ impl ExecutableScriptAction for CameraModFinalZoomAction {
         let zoom = parameters
             .get("zoom")
             .and_then(|v| v.as_real())
-            .ok_or_else(|| GameLogicError::InvalidParameter("zoom parameter required".into()))?;
+            .ok_or_else(|| GameLogicError::Configuration("zoom parameter required".into()))?;
 
         let ease_in = parameters
             .get("easeIn")
@@ -1345,10 +1330,10 @@ impl ExecutableScriptAction for CameraModFinalZoomAction {
             .and_then(|v| v.as_real())
             .unwrap_or(0.0);
 
-        let mut view = get_tactical_view()?;
-        view.camera_mod_final_zoom(zoom, ease_in, ease_out);
+        let view = get_tactical_view()?;
+        view.camera_mod_final_zoom(zoom as f32, ease_in as f32, ease_out as f32);
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1375,16 +1360,16 @@ impl ExecutableScriptAction for CameraModFinalZoomAction {
 pub struct CameraModFreezeTimeAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraModFreezeTimeAction {
+impl ScriptAction for CameraModFreezeTimeAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.camera_mod_freeze_time();
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1411,16 +1396,16 @@ impl ExecutableScriptAction for CameraModFreezeTimeAction {
 pub struct CameraModFreezeAngleAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraModFreezeAngleAction {
+impl ScriptAction for CameraModFreezeAngleAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
-        let mut view = get_tactical_view()?;
+        let view = get_tactical_view()?;
         view.camera_mod_freeze_angle();
 
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -1451,7 +1436,7 @@ impl ExecutableScriptAction for CameraModFreezeAngleAction {
 pub struct CameraMoveToSelectionAction;
 
 #[async_trait]
-impl ExecutableScriptAction for CameraMoveToSelectionAction {
+impl ScriptAction for CameraMoveToSelectionAction {
     async fn execute(
         &self,
         _parameters: &HashMap<String, ScriptValue>,
@@ -1459,7 +1444,7 @@ impl ExecutableScriptAction for CameraMoveToSelectionAction {
     ) -> GameLogicResult<ScriptResult> {
         // This would move camera to center of current selection
         // Implementation requires access to selection system
-        Ok(ScriptResult::Continue)
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {

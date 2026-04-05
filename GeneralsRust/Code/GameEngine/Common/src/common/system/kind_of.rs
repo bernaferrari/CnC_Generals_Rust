@@ -366,6 +366,47 @@ impl fmt::Display for KindOfMask {
     }
 }
 
+/// Maps a C++ `KindOfType` sequential integer to the corresponding `KindOfMask` bitflag.
+///
+/// In C++, `KindOfMaskType` is `BitFlags<KINDOF_COUNT>` where each `KindOfType` enum value
+/// doubles as a bit position (e.g. `KINDOF_OBSTACLE = 0` → bit 0, `KINDOF_INFANTRY = 8` → bit 8).
+/// The Rust `KindOfMask` bitflags use the same bit positions as the C++ enum values,
+/// so this is a direct `1 << kind_type` conversion.
+///
+/// **Note on `ALLOW_SURRENDER`:** The C++ header conditionally includes PRISON (15),
+/// COLLECTS_PRISON_BOUNTY (16), POW_TRUCK (17), and CAN_SURRENDER (44) when
+/// `ALLOW_SURRENDER` is defined. The Rust port always includes these flags, matching
+/// a build with `ALLOW_SURRENDER` enabled.
+///
+/// Returns `None` for `KINDOF_INVALID` (-1), `KINDOF_COUNT`, or any out-of-range value.
+pub fn kind_of_type_to_mask(kind_type: i32) -> Option<KindOfMask> {
+    if kind_type < 0 || kind_type as usize >= KIND_OF_BIT_NAMES.len() {
+        return None;
+    }
+    let mask = KindOfMask::from_bits_truncate(1u128 << kind_type);
+    // Verify the bit is actually defined (not just within range of u128).
+    if mask.is_empty() {
+        return None;
+    }
+    Some(mask)
+}
+
+/// Reverse mapping: given a `KindOfMask` containing exactly one bit set, return the
+/// corresponding C++ `KindOfType` sequential integer. Returns `None` if zero or
+/// multiple bits are set.
+pub fn mask_to_kind_of_type(mask: KindOfMask) -> Option<i32> {
+    let bits = mask.bits();
+    if bits == 0 || (bits & (bits - 1)) != 0 {
+        return None; // Zero or multiple bits set
+    }
+    // Find the trailing zero count = bit position
+    let pos = bits.trailing_zeros() as i32;
+    if pos as usize >= KIND_OF_BIT_NAMES.len() {
+        return None;
+    }
+    Some(pos)
+}
+
 /// Initialize KindOf masks (corresponds to initKindOfMasks() in C++)
 pub fn init_kind_of_masks() {
     // This function was used to initialize global masks in C++

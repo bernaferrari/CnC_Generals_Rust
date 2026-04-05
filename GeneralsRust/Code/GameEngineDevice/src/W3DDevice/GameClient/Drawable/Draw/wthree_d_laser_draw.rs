@@ -1,12 +1,37 @@
 //! W3D laser draw module (port of GameClient/Drawable/Draw/W3DLaserDraw.cpp).
+//!
+//! ## Pipeline Status: DEAD CODE (not instantiated at runtime)
+//!
+//! This struct is never created or called anywhere in the draw pipeline. The
+//! active implementation is `gamelogic::object::draw::W3DLaserDraw`, which is
+//! instantiated by `module_overrides.rs` and dispatched by
+//! `GameLogic Drawable::draw()`.
+//!
+//! However, the GameLogic version only **computes beam geometry** into
+//! `Vec<LaserLine>` — it never submits `SegmentedLine` objects to
+//! `W3DDisplay::global_scene()`. This file contains the **reference
+//! rendering implementation** that shows how the geometry should be
+//! submitted to the W3D scene once the pipeline gap is closed.
+//!
+//! ### Why this can't be simply wired in
+//!
+//! The dependency chain is: `GameLogic → Common ← GameClient ← GameEngineDevice`.
+//! GameLogic cannot depend on GameEngineDevice (circular dependency), so it
+//! cannot call `W3DDisplay::global_scene()`. Wiring requires either:
+//! - Moving scene-submission infrastructure into `Common`
+//! - Adding a callback trait in `Common` that Device implements
+//! - A bridge layer in GameClient/Device that syncs GameLogic state to Device
+//!
+//! This rendering gap affects ALL draw modules (see `W3DModelDraw::do_draw_module()`
+//! which has `let _ = transform_mtx;` with a TODO comment).
 
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
 use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::{SegmentedLine, TextureMapMode};
 use crate::W3DDevice::GameClient::Module::wthree_d_laser_draw::W3DLaserDrawModuleData;
-use cgmath::{Point3, Vector2, Vector3, InnerSpace};
-use std::path::{Path, PathBuf};
+use cgmath::{InnerSpace, Point3, Vector2, Vector3};
 use image::io::Reader as ImageReader;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct W3DLaserDraw {
@@ -122,17 +147,14 @@ impl W3DLaserDraw {
 
                 if self.data.tile && width > 0.0 {
                     let length = (seg_end - seg_start).magnitude();
-                    let tile_factor = length / width * self.texture_aspect_ratio * self.data.tiling_scalar;
+                    let tile_factor =
+                        length / width * self.texture_aspect_ratio * self.data.tiling_scalar;
                     line.set_texture_tile_factor(tile_factor);
                     line.set_texture_mapping_mode(TextureMapMode::Tiled);
                 }
 
                 let (red, green, blue) = if beams == 1 {
-                    (
-                        inner_r * inner_a,
-                        inner_g * inner_a,
-                        inner_b * inner_a,
-                    )
+                    (inner_r * inner_a, inner_g * inner_a, inner_b * inner_a)
                 } else {
                     let scale = beam as f32 / (beams - 1) as f32;
                     (
@@ -166,8 +188,8 @@ impl W3DLaserDraw {
         let total = (beams * segments) as usize;
 
         if !self.data.texture_name.is_empty() {
-            self.texture_aspect_ratio = resolve_texture_aspect_ratio(&self.data.texture_name)
-                .unwrap_or(1.0);
+            self.texture_aspect_ratio =
+                resolve_texture_aspect_ratio(&self.data.texture_name).unwrap_or(1.0);
         }
 
         let scene = W3DDisplay::global_scene();

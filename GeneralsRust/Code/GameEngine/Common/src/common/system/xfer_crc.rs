@@ -195,7 +195,7 @@ impl<X: Xfer> XferDeepCRC<X> {
 
 impl<X: Xfer> Xfer for XferCRC<X> {
     fn get_xfer_mode(&self) -> XferMode {
-        self.inner.get_xfer_mode()
+        XferMode::Crc
     }
 
     fn get_identifier(&self) -> &str {
@@ -235,24 +235,25 @@ impl<X: Xfer> Xfer for XferCRC<X> {
     }
 
     fn xfer_snapshot(&mut self, snapshot: &mut Snapshot) -> Result<(), XferStatus> {
-        self.inner.xfer_snapshot(snapshot)
+        snapshot.crc(self).map_err(|_| XferStatus::InvalidData)
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
-        self.inner.xfer_ascii_string(ascii_string_data)
+        self.update_crc(ascii_string_data.as_bytes());
+        Ok(())
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
-        self.inner.xfer_unicode_string(unicode_string_data)
+        self.update_crc(unicode_string_data.as_bytes());
+        Ok(())
     }
 
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
-        let result = unsafe { self.inner.xfer_implementation(data, data_size) };
-        if result.is_ok() {
+        if data_size > 0 && !data.is_null() {
             let slice = std::slice::from_raw_parts(data, data_size);
             self.update_crc(slice);
         }
-        result
+        Ok(())
     }
 }
 
@@ -302,7 +303,21 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {
-        self.inner.xfer_ascii_string(ascii_string_data)
+        if ascii_string_data.len() > 16385 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "XferDeepCRC ascii string too long (max 16385)",
+            ));
+        }
+        let mut len = ascii_string_data.len() as u16;
+        self.xfer_unsigned_short(&mut len)?;
+        if len > 0 {
+            let bytes = ascii_string_data.as_bytes();
+            unsafe {
+                self.xfer_implementation(bytes.as_ptr() as *mut u8, bytes.len())?;
+            }
+        }
+        Ok(())
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {

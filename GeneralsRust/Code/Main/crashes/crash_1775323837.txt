@@ -1,0 +1,80 @@
+Command & Conquer Generals Zero Hour - Crash Report
+Time: 1775323837
+Panic: panicked at Code/Main/src/command_line.rs:727:51:
+called `Result::unwrap()` on an `Err` value: PoisonError { .. }
+Location: Some(Location { file: "Code/Main/src/command_line.rs", line: 727, column: 51 })
+Backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/backtrace.rs:331:13
+   3: generals_main::debug_system::DebugSystem::setup_crash_handler::{{closure}}
+             at ./src/debug_system.rs:240:37
+   4: <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/alloc/src/boxed.rs:2220:9
+   5: std::panicking::panic_with_hook
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:833:13
+   6: std::panicking::panic_handler::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:698:13
+   7: std::sys::backtrace::__rust_end_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/backtrace.rs:182:18
+   8: __rustc::rust_begin_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:689:5
+   9: core::panicking::panic_fmt
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panicking.rs:80:14
+  10: core::result::unwrap_failed
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/result.rs:1867:5
+  11: core::result::Result<T,E>::unwrap
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/result.rs:1233:23
+  12: generals_main::command_line::tests::with_runtime_global_data_restored
+             at ./src/command_line.rs:727:51
+  13: generals_main::command_line::tests::test_relative_mod_directory_resolves_against_user_data_dir
+             at ./src/command_line.rs:1036:9
+  14: generals_main::command_line::tests::test_relative_mod_directory_resolves_against_user_data_dir::{{closure}}
+             at ./src/command_line.rs:1035:68
+  15: core::ops::function::FnOnce::call_once
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  16: core::ops::function::FnOnce::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/ops/function.rs:250:5
+  17: test::__rust_begin_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:663:18
+  18: test::run_test_in_process::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:686:74
+  19: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panic/unwind_safe.rs:274:9
+  20: std::panicking::catch_unwind::do_call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:581:40
+  21: std::panicking::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:544:19
+  22: std::panic::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panic.rs:359:14
+  23: test::run_test_in_process
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:686:27
+  24: test::run_test::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:607:43
+  25: test::run_test::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:637:41
+  26: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/backtrace.rs:166:18
+  27: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/thread/lifecycle.rs:91:13
+  28: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panic/unwind_safe.rs:274:9
+  29: std::panicking::catch_unwind::do_call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:581:40
+  30: std::panicking::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:544:19
+  31: std::panic::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panic.rs:359:14
+  32: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/thread/lifecycle.rs:89:26
+  33: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/ops/function.rs:250:5
+  34: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/alloc/src/boxed.rs:2206:9
+  35: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/thread/unix.rs:127:17
+  36: __pthread_cond_wait
+

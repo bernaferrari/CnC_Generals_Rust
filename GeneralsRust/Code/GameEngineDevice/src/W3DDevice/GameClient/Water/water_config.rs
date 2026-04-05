@@ -59,7 +59,7 @@ pub struct WaterSetting {
     /// Texel density of sky plane (higher value repeats texture more)
     pub sky_texels_per_unit: f32,
     /// Vertex colors for water quad corners
-    pub vertex00_diffuse: [u8; 4],  // RGBA
+    pub vertex00_diffuse: [u8; 4], // RGBA
     pub vertex10_diffuse: [u8; 4],
     pub vertex11_diffuse: [u8; 4],
     pub vertex01_diffuse: [u8; 4],
@@ -101,9 +101,9 @@ pub struct WaterTransparencySetting {
     /// Minimum opacity for water surface
     pub min_water_opacity: f32,
     /// Color of standing water
-    pub standing_water_color: [f32; 3],  // RGB
+    pub standing_water_color: [f32; 3], // RGB
     /// Water color on radar/minimap
-    pub radar_color: [u8; 3],  // RGB
+    pub radar_color: [u8; 3], // RGB
     /// Use additive blending instead of alpha blending
     pub additive_blend: bool,
     /// Standing water texture filename
@@ -140,17 +140,17 @@ pub mod constants {
     use super::*;
 
     // Sky rendering
-    pub const SKYPLANE_SIZE: f32 = 384.0;  // Size of sky plane
-    pub const SKYPLANE_HEIGHT: f32 = 30.0;  // Height of sky plane
-    pub const SKYBODY_SIZE: f32 = 45.0;  // Size of sky body (sun/moon)
+    pub const SKYPLANE_SIZE: f32 = 384.0; // Size of sky plane
+    pub const SKYPLANE_HEIGHT: f32 = 30.0; // Height of sky plane
+    pub const SKYBODY_SIZE: f32 = 45.0; // Size of sky body (sun/moon)
     pub const SKYBODY_HEIGHT: f32 = SKYPLANE_HEIGHT;
 
     // GeForce3/modern water system
-    pub const PATCH_SIZE: usize = 15;  // Vertices on patch edge
-    pub const PATCH_UV_TILES: f32 = 42.0;  // Times bump map tiles across patch
-    pub const PATCH_SCALE: f32 = 4.0;  // Horizontal scale factor
-    pub const SEA_REFLECTION_SIZE: u32 = 256;  // Reflection texture dimensions
-    pub const SEA_BUMP_SCALE: f32 = 0.06;  // Bump map perturbation scale
+    pub const PATCH_SIZE: usize = 15; // Vertices on patch edge
+    pub const PATCH_UV_TILES: f32 = 42.0; // Times bump map tiles across patch
+    pub const PATCH_SCALE: f32 = 4.0; // Horizontal scale factor
+    pub const SEA_REFLECTION_SIZE: u32 = 256; // Reflection texture dimensions
+    pub const SEA_BUMP_SCALE: f32 = 0.06; // Bump map perturbation scale
     pub const BUMP_SIZE: f32 = 50.0;
     pub const REFLECTION_FACTOR: f32 = 0.1;
     pub const PATCH_WIDTH: usize = PATCH_SIZE - 1;
@@ -160,10 +160,10 @@ pub mod constants {
     pub const WATER_MESH_OPACITY: f32 = 0.5;
     pub const WATER_MESH_X_VERTICES: usize = 128;
     pub const WATER_MESH_Y_VERTICES: usize = 128;
-    pub const WATER_MESH_SPACING: f32 = 1.0;  // Same as terrain
+    pub const WATER_MESH_SPACING: f32 = 1.0; // Same as terrain
 
     // Animation
-    pub const NUM_BUMP_FRAMES: usize = 32;  // Bump map animation frames
+    pub const NUM_BUMP_FRAMES: usize = 32; // Bump map animation frames
 
     // Wave simulation
     pub const DONUT_SIDES: usize = 90;

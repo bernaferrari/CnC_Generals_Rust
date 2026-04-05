@@ -1,7 +1,7 @@
 //! WthreeDDebugIcons Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DDebugIcons.h
-//! 
+//!
 //! This module provides debugging and diagnostic tools.
 
 use std::{

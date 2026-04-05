@@ -1,7 +1,7 @@
 //! WthreeDWater Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp
-//! 
+//!
 //! This module provides water rendering and simulation.
 
 use std::{
@@ -32,8 +32,19 @@ impl WthreeDWater {
         if !self.active {
             return Err(WthreeDWaterError::NotActive);
         }
-        
-        // TODO: Implement processing logic
+
+        // PARITY_NOTE: C++ W3DWater.cpp (~3490 lines) is NOT a data processor.
+        // It is a water rendering system that:
+        // 1. Manages water mesh (WATER_MESH_X/Y_VERTICES=128x128 grid)
+        // 2. Renders reflective water surface with bump-mapped waves (GeForce3 path)
+        //    or simple mesh-based water
+        // 3. Handles sky plane rendering (SKYPLANE_SIZE=384*MAP_XY_FACTOR)
+        // 4. Supports SCROLL_UV for animated water textures
+        // 5. Key methods: init(), update(), render(), Xfer() for save/load,
+        //    drawWaterMesh(), drawSkyPlane(), drawWaterWakes()
+        // This stub's process() API does not correspond to any C++ method.
+        // Full port requires: WGPU mesh rendering, texture management, heightmap sampling,
+        // shader-based water effects, W3DScene integration.
         self.data.extend_from_slice(input);
         Ok(self.data.clone())
     }
@@ -102,7 +113,11 @@ mod tests {
 
     #[test]
     fn test_wthree_d_water_basic() {
-        // TODO: Implement tests for wthree_d_water
-        assert!(true, "Placeholder test for wthree_d_water");
+        let mut water = WthreeDWater::new();
+        assert!(!water.is_active());
+        water.activate();
+        assert!(water.is_active());
+        let result = water.process(b"test").unwrap();
+        assert_eq!(result, b"test");
     }
 }

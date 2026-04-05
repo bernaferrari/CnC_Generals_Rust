@@ -1,7 +1,7 @@
 //! WthreeDAssetManager Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DAssetManager.h
-//! 
+//!
 //! This module provides resource management.
 
 use std::{

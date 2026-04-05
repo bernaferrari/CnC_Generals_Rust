@@ -495,7 +495,7 @@ impl StealthDetectorUpdate {
                             let relationship = obj.relationship_to(&target);
                             if !matches!(
                                 relationship,
-                                crate::common::Relationship::Enemy
+                                crate::common::Relationship::Enemies
                                     | crate::common::Relationship::Neutral
                             ) {
                                 continue;

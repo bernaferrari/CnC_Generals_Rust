@@ -1,7 +1,7 @@
 //! WthreeDSnow Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DSnow.h
-//! 
+//!
 //! This module provides weather effects functionality.
 
 use std::{

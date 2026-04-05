@@ -179,6 +179,27 @@ pub struct BoneOverride {
 // Per-frame draw submission
 // ---------------------------------------------------------------------------
 
+/// Per-frame projectile stream submission.
+///
+/// Carries segmented polyline data written by GameLogic's
+/// `W3DProjectileStreamDraw::do_draw_module()` through DRAWABLE_STATE, ready
+/// for the Device renderer to consume.
+#[derive(Debug, Clone)]
+pub struct ProjectileStreamSubmission {
+    /// Drawable (object) ID that owns this stream.
+    pub drawable_id: u32,
+    /// Segmented polylines — each inner Vec is one continuous line segment.
+    pub lines: Vec<Vec<glam::Vec3>>,
+    /// Texture name for the stream visual.
+    pub texture_name: String,
+    /// Stream width in world units.
+    pub width: f32,
+    /// UV tile repeat factor along the stream.
+    pub tile_factor: f32,
+    /// UV scroll speed along the stream axis.
+    pub scroll_rate: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct DrawSubmission {
     pub drawable_id: DrawableId,
@@ -347,6 +368,7 @@ pub struct RenderBridgeStats {
 pub struct RenderBridge {
     scene: Scene,
     pending: Vec<DrawSubmission>,
+    pending_projectile_streams: Vec<ProjectileStreamSubmission>,
     camera: Option<Camera>,
     model_cache: HashMap<String, Arc<dyn RenderObject>>,
     asset_manager: AssetManager,
@@ -363,6 +385,7 @@ impl RenderBridge {
         Self {
             scene,
             pending: Vec::with_capacity(2048),
+            pending_projectile_streams: Vec::with_capacity(64),
             camera: None,
             model_cache: HashMap::new(),
             asset_manager: AssetManager::new(),
@@ -375,6 +398,7 @@ impl RenderBridge {
 
     pub fn begin_frame(&mut self, camera: &Camera, delta_time: f32) {
         self.pending.clear();
+        self.pending_projectile_streams.clear();
         let mut frame_camera = camera.clone();
         self.elapsed_time += delta_time;
 
@@ -392,6 +416,14 @@ impl RenderBridge {
 
     pub fn submit(&mut self, submission: DrawSubmission) {
         self.pending.push(submission);
+    }
+
+    pub fn submit_projectile_stream(&mut self, submission: ProjectileStreamSubmission) {
+        self.pending_projectile_streams.push(submission);
+    }
+
+    pub fn drain_projectile_stream_submissions(&mut self) -> Vec<ProjectileStreamSubmission> {
+        std::mem::take(&mut self.pending_projectile_streams)
     }
 
     pub fn flush(&mut self) {
@@ -743,6 +775,20 @@ pub fn apply_render_state_to_material(
     _material: &mut VertexMaterial,
     _overrides: &RenderStateOverrides,
 ) {
+}
+
+pub fn projectile_stream_to_flat_points(
+    submission: &ProjectileStreamSubmission,
+) -> Vec<glam::Vec3> {
+    let zero = glam::Vec3::ZERO;
+    let mut flat = Vec::new();
+    for (i, line) in submission.lines.iter().enumerate() {
+        if i > 0 {
+            flat.push(zero);
+        }
+        flat.extend_from_slice(line);
+    }
+    flat
 }
 
 pub fn create_default_game_scene() -> Scene {

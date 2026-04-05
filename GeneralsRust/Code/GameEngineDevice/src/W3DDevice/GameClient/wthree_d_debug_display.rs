@@ -1,7 +1,7 @@
 //! WthreeDDebugDisplay Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DDebugDisplay.h
-//! 
+//!
 //! This module provides debugging and diagnostic tools.
 
 use std::{

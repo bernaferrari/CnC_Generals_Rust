@@ -94,6 +94,24 @@ pub struct InGameUISettings {
     pub named_timer_ready_point_size: i32,
     pub named_timer_ready_bold: bool,
     pub named_timer_ready_color: u32,
+
+    // Floating text settings (C++: s_fieldParseTable lines 806-808)
+    pub floating_text_timeout: u32,
+    pub floating_text_move_up_speed: f32,
+    pub floating_text_vanish_rate: f32,
+
+    // Popup message settings (C++: s_fieldParseTable line 810)
+    pub popup_message_color: u32,
+
+    // Drawable caption settings (C++: s_fieldParseTable lines 812-815)
+    pub drawable_caption_font: String,
+    pub drawable_caption_point_size: i32,
+    pub drawable_caption_bold: bool,
+    pub drawable_caption_color: u32,
+
+    // Scroll anchor settings (C++: s_fieldParseTable lines 817-818)
+    pub draw_rmb_scroll_anchor: bool,
+    pub move_rmb_scroll_anchor: bool,
 }
 
 impl Default for InGameUISettings {
@@ -146,6 +164,24 @@ impl Default for InGameUISettings {
             named_timer_ready_point_size: 0,
             named_timer_ready_bold: false,
             named_timer_ready_color: 0,
+
+            // Floating text defaults (C++ constructor: InGameUI.cpp:1013-1015)
+            floating_text_timeout: 10,
+            floating_text_move_up_speed: 1.0,
+            floating_text_vanish_rate: 0.1,
+
+            // Popup message defaults (C++ constructor: InGameUI.cpp:925)
+            popup_message_color: make_color(255, 255, 255, 255),
+
+            // Drawable caption defaults (C++ constructor: InGameUI.cpp:1017-1020)
+            drawable_caption_font: "Arial".to_string(),
+            drawable_caption_point_size: 10,
+            drawable_caption_bold: false,
+            drawable_caption_color: make_color(255, 255, 255, 255),
+
+            // Scroll anchor defaults (C++ constructor: InGameUI.cpp:1022-1023)
+            draw_rmb_scroll_anchor: false,
+            move_rmb_scroll_anchor: false,
         }
     }
 }
@@ -309,6 +345,46 @@ const INGAME_UI_FIELD_PARSE_TABLE: &[FieldParse<InGameUISettings>] = &[
     FieldParse {
         token: "NamedTimerCountdownReadyColor",
         parse: parse_named_timer_ready_color,
+    },
+    FieldParse {
+        token: "FloatingTextTimeOut",
+        parse: parse_floating_text_timeout,
+    },
+    FieldParse {
+        token: "FloatingTextMoveUpSpeed",
+        parse: parse_floating_text_move_up_speed,
+    },
+    FieldParse {
+        token: "FloatingTextVanishRate",
+        parse: parse_floating_text_vanish_rate,
+    },
+    FieldParse {
+        token: "PopupMessageColor",
+        parse: parse_popup_message_color,
+    },
+    FieldParse {
+        token: "DrawableCaptionFont",
+        parse: parse_drawable_caption_font,
+    },
+    FieldParse {
+        token: "DrawableCaptionPointSize",
+        parse: parse_drawable_caption_point_size,
+    },
+    FieldParse {
+        token: "DrawableCaptionBold",
+        parse: parse_drawable_caption_bold,
+    },
+    FieldParse {
+        token: "DrawableCaptionColor",
+        parse: parse_drawable_caption_color,
+    },
+    FieldParse {
+        token: "DrawRMBScrollAnchor",
+        parse: parse_draw_rmb_scroll_anchor,
+    },
+    FieldParse {
+        token: "MoveRMBScrollAnchor",
+        parse: parse_move_rmb_scroll_anchor,
     },
 ];
 
@@ -668,6 +744,99 @@ fn parse_named_timer_ready_color(
     _tokens: &[&str],
 ) -> INIResult<()> {
     target.named_timer_ready_color = ini.parse_color_int()?;
+    Ok(())
+}
+
+fn parse_floating_text_timeout(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    target.floating_text_timeout = INI::parse_duration_unsigned_int(&token)?;
+    Ok(())
+}
+
+fn parse_floating_text_move_up_speed(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    target.floating_text_move_up_speed = INI::parse_velocity_real(&token)?;
+    Ok(())
+}
+
+fn parse_floating_text_vanish_rate(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    target.floating_text_vanish_rate = INI::parse_velocity_real(&token)?;
+    Ok(())
+}
+
+fn parse_popup_message_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.popup_message_color = ini.parse_color_int()?;
+    Ok(())
+}
+
+fn parse_drawable_caption_font(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.drawable_caption_font = ini.parse_quoted_ascii_string()?;
+    Ok(())
+}
+
+fn parse_drawable_caption_point_size(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.drawable_caption_point_size = ini.parse_next_int()?;
+    Ok(())
+}
+
+fn parse_drawable_caption_bold(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.drawable_caption_bold = ini.parse_next_bool()?;
+    Ok(())
+}
+
+fn parse_drawable_caption_color(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.drawable_caption_color = ini.parse_color_int()?;
+    Ok(())
+}
+
+fn parse_draw_rmb_scroll_anchor(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.draw_rmb_scroll_anchor = ini.parse_next_bool()?;
+    Ok(())
+}
+
+fn parse_move_rmb_scroll_anchor(
+    ini: &mut INI,
+    target: &mut InGameUISettings,
+    _tokens: &[&str],
+) -> INIResult<()> {
+    target.move_rmb_scroll_anchor = ini.parse_next_bool()?;
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 //! WthreeDInGameui Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DInGameUI.h
-//! 
+//!
 //! This module provides functionality for wthree d in gameui.
 
 use std::{

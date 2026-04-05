@@ -127,8 +127,8 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
             let relationship = obj.relationship_to(&target);
             if !matches!(
                 relationship,
-                crate::common::Relationship::Friend
-                    | crate::common::Relationship::Ally
+                crate::common::Relationship::Allies
+                    | crate::common::Relationship::Allies
                     | crate::common::Relationship::Allies
             ) {
                 continue;

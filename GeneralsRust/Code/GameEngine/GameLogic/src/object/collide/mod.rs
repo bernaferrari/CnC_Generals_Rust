@@ -307,7 +307,7 @@ impl GameObject for Arc<RwLock<Object>> {
     fn get_relationship(&self, other: &dyn GameObject) -> Relationship {
         if let Some(other_handle) = other.as_object_handle() {
             if Arc::ptr_eq(&other_handle, self) {
-                return Relationship::Friend;
+                return Relationship::Allies;
             }
             if let (Ok(this_guard), Ok(other_guard)) = (self.read(), other_handle.read()) {
                 return this_guard.relationship_to(&other_guard);

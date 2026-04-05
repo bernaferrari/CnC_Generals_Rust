@@ -18,7 +18,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use super::command::{Command, CommandType, CommandValidation};
-use super::command_queue::{get_command_queue_manager, CommandExecutionState, QueuedCommand};
+use super::command_queue::{
+    get_command_queue_manager, CommandExecutionState, CommandPriority, QueuedCommand,
+};
 use super::rts_command::{RtsCommand, RtsCommandValidator};
 use crate::action_manager::TheActionManager;
 use crate::commands::get_selection_manager;
@@ -1241,7 +1243,7 @@ impl DefaultCommandHandler {
 
     /// Execute a special power command with basic validation against power registry and targets.
     fn execute_special_power(
-        &self,
+        &mut self,
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
@@ -1446,93 +1448,99 @@ impl DefaultCommandHandler {
                 source_ids = selected_ids;
             }
 
-            if source_ids.is_empty() {
-                return CommandExecutionResult::Success;
-            }
-
             let mut any_overridden = false;
-            for id in &source_ids {
-                if !object_is_alive(*id) || !object_can_be_controlled_by(*id, context.player_id) {
-                    continue;
-                }
-                let Some(obj) = TheGameLogic::find_object_by_id(*id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj.read() else {
-                    continue;
-                };
-                if let Some(power_type) = override_power_type {
-                    let mut matches_power = false;
-                    for module_handle in obj_guard.behavior_modules() {
-                        module_handle.with_module(|module| {
-                            let Some(sp_module) = module_special_power_interface(module) else {
-                                return;
-                            };
-                            let Some(template) = sp_module.get_special_power_template_full() else {
-                                return;
-                            };
-                            if template.get_special_power_type() as u32 == power_type {
-                                matches_power = true;
-                            }
-                        });
-                        if matches_power {
-                            break;
-                        }
+            if !source_ids.is_empty() {
+                for id in &source_ids {
+                    if !object_is_alive(*id) || !object_can_be_controlled_by(*id, context.player_id)
+                    {
+                        continue;
                     }
-                    if !matches_power {
-                        for behavior_arc in obj_guard.get_behavior_modules() {
-                            let Ok(mut behavior_guard) = behavior_arc.lock() else {
-                                continue;
-                            };
-                            let Some(sp_module) = behavior_guard.get_special_power() else {
-                                continue;
-                            };
-                            let Some(template) = sp_module.get_special_power_template_full() else {
-                                continue;
-                            };
-                            if template.get_special_power_type() as u32 == power_type {
-                                matches_power = true;
+                    let Some(obj) = TheGameLogic::find_object_by_id(*id) else {
+                        continue;
+                    };
+                    let Ok(obj_guard) = obj.read() else {
+                        continue;
+                    };
+                    if let Some(power_type) = override_power_type {
+                        let mut matches_power = false;
+                        for module_handle in obj_guard.behavior_modules() {
+                            module_handle.with_module(|module| {
+                                let Some(sp_module) = module_special_power_interface(module) else {
+                                    return;
+                                };
+                                let Some(template) = sp_module.get_special_power_template_full()
+                                else {
+                                    return;
+                                };
+                                if template.get_special_power_type() as u32 == power_type {
+                                    matches_power = true;
+                                }
+                            });
+                            if matches_power {
                                 break;
                             }
                         }
-                    }
-                    if !matches_power {
-                        continue;
-                    }
-                }
-                let mut overridden_here = false;
-                for module_handle in obj_guard.behavior_modules() {
-                    module_handle.with_module(|module| {
-                        let Some(update) = module_special_power_update_interface(module) else {
-                            return;
-                        };
-                        if update.does_special_power_have_overridable_destination_active()
-                            || update.does_special_power_have_overridable_destination()
-                        {
-                            update.set_special_power_overridable_destination(&location);
-                            overridden_here = true;
+                        if !matches_power {
+                            for behavior_arc in obj_guard.get_behavior_modules() {
+                                let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                                    continue;
+                                };
+                                let Some(sp_module) = behavior_guard.get_special_power() else {
+                                    continue;
+                                };
+                                let Some(template) = sp_module.get_special_power_template_full()
+                                else {
+                                    continue;
+                                };
+                                if template.get_special_power_type() as u32 == power_type {
+                                    matches_power = true;
+                                    break;
+                                }
+                            }
                         }
-                    });
-                }
-                if !overridden_here {
-                    for behavior_arc in obj_guard.get_behavior_modules() {
-                        let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                        if !matches_power {
                             continue;
-                        };
-                        if let Some(update) = behavior_guard.get_special_power_update_interface() {
+                        }
+                    }
+                    let mut overridden_here = false;
+                    for module_handle in obj_guard.behavior_modules() {
+                        module_handle.with_module(|module| {
+                            let Some(update) = module_special_power_update_interface(module) else {
+                                return;
+                            };
                             if update.does_special_power_have_overridable_destination_active()
                                 || update.does_special_power_have_overridable_destination()
                             {
                                 update.set_special_power_overridable_destination(&location);
                                 overridden_here = true;
                             }
+                        });
+                    }
+                    if !overridden_here {
+                        for behavior_arc in obj_guard.get_behavior_modules() {
+                            let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                                continue;
+                            };
+                            if let Some(update) =
+                                behavior_guard.get_special_power_update_interface()
+                            {
+                                if update.does_special_power_have_overridable_destination_active()
+                                    || update.does_special_power_have_overridable_destination()
+                                {
+                                    update.set_special_power_overridable_destination(&location);
+                                    overridden_here = true;
+                                }
+                            }
                         }
                     }
-                }
-                if overridden_here {
-                    any_overridden = true;
+                    if overridden_here {
+                        any_overridden = true;
+                    }
                 }
             }
+
+            // C++ GameLogicDispatch falls through to MSG_DO_ATTACK_OBJECT here.
+            self.execute_override_destination_fallthrough_attack(command, context);
 
             return if any_overridden {
                 CommandExecutionResult::Success
@@ -1824,6 +1832,28 @@ impl DefaultCommandHandler {
         }
 
         CommandExecutionResult::Success
+    }
+
+    fn execute_override_destination_fallthrough_attack(
+        &mut self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) {
+        let Some(target_id) = override_destination_fallthrough_target_id(command) else {
+            return;
+        };
+
+        if TheGameLogic::find_object_by_id(target_id).is_none() {
+            return;
+        }
+
+        let mut attack_command = Command::new(CommandType::DoAttackObject);
+        attack_command.set_player_index(context.player_id);
+        attack_command.append_object_id_argument(target_id);
+
+        let queued_attack =
+            QueuedCommand::new(attack_command, CommandPriority::High, context.current_frame);
+        let _ = self.execute_attack_command(&queued_attack, context);
     }
 
     fn execute_place_beacon(
@@ -2222,7 +2252,7 @@ impl DefaultCommandHandler {
         };
         matches!(
             player_guard.get_relationship_with_team(&local_team_guard),
-            Relationship::Ally | Relationship::Allies
+            Relationship::Allies | Relationship::Allies
         )
     }
 
@@ -2250,8 +2280,8 @@ impl DefaultCommandHandler {
             return (false, false);
         };
         let relation = player_guard.get_relationship_with_team(&local_team_guard);
-        let visible = matches!(relation, Relationship::Ally | Relationship::Allies);
-        let allies = matches!(relation, Relationship::Ally | Relationship::Allies);
+        let visible = matches!(relation, Relationship::Allies | Relationship::Allies);
+        let allies = matches!(relation, Relationship::Allies | Relationship::Allies);
         (visible, allies)
     }
 
@@ -3731,3 +3761,45 @@ pub fn get_command_processor() -> Arc<Mutex<CommandProcessor>> {
 }
 
 // Command processor mock-based tests removed to avoid mocks in fidelity-critical code.
+
+fn override_destination_fallthrough_target_id(command: &QueuedCommand) -> Option<ObjectID> {
+    if command.command.get_type() != CommandType::DoSpecialPowerOverrideDestination {
+        return None;
+    }
+
+    match command.command.get_argument(0) {
+        Some(crate::commands::command::CommandArgumentType::Location(location)) => {
+            Some(location.x.to_bits())
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn override_destination_fallthrough_target_uses_location_x_bits() {
+        let mut command = Command::new(CommandType::DoSpecialPowerOverrideDestination);
+        command.set_player_index(2);
+        command.append_location_argument(Coord3D::new(12.5, -4.0, 9.0));
+        command.append_integer_argument(7);
+        command.append_object_id_argument(1234);
+
+        let queued = QueuedCommand::new(command, CommandPriority::Normal, 99);
+
+        assert_eq!(
+            override_destination_fallthrough_target_id(&queued),
+            Some(12.5f32.to_bits())
+        );
+    }
+
+    #[test]
+    fn override_destination_fallthrough_target_ignores_non_override_commands() {
+        let command = Command::new(CommandType::DoAttackObject);
+        let queued = QueuedCommand::new(command, CommandPriority::Normal, 99);
+
+        assert_eq!(override_destination_fallthrough_target_id(&queued), None);
+    }
+}

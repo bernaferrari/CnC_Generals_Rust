@@ -106,7 +106,7 @@ fn scan_guard_inner_target(
 
         if is_enter_guard {
             if is_hijack_guard {
-                if owner_guard.relationship_to(candidate) != Relationship::Enemy {
+                if owner_guard.relationship_to(candidate) != Relationship::Enemies {
                     return false;
                 }
                 return TheActionManager::can_hijack_vehicle(
@@ -127,12 +127,12 @@ fn scan_guard_inner_target(
             );
         }
 
-        if owner_guard.relationship_to(candidate) != Relationship::Enemy {
+        if owner_guard.relationship_to(candidate) != Relationship::Enemies {
             return false;
         }
         matches!(
             owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 candidate,
                 CommandSourceType::FromAi,
             ),
@@ -1841,7 +1841,7 @@ pub fn has_attacked_me_and_i_can_return_fire(machine: &StateMachine) -> bool {
                         return false;
                     };
 
-                    if owner_ref.relationship_to(&target_guard) != Relationship::Enemy {
+                    if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
                         return false;
                     }
 
@@ -1851,7 +1851,7 @@ pub fn has_attacked_me_and_i_can_return_fire(machine: &StateMachine) -> bool {
 
                     matches!(
                         owner_ref.get_able_to_attack_specific_object(
-                            AbleToAttackType::CanAttackSpecific,
+                            AbleToAttackType::NewTarget,
                             &target_guard,
                             CommandSourceType::FromAi,
                         ),

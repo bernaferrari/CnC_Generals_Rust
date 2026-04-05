@@ -1,100 +1,116 @@
-//! WthreeDScienceModelDraw Module
-//! 
+//! W3DScienceModelDraw Module
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DScienceModelDraw.cpp
-//! 
-//! This module provides drawing and rendering functionality.
+//!
+//! A draw module identical to W3DModelDraw, except it only draws if the local player
+//! has the specified Science. Used for science-gated visual elements.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use cgmath::Matrix4;
 
-/// WthreeDScienceModelDraw implementation
-pub struct WthreeDScienceModelDraw {
-    /// Internal data
-    data: Vec<u8>,
-    /// State flag
-    active: bool,
+/// Invalid science sentinel (C++: SCIENCE_INVALID)
+const SCIENCE_INVALID: u32 = 0xFFFFFFFF;
+
+/// W3DScienceModelDrawModuleData - INI-parsed configuration
+#[derive(Debug, Clone)]
+pub struct W3DScienceModelDrawModuleData {
+    /// Required science type (INI: "RequiredScience", parsed via INI::parseScience)
+    /// SCIENCE_INVALID means not configured.
+    pub required_science: u32,
 }
 
-impl WthreeDScienceModelDraw {
-    /// Create new instance
-    pub fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            active: false,
-        }
-    }
-
-    /// Process data
-    pub fn process(&mut self, input: &[u8]) -> Result<Vec<u8>, WthreeDScienceModelDrawError> {
-        if !self.active {
-            return Err(WthreeDScienceModelDrawError::NotActive);
-        }
-        
-        // TODO: Implement processing logic
-        self.data.extend_from_slice(input);
-        Ok(self.data.clone())
-    }
-
-    /// Activate
-    pub fn activate(&mut self) {
-        self.active = true;
-    }
-
-    /// Deactivate
-    pub fn deactivate(&mut self) {
-        self.active = false;
-    }
-
-    /// Check if active
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Clear data
-    pub fn clear(&mut self) {
-        self.data.clear();
-    }
-
-    /// Get data size
-    pub fn size(&self) -> usize {
-        self.data.len()
-    }
-}
-
-impl Default for WthreeDScienceModelDraw {
+impl Default for W3DScienceModelDrawModuleData {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Error types for WthreeDScienceModelDraw
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WthreeDScienceModelDrawError {
-    /// Not active
-    NotActive,
-    /// Processing failed
-    ProcessingFailed,
-    /// Invalid input
-    InvalidInput,
-    /// Unknown error
-    Unknown,
-}
-
-impl std::fmt::Display for WthreeDScienceModelDrawError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WthreeDScienceModelDrawError::NotActive => write!(f, "Not active"),
-            WthreeDScienceModelDrawError::ProcessingFailed => write!(f, "Processing failed"),
-            WthreeDScienceModelDrawError::InvalidInput => write!(f, "Invalid input"),
-            WthreeDScienceModelDrawError::Unknown => write!(f, "Unknown error"),
+        Self {
+            required_science: SCIENCE_INVALID,
         }
     }
 }
 
-impl std::error::Error for WthreeDScienceModelDrawError {}
+/// W3DScienceModelDraw implementation
+///
+/// Extends W3DModelDraw with a science gate. The `doDrawModule()` method
+/// checks if the local player has the required science before delegating to
+/// W3DModelDraw::doDrawModule(). Observers (inactive players) CAN see science-gated objects.
+#[derive(Debug)]
+pub struct W3DScienceModelDraw {
+    module_data: W3DScienceModelDrawModuleData,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+}
+
+impl W3DScienceModelDraw {
+    pub fn new(module_data: W3DScienceModelDrawModuleData) -> Self {
+        Self {
+            module_data,
+            hidden: false,
+            fully_obscured_by_shroud: false,
+        }
+    }
+
+    pub fn new_default() -> Self {
+        Self::new(W3DScienceModelDrawModuleData::default())
+    }
+
+    /// If SCIENCE_INVALID: DEBUG_ASSERTCRASH, setHidden(TRUE), return.
+    /// If local player does NOT have the science AND player IS active: setHidden(TRUE), return.
+    /// Otherwise: delegates to W3DModelDraw::doDrawModule().
+    /// Key behavior: Observers (inactive players) CAN see science-gated objects.
+    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+        let required_science = self.module_data.required_science;
+
+        if required_science == SCIENCE_INVALID {
+            // C++: DEBUG_ASSERTCRASH(0, ("ScienceModelDraw requires a science"));
+            self.hidden = true;
+            return;
+        }
+
+        // PARITY_NOTE: Check ThePlayerList->getLocalPlayer()->hasScience(requiredScience)
+        // and ThePlayerList->getLocalPlayer()->isPlayerActive()
+        // If player active but doesn't have science: setHidden(TRUE), return
+        // Otherwise: W3DModelDraw::doDrawModule(transformMtx)
+    }
+
+    pub fn set_shadows_enabled(&mut self, _enable: bool) {}
+    pub fn release_shadows(&mut self) {}
+    pub fn allocate_shadows(&mut self) {}
+    pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+    }
+    pub fn react_to_transform_change(
+        &mut self,
+        _old_mtx: &Matrix4<f32>,
+        _old_pos: &cgmath::Point3<f32>,
+        _old_angle: f32,
+    ) {
+    }
+    pub fn react_to_geometry_change(&mut self) {}
+
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+    }
+
+    pub fn is_visible(&self) -> bool {
+        !self.hidden && !self.fully_obscured_by_shroud
+    }
+
+    pub fn get_module_data(&self) -> &W3DScienceModelDrawModuleData {
+        &self.module_data
+    }
+
+    pub fn crc(&self) -> u32 {
+        0
+    }
+    pub fn xfer(&self) -> u32 {
+        1
+    }
+    pub fn load_post_process(&mut self) {}
+}
+
+impl Default for W3DScienceModelDraw {
+    fn default() -> Self {
+        Self::new_default()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -102,7 +118,16 @@ mod tests {
 
     #[test]
     fn test_wthree_d_science_model_draw_basic() {
-        // TODO: Implement tests for wthree_d_science_model_draw
-        assert!(true, "Placeholder test for wthree_d_science_model_draw");
+        let draw = W3DScienceModelDraw::new_default();
+        assert_eq!(draw.get_module_data().required_science, SCIENCE_INVALID);
+        assert!(draw.is_visible());
+    }
+
+    #[test]
+    fn test_wthree_d_science_model_draw_invalid_science_hides() {
+        let mut draw = W3DScienceModelDraw::new_default();
+        draw.do_draw_module(&Matrix4::identity());
+        assert!(draw.hidden);
+        assert!(!draw.is_visible());
     }
 }

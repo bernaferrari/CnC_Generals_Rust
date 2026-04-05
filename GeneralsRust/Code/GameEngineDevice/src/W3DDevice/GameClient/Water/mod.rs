@@ -21,17 +21,15 @@ pub mod water_renderer;
 pub mod water_tracks;
 
 pub use water_config::{
-    WaterType, TimeOfDay, WaterSetting, WaterTransparencySetting,
-    WaveParameters, WaterMeshData, GridTransform, constants,
+    constants, GridTransform, TimeOfDay, WaterMeshData, WaterSetting, WaterTransparencySetting,
+    WaterType, WaveParameters,
 };
 
 pub use water_renderer::{
-    WaterRenderer, WaterVertex, CameraUniforms, WaterUniforms, LightUniforms,
+    CameraUniforms, LightUniforms, WaterRenderer, WaterUniforms, WaterVertex,
 };
 
-pub use water_tracks::{
-    WaterTrack, WaterTracksSystem, WaveType, WaterTrackVertex,
-};
+pub use water_tracks::{WaterTrack, WaterTrackVertex, WaterTracksSystem, WaveType};
 
 #[cfg(test)]
 mod integration_tests {

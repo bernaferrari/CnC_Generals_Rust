@@ -232,7 +232,8 @@ pub use callbacks::{
 
 // Re-export in-game UI types
 pub use ingame_ui::{
-    DrawableID, InGameUI, InGameUIError, Minimap, MinimapIcon, PlacementPreview, ResourceDisplay,
+    DrawableID, HintData, HintType, InGameUI, InGameUIError, InGameUIIniSettings, MessageText,
+    MilitarySubtitle, Minimap, MinimapIcon, MouseCursor, MouseMode, PlacementPreview, ResourceDisplay,
     SelectionBox, SelectionState,
 };
 

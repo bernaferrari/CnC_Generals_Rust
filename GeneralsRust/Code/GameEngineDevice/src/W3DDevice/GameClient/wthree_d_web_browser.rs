@@ -1,7 +1,7 @@
 //! WthreeDWebBrowser Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DWebBrowser.h
-//! 
+//!
 //! This module provides functionality for wthree d web browser.
 
 use std::{

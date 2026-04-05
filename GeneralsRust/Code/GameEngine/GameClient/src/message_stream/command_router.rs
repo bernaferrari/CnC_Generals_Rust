@@ -635,4 +635,38 @@ mod tests {
             other => panic!("expected location argument, got {other:?}"),
         }
     }
+
+    #[test]
+    fn convert_special_power_override_destination_preserves_legacy_argument_layout() {
+        let target = Coord3D::new(4.5, 8.25, 1.0);
+        let msg = GameMessage::with_player(
+            GameMessageType::DoSpecialPowerOverrideDestination(target, 11, 23),
+            5,
+        );
+        let command = convert_game_message(&msg).expect("override destination should route");
+
+        assert_eq!(
+            command.get_type(),
+            CommandType::DoSpecialPowerOverrideDestination
+        );
+        assert_eq!(command.get_player_index(), 5);
+        assert_eq!(command.get_argument_count(), 3);
+
+        match command.get_argument(0) {
+            Some(CommandArgumentType::Location(location)) => {
+                assert_eq!(location.x, 4.5);
+                assert_eq!(location.y, 8.25);
+                assert_eq!(location.z, 1.0);
+            }
+            other => panic!("expected location argument, got {other:?}"),
+        }
+        match command.get_argument(1) {
+            Some(CommandArgumentType::Integer(power_type)) => assert_eq!(*power_type, 11),
+            other => panic!("expected power type argument, got {other:?}"),
+        }
+        match command.get_argument(2) {
+            Some(CommandArgumentType::ObjectID(source)) => assert_eq!(*source, 23),
+            other => panic!("expected source object argument, got {other:?}"),
+        }
+    }
 }

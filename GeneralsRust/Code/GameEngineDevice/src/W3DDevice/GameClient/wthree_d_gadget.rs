@@ -1,7 +1,7 @@
 //! WthreeDGadget Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DGadget.h
-//! 
+//!
 //! This module provides UI widget functionality.
 
 use std::{
@@ -62,7 +62,12 @@ impl WthreeDGadget {
 
     /// Handle input event
     pub fn handle_input(&mut self, _event: &InputEvent) {
-        // TODO: Handle input
+        // PARITY_NOTE: C++ W3DGadget.cpp provides per-Gadget-type input handling
+        // via GameWindow message system (GWM_INPUT, GBM_SELECTED, etc.).
+        // Each gadget type (PushButton, CheckBox, RadioButton, Slider, ListBox, etc.)
+        // has its own input handler that processes mouse/keyboard events and updates
+        // gadget state (checked, enabled, selection, scroll position, text entry).
+        // Full port requires: GameWindow message dispatch, per-gadget input state machines.
     }
 
     /// Render UI element
@@ -70,7 +75,11 @@ impl WthreeDGadget {
         if !self.visible {
             return;
         }
-        // TODO: Render UI
+        // PARITY_NOTE: C++ W3DGadget.cpp provides per-Gadget-type draw functions
+        // (W3DGadgetPushButtonDraw, W3DGadgetCheckBoxDraw, etc.) that render gadget
+        // visuals using Display->drawXxx() calls (images, text, rects, borders).
+        // Each gadget type has both "Draw" and "ImageDraw" variants.
+        // Full port requires: 2D drawing primitives (images, text, rects), gadget skins/themes.
     }
 }
 
@@ -87,7 +96,13 @@ mod tests {
 
     #[test]
     fn test_wthree_d_gadget_basic() {
-        // TODO: Implement tests for wthree_d_gadget
-        assert!(true, "Placeholder test for wthree_d_gadget");
+        let mut gadget = WthreeDGadget::new();
+        assert!(gadget.is_visible());
+        gadget.set_visible(false);
+        assert!(!gadget.is_visible());
+        gadget.set_position(10, 20);
+        assert_eq!(gadget.get_position(), (10, 20));
+        gadget.set_size(200, 300);
+        assert_eq!(gadget.get_size(), (200, 300));
     }
 }

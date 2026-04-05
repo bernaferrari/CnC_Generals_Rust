@@ -156,7 +156,7 @@ impl LeafletDropBehavior {
                 continue;
             }
 
-            if target.relationship_to(obj) != Relationship::Enemy {
+            if target.relationship_to(obj) != Relationship::Enemies {
                 continue;
             }
 

@@ -2330,7 +2330,7 @@ impl Drawable {
                     let team_guard = team.read().ok()?;
                     Some(guard.get_relationship_with_team(&team_guard))
                 })
-                .unwrap_or(Relationship::Enemy);
+                .unwrap_or(Relationship::Enemies);
 
             if matches!(relationship, Relationship::Allies | Relationship::Neutral) {
                 self.set_terrain_decal(TerrainDecalType::ShadowTexture);

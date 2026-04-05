@@ -1824,6 +1824,12 @@ impl TheParticleSystemManager {
         }
     }
 
+    pub fn destroy_attached_systems(&self, object_id: ObjectID) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.destroy_attached_systems(object_id);
+        }
+    }
+
     pub fn start_particle_system(&self, id: u32) {
         if let Some(manager) = get_particle_system_manager() {
             manager.start_particle_system(id);
@@ -1880,6 +1886,30 @@ pub struct ProjectileStreamState {
     pub scroll_rate: Real,
 }
 
+/// Bone transform override for animated models (turret rotations, recoil shifts).
+/// Consumed by the render bridge to produce `render_bridge::BoneOverride`.
+#[derive(Clone, Debug)]
+pub struct BoneOverrideState {
+    pub bone_index: i32,
+    pub transform: Matrix3D,
+}
+
+/// Per-frame model draw data written by W3DModelDraw::do_draw_module().
+/// Read by the GameClient device layer to produce `render_bridge::DrawSubmission`.
+#[derive(Clone, Debug)]
+pub struct ModelDrawState {
+    pub model_name: String,
+    pub world_transform: Matrix3D,
+    /// Raw ModelConditionFlags bits (u128); client maps to RenderConditionFlags.
+    pub condition_flags_bits: u128,
+    pub bone_overrides: Vec<BoneOverrideState>,
+    pub animation_name: Option<String>,
+    /// 0.0–1.0 fraction through the current animation cycle.
+    pub animation_time: f32,
+    /// Matches AnimMode discriminant (0=Manual … 5=OnceBackwards).
+    pub animation_mode: i32,
+}
+
 #[derive(Clone, Debug)]
 pub struct DrawableState {
     pub template_name: String,
@@ -1891,6 +1921,8 @@ pub struct DrawableState {
     pub beam_end: Option<Coord3D>,
     pub beam_width: Option<Real>,
     pub projectile_stream: Option<ProjectileStreamState>,
+    /// Per-frame model draw data written by W3DModelDraw::do_draw_module().
+    pub model_draw: Option<ModelDrawState>,
     pub drawable: Option<Arc<RwLock<Drawable>>>,
     pub expiration_frame: Option<UnsignedInt>,
 }
@@ -1900,6 +1932,78 @@ static DRAWABLE_STATE: Lazy<Mutex<HashMap<u32, DrawableState>>> =
 static TERRAIN_TREE_STATE: Lazy<Mutex<HashMap<u32, TerrainTreeRegistration>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Bridge trait for camera view operations.
+///
+/// Implemented by GameClient to forward calls to the real `View` struct
+/// (which lives in GameClient and cannot be imported by GameLogic).
+///
+/// All methods use `&self` because the implementation uses interior mutability
+/// (the real View is accessed via `with_tactical_view` which uses a thread-local
+/// `RefCell`).
+///
+/// Integer types are used for enums (`CameraLockType`, `FilterType`, `FilterMode`)
+/// so that GameLogic does not need to import GameClient enum types. Values must
+/// match the C++ enum ordering exactly.
+pub trait CameraViewBridge: Send + Sync {
+    fn set_camera_lock(&self, id: Option<u32>);
+    fn set_snap_mode(&self, lock_type: i32, distance: f32);
+    fn snap_to_camera_lock(&self);
+    fn move_camera_to(
+        &self,
+        x: f32,
+        y: f32,
+        z: f32,
+        ms: i32,
+        shutter: i32,
+        enabled: bool,
+        ease_in: f32,
+        ease_out: f32,
+    );
+    fn zoom_camera(&self, zoom: f32, ms: i32, ease_in: f32, ease_out: f32);
+    fn pitch_camera(&self, pitch: f32, ms: i32, ease_in: f32, ease_out: f32);
+    fn rotate_camera(&self, rotations: f32, ms: i32, ease_in: f32, ease_out: f32);
+    fn camera_mod_look_toward(&self, x: f32, y: f32, z: f32);
+    fn camera_mod_final_look_toward(&self, x: f32, y: f32, z: f32);
+    fn camera_mod_final_pitch(&self, pitch: f32, ease_in: f32, ease_out: f32);
+    fn camera_mod_final_zoom(&self, zoom: f32, ease_in: f32, ease_out: f32);
+    fn camera_mod_freeze_time(&self);
+    fn camera_mod_freeze_angle(&self);
+    fn set_default_view(&self, pitch: f32, angle: f32, max_height: f32);
+    fn reset_camera(&self, x: f32, y: f32, z: f32, ms: i32, ease_in: f32, ease_out: f32);
+    fn look_at(&self, x: f32, y: f32, z: f32);
+    fn set_view_filter(&self, filter_type: i32) -> bool;
+    fn set_view_filter_mode(&self, mode: i32) -> bool;
+    fn set_view_filter_pos(&self, x: f32, y: f32, z: f32);
+    fn rotate_camera_toward_object(
+        &self,
+        object_id: u32,
+        milliseconds: i32,
+        hold_milliseconds: i32,
+        ease_in: f32,
+        ease_out: f32,
+    );
+    fn rotate_camera_toward_position(
+        &self,
+        x: f32,
+        y: f32,
+        z: f32,
+        milliseconds: i32,
+        ease_in: f32,
+        ease_out: f32,
+        reverse: bool,
+    );
+}
+
+static CAMERA_VIEW_BRIDGE: OnceLock<Arc<dyn CameraViewBridge>> = OnceLock::new();
+
+pub fn register_camera_view_bridge(bridge: Arc<dyn CameraViewBridge>) -> bool {
+    CAMERA_VIEW_BRIDGE.set(bridge).is_ok()
+}
+
+pub fn get_camera_view_bridge() -> Option<&'static Arc<dyn CameraViewBridge>> {
+    CAMERA_VIEW_BRIDGE.get()
+}
+
 /// Game client bridge for drawables/scorch marks and visual effects
 pub struct TheGameClient;
 
@@ -1907,6 +2011,14 @@ impl TheGameClient {
     pub fn get() -> Option<&'static Self> {
         static CLIENT: OnceLock<TheGameClient> = OnceLock::new();
         Some(CLIENT.get_or_init(|| TheGameClient))
+    }
+
+    pub fn register_camera_view_bridge(bridge: Arc<dyn CameraViewBridge>) -> bool {
+        register_camera_view_bridge(bridge)
+    }
+
+    pub fn get_camera_view_bridge() -> Option<&'static Arc<dyn CameraViewBridge>> {
+        get_camera_view_bridge()
     }
 
     /// Synchronize the client frame counter with the logic frame.
@@ -2042,6 +2154,7 @@ impl TheGameClient {
                 beam_end: None,
                 beam_width,
                 projectile_stream: None,
+                model_draw: None,
                 drawable: Some(Arc::clone(&drawable)),
                 expiration_frame: None,
             },
@@ -2159,6 +2272,18 @@ impl TheGameClient {
         let map = DRAWABLE_STATE.lock().ok()?;
         map.get(&id)
             .and_then(|state| state.projectile_stream.clone())
+    }
+
+    pub fn set_drawable_model_draw(&self, id: u32, model_draw: ModelDrawState) {
+        let mut map = DRAWABLE_STATE.lock().unwrap();
+        if let Some(state) = map.get_mut(&id) {
+            state.model_draw = Some(model_draw);
+        }
+    }
+
+    pub fn get_drawable_model_draw(&self, id: u32) -> Option<ModelDrawState> {
+        let map = DRAWABLE_STATE.lock().ok()?;
+        map.get(&id).and_then(|state| state.model_draw.clone())
     }
 
     pub fn find_drawable_by_id(&self, id: u32) -> Option<DrawableState> {
@@ -2781,6 +2906,34 @@ fn observer_audio_view_hooks() -> Option<&'static Arc<dyn ObserverAudioViewHooks
     OBSERVER_AUDIO_VIEW_HOOKS.get()
 }
 
+use game_engine::common::system::scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
+
+static SCENE_SUBMISSION: OnceLock<Arc<dyn SceneSubmission>> = OnceLock::new();
+
+pub fn register_scene_submission(impl_: Arc<dyn SceneSubmission>) -> bool {
+    SCENE_SUBMISSION.set(impl_).is_ok()
+}
+
+fn get_scene_submission() -> Option<&'static Arc<dyn SceneSubmission>> {
+    SCENE_SUBMISSION.get()
+}
+
+pub fn submit_scene_line(drawable_id: u32, desc: &SceneLineDesc) -> Option<SceneLineId> {
+    get_scene_submission().and_then(|s| s.submit_line(drawable_id, desc))
+}
+
+pub fn update_scene_line(id: SceneLineId, desc: &SceneLineDesc) {
+    if let Some(s) = get_scene_submission() {
+        s.update_line(id, desc);
+    }
+}
+
+pub fn remove_scene_line(id: SceneLineId) {
+    if let Some(s) = get_scene_submission() {
+        s.remove_line(id);
+    }
+}
+
 /// Global data singleton (matches C++ TheGlobalData)
 pub struct TheGlobalData;
 
@@ -3313,25 +3466,25 @@ impl ThePartitionManager {
                             let is_structure = obj_guard.is_kind_of(KindOf::Structure);
 
                             if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS) != 0
-                                && relation != Relationship::Enemy
+                                && relation != Relationship::Enemies
                                 && is_unit
                             {
                                 continue;
                             }
                             if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES) != 0
-                                && relation != Relationship::Enemy
+                                && relation != Relationship::Enemies
                                 && is_structure
                             {
                                 continue;
                             }
                             if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
-                                && relation == Relationship::Enemy
+                                && relation == Relationship::Enemies
                                 && is_unit
                             {
                                 continue;
                             }
                             if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
-                                && relation == Relationship::Enemy
+                                && relation == Relationship::Enemies
                                 && is_structure
                             {
                                 continue;
@@ -3927,11 +4080,11 @@ fn partition_filter_allows(
         let allowed = match *filter {
             PartitionFilter::Flammable => candidate.find_update_module("FlammableUpdate").is_some(),
             PartitionFilter::Enemy => {
-                matches!(from.relationship_to(candidate), Relationship::Enemy)
+                matches!(from.relationship_to(candidate), Relationship::Enemies)
             }
             PartitionFilter::Friendly => matches!(
                 from.relationship_to(candidate),
-                Relationship::Friend | Relationship::Ally | Relationship::Allies
+                Relationship::Allies | Relationship::Allies | Relationship::Allies
             ),
             PartitionFilter::Neutral => {
                 matches!(from.relationship_to(candidate), Relationship::Neutral)
@@ -4050,7 +4203,7 @@ impl crate::special_power_module::integration::PartitionManagerInterface
                             return false;
                         };
                         team_guard.get_relationship(&obj_team_guard)
-                            == crate::common::Relationship::Enemy
+                            == crate::common::Relationship::Enemies
                     }
                     crate::special_power_module::integration::ObjectFilter::Friendly => {
                         let Some(team_arc) = local_team.as_ref() else {
@@ -4067,8 +4220,8 @@ impl crate::special_power_module::integration::PartitionManagerInterface
                         };
                         matches!(
                             team_guard.get_relationship(&obj_team_guard),
-                            crate::common::Relationship::Friend
-                                | crate::common::Relationship::Ally
+                            crate::common::Relationship::Allies
+                                | crate::common::Relationship::Allies
                                 | crate::common::Relationship::Allies
                         )
                     }
@@ -4751,10 +4904,10 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
         };
 
         match source_guard.get_relationship_with_team(&local_team_guard) {
-            Relationship::Ally | Relationship::Allies | Relationship::Friend => {
+            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                 AudioLocalityRelationship::Allies
             }
-            Relationship::Enemy => AudioLocalityRelationship::Enemies,
+            Relationship::Enemies => AudioLocalityRelationship::Enemies,
             Relationship::Neutral => AudioLocalityRelationship::Neutral,
         }
     }

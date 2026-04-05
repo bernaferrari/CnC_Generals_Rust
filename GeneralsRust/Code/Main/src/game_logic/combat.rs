@@ -154,7 +154,10 @@ pub struct PendingProjectile {
     pub shooter_id: ObjectId,
     pub shooter_pos: Vec3,
     pub target_id: Option<ObjectId>,
-    pub target_pos: Vec3,
+    /// Target position for position-based attacks. For object-based attacks
+    /// (target_id = Some), the drain function resolves the position from the
+    /// objects map and falls back to this value if the target is gone.
+    pub target_pos: Option<Vec3>,
     pub damage: f32,
     pub speed: f32,
 }
@@ -176,14 +179,16 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
     };
 
     for p in pending {
-        // Resolve actual target position from the objects map
         let actual_target_pos = p
             .target_id
             .and_then(|tid| objects.get(&tid))
             .map(|obj| obj.get_position())
-            .unwrap_or(p.target_pos);
+            .or(p.target_pos);
 
-        // Create a temporary weapon for the fire_projectile call
+        let Some(target_pos) = actual_target_pos else {
+            continue;
+        };
+
         let weapon = Weapon {
             damage: p.damage,
             range: 100.0,
@@ -198,7 +203,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         };
         combat.fire_projectile(
             p.shooter_pos,
-            actual_target_pos,
+            target_pos,
             &weapon,
             p.shooter_id,
             p.target_id,

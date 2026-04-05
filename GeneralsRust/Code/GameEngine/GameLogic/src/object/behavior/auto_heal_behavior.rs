@@ -1082,7 +1082,7 @@ impl AutoHealBehavior {
                         team.read()
                             .ok()
                             .map(|team_guard| healer.get_relationship(&team_guard))
-                            .map(|rel| rel == crate::common::Relationship::Friend)
+                            .map(|rel| rel == crate::common::Relationship::Allies)
                             .unwrap_or(false)
                     })
                     .unwrap_or(false);

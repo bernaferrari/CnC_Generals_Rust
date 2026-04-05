@@ -1,7 +1,7 @@
 //! WthreeDOverlordTankDraw Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DOverlordTankDraw.h
-//! 
+//!
 //! This module provides drawing and rendering functionality.
 
 use std::{

@@ -11,9 +11,9 @@
 //! - Specular highlights
 //! - Fresnel effects
 
-use wgpu::util::DeviceExt;
-use std::f32::consts::PI;
 use super::water_config::*;
+use std::f32::consts::PI;
+use wgpu::util::DeviceExt;
 
 /// Vertex format for water surface
 #[repr(C)]
@@ -156,9 +156,7 @@ impl WaterRenderer {
         // Create shader module
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Water Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("water_shader.wgsl").into()
-            ),
+            source: wgpu::ShaderSource::Wgsl(include_str!("water_shader.wgsl").into()),
         });
 
         // Create uniform buffers
@@ -184,8 +182,8 @@ impl WaterRenderer {
         });
 
         // Create bind group layouts
-        let uniform_bind_group_layout = device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Water Uniform Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -219,11 +217,10 @@ impl WaterRenderer {
                         count: None,
                     },
                 ],
-            }
-        );
+            });
 
-        let texture_bind_group_layout = device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor {
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Water Texture Bind Group Layout"),
                 entries: &[
                     // Water texture
@@ -295,8 +292,7 @@ impl WaterRenderer {
                         count: None,
                     },
                 ],
-            }
-        );
+            });
 
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -414,7 +410,8 @@ impl WaterRenderer {
         // Create placeholder textures (to be loaded from assets)
         let water_texture = Self::create_placeholder_texture(&device, &queue, 256, 256, "Water");
         let normal_map = Self::create_placeholder_texture(&device, &queue, 256, 256, "Normal");
-        let caustics_texture = Self::create_placeholder_texture(&device, &queue, 256, 256, "Caustics");
+        let caustics_texture =
+            Self::create_placeholder_texture(&device, &queue, 256, 256, "Caustics");
 
         // Create reflection texture (render target)
         let reflection_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -471,7 +468,7 @@ impl WaterRenderer {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(
-                        &water_texture.create_view(&wgpu::TextureViewDescriptor::default())
+                        &water_texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -481,7 +478,7 @@ impl WaterRenderer {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(
-                        &normal_map.create_view(&wgpu::TextureViewDescriptor::default())
+                        &normal_map.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -491,7 +488,7 @@ impl WaterRenderer {
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::TextureView(
-                        &reflection_texture.create_view(&wgpu::TextureViewDescriptor::default())
+                        &reflection_texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -501,7 +498,7 @@ impl WaterRenderer {
                 wgpu::BindGroupEntry {
                     binding: 6,
                     resource: wgpu::BindingResource::TextureView(
-                        &caustics_texture.create_view(&wgpu::TextureViewDescriptor::default())
+                        &caustics_texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -775,13 +772,23 @@ impl WaterRenderer {
 
     /// Add velocity to water mesh at world position
     /// Matches C++ WaterRenderObjClass::addVelocity()
-    pub fn add_velocity(&mut self, world_x: f32, world_y: f32, z_velocity: f32, preferred_height: f32) {
+    pub fn add_velocity(
+        &mut self,
+        world_x: f32,
+        world_y: f32,
+        z_velocity: f32,
+        preferred_height: f32,
+    ) {
         if let Some((grid_x, grid_y)) = self.world_to_grid_space(world_x, world_y) {
-            let min_x = (grid_x - self.grid_transform.change_max_range).floor().max(0.0) as usize;
+            let min_x = (grid_x - self.grid_transform.change_max_range)
+                .floor()
+                .max(0.0) as usize;
             let max_x = (grid_x + self.grid_transform.change_max_range)
                 .ceil()
                 .min(self.grid_transform.cells_x as f32) as usize;
-            let min_y = (grid_y - self.grid_transform.change_max_range).floor().max(0.0) as usize;
+            let min_y = (grid_y - self.grid_transform.change_max_range)
+                .floor()
+                .max(0.0) as usize;
             let max_y = (grid_y + self.grid_transform.change_max_range)
                 .ceil()
                 .min(self.grid_transform.cells_y as f32) as usize;
@@ -808,13 +815,18 @@ impl WaterRenderer {
         let dx = world_x - self.grid_transform.origin[0];
         let dy = world_y - self.grid_transform.origin[1];
 
-        let grid_x = (dx * self.grid_transform.direction_x[0] + dy * self.grid_transform.direction_x[1])
+        let grid_x = (dx * self.grid_transform.direction_x[0]
+            + dy * self.grid_transform.direction_x[1])
             / self.grid_transform.cell_size;
-        let grid_y = (dx * self.grid_transform.direction_y[0] + dy * self.grid_transform.direction_y[1])
+        let grid_y = (dx * self.grid_transform.direction_y[0]
+            + dy * self.grid_transform.direction_y[1])
             / self.grid_transform.cell_size;
 
-        if grid_x >= 0.0 && grid_x < self.grid_transform.cells_x as f32 &&
-           grid_y >= 0.0 && grid_y < self.grid_transform.cells_y as f32 {
+        if grid_x >= 0.0
+            && grid_x < self.grid_transform.cells_x as f32
+            && grid_y >= 0.0
+            && grid_y < self.grid_transform.cells_y as f32
+        {
             Some((grid_x, grid_y))
         } else {
             None
@@ -837,7 +849,12 @@ impl WaterRenderer {
 
         // Update water uniforms
         let water_uniforms = WaterUniforms {
-            world_transform: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+            world_transform: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
             water_color: [0.2, 0.4, 0.6, 0.8],
             water_level: self.water_level,
             time: self.river_v_origin,
@@ -848,7 +865,10 @@ impl WaterRenderer {
             fresnel_bias: 0.1,
             fresnel_power: 2.0,
             uv_scroll: [self.river_x_offset, self.river_y_offset],
-            grid_scale: [constants::NOISE_REPEAT_FACTOR, constants::NOISE_REPEAT_FACTOR],
+            grid_scale: [
+                constants::NOISE_REPEAT_FACTOR,
+                constants::NOISE_REPEAT_FACTOR,
+            ],
         };
 
         self.queue.write_buffer(
@@ -929,9 +949,7 @@ mod tests {
 
     #[test]
     fn test_mesh_generation() {
-        let (vertices, indices) = WaterRenderer::generate_water_mesh(
-            10, 10, 100.0, 100.0, 0.0
-        );
+        let (vertices, indices) = WaterRenderer::generate_water_mesh(10, 10, 100.0, 100.0, 0.0);
 
         assert_eq!(vertices.len(), 100);
         assert_eq!(indices.len(), (10 - 1) * (10 * 2 + 2) - 2);

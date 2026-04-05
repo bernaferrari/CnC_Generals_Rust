@@ -2892,20 +2892,94 @@ impl GameLogic {
 
     /// Update victory conditions.
     ///
-    /// ## C++ Reference: GameLogic.cpp line 3769
+    /// ## C++ Reference: GameLogic.cpp line 3769, VictoryConditions.cpp update()
     ///
     /// C++: `TheVictoryConditions->UPDATE();`
     ///
-    /// Victory condition evaluation runs near end-of-frame after all game
-    /// state has been updated. The current Rust implementation is a simple
-    /// atomic flag; this is a placeholder for the full victory condition
-    /// system that will evaluate win/loss conditions each frame.
-    fn update_victory_conditions(&self) {
+    /// Each frame, checks all players for elimination conditions (no units, no
+    /// buildings, or both) based on the multiplayer victory flags. Newly-defeated
+    /// players are marked and their map is revealed. Also detects when only a
+    /// single alliance remains (victory condition).
+    ///
+    /// Network-specific behavior (TheRecorder->isMultiplayer(), GameSlot,
+    /// PopulateInGameDiplomacyPopup) is intentionally deferred per AGENTS.md.
+    fn update_victory_conditions(&mut self) {
         trace!("GameLogic::update_victory_conditions()");
-        // TheVictoryConditions in the current Rust port is a simple atomic-flag
-        // singleton (helpers.rs). A full implementation would iterate registered
-        // victory conditions and evaluate them against current game state.
-        // For now this is a no-op; victory checks are driven by script actions.
+
+        // C++ skips evaluation before frame 2 (TheGameLogic->getFrame() > 1)
+        if self.frame <= 1 {
+            return;
+        }
+
+        let player_list = match player_list().read() {
+            Ok(pl) => pl,
+            Err(_) => return,
+        };
+
+        // Use the same elimination flags as C++ default:
+        //   VICTORY_NOBUILDINGS | VICTORY_NOUNITS
+        let flags = crate::system::victory_conditions::MultiplayerEliminationFlags::DEFAULT;
+        let no_units = flags
+            .contains(crate::system::victory_conditions::MultiplayerEliminationFlags::NO_UNITS);
+        let no_buildings = flags
+            .contains(crate::system::victory_conditions::MultiplayerEliminationFlags::NO_BUILDINGS);
+
+        let mut newly_defeated_indices: Vec<(
+            PlayerIndex,
+            std::sync::Arc<std::sync::RwLock<Player>>,
+        )> = Vec::new();
+
+        // Phase 1: Scan for newly-defeated players (C++ lines 163-199)
+        for player_arc in player_list.iter() {
+            let Ok(player) = player_arc.read() else {
+                continue;
+            };
+            let player_index = player.get_player_index();
+            if player_index < 0 {
+                continue;
+            }
+
+            // Skip civilian and observer players (C++ cachePlayerPtrs filter)
+            if player.is_player_observer() {
+                continue;
+            }
+
+            let is_defeated = match (no_units, no_buildings) {
+                (true, true) => !player.has_any_objects(),
+                (true, false) => !player.has_any_units(),
+                (false, true) => !player.has_any_buildings_counts_for_victory(),
+                (false, false) => false,
+            };
+
+            if is_defeated && !player.is_defeated() {
+                newly_defeated_indices.push((player_index, std::sync::Arc::clone(player_arc)));
+            }
+        }
+
+        // Release the read lock before acquiring write locks
+        drop(player_list);
+
+        // Phase 2: Handle newly-defeated players (C++ lines 166-198)
+        for (player_index, player_arc) in &newly_defeated_indices {
+            if let Ok(mut player) = player_arc.write() {
+                player.set_defeated(true);
+                info!(
+                    "VictoryConditions: Player {} has been eliminated",
+                    player_index
+                );
+            }
+
+            // C++: ThePartitionManager->revealMapForPlayerPermanently(p->getPlayerIndex())
+            // Deferred — partition manager integration is a separate port task.
+
+            // C++: TheInGameUI->message("GUI:PlayerHasBeenDefeated", ...)
+            // C++: TheAudio->addAudioEvent(&leftGameSound)
+            // Deferred — UI/audio integration is a separate port task.
+
+            // C++: p->killPlayer()
+            // Deferred — killPlayer() destroys remaining player objects;
+            // this will be implemented when the full player cleanup system is ported.
+        }
     }
 
     /// Check and update disabled statuses on all objects.

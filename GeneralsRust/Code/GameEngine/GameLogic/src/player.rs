@@ -49,22 +49,24 @@ pub const NUM_HOTKEY_SQUADS: usize = 10;
 /// Invalid hotkey squad constant
 pub const NO_HOTKEY_SQUAD: PlayerIndex = -1;
 
-/// Player types (matching C++ PlayerType)
+/// Player types (matching C++ PlayerType: HUMAN=0, COMPUTER=1)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum PlayerType {
-    Human,
-    Computer,
-    Observer,
-    Neutral,
+    Human = 0,
+    Computer = 1,
+    Observer = 2,
+    Neutral = 3,
 }
 
-/// Game difficulty levels (matching C++ GameDifficulty)
+/// Game difficulty levels (matching C++ GameDifficulty: EASY=0, NORMAL=1, HARD=2)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum GameDifficulty {
-    Easy,
-    Normal,
-    Hard,
-    Brutal,
+    Easy = 0,
+    Normal = 1,
+    Hard = 2,
+    Brutal = 3,
 }
 
 /// Science availability types (matching C++ ScienceAvailabilityType)
@@ -1946,7 +1948,7 @@ impl Player {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnParticleCannon,
                     );
-                } else if relation != Relationship::Enemy {
+                } else if relation != Relationship::Enemies {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedAllyParticleCannon,
                     );
@@ -1963,7 +1965,7 @@ impl Player {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnNuke,
                     );
-                } else if relation != Relationship::Enemy {
+                } else if relation != Relationship::Enemies {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedAllyNuke,
                     );
@@ -1980,7 +1982,7 @@ impl Player {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnScudStorm,
                     );
-                } else if relation != Relationship::Enemy {
+                } else if relation != Relationship::Enemies {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedAllyScudStorm,
                     );
@@ -3074,27 +3076,27 @@ impl Player {
 
     /// Check if this player is allied with another player
     pub fn is_allied_with_player(&self, that_player: &Player) -> Bool {
-        matches!(self.get_relationship(that_player), Relationship::Ally)
+        matches!(self.get_relationship(that_player), Relationship::Allies)
     }
 
     /// Check if this player is allied with a team
     pub fn is_allied_with_team(&self, that_team: &Team) -> Bool {
         matches!(
             self.get_relationship_with_team(that_team),
-            Relationship::Ally
+            Relationship::Allies
         )
     }
 
     /// Check if this player is enemy with another player
     pub fn is_enemy_with_player(&self, that_player: &Player) -> Bool {
-        matches!(self.get_relationship(that_player), Relationship::Enemy)
+        matches!(self.get_relationship(that_player), Relationship::Enemies)
     }
 
     /// Check if this player is enemy with a team
     pub fn is_enemy_with_team(&self, that_team: &Team) -> Bool {
         matches!(
             self.get_relationship_with_team(that_team),
-            Relationship::Enemy
+            Relationship::Enemies
         )
     }
 
@@ -3104,7 +3106,7 @@ impl Player {
             .map
             .iter()
             .filter_map(|(&index, &rel)| {
-                if rel == Relationship::Ally {
+                if rel == Relationship::Allies {
                     Some(index)
                 } else {
                     None
@@ -3119,7 +3121,7 @@ impl Player {
             .map
             .iter()
             .filter_map(|(&index, &rel)| {
-                if rel == Relationship::Enemy {
+                if rel == Relationship::Enemies {
                     Some(index)
                 } else {
                     None

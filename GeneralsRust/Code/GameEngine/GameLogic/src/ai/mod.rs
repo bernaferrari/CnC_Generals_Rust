@@ -1368,7 +1368,7 @@ impl AI {
                 continue;
             }
 
-            if me_guard.relationship_to(&target) != Relationship::Enemy {
+            if me_guard.relationship_to(&target) != Relationship::Enemies {
                 continue;
             }
 
@@ -1411,7 +1411,7 @@ impl AI {
                 != 0
             {
                 Some(me_guard.get_able_to_attack_specific_object(
-                    AbleToAttackType::CanAttackSpecific,
+                    AbleToAttackType::NewTarget,
                     &target,
                     CommandSourceType::FromAi,
                 ))
@@ -1561,7 +1561,7 @@ impl AI {
 
             if !matches!(
                 me_guard.relationship_to(&target),
-                Relationship::Friend | Relationship::Ally | Relationship::Allies
+                Relationship::Allies | Relationship::Allies | Relationship::Allies
             ) {
                 continue;
             }

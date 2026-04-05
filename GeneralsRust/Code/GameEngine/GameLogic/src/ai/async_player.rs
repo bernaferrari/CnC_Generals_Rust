@@ -692,7 +692,7 @@ impl AsyncAiPlayer {
                 Some(player_guard) => {
                     let list = player_list().read().ok();
                     let other = list.and_then(|list| list.get_player(owner_id as i32)).and_then(|p| p.read().ok());
-                    matches!(other.as_ref().map(|p| player_guard.get_relationship(p)), Some(crate::common::Relationship::Enemy))
+                    matches!(other.as_ref().map(|p| player_guard.get_relationship(p)), Some(crate::common::Relationship::Enemies))
                 }
                 None => true,
             };

@@ -315,6 +315,12 @@ fn xfer_in_game_ui_state(
     xfer_bool_flag(xfer, &mut ui.force_attack_mode)?;
     xfer_bool_flag(xfer, &mut ui.force_move_to_mode)?;
     xfer_bool_flag(xfer, &mut ui.prefer_selection_mode)?;
+    xfer_bool_flag(xfer, &mut ui.waypoint_mode)?;
+    xfer_bool_flag(xfer, &mut ui.camera_rotating_left)?;
+    xfer_bool_flag(xfer, &mut ui.camera_rotating_right)?;
+    xfer_bool_flag(xfer, &mut ui.camera_zooming_in)?;
+    xfer_bool_flag(xfer, &mut ui.camera_zooming_out)?;
+    xfer_bool_flag(xfer, &mut ui.camera_tracking_drawable)?;
     xfer_bool_flag(
         xfer,
         &mut ui.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click,
@@ -815,6 +821,12 @@ pub struct InGameUISubsystem {
     force_attack_mode: bool,
     force_move_to_mode: bool,
     prefer_selection_mode: bool,
+    waypoint_mode: bool,
+    camera_rotating_left: bool,
+    camera_rotating_right: bool,
+    camera_zooming_in: bool,
+    camera_zooming_out: bool,
+    camera_tracking_drawable: bool,
     prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
     pending_special_power: Option<PendingSpecialPower>,
     pending_command: Option<PendingCommand>,
@@ -1116,6 +1128,58 @@ impl InGameUISubsystem {
         self.prefer_selection_mode = enabled;
     }
 
+    fn is_in_waypoint_mode(&self) -> bool {
+        self.waypoint_mode
+    }
+
+    fn set_waypoint_mode(&mut self, enabled: bool) {
+        self.waypoint_mode = enabled;
+    }
+
+    fn is_camera_rotating_left(&self) -> bool {
+        self.camera_rotating_left
+    }
+
+    fn set_camera_rotate_left(&mut self, set: bool) {
+        self.camera_rotating_left = set;
+    }
+
+    fn is_camera_rotating_right(&self) -> bool {
+        self.camera_rotating_right
+    }
+
+    fn set_camera_rotate_right(&mut self, set: bool) {
+        self.camera_rotating_right = set;
+    }
+
+    fn is_camera_zooming_in(&self) -> bool {
+        self.camera_zooming_in
+    }
+
+    fn set_camera_zoom_in(&mut self, set: bool) {
+        self.camera_zooming_in = set;
+    }
+
+    fn is_camera_zooming_out(&self) -> bool {
+        self.camera_zooming_out
+    }
+
+    fn set_camera_zoom_out(&mut self, set: bool) {
+        self.camera_zooming_out = set;
+    }
+
+    fn is_camera_tracking_drawable(&self) -> bool {
+        self.camera_tracking_drawable
+    }
+
+    fn set_camera_tracking_drawable(&mut self, set: bool) {
+        self.camera_tracking_drawable = set;
+    }
+
+    fn get_frame_selection_changed(&self) -> u32 {
+        0
+    }
+
     fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
         &mut self,
         enabled: bool,
@@ -1145,6 +1209,12 @@ impl InGameUISubsystem {
         self.force_attack_mode = false;
         self.force_move_to_mode = false;
         self.prefer_selection_mode = false;
+        self.waypoint_mode = false;
+        self.camera_rotating_left = false;
+        self.camera_rotating_right = false;
+        self.camera_zooming_in = false;
+        self.camera_zooming_out = false;
+        self.camera_tracking_drawable = false;
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = false;
         self.pending_special_power = None;
         self.pending_command = None;
@@ -1514,6 +1584,91 @@ impl InGameUiHooks for InGameUiHandle {
         if let Ok(mut ui) = self.inner.lock() {
             ui.set_prefer_selection_mode(enabled);
         }
+    }
+
+    fn is_in_waypoint_mode(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.is_in_waypoint_mode())
+            .unwrap_or(false)
+    }
+
+    fn set_waypoint_mode(&self, enabled: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_waypoint_mode(enabled);
+        }
+    }
+
+    fn is_camera_rotating_left(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.is_camera_rotating_left())
+            .unwrap_or(false)
+    }
+
+    fn set_camera_rotate_left(&self, set: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_camera_rotate_left(set);
+        }
+    }
+
+    fn is_camera_rotating_right(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.is_camera_rotating_right())
+            .unwrap_or(false)
+    }
+
+    fn set_camera_rotate_right(&self, set: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_camera_rotate_right(set);
+        }
+    }
+
+    fn is_camera_zooming_in(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.is_camera_zooming_in())
+            .unwrap_or(false)
+    }
+
+    fn set_camera_zoom_in(&self, set: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_camera_zoom_in(set);
+        }
+    }
+
+    fn is_camera_zooming_out(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.is_camera_zooming_out())
+            .unwrap_or(false)
+    }
+
+    fn set_camera_zoom_out(&self, set: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_camera_zoom_out(set);
+        }
+    }
+
+    fn is_camera_tracking_drawable(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.is_camera_tracking_drawable())
+            .unwrap_or(false)
+    }
+
+    fn set_camera_tracking_drawable(&self, set: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_camera_tracking_drawable(set);
+        }
+    }
+
+    fn get_frame_selection_changed(&self) -> u32 {
+        self.inner
+            .lock()
+            .map(|ui| ui.get_frame_selection_changed())
+            .unwrap_or(0)
     }
 
     fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(

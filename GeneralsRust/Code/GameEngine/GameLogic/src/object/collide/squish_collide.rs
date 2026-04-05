@@ -154,7 +154,7 @@ impl SquishCollide {
 
         if matches!(
             target.relationship_with_owner,
-            Relationship::Friend | Relationship::Ally | Relationship::Allies
+            Relationship::Allies | Relationship::Allies | Relationship::Allies
         ) {
             return false;
         }
@@ -362,7 +362,7 @@ mod tests {
                 super::super::VeterancyLevel::Regular
             }
             fn get_relationship(&self, _other: &dyn GameObject) -> Relationship {
-                Relationship::Enemy
+                Relationship::Enemies
             }
             fn get_crusher_level(&self) -> u32 {
                 3
@@ -388,7 +388,7 @@ mod tests {
         let dummy = DummyObject;
         let snapshot = TargetSnapshot::from_game_object(&dummy, &dummy);
         assert_eq!(snapshot.id, 7);
-        assert_eq!(snapshot.relationship_with_owner, Relationship::Enemy);
+        assert_eq!(snapshot.relationship_with_owner, Relationship::Enemies);
         assert_eq!(snapshot.crusher_level, 3);
         assert!(snapshot.geometry_radius >= TARGET_COLLISION_RADIUS);
     }
@@ -405,7 +405,7 @@ mod tests {
         let target = TargetSnapshot {
             id: 2,
             position: Coord3D::new(1.0, 0.0, 0.0),
-            relationship_with_owner: Relationship::Enemy,
+            relationship_with_owner: Relationship::Enemies,
             crusher_level: 5,
             velocity_xy: Some((1.0, 0.0)),
             geometry_radius: TARGET_COLLISION_RADIUS,

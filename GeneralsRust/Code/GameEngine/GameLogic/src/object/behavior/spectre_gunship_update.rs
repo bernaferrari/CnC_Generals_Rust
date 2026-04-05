@@ -625,7 +625,7 @@ impl SpectreGunshipUpdate {
             return false;
         };
 
-        our_player.get_relationship_with_team(&other_team_guard) == Relationship::Enemy
+        our_player.get_relationship_with_team(&other_team_guard) == Relationship::Enemies
     }
 
     fn find_target_in_radius(
@@ -664,11 +664,11 @@ impl SpectreGunshipUpdate {
                     continue;
                 }
             }
-            if gunship.relationship_to(&obj) != Relationship::Enemy {
+            if gunship.relationship_to(&obj) != Relationship::Enemies {
                 continue;
             }
             let can_attack = gunship.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 &obj,
                 CommandSourceType::FromAi,
             );

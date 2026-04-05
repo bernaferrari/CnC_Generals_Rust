@@ -1511,7 +1511,7 @@ fn find_tunnel_network_inner_target(owner: &Arc<RwLock<Object>>) -> Option<Objec
         if let Some(ai) = tunnel_guard.get_ai_update_interface() {
             if let Some(victim) = ai.get_goal_object() {
                 if let Ok(victim_guard) = victim.read() {
-                    if owner_guard.relationship_to(&victim_guard) == Relationship::Enemy {
+                    if owner_guard.relationship_to(&victim_guard) == Relationship::Enemies {
                         return Some(victim_guard.get_id());
                     }
                 }
@@ -1542,12 +1542,12 @@ fn find_tunnel_network_inner_target(owner: &Arc<RwLock<Object>>) -> Option<Objec
         let Ok(attacker_guard) = attacker.read() else {
             continue;
         };
-        if owner_guard.relationship_to(&attacker_guard) != Relationship::Enemy {
+        if owner_guard.relationship_to(&attacker_guard) != Relationship::Enemies {
             continue;
         }
         let can_attack = matches!(
             owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 &attacker_guard,
                 CommandSourceType::FromAi,
             ),
@@ -1585,7 +1585,7 @@ fn tunnel_network_scan(owner: &Arc<RwLock<Object>>) -> Option<Arc<RwLock<Object>
         if candidate.is_off_map() {
             return false;
         }
-        if owner_guard.relationship_to(candidate) != Relationship::Enemy {
+        if owner_guard.relationship_to(candidate) != Relationship::Enemies {
             return false;
         }
         if candidate.is_stealthed() && !candidate.is_detected() {
@@ -1593,7 +1593,7 @@ fn tunnel_network_scan(owner: &Arc<RwLock<Object>>) -> Option<Arc<RwLock<Object>
         }
         matches!(
             owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 candidate,
                 CommandSourceType::FromAi,
             ),
@@ -1654,7 +1654,7 @@ pub fn has_attacked_me_and_i_can_return_fire_tn(machine: &StateMachine) -> bool 
                         return false;
                     };
 
-                    if owner_ref.relationship_to(&target_guard) != Relationship::Enemy {
+                    if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
                         return false;
                     }
 
@@ -1664,7 +1664,7 @@ pub fn has_attacked_me_and_i_can_return_fire_tn(machine: &StateMachine) -> bool 
 
                     matches!(
                         owner_ref.get_able_to_attack_specific_object(
-                            AbleToAttackType::CanAttackSpecific,
+                            AbleToAttackType::NewTarget,
                             &target_guard,
                             CommandSourceType::FromAi,
                         ),
