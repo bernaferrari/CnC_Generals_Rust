@@ -8,7 +8,9 @@
 //!
 //! C++ header declares duplicate tread fields that are never initialized or parsed (dead code).
 
-use cgmath::Matrix4;
+use cgmath::{Matrix4, Point3};
+
+pub use super::wthree_d_overlord_tank_draw::OverlordRiderState;
 
 #[derive(Debug, Clone, Default)]
 pub struct W3DOverlordTruckDrawModuleData {}
@@ -29,18 +31,28 @@ impl W3DOverlordTruckDraw {
         }
     }
 
-    /// Calls W3DTruckDraw::doDrawModule(transformMtx), then draws the rider.
-    /// Rider propagation (no null checks, unlike Aircraft):
-    /// riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())
-    /// riderDraw->notifyDrawableDependencyCleared()
-    /// riderDraw->draw(NULL)
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+    pub fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix4<f32>,
+        rider_draw: &mut Option<OverlordRiderState>,
+    ) {
         // PARITY_NOTE: W3DTruckDraw::doDrawModule(transformMtx)
-        // PARITY_NOTE: Rider propagation without null checks
+        let _ = transform_mtx;
+
+        // C++: No null checks unlike Aircraft (calls rider methods directly)
+        if let Some(rider) = rider_draw {
+            // PARITY_NOTE: riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())
+            // PARITY_NOTE: riderDraw->notifyDrawableDependencyCleared()
+            // PARITY_NOTE: riderDraw->draw(NULL)
+            rider.draw_requested = true;
+        }
     }
 
-    pub fn set_hidden(&mut self, hidden: bool) {
+    pub fn set_hidden(&mut self, hidden: bool, rider: Option<&mut OverlordRiderState>) {
         self.hidden = hidden;
+        if let Some(r) = rider {
+            r.hidden = hidden;
+        }
     }
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         self.shadow_enabled = enable;
@@ -81,7 +93,10 @@ mod tests {
     use super::*;
     #[test]
     fn test_wthree_d_overlord_truck_draw_basic() {
-        let draw = W3DOverlordTruckDraw::new();
+        let mut draw = W3DOverlordTruckDraw::new();
         assert!(draw.is_visible());
+        let mut rider = Some(OverlordRiderState::new());
+        draw.do_draw_module(&Matrix4::identity(), &mut rider);
+        assert!(rider.unwrap().draw_requested);
     }
 }

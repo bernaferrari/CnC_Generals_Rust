@@ -5,7 +5,7 @@
 //! Extends W3DModelDraw with tank-specific rendering: tread UV scrolling, tread debris
 //! particle emitters, and dual-mode tread animation (pivot vs drive).
 
-use cgmath::{Matrix4, Point3, Vector3};
+use cgmath::{Matrix4, Point3, Vector2, Vector3};
 
 /// Maximum treads per tank (C++: MAX_TREADS_PER_TANK)
 const MAX_TREADS_PER_TANK: usize = 4;
@@ -18,11 +18,19 @@ pub enum TreadType {
     Middle,
 }
 
+/// Physics turning type (C++: PhysicsTurningType)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicsTurningType {
+    None = 0,
+    Positive = 1,
+    Negative = 2,
+}
+
 /// Per-tread sub-object info
 #[derive(Debug, Clone)]
 pub struct TreadObjectInfo {
     /// Custom UV offset for scrolling (matches C++ Material_Override)
-    pub custom_uv_offset: cgmath::Vector2<f32>,
+    pub custom_uv_offset: Vector2<f32>,
     pub tread_type: TreadType,
 }
 
@@ -70,6 +78,8 @@ pub struct W3DTankDraw {
     hidden: bool,
     fully_obscured_by_shroud: bool,
     shadow_enabled: bool,
+    debris_active: bool,
+    time_frozen: bool,
 }
 
 impl W3DTankDraw {
@@ -88,6 +98,8 @@ impl W3DTankDraw {
             hidden: false,
             fully_obscured_by_shroud: false,
             shadow_enabled: true,
+            debris_active: false,
+            time_frozen: false,
         }
     }
 
@@ -124,19 +136,98 @@ impl W3DTankDraw {
     ///       scroll treads based on angle change from lastDirection
     ///    b. DRIVE mode: if isMotive AND velocityMagnitude/maxSpeed >= driveSpeedFraction,
     ///       scroll treads by treadAnimationRate per frame
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
-        // PARITY_NOTE: W3DModelDraw::doDrawModule(transformMtx)
+    pub fn do_draw_module(
+        &mut self,
+        transform_mtx: &Matrix4<f32>,
+        time_frozen: bool,
+        velocity_x: f32,
+        velocity_y: f32,
+        velocity_mag: f32,
+        max_speed: f32,
+        is_motive: bool,
+        turning: PhysicsTurningType,
+        dir_x: f32,
+        dir_y: f32,
+    ) {
+        const DEBRIS_THRESHOLD: f32 = 0.00001;
 
-        // PARITY_NOTE: Full tread animation logic requires:
-        // - Object, PhysicsBehavior, AIUpdateInterface from GameLogic
-        // - RenderObjClass with Get_Sub_Object, Get_Material_Info, etc.
-        // - ParticleSystem for debris emitters
-        //
-        // Pivot mode: if turning AND vel/maxVel < 0.6:
-        //   angle = dot(currentDir, lastDirection)
-        //   scroll based on angle change direction
-        // Drive mode: if motive AND vel/maxVel >= 0.3:
-        //   scroll by treadAnimationRate per frame
+        if time_frozen {
+            self.time_frozen = true;
+            return;
+        }
+        self.time_frozen = false;
+
+        // PARITY_NOTE: C++ checks getRenderObject()==NULL, return
+        // PARITY_NOTE: C++ checks getRenderObject() != m_prevRenderObj → updateTreadObjects()
+
+        // C++: velMag = vel->x*vel->x + vel->y*vel->y (only ground plane movement)
+        let vel_mag_sq = velocity_x * velocity_x + velocity_y * velocity_y;
+
+        // Debris start/stop based on velocity threshold
+        if vel_mag_sq > DEBRIS_THRESHOLD && !self.hidden && !self.fully_obscured_by_shroud {
+            if !self.debris_active {
+                self.debris_active = true;
+                // PARITY_NOTE: m_treadDebrisLeft->start(); m_treadDebrisRight->start();
+            }
+        } else {
+            if self.debris_active {
+                self.debris_active = false;
+                // PARITY_NOTE: m_treadDebrisLeft->stop(); m_treadDebrisRight->stop();
+            }
+        }
+
+        // PARITY_NOTE: velocity multiplier for debris emitters:
+        // velMult.x = 0.5f * velMag + 0.1f; cap at 1.0
+        // velMult.y = velMult.x;
+        // velMult.z = velMag + 0.1f; cap at 1.0
+        // m_treadDebrisLeft->setVelocityMultiplier(&velMult)
+        // m_treadDebrisRight->setVelocityMultiplier(&velMult)
+        // m_treadDebrisLeft->setBurstCountMultiplier(velMult.z)
+        // m_treadDebrisRight->setBurstCountMultiplier(velMult.z)
+
+        // Tread animation (C++: only runs if m_treadCount > 0)
+        if self.tread_count > 0 {
+            let tread_scroll_speed = self.module_data.tread_animation_rate;
+            // PARITY_NOTE: C++ uses maxSpeed from obj->getAIUpdateInterface()->getCurLocomotorSpeed()
+            let safe_max_speed = if max_speed > 0.001 {
+                max_speed
+            } else {
+                999999.0
+            };
+
+            // Pivot mode: turning while mostly stationary
+            if turning != PhysicsTurningType::None
+                && velocity_mag / safe_max_speed < self.module_data.tread_pivot_speed_fraction
+            {
+                // C++: dot product of current 2D direction with last direction
+                let angle_to_goal = dir_x * self.last_direction.x + dir_y * self.last_direction.y;
+                if (1.0 - angle_to_goal).abs() > 0.00001 {
+                    if turning == PhysicsTurningType::Negative {
+                        self.update_tread_positions(-tread_scroll_speed);
+                    } else {
+                        self.update_tread_positions(tread_scroll_speed);
+                    }
+                }
+                self.last_direction.x = dir_x;
+                self.last_direction.y = dir_y;
+                self.last_direction.z = 0.0;
+            }
+            // Drive mode: motive and above drive speed fraction
+            else if is_motive
+                && velocity_mag / safe_max_speed >= self.module_data.tread_drive_speed_fraction
+            {
+                // C++ scrolls ALL treads by subtracting treadScrollSpeed (note: different from
+                // updateTreadPositions which adds for LEFT/MIDDLE and subtracts for RIGHT).
+                // In drive mode, all treads scroll in the same direction.
+                for tread in &mut self.treads[..self.tread_count] {
+                    let offset_u = tread.custom_uv_offset.x - tread_scroll_speed;
+                    tread.custom_uv_offset.x = offset_u - offset_u.floor();
+                }
+            }
+        }
+
+        // PARITY_NOTE: W3DModelDraw::doDrawModule(transformMtx) called here
+        let _ = transform_mtx;
     }
 
     /// Called when render object is recreated. Re-discovers tread sub-objects.
@@ -160,7 +251,9 @@ impl W3DTankDraw {
 
     pub fn set_hidden(&mut self, hidden: bool) {
         self.hidden = hidden;
-        // PARITY_NOTE: if hiding, call stopMoveDebris()
+        if hidden {
+            self.debris_active = false;
+        }
     }
 
     pub fn set_shadows_enabled(&mut self, enable: bool) {
@@ -169,8 +262,10 @@ impl W3DTankDraw {
     pub fn release_shadows(&mut self) {}
     pub fn allocate_shadows(&mut self) {}
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        if fully_obscured {
+            self.debris_active = false;
+        }
         self.fully_obscured_by_shroud = fully_obscured;
-        // PARITY_NOTE: if newly obscured, stop debris
     }
     pub fn react_to_transform_change(
         &mut self,
@@ -216,7 +311,6 @@ mod tests {
         let mut draw = W3DTankDraw::new_default();
         assert_eq!(draw.get_tread_count(), 0);
 
-        // Manually set up treads for testing
         draw.tread_count = 2;
         draw.treads[0].tread_type = TreadType::Left;
         draw.treads[0].custom_uv_offset = Vector2::new(0.5, 0.0);
@@ -227,9 +321,75 @@ mod tests {
         assert!((draw.treads[0].custom_uv_offset.x - 0.6).abs() < 0.001);
         assert!((draw.treads[1].custom_uv_offset.x - 0.4).abs() < 0.001);
 
-        // Test wrapping
         draw.treads[0].custom_uv_offset = Vector2::new(0.95, 0.0);
         draw.update_tread_positions(0.1);
+        assert!((draw.treads[0].custom_uv_offset.x - 0.05).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_wthree_d_tank_draw_do_draw_frozen() {
+        let mut draw = W3DTankDraw::new_default();
+        draw.do_draw_module(
+            &Matrix4::identity(),
+            true,
+            0.0,
+            0.0,
+            0.0,
+            10.0,
+            false,
+            PhysicsTurningType::None,
+            1.0,
+            0.0,
+        );
+        assert!(draw.time_frozen);
+    }
+
+    #[test]
+    fn test_wthree_d_tank_draw_drive_mode() {
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            tread_animation_rate: 0.05,
+            tread_drive_speed_fraction: 0.3,
+            ..Default::default()
+        });
+        draw.tread_count = 1;
+        draw.treads[0].custom_uv_offset = Vector2::new(0.0, 0.0);
+        draw.do_draw_module(
+            &Matrix4::identity(),
+            false,
+            1.0,
+            0.0,
+            5.0,
+            10.0,
+            true,
+            PhysicsTurningType::None,
+            1.0,
+            0.0,
+        );
+        assert!((draw.treads[0].custom_uv_offset.x - (-0.05)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_wthree_d_tank_draw_pivot_mode() {
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            tread_animation_rate: 0.05,
+            tread_pivot_speed_fraction: 0.6,
+            ..Default::default()
+        });
+        draw.tread_count = 1;
+        draw.treads[0].tread_type = TreadType::Middle;
+        draw.treads[0].custom_uv_offset = Vector2::new(0.0, 0.0);
+        draw.do_draw_module(
+            &Matrix4::identity(),
+            false,
+            0.0,
+            0.0,
+            0.1,
+            10.0,
+            true,
+            PhysicsTurningType::Positive,
+            0.0,
+            1.0,
+        );
         assert!((draw.treads[0].custom_uv_offset.x - 0.05).abs() < 0.001);
     }
 }
