@@ -340,16 +340,29 @@ impl ShadowGeometry {
     /// Initialize from HLOD render object
     /// C++: Int W3DShadowGeometry::initFromHLOD(RenderObjClass *robj)
     pub fn init_from_hlod(&mut self, _robj: &RenderObject) -> bool {
-        // TODO: Implement HLOD initialization
-        // C++ iterates through hlod->Get_Lod_Model_Count() and processes meshes
+        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:603 initFromHLOD
+        // Requires W3D HLodClass, MeshClass, ShdMeshClass, MeshModelClass infrastructure:
+        // 1. Cast robj to HLodClass, get top LOD index
+        // 2. Iterate hlod->Get_Lod_Model_Count(top), filtering CLASSID_MESH and CLASSID_SHDMESH
+        // 3. Skip alpha/translucent meshes without CAST_SHADOW flag, skip SKIN meshes
+        // 4. For each mesh: copy vertex array, polygon array, find duplicate vertices
+        //    (O(n^2) comparison, set vertParent[k]=j for duplicates, decrement newVertexCount)
+        // 5. Build parent_verts mapping, accumulate m_numTotalsVerts
+        // 6. Return TRUE if m_meshCount > 0
+        // Requires: HLodClass::Get_LOD_Count, Peek_Lod_Model, MeshClass vertex/polygon access
         self.mesh_count > 0
     }
 
     /// Initialize from mesh render object
     /// C++: Int W3DShadowGeometry::initFromMesh(RenderObjClass *robj)
     pub fn init_from_mesh(&mut self, _robj: &RenderObject) -> bool {
-        // TODO: Implement mesh initialization
-        // C++ processes mesh vertices and builds polygon data
+        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:763 initFromMesh
+        // Same logic as initFromHLOD but for a single MeshClass (no HLOD wrapper).
+        // 1. Get MeshModelClass from mesh via Peek_Model()
+        // 2. Copy vertex/polygon arrays, find duplicate vertices (same O(n^2) algorithm)
+        // 3. Build parent_verts mapping, set m_parentGeometry
+        // 4. Return TRUE if m_meshCount > 0
+        // Requires: MeshClass, MeshModelClass vertex/polygon access
         self.mesh_count > 0
     }
 
@@ -476,9 +489,22 @@ impl W3DVolumetricShadow {
     /// Update optimal extrusion padding based on terrain
     /// C++: void W3DVolumetricShadow::updateOptimalExtrusionPadding()
     pub fn update_optimal_extrusion_padding(&mut self) {
-        // C++ code raycasts from object corners to terrain to find
-        // optimal shadow extrusion distance
-        // TODO: Implement terrain raycasting
+        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:1164 updateOptimalExtrusionPadding
+        // Raycasts from object bounding box corners to terrain to find optimal shadow extrusion.
+        // 1. Get light position from TheW3DShadowManager->getLightPosWorld(0)
+        // 2. If m_shadowLengthScale > 0, clamp light Z to lightXYDistance * scale
+        // 3. For each of 4 top corners of bounding box:
+        //    a. Cast ray from corner along light direction, find terrain intersection
+        //    b. Walk along shadow ray in SHADOW_SAMPLING_INTERVAL steps
+        //    c. Check terrain height at each step; if it drops below
+        //       (objPos.Z - MAX_SHADOW_EXTRUSION_UNDER_OBJECT_CLAMP):
+        //       - At step 0 (cliff edge): set baseGroundHeight to terrain height,
+        //         clamp shadow length to tan(OVERHANGING_OBJECT_CLAMP_ANGLE)
+        //       - Otherwise: compute clamp angle from last valid point, update scale
+        //    d. Track lowest valid terrain point as lastValidTerrainPoint
+        // 4. Set m_extraExtrusionPadding = objPos.Z - baseGroundHeight + SHADOW_EXTRUSION_BUFFER
+        // Requires: TerrainRenderObject (Cast_Ray, getHeightMapHeight, getMinHeight),
+        //           W3DShadowManager (getLightPosWorld), AABoxClass access from robj
     }
 
     /// Update shadow volume for this frame
@@ -488,9 +514,18 @@ impl W3DVolumetricShadow {
             return;
         }
 
-        // C++ checks if light angle or object transform changed significantly
-        // before rebuilding shadow volumes
-        // TODO: Implement update logic
+        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:1788 Update
+        // 1. Get object position via m_robj->Get_Position(); return if never set (originCompareVector)
+        // 2. Determine if airborne: |pos.Z - groundHeight| >= AIRBORNE_UNIT_GROUND_DELTA
+        //    - Airborne: visibility cull against extended bounding box, then
+        //      updateVolumes(|pos.Z - minTerrainHeight| + SHADOW_EXTRUSION_BUFFER)
+        //    - Ground: visibility cull, if m_extraExtrusionPadding==0 call updateOptimalExtrusionPadding(),
+        //      then updateVolumes(m_extraExtrusionPadding)
+        // 3. updateVolumes() iterates MAX_SHADOW_LIGHTS x meshCount, for each mesh:
+        //    a. Get MeshClass from HLod via meshRobjIndex
+        //    b. Check mesh visibility, then build/update shadow volume geometry
+        // Requires: TerrainLogic (getGroundHeight), TerrainRenderObject (getHeightMapHeight, getMinHeight),
+        //           HLodClass::Peek_Lod_Model, MeshClass, shadow volume construction
     }
 
     /// Allocate silhouette storage for mesh
@@ -655,8 +690,20 @@ impl W3DVolumetricShadowManager {
             return;
         }
 
-        // C++ renders each shadow volume using stencil buffer
-        // TODO: Implement GPU rendering
+        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:3429 renderShadows
+        // Full D3D stencil-buffer shadow volume rendering pipeline:
+        // 1. Get terrain visible bounding box from TheTerrainRenderObject->getMaximumVisibleBox()
+        // 2. Force DISCARD on dynamic VB/IB (nShadowIndicesInBuf = 0xffff)
+        // 3. Set W3D render state: PRELIT_DIFFUSE material, OpaqueShader, no textures
+        // 4. Configure D3D render states: ZFUNC=LESSEQUAL, ZWRITEENABLE=FALSE, STENCILENABLE=TRUE
+        // 5. Disable color writes (COLORWRITEENABLE=0) or fake via alpha blending
+        // 6. Set stencil func based on shadow mask (NOTEQUAL or GREATEREQUAL vs 0x80808080)
+        // 7. For each shadow in m_shadowList: call Update(), then RenderVolume() per mesh
+        // 8. RenderVolume: get MeshClass from HLod, render static or dynamic volume
+        // 9. Static: BuildSilhouette + extrude caps, write to VB/IB, DrawIndexedPrimitive
+        // 10. Dynamic: Similar but with zfail (Carmack's reverse) for volumes intersecting near plane
+        // Requires: DX8 device, DX8Wrapper, VertexMaterialClass, ShaderClass, stencil buffer ops,
+        //           shadow volume geometry construction (BuildSilhouette, RenderMeshVolume)
         let _ = projection_count;
         let _ = force_stencil_fill;
     }

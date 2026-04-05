@@ -1,7 +1,7 @@
 //! WthreeDOverlordAircraftDraw Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DOverlordAircraftDraw.h
-//! 
+//!
 //! This module provides artificial intelligence functionality.
 
 use std::{

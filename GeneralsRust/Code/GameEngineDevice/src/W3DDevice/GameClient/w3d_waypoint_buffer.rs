@@ -1,7 +1,7 @@
 //! W3dWaypointBuffer Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/W3dWaypointBuffer.cpp
-//! 
+//!
 //! This module provides data buffering and memory management.
 
 use std::{

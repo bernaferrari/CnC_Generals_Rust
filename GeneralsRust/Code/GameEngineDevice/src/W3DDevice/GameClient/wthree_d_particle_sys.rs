@@ -1,7 +1,7 @@
 //! WthreeDParticleSys Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DParticleSys.h
-//! 
+//!
 //! This module provides particle system functionality.
 
 use std::{

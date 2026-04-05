@@ -1,7 +1,7 @@
 //! WthreeDControlBar Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DControlBar.cpp
-//! 
+//!
 //! This module provides functionality for wthree d control bar.
 
 use std::{
@@ -32,8 +32,17 @@ impl WthreeDControlBar {
         if !self.active {
             return Err(WthreeDControlBarError::NotActive);
         }
-        
-        // TODO: Implement processing logic
+
+        // PARITY_NOTE: C++ W3DControlBar.cpp (~1004 lines) is NOT a data processor.
+        // It contains GUI callback functions for the in-game control bar:
+        // W3DCameoMovieDraw, W3DLeftHUDDraw, W3DRightHUDDraw, W3DPowerDraw,
+        // W3DCommandBarBackgroundDraw, W3DCommandBarTopDraw, W3DCommandBarGridDraw,
+        // W3DCommandBarForegroundDraw, W3DCommandBarGenExpDraw, etc.
+        // Each is a GameWindow draw callback (GameWindow*, WinInstanceData*) that
+        // renders specific HUD elements (radar, cameo video, power bar, command buttons).
+        // This stub's process() API does not correspond to any C++ method.
+        // Full port requires: GameWindow callback system, Display drawing primitives,
+        // InGameUI integration, Player/Radar/ControlBar access.
         self.data.extend_from_slice(input);
         Ok(self.data.clone())
     }
@@ -102,7 +111,11 @@ mod tests {
 
     #[test]
     fn test_wthree_d_control_bar_basic() {
-        // TODO: Implement tests for wthree_d_control_bar
-        assert!(true, "Placeholder test for wthree_d_control_bar");
+        let mut bar = WthreeDControlBar::new();
+        assert!(!bar.is_active());
+        bar.activate();
+        assert!(bar.is_active());
+        let result = bar.process(b"test").unwrap();
+        assert_eq!(result, b"test");
     }
 }

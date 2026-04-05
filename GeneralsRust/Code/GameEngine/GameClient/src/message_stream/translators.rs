@@ -229,18 +229,13 @@ fn pending_command_target_allowed(options: u32, local_player_id: i32, target_id:
         return false;
     };
 
-    if needs_enemy && matches!(relationship, Relationship::Enemy) {
+    if needs_enemy && matches!(relationship, Relationship::Enemies) {
         return true;
     }
     if needs_neutral && matches!(relationship, Relationship::Neutral) {
         return true;
     }
-    if needs_ally
-        && matches!(
-            relationship,
-            Relationship::Friend | Relationship::Ally | Relationship::Allies
-        )
-    {
+    if needs_ally && matches!(relationship, Relationship::Allies) {
         return true;
     }
 
@@ -821,7 +816,7 @@ fn selection_attack_result(
         }
 
         match sel_guard.get_able_to_attack_specific_object(
-            AbleToAttackType::CanAttackSpecific,
+            AbleToAttackType::NewTarget,
             &target_guard,
             CommandSourceType::FromPlayer,
         ) {
@@ -959,7 +954,7 @@ fn force_attack_object_result_for_attacker(
         attacker,
         target,
         CommandSourceType::FromPlayer,
-        AbleToAttackType::CanAttackArea,
+        AbleToAttackType::NewTarget,
     );
 
     if !attacker.is_kind_of(KindOf::SpawnsAreTheWeapons) {
@@ -976,7 +971,7 @@ fn force_attack_object_result_for_attacker(
             if let Some(slave) = OBJECT_REGISTRY.get_object(slave_id) {
                 if let Ok(slave_guard) = slave.read() {
                     result = slave_guard.get_able_to_attack_specific_object(
-                        AbleToAttackType::CanAttackArea,
+                        AbleToAttackType::NewTarget,
                         target,
                         CommandSourceType::FromPlayer,
                     );
@@ -987,7 +982,7 @@ fn force_attack_object_result_for_attacker(
         if let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) {
             if let Ok(rider_guard) = rider.read() {
                 let rider_result = rider_guard.get_able_to_attack_specific_object(
-                    AbleToAttackType::CanAttackArea,
+                    AbleToAttackType::NewTarget,
                     target,
                     CommandSourceType::FromPlayer,
                 );
@@ -1012,7 +1007,7 @@ fn force_attack_position_result_for_attacker(
             test_attacker = slave_id;
         } else {
             let result = attacker.get_able_to_use_weapon_against_position(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 pos,
                 CommandSourceType::FromPlayer,
             );
@@ -1026,7 +1021,7 @@ fn force_attack_position_result_for_attacker(
 
     if test_attacker == attacker.get_id() {
         return attacker.get_able_to_use_weapon_against_position(
-            AbleToAttackType::CanAttackSpecific,
+            AbleToAttackType::NewTarget,
             pos,
             CommandSourceType::FromPlayer,
         );
@@ -1040,7 +1035,7 @@ fn force_attack_position_result_for_attacker(
     };
 
     test_guard.get_able_to_use_weapon_against_position(
-        AbleToAttackType::CanAttackSpecific,
+        AbleToAttackType::NewTarget,
         pos,
         CommandSourceType::FromPlayer,
     )
@@ -2886,7 +2881,7 @@ fn selection_can_attack_target(
         }
 
         let result = sel_guard.get_able_to_attack_specific_object(
-            AbleToAttackType::CanAttackSpecific,
+            AbleToAttackType::NewTarget,
             &target_guard,
             CommandSourceType::FromPlayer,
         );
@@ -3512,7 +3507,10 @@ fn is_enemy_target(local_player_id: i32, target_id: ObjectID) -> bool {
         return false;
     };
 
-    matches!(me_guard.get_relationship(&them_guard), Relationship::Enemy)
+    matches!(
+        me_guard.get_relationship(&them_guard),
+        Relationship::Enemies
+    )
 }
 
 fn dispatch_translated_message(message: &GameMessageType) {

@@ -15,8 +15,8 @@
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{
-    game_client_random_value, game_client_random_value_real, TheGameClient, TheGameLogic,
-    TheParticleSystemManager,
+    game_client_random_value, game_client_random_value_real, BoneOverrideState, ModelDrawState,
+    TheGameClient, TheGameLogic, TheParticleSystemManager,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};
@@ -1789,6 +1789,124 @@ impl W3DModelDraw {
             self.current_anim_complete = false;
         }
     }
+
+    fn submit_draw_to_bridge(&mut self, transform_mtx: &Matrix3D) {
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+
+        let model_name = self
+            .current_state()
+            .map(|s| s.model_name.to_string())
+            .unwrap_or_default();
+
+        let anim_name = self.current_state().and_then(|state| {
+            let idx = self.which_anim_in_cur_state;
+            if idx >= 0 && (idx as usize) < state.animations.len() {
+                Some(state.animations[idx as usize].name.to_string())
+            } else {
+                None
+            }
+        });
+
+        let anim_mode = self
+            .current_state()
+            .map(|s| s.anim_mode.clone() as i32)
+            .unwrap_or(0);
+
+        let bone_overrides = self.collect_bone_overrides();
+
+        let state = ModelDrawState {
+            model_name,
+            world_transform: *transform_mtx,
+            condition_flags_bits: self.last_model_conditions.bits(),
+            bone_overrides,
+            animation_name: anim_name,
+            animation_time: self.get_current_anim_fraction().clamp(0.0, 1.0),
+            animation_mode: anim_mode,
+        };
+
+        client.set_drawable_model_draw(owner_id, state);
+    }
+
+    fn collect_bone_overrides(&self) -> Vec<BoneOverrideState> {
+        let mut overrides = Vec::new();
+        let Some(state) = self.current_state() else {
+            return overrides;
+        };
+
+        for (index, turret) in state.turrets.iter().enumerate() {
+            let (turret_angle, turret_pitch) = self.get_turret_angles(index);
+
+            if turret.turret_angle_bone != 0 {
+                let angle = turret_angle + turret.turret_art_angle;
+                overrides.push(BoneOverrideState {
+                    bone_index: turret.turret_angle_bone,
+                    transform: Matrix3D::from_rotation_z(angle),
+                });
+            }
+
+            if turret.turret_pitch_bone != 0 {
+                let pitch = turret_pitch + turret.turret_art_pitch;
+                overrides.push(BoneOverrideState {
+                    bone_index: turret.turret_pitch_bone,
+                    transform: Matrix3D::from_rotation_y(pitch),
+                });
+            }
+        }
+
+        for wslot in 0..WEAPONSLOT_COUNT {
+            let barrels = &state.weapon_barrels[wslot];
+            let Some(recoils) = self.weapon_recoil_info.get(wslot) else {
+                continue;
+            };
+            let count = barrels.len().min(recoils.len());
+            for i in 0..count {
+                let shift = recoils[i].shift;
+                if barrels[i].recoil_bone != 0 && shift.abs() > 0.001 {
+                    overrides.push(BoneOverrideState {
+                        bone_index: barrels[i].recoil_bone,
+                        transform: Matrix3D::from_translation(glam::Vec3::new(shift, 0.0, 0.0)),
+                    });
+                }
+            }
+        }
+
+        overrides
+    }
+
+    fn get_turret_angles(&self, turret_index: usize) -> (Real, Real) {
+        let mut angle = 0.0;
+        let mut pitch = 0.0;
+        let Some(owner_id) = self.owner_id else {
+            return (angle, pitch);
+        };
+        let Some(obj) = TheGameLogic::find_object_by_id(owner_id) else {
+            return (angle, pitch);
+        };
+        let Ok(obj_guard) = obj.read() else {
+            return (angle, pitch);
+        };
+        let Some(ai) = obj_guard.get_ai_update_interface() else {
+            return (angle, pitch);
+        };
+        let Ok(ai_guard) = ai.lock() else {
+            return (angle, pitch);
+        };
+        let turret_type = if turret_index == 0 {
+            TurretType::Primary
+        } else {
+            TurretType::Secondary
+        };
+        if let Some((a, p)) = ai_guard.get_turret_rot_and_pitch(turret_type) {
+            angle = a;
+            pitch = p;
+        }
+        (angle, pitch)
+    }
 }
 
 impl Module for W3DModelDraw {
@@ -1800,7 +1918,6 @@ impl Module for W3DModelDraw {
     }
 
     fn on_delete(&mut self) {
-        // Cleanup particle systems
         self.particle_system_ids.clear();
     }
 
@@ -1880,12 +1997,7 @@ impl DrawModule for W3DModelDraw {
         // Update weapon recoil animations
         self.handle_client_recoil();
 
-        // When render object system is implemented, render the model with given transform
-        // Reference: C++ W3DModelDraw.cpp:2075-2088
-        // - Update render object world transform with transform_mtx
-        // - Apply bone overrides (turret rotations, recoil shifts, etc.)
-        // - Render model with current LOD and effects
-        let _ = transform_mtx;
+        self.submit_draw_to_bridge(transform_mtx);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {

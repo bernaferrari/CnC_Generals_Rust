@@ -285,7 +285,42 @@ impl BuildListInfo {
 }
 
 impl Snapshot for BuildListInfo {
-    fn crc(&self, _xfer: &mut dyn Xfer) {}
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 2;
+        let _ = xfer.xfer_version(&mut version, 2);
+        let mut v = self.building_name.as_str().to_string();
+        let _ = xfer.xfer_ascii_string(&mut v);
+        let mut v = self.template_name.as_str().to_string();
+        let _ = xfer.xfer_ascii_string(&mut v);
+        let mut v = self.location;
+        xfer.xfer_coord3d(&mut v);
+        let mut v = self.rally_point_offset;
+        xfer.xfer_coord2d(&mut v);
+        let mut v = self.angle;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.initially_built;
+        let _ = xfer.xfer_bool(&mut v);
+        let mut v = self.num_rebuilds;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.script.as_str().to_string();
+        let _ = xfer.xfer_ascii_string(&mut v);
+        let mut v = self.health;
+        let _ = xfer.xfer_int(&mut v);
+        let mut v = self.whiner;
+        let _ = xfer.xfer_bool(&mut v);
+        let mut v = self.unsellable;
+        let _ = xfer.xfer_bool(&mut v);
+        let mut v = self.repairable;
+        let _ = xfer.xfer_bool(&mut v);
+        let mut v = self.automatically_build;
+        let _ = xfer.xfer_bool(&mut v);
+        let mut v = self.object_id;
+        let _ = xfer.xfer_object_id(&mut v);
+        let mut v = self.object_timestamp;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.under_construction;
+        let _ = xfer.xfer_bool(&mut v);
+    }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         let mut version: u8 = 2;

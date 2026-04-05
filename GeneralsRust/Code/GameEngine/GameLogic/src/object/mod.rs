@@ -2727,8 +2727,8 @@ impl Object {
         let relationship = self.relationship_to(other);
 
         match relationship {
-            Relationship::Enemy => ObjectRelationship::Enemy,
-            Relationship::Ally | Relationship::Allies | Relationship::Friend => {
+            Relationship::Enemies => ObjectRelationship::Enemy,
+            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                 ObjectRelationship::Ally
             }
             _ => ObjectRelationship::Neutral,
@@ -2921,7 +2921,7 @@ impl Object {
                     }
 
                     match relationship {
-                        Relationship::Friend | Relationship::Ally | Relationship::Allies => {
+                        Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                             let mut disarmed = false;
                             for behavior in behaviors {
                                 if let Ok(mut behavior_guard) = behavior.lock() {
@@ -2944,7 +2944,7 @@ impl Object {
                                 }
                             }
                         }
-                        Relationship::Enemy => {
+                        Relationship::Enemies => {
                             if let Ok(mut obj_guard) = obj_arc.write() {
                                 obj_guard
                                     .kill(Some(DamageType::LandMine), Some(DeathType::Exploded));
@@ -3404,7 +3404,7 @@ impl Object {
 
         // Check relationship - only score kills on enemies
         let relationship = self.relationship_to(victim);
-        if relationship != Relationship::Enemy {
+        if relationship != Relationship::Enemies {
             return;
         }
 
@@ -3439,7 +3439,7 @@ impl Object {
                         if let Some(victim_tracker) = &victim.experience_tracker {
                             if let Ok(victim_guard) = victim_tracker.lock() {
                                 let victim_cost = victim.get_build_cost();
-                                let killer_is_ally = relationship != Relationship::Enemy;
+                                let killer_is_ally = relationship != Relationship::Enemies;
                                 let experience_value =
                                     victim_guard.get_experience_value(victim_cost, killer_is_ally);
                                 tracker_guard.add_experience_points(experience_value, true, &[]);
@@ -3975,6 +3975,13 @@ impl Object {
 
     pub fn clear_armor_set_flag(&mut self, flag: ArmorSetFlag) {
         self.armor_set_flags.clear(flag);
+    }
+
+    /// C++ parity: Object::getAmmoPipShowingInfo (Drawable.cpp line 2874).
+    /// Returns (numTotal, numFull) for ammo pip display. Returns (0, 0) when not applicable.
+    /// TODO: fully port C++ ammo pip logic from WeaponSet.
+    pub fn get_ammo_pip_info(&self) -> (i32, i32) {
+        (0, 0)
     }
 
     pub fn reload_all_ammo(&mut self, now: bool) -> GameLogicResult<()> {
@@ -4552,7 +4559,7 @@ impl Object {
 
     pub fn relationship_to(&self, other: &Object) -> Relationship {
         if self.get_id() == other.get_id() {
-            return Relationship::Friend;
+            return Relationship::Allies;
         }
 
         if let (Some(my_team), Some(other_team)) = (self.team.as_ref(), other.team.as_ref()) {
@@ -7624,7 +7631,7 @@ impl Object {
                                 }
                                 _ => Relationship::Neutral,
                             };
-                        if matches!(relationship, Relationship::Enemy | Relationship::Neutral) {
+                        if matches!(relationship, Relationship::Enemies | Relationship::Neutral) {
                             players_mask |= current_player.get_player_mask();
                         }
                     }

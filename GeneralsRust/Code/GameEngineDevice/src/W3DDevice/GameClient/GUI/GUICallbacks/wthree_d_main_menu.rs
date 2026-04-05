@@ -10,8 +10,7 @@ use game_client_rust::gui::shell::main_menu::get_main_menu;
 
 pub use game_client_rust::gui::w3d_gadget_draw::{
     w3d_main_menu_button_drop_shadow_draw as W3DMainMenuButtonDropShadowDraw,
-    w3d_main_menu_draw as W3DMainMenuDraw,
-    w3d_main_menu_four_draw as W3DMainMenuFourDraw,
+    w3d_main_menu_draw as W3DMainMenuDraw, w3d_main_menu_four_draw as W3DMainMenuFourDraw,
     w3d_main_menu_map_border as W3DMainMenuMapBorder,
     w3d_main_menu_random_text_draw as W3DMainMenuRandomTextDraw,
     w3d_metal_bar_menu_draw as W3DMetalBarMenuDraw,

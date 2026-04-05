@@ -2026,7 +2026,7 @@ impl Unit {
             }
         };
 
-        if !matches!(target_relationship, Relationship::Enemy) {
+        if !matches!(target_relationship, Relationship::Enemies) {
             self.attack_target = None;
             return Ok(());
         }
@@ -2103,7 +2103,7 @@ impl Unit {
                             .read()
                             .ok()
                             .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemy)
+                        Some(Relationship::Enemies)
                     ) {
                         let target_pos = *target_guard.get_position();
                         let self_pos = self.get_position();
@@ -2149,7 +2149,7 @@ impl Unit {
                             .read()
                             .ok()
                             .map(|guard| guard.relationship_to(&target_guard)),
-                        Some(Relationship::Enemy)
+                        Some(Relationship::Enemies)
                     ) {
                         let target_pos = *target_guard.get_position();
                         let dx_center = target_pos.x - center.x;
@@ -2191,7 +2191,7 @@ impl Unit {
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemy)
+                Some(Relationship::Enemies)
             ) {
                 continue;
             }
@@ -2280,7 +2280,7 @@ impl Unit {
                     .read()
                     .ok()
                     .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemy)
+                Some(Relationship::Enemies)
             ) {
                 continue;
             }
@@ -2449,7 +2449,7 @@ fn find_enemy_in_container(killer_id: ObjectID, container_id: ObjectID) -> Optio
             continue;
         };
         let killer_guard = killer.read().ok()?;
-        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemy {
+        if killer_guard.relationship_to(&enemy_guard) == Relationship::Enemies {
             return Some(id);
         }
     }
@@ -4472,7 +4472,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                                             &*obj_guard,
                                             candidate,
                                             command.cmd_source,
-                                            crate::attack::AbleToAttackType::CanAttackSpecific
+                                            crate::attack::AbleToAttackType::NewTarget
                                         ),
                                         CanAttackResult::Possible
                                             | CanAttackResult::PossibleAfterMoving
@@ -7008,6 +7008,62 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
     }
 
+    fn transfer_attack(&mut self, from_id: ObjectID, to_id: ObjectID) {
+        use crate::helpers::TheGameLogic;
+
+        let new_target = TheGameLogic::find_object_by_id(to_id);
+
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                if guard.attack_target == Some(from_id) {
+                    guard.attack_target = Some(to_id);
+                }
+            }
+        }
+
+        let goal_obj = self.get_goal_object();
+        if let Some(ref obj) = goal_obj {
+            if let Ok(g) = obj.read() {
+                if g.get_id() == from_id {
+                    self.set_goal_object(new_target.as_ref());
+                }
+            }
+        }
+
+        for turret in [TurretType::Primary, TurretType::Secondary] {
+            let turret_ai = match turret {
+                TurretType::Primary => self
+                    .turret_primary_machine
+                    .as_ref()
+                    .and_then(|m| m.get_turret_ai()),
+                TurretType::Secondary => self
+                    .turret_secondary_machine
+                    .as_ref()
+                    .and_then(|m| m.get_turret_ai()),
+                _ => continue,
+            };
+            let Some(turret_ai) = turret_ai else {
+                continue;
+            };
+            let needs_transfer = if let Ok(ai_guard) = turret_ai.lock() {
+                if let Some(target_obj) = ai_guard.get_current_target() {
+                    if let Ok(tg) = target_obj.read() {
+                        tg.get_id() == from_id
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if needs_transfer {
+                self.set_turret_target_object(turret, new_target.as_ref(), true);
+            }
+        }
+    }
+
     fn is_surrendered(&self) -> bool {
         self.surrendered_frames_left > 0
     }
@@ -7144,7 +7200,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                             .ok()
                             .map(|base| base.relationship_to(&existing_guard))
                             .unwrap_or(Relationship::Neutral);
-                        if relationship == Relationship::Enemy {
+                        if relationship == Relationship::Enemies {
                             let target_pos = *existing_guard.get_position();
                             let self_pos = guard.get_position();
                             let dx = target_pos.x - self_pos.x;

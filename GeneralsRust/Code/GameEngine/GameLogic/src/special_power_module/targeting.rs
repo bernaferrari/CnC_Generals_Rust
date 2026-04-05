@@ -218,7 +218,7 @@ impl TargetValidator {
                 let relationship = if let Some(target_player) = obj_guard.get_controlling_player() {
                     if let Ok(target_guard) = target_player.read() {
                         if target_guard.get_player_index() == local_guard.get_player_index() {
-                            Relationship::Friend
+                            Relationship::Allies
                         } else {
                             local_guard.get_relationship(&target_guard)
                         }
@@ -231,10 +231,10 @@ impl TargetValidator {
 
                 #[allow(unreachable_patterns)]
                 let allowed = match relationship {
-                    Relationship::Friend | Relationship::Ally | Relationship::Allies => {
+                    Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                         flags.contains(SpecialPowerFlags::AFFECTS_FRIENDLY)
                     }
-                    Relationship::Enemy => flags.contains(SpecialPowerFlags::AFFECTS_ENEMY),
+                    Relationship::Enemies => flags.contains(SpecialPowerFlags::AFFECTS_ENEMY),
                     Relationship::Neutral => flags.contains(SpecialPowerFlags::AFFECTS_NEUTRAL),
                     _ => true,
                 };

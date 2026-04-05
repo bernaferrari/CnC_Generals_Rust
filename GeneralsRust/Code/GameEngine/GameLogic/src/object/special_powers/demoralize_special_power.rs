@@ -221,7 +221,7 @@ impl DemoralizeSpecialPower {
                 };
                 matches!(
                     owner_guard.relationship_to(&obj_guard),
-                    Relationship::Enemy | Relationship::Neutral
+                    Relationship::Enemies | Relationship::Neutral
                 )
             };
 

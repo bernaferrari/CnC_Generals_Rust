@@ -1,7 +1,7 @@
 //! BaseHeightMap Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/BaseHeightMap.h
-//! 
+//!
 //! This module provides functionality for base height map.
 
 use std::{

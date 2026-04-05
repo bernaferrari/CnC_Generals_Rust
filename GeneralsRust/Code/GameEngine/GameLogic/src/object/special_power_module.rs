@@ -596,7 +596,7 @@ impl SpecialPowerModule {
                 let launched = |own_evt, ally_evt, enemy_evt| {
                     if is_own {
                         let _ = TheEva::set_should_play(own_evt);
-                    } else if relation != Relationship::Enemy {
+                    } else if relation != Relationship::Enemies {
                         let _ = TheEva::set_should_play(ally_evt);
                     } else {
                         let _ = TheEva::set_should_play(enemy_evt);

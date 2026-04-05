@@ -21,6 +21,7 @@ use rhai::{
 use serde::{Deserialize, Serialize};
 
 pub mod actions;
+pub mod camera_actions;
 pub mod conditions;
 pub mod core;
 pub mod engine;
@@ -150,6 +151,38 @@ pub enum ScriptValue {
     Array(Vec<ScriptValue>),
     /// Object/map of values
     Object(HashMap<String, ScriptValue>),
+}
+
+impl ScriptValue {
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            ScriptValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            ScriptValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_real(&self) -> Option<f64> {
+        match self {
+            ScriptValue::Float(f) => Some(*f),
+            ScriptValue::Int(i) => Some(*i as f64),
+            _ => None,
+        }
+    }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            ScriptValue::Int(i) => Some(*i),
+            ScriptValue::Float(f) => Some(*f as i64),
+            _ => None,
+        }
+    }
 }
 
 /// Script execution result

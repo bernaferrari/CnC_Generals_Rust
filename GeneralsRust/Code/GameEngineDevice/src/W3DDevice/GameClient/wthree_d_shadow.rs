@@ -6,8 +6,7 @@
 
 // Re-export all types from the Shadow module
 pub use super::shadow::{
-    W3DShadowManager, W3DShadow, ShadowType, ShadowColor, ShadowTypeInfo,
-    ShadowHandle, RenderObject, RenderInfo, Frustum, TimeOfDay,
-    SUN_DISTANCE_FROM_GROUND, MAX_SHADOW_LIGHTS,
-    get_light_pos_world, set_light_pos_world, the_w3d_shadow_manager, do_shadows,
+    do_shadows, get_light_pos_world, set_light_pos_world, the_w3d_shadow_manager, Frustum,
+    RenderInfo, RenderObject, ShadowColor, ShadowHandle, ShadowType, ShadowTypeInfo, TimeOfDay,
+    W3DShadow, W3DShadowManager, MAX_SHADOW_LIGHTS, SUN_DISTANCE_FROM_GROUND,
 };

@@ -1,7 +1,7 @@
 //! WthreeDVideobuffer Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DVideobuffer.h
-//! 
+//!
 //! This module provides video and graphics handling.
 
 use std::{

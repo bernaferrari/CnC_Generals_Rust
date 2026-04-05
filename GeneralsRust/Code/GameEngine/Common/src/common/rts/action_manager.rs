@@ -44,34 +44,8 @@ pub enum CanEnterType {
     CombatDropInto,
 }
 
-/// Relationship between objects/players
-/// C++ Reference: GameCommon.h Relationship enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Relationship {
-    Allies = 0,
-    Neutral = 1,
-    Enemies = 2,
-}
-
-impl From<i32> for Relationship {
-    /// Convert integer to Relationship enum
-    /// Used for save/load serialization (xfer)
-    /// C++ Reference: GameCommon.h - Relationship enum values
-    fn from(value: i32) -> Self {
-        match value {
-            0 => Relationship::Allies,
-            1 => Relationship::Neutral,
-            2 | _ => Relationship::Enemies,
-        }
-    }
-}
-
-impl From<Relationship> for i32 {
-    /// Convert Relationship enum to integer for serialization
-    fn from(rel: Relationship) -> Self {
-        rel as i32
-    }
-}
+// Re-export canonical Relationship from game_common (Enemies=0, Neutral=1, Allies=2)
+pub use crate::common::game_common::Relationship;
 
 /// Object shroud status
 /// Reference: C++ GameCommon.h lines 140-150

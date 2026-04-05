@@ -196,13 +196,43 @@ impl SoundPlaybackHook for AssetAudioPlaybackHook {
     }
 
     fn pause(&self, handle: AudioHandle) {
-        // AssetManager does not yet expose per-instance pause; stop as a compatibility fallback.
-        self.stop(handle);
+        let instance_id = {
+            let Ok(map) = self.handle_map.lock() else {
+                return;
+            };
+            map.get(&handle).and_then(|id| *id)
+        };
+
+        let Some(instance_id) = instance_id else {
+            return;
+        };
+
+        let asset_manager = Arc::clone(&self.asset_manager);
+        self.spawn(async move {
+            if let Err(err) = asset_manager.pause_audio_instance(instance_id) {
+                log::debug!("Failed to pause audio instance {}: {}", instance_id, err);
+            }
+        });
     }
 
-    fn resume(&self, _handle: AudioHandle) {
-        // AssetManager does not yet expose per-instance resume; no-op for now.
-        // The playback hook will re-check is_playing on the next update cycle.
+    fn resume(&self, handle: AudioHandle) {
+        let instance_id = {
+            let Ok(map) = self.handle_map.lock() else {
+                return;
+            };
+            map.get(&handle).and_then(|id| *id)
+        };
+
+        let Some(instance_id) = instance_id else {
+            return;
+        };
+
+        let asset_manager = Arc::clone(&self.asset_manager);
+        self.spawn(async move {
+            if let Err(err) = asset_manager.resume_audio_instance(instance_id) {
+                log::debug!("Failed to resume audio instance {}: {}", instance_id, err);
+            }
+        });
     }
 
     fn is_playing(&self, handle: AudioHandle) -> bool {

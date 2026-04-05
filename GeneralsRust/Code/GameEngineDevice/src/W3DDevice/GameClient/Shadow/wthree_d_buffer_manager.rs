@@ -32,7 +32,10 @@ impl WthreeDBufferManager {
         if self.initialized {
             return Ok(());
         }
-        // TODO: Initialize manager
+        // PARITY_NOTE: C++ W3DBufferManager.cpp:33 W3DBufferManager::W3DBufferManager
+        // Initializes slot/buffer counters to 0 and NULLs out all VB/IB arrays.
+        // The actual DX8 vertex/index buffer creation is deferred to allocateSlotStorage()
+        // when a slot is requested. No device resources are created at init time.
         self.initialized = true;
         Ok(())
     }
@@ -42,7 +45,11 @@ impl WthreeDBufferManager {
         if !self.initialized {
             return;
         }
-        // TODO: Cleanup resources
+        // PARITY_NOTE: C++ W3DBufferManager.cpp:51 ~W3DBufferManager
+        // Calls freeAllSlots() then freeAllBuffers().
+        // freeAllSlots: unlinks all W3DVertexBufferSlot/W3DIndexBufferSlot from their VB/IB lists
+        // freeAllBuffers: iterates all VB/IB linked lists, releases DX8VertexBufferClass/DX8IndexBufferClass
+        // via REF_PTR_RELEASE, asserts all slots are freed first.
         self.resources.clear();
         self.initialized = false;
     }
@@ -94,7 +101,11 @@ mod tests {
 
     #[test]
     fn test_wthree_d_buffer_manager_basic() {
-        // TODO: Implement tests for wthree_d_buffer_manager
-        assert!(true, "Placeholder test for wthree_d_buffer_manager");
+        let mgr = WthreeDBufferManager::new();
+        assert!(!mgr.is_initialized());
+        mgr.initialize().unwrap();
+        assert!(mgr.is_initialized());
+        mgr.shutdown();
+        assert!(!mgr.is_initialized());
     }
 }

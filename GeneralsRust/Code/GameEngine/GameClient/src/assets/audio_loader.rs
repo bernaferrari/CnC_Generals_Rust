@@ -904,13 +904,52 @@ impl AudioLoader {
         }
     }
 
+    /// Pause a playing sound instance.
+    pub fn pause_sound(&self, instance_id: u64) -> Result<(), AudioError> {
+        if let Some(instance) = self.active_instances.write().unwrap().get_mut(&instance_id) {
+            instance.state = PlaybackState::Paused;
+            if let Some(handle) = instance.sound_handle.as_mut() {
+                handle.pause(Tween::default()).map_err(|e| {
+                    AudioError::EngineError(format!("Failed to pause sound instance {}: {}", instance_id, e))
+                })?;
+            }
+            log::debug!("Paused sound instance: {}", instance_id);
+            Ok(())
+        } else {
+            Err(AudioError::EngineError(
+                "Sound instance not found".to_string(),
+            ))
+        }
+    }
+
+    /// Resume a paused sound instance.
+    pub fn resume_sound(&self, instance_id: u64) -> Result<(), AudioError> {
+        if let Some(instance) = self.active_instances.write().unwrap().get_mut(&instance_id) {
+            instance.state = PlaybackState::Playing;
+            if let Some(handle) = instance.sound_handle.as_mut() {
+                handle.resume(Tween::default()).map_err(|e| {
+                    AudioError::EngineError(format!("Failed to resume sound instance {}: {}", instance_id, e))
+                })?;
+            }
+            log::debug!("Resumed sound instance: {}", instance_id);
+            Ok(())
+        } else {
+            Err(AudioError::EngineError(
+                "Sound instance not found".to_string(),
+            ))
+        }
+    }
+
     pub fn is_sound_playing(&self, instance_id: u64) -> bool {
         self.active_instances
             .read()
             .unwrap()
             .get(&instance_id)
             .and_then(|instance| instance.sound_handle.as_ref())
-            .map(|handle| handle.state() == KiraPlaybackState::Playing)
+            .map(|handle| {
+                let state = handle.state();
+                state == KiraPlaybackState::Playing || state == KiraPlaybackState::Paused
+            })
             .unwrap_or(false)
     }
 
@@ -986,10 +1025,12 @@ impl AudioLoader {
         {
             let instances = self.active_instances.read().unwrap();
             for (id, instance) in instances.iter() {
-                let finished = instance
+                let state = instance
                     .sound_handle
                     .as_ref()
-                    .map(|handle| handle.state() != KiraPlaybackState::Playing)
+                    .map(|handle| handle.state());
+                let finished = state
+                    .map(|s| s != KiraPlaybackState::Playing && s != KiraPlaybackState::Paused)
                     .unwrap_or(true);
                 if finished {
                     finished_instances.push(*id);

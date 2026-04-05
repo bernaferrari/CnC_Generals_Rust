@@ -1,7 +1,7 @@
 //! WthreeDBibBuffer Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DBibBuffer.h
-//! 
+//!
 //! This module provides data buffering and memory management.
 
 use std::{

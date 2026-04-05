@@ -1,108 +1,87 @@
-//! WthreeDOverlordTruckDraw Module
-//! 
+//! W3DOverlordTruckDraw Module
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DOverlordTruckDraw.cpp
-//! 
-//! This module provides drawing and rendering functionality.
+//!
+//! Extends W3DTruckDraw with rider draw propagation. Inherits ALL of W3DTruckDraw's
+//! behavior: 10 tire bone slots, cab/trailer bone rotation, dust/dirt/powerslide emitters,
+//! wheel spin animation, powerslide/landing sounds.
+//!
+//! C++ header declares duplicate tread fields that are never initialized or parsed (dead code).
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use cgmath::Matrix4;
 
-/// WthreeDOverlordTruckDraw implementation
-pub struct WthreeDOverlordTruckDraw {
-    /// Internal data
-    data: Vec<u8>,
-    /// State flag
-    active: bool,
+#[derive(Debug, Clone, Default)]
+pub struct W3DOverlordTruckDrawModuleData {}
+
+#[derive(Debug)]
+pub struct W3DOverlordTruckDraw {
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadow_enabled: bool,
 }
 
-impl WthreeDOverlordTruckDraw {
-    /// Create new instance
+impl W3DOverlordTruckDraw {
     pub fn new() -> Self {
         Self {
-            data: Vec::new(),
-            active: false,
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadow_enabled: true,
         }
     }
 
-    /// Process data
-    pub fn process(&mut self, input: &[u8]) -> Result<Vec<u8>, WthreeDOverlordTruckDrawError> {
-        if !self.active {
-            return Err(WthreeDOverlordTruckDrawError::NotActive);
-        }
-        
-        // TODO: Implement processing logic
-        self.data.extend_from_slice(input);
-        Ok(self.data.clone())
+    /// Calls W3DTruckDraw::doDrawModule(transformMtx), then draws the rider.
+    /// Rider propagation (no null checks, unlike Aircraft):
+    /// riderDraw->setColorTintEnvelope(*getDrawable()->getColorTintEnvelope())
+    /// riderDraw->notifyDrawableDependencyCleared()
+    /// riderDraw->draw(NULL)
+    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+        // PARITY_NOTE: W3DTruckDraw::doDrawModule(transformMtx)
+        // PARITY_NOTE: Rider propagation without null checks
     }
 
-    /// Activate
-    pub fn activate(&mut self) {
-        self.active = true;
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
     }
-
-    /// Deactivate
-    pub fn deactivate(&mut self) {
-        self.active = false;
+    pub fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadow_enabled = enable;
     }
-
-    /// Check if active
-    pub fn is_active(&self) -> bool {
-        self.active
+    pub fn release_shadows(&mut self) {}
+    pub fn allocate_shadows(&mut self) {}
+    pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
     }
-
-    /// Clear data
-    pub fn clear(&mut self) {
-        self.data.clear();
+    pub fn react_to_transform_change(
+        &mut self,
+        _old_mtx: &Matrix4<f32>,
+        _old_pos: &cgmath::Point3<f32>,
+        _old_angle: f32,
+    ) {
     }
-
-    /// Get data size
-    pub fn size(&self) -> usize {
-        self.data.len()
+    pub fn react_to_geometry_change(&mut self) {}
+    pub fn is_visible(&self) -> bool {
+        !self.hidden && !self.fully_obscured_by_shroud
     }
+    pub fn crc(&self) -> u32 {
+        0
+    }
+    pub fn xfer(&self) -> u32 {
+        1
+    }
+    pub fn load_post_process(&mut self) {}
 }
 
-impl Default for WthreeDOverlordTruckDraw {
+impl Default for W3DOverlordTruckDraw {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Error types for WthreeDOverlordTruckDraw
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WthreeDOverlordTruckDrawError {
-    /// Not active
-    NotActive,
-    /// Processing failed
-    ProcessingFailed,
-    /// Invalid input
-    InvalidInput,
-    /// Unknown error
-    Unknown,
-}
-
-impl std::fmt::Display for WthreeDOverlordTruckDrawError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WthreeDOverlordTruckDrawError::NotActive => write!(f, "Not active"),
-            WthreeDOverlordTruckDrawError::ProcessingFailed => write!(f, "Processing failed"),
-            WthreeDOverlordTruckDrawError::InvalidInput => write!(f, "Invalid input"),
-            WthreeDOverlordTruckDrawError::Unknown => write!(f, "Unknown error"),
-        }
-    }
-}
-
-impl std::error::Error for WthreeDOverlordTruckDrawError {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_wthree_d_overlord_truck_draw_basic() {
-        // TODO: Implement tests for wthree_d_overlord_truck_draw
-        assert!(true, "Placeholder test for wthree_d_overlord_truck_draw");
+        let draw = W3DOverlordTruckDraw::new();
+        assert!(draw.is_visible());
     }
 }

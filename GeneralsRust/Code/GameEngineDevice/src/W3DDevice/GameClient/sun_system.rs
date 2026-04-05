@@ -13,16 +13,16 @@ use wgpu::util::DeviceExt;
 #[derive(Debug, Clone, Copy)]
 pub struct SunConfig {
     /// Sun position in sky (spherical coordinates)
-    pub azimuth: f32,    // Horizontal angle (radians)
-    pub elevation: f32,  // Vertical angle (radians)
+    pub azimuth: f32, // Horizontal angle (radians)
+    pub elevation: f32, // Vertical angle (radians)
 
     /// Sun color and intensity
     pub color: [f32; 3],
     pub intensity: f32,
 
     /// Glow parameters
-    pub glow_size: f32,       // Size of sun glow
-    pub glow_intensity: f32,  // Brightness of glow
+    pub glow_size: f32, // Size of sun glow
+    pub glow_intensity: f32, // Brightness of glow
 
     /// Lens flare enable
     pub enable_flare: bool,
@@ -36,7 +36,7 @@ impl Default for SunConfig {
         Self {
             azimuth: 0.0,
             elevation: std::f32::consts::PI / 4.0, // 45 degrees
-            color: [1.0, 0.95, 0.8], // Slightly warm white
+            color: [1.0, 0.95, 0.8],               // Slightly warm white
             intensity: 1.0,
             glow_size: 0.1,
             glow_intensity: 0.8,
@@ -102,7 +102,11 @@ impl SunConfig {
     pub fn lerp(&self, other: &Self, t: f32) -> Self {
         let lerp_f32 = |a: f32, b: f32, t: f32| a + (b - a) * t;
         let lerp_vec3 = |a: [f32; 3], b: [f32; 3], t: f32| -> [f32; 3] {
-            [lerp_f32(a[0], b[0], t), lerp_f32(a[1], b[1], t), lerp_f32(a[2], b[2], t)]
+            [
+                lerp_f32(a[0], b[0], t),
+                lerp_f32(a[1], b[1], t),
+                lerp_f32(a[2], b[2], t),
+            ]
         };
 
         Self {
@@ -309,9 +313,7 @@ mod tests {
         let moon_dir = celestial.get_moon().get_direction();
 
         // Moon should be roughly opposite sun
-        let dot = sun_dir[0] * moon_dir[0] +
-                  sun_dir[1] * moon_dir[1] +
-                  sun_dir[2] * moon_dir[2];
+        let dot = sun_dir[0] * moon_dir[0] + sun_dir[1] * moon_dir[1] + sun_dir[2] * moon_dir[2];
 
         // Dot product should be negative (opposite directions)
         assert!(dot < 0.0);

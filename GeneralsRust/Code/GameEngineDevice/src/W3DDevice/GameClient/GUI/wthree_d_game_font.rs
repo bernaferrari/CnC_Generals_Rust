@@ -10,11 +10,8 @@ impl W3DFontLibrary {
             return false;
         }
 
-        let font_key = W3DFontLibrary::build_font_key(
-            font.name_string.as_str(),
-            font.point_size,
-            font.bold,
-        );
+        let font_key =
+            W3DFontLibrary::build_font_key(font.name_string.as_str(), font.point_size, font.bold);
 
         let font_data = if let Some(existing) = self.font_system.get_font(&font_key) {
             existing
@@ -31,9 +28,11 @@ impl W3DFontLibrary {
                 .to_ascii_lowercase();
 
             let loaded = match extension.as_str() {
-                "ttf" | "otf" => self
-                    .font_system
-                    .load_ttf_font_with_size(&font_key, path_str.as_ref(), font.point_size as f32),
+                "ttf" | "otf" => self.font_system.load_ttf_font_with_size(
+                    &font_key,
+                    path_str.as_ref(),
+                    font.point_size as f32,
+                ),
                 "tga" => self.font_system.load_tga_font(&font_key, path_str.as_ref()),
                 _ => self.font_system.load_font(&font_key, path_str.as_ref()),
             };
@@ -77,13 +76,17 @@ impl W3DFontLibrary {
                                 path_str.as_ref(),
                                 font.point_size as f32,
                             ),
-                            "tga" => self.font_system.load_tga_font(&unicode_key, path_str.as_ref()),
+                            "tga" => self
+                                .font_system
+                                .load_tga_font(&unicode_key, path_str.as_ref()),
                             _ => self.font_system.load_font(&unicode_key, path_str.as_ref()),
                         };
 
                         match loaded {
                             Ok(font) => Some(font),
-                            Err(FontError::AlreadyLoaded(_)) => self.font_system.get_font(&unicode_key),
+                            Err(FontError::AlreadyLoaded(_)) => {
+                                self.font_system.get_font(&unicode_key)
+                            }
                             Err(_) => None,
                         }
                     })

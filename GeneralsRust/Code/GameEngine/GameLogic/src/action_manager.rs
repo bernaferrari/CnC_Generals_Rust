@@ -180,7 +180,7 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
     let Ok(other_team_guard) = other_team.read() else {
         return false;
     };
-    my_team_guard.get_relationship(&*other_team_guard) != Relationship::Enemy
+    my_team_guard.get_relationship(&*other_team_guard) != Relationship::Enemies
 }
 
 fn get_special_power_ready_percent(obj: &Object, power_type: SpecialPowerType) -> Option<f32> {
@@ -249,7 +249,7 @@ impl TheActionManager {
             }
         }
 
-        if obj.relationship_to(prisoner) != Relationship::Enemy {
+        if obj.relationship_to(prisoner) != Relationship::Enemies {
             return false;
         }
 
@@ -471,7 +471,7 @@ impl TheActionManager {
 
         match sp_template.get_special_power_type() {
             SpecialPowerType::CashBounty => false,
-            SpecialPowerType::BattleshipBombardment => relationship == Relationship::Enemy,
+            SpecialPowerType::BattleshipBombardment => relationship == Relationship::Enemies,
             SpecialPowerType::TankHunterTntAttack => {
                 target.is_kind_of(KindOf::Structure)
                     || (target.is_kind_of(KindOf::Vehicle) && !target.is_kind_of(KindOf::Aircraft))
@@ -482,10 +482,10 @@ impl TheActionManager {
                         || relationship == Relationship::Allies)
             }
             SpecialPowerType::MissileDefenderLaserGuidedMissiles => {
-                target.is_kind_of(KindOf::Vehicle) && relationship == Relationship::Enemy
+                target.is_kind_of(KindOf::Vehicle) && relationship == Relationship::Enemies
             }
             SpecialPowerType::HackerDisableBuilding => {
-                if target.is_kind_of(KindOf::Structure) && relationship == Relationship::Enemy {
+                if target.is_kind_of(KindOf::Structure) && relationship == Relationship::Enemies {
                     if !target.is_kind_of(KindOf::Capturable)
                         || target.is_kind_of(KindOf::RebuildHole)
                     {
@@ -511,7 +511,7 @@ impl TheActionManager {
                 TheActionManager::can_steal_cash_via_hacking(obj, target, command_source)
             }
             SpecialPowerType::CashHack => {
-                if target.is_kind_of(KindOf::Structure) && relationship == Relationship::Enemy {
+                if target.is_kind_of(KindOf::Structure) && relationship == Relationship::Enemies {
                     if !target.is_kind_of(KindOf::Capturable)
                         || target.is_kind_of(KindOf::RebuildHole)
                     {
@@ -538,7 +538,7 @@ impl TheActionManager {
                 if target.is_kind_of(KindOf::Structure) {
                     return false;
                 }
-                if relationship == Relationship::Enemy {
+                if relationship == Relationship::Enemies {
                     return TheActionManager::can_make_object_defector(obj, target, command_source);
                 }
                 false
@@ -723,7 +723,7 @@ impl TheActionManager {
 
         let warehouse_boxes = get_supply_warehouse_boxes(transfer_dest);
         if let Some(boxes) = warehouse_boxes {
-            if boxes == 0 || transfer_dest.relationship_to(obj) == Relationship::Enemy {
+            if boxes == 0 || transfer_dest.relationship_to(obj) == Relationship::Enemies {
                 return false;
             }
         }
@@ -841,7 +841,7 @@ impl TheActionManager {
         object_to_repair: &Object,
         command_source: CommandSourceType,
     ) -> bool {
-        if obj.relationship_to(object_to_repair) == Relationship::Enemy {
+        if obj.relationship_to(object_to_repair) == Relationship::Enemies {
             return false;
         }
 
@@ -1149,7 +1149,7 @@ impl TheActionManager {
             return false;
         }
 
-        if obj.relationship_to(object_to_hijack) != Relationship::Enemy {
+        if obj.relationship_to(object_to_hijack) != Relationship::Enemies {
             return false;
         }
 
@@ -1190,7 +1190,7 @@ impl TheActionManager {
             return false;
         }
 
-        if obj.relationship_to(object_to_sabotage) != Relationship::Enemy {
+        if obj.relationship_to(object_to_sabotage) != Relationship::Enemies {
             return false;
         }
 
@@ -1212,7 +1212,7 @@ impl TheActionManager {
         object_to_make_defector: &Object,
         command_source: CommandSourceType,
     ) -> bool {
-        if obj.relationship_to(object_to_make_defector) != Relationship::Enemy {
+        if obj.relationship_to(object_to_make_defector) != Relationship::Enemies {
             return false;
         }
 
@@ -1274,7 +1274,7 @@ impl TheActionManager {
         }
 
         let relationship = obj.relationship_to(object_to_capture);
-        if relationship != Relationship::Enemy
+        if relationship != Relationship::Enemies
             && !(object_to_capture.is_kind_of(KindOf::Capturable)
                 && relationship != Relationship::Allies)
         {
@@ -1345,7 +1345,7 @@ impl TheActionManager {
             return false;
         }
 
-        if obj.relationship_to(object_to_hack) != Relationship::Enemy {
+        if obj.relationship_to(object_to_hack) != Relationship::Enemies {
             return false;
         }
 
@@ -1398,7 +1398,7 @@ impl TheActionManager {
             return false;
         }
 
-        if obj.relationship_to(object_to_hack) != Relationship::Enemy {
+        if obj.relationship_to(object_to_hack) != Relationship::Enemies {
             return false;
         }
 
@@ -1453,7 +1453,7 @@ impl TheActionManager {
             return false;
         }
 
-        if obj.relationship_to(object_to_hack) != Relationship::Enemy {
+        if obj.relationship_to(object_to_hack) != Relationship::Enemies {
             return false;
         }
 
@@ -1504,7 +1504,7 @@ impl TheActionManager {
             return false;
         }
 
-        if obj.relationship_to(object_to_snipe) != Relationship::Enemy {
+        if obj.relationship_to(object_to_snipe) != Relationship::Enemies {
             return false;
         }
 
@@ -1559,13 +1559,13 @@ impl TheActionManager {
 
         let result = if sniper {
             obj.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 target,
                 command_source,
             )
         } else {
             obj.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 target,
                 command_source,
             )

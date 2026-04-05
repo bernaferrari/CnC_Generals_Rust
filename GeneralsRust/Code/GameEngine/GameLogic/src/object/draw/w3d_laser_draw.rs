@@ -2,14 +2,28 @@
 //!
 //! Port of C++ W3DLaserDraw.h
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DLaserDraw.h
+//!
+//! ## Rendering Gap
+//!
+//! This module is the **active implementation** in the draw pipeline (instantiated
+//! by `module_overrides.rs`, dispatched by `GameLogic Drawable::draw()`). However,
+//! `do_draw_module()` only computes beam geometry into `Vec<LaserLine>` — it never
+//! submits `SegmentedLine` objects to `W3DDisplay::global_scene()` because GameLogic
+//! cannot depend on GameEngineDevice.
+//!
+//! The reference rendering implementation lives at:
+//! `GameEngineDevice/src/W3DDevice/GameClient/Drawable/Draw/wthree_d_laser_draw.rs`
+//!
+//! This gap affects ALL draw modules (see `W3DModelDraw::do_draw_module()` line 1888).
 
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::TheGameLogic;
+use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::update::laser_update::LaserUpdateModule;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::any::Any;
 
@@ -420,6 +434,7 @@ pub struct W3DLaserDraw {
     lines: Vec<LaserLine>,
     has_texture: bool,
     texture_aspect_ratio: Real,
+    scene_line_ids: Vec<Option<SceneLineId>>,
 }
 
 impl W3DLaserDraw {
@@ -437,6 +452,7 @@ impl W3DLaserDraw {
             lines: Vec::new(),
             has_texture: false,
             texture_aspect_ratio: 1.0,
+            scene_line_ids: Vec::new(),
         }
     }
 
@@ -546,11 +562,29 @@ impl W3DLaserDraw {
             }
         }
     }
+
+    fn release_scene_lines(&mut self) {
+        for id in self.scene_line_ids.drain(..) {
+            if let Some(line_id) = id {
+                remove_scene_line(line_id);
+            }
+        }
+    }
+
+    fn sync_scene_line_count(&mut self, required: usize) {
+        if self.scene_line_ids.len() == required {
+            return;
+        }
+        self.release_scene_lines();
+        self.scene_line_ids.resize(required, None);
+    }
 }
 
 impl Module for W3DLaserDraw {
     fn on_drawable_bound_to_object(&mut self) {}
-    fn on_delete(&mut self) {}
+    fn on_delete(&mut self) {
+        self.release_scene_lines();
+    }
     fn get_module_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
     }
@@ -594,6 +628,8 @@ impl DrawModule for W3DLaserDraw {
 
         let beams = self.data.num_beams.max(1);
         let segments = self.data.segments.max(1);
+        let total = (beams * segments) as usize;
+        self.sync_scene_line_count(total);
         let use_arc = self.data.arc_height > 0.0 && segments > 1;
 
         for segment in 0..segments {
@@ -672,6 +708,39 @@ impl DrawModule for W3DLaserDraw {
                     let tile_factor =
                         length / width * self.texture_aspect_ratio * self.data.tiling_scalar;
                     line.tile_factor = tile_factor;
+                }
+
+                let (cr, cg, cb, _ca) = color_components_real(line.color);
+                let desc = SceneLineDesc {
+                    start: game_engine::common::system::geometry::Coord3D::new(
+                        line.start.x,
+                        line.start.y,
+                        line.start.z,
+                    ),
+                    end: game_engine::common::system::geometry::Coord3D::new(
+                        line.end.x, line.end.y, line.end.z,
+                    ),
+                    width: line.width,
+                    color_r: cr,
+                    color_g: cg,
+                    color_b: cb,
+                    opacity: _ca,
+                    texture_name: if self.has_texture {
+                        Some(self.data.texture_name.to_string())
+                    } else {
+                        None
+                    },
+                    tile_factor: line.tile_factor,
+                    visible: line.visible,
+                };
+
+                match self.scene_line_ids[index] {
+                    None => {
+                        self.scene_line_ids[index] = submit_scene_line(0, &desc);
+                    }
+                    Some(id) => {
+                        update_scene_line(id, &desc);
+                    }
                 }
             }
         }

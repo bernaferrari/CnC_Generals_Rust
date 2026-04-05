@@ -5,7 +5,7 @@
 //! This module provides model rendering, animation handling, bone management,
 //! weapon slot configuration, and model condition state management.
 
-use cgmath::{Matrix4, Vector3, Point3, SquareMatrix, Zero, InnerSpace};
+use cgmath::{InnerSpace, Matrix4, Point3, SquareMatrix, Vector3, Zero};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -144,7 +144,7 @@ impl W3DAnimationInfo {
             num_frames: 0,
         }
     }
-    
+
     pub fn with_name(name: &str, is_idle: bool, distance: f32) -> Self {
         Self {
             name: name.to_string(),
@@ -155,15 +155,15 @@ impl W3DAnimationInfo {
             num_frames: 0,
         }
     }
-    
+
     pub fn get_anim_duration_msec(&self) -> i32 {
         self.natural_duration_msec
     }
-    
+
     pub fn get_distance_covered(&self) -> f32 {
         self.distance_covered
     }
-    
+
     pub fn is_idle_anim(&self) -> bool {
         self.is_idle_anim
     }
@@ -209,20 +209,20 @@ pub struct ModelConditionInfo {
     pub conditions: Vec<u32>, // Model condition flags
     pub flags: u32,
     pub transition_key: u32,
-    
+
     // Turret info
     pub turret_angle_key: Option<String>,
     pub turret_pitch_key: Option<String>,
     pub turret_artillery_angle_key: Option<String>,
-    
+
     // Public bones
     pub public_bones: Vec<String>,
     pub pristine_bones: HashMap<String, PristineBoneInfo>,
-    
+
     // Weapon barrel info
     pub weapon_barrel_bones: [Option<String>; WEAPONSLOT_COUNT],
     pub weapon_muzzle_bones: [Option<String>; WEAPONSLOT_COUNT],
-    
+
     // State flags
     pub valid_stuff: u32,
 }
@@ -251,7 +251,7 @@ impl ModelConditionInfo {
             valid_stuff: 0,
         }
     }
-    
+
     /// Add a public bone
     pub fn add_public_bone(&mut self, bone_name: &str) {
         if bone_name.is_empty() {
@@ -262,7 +262,7 @@ impl ModelConditionInfo {
             self.public_bones.push(lower_name);
         }
     }
-    
+
     /// Check if condition matches mode (night/snow)
     pub fn matches_mode(&self, night: bool, snowy: bool) -> bool {
         for &cond in &self.conditions {
@@ -274,12 +274,12 @@ impl ModelConditionInfo {
         }
         false
     }
-    
+
     /// Get animation count
     pub fn get_animation_count(&self) -> usize {
         self.animations.len()
     }
-    
+
     /// Get animation by index
     pub fn get_animation(&self, index: usize) -> Option<&W3DAnimationInfo> {
         self.animations.get(index)
@@ -323,17 +323,17 @@ pub struct ModelDrawState {
     pub frame_for_next_anim: u32,
     pub next_anim_duration: u32,
     pub skip_next_anim_restart: bool,
-    
+
     // Turret states
     pub turret_states: [TurretState; WEAPONSLOT_COUNT],
-    
+
     // Construction state
     pub construction_percent: f32,
-    
+
     // Hide state
     pub hide_sub_objects: Vec<String>,
     pub show_sub_objects: Vec<String>,
-    
+
     // Pristine bone transforms
     pub pristine_bone_transforms: HashMap<String, Matrix4<f32>>,
 }
@@ -362,16 +362,16 @@ impl Default for ModelDrawState {
 
 /// Terrain decal texture names (matching C++ TerrainDecalTextureName)
 pub const TERRAIN_DECAL_TEXTURES: [&str; TERRAIN_DECAL_MAX] = [
-    "DM_RING",           // Demoralized
-    "EXHorde",           // Enthusiastic
-    "EXHorde_UP",        // Enthusiastic with nationalism
-    "EXHordeB",          // Enthusiastic vehicle
-    "EXHordeB_UP",       // Enthusiastic vehicle with nationalism
-    "EXJunkCrate",       // Special crate
-    "EXHordeC_UP",       // Enthusiastic with fanaticism
-    "EXChemSuit",        // Chemical suit
-    "",                  // TERRAIN_DECAL_NONE
-    "",                  // TERRAIN_DECAL_SHADOW_TEXTURE
+    "DM_RING",     // Demoralized
+    "EXHorde",     // Enthusiastic
+    "EXHorde_UP",  // Enthusiastic with nationalism
+    "EXHordeB",    // Enthusiastic vehicle
+    "EXHordeB_UP", // Enthusiastic vehicle with nationalism
+    "EXJunkCrate", // Special crate
+    "EXHordeC_UP", // Enthusiastic with fanaticism
+    "EXChemSuit",  // Chemical suit
+    "",            // TERRAIN_DECAL_NONE
+    "",            // TERRAIN_DECAL_SHADOW_TEXTURE
 ];
 
 /// Main W3D Model Draw implementation (matching C++ W3DModelDraw)
@@ -379,52 +379,52 @@ pub const TERRAIN_DECAL_TEXTURES: [&str; TERRAIN_DECAL_MAX] = [
 pub struct W3DModelDraw {
     /// Model name
     pub model_name: String,
-    
+
     /// Initial model state
     pub initial_state: String,
-    
+
     /// Model condition states
     pub condition_states: HashMap<u32, ModelConditionInfo>,
-    
+
     /// Default model condition
     pub default_condition: ModelConditionInfo,
-    
+
     /// Current draw state
     pub draw_state: ModelDrawState,
-    
+
     /// Model scale
     pub scale: f32,
-    
+
     /// Weapon fire bones for each slot
     pub weapon_fire_bones: [Option<String>; WEAPONSLOT_COUNT],
-    
+
     /// Weapon recoil bones for each slot
     pub weapon_recoil_bones: [Option<String>; WEAPONSLOT_COUNT],
-    
+
     /// Weapon muzzle flash bones
     pub weapon_muzzle_flash_bones: [Option<String>; WEAPONSLOT_COUNT],
-    
+
     /// Terrain decal type
     pub terrain_decal_type: usize,
-    
+
     /// Terrain decal size
     pub terrain_decal_size: f32,
-    
+
     /// Animation flags
     pub anim_flags: u32,
-    
+
     /// Extra public bones
     pub extra_public_bones: Vec<String>,
-    
+
     /// Attachment looks
     pub attachment_looks: HashMap<String, String>,
-    
+
     /// Sub-object transforms
     pub sub_object_transforms: HashMap<String, Matrix4<f32>>,
-    
+
     /// Model render object (placeholder - would be actual render object)
     pub render_object_id: Option<u64>,
-    
+
     /// Whether model is fully loaded
     pub model_loaded: bool,
 }
@@ -457,7 +457,7 @@ impl W3DModelDraw {
             model_loaded: false,
         }
     }
-    
+
     /// Create with model name
     pub fn with_model(name: &str, scale: f32) -> Self {
         Self {
@@ -480,72 +480,72 @@ impl W3DModelDraw {
             model_loaded: false,
         }
     }
-    
+
     /// Get model name
     pub fn get_model_name(&self) -> &str {
         &self.model_name
     }
-    
+
     /// Set model scale
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = scale;
     }
-    
+
     /// Get model scale
     pub fn get_scale(&self) -> f32 {
         self.scale
     }
-    
+
     /// Add a condition state
     pub fn add_condition_state(&mut self, condition: u32, state: ModelConditionInfo) {
         self.condition_states.insert(condition, state);
     }
-    
+
     /// Get condition state
     pub fn get_condition_state(&self, condition: u32) -> Option<&ModelConditionInfo> {
         self.condition_states.get(&condition)
     }
-    
+
     /// Set current condition
     pub fn set_condition(&mut self, condition: u32) {
         self.draw_state.current_condition = condition;
     }
-    
+
     /// Get current condition
     pub fn get_condition(&self) -> u32 {
         self.draw_state.current_condition
     }
-    
+
     /// Set animation frame
     pub fn set_anim_frame(&mut self, frame: f32) {
         self.draw_state.current_anim_frame = frame;
     }
-    
+
     /// Get animation frame
     pub fn get_anim_frame(&self) -> f32 {
         self.draw_state.current_anim_frame
     }
-    
+
     /// Set animation mode
     pub fn set_anim_mode(&mut self, mode: AnimationMode) {
         self.draw_state.current_anim_mode = mode;
     }
-    
+
     /// Get animation mode
     pub fn get_anim_mode(&self) -> AnimationMode {
         self.draw_state.current_anim_mode
     }
-    
+
     /// Set animation frame rate multiplier
     pub fn set_anim_frame_rate_multiplier(&mut self, mult: f32) {
         self.draw_state.anim_frame_rate_multiplier = mult;
     }
-    
+
     /// Get animation frame rate multiplier
     pub fn get_anim_frame_rate_multiplier(&self) -> f32 {
         self.draw_state.anim_frame_rate_multiplier
     }
-    
+
     /// Hide a sub-object
     pub fn hide_sub_object(&mut self, name: &str) {
         if !self.draw_state.hide_sub_objects.contains(&name.to_string()) {
@@ -553,7 +553,7 @@ impl W3DModelDraw {
         }
         self.draw_state.show_sub_objects.retain(|n| n != name);
     }
-    
+
     /// Show a sub-object
     pub fn show_sub_object(&mut self, name: &str) {
         if !self.draw_state.show_sub_objects.contains(&name.to_string()) {
@@ -561,13 +561,13 @@ impl W3DModelDraw {
         }
         self.draw_state.hide_sub_objects.retain(|n| n != name);
     }
-    
+
     /// Set terrain decal
     pub fn set_terrain_decal(&mut self, decal_type: usize, size: f32) {
         self.terrain_decal_type = decal_type.min(TERRAIN_DECAL_MAX);
         self.terrain_decal_size = size;
     }
-    
+
     /// Get turret angle for weapon slot
     pub fn get_turret_angle(&self, slot: usize) -> f32 {
         if slot < WEAPONSLOT_COUNT {
@@ -576,14 +576,14 @@ impl W3DModelDraw {
             0.0
         }
     }
-    
+
     /// Set turret angle for weapon slot
     pub fn set_turret_angle(&mut self, slot: usize, angle: f32) {
         if slot < WEAPONSLOT_COUNT {
             self.draw_state.turret_states[slot].turret_angle = angle;
         }
     }
-    
+
     /// Get turret pitch for weapon slot
     pub fn get_turret_pitch(&self, slot: usize) -> f32 {
         if slot < WEAPONSLOT_COUNT {
@@ -592,29 +592,29 @@ impl W3DModelDraw {
             0.0
         }
     }
-    
+
     /// Set turret pitch for weapon slot
     pub fn set_turret_pitch(&mut self, slot: usize, pitch: f32) {
         if slot < WEAPONSLOT_COUNT {
             self.draw_state.turret_states[slot].turret_pitch = pitch;
         }
     }
-    
+
     /// Get construction percent
     pub fn get_construction_percent(&self) -> f32 {
         self.draw_state.construction_percent
     }
-    
+
     /// Set construction percent
     pub fn set_construction_percent(&mut self, percent: f32) {
         self.draw_state.construction_percent = percent.clamp(0.0, 1.0);
     }
-    
+
     /// Get bone transform by name
     pub fn get_bone_transform(&self, bone_name: &str) -> Option<&Matrix4<f32>> {
         self.draw_state.pristine_bone_transforms.get(bone_name)
     }
-    
+
     /// Add extra public bone
     pub fn add_extra_public_bone(&mut self, bone_name: &str) {
         let lower = bone_name.to_lowercase();
@@ -622,7 +622,7 @@ impl W3DModelDraw {
             self.extra_public_bones.push(lower);
         }
     }
-    
+
     /// Get weapon fire bone for slot
     pub fn get_weapon_fire_bone(&self, slot: usize) -> Option<&String> {
         if slot < WEAPONSLOT_COUNT {
@@ -631,14 +631,14 @@ impl W3DModelDraw {
             None
         }
     }
-    
+
     /// Set weapon fire bone for slot
     pub fn set_weapon_fire_bone(&mut self, slot: usize, bone: &str) {
         if slot < WEAPONSLOT_COUNT {
             self.weapon_fire_bones[slot] = Some(bone.to_string());
         }
     }
-    
+
     /// Get weapon recoil bone for slot
     pub fn get_weapon_recoil_bone(&self, slot: usize) -> Option<&String> {
         if slot < WEAPONSLOT_COUNT {
@@ -647,25 +647,27 @@ impl W3DModelDraw {
             None
         }
     }
-    
+
     /// Set weapon recoil bone for slot
     pub fn set_weapon_recoil_bone(&mut self, slot: usize, bone: &str) {
         if slot < WEAPONSLOT_COUNT {
             self.weapon_recoil_bones[slot] = Some(bone.to_string());
         }
     }
-    
+
     /// Update model animation
     pub fn update_animation(&mut self, delta_msec: f32) {
-        let condition_info = self.condition_states
+        let condition_info = self
+            .condition_states
             .get(&self.draw_state.current_condition)
             .unwrap_or(&self.default_condition);
-        
+
         if let Some(anim) = condition_info.get_animation(self.draw_state.current_anim_index) {
-            let duration = anim.get_anim_duration_msec() as f32 / self.draw_state.anim_frame_rate_multiplier;
+            let duration =
+                anim.get_anim_duration_msec() as f32 / self.draw_state.anim_frame_rate_multiplier;
             if duration > 0.0 {
                 self.draw_state.current_anim_frame += delta_msec / duration;
-                
+
                 // Handle animation looping
                 match self.draw_state.current_anim_mode {
                     AnimationMode::Loop => {
@@ -685,13 +687,13 @@ impl W3DModelDraw {
             }
         }
     }
-    
+
     /// Preload model assets
     pub fn preload_assets(&mut self) {
         // In full implementation, this would load model from asset manager
         self.model_loaded = true;
     }
-    
+
     /// Check if model is loaded
     pub fn is_loaded(&self) -> bool {
         self.model_loaded
@@ -704,74 +706,80 @@ pub type WthreeDModelDraw = W3DModelDraw;
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_model_draw_creation() {
         let model = W3DModelDraw::new();
         assert!(model.model_name.is_empty());
         assert_eq!(model.get_scale(), 1.0);
     }
-    
+
     #[test]
     fn test_model_with_name() {
         let model = W3DModelDraw::with_model("TestModel", 2.0);
         assert_eq!(model.get_model_name(), "TestModel");
         assert_eq!(model.get_scale(), 2.0);
     }
-    
+
     #[test]
     fn test_condition_states() {
         let mut model = W3DModelDraw::new();
         let state = ModelConditionInfo::new();
         model.add_condition_state(1, state);
-        
+
         assert!(model.get_condition_state(1).is_some());
     }
-    
+
     #[test]
     fn test_animation_info() {
         let anim = W3DAnimationInfo::with_name("Idle", true, 0.0);
         assert_eq!(anim.name, "Idle");
         assert!(anim.is_idle_anim());
     }
-    
+
     #[test]
     fn test_turret_state() {
         let mut model = W3DModelDraw::new();
         model.set_turret_angle(0, 45.0);
         model.set_turret_pitch(0, 15.0);
-        
+
         assert_eq!(model.get_turret_angle(0), 45.0);
         assert_eq!(model.get_turret_pitch(0), 15.0);
     }
-    
+
     #[test]
     fn test_sub_object_visibility() {
         let mut model = W3DModelDraw::new();
         model.hide_sub_object("Turret");
         model.show_sub_object("Barrel");
-        
-        assert!(model.draw_state.hide_sub_objects.contains(&"Turret".to_string()));
-        assert!(model.draw_state.show_sub_objects.contains(&"Barrel".to_string()));
+
+        assert!(model
+            .draw_state
+            .hide_sub_objects
+            .contains(&"Turret".to_string()));
+        assert!(model
+            .draw_state
+            .show_sub_objects
+            .contains(&"Barrel".to_string()));
     }
-    
+
     #[test]
     fn test_construction_percent() {
         let mut model = W3DModelDraw::new();
         model.set_construction_percent(0.5);
         assert_eq!(model.get_construction_percent(), 0.5);
-        
+
         model.set_construction_percent(1.5); // Should clamp to 1.0
         assert_eq!(model.get_construction_percent(), 1.0);
     }
-    
+
     #[test]
     fn test_public_bones() {
         let mut info = ModelConditionInfo::new();
         info.add_public_bone("Turret");
         info.add_public_bone("Barrel");
         info.add_public_bone("Turret"); // Duplicate
-        
+
         assert_eq!(info.public_bones.len(), 2);
     }
 }

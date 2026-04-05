@@ -71,6 +71,25 @@ impl Snapshot {
         self.metadata.clear();
     }
 
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> io::Result<()> {
+        // TODO: In C++, Snapshot is an abstract class with pure virtual crc().
+        // Each subclass implements crc() by calling xfer methods on its own fields.
+        // This generic implementation CRCs the raw data bytes for compatibility.
+        let mut frame = self.frame_number;
+        xfer.xfer_unsigned_int(&mut frame)?;
+        let mut ts_bytes = self.timestamp.to_le_bytes();
+        for b in ts_bytes.iter_mut() {
+            let mut byte = *b;
+            xfer.xfer_unsigned_byte(&mut byte)?;
+        }
+        if !self.data.is_empty() {
+            unsafe {
+                xfer.xfer_user(self.data.as_ptr() as *mut u8, self.data.len())?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn save_to_writer<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         // Write frame number
         writer.write_all(&self.frame_number.to_le_bytes())?;

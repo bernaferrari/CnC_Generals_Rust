@@ -326,7 +326,32 @@ impl PolygonTrigger {
 }
 
 impl Snapshot for PolygonTrigger {
-    fn crc(&self, _xfer: &mut dyn Xfer) {}
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+        let mut v = self.points.len() as Int;
+        let _ = xfer.xfer_int(&mut v);
+        for pt in &self.points {
+            let mut px = pt.x;
+            let _ = xfer.xfer_int(&mut px);
+            let mut py = pt.y;
+            let _ = xfer.xfer_int(&mut py);
+            let mut pz = pt.z;
+            let _ = xfer.xfer_int(&mut pz);
+        }
+        let mut v = self.bounds.lo.x;
+        let _ = xfer.xfer_int(&mut v);
+        let mut v = self.bounds.lo.y;
+        let _ = xfer.xfer_int(&mut v);
+        let mut v = self.bounds.hi.x;
+        let _ = xfer.xfer_int(&mut v);
+        let mut v = self.bounds.hi.y;
+        let _ = xfer.xfer_int(&mut v);
+        let mut v = self.radius;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.bounds_needs_update;
+        let _ = xfer.xfer_bool(&mut v);
+    }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         let mut version: u8 = 1;

@@ -1,7 +1,7 @@
 //! WthreeDDefaultDraw Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DDefaultDraw.h
-//! 
+//!
 //! This module provides drawing and rendering functionality.
 
 use std::{

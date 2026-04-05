@@ -12,15 +12,15 @@
 //! - Frustum culling
 
 use super::{
-    terrain_rendering::{HeightMapMesh, DynamicLight, TerrainUniforms},
-    terrain_texture::{TerrainTextureManager, TileData, TextureClass, BlendTileInfo},
-    terrain_lod::{TerrainLODManager, TerrainLOD, LODTransition},
+    terrain_lod::{LODTransition, TerrainLOD, TerrainLODManager},
+    terrain_rendering::{DynamicLight, HeightMapMesh, TerrainUniforms},
+    terrain_texture::{BlendTileInfo, TerrainTextureManager, TextureClass, TileData},
 };
+use anyhow::{Context, Result};
 use cgmath::{Matrix4, Point3, Vector3, Vector4};
-use wgpu::{Device, Queue, RenderPass, BindGroupLayout};
-use std::sync::Arc;
 use parking_lot::RwLock;
-use anyhow::{Result, Context};
+use std::sync::Arc;
+use wgpu::{BindGroupLayout, Device, Queue, RenderPass};
 
 /// Complete terrain rendering system
 /// Corresponds to C++ W3DTerrainVisual class
@@ -187,11 +187,7 @@ impl TerrainRenderingSystem {
 
     /// Render the terrain
     /// Corresponds to C++ HeightMapRenderObjClass::Render
-    pub fn render<'a>(
-        &'a self,
-        render_pass: &mut RenderPass<'a>,
-        view_proj: Matrix4<f32>,
-    ) {
+    pub fn render<'a>(&'a self, render_pass: &mut RenderPass<'a>, view_proj: Matrix4<f32>) {
         if !self.enabled {
             return;
         }

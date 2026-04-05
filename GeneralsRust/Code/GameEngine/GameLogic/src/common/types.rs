@@ -426,9 +426,8 @@ bitflags! {
 #[cfg(test)]
 mod tests {
     use super::{
-        engine_geometry_to_logic, geometry_type_from_u32, geometry_type_to_u32,
-        EngineGeometryInfo, EngineGeometryType, GeometryExtentModType, GeometryInfo,
-        ObjectStatusMaskType,
+        engine_geometry_to_logic, geometry_type_from_u32, geometry_type_to_u32, EngineGeometryInfo,
+        EngineGeometryType, GeometryExtentModType, GeometryInfo, ObjectStatusMaskType,
     };
 
     #[test]
@@ -484,13 +483,8 @@ mod tests {
 
     #[test]
     fn engine_geometry_to_logic_preserves_type_and_small_flag() {
-        let engine_geometry = EngineGeometryInfo::new(
-            EngineGeometryType::Cylinder,
-            true,
-            12.0,
-            8.0,
-            4.0,
-        );
+        let engine_geometry =
+            EngineGeometryInfo::new(EngineGeometryType::Cylinder, true, 12.0, 8.0, 4.0);
 
         let logic_geometry = engine_geometry_to_logic(&engine_geometry);
 
@@ -813,185 +807,332 @@ impl PlayerMaskType {
 pub const PLAYERMASK_ALL: PlayerMaskType = PlayerMaskType::all();
 
 bitflags! {
-    /// Model condition flags (matching C++ ModelConditionFlags)
+    /// Model condition flags — bit positions match C++ ModelState enum exactly.
+    /// Bit N corresponds to C++ ModelConditionType enum value N.
+    /// Authoritative source: Common/src/common/bit_flags.rs
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct ModelConditionFlags: u128 {
-        const Invalid = 0;
-        const PRISTINE = 1 << 0;
-        const DAMAGED = 1 << 1;
-        const REALLY_DAMAGED = 1 << 2;
-        const RUBBLE = 1 << 3;
-        const MOVING = 1 << 4;
-        const FIRING_PRIMARY = 1 << 5;
-        const FIRING_SECONDARY = 1 << 6;
-        const FIRING_TERTIARY = 1 << 7;
-        const SELECTED = 1 << 8;
-        const POWER_PLANT_UPGRADING = 1 << 9;
-        const POWER_PLANT_UPGRADED = 1 << 10;
-        const ACTIVELY_BEING_CONSTRUCTED = 1 << 11;
-        const PARTIALLY_CONSTRUCTED = 1 << 12;
-        const AWAITING_CONSTRUCTION = 1 << 13;
-        const CONSTRUCTION_COMPLETE = 1 << 14;
-        const NIGHT = 1 << 15;
-        const SNOW = 1 << 16;
-        const WEAPON_UPGRADED = 1 << 17;
-        const ARMOR_UPGRADED = 1 << 18;
-        const REALLYDAMAGED = 1 << 19;
-        const DOOR_1_OPENING = 1 << 20;
-        const DOOR_1_WAITING_OPEN = 1 << 21;
-        const DOOR_1_CLOSING = 1 << 22;
-        const DOOR_2_OPENING = 1 << 23;
+        // --- C++ ModelConditionType enum values 0-117 (authoritative) ---
+        // Bit 0: TOPPLED
+        const TOPPLED = 1 << 0;
+        // Bit 1: FRONTCRUSHED
+        const FRONTCRUSHED = 1 << 1;
+        // Bit 2: BACKCRUSHED
+        const BACKCRUSHED = 1 << 2;
+        // Bit 3: DAMAGED
+        const DAMAGED = 1 << 3;
+        // Bit 4: REALLYDAMAGED
+        const REALLYDAMAGED = 1 << 4;
+        // Bit 5: RUBBLE
+        const RUBBLE = 1 << 5;
+        // Bit 6: SPECIAL_DAMAGED
+        const SPECIAL_DAMAGED = 1 << 6;
+        // Bit 7: NIGHT
+        const NIGHT = 1 << 7;
+        // Bit 8: SNOW
+        const SNOW = 1 << 8;
+        // Bit 9: PARACHUTING
+        const PARACHUTING = 1 << 9;
+        // Bit 10: GARRISONED
+        const GARRISONED = 1 << 10;
+        // Bit 11: ENEMYNEAR
+        const ENEMYNEAR = 1 << 11;
+        // Bit 12: WEAPONSET_VETERAN
+        const WEAPONSET_VETERAN = 1 << 12;
+        // Bit 13: WEAPONSET_ELITE
+        const WEAPONSET_ELITE = 1 << 13;
+        // Bit 14: WEAPONSET_HERO
+        const WEAPONSET_HERO = 1 << 14;
+        // Bit 15: WEAPONSET_CRATEUPGRADE_ONE
+        const WEAPONSET_CRATEUPGRADE_ONE = 1 << 15;
+        // Bit 16: WEAPONSET_CRATEUPGRADE_TWO
+        const WEAPONSET_CRATEUPGRADE_TWO = 1 << 16;
+        // Bit 17: WEAPONSET_PLAYER_UPGRADE
+        const WEAPONSET_PLAYER_UPGRADE = 1 << 17;
+        // Bit 18: DOOR_1_OPENING
+        const DOOR_1_OPENING = 1 << 18;
+        // Bit 19: DOOR_1_CLOSING
+        const DOOR_1_CLOSING = 1 << 19;
+        // Bit 20: DOOR_1_WAITING_OPEN
+        const DOOR_1_WAITING_OPEN = 1 << 20;
+        // Bit 21: DOOR_1_WAITING_TO_CLOSE
+        const DOOR_1_WAITING_TO_CLOSE = 1 << 21;
+        // Bit 22: DOOR_2_OPENING
+        const DOOR_2_OPENING = 1 << 22;
+        // Bit 23: DOOR_2_CLOSING
+        const DOOR_2_CLOSING = 1 << 23;
+        // Bit 24: DOOR_2_WAITING_OPEN
         const DOOR_2_WAITING_OPEN = 1 << 24;
-        const DOOR_2_CLOSING = 1 << 25;
+        // Bit 25: DOOR_2_WAITING_TO_CLOSE
+        const DOOR_2_WAITING_TO_CLOSE = 1 << 25;
+        // Bit 26: DOOR_3_OPENING
         const DOOR_3_OPENING = 1 << 26;
-        const DOOR_3_WAITING_OPEN = 1 << 27;
-        const DOOR_3_CLOSING = 1 << 28;
-        const DOOR_4_OPENING = 1 << 29;
-        const DOOR_4_WAITING_OPEN = 1 << 30;
-        const DOOR_4_CLOSING = 1 << 31;
-        const PARACHUTING = 1 << 32;
-        const EXPLODED_FLAILING = 1 << 33;
-        const EXPLODED_BOUNCING = 1 << 34;
-        const SPLATTED = 1 << 35;
-        const CAPTURED = 1 << 36;
-        // Steering/turning animation flags
-        const CenterToRight = 1 << 37;
-        const CenterToLeft = 1 << 38;
-        const RightToCenter = 1 << 39;
-        const LeftToCenter = 1 << 40;
-        // Packing/unpacking flags (deploy/undeploy)
-        const Packing = 1 << 41;
-        const Unpacking = 1 << 42;
-        // Secondary/tertiary weapon flags
-        const FiringB = 1 << 43;
-        const FiringC = 1 << 44;
-        const BetweenFiringShotsB = 1 << 45;
-        const BetweenFiringShotsC = 1 << 46;
-        const ReloadingB = 1 << 47;
-        const ReloadingC = 1 << 48;
-        // Construction flags (additional)
-        const ActivelyConstructing = 1 << 49;
-        const ConstructionComplete = Self::CONSTRUCTION_COMPLETE.bits();
-        // Radar flags
-        const RadarExtending = 1 << 50;
-        const RadarUpgraded = 1 << 51;
-        // Fire/flame flags
-        const Aflame = 1 << 52;
-        const Smoldering = 1 << 53;
-        const Burned = 1u128 << 65;
-        // Door waiting states
-        const Door1WaitingToClose = 1 << 54;
-        const Door2WaitingToClose = 1 << 55;
-        const Door3WaitingToClose = 1 << 56;
-        // Transport/containment states
-        const Loaded = 1 << 57;
-        // Armorset crate upgrade flags
-        const ArmorsetCrateUpgradeOne = 1 << 58;
-        const ArmorsetCrateUpgradeTwo = 1 << 59;
-        const DISGUISED = 1 << 60;
-        const TOPPLED = 1 << 61;
-        const FLOODED = 1 << 62;
-        const POST_COLLAPSE = 1 << 63;
-        const JETAFTERBURNER = 1u128 << 64;
-        const JETEXHAUST = 1u128 << 97;
-        const PREORDER = 1u128 << 96;
-        const ENEMYNEAR = 1u128 << 66;
-        const STUNNED_FLAILING = 1u128 << 67;
-        const STUNNED = 1u128 << 68;
-        const FREEFALL = 1u128 << 69;
-        const PRONE = 1u128 << 70;
-        const PANICKING = 1u128 << 71;
-        const GARRISONED = 1u128 << 72;
-        const USER_1 = 1u128 << 73;
-        const USER_2 = 1u128 << 74;
-        // Weapon fire state flags for primary slot (A)
-        const BETWEEN_FIRING_SHOTS_A = 1u128 << 75;
-        const RELOADING_A = 1u128 << 76;
-        const PREATTACK_A = 1u128 << 77;
-        const USING_WEAPON_A = 1u128 << 78;
-        // Weapon fire state flags for secondary slot (B)
-        const PREATTACK_B = 1u128 << 79;
-        const USING_WEAPON_B = 1u128 << 80;
-        // Weapon fire state flags for tertiary slot (C)
-        const PREATTACK_C = 1u128 << 81;
-        const USING_WEAPON_C = 1u128 << 82;
-        // Primary weapon firing (alias for FIRING_PRIMARY)
-        const FiringA = Self::FIRING_PRIMARY.bits();
-        const BetweenFiringShotsA = Self::BETWEEN_FIRING_SHOTS_A.bits();
-        const ReloadingA = Self::RELOADING_A.bits();
-        const PreAttackA = Self::PREATTACK_A.bits();
-        const UsingWeaponA = Self::USING_WEAPON_A.bits();
-        const PreAttackB = Self::PREATTACK_B.bits();
-        const UsingWeaponB = Self::USING_WEAPON_B.bits();
-        const PreAttackC = Self::PREATTACK_C.bits();
-        const UsingWeaponC = Self::USING_WEAPON_C.bits();
-        // Docking states
-        const DOCKING = 1u128 << 83;
-        const DOCKING_BEGINNING = 1u128 << 84;
-        const DOCKING_ACTIVE = 1u128 << 85;
-        const DOCKING_ENDING = 1u128 << 86;
-        // Climbing/rappelling states
-        const CLIMBING = 1u128 << 87;
-        const RAPPELLING = 1u128 << 88;
-        // Rider-specific model conditions (combat bike riders)
-        const RIDER1 = 1u128 << 89;
-        const RIDER2 = 1u128 << 90;
-        const RIDER3 = 1u128 << 91;
-        const RIDER4 = 1u128 << 92;
-        const RIDER5 = 1u128 << 93;
-        const RIDER6 = 1u128 << 94;
-        const RIDER7 = 1u128 << 95;
-        const RIDER8 = 1u128 << 96;
-        // Special model condition flags (temporary, auto-clearing)
-        const SPECIAL_CHEERING = 1u128 << 98;
-        const SPECIAL_DAMAGED = 1u128 << 99;
-        const ATTACKING = 1u128 << 100;
-        const DYING = 1u128 << 101;
-        const CARRYING = 1u128 << 102;
-        const DEPLOYED = 1u128 << 103;
-        const OVER_WATER = 1u128 << 104;
-        const SOLD = 1u128 << 105;
-        const ARMED = 1u128 << 106;
-        const SECOND_LIFE = 1u128 << 107;
-        const JAMMED = 1u128 << 108;
-        const WEAPONSET_VETERAN = 1u128 << 109;
-        const WEAPONSET_ELITE = 1u128 << 110;
-        const WEAPONSET_HERO = 1u128 << 111;
-        const WEAPONSET_CRATEUPGRADE_ONE = 1u128 << 112;
-        const WEAPONSET_CRATEUPGRADE_TWO = 1u128 << 113;
-        const WEAPONSET_PLAYER_UPGRADE = 1u128 << 114;
-        // Aliases for PascalCase door naming (matches C++ usage)
+        // Bit 27: DOOR_3_CLOSING
+        const DOOR_3_CLOSING = 1 << 27;
+        // Bit 28: DOOR_3_WAITING_OPEN
+        const DOOR_3_WAITING_OPEN = 1 << 28;
+        // Bit 29: DOOR_3_WAITING_TO_CLOSE
+        const DOOR_3_WAITING_TO_CLOSE = 1 << 29;
+        // Bit 30: DOOR_4_OPENING
+        const DOOR_4_OPENING = 1 << 30;
+        // Bit 31: DOOR_4_CLOSING
+        const DOOR_4_CLOSING = 1u128 << 31;
+        // Bit 32: DOOR_4_WAITING_OPEN
+        const DOOR_4_WAITING_OPEN = 1u128 << 32;
+        // Bit 33: DOOR_4_WAITING_TO_CLOSE
+        const DOOR_4_WAITING_TO_CLOSE = 1u128 << 33;
+        // Bit 34: ATTACKING
+        const ATTACKING = 1u128 << 34;
+        // Bit 35: PREATTACK_A
+        const PREATTACK_A = 1u128 << 35;
+        // Bit 36: FIRING_A
+        const FIRING_A = 1u128 << 36;
+        // Bit 37: BETWEEN_FIRING_SHOTS_A
+        const BETWEEN_FIRING_SHOTS_A = 1u128 << 37;
+        // Bit 38: RELOADING_A
+        const RELOADING_A = 1u128 << 38;
+        // Bit 39: PREATTACK_B
+        const PREATTACK_B = 1u128 << 39;
+        // Bit 40: FIRING_B
+        const FIRING_B = 1u128 << 40;
+        // Bit 41: BETWEEN_FIRING_SHOTS_B
+        const BETWEEN_FIRING_SHOTS_B = 1u128 << 41;
+        // Bit 42: RELOADING_B
+        const RELOADING_B = 1u128 << 42;
+        // Bit 43: PREATTACK_C
+        const PREATTACK_C = 1u128 << 43;
+        // Bit 44: FIRING_C
+        const FIRING_C = 1u128 << 44;
+        // Bit 45: BETWEEN_FIRING_SHOTS_C
+        const BETWEEN_FIRING_SHOTS_C = 1u128 << 45;
+        // Bit 46: RELOADING_C
+        const RELOADING_C = 1u128 << 46;
+        // Bit 47: TURRET_ROTATE
+        const TURRET_ROTATE = 1u128 << 47;
+        // Bit 48: POST_COLLAPSE
+        const POST_COLLAPSE = 1u128 << 48;
+        // Bit 49: MOVING
+        const MOVING = 1u128 << 49;
+        // Bit 50: DYING
+        const DYING = 1u128 << 50;
+        // Bit 51: AWAITING_CONSTRUCTION
+        const AWAITING_CONSTRUCTION = 1u128 << 51;
+        // Bit 52: PARTIALLY_CONSTRUCTED
+        const PARTIALLY_CONSTRUCTED = 1u128 << 52;
+        // Bit 53: ACTIVELY_BEING_CONSTRUCTED
+        const ACTIVELY_BEING_CONSTRUCTED = 1u128 << 53;
+        // Bit 54: PRONE
+        const PRONE = 1u128 << 54;
+        // Bit 55: FREEFALL
+        const FREEFALL = 1u128 << 55;
+        // Bit 56: ACTIVELY_CONSTRUCTING
+        const ACTIVELY_CONSTRUCTING = 1u128 << 56;
+        // Bit 57: CONSTRUCTION_COMPLETE
+        const CONSTRUCTION_COMPLETE = 1u128 << 57;
+        // Bit 58: RADAR_EXTENDING
+        const RADAR_EXTENDING = 1u128 << 58;
+        // Bit 59: RADAR_UPGRADED
+        const RADAR_UPGRADED = 1u128 << 59;
+        // Bit 60: PANICKING
+        const PANICKING = 1u128 << 60;
+        // Bit 61: AFLAME
+        const AFLAME = 1u128 << 61;
+        // Bit 62: SMOLDERING
+        const SMOLDERING = 1u128 << 62;
+        // Bit 63: BURNED
+        const BURNED = 1u128 << 63;
+        // Bit 64: DOCKING
+        const DOCKING = 1u128 << 64;
+        // Bit 65: DOCKING_BEGINNING
+        const DOCKING_BEGINNING = 1u128 << 65;
+        // Bit 66: DOCKING_ACTIVE
+        const DOCKING_ACTIVE = 1u128 << 66;
+        // Bit 67: DOCKING_ENDING
+        const DOCKING_ENDING = 1u128 << 67;
+        // Bit 68: CARRYING
+        const CARRYING = 1u128 << 68;
+        // Bit 69: FLOODED
+        const FLOODED = 1u128 << 69;
+        // Bit 70: LOADED
+        const LOADED = 1u128 << 70;
+        // Bit 71: JETAFTERBURNER
+        const JETAFTERBURNER = 1u128 << 71;
+        // Bit 72: JETEXHAUST
+        const JETEXHAUST = 1u128 << 72;
+        // Bit 73: PACKING
+        const PACKING = 1u128 << 73;
+        // Bit 74: UNPACKING
+        const UNPACKING = 1u128 << 74;
+        // Bit 75: DEPLOYED
+        const DEPLOYED = 1u128 << 75;
+        // Bit 76: OVER_WATER
+        const OVER_WATER = 1u128 << 76;
+        // Bit 77: POWER_PLANT_UPGRADED
+        const POWER_PLANT_UPGRADED = 1u128 << 77;
+        // Bit 78: CLIMBING
+        const CLIMBING = 1u128 << 78;
+        // Bit 79: SOLD
+        const SOLD = 1u128 << 79;
+        // Bit 80: RAPPELLING
+        const RAPPELLING = 1u128 << 80;
+        // Bit 81: ARMED
+        const ARMED = 1u128 << 81;
+        // Bit 82: POWER_PLANT_UPGRADING
+        const POWER_PLANT_UPGRADING = 1u128 << 82;
+        // Bit 83: SPECIAL_CHEERING
+        const SPECIAL_CHEERING = 1u128 << 83;
+        // Bit 84: CONTINUOUS_FIRE_SLOW
+        const CONTINUOUS_FIRE_SLOW = 1u128 << 84;
+        // Bit 85: CONTINUOUS_FIRE_MEAN
+        const CONTINUOUS_FIRE_MEAN = 1u128 << 85;
+        // Bit 86: CONTINUOUS_FIRE_FAST
+        const CONTINUOUS_FIRE_FAST = 1u128 << 86;
+        // Bit 87: RAISING_FLAG
+        const RAISING_FLAG = 1u128 << 87;
+        // Bit 88: CAPTURED
+        const CAPTURED = 1u128 << 88;
+        // Bit 89: EXPLODED_FLAILING
+        const EXPLODED_FLAILING = 1u128 << 89;
+        // Bit 90: EXPLODED_BOUNCING
+        const EXPLODED_BOUNCING = 1u128 << 90;
+        // Bit 91: SPLATTED
+        const SPLATTED = 1u128 << 91;
+        // Bit 92: USING_WEAPON_A
+        const USING_WEAPON_A = 1u128 << 92;
+        // Bit 93: USING_WEAPON_B
+        const USING_WEAPON_B = 1u128 << 93;
+        // Bit 94: USING_WEAPON_C
+        const USING_WEAPON_C = 1u128 << 94;
+        // Bit 95: PREORDER
+        const PREORDER = 1u128 << 95;
+        // Bit 96: CENTER_TO_LEFT
+        const CENTER_TO_LEFT = 1u128 << 96;
+        // Bit 97: LEFT_TO_CENTER
+        const LEFT_TO_CENTER = 1u128 << 97;
+        // Bit 98: CENTER_TO_RIGHT
+        const CENTER_TO_RIGHT = 1u128 << 98;
+        // Bit 99: RIGHT_TO_CENTER
+        const RIGHT_TO_CENTER = 1u128 << 99;
+        // Bit 100: RIDER1
+        const RIDER1 = 1u128 << 100;
+        // Bit 101: RIDER2
+        const RIDER2 = 1u128 << 101;
+        // Bit 102: RIDER3
+        const RIDER3 = 1u128 << 102;
+        // Bit 103: RIDER4
+        const RIDER4 = 1u128 << 103;
+        // Bit 104: RIDER5
+        const RIDER5 = 1u128 << 104;
+        // Bit 105: RIDER6
+        const RIDER6 = 1u128 << 105;
+        // Bit 106: RIDER7
+        const RIDER7 = 1u128 << 106;
+        // Bit 107: RIDER8
+        const RIDER8 = 1u128 << 107;
+        // Bit 108: STUNNED_FLAILING
+        const STUNNED_FLAILING = 1u128 << 108;
+        // Bit 109: STUNNED
+        const STUNNED = 1u128 << 109;
+        // Bit 110: SECOND_LIFE
+        const SECOND_LIFE = 1u128 << 110;
+        // Bit 111: JAMMED
+        const JAMMED = 1u128 << 111;
+        // Bit 112: ARMORSET_CRATEUPGRADE_ONE
+        const ARMORSET_CRATEUPGRADE_ONE = 1u128 << 112;
+        // Bit 113: ARMORSET_CRATEUPGRADE_TWO
+        const ARMORSET_CRATEUPGRADE_TWO = 1u128 << 113;
+        // Bit 114: USER_1
+        const USER_1 = 1u128 << 114;
+        // Bit 115: USER_2
+        const USER_2 = 1u128 << 115;
+        // Bit 116: (reserved)
+        // Bit 117: DISGUISED
+        const DISGUISED = 1u128 << 117;
+
+        // --- PascalCase / compatibility aliases (same bits as above) ---
+        // Door aliases (PascalCase)
         const Door1Opening = Self::DOOR_1_OPENING.bits();
         const Door1WaitingOpen = Self::DOOR_1_WAITING_OPEN.bits();
         const Door1Closing = Self::DOOR_1_CLOSING.bits();
+        const Door1WaitingToClose = Self::DOOR_1_WAITING_TO_CLOSE.bits();
         const Door2Opening = Self::DOOR_2_OPENING.bits();
         const Door2WaitingOpen = Self::DOOR_2_WAITING_OPEN.bits();
         const Door2Closing = Self::DOOR_2_CLOSING.bits();
+        const Door2WaitingToClose = Self::DOOR_2_WAITING_TO_CLOSE.bits();
         const Door3Opening = Self::DOOR_3_OPENING.bits();
         const Door3WaitingOpen = Self::DOOR_3_WAITING_OPEN.bits();
         const Door3Closing = Self::DOOR_3_CLOSING.bits();
+        const Door3WaitingToClose = Self::DOOR_3_WAITING_TO_CLOSE.bits();
         const Door4Opening = Self::DOOR_4_OPENING.bits();
         const Door4WaitingOpen = Self::DOOR_4_WAITING_OPEN.bits();
         const Door4Closing = Self::DOOR_4_CLOSING.bits();
-        // PowerPlant aliases (matches C++ camelCase/PascalCase usage)
+        const Door4WaitingToClose = Self::DOOR_4_WAITING_TO_CLOSE.bits();
+        // Steering aliases (PascalCase, no underscores)
+        const CenterToRight = Self::CENTER_TO_RIGHT.bits();
+        const CenterToLeft = Self::CENTER_TO_LEFT.bits();
+        const RightToCenter = Self::RIGHT_TO_CENTER.bits();
+        const LeftToCenter = Self::LEFT_TO_CENTER.bits();
+        // Packing/unpacking aliases (PascalCase)
+        const Packing = Self::PACKING.bits();
+        const Unpacking = Self::UNPACKING.bits();
+        // Weapon fire state aliases (PascalCase)
+        const FiringA = Self::FIRING_A.bits();
+        const FiringB = Self::FIRING_B.bits();
+        const FiringC = Self::FIRING_C.bits();
+        const BetweenFiringShotsA = Self::BETWEEN_FIRING_SHOTS_A.bits();
+        const BetweenFiringShotsB = Self::BETWEEN_FIRING_SHOTS_B.bits();
+        const BetweenFiringShotsC = Self::BETWEEN_FIRING_SHOTS_C.bits();
+        const ReloadingA = Self::RELOADING_A.bits();
+        const ReloadingB = Self::RELOADING_B.bits();
+        const ReloadingC = Self::RELOADING_C.bits();
+        const PreAttackA = Self::PREATTACK_A.bits();
+        const PreAttackB = Self::PREATTACK_B.bits();
+        const PreAttackC = Self::PREATTACK_C.bits();
+        const UsingWeaponA = Self::USING_WEAPON_A.bits();
+        const UsingWeaponB = Self::USING_WEAPON_B.bits();
+        const UsingWeaponC = Self::USING_WEAPON_C.bits();
+        // Construction aliases (PascalCase)
+        const ActivelyConstructing = Self::ACTIVELY_CONSTRUCTING.bits();
+        const ConstructionComplete = Self::CONSTRUCTION_COMPLETE.bits();
+        // Radar aliases (PascalCase)
+        const RadarExtending = Self::RADAR_EXTENDING.bits();
+        const RadarUpgraded = Self::RADAR_UPGRADED.bits();
+        // PowerPlant aliases (PascalCase)
         const PowerPlantUpgrading = Self::POWER_PLANT_UPGRADING.bits();
         const PowerPlantUpgraded = Self::POWER_PLANT_UPGRADED.bits();
+        // Flame aliases (PascalCase — now canonical since bit positions are correct)
+        const Aflame = Self::AFLAME.bits();
+        const Smoldering = Self::SMOLDERING.bits();
+        const Burned = Self::BURNED.bits();
+        // Armorset aliases (PascalCase)
+        const ArmorsetCrateUpgradeOne = Self::ARMORSET_CRATEUPGRADE_ONE.bits();
+        const ArmorsetCrateUpgradeTwo = Self::ARMORSET_CRATEUPGRADE_TWO.bits();
+        const Loaded = Self::LOADED.bits();
+
+        // --- Extra names not in C++ ModelConditionType but used by GameLogic code ---
+        // These occupy bits beyond 117 to avoid collisions with C++ enum values.
+        // Invalid = empty (no condition)
+        const Invalid = 0;
+        // PRISTINE = empty (no damage condition set)
+        const PRISTINE = 0;
+        // REALLY_DAMAGED = alias for REALLYDAMAGED (bit 4)
+        const REALLY_DAMAGED = Self::REALLYDAMAGED.bits();
+        // FIRING_PRIMARY = alias for FIRING_A (bit 36)
+        const FIRING_PRIMARY = Self::FIRING_A.bits();
+        // FIRING_SECONDARY = alias for FIRING_B (bit 40)
+        const FIRING_SECONDARY = Self::FIRING_B.bits();
+        // FIRING_TERTIARY = alias for FIRING_C (bit 44)
+        const FIRING_TERTIARY = Self::FIRING_C.bits();
+        // SELECTED — UI-only flag, not a C++ model condition (bit 118)
+        const SELECTED = 1u128 << 118;
+        // WEAPON_UPGRADED — game-logic flag, not a C++ model condition (bit 119)
+        const WEAPON_UPGRADED = 1u128 << 119;
+        // ARMOR_UPGRADED — game-logic flag, not a C++ model condition (bit 120)
+        const ARMOR_UPGRADED = 1u128 << 120;
     }
 }
 
 impl ModelConditionFlags {
-    /// Compatibility aliases matching C++ uppercase names
-    pub const AFLAME: ModelConditionFlags = ModelConditionFlags::Aflame;
-    pub const SMOLDERING: ModelConditionFlags = ModelConditionFlags::Smoldering;
-    pub const BURNED: ModelConditionFlags = ModelConditionFlags::Burned;
-    // Additional crash aliases used by die modules
-    pub const FRONTCRUSHED: ModelConditionFlags = ModelConditionFlags::TOPPLED;
-    pub const BACKCRUSHED: ModelConditionFlags = ModelConditionFlags::FLOODED;
-}
-
-impl ModelConditionFlags {
-    /// Clear all flags (set to empty)
-    /// Matches C++ ModelConditionFlags::Clear() behavior
     pub fn clear(&mut self) {
         *self = Self::empty();
     }
@@ -1315,7 +1456,11 @@ impl GeometryInfo {
         (min_pitch, max_pitch)
     }
 
-    pub fn tweak_extents(&mut self, extent_mod_type: GeometryExtentModType, extent_mod_amount: Real) {
+    pub fn tweak_extents(
+        &mut self,
+        extent_mod_type: GeometryExtentModType,
+        extent_mod_amount: Real,
+    ) {
         match extent_mod_type {
             GeometryExtentModType::Major => {
                 let center_x = (self.bounds.min.x + self.bounds.max.x) * 0.5;
@@ -1631,16 +1776,8 @@ pub enum RadarPriorityType {
     LocalUnitOnly = 4,
 }
 
-/// Command source (`CommandSourceType` in C++).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(i32)]
-pub enum CommandSourceType {
-    FromPlayer = 0,
-    FromScript = 1,
-    FromAi = 2,
-    FromDozer = 3,
-    DefaultSwitchWeapon = 4,
-}
+// Re-export canonical CommandSourceType from Common (matches C++ with #[repr(u32)])
+pub use game_engine::common::game_common::CommandSourceType;
 
 /// Locomotor set selection (`LocomotorSetType` in C++).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1657,10 +1794,10 @@ pub enum LocomotorSetType {
     Sluggish = 7,
 }
 
-impl CommandSourceType {
-    /// Alias for CommandSourceType::FromAi to match uppercase AI usage in code
-    pub const FromAI: CommandSourceType = CommandSourceType::FromAi;
-}
+// Re-export AbleToAttackType helpers from Common (C++ bitmask semantics)
+pub use game_engine::common::game_common::{
+    is_continued_attack, is_forced_attack, AbleToAttackType,
+};
 
 /// Turret identifiers (`WhichTurretType` in C++).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1925,15 +2062,8 @@ impl fmt::Display for VeterancyLevel {
     }
 }
 
-/// Relationship between objects/teams (matching C++ Relationship)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Relationship {
-    Neutral,
-    Friend,
-    Enemy,
-    Ally,
-    Allies,
-}
+// Re-export canonical Relationship from Common (Enemies=0, Neutral=1, Allies=2 matching C++)
+pub use game_engine::common::game_common::Relationship;
 
 // Re-export canonical DamageType/DeathType from damage_system (38/21 C++-correct variants)
 pub use crate::weapon::damage_system::{DamageType, DeathType};
@@ -4914,6 +5044,9 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
         _multiplier: Real,
     ) {
     }
+
+    /// Destroy all particle systems attached to the given object (mirrors ParticleSystemManager::destroyAttachedSystems).
+    fn destroy_attached_systems(&self, _object_id: ObjectID) {}
 }
 
 /// Trait for control bar interface used by UpdateContext

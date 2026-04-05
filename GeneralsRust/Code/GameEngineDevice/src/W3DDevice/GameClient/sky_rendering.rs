@@ -65,7 +65,8 @@ impl TimeOfDay {
         let t = scaled - index as f32;
 
         let current = Self::from_index(index).unwrap_or(TimeOfDay::Morning);
-        let next = Self::from_index((index + 1) % TIME_OF_DAY_COUNT).unwrap_or(TimeOfDay::Afternoon);
+        let next =
+            Self::from_index((index + 1) % TIME_OF_DAY_COUNT).unwrap_or(TimeOfDay::Afternoon);
 
         (current, next, t)
     }
@@ -110,9 +111,10 @@ impl TerrainLighting {
 
     /// Normalize light position to direction vector
     pub fn get_direction(&self) -> [f32; 3] {
-        let len = (self.light_pos[0] * self.light_pos[0] +
-                   self.light_pos[1] * self.light_pos[1] +
-                   self.light_pos[2] * self.light_pos[2]).sqrt();
+        let len = (self.light_pos[0] * self.light_pos[0]
+            + self.light_pos[1] * self.light_pos[1]
+            + self.light_pos[2] * self.light_pos[2])
+            .sqrt();
         if len > 0.0001 {
             [
                 self.light_pos[0] / len,
@@ -158,7 +160,11 @@ impl Default for GlobalLightingConfig {
 
 impl GlobalLightingConfig {
     /// Get interpolated lighting for current time of day
-    pub fn get_lighting_for_time(&self, time_progress: f32, is_object: bool) -> Vec<TerrainLighting> {
+    pub fn get_lighting_for_time(
+        &self,
+        time_progress: f32,
+        is_object: bool,
+    ) -> Vec<TerrainLighting> {
         let (tod1, tod2, t) = TimeOfDay::interpolation_factor(time_progress);
         let light_count = self.num_global_lights.min(MAX_GLOBAL_LIGHTS);
 
@@ -189,13 +195,11 @@ impl SkyboxVertex {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<SkyboxVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-            ],
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            }],
         }
     }
 }
@@ -205,7 +209,7 @@ impl SkyboxVertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct SkyboxUniforms {
     view_proj: [[f32; 4]; 4], // View-projection matrix (camera centered)
-    tint_color: [f32; 4],      // Sky tint based on time of day
+    tint_color: [f32; 4],     // Sky tint based on time of day
 }
 
 /// Complete sky rendering system
@@ -232,9 +236,9 @@ pub struct SkyRenderingSystem {
     lighting_config: GlobalLightingConfig,
 
     // Sky configuration
-    sky_box_scale: f32,        // Scale of skybox (from GlobalData)
-    sky_box_position_z: f32,   // Z offset for skybox positioning
-    draw_sky_box: bool,        // Enable/disable skybox rendering
+    sky_box_scale: f32,      // Scale of skybox (from GlobalData)
+    sky_box_position_z: f32, // Z offset for skybox positioning
+    draw_sky_box: bool,      // Enable/disable skybox rendering
 
     // Day/night cycle
     time_of_day_progress: f32, // [0,1] representing time through day (0.25=afternoon start)
@@ -290,40 +294,41 @@ impl SkyRenderingSystem {
         });
 
         // Create bind group layout
-        let skybox_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Skybox Bind Group Layout"),
-            entries: &[
-                // Uniforms
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let skybox_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Skybox Bind Group Layout"),
+                entries: &[
+                    // Uniforms
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Cubemap texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::Cube,
-                        multisampled: false,
+                    // Cubemap texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         // Create shader and pipeline
         let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -331,11 +336,12 @@ impl SkyRenderingSystem {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
         });
 
-        let skybox_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Skybox Pipeline Layout"),
-            bind_group_layouts: &[&skybox_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let skybox_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Skybox Pipeline Layout"),
+                bind_group_layouts: &[&skybox_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let skybox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Skybox Pipeline"),
@@ -402,41 +408,89 @@ impl SkyRenderingSystem {
         // Unit cube vertices
         let vertices = vec![
             // Front face (Z+)
-            SkyboxVertex { position: [-1.0, -1.0,  1.0] },
-            SkyboxVertex { position: [ 1.0, -1.0,  1.0] },
-            SkyboxVertex { position: [ 1.0,  1.0,  1.0] },
-            SkyboxVertex { position: [-1.0,  1.0,  1.0] },
+            SkyboxVertex {
+                position: [-1.0, -1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, -1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, 1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, 1.0, 1.0],
+            },
             // Back face (Z-)
-            SkyboxVertex { position: [-1.0, -1.0, -1.0] },
-            SkyboxVertex { position: [-1.0,  1.0, -1.0] },
-            SkyboxVertex { position: [ 1.0,  1.0, -1.0] },
-            SkyboxVertex { position: [ 1.0, -1.0, -1.0] },
+            SkyboxVertex {
+                position: [-1.0, -1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, 1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, 1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, -1.0, -1.0],
+            },
             // Top face (Y+)
-            SkyboxVertex { position: [-1.0,  1.0, -1.0] },
-            SkyboxVertex { position: [-1.0,  1.0,  1.0] },
-            SkyboxVertex { position: [ 1.0,  1.0,  1.0] },
-            SkyboxVertex { position: [ 1.0,  1.0, -1.0] },
+            SkyboxVertex {
+                position: [-1.0, 1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, 1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, 1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, 1.0, -1.0],
+            },
             // Bottom face (Y-)
-            SkyboxVertex { position: [-1.0, -1.0, -1.0] },
-            SkyboxVertex { position: [ 1.0, -1.0, -1.0] },
-            SkyboxVertex { position: [ 1.0, -1.0,  1.0] },
-            SkyboxVertex { position: [-1.0, -1.0,  1.0] },
+            SkyboxVertex {
+                position: [-1.0, -1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, -1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, -1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, -1.0, 1.0],
+            },
             // Right face (X+)
-            SkyboxVertex { position: [ 1.0, -1.0, -1.0] },
-            SkyboxVertex { position: [ 1.0,  1.0, -1.0] },
-            SkyboxVertex { position: [ 1.0,  1.0,  1.0] },
-            SkyboxVertex { position: [ 1.0, -1.0,  1.0] },
+            SkyboxVertex {
+                position: [1.0, -1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, 1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, 1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [1.0, -1.0, 1.0],
+            },
             // Left face (X-)
-            SkyboxVertex { position: [-1.0, -1.0, -1.0] },
-            SkyboxVertex { position: [-1.0, -1.0,  1.0] },
-            SkyboxVertex { position: [-1.0,  1.0,  1.0] },
-            SkyboxVertex { position: [-1.0,  1.0, -1.0] },
+            SkyboxVertex {
+                position: [-1.0, -1.0, -1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, -1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, 1.0, 1.0],
+            },
+            SkyboxVertex {
+                position: [-1.0, 1.0, -1.0],
+            },
         ];
 
         // Indices for 6 faces * 2 triangles * 3 vertices
         let indices = vec![
-            0, 1, 2,  2, 3, 0,   // Front
-            4, 5, 6,  6, 7, 4,   // Back
+            0, 1, 2, 2, 3, 0, // Front
+            4, 5, 6, 6, 7, 4, // Back
             8, 9, 10, 10, 11, 8, // Top
             12, 13, 14, 14, 15, 12, // Bottom
             16, 17, 18, 18, 19, 16, // Right
@@ -477,13 +531,19 @@ impl SkyRenderingSystem {
         });
 
         // Upload each face
-        let faces = [positive_x, negative_x, positive_y, negative_y, positive_z, negative_z];
+        let faces = [
+            positive_x, negative_x, positive_y, negative_y, positive_z, negative_z,
+        ];
         for (i, face_data) in faces.iter().enumerate() {
             self.queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as u32,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 face_data,
@@ -554,7 +614,8 @@ impl SkyRenderingSystem {
 
     /// Get current global lights interpolated for time of day
     pub fn get_current_global_lights(&self, is_object: bool) -> Vec<TerrainLighting> {
-        self.lighting_config.get_lighting_for_time(self.time_of_day_progress, is_object)
+        self.lighting_config
+            .get_lighting_for_time(self.time_of_day_progress, is_object)
     }
 
     /// Get sun direction for current time
@@ -619,7 +680,10 @@ impl SkyRenderingSystem {
         render_pass.set_pipeline(&self.skybox_pipeline);
         render_pass.set_bind_group(0, self.skybox_bind_group.as_ref().unwrap(), &[]);
         render_pass.set_vertex_buffer(0, self.skybox_vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.skybox_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(
+            self.skybox_index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
         render_pass.draw_indexed(0..self.skybox_index_count, 0, 0..1);
     }
 

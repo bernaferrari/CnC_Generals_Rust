@@ -797,7 +797,7 @@ impl PathfindingSystem {
             if !request.move_allies
                 && matches!(
                     relationship,
-                    crate::common::Relationship::Ally | crate::common::Relationship::Allies
+                    crate::common::Relationship::Allies | crate::common::Relationship::Allies
                 )
             {
                 ok = false;

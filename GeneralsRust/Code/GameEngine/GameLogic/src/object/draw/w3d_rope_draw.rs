@@ -2,11 +2,21 @@
 //!
 //! Port of C++ W3DRopeDraw.h/cpp
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DRopeDraw.h
+//!
+//! ## Rendering Gap
+//!
+//! Active implementation in the draw pipeline (instantiated by `module_overrides.rs`,
+//! dispatched by `GameLogic Drawable::draw()`). However, `do_draw_module()` only
+//! computes segment positions in memory — it never creates `SegmentedLine` objects
+//! in `W3DDisplay::global_scene()` because GameLogic cannot depend on GameEngineDevice.
+//!
+//! Reference rendering: `GameEngineDevice/.../Drawable/Draw/wthree_d_rope_draw.rs`
 
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::get_game_logic_random_value_real;
-use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
+use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::any::Any;
 
@@ -86,6 +96,7 @@ pub struct W3DRopeDraw {
     wobble_rate: Real,
     cur_wobble_phase: Real,
     cur_z_offset: Real,
+    segment_line_ids: Vec<Option<SceneLineId>>,
 }
 
 impl W3DRopeDraw {
@@ -105,11 +116,17 @@ impl W3DRopeDraw {
             wobble_rate: 0.0,
             cur_wobble_phase: 0.0,
             cur_z_offset: 0.0,
+            segment_line_ids: Vec::new(),
         }
     }
 
     fn toss_segments(&mut self) {
         self.segments.clear();
+        for id in self.segment_line_ids.drain(..) {
+            if let Some(line_id) = id {
+                remove_scene_line(line_id);
+            }
+        }
     }
 
     fn build_segments(&mut self) {
@@ -182,6 +199,40 @@ impl DrawModule for W3DRopeDraw {
                 seg.start = start;
                 seg.end = end;
                 start = end;
+            }
+
+            while self.segment_line_ids.len() < self.segments.len() {
+                self.segment_line_ids.push(None);
+            }
+
+            for (i, seg) in self.segments.iter().enumerate() {
+                let desc = SceneLineDesc {
+                    start: game_engine::common::system::geometry::Coord3D::new(
+                        seg.start.x,
+                        seg.start.y,
+                        seg.start.z,
+                    ),
+                    end: game_engine::common::system::geometry::Coord3D::new(
+                        seg.end.x, seg.end.y, seg.end.z,
+                    ),
+                    width: self.width,
+                    color_r: self.color.r as f32 / 255.0,
+                    color_g: self.color.g as f32 / 255.0,
+                    color_b: self.color.b as f32 / 255.0,
+                    opacity: 1.0,
+                    texture_name: None,
+                    tile_factor: 0.0,
+                    visible: true,
+                };
+
+                match self.segment_line_ids[i] {
+                    None => {
+                        self.segment_line_ids[i] = submit_scene_line(0, &desc);
+                    }
+                    Some(id) => {
+                        update_scene_line(id, &desc);
+                    }
+                }
             }
         }
 

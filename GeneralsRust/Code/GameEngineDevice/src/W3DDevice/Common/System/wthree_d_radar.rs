@@ -1,7 +1,7 @@
 //! WthreeDRadar Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/Common/System/W3DRadar.cpp
-//! 
+//!
 //! This module provides radar and detection systems.
 
 use std::{
@@ -32,8 +32,17 @@ impl WthreeDRadar {
         if !self.active {
             return Err(WthreeDRadarError::NotActive);
         }
-        
-        // TODO: Implement processing logic
+
+        // PARITY_NOTE: C++ W3DRadar.cpp is NOT a data processor.
+        // It is a radar minimap rendering system (~1582 lines) that:
+        // 1. Creates radar overlay textures (RADAR_CELL_WIDTH x RADAR_CELL_HEIGHT)
+        // 2. Draws terrain, water, shroud, objects, team colors onto radar texture
+        // 3. Updates overlay every OVERLAY_REFRESH_RATE (6) frames
+        // 4. Methods: initializeTextureFormats(), draw(), updateOverlay(),
+        //    drawTerrainCells(), drawWaterCells(), drawObjects()
+        // This stub's process() API does not correspond to any C++ method.
+        // Full port requires: 2D texture rendering, terrain/water/shroud sampling,
+        // GameClient object iteration, team color system.
         self.data.extend_from_slice(input);
         Ok(self.data.clone())
     }
@@ -102,7 +111,13 @@ mod tests {
 
     #[test]
     fn test_wthree_d_radar_basic() {
-        // TODO: Implement tests for wthree_d_radar
-        assert!(true, "Placeholder test for wthree_d_radar");
+        let mut radar = WthreeDRadar::new();
+        assert!(!radar.is_active());
+        radar.activate();
+        assert!(radar.is_active());
+        let result = radar.process(b"test").unwrap();
+        assert_eq!(result, b"test");
+        radar.clear();
+        assert_eq!(radar.size(), 0);
     }
 }

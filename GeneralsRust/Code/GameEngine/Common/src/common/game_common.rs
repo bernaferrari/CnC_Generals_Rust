@@ -153,8 +153,12 @@ pub enum CommandSourceType {
     FromPlayer = 0,
     FromScript,
     FromAi,
-    FromDozer, // Special rare command when the dozer originates a command to attack a mine
-    DefaultSwitchWeapon, // Special case: A weapon that can be chosen -- this is the default case
+    FromDozer,
+    DefaultSwitchWeapon,
+}
+
+impl CommandSourceType {
+    pub const FromAI: CommandSourceType = CommandSourceType::FromAi;
 }
 
 /// Attack type flags

@@ -489,7 +489,36 @@ impl Default for DamageInfoInput {
 }
 
 impl Snapshot for DamageInfoInput {
-    fn crc(&self, _xfer: &mut dyn Xfer) {}
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        // CRC the same fields as xfer() — uses local mutables for the xfer API.
+        // C++: DamageInfoInput::crc calls xferUnsignedInt/xferReal/xferCoord3d on each field.
+        let mut version: u8 = 3;
+        let _ = xfer.xfer_version(&mut version, 3);
+        let mut v = self.source_id;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.source_player_mask.bits();
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.damage_type as u32;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.damage_fx_override as u32;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.death_type as u32;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.amount;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.kill;
+        let _ = xfer.xfer_bool(&mut v);
+        let mut v = self.damage_status_type as u32;
+        let _ = xfer.xfer_unsigned_int(&mut v);
+        let mut v = self.shock_wave_vector;
+        let _ = xfer.xfer_coord3d(&mut v);
+        let mut v = self.shock_wave_amount;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.shock_wave_radius;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.shock_wave_taper_off;
+        let _ = xfer.xfer_real(&mut v);
+    }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         const CURRENT_VERSION: u8 = 3;
@@ -589,7 +618,16 @@ impl Default for DamageInfoOutput {
 }
 
 impl Snapshot for DamageInfoOutput {
-    fn crc(&self, _xfer: &mut dyn Xfer) {}
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+        let mut v = self.actual_damage_dealt;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.actual_damage_clipped;
+        let _ = xfer.xfer_real(&mut v);
+        let mut v = self.no_effect;
+        let _ = xfer.xfer_bool(&mut v);
+    }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         const CURRENT_VERSION: u8 = 1;
@@ -633,7 +671,12 @@ pub struct DamageInfo {
 }
 
 impl Snapshot for DamageInfo {
-    fn crc(&self, _xfer: &mut dyn Xfer) {}
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+        self.input.crc(xfer);
+        self.output.crc(xfer);
+    }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         const CURRENT_VERSION: u8 = 1;

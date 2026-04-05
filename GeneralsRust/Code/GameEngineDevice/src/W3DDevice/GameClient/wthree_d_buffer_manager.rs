@@ -1,7 +1,7 @@
 //! WthreeDBufferManager Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DBufferManager.h
-//! 
+//!
 //! This module provides resource management.
 
 use std::{
@@ -32,7 +32,11 @@ impl WthreeDBufferManager {
         if self.initialized {
             return Ok(());
         }
-        // TODO: Initialize manager
+        // PARITY_NOTE: C++ W3DBufferManager (GameClient level) manages GPU vertex/index
+        // buffer allocation for shadow geometry. init() is not explicitly defined in C++ -
+        // the constructor zeros out slot/buffer arrays. Actual DX8 buffer creation happens
+        // in allocateSlotStorage() on demand. See Shadow/wthree_d_buffer_manager.rs for
+        // the shadow-specific buffer manager with detailed C++ reference.
         self.initialized = true;
         Ok(())
     }
@@ -42,7 +46,8 @@ impl WthreeDBufferManager {
         if !self.initialized {
             return;
         }
-        // TODO: Cleanup resources
+        // PARITY_NOTE: C++ destructor calls freeAllSlots() then freeAllBuffers().
+        // See Shadow/wthree_d_buffer_manager.rs for detailed C++ reference.
         self.resources.clear();
         self.initialized = false;
     }
@@ -94,7 +99,11 @@ mod tests {
 
     #[test]
     fn test_wthree_d_buffer_manager_basic() {
-        // TODO: Implement tests for wthree_d_buffer_manager
-        assert!(true, "Placeholder test for wthree_d_buffer_manager");
+        let mut mgr = WthreeDBufferManager::new();
+        assert!(!mgr.is_initialized());
+        mgr.initialize().unwrap();
+        assert!(mgr.is_initialized());
+        mgr.shutdown();
+        assert!(!mgr.is_initialized());
     }
 }

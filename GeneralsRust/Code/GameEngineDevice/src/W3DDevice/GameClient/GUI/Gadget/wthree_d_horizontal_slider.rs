@@ -10,6 +10,9 @@ pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &Window
 }
 
 /// W3D horizontal slider draw (image variant).
-pub fn w3d_gadget_horizontal_slider_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+pub fn w3d_gadget_horizontal_slider_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
     default_draw_callback(window, inst_data);
 }

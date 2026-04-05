@@ -1,7 +1,7 @@
 //! WthreeDMotd Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DMOTD.cpp
-//! 
+//!
 //! This module provides functionality for wthree d motd.
 
 use std::{
@@ -32,8 +32,15 @@ impl WthreeDMotd {
         if !self.active {
             return Err(WthreeDMotdError::NotActive);
         }
-        
-        // TODO: Implement processing logic
+
+        // PARITY_NOTE: C++ W3DMOTD.cpp (~97 lines) is NOT a data processor.
+        // It contains the MOTDSystem() GameWindow message handler that processes:
+        // GWM_CREATE: loads closeButtonID via name key "MOTD.wnd:CloseMOTD"
+        // GWM_DESTROY: cleanup
+        // GBM_SELECTED: handles button presses (close button, OK button)
+        // The MOTD displays a message-of-the-day dialog with close/OK buttons.
+        // This stub's process() API does not correspond to any C++ method.
+        // Full port requires: GameWindow message system, window manager integration.
         self.data.extend_from_slice(input);
         Ok(self.data.clone())
     }
@@ -102,7 +109,11 @@ mod tests {
 
     #[test]
     fn test_wthree_d_motd_basic() {
-        // TODO: Implement tests for wthree_d_motd
-        assert!(true, "Placeholder test for wthree_d_motd");
+        let mut motd = WthreeDMotd::new();
+        assert!(!motd.is_active());
+        motd.activate();
+        assert!(motd.is_active());
+        let result = motd.process(b"test").unwrap();
+        assert_eq!(result, b"test");
     }
 }

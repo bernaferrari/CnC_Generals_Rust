@@ -1,7 +1,7 @@
 //! TileData Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/TileData.h
-//! 
+//!
 //! This module provides functionality for tile data.
 
 use std::{

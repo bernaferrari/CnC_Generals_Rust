@@ -775,9 +775,9 @@ impl ScriptCondition for PlayersAlliedCondition {
         let rel = p1_guard.get_relationship(&p2_guard);
         Ok(matches!(
             rel,
-            crate::common::Relationship::Ally
+            crate::common::Relationship::Allies
                 | crate::common::Relationship::Allies
-                | crate::common::Relationship::Friend
+                | crate::common::Relationship::Allies
         ))
     }
 
@@ -1265,7 +1265,7 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
             };
             let rel = player_guard.get_relationship_with_team(&owner_team_guard);
             match rel {
-                crate::common::Relationship::Enemy | crate::common::Relationship::Neutral => {
+                crate::common::Relationship::Enemies | crate::common::Relationship::Neutral => {
                     return Ok(false)
                 }
                 _ => {}
@@ -6798,8 +6798,8 @@ impl ScriptCondition for EnemySightedCondition {
                                 let rel = src_player.get_relationship(&tgt_player);
                                 matches!(
                                     rel,
-                                    Relationship::Friend
-                                        | Relationship::Ally
+                                    Relationship::Allies
+                                        | Relationship::Allies
                                         | Relationship::Allies
                                 )
                             } else {

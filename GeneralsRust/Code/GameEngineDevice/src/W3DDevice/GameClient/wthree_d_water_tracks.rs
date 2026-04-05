@@ -1,7 +1,7 @@
 //! WthreeDWaterTracks Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DWaterTracks.h
-//! 
+//!
 //! This module provides water rendering and simulation.
 
 use std::{

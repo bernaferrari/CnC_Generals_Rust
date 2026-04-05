@@ -216,7 +216,7 @@ impl MinefieldBehaviorModuleData {
     pub fn new() -> Self {
         Self {
             detonation_weapon: None,
-            detonated_by: (1 << (Relationship::Enemy as u8)) | (1 << (Relationship::Neutral as u8)),
+            detonated_by: (1 << (Relationship::Enemies as u8)) | (1 << (Relationship::Neutral as u8)),
             stops_regen_after_creator_dies: true,
             regenerates: false,
             workers_detonate: false,
@@ -714,11 +714,11 @@ impl MinefieldBehavior {
 
         // Check relationship
         let required_mask = match object.get_relationship(&*other_guard) {
-            Relationship::Ally => 1 << (Relationship::Ally as u8),
             Relationship::Allies => 1 << (Relationship::Allies as u8),
-            Relationship::Enemy => 1 << (Relationship::Enemy as u8),
+            Relationship::Allies => 1 << (Relationship::Allies as u8),
+            Relationship::Enemies => 1 << (Relationship::Enemies as u8),
             Relationship::Neutral => 1 << (Relationship::Neutral as u8),
-            Relationship::Friend => 1 << (Relationship::Friend as u8),
+            Relationship::Allies => 1 << (Relationship::Allies as u8),
         };
 
         if (self.module_data.detonated_by & required_mask) == 0 {

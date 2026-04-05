@@ -25,8 +25,8 @@ use wgpu::{
     include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendComponent, BlendFactor,
     BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
-    ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState,
-    Device, Extent3d, FilterMode, FragmentState, FrontFace, MultisampleState, PipelineLayout,
+    ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device,
+    Extent3d, FilterMode, FragmentState, FrontFace, MultisampleState, PipelineLayout,
     PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue,
     RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
     ShaderStages, StencilState, Texture, TextureDescriptor, TextureDimension, TextureFormat,
@@ -183,7 +183,12 @@ impl FowTerrainOverlay {
             [1.0 / world_width, 0.0, 0.0, 0.0],
             [0.0, 1.0 / world_height, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
-            [-world_min_x / world_width, -world_min_z / world_height, 0.0, 1.0],
+            [
+                -world_min_x / world_width,
+                -world_min_z / world_height,
+                0.0,
+                1.0,
+            ],
         ];
 
         let uniform_buffer = device.create_buffer(&BufferDescriptor {
@@ -396,11 +401,8 @@ impl FowTerrainOverlay {
 
     /// Upload uniforms to GPU
     fn upload_uniforms(&self) {
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::bytes_of(&self.uniforms),
-        );
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&self.uniforms));
     }
 
     /// Render FOW overlay to the current render pass

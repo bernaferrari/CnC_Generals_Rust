@@ -225,8 +225,8 @@ fn build_chat_player_mask(chat_type: &InGameChatType) -> (i32, Option<u8>) {
                     };
                     let local_rel = local_guard.get_relationship_with_team(&other_team_guard);
                     let other_rel = player_guard.get_relationship_with_team(&local_team_guard);
-                    matches!(local_rel, Relationship::Ally | Relationship::Allies)
-                        && matches!(other_rel, Relationship::Ally | Relationship::Allies)
+                    matches!(local_rel, Relationship::Allies)
+                        && matches!(other_rel, Relationship::Allies)
                 }
             }
         };

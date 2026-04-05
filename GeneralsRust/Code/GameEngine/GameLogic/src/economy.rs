@@ -1020,7 +1020,7 @@ impl EconomyManager {
             ]) {
                 continue;
             }
-            if source_guard.relationship_to(&*obj_guard) == Relationship::Enemy {
+            if source_guard.relationship_to(&*obj_guard) == Relationship::Enemies {
                 return Ok(false);
             }
         }

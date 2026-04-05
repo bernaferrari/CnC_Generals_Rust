@@ -1262,16 +1262,20 @@ impl Drop for AIGroup {
 
 fn to_module_attitude(attitude: AttitudeType) -> AIAttitudeType {
     match attitude {
-        AttitudeType::Normal => AIAttitudeType::Normal,
+        AttitudeType::Normal | AttitudeType::Sleep | AttitudeType::Passive => {
+            AIAttitudeType::Normal
+        }
         AttitudeType::Aggressive | AttitudeType::Alert => AIAttitudeType::Aggressive,
-        AttitudeType::Defensive => AIAttitudeType::Defensive,
+        AttitudeType::Invalid => AIAttitudeType::Normal,
     }
 }
 
 fn from_module_attitude(attitude: AIAttitudeType) -> AttitudeType {
     match attitude {
         AIAttitudeType::Aggressive => AttitudeType::Aggressive,
-        AIAttitudeType::Defensive => AttitudeType::Defensive,
+        AIAttitudeType::Defensive => AttitudeType::Normal,
+        AIAttitudeType::Passive => AttitudeType::Passive,
+        AIAttitudeType::Sleep => AttitudeType::Sleep,
         _ => AttitudeType::Normal,
     }
 }
@@ -1385,11 +1389,5 @@ impl GuardMode {
     }
 }
 
-/// Attitude type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AttitudeType {
-    Normal,
-    Aggressive,
-    Defensive,
-    Alert,
-}
+// Re-export canonical AttitudeType from ai/mod.rs (Sleep=-2, Passive=-1, Normal=0, Alert=1, Aggressive=2, Invalid=3)
+pub use super::AttitudeType;

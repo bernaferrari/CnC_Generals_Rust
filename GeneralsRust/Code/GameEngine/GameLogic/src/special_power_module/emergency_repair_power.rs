@@ -300,7 +300,7 @@ impl EmergencyRepairPower {
     fn should_repair_object(&self, obj: &Object, relationship: Relationship) -> Bool {
         if !matches!(
             relationship,
-            Relationship::Friend | Relationship::Ally | Relationship::Allies
+            Relationship::Allies | Relationship::Allies | Relationship::Allies
         ) {
             return false;
         }
@@ -416,9 +416,9 @@ fn relationship_to_player(obj: &Object, player_id: ObjectID) -> Relationship {
         return Relationship::Neutral;
     };
     if controller == player_id {
-        Relationship::Friend
+        Relationship::Allies
     } else {
-        Relationship::Enemy
+        Relationship::Enemies
     }
 }
 

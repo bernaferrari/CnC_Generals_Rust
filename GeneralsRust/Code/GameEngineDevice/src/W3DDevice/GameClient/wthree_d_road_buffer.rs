@@ -1,7 +1,7 @@
 //! WthreeDRoadBuffer Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DRoadBuffer.h
-//! 
+//!
 //! This module provides data buffering and memory management.
 
 use std::{

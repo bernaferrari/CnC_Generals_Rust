@@ -1,9 +1,27 @@
 //! W3D tracer draw module (port of W3DTracerDraw.cpp).
+//!
+//! ## Pipeline Status: DEAD CODE (not instantiated at runtime)
+//!
+//! This struct is never created or called anywhere in the draw pipeline. The
+//! active implementation is `gamelogic::object::draw::W3DTracerDraw`, which is
+//! instantiated by `module_overrides.rs` and dispatched by
+//! `GameLogic Drawable::draw()`.
+//!
+//! However, the GameLogic version only updates `current_pos`/`line_end` in
+//! memory — it never creates `SegmentedLine` objects in
+//! `W3DDisplay::global_scene()`. This file contains the **reference
+//! rendering implementation** that shows how tracer lines should be
+//! submitted to the W3D scene once the pipeline gap is closed.
+//!
+//! ### Why this can't be simply wired in
+//!
+//! See `wthree_d_laser_draw.rs` for the dependency-chain explanation.
+//! The same architectural constraint applies to all line-based draw modules.
 
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
 use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::SegmentedLine;
-use cgmath::{Matrix4, Point3, Vector3, Transform, EuclideanSpace, SquareMatrix};
+use cgmath::{EuclideanSpace, Matrix4, Point3, SquareMatrix, Transform, Vector3};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RGBColor {
@@ -63,7 +81,11 @@ impl W3DTracerDraw {
             if let Some(line) = scene.read().get_segmented_line(line_id) {
                 let mut line = line.write();
                 line.set_width(self.width);
-                line.set_color(Vector3::new(self.color.red, self.color.green, self.color.blue));
+                line.set_color(Vector3::new(
+                    self.color.red,
+                    self.color.green,
+                    self.color.blue,
+                ));
                 line.set_opacity(self.opacity);
                 let (start, end) = self.compute_endpoints();
                 line.set_points(&[start, end]);
@@ -91,7 +113,11 @@ impl W3DTracerDraw {
         if self.line_id.is_none() {
             let mut line = SegmentedLine::new();
             line.set_width(self.width);
-            line.set_color(Vector3::new(self.color.red, self.color.green, self.color.blue));
+            line.set_color(Vector3::new(
+                self.color.red,
+                self.color.green,
+                self.color.blue,
+            ));
             line.set_opacity(self.opacity);
             let (start, end) = self.compute_endpoints();
             line.set_points(&[start, end]);
@@ -116,7 +142,8 @@ impl W3DTracerDraw {
         }
 
         if self.speed_in_dist_per_frame != 0.0 {
-            let translation = Matrix4::from_translation(Vector3::new(self.speed_in_dist_per_frame, 0.0, 0.0));
+            let translation =
+                Matrix4::from_translation(Vector3::new(self.speed_in_dist_per_frame, 0.0, 0.0));
             self.transform = self.transform * translation;
             if let Some(line_id) = self.line_id {
                 let scene = W3DDisplay::global_scene();
@@ -140,7 +167,9 @@ impl W3DTracerDraw {
     fn compute_endpoints(&self) -> (Point3<f32>, Point3<f32>) {
         let start_local = Vector3::new(0.0, 0.0, 0.0);
         let end_local = Vector3::new(self.length, 0.0, 0.0);
-        let start_world = self.transform.transform_point(Point3::from_vec(start_local));
+        let start_world = self
+            .transform
+            .transform_point(Point3::from_vec(start_local));
         let end_world = self.transform.transform_point(Point3::from_vec(end_local));
         (start_world, end_world)
     }

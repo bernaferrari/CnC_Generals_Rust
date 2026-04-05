@@ -18,11 +18,18 @@ use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionBitFlags};
+use game_engine::common::bit_flags::{
+    create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
+};
 use game_engine::common::ini::{get_anim2d_collection, Anim2DTemplate};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::common::types::FormationID;
 use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
+use gamelogic::object::update::BeaconClientUpdateModule;
+use gamelogic::object::update::LaserUpdate;
+use gamelogic::object::update::LaserUpdateModule;
+use gamelogic::object::update::SwayClientUpdateModule;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::{Mutex, RwLock};
 
@@ -121,6 +128,42 @@ impl Matrix4 {
 
         result
     }
+
+    /// Rotation around the X axis (right-hand rule).
+    /// Matches C++ Matrix3D::Rotate_X.
+    pub fn rotation_x(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        let mut m = Self::identity();
+        m.elements[1][1] = c;
+        m.elements[1][2] = -s;
+        m.elements[2][1] = s;
+        m.elements[2][2] = c;
+        m
+    }
+
+    /// Rotation around the Y axis (right-hand rule).
+    /// Matches C++ Matrix3D::Rotate_Y.
+    pub fn rotation_y(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        let mut m = Self::identity();
+        m.elements[0][0] = c;
+        m.elements[0][2] = s;
+        m.elements[2][0] = -s;
+        m.elements[2][2] = c;
+        m
+    }
+
+    /// Rotation around the Z axis (right-hand rule).
+    /// Matches C++ Matrix3D::Rotate_Z.
+    pub fn rotation_z(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        let mut m = Self::identity();
+        m.elements[0][0] = c;
+        m.elements[0][1] = -s;
+        m.elements[1][0] = s;
+        m.elements[1][1] = c;
+        m
+    }
 }
 
 /// RGBA color representation
@@ -130,6 +173,128 @@ pub struct Color {
     pub g: f32,
     pub b: f32,
     pub a: f32,
+}
+
+/// 2D integer coordinate — screen-space position.
+/// Matches C++ ICoord2D from Common/Geometry.h.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ICoord2D {
+    pub x: i32,
+    pub y: i32,
+}
+
+impl ICoord2D {
+    pub fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    pub fn zero() -> Self {
+        Self { x: 0, y: 0 }
+    }
+}
+
+/// 2D axis-aligned region with integer components.
+/// Matches C++ IRegion2D from Common/Geometry.h.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct IRegion2D {
+    pub lo: ICoord2D,
+    pub hi: ICoord2D,
+}
+
+impl IRegion2D {
+    pub fn new(lo: ICoord2D, hi: ICoord2D) -> Self {
+        Self { lo, hi }
+    }
+
+    /// Width of the region (hi.x - lo.x).
+    pub fn width(&self) -> i32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// Height of the region (hi.y - lo.y).
+    pub fn height(&self) -> i32 {
+        self.hi.y - self.lo.y
+    }
+}
+
+/// Computed 2D overlay data for a single drawable, submitted to the render pipeline each frame.
+/// Mirrors the data that C++ computes on-the-fly inside drawHealthBar, drawVeterancy,
+/// drawConstructPercent, drawCaption, and drawIconUI (Drawable.cpp lines 2661–3940).
+///
+/// These methods store their results here instead of calling TheDisplay directly,
+/// so the render pipeline can consume the data later.
+#[derive(Debug, Clone, Default)]
+pub struct DrawableOverlayData {
+    /// Screen-space region for health bar and icons (matches C++ computeHealthRegion output).
+    pub health_region: Option<IRegion2D>,
+    /// Health bar fill ratio (0.0 = dead, 1.0 = full).
+    pub health_ratio: f32,
+    /// Whether to show construction progress instead of health.
+    pub is_under_construction: bool,
+    /// Construction progress 0.0–1.0 (matches C++ Object::getConstructionPercent / 100).
+    pub construction_percent: f32,
+    /// Veterancy level (0 = Regular, 1 = Veteran, 2 = Elite, 3 = Heroic).
+    /// Matches C++ VeterancyLevel enum values.
+    pub veterancy_level: u8,
+    /// Caption text to display (matches C++ m_captionDisplayString).
+    pub caption: Option<String>,
+    /// Whether this drawable should have 2D overlay drawn this frame.
+    pub visible: bool,
+
+    // --- Ammo pip overlay (drawAmmo, Drawable.cpp lines 2861-2912) ---
+    /// Number of full ammo pips (matches C++ numFull from getAmmoPipShowingInfo).
+    pub ammo_full: u8,
+    /// Total number of ammo pip slots (matches C++ numTotal from getAmmoPipShowingInfo).
+    pub ammo_total: u8,
+    /// Whether ammo pips should be shown this frame.
+    pub show_ammo: bool,
+
+    // --- Container pip overlay (drawContained, Drawable.cpp lines 2915-2986) ---
+    /// Number of full container pips (matches C++ numFull from getContainerPipsToShow).
+    pub contained_full: u8,
+    /// Total number of container pip slots (matches C++ numTotal).
+    pub contained_total: u8,
+    /// Number of contained infantry units (for green/blue color coding).
+    pub contained_infantry_count: u8,
+    /// Whether container pips should be shown this frame.
+    pub show_contained: bool,
+
+    // --- Healing icon overlay (drawHealing, Drawable.cpp lines 3212-3301) ---
+    /// Whether to show healing icon (matches C++ showHealing logic).
+    pub show_healing: bool,
+    /// Healing icon type: 0=default, 1=structure, 2=vehicle (matches C++ DrawableIconType).
+    pub healing_icon_type: u8,
+
+    // --- Emoticon overlay (drawEmoticon, Drawable.cpp lines 2826-2857) ---
+    /// Whether an emoticon icon should be shown.
+    pub show_emoticon: bool,
+
+    // --- Bomb overlay (drawBombed, Drawable.cpp lines 3435-3609) ---
+    /// Whether any bomb icon should be shown.
+    pub show_bombed: bool,
+    /// Bomb type: 0=none, 1=timed, 2=remote, 3=car bomb (matches C++ bomb icon types).
+    pub bomb_type: u8,
+    /// Countdown timer in seconds for timed bomb (matches C++ StickyBombUpdate countdown).
+    pub bomb_timer_seconds: u32,
+
+    // --- Disabled overlay (drawDisabled, Drawable.cpp lines 3614-3667) ---
+    /// Whether the disabled (lightning bolt) icon should be shown.
+    pub show_disabled: bool,
+
+    // --- Enthusiastic overlay (drawEnthusiastic, Drawable.cpp lines 3306-3373) ---
+    /// Whether the enthusiastic weapon-bonus icon should be shown.
+    pub show_enthusiastic: bool,
+    /// Whether the subliminal variant of enthusiastic should be used.
+    pub show_subliminal: bool,
+
+    // --- Demoralized overlay (drawDemoralized, Drawable.cpp lines 3378-3426) ---
+    /// Whether the demoralized icon should be shown (gated by ALLOW_DEMORALIZE in C++).
+    pub show_demoralized: bool,
+
+    /// Opacity for the second (heat-vision / stealth) material pass.
+    /// Matches C++ m_secondMaterialPassOpacity — faded each frame in draw()/update(),
+    /// set to non-zero by stealth detection logic, read by the render pipeline.
+    pub second_material_pass_opacity: f32,
 }
 
 impl Color {
@@ -257,6 +422,25 @@ pub enum IconType {
 }
 
 impl IconType {
+    /// C++ parity order used by Drawable::xfer icon serialization.
+    /// C++ writes icon slots in fixed enum order; keep Rust stable too.
+    pub const XFER_ORDER: [IconType; 14] = [
+        IconType::DefaultHeal,
+        IconType::StructureHeal,
+        IconType::VehicleHeal,
+        IconType::Demoralized,
+        IconType::BombTimed,
+        IconType::BombRemote,
+        IconType::Disabled,
+        IconType::BattleplanBombard,
+        IconType::BattleplanHoldTheLine,
+        IconType::BattleplanSearchAndDestroy,
+        IconType::Emoticon,
+        IconType::Enthusiastic,
+        IconType::EnthusiasticSubliminal,
+        IconType::CarBomb,
+    ];
+
     pub fn name(&self) -> &'static str {
         match self {
             IconType::DefaultHeal => "DefaultHeal",
@@ -360,12 +544,16 @@ impl Snapshotable for IconInfo {
 
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
-                for (icon_type, icon) in self.icons.iter() {
+                for icon_type in IconType::XFER_ORDER {
+                    let Some(icon) = self.icons.get(&icon_type) else {
+                        continue;
+                    };
+
                     let mut icon_name = icon_type.name().to_string();
                     xfer.xfer_ascii_string(&mut icon_name)
                         .map_err(|e| format!("{:?}", e))?;
 
-                    let mut keep = *self.keep_till_frame.get(icon_type).unwrap_or(&0);
+                    let mut keep = *self.keep_till_frame.get(&icon_type).unwrap_or(&0);
                     xfer.xfer_unsigned_int(&mut keep)
                         .map_err(|e| format!("{:?}", e))?;
 
@@ -563,6 +751,14 @@ pub const SUSTAIN_INDEFINITELY: u32 = 0xfffffffe;
 pub const VERY_TRANSPARENT_MATERIAL_PASS_OPACITY: f32 = 0.001;
 pub const MATERIAL_PASS_OPACITY_FADE_SCALAR: f32 = 0.8;
 pub const DRAWABLE_FRAMES_PER_FLASH: u32 = 15;
+
+fn snap_denorm(value: f32) -> f32 {
+    if value > -1e-20 && value < 1e-20 {
+        0.0
+    } else {
+        value
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FadingMode {
@@ -909,7 +1105,8 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Set instance transformation matrix
     fn set_instance_transform(&mut self, transform: Matrix4);
 
-    /// Get instance scale factor
+    fn is_instance_identity(&self) -> bool;
+
     fn get_instance_scale(&self) -> f32;
 
     /// Set instance scale factor
@@ -957,8 +1154,10 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Update drawable (called each frame)
     fn update(&mut self, delta_time: f32);
 
-    /// Render drawable to screen
-    fn render(&self, view_matrix: &Matrix4, projection_matrix: &Matrix4);
+    /// Render drawable to screen.
+    /// Takes &mut self because rendering may toggle shadow state per-frame
+    /// based on stealth look (C++ parity: Drawable::draw() is non-const).
+    fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4);
 
     /// Get bounding sphere for culling
     fn get_bounding_sphere(&self) -> (Vector3, f32); // center, radius
@@ -1067,6 +1266,19 @@ pub struct BasicDrawable {
     animation_loop_duration: u32,
     /// Animation completion time in frames (matches C++ setAnimationCompletionTime)
     animation_completion_time: u32,
+    /// 2D icon overlay data computed each frame (health bar, veterancy, construction, caption).
+    /// Replaces C++ direct TheDisplay calls in drawIconUI/drawHealthBar/drawVeterancy/etc.
+    pub overlay_data: DrawableOverlayData,
+    /// Caption text displayed above the drawable (C++ m_captionDisplayString).
+    caption_text: Option<String>,
+    /// Team/indicator color propagated to draw modules (C++ setIndicatorColor -> replaceIndicatorColor).
+    /// Stored as (r, g, b) where each component is 0-255.
+    indicator_color: Option<(u8, u8, u8)>,
+    /// Static image initialization flag (C++ s_staticImagesInited).
+    static_images_inited: bool,
+    /// C++ parity: Drawable::m_drawableFullyObscuredByShroud.
+    /// When true, the drawable is completely hidden by fog-of-war and should not render.
+    drawable_fully_obscured_by_shroud: bool,
 }
 
 impl DrawableDowncast for BasicDrawable {
@@ -1123,6 +1335,11 @@ impl BasicDrawable {
             model_condition_flags: create_model_condition_flags(),
             animation_loop_duration: 0,
             animation_completion_time: 0,
+            overlay_data: DrawableOverlayData::default(),
+            caption_text: None,
+            indicator_color: None,
+            static_images_inited: false,
+            drawable_fully_obscured_by_shroud: false,
         }
     }
 
@@ -1150,6 +1367,87 @@ impl BasicDrawable {
     /// Get reference to locomotor info if it exists
     pub fn get_loco_info(&self) -> Option<&LocoInfo> {
         self.loco_info.as_ref()
+    }
+
+    /// Get the current model-condition flags.
+    pub fn get_model_condition_flags(&self) -> &ModelConditionBitFlags {
+        &self.model_condition_flags
+    }
+
+    /// Clear and set model-condition flags in one operation.
+    pub fn clear_and_set_model_condition_flags(
+        &mut self,
+        clr: &ModelConditionBitFlags,
+        set: &ModelConditionBitFlags,
+    ) {
+        self.model_condition_flags.clear_and_set(clr, set);
+    }
+
+    /// Replace full model-condition flags.
+    pub fn replace_model_condition_flags(
+        &mut self,
+        flags: ModelConditionBitFlags,
+        force_replace: bool,
+    ) {
+        if force_replace || self.model_condition_flags != flags {
+            self.model_condition_flags = flags;
+        }
+    }
+
+    /// Set a single model-condition bit by index.
+    pub fn set_model_condition_state(&mut self, index: usize) {
+        self.model_condition_flags.set(index, true);
+    }
+
+    /// Clear a single model-condition bit by index.
+    pub fn clear_model_condition_state(&mut self, index: usize) {
+        self.model_condition_flags.set(index, false);
+    }
+
+    /// C++ parity helpers used by options flow to toggle shadow resources.
+    pub fn set_shadows_enabled(&mut self, enable: bool) {
+        if enable {
+            self.status.set(DrawableStatus::SHADOWS);
+        } else {
+            self.status.clear(DrawableStatus::SHADOWS);
+        }
+    }
+
+    pub fn allocate_shadows(&mut self) {
+        self.set_shadows_enabled(true);
+    }
+
+    pub fn release_shadows(&mut self) {
+        self.set_shadows_enabled(false);
+    }
+
+    pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        if self.drawable_fully_obscured_by_shroud != fully_obscured {
+            self.drawable_fully_obscured_by_shroud = fully_obscured;
+        }
+    }
+
+    /// Emoticon helpers (C++ parity: one active emoticon at a time).
+    pub fn clear_emoticon(&mut self) {
+        if let Some(icon_info) = self.icon_info.as_mut() {
+            icon_info.clear_icon(IconType::Emoticon);
+        }
+    }
+
+    pub fn set_emoticon(
+        &mut self,
+        template_name: &str,
+        duration_frames: u32,
+    ) -> Result<(), String> {
+        let icon = Anim2DIcon::from_template_name(template_name)?;
+        let current_frame = self.current_frame;
+        self.get_icon_info_mut().set_icon(
+            IconType::Emoticon,
+            Arc::new(icon),
+            duration_frames,
+            current_frame,
+        );
+        Ok(())
     }
 
     /// Update cached frame for time-based drawable state
@@ -1329,6 +1627,181 @@ impl BasicDrawable {
         self.hidden_by_stealth = hidden;
     }
 
+    /// Full stealth look logic ported from C++ Drawable::setStealthLook (Drawable.cpp:2527-2606).
+    /// Sets stealth opacity, hidden-by-stealth flag, and second material pass opacity
+    /// based on the stealth look type. The trait's set_stealth_look delegates here.
+    pub fn apply_stealth_look(&mut self, look: StealthLook) {
+        if look == self.stealth_look {
+            return;
+        }
+
+        self.stealth_opacity = 1.0;
+        match look {
+            StealthLook::None => {
+                self.hidden_by_stealth = false;
+                self.second_material_pass_opacity = 0.0;
+            }
+            StealthLook::VisibleFriendly | StealthLook::VisibleFriendlyDetected => {
+                // C++ reads TheGlobalData->m_stealthFriendlyOpacity as default opacity.
+                // When GlobalData is wired, this should come from there. For now use
+                // a parity-default of 0.5 which matches typical C++ values.
+                let mut opacity: f32 = 0.5;
+
+                // C++ checks for disguised objects — if disguised, stealth opacity
+                // is not applied (disguised objects are fully visible to their owner).
+                // PARITY_NOTE: Requires StealthUpdate module (Drawable.cpp:2549-2566).
+                // When ported, check stealth->isDisguised() and read stealth->getFriendlyOpacity()
+                // to override the default opacity. For now, disguise check is skipped and
+                // the default GlobalData opacity (0.5) is used.
+
+                self.stealth_opacity = opacity;
+                self.hidden_by_stealth = false;
+
+                // C++ sets second material pass for heat-vision on detected friendlies,
+                // but not on mines (evil hack per srj todo).
+                // PARITY_NOTE: KINDOF_MINE check not yet available (Drawable.cpp:2574).
+                // When ported, add: && !is_kind_of(KINDOF_MINE) to the condition below.
+                // For now, heat-vision is applied to all detected friendlies including mines.
+                if look == StealthLook::VisibleFriendlyDetected {
+                    self.second_material_pass_opacity = 1.0;
+                } else {
+                    self.second_material_pass_opacity = 0.0;
+                }
+            }
+            StealthLook::DisguisedEnemy => {
+                self.hidden_by_stealth = false;
+                self.second_material_pass_opacity = 0.0;
+            }
+            StealthLook::VisibleDetected => {
+                // Non-controlling player can see the stealthed unit via heat vision.
+                self.hidden_by_stealth = false;
+                // C++ disables heat-vision on mines (same hack as above).
+                // PARITY_NOTE: KINDOF_MINE check not yet available (Drawable.cpp:2592).
+                // When ported, add: if is_kind_of(KINDOF_MINE) { opacity = 0.0 }.
+                // For now, heat-vision is enabled for all detected stealthed units.
+                self.second_material_pass_opacity = 1.0;
+            }
+            StealthLook::Invisible => {
+                self.hidden_by_stealth = true;
+                self.second_material_pass_opacity = 0.0;
+            }
+        }
+        self.stealth_look = look;
+    }
+
+    /// Propagate indicator color to all draw modules.
+    /// C++ Drawable::setIndicatorColor (Drawable.cpp:4081-4089) iterates draw modules
+    /// and calls replaceIndicatorColor on each ObjectDrawInterface.
+    /// PARITY_NOTE: DrawModule system not yet ported. When available, this method must
+    /// iterate draw_modules and call replace_indicator_color on each ObjectDrawInterface.
+    /// For now, the color is stored on Drawable only.
+    pub fn set_indicator_color(&mut self, color: Option<(u8, u8, u8)>) {
+        self.indicator_color = color;
+    }
+
+    /// Get the current indicator color.
+    pub fn get_indicator_color(&self) -> Option<(u8, u8, u8)> {
+        self.indicator_color
+    }
+
+    /// Bind this drawable to a game object.
+    /// C++ Drawable::friend_bindToObject (Drawable.cpp:4138-4162):
+    /// Sets m_object, applies indicator color (day/night aware), creates terrain
+    /// decal for FS_FAKE kindof, and notifies draw modules of the binding.
+    /// PARITY_NOTE: Object/Player/DrawModule systems not yet wired. When ported, this
+    /// must read GlobalData->m_timeOfDay to choose getNightIndicatorColor() vs
+    /// getIndicatorColor(), check isKindOf(KINDOF_FS_FAKE) for terrain decal, and
+    /// call onDrawableBoundToObject() on each draw module. For now, stores binding only.
+    pub fn friend_bind_to_object(&mut self, object_id: u32) {
+        self.object_id = Some(object_id);
+        // C++ sets indicator color from object's team color.
+        // When Object/Player system is fully wired, this reads
+        // getObject()->getIndicatorColor() or getNightIndicatorColor().
+        // For now, store the binding; indicator color is set externally.
+    }
+
+    /// Called when the owning object changes teams.
+    /// C++ Drawable::changedTeam (Drawable.cpp:4168-4187):
+    /// Re-applies indicator color from the object's new team and updates terrain decal.
+    /// PARITY_NOTE: Object/Player systems not yet wired. When ported, this must
+    /// re-read getIndicatorColor()/getNightIndicatorColor() based on time of day,
+    /// and update FS_FAKE terrain decal per the new team relationship. For now, no-op.
+    pub fn changed_team(&mut self) {
+        // C++ re-applies indicator color from object's new team color.
+        // When Object system is wired, this calls:
+        //   setIndicatorColor(object->getIndicatorColor()) or
+        //   setIndicatorColor(object->getNightIndicatorColor())
+        // and updates FS_FAKE terrain decal based on new relationship.
+    }
+
+    /// Initialize static images shared by all drawables.
+    /// C++ Drawable::initStaticImages (Drawable.cpp:249-285):
+    /// Loads veterancy images (SCVeter1/2/3), ammo/container pip images,
+    /// and icon animation templates. Called once at startup.
+    /// PARITY_NOTE: MappedImageCollection/Anim2DCollection asset systems not yet ported.
+    /// When available, load: SCVeter1-3, SCPAmmoFull/Empty, SCPPipFull/Empty, and
+    /// all ICON_* Anim2D templates from TheAnim2DCollection. For now, marks initialized.
+    pub fn init_static_images(&mut self) {
+        if self.static_images_inited {
+            return;
+        }
+        // C++ loads the following image assets:
+        // s_veterancyImage[0] = NULL
+        // s_veterancyImage[1] = "SCVeter1"
+        // s_veterancyImage[2] = "SCVeter2"
+        // s_veterancyImage[3] = "SCVeter3"
+        // s_fullAmmo = "SCPAmmoFull"
+        // s_emptyAmmo = "SCPAmmoEmpty"
+        // s_fullContainer = "SCPPipFull"
+        // s_emptyContainer = "SCPPipEmpty"
+        // s_animationTemplates[ICON_*] = various icon Anim2D templates
+        // When asset system is ported, these should be loaded here.
+        self.static_images_inited = true;
+    }
+
+    /// Free static image resources.
+    /// C++ Drawable::killStaticImages (Drawable.cpp:288-295):
+    /// Deletes the animation templates array. Called at shutdown.
+    /// PARITY_NOTE: No resources to free until init_static_images loads real assets.
+    /// When ported, this must: delete[] s_animationTemplates; s_animationTemplates = NULL.
+    pub fn kill_static_images(&mut self) {
+        // C++: delete[] s_animationTemplates; s_animationTemplates = NULL;
+        // When asset system is ported, free any allocated static resources here.
+        self.static_images_inited = false;
+    }
+
+    /// Set caption text displayed above this drawable.
+    /// C++ Drawable::setCaptionText (Drawable.cpp:4293-4322):
+    /// Creates a DisplayString, applies font, sets sanitized text.
+    /// For Rust, we store the text directly; font/rendering is handled by overlay_data.
+    pub fn set_caption_text(&mut self, text: &str) {
+        if text.is_empty() {
+            self.clear_caption_text();
+            return;
+        }
+        // C++ sanitizes via TheLanguageFilter->filterLine() (Drawable.cpp:4302).
+        // PARITY_NOTE: LanguageFilter not yet ported. When available, pass text through
+        // the language filter before storing. For now, text is stored as-is.
+        let sanitized = text.to_string();
+        if self.caption_text.as_deref() != Some(sanitized.as_str()) {
+            self.caption_text = Some(sanitized);
+        }
+    }
+
+    /// Clear caption text.
+    /// C++ Drawable::clearCaptionText (Drawable.cpp:4325-4330):
+    /// Frees the DisplayString and sets pointer to NULL.
+    pub fn clear_caption_text(&mut self) {
+        self.caption_text = None;
+    }
+
+    /// Get caption text if set.
+    /// C++ Drawable::getCaptionText (Drawable.cpp:4333-4339):
+    /// Returns the DisplayString text or empty UnicodeString.
+    pub fn get_caption_text(&self) -> Option<&str> {
+        self.caption_text.as_deref()
+    }
+
     pub fn is_effectively_hidden(&self) -> bool {
         self.hidden || !self.visible || self.hidden_by_stealth
     }
@@ -1412,6 +1885,73 @@ impl BasicDrawable {
         use crate::render_bridge::RenderConditionFlags;
         let mut flags = RenderConditionFlags::empty();
 
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::DAMAGED)
+        {
+            flags |= RenderConditionFlags::DAMAGED;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::REALLYDAMAGED)
+        {
+            flags |= RenderConditionFlags::REALLY_DAMAGED;
+        }
+        if self.model_condition_flags.test(ModelConditionFlags::RUBBLE) {
+            flags |= RenderConditionFlags::RUBBLE;
+        }
+        if self.model_condition_flags.test(ModelConditionFlags::NIGHT) {
+            flags |= RenderConditionFlags::NIGHT;
+        }
+        if self.model_condition_flags.test(ModelConditionFlags::SNOW) {
+            flags |= RenderConditionFlags::SNOW;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::AWAITING_CONSTRUCTION)
+        {
+            flags |= RenderConditionFlags::AWAITING_CONSTRUCTION;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::PARTIALLY_CONSTRUCTED)
+        {
+            flags |= RenderConditionFlags::PARTIALLY_CONSTRUCTED;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED)
+        {
+            flags |= RenderConditionFlags::ACTIVELY_CONSTRUCTED;
+        }
+        if self.model_condition_flags.test(ModelConditionFlags::AFLAME) {
+            flags |= RenderConditionFlags::AFLAME;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::SMOLDERING)
+        {
+            flags |= RenderConditionFlags::SMOLDERING;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::TOPPLED)
+        {
+            flags |= RenderConditionFlags::TOPPLED;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::FLOODED)
+        {
+            flags |= RenderConditionFlags::FLOODED;
+        }
+        if self
+            .model_condition_flags
+            .test(ModelConditionFlags::DISGUISED)
+        {
+            flags |= RenderConditionFlags::DISGUISED;
+        }
+
         if self.selected {
             flags |= RenderConditionFlags::SELECTED;
         }
@@ -1461,6 +2001,432 @@ impl BasicDrawable {
             drop_shadow_offset_y,
         );
     }
+
+    // ---------------------------------------------------------------------------
+    // 2D icon overlay methods (matches C++ Drawable.cpp drawIconUI, drawHealthBar,
+    // drawVeterancy, drawConstructPercent, drawCaption, computeHealthRegion)
+    //
+    // These methods compute overlay data and store it in self.overlay_data.
+    // The actual GPU rendering is handled by the render pipeline later.
+    // ---------------------------------------------------------------------------
+
+    pub fn compute_health_region(&self) -> Option<IRegion2D> {
+        self.overlay_data.health_region
+    }
+
+    pub fn draw_health_bar(&mut self, health_region: &IRegion2D) {
+        self.overlay_data.health_region = Some(*health_region);
+        self.overlay_data.visible = true;
+
+        if let Some(obj_id) = self.object_id {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                return;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                return;
+            };
+            let health = obj_guard.get_health();
+            let max_health = obj_guard.get_max_health();
+            if max_health > 0.0 {
+                self.overlay_data.health_ratio = (health / max_health).clamp(0.0, 1.0);
+            }
+        }
+    }
+
+    pub fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
+        if let Some(obj_id) = self.object_id {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                return;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                return;
+            };
+            if obj_guard.get_experience_tracker().is_some() {
+                self.overlay_data.veterancy_level = obj_guard.get_veterancy_level() as u8;
+            }
+        }
+    }
+
+    pub fn draw_construct_percent(&mut self, _health_region: &IRegion2D) {
+        if let Some(obj_id) = self.object_id {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                return;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                return;
+            };
+            if obj_guard.is_under_construction() {
+                self.overlay_data.is_under_construction = true;
+                self.overlay_data.construction_percent =
+                    (obj_guard.get_construction_percent() as f32) / 100.0;
+            } else {
+                self.overlay_data.is_under_construction = false;
+            }
+        }
+    }
+
+    pub fn draw_caption(&mut self, _health_region: &IRegion2D) {
+        // Caption display is driven by m_captionDisplayString in C++.
+        // For now, overlay_data.caption remains None unless set externally.
+        // The render pipeline will check this field.
+    }
+
+    pub fn draw_emoticon(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawEmoticon (lines 2826-2857)
+        if let Some(ref icon_info) = self.icon_info {
+            let now = self.current_frame;
+            if icon_info.icons.contains_key(&IconType::Emoticon) {
+                let active = icon_info
+                    .keep_till_frame
+                    .get(&IconType::Emoticon)
+                    .map_or(false, |&frame| frame >= now);
+                self.overlay_data.show_emoticon = active;
+                if !active {
+                    self.clear_emoticon();
+                }
+            }
+        }
+    }
+
+    pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawAmmo (lines 2861-2912)
+        // Ammo pips only show for selected/moused-over local player objects.
+        // C++ gates on: TheGlobalData->m_showObjectHealth && (isSelected() || mousedOver)
+        //              && obj->getControllingPlayer() == ThePlayerList->getLocalPlayer()
+        if !self.selected {
+            self.overlay_data.show_ammo = false;
+            return;
+        }
+
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        // C++ calls obj->getAmmoPipShowingInfo(numTotal, numFull).
+        // The Rust Object doesn't have this method yet, so we query via weapon set.
+        // For parity, we store the ammo state for the render pipeline.
+        let (total, full) = obj_guard.get_ammo_pip_info();
+        if total == 0 {
+            self.overlay_data.show_ammo = false;
+            return;
+        }
+        self.overlay_data.ammo_total = total as u8;
+        self.overlay_data.ammo_full = full as u8;
+        self.overlay_data.show_ammo = true;
+    }
+
+    pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawContained (lines 2915-2986)
+        if !self.selected {
+            self.overlay_data.show_contained = false;
+            return;
+        }
+
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        let Some(contain_arc) = obj_guard.get_contain() else {
+            self.overlay_data.show_contained = false;
+            return;
+        };
+        let Ok(contain_guard) = contain_arc.lock() else {
+            return;
+        };
+
+        let contained_count = contain_guard.get_contained_count();
+        if contained_count == 0 {
+            self.overlay_data.show_contained = false;
+            return;
+        }
+
+        let max_capacity = contain_guard.get_max_capacity();
+        self.overlay_data.contained_full = contained_count.min(u8::MAX as usize) as u8;
+        self.overlay_data.contained_total = max_capacity.min(u8::MAX as usize) as u8;
+        self.overlay_data.show_contained = true;
+
+        // C++ counts infantry among contained items for green/blue color coding
+        let contained_objects = contain_guard.get_contained_objects();
+        let mut infantry_count: u8 = 0;
+        for &cid in contained_objects {
+            if let Some(c_arc) = OBJECT_REGISTRY.get_object(cid) {
+                if let Ok(c_guard) = c_arc.read() {
+                    if c_guard.is_kind_of(gamelogic::common::types::KindOf::Infantry) {
+                        infantry_count = infantry_count.saturating_add(1);
+                    }
+                }
+            }
+        }
+        self.overlay_data.contained_infantry_count = infantry_count;
+    }
+
+    pub fn draw_healing(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawHealing (lines 3212-3301)
+        // Shows healing icon when last healing was within HEALING_ICON_DISPLAY_TIME (90 frames = 3s).
+        const HEALING_ICON_DISPLAY_TIME: u32 = 90; // 3 seconds at 30 FPS
+
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        if obj_guard.is_kind_of(gamelogic::common::types::KindOf::NoHealIcon) {
+            self.overlay_data.show_healing = false;
+            return;
+        }
+
+        let mut show_healing = false;
+        if let Some(body_arc) = obj_guard.get_body_module() {
+            if let Ok(body_guard) = body_arc.lock() {
+                let health = body_guard.get_health();
+                let max_health = body_guard.get_max_health();
+                if health != max_health {
+                    let last_heal = body_guard.get_last_healing_timestamp();
+                    let now = self.current_frame;
+                    // C++ guards against early-game false positives
+                    if now > HEALING_ICON_DISPLAY_TIME
+                        && now.saturating_sub(last_heal) <= HEALING_ICON_DISPLAY_TIME
+                    {
+                        show_healing = true;
+                    }
+                }
+            }
+        }
+
+        self.overlay_data.show_healing = show_healing;
+
+        if show_healing {
+            // C++ picks icon type based on KindOf
+            if obj_guard.is_kind_of(gamelogic::common::types::KindOf::Structure) {
+                self.overlay_data.healing_icon_type = 1; // ICON_STRUCTURE_HEAL
+            } else if obj_guard.is_kind_of(gamelogic::common::types::KindOf::Vehicle) {
+                self.overlay_data.healing_icon_type = 2; // ICON_VEHICLE_HEAL
+            } else {
+                self.overlay_data.healing_icon_type = 0; // ICON_DEFAULT_HEAL
+            }
+        } else {
+            // Kill any existing healing icon (matches C++ else branch)
+            if let Some(ref mut icon_info) = self.icon_info {
+                icon_info.clear_icon(IconType::DefaultHeal);
+                icon_info.clear_icon(IconType::StructureHeal);
+                icon_info.clear_icon(IconType::VehicleHeal);
+            }
+        }
+    }
+
+    pub fn draw_enthusiastic(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawEnthusiastic (lines 3306-3373)
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        use gamelogic::common::types::WeaponBonusConditionFlags;
+        let bonus = obj_guard.get_weapon_bonus_condition();
+        let has_enthusiastic = bonus.contains(WeaponBonusConditionFlags::ENTHUSIASTIC);
+        let has_subliminal = bonus.contains(WeaponBonusConditionFlags::SUBLIMINAL);
+
+        if has_enthusiastic {
+            self.overlay_data.show_enthusiastic = true;
+            self.overlay_data.show_subliminal = has_subliminal;
+        } else {
+            self.overlay_data.show_enthusiastic = false;
+            self.overlay_data.show_subliminal = false;
+            if let Some(ref mut icon_info) = self.icon_info {
+                icon_info.clear_icon(IconType::Enthusiastic);
+                icon_info.clear_icon(IconType::EnthusiasticSubliminal);
+            }
+        }
+    }
+
+    pub fn draw_demoralized(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawDemoralized (lines 3378-3426)
+        // Gated by #ifdef ALLOW_DEMORALIZE in C++; we always compute the state.
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+            self.overlay_data.show_demoralized = false;
+            return;
+        };
+        let Ok(ai_guard) = ai_arc.lock() else {
+            return;
+        };
+
+        // C++ calls ai->isDemoralized(). In Rust, check via weapon bonus condition.
+        use gamelogic::common::types::WeaponBonusConditionFlags;
+        let bonus = obj_guard.get_weapon_bonus_condition();
+        let is_demoralized = bonus.contains(WeaponBonusConditionFlags::DEMORALIZED);
+
+        self.overlay_data.show_demoralized = is_demoralized;
+
+        if !is_demoralized {
+            if let Some(ref mut icon_info) = self.icon_info {
+                icon_info.clear_icon(IconType::Demoralized);
+            }
+        }
+    }
+
+    pub fn draw_bombed(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawBombed (lines 3435-3609)
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        // C++ checks obj->testWeaponSetFlag(WEAPONSET_CARBOMB) first
+        if obj_guard.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb) {
+            self.overlay_data.show_bombed = true;
+            self.overlay_data.bomb_type = 3; // car bomb
+            return;
+        }
+
+        // C++ then checks StickyBombUpdate for timed/remote bombs
+        // find_update_module("StickyBombUpdate") -> check isTimedBomb
+        // For now, bomb_type 1=timed, 2=remote are stored when bomb modules are present.
+        // The render pipeline will use these values.
+        let update_handle = obj_guard.find_update_module("StickyBombUpdate");
+        if update_handle.is_some() {
+            // Bomb is attached; the render pipeline will handle visual countdown.
+            self.overlay_data.show_bombed = true;
+            // Default to timed; the specific type will be refined when
+            // StickyBombUpdate is fully ported with isTimedBomb().
+            if self.overlay_data.bomb_type == 0 {
+                self.overlay_data.bomb_type = 1; // timed bomb
+            }
+        } else {
+            self.overlay_data.show_bombed = false;
+            self.overlay_data.bomb_type = 0;
+            // C++ cleanup: kill bomb icons if expired
+            if let Some(ref mut icon_info) = self.icon_info {
+                let now = self.current_frame;
+                let expired_timed = icon_info
+                    .keep_till_frame
+                    .get(&IconType::BombTimed)
+                    .map_or(true, |&f| f <= now);
+                let expired_remote = icon_info
+                    .keep_till_frame
+                    .get(&IconType::BombRemote)
+                    .map_or(true, |&f| f <= now);
+                if expired_timed {
+                    icon_info.clear_icon(IconType::BombTimed);
+                }
+                if expired_remote {
+                    icon_info.clear_icon(IconType::BombRemote);
+                }
+            }
+        }
+    }
+
+    pub fn draw_disabled(&mut self, _health_region: &IRegion2D) {
+        // C++ parity: Drawable.cpp drawDisabled (lines 3614-3667)
+        // Checks: DISABLED_HACKED || DISABLED_PARALYZED || DISABLED_EMP ||
+        //         DISABLED_SUBDUED || DISABLED_UNDERPOWERED
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+
+        use gamelogic::common::types::DisabledType;
+        let is_disabled = obj_guard.is_disabled_by_type(DisabledType::DisabledHacked)
+            || obj_guard.is_disabled_by_type(DisabledType::Paralyzed)
+            || obj_guard.is_disabled_by_type(DisabledType::DisabledEmp)
+            || obj_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
+            || obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered);
+
+        self.overlay_data.show_disabled = is_disabled;
+
+        if !is_disabled {
+            if let Some(ref mut icon_info) = self.icon_info {
+                icon_info.clear_icon(IconType::Disabled);
+            }
+        }
+    }
+
+    pub fn draw_icon_ui(&mut self) {
+        let region = self.compute_health_region();
+
+        // C++ parity: Drawable.cpp drawIconUI() dispatch order (lines 2738-2788):
+        // healthBar → emoticon → caption → constructPercent →
+        // (dead check bail) → healing → bombed → enthusiastic → demoralized →
+        // disabled → ammo → contained → veterancy
+
+        if let Some(ref health_region) = region {
+            self.draw_health_bar(health_region);
+            self.draw_emoticon(health_region);
+            self.draw_caption(health_region);
+            self.draw_construct_percent(health_region);
+        }
+
+        // C++: all icons below only draw on ALIVE things
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let is_dead = {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                return;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                return;
+            };
+            obj_guard.is_effectively_dead()
+                || obj_guard.is_kind_of(gamelogic::common::types::KindOf::IgnoredInGui)
+        };
+
+        if is_dead {
+            return;
+        }
+
+        if let Some(ref health_region) = region {
+            self.draw_healing(health_region);
+            self.draw_bombed(health_region);
+            self.draw_enthusiastic(health_region);
+            self.draw_demoralized(health_region);
+            self.draw_disabled(health_region);
+            self.draw_ammo(health_region);
+            self.draw_contained(health_region);
+            self.draw_veterancy(health_region);
+        }
+    }
 }
 
 impl Drawable for BasicDrawable {
@@ -1505,6 +2471,10 @@ impl Drawable for BasicDrawable {
 
     fn set_instance_transform(&mut self, transform: Matrix4) {
         self.instance_transform = transform;
+    }
+
+    fn is_instance_identity(&self) -> bool {
+        self.instance_transform == Matrix4::identity()
     }
 
     fn get_instance_scale(&self) -> f32 {
@@ -1583,7 +2553,7 @@ impl Drawable for BasicDrawable {
     }
 
     fn set_stealth_look(&mut self, stealth_look: StealthLook) {
-        self.stealth_look = stealth_look;
+        self.apply_stealth_look(stealth_look);
     }
 
     fn get_tint_color(&self) -> Vector3 {
@@ -1655,6 +2625,7 @@ impl Drawable for BasicDrawable {
                 self.second_material_pass_opacity = 0.0;
             }
         }
+        self.overlay_data.second_material_pass_opacity = self.second_material_pass_opacity;
 
         if self.flash_count > 0 && (self.current_frame % DRAWABLE_FRAMES_PER_FLASH) == 0 {
             self.color_flash_envelope(Some(self.flash_color), DEF_DECAY_FRAMES, 0, 0);
@@ -1675,10 +2646,57 @@ impl Drawable for BasicDrawable {
         if let Some(ref mut icon_info) = self.icon_info {
             icon_info.update(self.current_frame);
         }
+
+        // C++ parity: Drawable::updateDrawable() dispatches to all ClientUpdateModules.
+        // Each concrete module has client_update() — no shared trait exists yet.
+        if let Some(object_id) = self.object_id {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(obj_guard) = obj_arc.read() {
+                    for module_handle in obj_guard.client_update_modules() {
+                        let _ = module_handle
+                            .with_module_downcast::<SwayClientUpdateModule, _, ()>(|m| {
+                                m.client_update()
+                            });
+                        let _ = module_handle
+                            .with_module_downcast::<BeaconClientUpdateModule, _, ()>(|m| {
+                                m.client_update()
+                            });
+                        let _ = module_handle.with_module_downcast::<
+                            AnimatedParticleSysBoneClientUpdateModule,
+                            _,
+                            (),
+                        >(|m| m.client_update());
+                        let _ = module_handle
+                            .with_module_downcast::<LaserUpdate, _, ()>(|m| m.client_update());
+                    }
+                }
+            }
+        }
     }
 
-    fn render(&self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
-        if !self.visible || self.hidden || self.hidden_by_stealth {
+    fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
+        if !self.visible
+            || self.hidden
+            || self.hidden_by_stealth
+            || self.drawable_fully_obscured_by_shroud
+        {
+            return;
+        }
+
+        // C++ parity: Drawable::draw() toggles shadows per-frame based on stealth look.
+        // Shadows are enabled unless the drawable is visibly detected by the enemy.
+        self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
+
+        // C++ parity: Drawable::draw() validates position (Drawable.cpp:2634 validatePos()).
+        // Skip rendering if position contains NaN or is unreasonably large.
+        let pos = &self.position;
+        if pos.x.is_nan()
+            || pos.y.is_nan()
+            || pos.z.is_nan()
+            || pos.x.abs() > 10000.0
+            || pos.y.abs() > 10000.0
+            || pos.z.abs() > 10000.0
+        {
             return;
         }
 
@@ -1687,10 +2705,36 @@ impl Drawable for BasicDrawable {
             return;
         }
 
+        // C++ parity: Drawable::draw() builds transform from getTransformMatrix() *
+        // getInstanceMatrix(), then applies physics xform before draw module dispatch.
+        let mut world_transform = self.get_transform();
+        if !self.is_instance_identity() {
+            let instance = self.instance_transform;
+            world_transform = world_transform.mul(&instance);
+        }
+
+        // C++ parity: applyPhysicsXform(&transformMtx) at Drawable.cpp:2649.
+        // Uses locomotor-derived pitch/roll/yaw/overlap_z from LocoInfo to apply
+        // visual physics transforms (vehicle tilt, hover bob, etc.).
+        if let Some(ref loco) = self.loco_info {
+            let total_pitch = snap_denorm(loco.pitch);
+            let total_roll = snap_denorm(loco.roll);
+            let total_yaw = snap_denorm(loco.yaw);
+            let total_z = snap_denorm(loco.overlap_z);
+
+            let physics_xform = Matrix4::translation(Vector3::new(0.0, 0.0, total_z))
+                .mul(&Matrix4::rotation_y(total_pitch))
+                .mul(&Matrix4::rotation_x(-total_roll))
+                .mul(&Matrix4::rotation_z(total_yaw));
+            world_transform = world_transform.mul(&physics_xform);
+        }
+
+        // Note: DrawModule dispatch is handled by GameLogic::Drawable::draw(), not here.
+        // BasicDrawable::render() handles the rendering submission after draw modules
+        // have executed. See GameLogic Drawable::draw() at object/drawable.rs:3393.
+
         let tint = self.get_tint_color();
         let selected = self.is_selected();
-
-        let world_transform = self.get_transform();
 
         let model_name = self.template_name.clone().unwrap_or_default();
 
@@ -1876,7 +2920,7 @@ impl Snapshotable for BasicDrawable {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
+        const CURRENT_VERSION: XferVersion = 2;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
@@ -1885,6 +2929,13 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("{:?}", e))?;
         self.id = DrawableId(id);
+
+        if version >= 2 {
+            xfer_model_condition_flags(xfer, &mut self.model_condition_flags)?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.replace_model_condition_flags(self.model_condition_flags.clone(), true);
+            }
+        }
 
         xfer_vector3(xfer, &mut self.position)?;
         xfer_matrix4(xfer, &mut self.instance_transform)?;
@@ -2088,6 +3139,12 @@ impl Snapshotable for BasicDrawable {
             .map_err(|e| format!("{:?}", e))?;
         self.current_frame = current_frame;
 
+        if xfer.get_xfer_mode() == XferMode::Load {
+            // C++ resets stealth look after load so a subsequent update re-applies
+            // hidden/shadow behavior from authoritative object state.
+            self.stealth_look = StealthLook::None;
+        }
+
         Ok(())
     }
 
@@ -2113,6 +3170,40 @@ fn xfer_matrix4(xfer: &mut dyn Xfer, value: &mut Matrix4) -> Result<(), String> 
                 .map_err(|e| format!("{:?}", e))?;
         }
     }
+    Ok(())
+}
+
+fn xfer_model_condition_flags(
+    xfer: &mut dyn Xfer,
+    flags: &mut ModelConditionBitFlags,
+) -> Result<(), String> {
+    let mut stream_bit_count = flags.size().min(u16::MAX as usize) as u16;
+    xfer.xfer_unsigned_short(&mut stream_bit_count)
+        .map_err(|e| format!("{:?}", e))?;
+
+    let stream_bit_count = stream_bit_count as usize;
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            for i in 0..stream_bit_count {
+                let mut value = flags.test(i);
+                xfer.xfer_bool(&mut value).map_err(|e| format!("{:?}", e))?;
+            }
+        }
+        XferMode::Load => {
+            flags.clear();
+            for i in 0..stream_bit_count {
+                let mut value = false;
+                xfer.xfer_bool(&mut value).map_err(|e| format!("{:?}", e))?;
+                if i < flags.size() {
+                    flags.set(i, value);
+                }
+            }
+        }
+        XferMode::Invalid => {
+            return Err("xfer_model_condition_flags - invalid xfer mode".to_string());
+        }
+    }
+
     Ok(())
 }
 
@@ -2365,6 +3456,59 @@ mod tests {
 
         icon_info.clear_icon(IconType::DefaultHeal);
         assert!(!icon_info.icons.contains_key(&IconType::DefaultHeal));
+    }
+
+    #[test]
+    fn test_icon_xfer_order_matches_cpp_slot_order() {
+        let names: Vec<&'static str> = IconType::XFER_ORDER
+            .iter()
+            .map(|icon_type| icon_type.name())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "DefaultHeal",
+                "StructureHeal",
+                "VehicleHeal",
+                "Demoralized",
+                "BombTimed",
+                "BombRemote",
+                "Disabled",
+                "BattlePlanIcon_Bombard",
+                "BattlePlanIcon_HoldTheLine",
+                "BattlePlanIcon_SeekAndDestroy",
+                "Emoticon",
+                "Enthusiastic",
+                "Subliminal",
+                "CarBomb",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_model_condition_flags_flow_into_render_flags() {
+        use crate::render_bridge::RenderConditionFlags;
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.set_model_condition_state(ModelConditionFlags::DAMAGED);
+        drawable.set_model_condition_state(ModelConditionFlags::SNOW);
+        drawable.set_model_condition_state(ModelConditionFlags::AFLAME);
+        drawable.set_model_condition_state(ModelConditionFlags::TOPPLED);
+
+        let render_flags = drawable.compute_render_condition_flags();
+        assert!(render_flags.contains(RenderConditionFlags::DAMAGED));
+        assert!(render_flags.contains(RenderConditionFlags::SNOW));
+        assert!(render_flags.contains(RenderConditionFlags::AFLAME));
+        assert!(render_flags.contains(RenderConditionFlags::TOPPLED));
+    }
+
+    #[test]
+    fn test_shadow_toggle_helpers() {
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        assert!(!drawable.get_status().has(DrawableStatus::SHADOWS));
+        drawable.allocate_shadows();
+        assert!(drawable.get_status().has(DrawableStatus::SHADOWS));
+        drawable.release_shadows();
+        assert!(!drawable.get_status().has(DrawableStatus::SHADOWS));
     }
 
     #[test]

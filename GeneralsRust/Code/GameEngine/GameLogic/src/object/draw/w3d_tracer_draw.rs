@@ -2,10 +2,21 @@
 //!
 //! Port of C++ W3DTracerDraw.h
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTracerDraw.h
+//!
+//! ## Rendering Gap
+//!
+//! Active implementation in the draw pipeline (instantiated by `module_overrides.rs`,
+//! dispatched by `GameLogic Drawable::draw()`). However, `do_draw_module()` only
+//! updates `current_pos`/`line_end` in memory — it never creates `SegmentedLine`
+//! objects in `W3DDisplay::global_scene()` because GameLogic cannot depend on
+//! GameEngineDevice.
+//!
+//! Reference rendering: `GameEngineDevice/.../Drawable/Draw/wthree_d_tracer_draw.rs`
 
 use super::draw_module::*;
 use crate::common::*;
-use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
+use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::any::Any;
 
@@ -74,6 +85,7 @@ pub struct W3DTracerDraw {
     direction: Coord3D,
     line_start: Coord3D,
     line_end: Coord3D,
+    scene_line_id: Option<SceneLineId>,
 }
 
 impl W3DTracerDraw {
@@ -89,13 +101,18 @@ impl W3DTracerDraw {
             direction: Coord3D::new(1.0, 0.0, 0.0),
             line_start: Coord3D::origin(),
             line_end: Coord3D::origin(),
+            scene_line_id: None,
         }
     }
 }
 
 impl Module for W3DTracerDraw {
     fn on_drawable_bound_to_object(&mut self) {}
-    fn on_delete(&mut self) {}
+    fn on_delete(&mut self) {
+        if let Some(id) = self.scene_line_id.take() {
+            remove_scene_line(id);
+        }
+    }
     fn get_module_name_key(&self) -> NameKeyType {
         self._data.module_tag_name_key
     }
@@ -127,6 +144,36 @@ impl DrawModule for W3DTracerDraw {
         self.line_start = self.current_pos;
         self.line_end = self.current_pos + dir * self.length;
         self.current_pos += dir * self.speed_in_dist_per_frame;
+
+        let desc = SceneLineDesc {
+            start: game_engine::common::system::geometry::Coord3D::new(
+                self.line_start.x,
+                self.line_start.y,
+                self.line_start.z,
+            ),
+            end: game_engine::common::system::geometry::Coord3D::new(
+                self.line_end.x,
+                self.line_end.y,
+                self.line_end.z,
+            ),
+            width: self.width,
+            color_r: self.color.r as f32 / 255.0,
+            color_g: self.color.g as f32 / 255.0,
+            color_b: self.color.b as f32 / 255.0,
+            opacity: self.opacity,
+            texture_name: None,
+            tile_factor: 0.0,
+            visible: true,
+        };
+
+        match self.scene_line_id {
+            None => {
+                self.scene_line_id = submit_scene_line(0, &desc);
+            }
+            Some(id) => {
+                update_scene_line(id, &desc);
+            }
+        }
     }
 
     fn set_shadows_enabled(&mut self, _enable: bool) {}

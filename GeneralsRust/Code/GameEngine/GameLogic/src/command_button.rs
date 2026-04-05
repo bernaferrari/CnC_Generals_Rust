@@ -249,16 +249,16 @@ impl CommandButton {
     pub fn is_valid_relationship_target(&self, relationship: Relationship) -> bool {
         let options = SpecialPowerCommandOption::from_bits_truncate(self.options_bits);
         match relationship {
-            Relationship::Enemy => {
+            Relationship::Enemies => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
             }
-            Relationship::Ally | Relationship::Allies => {
+            Relationship::Allies | Relationship::Allies => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
             }
             Relationship::Neutral => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
             }
-            Relationship::Friend => {
+            Relationship::Allies => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
             }
         }

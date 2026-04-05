@@ -210,7 +210,7 @@ impl EmpPulsePower {
 
     fn should_affect_object(&self, obj: &Object, relationship: Relationship) -> Bool {
         match relationship {
-            Relationship::Friend | Relationship::Ally | Relationship::Allies => {
+            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                 if !self
                     .data
                     .base
@@ -220,7 +220,7 @@ impl EmpPulsePower {
                     return false;
                 }
             }
-            Relationship::Enemy => {
+            Relationship::Enemies => {
                 if !self
                     .data
                     .base
@@ -357,8 +357,8 @@ fn relationship_to_player(obj: &Object, player_id: ObjectID) -> Relationship {
         return Relationship::Neutral;
     };
     if controller == player_id {
-        Relationship::Friend
+        Relationship::Allies
     } else {
-        Relationship::Enemy
+        Relationship::Enemies
     }
 }

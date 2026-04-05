@@ -477,111 +477,106 @@ impl DrawableManager {
     }
 
     /// Render all visible drawables
-    pub fn render(&self) {
+    pub fn render(&mut self) {
         let start_time = std::time::Instant::now();
 
-        // Render opaque objects first (front-to-back)
-        self.render_pass(&self.opaque_render_list, RenderPass::Opaque);
+        let opaque = self.opaque_render_list.clone();
+        let transparent = self.transparent_render_list.clone();
+        self.render_pass(&opaque, RenderPass::Opaque);
+        self.render_pass(&transparent, RenderPass::Transparent);
 
-        // Render transparent objects (back-to-front)
-        self.render_pass(&self.transparent_render_list, RenderPass::Transparent);
-
-        // Render second material pass for special effects
         self.render_second_material_pass();
 
-        // Update render time stats
         let render_time = start_time.elapsed().as_millis() as f32;
-        // Note: We can't modify self in a non-mut method, so this would need to be handled differently
+        let _ = render_time;
     }
 
     /// Render all visible drawables through an active wgpu render pass.
     /// This is the main entry point used by Display::draw() to submit
     /// drawable geometry into the frame's render pass.
     pub fn render_pass_through(
-        &self,
+        &mut self,
         _pass: &mut wgpu::RenderPass,
         _view_matrix: &glam::Mat4,
         _proj_matrix: &glam::Mat4,
     ) {
-        // Render opaque objects first (front-to-back)
-        for &drawable_id in &self.opaque_render_list {
-            if let Some(entry) = self.drawables.get(&drawable_id) {
-                entry
-                    .drawable
-                    .render(&self.view_matrix, &self.projection_matrix);
+        let opaque = self.opaque_render_list.clone();
+        let transparent = self.transparent_render_list.clone();
+        let view = self.view_matrix;
+        let proj = self.projection_matrix;
+
+        for &drawable_id in &opaque {
+            if let Some(entry) = self.drawables.get_mut(&drawable_id) {
+                entry.drawable.render(&view, &proj);
             }
         }
 
-        // Render transparent objects (back-to-front)
-        for &drawable_id in &self.transparent_render_list {
-            if let Some(entry) = self.drawables.get(&drawable_id) {
-                entry
-                    .drawable
-                    .render(&self.view_matrix, &self.projection_matrix);
+        for &drawable_id in &transparent {
+            if let Some(entry) = self.drawables.get_mut(&drawable_id) {
+                entry.drawable.render(&view, &proj);
             }
         }
 
-        // Second material pass for stealth/selection effects
-        for entry in self.drawables.values() {
-            let drawable = &entry.drawable;
-            if drawable.get_stealth_look() == StealthLook::VisibleDetected
-                || drawable.get_stealth_look() == StealthLook::VisibleFriendlyDetected
-            {
-                drawable.render(&self.view_matrix, &self.projection_matrix);
+        let all_ids: Vec<DrawableId> = self.drawables.keys().copied().collect();
+        for id in all_ids {
+            let needs_second = self.drawables.get(&id).map_or(false, |e| {
+                let look = e.drawable.get_stealth_look();
+                look == StealthLook::VisibleDetected || look == StealthLook::VisibleFriendlyDetected
+            });
+            if needs_second {
+                if let Some(entry) = self.drawables.get_mut(&id) {
+                    entry.drawable.render(&view, &proj);
+                }
             }
         }
     }
 
     /// Render a specific pass
-    fn render_pass(&self, render_list: &[DrawableId], pass: RenderPass) {
+    fn render_pass(&mut self, render_list: &[DrawableId], pass: RenderPass) {
+        let view = self.view_matrix;
+        let proj = self.projection_matrix;
         for &drawable_id in render_list {
-            if let Some(entry) = self.drawables.get(&drawable_id) {
-                // Set up render state based on pass
+            if let Some(entry) = self.drawables.get_mut(&drawable_id) {
                 match pass {
-                    RenderPass::Opaque => {
-                        // Enable depth testing, disable blending
-                    }
-                    RenderPass::Transparent => {
-                        // Enable blending, may need to sort by depth
-                    }
-                    RenderPass::Shadow => {
-                        // Render to shadow map
-                    }
-                    RenderPass::Reflection => {
-                        // Render for reflection/mirror effects
-                    }
-                    RenderPass::SecondMaterial => {
-                        // Special effects pass
-                    }
+                    RenderPass::Opaque => {}
+                    RenderPass::Transparent => {}
+                    RenderPass::Shadow => {}
+                    RenderPass::Reflection => {}
+                    RenderPass::SecondMaterial => {}
                 }
 
-                // Render the drawable
-                entry
-                    .drawable
-                    .render(&self.view_matrix, &self.projection_matrix);
+                entry.drawable.render(&view, &proj);
             }
         }
     }
 
     /// Render second material pass for special effects
-    fn render_second_material_pass(&self) {
-        for entry in self.drawables.values() {
-            let drawable = &entry.drawable;
-
-            // Only render drawables that need second material pass
-            if drawable.get_stealth_look() == StealthLook::VisibleDetected
-                || drawable.get_stealth_look() == StealthLook::VisibleFriendlyDetected
-            {
-                // Render with special material (heat vision effect, etc.)
-                drawable.render(&self.view_matrix, &self.projection_matrix);
+    fn render_second_material_pass(&mut self) {
+        let view = self.view_matrix;
+        let proj = self.projection_matrix;
+        let all_ids: Vec<DrawableId> = self.drawables.keys().copied().collect();
+        for id in all_ids {
+            let needs_second = self.drawables.get(&id).map_or(false, |e| {
+                let look = e.drawable.get_stealth_look();
+                look == StealthLook::VisibleDetected || look == StealthLook::VisibleFriendlyDetected
+            });
+            if needs_second {
+                if let Some(entry) = self.drawables.get_mut(&id) {
+                    entry.drawable.render(&view, &proj);
+                }
             }
         }
     }
 
     /// Render shadows
-    pub fn render_shadows(&self, shadow_view_matrix: &Matrix4, shadow_projection_matrix: &Matrix4) {
-        for &drawable_id in &self.shadow_caster_list {
-            if let Some(entry) = self.drawables.get(&drawable_id) {
+    pub fn render_shadows(
+        &mut self,
+        shadow_view_matrix: &Matrix4,
+        shadow_projection_matrix: &Matrix4,
+    ) {
+        let shadow_ids = self.shadow_caster_list.clone();
+        for &drawable_id in &shadow_ids {
+            if let Some(entry) = self.drawables.get_mut(&drawable_id) {
                 entry
                     .drawable
                     .render(shadow_view_matrix, shadow_projection_matrix);

@@ -628,7 +628,7 @@ impl TurretAI {
                 if candidate_guard.is_destroyed() {
                     continue;
                 }
-                if owner_guard.relationship_to(&candidate_guard) != Relationship::Enemy {
+                if owner_guard.relationship_to(&candidate_guard) != Relationship::Enemies {
                     continue;
                 }
             }
@@ -1541,7 +1541,7 @@ impl ClassicState for TurretAIAimTurretState {
                                         } else if turret.target_was_set_by_idle_mood() {
                                             AbleToAttackType::ContinuedTarget
                                         } else {
-                                            AbleToAttackType::CanAttackSpecific
+                                            AbleToAttackType::NewTarget
                                         };
                                         matches!(
                                             owner_guard.get_able_to_attack_specific_object(
@@ -1569,7 +1569,7 @@ impl ClassicState for TurretAIAimTurretState {
                                 }
                                 _ => (Relationship::Neutral, false, false, false, false),
                             };
-                        if rel != Relationship::Enemy
+                        if rel != Relationship::Enemies
                             || !can_attack
                             || !can_attack_target
                             || team_changed

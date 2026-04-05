@@ -371,7 +371,7 @@ impl GrantStealthBehavior {
         };
         matches!(
             self_guard.relationship_to(other),
-            Relationship::Friend | Relationship::Ally | Relationship::Allies
+            Relationship::Allies | Relationship::Allies | Relationship::Allies
         )
     }
 }

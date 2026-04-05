@@ -82,7 +82,8 @@ pub enum DeathType {
     PoisonedGamma = 20,
 }
 
-/// Object status types for special damage effects
+/// Object status types — mirrors C++ `ObjectStatusTypes.h` enum (values 0–44 used as bit
+/// indices into `BitFlags<OBJECT_STATUS_COUNT>`). Bits 32–44 are u64 since they exceed u32 range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObjectStatusTypes(u32);
 
@@ -96,6 +97,57 @@ impl ObjectStatusTypes {
     pub const SOLD: u32 = 0x00000020;
     pub const HIJACKED: u32 = 0x00000040;
 
+    // C++ ObjectStatusTypes.h — enum value N → bit N
+    pub const OBJECT_STATUS_NONE: u32 = 1 << 0; // C++: 0 — no status bit
+    pub const OBJECT_STATUS_DESTROYED: u32 = 1 << 1; // C++: 1 — destroyed, pending delete
+    pub const OBJECT_STATUS_CAN_ATTACK: u32 = 1 << 2; // C++: 2 — garrisoned building can attack
+    pub const OBJECT_STATUS_UNDER_CONSTRUCTION: u32 = 1 << 3; // C++: 3 — being constructed
+    pub const OBJECT_STATUS_UNSELECTABLE: u32 = 1 << 4; // C++: 4 — override: not selectable
+    pub const OBJECT_STATUS_NO_COLLISIONS: u32 = 1 << 5; // C++: 5 — ignore obj-obj collisions
+    pub const OBJECT_STATUS_NO_ATTACK: u32 = 1 << 6; // C++: 6 — override: cannot attack
+    pub const OBJECT_STATUS_AIRBORNE_TARGET: u32 = 1 << 7; // C++: 7 — AntiAir target
+    pub const OBJECT_STATUS_PARACHUTING: u32 = 1 << 8; // C++: 8 — on parachute
+    pub const OBJECT_STATUS_REPULSOR: u32 = 1 << 9; // C++: 9 — repulses repulsable objects
+    pub const OBJECT_STATUS_HIJACKED: u32 = 1 << 10; // C++: 10 — hijacked
+    pub const OBJECT_STATUS_AFLAME: u32 = 1 << 11; // C++: 11 — on fire
+    pub const OBJECT_STATUS_BURNED: u32 = 1 << 12; // C++: 12 — fully burned
+    pub const OBJECT_STATUS_WET: u32 = 1 << 13; // C++: 13 — soaked with water
+    pub const OBJECT_STATUS_IS_FIRING_WEAPON: u32 = 1 << 14; // C++: 14 — firing weapon now
+    pub const OBJECT_STATUS_BRAKING: u32 = 1 << 15; // C++: 15 — braking
+    pub const OBJECT_STATUS_STEALTHED: u32 = 1 << 16; // C++: 16 — stealthed
+    pub const OBJECT_STATUS_DETECTED: u32 = 1 << 17; // C++: 17 — in stealth-detector range
+    pub const OBJECT_STATUS_CAN_STEALTH: u32 = 1 << 18; // C++: 18 — has stealth ability
+    pub const OBJECT_STATUS_SOLD: u32 = 1 << 19; // C++: 19 — being sold
+    pub const OBJECT_STATUS_UNDERGOING_REPAIR: u32 = 1 << 20; // C++: 20 — undergoing repair
+    pub const OBJECT_STATUS_RECONSTRUCTING: u32 = 1 << 21; // C++: 21 — reconstructing
+    pub const OBJECT_STATUS_MASKED: u32 = 1 << 22; // C++: 22 — not selectable/targetable
+    pub const OBJECT_STATUS_IS_ATTACKING: u32 = 1 << 23; // C++: 23 — in Attack state
+    pub const OBJECT_STATUS_IS_USING_ABILITY: u32 = 1 << 24; // C++: 24 — using special ability
+    pub const OBJECT_STATUS_IS_AIMING_WEAPON: u32 = 1 << 25; // C++: 25 — aiming weapon
+    pub const OBJECT_STATUS_NO_ATTACK_FROM_AI: u32 = 1 << 26; // C++: 26 — AI may not attack
+    pub const OBJECT_STATUS_IGNORING_STEALTH: u32 = 1 << 27; // C++: 27 — ignoring stealth
+    pub const OBJECT_STATUS_IS_CARBOMB: u32 = 1 << 28; // C++: 28 — is carbomb
+    pub const OBJECT_STATUS_DECK_HEIGHT_OFFSET: u32 = 1 << 29; // C++: 29 — factors deck height
+    pub const OBJECT_STATUS_RIDER1: u32 = 1 << 30; // C++: 30 — rider bit 1
+    pub const OBJECT_STATUS_RIDER2: u32 = 1 << 31; // C++: 31 — rider bit 2
+
+    // Bits 32–44 exceed u32 range; defined as u64 for future expansion
+    pub const OBJECT_STATUS_RIDER3: u64 = 1u64 << 32; // C++: 32
+    pub const OBJECT_STATUS_RIDER4: u64 = 1u64 << 33; // C++: 33
+    pub const OBJECT_STATUS_RIDER5: u64 = 1u64 << 34; // C++: 34
+    pub const OBJECT_STATUS_RIDER6: u64 = 1u64 << 35; // C++: 35
+    pub const OBJECT_STATUS_RIDER7: u64 = 1u64 << 36; // C++: 36
+    pub const OBJECT_STATUS_RIDER8: u64 = 1u64 << 37; // C++: 37
+    pub const OBJECT_STATUS_FAERIE_FIRE: u64 = 1u64 << 38; // C++: 38 — shooters attack faster
+    pub const OBJECT_STATUS_MISSILE_KILLING_SELF: u64 = 1u64 << 39; // C++: 39 — missile through bunker
+    pub const OBJECT_STATUS_REASSIGN_PARKING: u64 = 1u64 << 40; // C++: 40 — jet reassigning
+    pub const OBJECT_STATUS_BOOBY_TRAPPED: u64 = 1u64 << 41; // C++: 41 — has booby trap
+    pub const OBJECT_STATUS_IMMOBILE: u64 = 1u64 << 42; // C++: 42 — do not move
+    pub const OBJECT_STATUS_DISGUISED: u64 = 1u64 << 43; // C++: 43 — disguised (stealth)
+    pub const OBJECT_STATUS_DEPLOYED: u64 = 1u64 << 44; // C++: 44 — deployed
+
+    pub const OBJECT_STATUS_COUNT: usize = 45;
+
     pub fn new(status: u32) -> Self {
         Self(status)
     }
@@ -104,16 +156,32 @@ impl ObjectStatusTypes {
         (self.0 & status) != 0
     }
 
+    pub fn contains(&self, status: u32) -> bool {
+        self.has(status)
+    }
+
     pub fn set(&mut self, status: u32) {
         self.0 |= status;
+    }
+
+    pub fn insert(&mut self, status: u32) {
+        self.set(status);
     }
 
     pub fn clear(&mut self, status: u32) {
         self.0 &= !status;
     }
 
+    pub fn remove(&mut self, status: u32) {
+        self.clear(status);
+    }
+
     pub fn bits(&self) -> u32 {
         self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
     }
 }
 
@@ -556,10 +624,10 @@ impl DamageCalculator {
             } else if let Some(source_arc) = source_arc.as_ref() {
                 if let Ok(source_guard) = source_arc.read() {
                     match source_guard.relationship_to(&obj_guard) {
-                        Relationship::Enemy => {
+                        Relationship::Enemies => {
                             relationship_flags |= WEAPON_AFFECTS_ENEMIES;
                         }
-                        Relationship::Friend | Relationship::Ally | Relationship::Allies => {
+                        Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                             relationship_flags |= WEAPON_AFFECTS_ALLIES;
                         }
                         Relationship::Neutral => {

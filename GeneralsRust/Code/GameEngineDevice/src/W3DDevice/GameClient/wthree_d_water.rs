@@ -1,7 +1,7 @@
 //! WthreeDWater Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h
-//! 
+//!
 //! This module provides water rendering and simulation.
 
 use std::{

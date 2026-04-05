@@ -48,7 +48,8 @@ impl CameraShakeSystemWrapper {
     /// * `duration` - Duration in seconds (default: 1.5)
     /// * `power` - Power in degrees of amplitude (default: 1.0)
     pub fn add_camera_shake(&mut self, position: Vec3, radius: f32, duration: f32, power: f32) {
-        self.shake_system.add_camera_shake(position, radius, duration, power);
+        self.shake_system
+            .add_camera_shake(position, radius, duration, power);
     }
 
     /// Update all active shakers

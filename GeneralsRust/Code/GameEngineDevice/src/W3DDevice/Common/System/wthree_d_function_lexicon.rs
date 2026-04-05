@@ -1,7 +1,7 @@
 //! WthreeDFunctionLexicon Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/Common/System/W3DFunctionLexicon.cpp
-//! 
+//!
 //! This module provides functionality for wthree d function lexicon.
 
 use std::{
@@ -32,8 +32,17 @@ impl WthreeDFunctionLexicon {
         if !self.active {
             return Err(WthreeDFunctionLexiconError::NotActive);
         }
-        
-        // TODO: Implement processing logic
+
+        // PARITY_NOTE: C++ W3DFunctionLexicon.cpp is NOT a data processor.
+        // It is a function pointer table (FunctionLexicon subclass) that registers
+        // W3D-specific GUI draw/init callbacks (e.g., W3DGadgetPushButtonDraw,
+        // W3DLeftHUDDraw, W3DMainMenuDraw, etc.) via loadTable().
+        // The init() method calls FunctionLexicon::init() then loads:
+        //   - gameWinDrawTable (TABLE_GAME_WIN_DEVICEDRAW)
+        //   - layoutInitTable (TABLE_WIN_LAYOUT_DEVICEINIT)
+        // This stub's process() API does not correspond to any C++ method.
+        // Full port requires: FunctionLexicon base class, GameWindow draw callback system,
+        // and all W3DGadget*Draw / W3D*HUDDraw callback implementations.
         self.data.extend_from_slice(input);
         Ok(self.data.clone())
     }
@@ -102,7 +111,13 @@ mod tests {
 
     #[test]
     fn test_wthree_d_function_lexicon_basic() {
-        // TODO: Implement tests for wthree_d_function_lexicon
-        assert!(true, "Placeholder test for wthree_d_function_lexicon");
+        let mut lex = WthreeDFunctionLexicon::new();
+        assert!(!lex.is_active());
+        lex.activate();
+        assert!(lex.is_active());
+        let result = lex.process(b"test").unwrap();
+        assert_eq!(result, b"test");
+        lex.deactivate();
+        assert!(!lex.is_active());
     }
 }

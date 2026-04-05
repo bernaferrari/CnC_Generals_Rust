@@ -1,7 +1,7 @@
 //! FlatHeightMap Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/FlatHeightMap.h
-//! 
+//!
 //! This module provides functionality for flat height map.
 
 use std::{

@@ -1,7 +1,7 @@
 //! HeightMap Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/HeightMap.h
-//! 
+//!
 //! This module provides functionality for height map.
 
 use std::{

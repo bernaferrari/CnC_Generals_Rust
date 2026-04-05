@@ -6,8 +6,8 @@
 //!
 //! This module implements animated water wakes and ripples from units and projectiles.
 
-use wgpu::util::DeviceExt;
 use super::water_config::WaveParameters;
+use wgpu::util::DeviceExt;
 
 /// Wave/track type identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,12 +81,7 @@ pub struct WaterTrack {
 impl WaterTrack {
     /// Create new water track
     /// Matches C++ WaterTracksObj::init()
-    pub fn new(
-        wave_type: WaveType,
-        start: [f32; 2],
-        end: [f32; 2],
-        texture_name: String,
-    ) -> Self {
+    pub fn new(wave_type: WaveType, start: [f32; 2], end: [f32; 2], texture_name: String) -> Self {
         // Calculate wave direction and perpendicular
         let dx = end[0] - start[0];
         let dy = end[1] - start[1];
@@ -197,7 +192,12 @@ impl WaterTrack {
 
     /// Generate vertices for this track
     /// Matches C++ WaterTracksObj::render()
-    pub fn generate_vertices(&self, water_level: f32, strips_x: usize, strips_y: usize) -> Vec<WaterTrackVertex> {
+    pub fn generate_vertices(
+        &self,
+        water_level: f32,
+        strips_x: usize,
+        strips_y: usize,
+    ) -> Vec<WaterTrackVertex> {
         let mut vertices = Vec::with_capacity(strips_x * strips_y);
 
         // Calculate wave progress
@@ -205,11 +205,11 @@ impl WaterTrack {
 
         // Calculate current wave dimensions
         let width_progress = (progress / self.params.final_width_peak_frac).min(1.0);
-        let current_width = self.params.initial_width +
-            (self.params.final_width - self.params.initial_width) * width_progress;
+        let current_width = self.params.initial_width
+            + (self.params.final_width - self.params.initial_width) * width_progress;
 
-        let current_height = self.params.initial_height +
-            (self.params.final_height - self.params.initial_height) * progress;
+        let current_height = self.params.initial_height
+            + (self.params.final_height - self.params.initial_height) * progress;
 
         // Calculate wave front position
         let distance_traveled = self.params.wave_distance * progress;
@@ -226,8 +226,12 @@ impl WaterTrack {
                 let across_wave = (v - 0.5) * current_width;
 
                 // Calculate world position
-                let world_x = self.start_pos[0] + self.wave_dir[0] * along_wave + self.perp_dir[0] * across_wave;
-                let world_y = self.start_pos[1] + self.wave_dir[1] * along_wave + self.perp_dir[1] * across_wave;
+                let world_x = self.start_pos[0]
+                    + self.wave_dir[0] * along_wave
+                    + self.perp_dir[0] * across_wave;
+                let world_y = self.start_pos[1]
+                    + self.wave_dir[1] * along_wave
+                    + self.perp_dir[1] * across_wave;
 
                 // Calculate height using sine wave
                 let wave_phase = u * std::f32::consts::PI;
@@ -346,7 +350,8 @@ impl WaterTracksSystem {
                     let tex_color = textureSample(track_texture, track_sampler, input.uv);
                     return tex_color * input.color;
                 }
-                "#.into()
+                "#
+                .into(),
             ),
         });
 
@@ -371,8 +376,12 @@ impl WaterTracksSystem {
                     let bottom_right = base + ((y + 1) * strip_size_x + x + 1) as u16;
 
                     indices.extend_from_slice(&[
-                        top_left, bottom_left, top_right,
-                        top_right, bottom_left, bottom_right,
+                        top_left,
+                        bottom_left,
+                        top_right,
+                        top_right,
+                        bottom_left,
+                        bottom_right,
                     ]);
                 }
             }
@@ -387,41 +396,40 @@ impl WaterTracksSystem {
         // Create bind group layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Water Track Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
-            ],
+                count: None,
+            }],
         });
 
-        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Water Track Texture Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Water Track Texture Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -485,7 +493,7 @@ impl WaterTracksSystem {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(
-                        &texture.create_view(&wgpu::TextureViewDescriptor::default())
+                        &texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -564,7 +572,8 @@ impl WaterTracksSystem {
             self.tracks.remove(0);
         }
 
-        self.tracks.push(WaterTrack::new(wave_type, start, end, texture_name));
+        self.tracks
+            .push(WaterTrack::new(wave_type, start, end, texture_name));
     }
 
     /// Update all tracks
@@ -584,12 +593,14 @@ impl WaterTracksSystem {
         // Generate vertices for all active tracks
         let mut all_vertices = Vec::new();
         for track in &self.tracks {
-            let vertices = track.generate_vertices(self.water_level, self.strip_size_x, self.strip_size_y);
+            let vertices =
+                track.generate_vertices(self.water_level, self.strip_size_x, self.strip_size_y);
             all_vertices.extend(vertices);
         }
 
         // Upload vertex data
-        self.queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&all_vertices));
+        self.queue
+            .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&all_vertices));
 
         // Render
         render_pass.set_pipeline(&self.pipeline);

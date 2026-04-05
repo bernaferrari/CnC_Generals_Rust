@@ -1,7 +1,7 @@
 //! WthreeDDisplayString Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DDisplayString.h
-//! 
+//!
 //! This module provides display and rendering management.
 
 use std::{

@@ -1107,6 +1107,14 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             }
         }
     }
+
+    fn destroy_attached_systems(&self, object_id: gamelogic::common::ObjectID) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                manager.destroy_attached_systems(object_id);
+            }
+        }
+    }
 }
 
 /// Initialize the global particle system manager
