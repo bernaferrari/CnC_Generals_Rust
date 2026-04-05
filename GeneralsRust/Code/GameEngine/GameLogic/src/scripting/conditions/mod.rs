@@ -6238,7 +6238,8 @@ impl ScriptCondition for CameraMovementFinishedCondition {
 }
 
 //-------------------------------------------------------------------------------------------------
-// MISSION_ATTEMPTS - stub (C++ always returns false too)
+// MISSION_ATTEMPTS - Matches C++ ScriptConditions::evaluateMissionAttempts (line 1208)
+// C++ returns false unconditionally; the player lookup is commented out.
 //-------------------------------------------------------------------------------------------------
 struct MissionAttemptsCondition;
 
@@ -6249,7 +6250,6 @@ impl ScriptCondition for MissionAttemptsCondition {
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        // C++ implementation is a stub that always returns false
         Ok(false)
     }
 
@@ -6257,7 +6257,7 @@ impl ScriptCondition for MissionAttemptsCondition {
         "mission_attempts"
     }
     fn description(&self) -> &str {
-        "Checks mission attempts (C++ MISSION_ATTEMPTS) - STUB"
+        "Checks mission attempts (C++ MISSION_ATTEMPTS — always false)"
     }
     fn required_parameters(&self) -> Vec<String> {
         vec![
