@@ -2896,6 +2896,13 @@ impl CnCGameEngine {
         .map_err(|err| anyhow::anyhow!("Asset manager init failed: {err}"))?;
         let asset_duration = asset_timer.elapsed();
 
+        crate::assets::archive::init_big_archive_file_reader()
+            .map_err(|err| anyhow::anyhow!("BIG archive texture reader init failed: {err}"))?;
+        info!(
+            "BIG archive texture reader wired ({:.2}s total asset setup)",
+            asset_duration.as_secs_f32()
+        );
+
         // Model preloading will be done after graphics system is ready
         // This is handled in the run loop after engine creation
         // Models are preloaded later; keep placeholder timer for consistency if needed.
