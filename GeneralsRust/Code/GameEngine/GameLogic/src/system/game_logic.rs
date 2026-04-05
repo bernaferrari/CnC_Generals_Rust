@@ -1346,6 +1346,7 @@ pub struct GameLogic {
     event_queue: Vec<GameEvent>,
     command_queue: VecDeque<GameCommand>,
     radar_updates: Vec<RadarUpdate>,
+    objects_changed_trigger_areas: VecDeque<ObjectID>,
 
     // Game state
     game_mode: Int,
@@ -1427,6 +1428,7 @@ impl Default for GameLogic {
             event_queue: Vec::new(),
             command_queue: VecDeque::new(),
             radar_updates: Vec::new(),
+            objects_changed_trigger_areas: VecDeque::new(),
             game_mode: GAME_NONE,
             loading_map: false,
             loading_save: false,
@@ -1877,6 +1879,8 @@ impl GameLogic {
         if let Err(e) = self.resolve_damage_and_physics() {
             warn!("Physics resolution phase failed: {}", e);
         }
+
+        self.update_objects_changed_trigger_areas();
 
         // -----------------------------------------------------------------------
         // Phase 10: Partition Manager Update (C++ line 3753)
@@ -3450,6 +3454,23 @@ impl GameLogic {
         self.physics_world.queue_damage(target, attacker, amount);
     }
 
+    pub fn queue_objects_changed_trigger_areas(&mut self, object_id: ObjectID) {
+        if object_id == INVALID_ID {
+            return;
+        }
+
+        self.objects_changed_trigger_areas.push_back(object_id);
+    }
+
+    pub fn update_objects_changed_trigger_areas(&mut self) {
+        while let Some(object_id) = self.objects_changed_trigger_areas.pop_front() {
+            trace!(
+                "GameLogic::update_objects_changed_trigger_areas(object_id={})",
+                object_id
+            );
+        }
+    }
+
     /// Get object by ID (for command executor)
     pub fn get_object(&self, object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         self.objects.get(&object_id).cloned()
@@ -3545,6 +3566,7 @@ impl GameLogic {
         self.event_queue.clear();
         self.command_queue.clear();
         self.radar_updates.clear();
+        self.objects_changed_trigger_areas.clear();
 
         log::debug!("Cleared all objects from GameLogic");
     }

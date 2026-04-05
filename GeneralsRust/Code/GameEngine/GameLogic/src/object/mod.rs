@@ -7223,13 +7223,6 @@ impl Object {
             return;
         }
 
-        // C++ lines 2558-2563: Notify terrain for infantry/vehicle movement
-        if !self.is_kind_of(KindOf::Immobile) {
-            if self.is_kind_of(KindOf::Infantry) || self.is_kind_of(KindOf::Vehicle) {
-                // TheGameClient->notifyTerrainObjectMoved(this) - placeholder for terrain notification
-            }
-        }
-
         // C++ lines 2565-2568: Update pathfinder position
         if self.get_ai_update_interface().is_some() {
             // TheAI->pathfinder()->updatePos(this, getPosition()) - handled by AI system
@@ -7259,7 +7252,7 @@ impl Object {
                             team_guard.set_entered_exited();
                         }
                     }
-                    // TheGameLogic->updateObjectsChangedTriggerAreas() - placeholder
+                    crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
                 }
             }
         }

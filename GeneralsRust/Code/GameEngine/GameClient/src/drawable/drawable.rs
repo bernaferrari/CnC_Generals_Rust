@@ -10,6 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 pub use crate::core::DrawableId;
+use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
 use crate::gui::display_string::get_display_string_manager;
@@ -21,7 +22,7 @@ use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::bit_flags::{
     create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
 };
-use game_engine::common::ini::{get_anim2d_collection, Anim2DTemplate};
+use game_engine::common::ini::{get_anim2d_collection, get_global_data, Anim2DTemplate};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::common::types::FormationID;
 use gamelogic::object::registry::OBJECT_REGISTRY;
@@ -401,6 +402,8 @@ pub const FRENZY_COLOR: Vector3 = Vector3 {
     y: -0.2,
     z: -0.2,
 };
+
+const DEFAULT_STEALTH_FRIENDLY_OPACITY: f32 = 0.5;
 
 /// Types of drawable icons (converted from C++ DrawableIconType)
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
@@ -1703,17 +1706,14 @@ impl BasicDrawable {
             }
             StealthLook::VisibleFriendly | StealthLook::VisibleFriendlyDetected => {
                 // C++ reads TheGlobalData->m_stealthFriendlyOpacity as default opacity.
-                // When GlobalData is wired, this should come from there. For now use
-                // a parity-default of 0.5 which matches typical C++ values.
-                let mut opacity: f32 = 0.5;
+                let opacity: f32 = get_global_data()
+                    .map(|data| data.read().stealth_friendly_opacity)
+                    .unwrap_or(DEFAULT_STEALTH_FRIENDLY_OPACITY);
 
                 // C++ checks for disguised objects — if disguised, stealth opacity
                 // is not applied (disguised objects are fully visible to their owner).
                 // PARITY_NOTE: Requires StealthUpdate module (Drawable.cpp:2549-2566).
                 // When ported, check stealth->isDisguised() and read stealth->getFriendlyOpacity()
-                // to override the default opacity. For now, disguise check is skipped and
-                // the default GlobalData opacity (0.5) is used.
-
                 self.stealth_opacity = opacity;
                 self.hidden_by_stealth = false;
 
@@ -1797,24 +1797,71 @@ impl BasicDrawable {
     /// C++ Drawable::initStaticImages (Drawable.cpp:249-285):
     /// Loads veterancy images (SCVeter1/2/3), ammo/container pip images,
     /// and icon animation templates. Called once at startup.
-    /// PARITY_NOTE: MappedImageCollection/Anim2DCollection asset systems not yet ported.
-    /// When available, load: SCVeter1-3, SCPAmmoFull/Empty, SCPPipFull/Empty, and
-    /// all ICON_* Anim2D templates from TheAnim2DCollection. For now, marks initialized.
     pub fn init_static_images(&mut self) {
         if self.static_images_inited {
             return;
         }
-        // C++ loads the following image assets:
-        // s_veterancyImage[0] = NULL
-        // s_veterancyImage[1] = "SCVeter1"
-        // s_veterancyImage[2] = "SCVeter2"
-        // s_veterancyImage[3] = "SCVeter3"
-        // s_fullAmmo = "SCPAmmoFull"
-        // s_emptyAmmo = "SCPAmmoEmpty"
-        // s_fullContainer = "SCPPipFull"
-        // s_emptyContainer = "SCPPipEmpty"
-        // s_animationTemplates[ICON_*] = various icon Anim2D templates
-        // When asset system is ported, these should be loaded here.
+
+        const STATIC_MAPPED_IMAGE_NAMES: [&str; 7] = [
+            "SCVeter1",
+            "SCVeter2",
+            "SCVeter3",
+            "SCPAmmoFull",
+            "SCPAmmoEmpty",
+            "SCPPipFull",
+            "SCPPipEmpty",
+        ];
+
+        for image_name in STATIC_MAPPED_IMAGE_NAMES {
+            let _ = ensure_client_mapped_image(image_name);
+            let found = get_mapped_image_collection()
+                .read()
+                .find_image_by_name(image_name)
+                .is_some();
+            if !found {
+                log::debug!(
+                    "PARITY_NOTE: Drawable::init_static_images missing mapped image '{}'",
+                    image_name
+                );
+            }
+        }
+
+        const STATIC_ICON_TEMPLATE_TYPES: [IconType; 13] = [
+            IconType::DefaultHeal,
+            IconType::StructureHeal,
+            IconType::VehicleHeal,
+            IconType::Demoralized,
+            IconType::BombTimed,
+            IconType::BombRemote,
+            IconType::Disabled,
+            IconType::BattleplanBombard,
+            IconType::BattleplanHoldTheLine,
+            IconType::BattleplanSearchAndDestroy,
+            IconType::Enthusiastic,
+            IconType::EnthusiasticSubliminal,
+            IconType::CarBomb,
+        ];
+
+        if let Some(anim2d_collection) = get_anim2d_collection() {
+            let anim2d_collection = anim2d_collection.read();
+            for icon_type in STATIC_ICON_TEMPLATE_TYPES {
+                let icon_name = icon_type.name();
+                let found = anim2d_collection
+                    .find_template(&AsciiString::from(icon_name))
+                    .is_some();
+                if !found {
+                    log::debug!(
+                        "PARITY_NOTE: Drawable::init_static_images missing Anim2D template '{}'",
+                        icon_name
+                    );
+                }
+            }
+        } else {
+            log::debug!(
+                "PARITY_NOTE: Drawable::init_static_images could not access Anim2D collection"
+            );
+        }
+
         self.static_images_inited = true;
     }
 
