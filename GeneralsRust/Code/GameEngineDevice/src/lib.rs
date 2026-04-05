@@ -4,6 +4,7 @@
 //! the Command & Conquer Generals game engine.
 
 pub mod miles_audio_device;
+pub mod video_device;
 pub mod win32_device;
 #[path = "W3DDevice/mod.rs"]
 pub mod w3d_device;

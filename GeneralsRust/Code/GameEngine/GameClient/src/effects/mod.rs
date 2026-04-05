@@ -53,6 +53,7 @@ pub mod particle_system;
 pub mod particles;
 pub mod ray_effects;
 pub mod shadow_system;
+pub mod weather;
 pub mod weather_complete;
 
 use nalgebra::{Point3, Vector3};
@@ -66,10 +67,30 @@ use crate::system::SubsystemInterface;
 pub use debug_draw::{DebugDraw, DebugDrawCommand, DebugShape};
 pub use decals::{Decal, DecalId, DecalManager, DecalSettings, DecalType, RadiusDecal};
 pub use manager::EffectsManager;
+
+// Generic effects particle types (non-C++ parity, used by EffectsManager for runtime effects)
 pub use particles::{
-    Particle, ParticleEmitter, ParticleForce, ParticleRenderer, ParticleStats, ParticleSystem,
-    ParticleSystemDesc, ParticleSystemId, ParticleType,
+    Particle as GenericParticle, ParticleEmitter, ParticleForce,
+    ParticleRenderer as GenericParticleRenderer, ParticleStats,
+    ParticleSystem as GenericParticleSystem, ParticleSystemDesc,
+    ParticleSystemId as GenericParticleSystemId, ParticleType as GenericParticleType,
 };
+
+// C++-parity particle system types (matches C++ ParticleSys.h/.cpp behavior exactly)
+// These are the authoritative types used by the game logic and rendering pipeline.
+pub use particle_manager::{
+    EmissionVelocity, EmissionVelocityType, EmissionVolume, EmissionVolumeType,
+    GameClientRandomVariable, Keyframe, ObjectId as ParticleObjectId, ParticlePriorityType,
+    ParticleShaderType, ParticleSystemId, ParticleSystemManager, ParticleSystemTemplate,
+    ParticleType as CppParticleTypeEnum, RGBColorKeyframe, RandomKeyframe, WindMotion,
+    INVALID_PARTICLE_SYSTEM_ID, MAX_KEYFRAMES,
+};
+pub use particle_presets::{destruction, environment, explosions, weapons};
+pub use particle_renderer::{
+    ParticleBatch, ParticleRenderStats, ParticleRenderer, ParticleUniforms, ParticleVertex,
+};
+pub use particle_system::{Particle, ParticleInfo, ParticleSystem};
+
 pub use ray_effects::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
 pub use shadow_system::{
     ShadowCaster, ShadowMapArray, ShadowMapResolution, ShadowQuality, ShadowSystem,
