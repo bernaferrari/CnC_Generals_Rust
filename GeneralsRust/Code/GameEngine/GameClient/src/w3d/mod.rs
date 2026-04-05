@@ -118,6 +118,7 @@ pub use format::{W3DChunk, W3DFileFormat, W3DLoader};
 pub use material::{W3DMaterial, W3DMaterialManager, W3DMaterialType};
 pub use math::{W3DMatrix, W3DQuaternion, W3DTransform, W3DVector};
 pub use mesh::{W3DMesh, W3DMeshBuilder, W3DMeshError};
+pub use particles::W3DParticleSystemBridge;
 pub use renderer::{W3DRenderPass, W3DRenderSettings, W3DRenderer};
 pub use shader::W3DShaderManager;
 pub use texture::{W3DTexture, W3DTextureManager, W3DTextureSettings};
