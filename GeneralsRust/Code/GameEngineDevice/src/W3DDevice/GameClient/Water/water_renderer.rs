@@ -407,11 +407,13 @@ impl WaterRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // Create placeholder textures (to be loaded from assets)
-        let water_texture = Self::create_placeholder_texture(&device, &queue, 256, 256, "Water");
-        let normal_map = Self::create_placeholder_texture(&device, &queue, 256, 256, "Normal");
-        let caustics_texture =
-            Self::create_placeholder_texture(&device, &queue, 256, 256, "Caustics");
+        // Create water textures
+        // C++ loads these from WW3DAssetManager (e.g. TWWater01.tga, caust*.tga, Noise0000.tga).
+        // Since the asset pipeline is not yet plumbed into this constructor, we generate
+        // procedurally correct textures that match the visual characteristics of the originals.
+        let water_texture = Self::create_water_texture(&device, &queue, 256, 256);
+        let normal_map = Self::create_normal_map_texture(&device, &queue, 256, 256);
+        let caustics_texture = Self::create_caustics_texture(&device, &queue, 256, 256);
 
         // Create reflection texture (render target)
         let reflection_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -615,16 +617,16 @@ impl WaterRenderer {
         (vertices, indices)
     }
 
-    /// Create placeholder texture
-    fn create_placeholder_texture(
+    fn write_texture_data(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         width: u32,
         height: u32,
+        data: &[u8],
         label: &str,
     ) -> wgpu::Texture {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("{} Texture", label)),
+            label: Some(label),
             size: wgpu::Extent3d {
                 width,
                 height,
@@ -638,20 +640,6 @@ impl WaterRenderer {
             view_formats: &[],
         });
 
-        // Create checkerboard pattern
-        let mut data = vec![0u8; (width * height * 4) as usize];
-        for y in 0..height {
-            for x in 0..width {
-                let idx = ((y * width + x) * 4) as usize;
-                let checker = ((x / 16) + (y / 16)) % 2;
-                let value = if checker == 0 { 100 } else { 150 };
-                data[idx] = value;
-                data[idx + 1] = value;
-                data[idx + 2] = value + 50;
-                data[idx + 3] = 255;
-            }
-        }
-
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &texture,
@@ -659,7 +647,7 @@ impl WaterRenderer {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &data,
+            data,
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(width * 4),
@@ -673,6 +661,180 @@ impl WaterRenderer {
         );
 
         texture
+    }
+
+    fn hash_noise(x: u32, y: u32) -> f32 {
+        let mut h = x
+            .wrapping_mul(374761393)
+            .wrapping_add(y.wrapping_mul(668265263));
+        h = h ^ (h >> 13);
+        h = h.wrapping_mul(1274126177);
+        h = h ^ (h >> 16);
+        (h & 0x7FFFFFFF) as f32 / 0x7FFFFFFF as f32
+    }
+
+    fn smooth_noise(x: f32, y: f32) -> f32 {
+        let ix = x.floor() as u32;
+        let iy = y.floor() as u32;
+        let fx = x - ix as f32;
+        let fy = y - iy as f32;
+        let sx = fx * fx * (3.0 - 2.0 * fx);
+        let sy = fy * fy * (3.0 - 2.0 * fy);
+
+        let n00 = Self::hash_noise(ix, iy);
+        let n10 = Self::hash_noise(ix + 1, iy);
+        let n01 = Self::hash_noise(ix, iy + 1);
+        let n11 = Self::hash_noise(ix + 1, iy + 1);
+
+        let nx0 = n00 + (n10 - n00) * sx;
+        let nx1 = n01 + (n11 - n01) * sx;
+        nx0 + (nx1 - nx0) * sy
+    }
+
+    fn fbm(x: f32, y: f32, octaves: u32) -> f32 {
+        let mut value = 0.0;
+        let mut amplitude = 1.0;
+        let mut frequency = 1.0;
+        let mut max_val = 0.0;
+        for _ in 0..octaves {
+            value += Self::smooth_noise(x * frequency, y * frequency) * amplitude;
+            max_val += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
+        }
+        value / max_val
+    }
+
+    /// Generate a tiled water surface texture with blue tones and wave-like color variation.
+    /// C++ equivalent: TWWater01.tga loaded via WW3DAssetManager::Get_Texture().
+    fn create_water_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        let mut data = vec![0u8; (width * height * 4) as usize];
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = ((y * width + x) * 4) as usize;
+                let u = x as f32 / width as f32;
+                let v = y as f32 / height as f32;
+
+                let n1 = Self::fbm(u * 8.0, v * 8.0, 4);
+                let n2 = Self::fbm(u * 16.0 + 5.3, v * 16.0 + 9.1, 3);
+                let n3 = Self::fbm(u * 32.0 + 13.7, v * 32.0 + 7.3, 2);
+
+                let wave = (u * 20.0 + v * 14.0).sin() * 0.5 + 0.5;
+                let wave2 = (u * 35.0 - v * 22.0 + 1.5).cos() * 0.5 + 0.5;
+
+                let base_r = 20.0;
+                let base_g = 60.0 + n1 * 40.0 + wave * 15.0;
+                let base_b = 120.0 + n1 * 50.0 + n2 * 25.0;
+
+                let detail = n2 * 0.15 + n3 * 0.08 + wave2 * 0.05;
+                let r = (base_r + detail * 30.0).clamp(0.0, 255.0) as u8;
+                let g = (base_g + detail * 40.0).clamp(0.0, 255.0) as u8;
+                let b = (base_b + detail * 30.0).clamp(0.0, 255.0) as u8;
+
+                data[idx] = r;
+                data[idx + 1] = g;
+                data[idx + 2] = b;
+                data[idx + 3] = 255;
+            }
+        }
+
+        Self::write_texture_data(device, queue, width, height, &data, "Water Texture")
+    }
+
+    /// Generate a normal map with water-like surface perturbations.
+    /// Stored as RGB where R = dU, G = dV, B = 1.0 (flat = [128, 128, 255]).
+    /// C++ equivalent: bump maps converted via initBumpMap() from caust*.tga.
+    fn create_normal_map_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        let mut data = vec![0u8; (width * height * 4) as usize];
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = ((y * width + x) * 4) as usize;
+                let u = x as f32 / width as f32;
+                let v = y as f32 / height as f32;
+
+                let eps = 1.0 / width as f32;
+                let h_center = Self::fbm(u * 12.0, v * 12.0, 4);
+                let h_right = Self::fbm((u + eps) * 12.0, v * 12.0, 4);
+                let h_down = Self::fbm(u * 12.0, (v + eps) * 12.0, 4);
+
+                let h2_center = Self::fbm(u * 24.0 + 7.0, v * 24.0 + 3.0, 3);
+                let h2_right = Self::fbm((u + eps) * 24.0 + 7.0, v * 24.0 + 3.0, 3);
+                let h2_down = Self::fbm(u * 24.0 + 7.0, (v + eps) * 24.0 + 3.0, 3);
+
+                let du = (h_right - h_center) + (h2_right - h2_center) * 0.5;
+                let dv = (h_down - h_center) + (h2_down - h2_center) * 0.5;
+
+                let strength = 2.0;
+                let du_byte = ((du * strength * 0.5 + 0.5) * 255.0).clamp(0.0, 255.0) as u8;
+                let dv_byte = ((dv * strength * 0.5 + 0.5) * 255.0).clamp(0.0, 255.0) as u8;
+
+                data[idx] = du_byte;
+                data[idx + 1] = dv_byte;
+                data[idx + 2] = 255;
+                data[idx + 3] = 255;
+            }
+        }
+
+        Self::write_texture_data(device, queue, width, height, &data, "Water Normal Map")
+    }
+
+    /// Generate a caustics-like light pattern texture.
+    /// C++ equivalent: caustXX.tga loaded via WW3DAssetManager::Get_Texture().
+    fn create_caustics_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        let mut data = vec![0u8; (width * height * 4) as usize];
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = ((y * width + x) * 4) as usize;
+                let u = x as f32 / width as f32;
+                let v = y as f32 / height as f32;
+
+                let c1 = Self::fbm(u * 6.0 + 2.1, v * 6.0 + 4.3, 3);
+                let c2 = Self::fbm(u * 10.0 + 7.7, v * 10.0 + 1.3, 3);
+
+                let pattern1 = (c1 * c2).max(0.0);
+                let lines1 = ((u * 30.0 + c1 * 3.0).sin().abs()
+                    * (v * 25.0 + c2 * 2.5).cos().abs())
+                .powf(0.5);
+                let lines2 = ((u * 20.0 - c2 * 4.0).cos().abs()
+                    * (v * 35.0 + c1 * 2.0).sin().abs())
+                .powf(0.5);
+
+                let caustic = (pattern1 * 0.6 + lines1 * 0.3 + lines2 * 0.1).clamp(0.0, 1.0);
+                let bright = (caustic * 255.0) as u8;
+
+                data[idx] = bright;
+                data[idx + 1] = bright;
+                data[idx + 2] = bright;
+                data[idx + 3] = 255;
+            }
+        }
+
+        Self::write_texture_data(
+            device,
+            queue,
+            width,
+            height,
+            &data,
+            "Water Caustics Texture",
+        )
     }
 
     /// Update water simulation

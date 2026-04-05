@@ -28,7 +28,9 @@ use wgpu::{
     TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
 };
 
-const TERRAIN_PLACEHOLDER_RGBA: [u8; 4] = [0, 0, 0, 0];
+const PROCEDURAL_TEX_SIZE: u32 = 256;
+const CHECKERBOARD_CELLS: u32 = 8;
+const DETAIL_CELLS: u32 = 32;
 
 // Constants from C++ HeightMap.h and BaseHeightMap.h
 pub const VERTEX_BUFFER_TILE_LENGTH: usize = 32; // C++ line 20: 32x32 vertex tiles
@@ -163,8 +165,26 @@ pub struct HeightMapMesh {
     /// Uniform buffer
     uniform_buffer: Buffer,
 
+    /// Base terrain texture atlas
+    base_texture: Texture,
+    base_texture_view: TextureView,
+    base_sampler: Sampler,
+
+    /// Detail/cliff texture atlas
+    detail_texture: Texture,
+    detail_texture_view: TextureView,
+    detail_sampler: Sampler,
+
+    /// Blend map texture
+    blend_texture: Texture,
+    blend_texture_view: TextureView,
+    blend_sampler: Sampler,
+
     /// Bind group for textures and uniforms
     bind_group: BindGroup,
+
+    /// Bind group layout (kept for re-creating bind group when textures update)
+    bind_group_layout: BindGroupLayout,
 
     /// Render pipeline
     pipeline: RenderPipeline,
@@ -235,9 +255,28 @@ impl HeightMapMesh {
             }
         }
 
-        // Create dummy bind group (will be properly initialized with textures later)
-        let bind_group =
-            Self::create_dummy_bind_group(&device, &queue, bind_group_layout, &uniform_buffer);
+        let (base_texture, base_view) =
+            Self::generate_checkerboard_texture(&device, &queue, "Terrain Base Texture");
+        let (detail_texture, detail_view) =
+            Self::generate_detail_noise_texture(&device, &queue, "Terrain Detail Texture");
+        let (blend_texture, blend_view) =
+            Self::generate_flat_blend_texture(&device, &queue, "Terrain Blend Texture");
+
+        let base_sampler = Self::create_terrain_sampler(&device, "Terrain Base Sampler");
+        let detail_sampler = Self::create_terrain_sampler(&device, "Terrain Detail Sampler");
+        let blend_sampler = Self::create_terrain_sampler(&device, "Terrain Blend Sampler");
+
+        let bind_group = Self::create_bind_group(
+            &device,
+            bind_group_layout,
+            &uniform_buffer,
+            &base_view,
+            &base_sampler,
+            &detail_view,
+            &detail_sampler,
+            &blend_view,
+            &blend_sampler,
+        );
 
         // Create render pipeline
         let pipeline = Self::create_pipeline(&device, bind_group_layout)?;
@@ -254,7 +293,17 @@ impl HeightMapMesh {
             index_buffer,
             index_count,
             uniform_buffer,
+            base_texture,
+            base_texture_view: base_view,
+            base_sampler,
+            detail_texture,
+            detail_texture_view: detail_view,
+            detail_sampler,
+            blend_texture,
+            blend_texture_view: blend_view,
+            blend_sampler,
             bind_group,
+            bind_group_layout: bind_group_layout.clone(),
             pipeline,
             ambient_light: Vector3::new(0.3, 0.3, 0.3),
             light_directions: [Vector3::new(0.0, -1.0, 0.0); MAX_GLOBAL_LIGHTS],
@@ -540,16 +589,40 @@ impl HeightMapMesh {
         vertices[3] = first;
     }
 
-    fn create_placeholder_texture(
+    fn generate_checkerboard_texture(
         device: &Device,
         queue: &Queue,
         label: &str,
     ) -> (Texture, TextureView) {
+        let size = PROCEDURAL_TEX_SIZE;
+        let cell_size = size / CHECKERBOARD_CELLS;
+        let mut pixels = vec![0u8; (size * size * 4) as usize];
+
+        for y in 0..size {
+            for x in 0..size {
+                let cx = x / cell_size;
+                let cy = y / cell_size;
+                let is_light = (cx + cy) % 2 == 0;
+                let idx = ((y * size + x) * 4) as usize;
+                if is_light {
+                    pixels[idx] = 76;
+                    pixels[idx + 1] = 128;
+                    pixels[idx + 2] = 56;
+                    pixels[idx + 3] = 255;
+                } else {
+                    pixels[idx] = 56;
+                    pixels[idx + 1] = 96;
+                    pixels[idx + 2] = 40;
+                    pixels[idx + 3] = 255;
+                }
+            }
+        }
+
         let texture = device.create_texture(&TextureDescriptor {
             label: Some(label),
             size: Extent3d {
-                width: 1,
-                height: 1,
+                width: size,
+                height: size,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -567,15 +640,15 @@ impl HeightMapMesh {
                 origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &TERRAIN_PLACEHOLDER_RGBA,
+            &pixels,
             ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
+                bytes_per_row: Some(size * 4),
+                rows_per_image: Some(size),
             },
             Extent3d {
-                width: 1,
-                height: 1,
+                width: size,
+                height: size,
                 depth_or_array_layers: 1,
             },
         );
@@ -583,15 +656,129 @@ impl HeightMapMesh {
         (texture, view)
     }
 
-    fn create_placeholder_sampler(device: &Device, label: &str) -> Sampler {
+    fn generate_detail_noise_texture(
+        device: &Device,
+        queue: &Queue,
+        label: &str,
+    ) -> (Texture, TextureView) {
+        let size = PROCEDURAL_TEX_SIZE;
+        let cell_size = size / DETAIL_CELLS;
+        let mut pixels = vec![0u8; (size * size * 4) as usize];
+
+        for y in 0..size {
+            for x in 0..size {
+                let cx = x / cell_size;
+                let cy = y / cell_size;
+                let hash = ((cx.wrapping_mul(31) ^ cy.wrapping_mul(17)) & 0xFF) as u8;
+                let idx = ((y * size + x) * 4) as usize;
+                pixels[idx] = hash;
+                pixels[idx + 1] = hash;
+                pixels[idx + 2] = hash;
+                pixels[idx + 3] = 40;
+            }
+        }
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels,
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(size * 4),
+                rows_per_image: Some(size),
+            },
+            Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        (texture, view)
+    }
+
+    fn generate_flat_blend_texture(
+        device: &Device,
+        queue: &Queue,
+        label: &str,
+    ) -> (Texture, TextureView) {
+        let size = PROCEDURAL_TEX_SIZE;
+        let mut pixels = vec![0u8; (size * size * 4) as usize];
+
+        for i in 0..(size * size) {
+            let idx = (i * 4) as usize;
+            pixels[idx] = 0;
+            pixels[idx + 1] = 0;
+            pixels[idx + 2] = 0;
+            pixels[idx + 3] = 255;
+        }
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels,
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(size * 4),
+                rows_per_image: Some(size),
+            },
+            Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        (texture, view)
+    }
+
+    fn create_terrain_sampler(device: &Device, label: &str) -> Sampler {
         device.create_sampler(&SamplerDescriptor {
             label: Some(label),
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
-            mag_filter: FilterMode::Nearest,
-            min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            address_mode_w: AddressMode::Repeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            mipmap_filter: FilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 100.0,
             compare: None,
@@ -600,18 +787,17 @@ impl HeightMapMesh {
         })
     }
 
-    /// Create a neutral placeholder bind group until terrain textures are loaded.
-    fn create_dummy_bind_group(
+    fn create_bind_group(
         device: &Device,
-        queue: &Queue,
         layout: &BindGroupLayout,
         uniform_buffer: &Buffer,
+        base_view: &TextureView,
+        base_sampler: &Sampler,
+        detail_view: &TextureView,
+        detail_sampler: &Sampler,
+        blend_view: &TextureView,
+        blend_sampler: &Sampler,
     ) -> BindGroup {
-        let (_, neutral_view) =
-            Self::create_placeholder_texture(device, queue, "Terrain Placeholder Texture");
-        let neutral_sampler =
-            Self::create_placeholder_sampler(device, "Terrain Placeholder Sampler");
-
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Terrain Bind Group"),
             layout,
@@ -622,27 +808,27 @@ impl HeightMapMesh {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&neutral_view),
+                    resource: wgpu::BindingResource::TextureView(base_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&neutral_sampler),
+                    resource: wgpu::BindingResource::Sampler(base_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&neutral_view),
+                    resource: wgpu::BindingResource::TextureView(detail_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&neutral_sampler),
+                    resource: wgpu::BindingResource::Sampler(detail_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&neutral_view),
+                    resource: wgpu::BindingResource::TextureView(blend_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&neutral_sampler),
+                    resource: wgpu::BindingResource::Sampler(blend_sampler),
                 },
             ],
         })
@@ -836,6 +1022,28 @@ impl HeightMapMesh {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
+    pub fn update_textures_from_views(
+        &mut self,
+        base_view: &TextureView,
+        base_sampler: &Sampler,
+        detail_view: &TextureView,
+        detail_sampler: &Sampler,
+        blend_view: &TextureView,
+        blend_sampler: &Sampler,
+    ) {
+        self.bind_group = Self::create_bind_group(
+            &self.device,
+            &self.bind_group_layout,
+            &self.uniform_buffer,
+            base_view,
+            base_sampler,
+            detail_view,
+            detail_sampler,
+            blend_view,
+            blend_sampler,
+        );
+    }
+
     /// Get height at world position
     pub fn get_height_at(&self, x: f32, y: f32) -> f32 {
         let grid_x = (x / MAP_XY_FACTOR) as usize;
@@ -923,7 +1131,9 @@ mod tests {
     }
 
     #[test]
-    fn test_terrain_placeholder_texture_is_neutral() {
-        assert_eq!(TERRAIN_PLACEHOLDER_RGBA, [0, 0, 0, 0]);
+    fn test_procedural_texture_constants() {
+        assert_eq!(PROCEDURAL_TEX_SIZE, 256);
+        assert_eq!(CHECKERBOARD_CELLS, 8);
+        assert_eq!(DETAIL_CELLS, 32);
     }
 }

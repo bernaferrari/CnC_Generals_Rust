@@ -13,7 +13,7 @@ use crate::drawable::Drawable;
 use crate::object::drawable::{DrawableArcExt, TintStatus};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -97,8 +97,16 @@ impl W3DOverlordTankDraw {
 }
 
 impl Module for W3DOverlordTankDraw {
+    fn on_object_created(&mut self) {
+        self.base.on_object_created();
+    }
+
     fn on_drawable_bound_to_object(&mut self) {
         self.base.on_drawable_bound_to_object();
+    }
+
+    fn preload_assets(&mut self, time_of_day: TimeOfDay) {
+        self.base.preload_assets(time_of_day);
     }
 
     fn on_delete(&mut self) {
