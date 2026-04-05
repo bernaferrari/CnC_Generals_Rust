@@ -468,16 +468,13 @@ fn parse_kind_of_mask(token: &str) -> u64 {
     }
 }
 
-/// Parse a science type from string.
-/// Matches C++ `INI::parseScience`.
 fn parse_science_type(token: &str) -> ScienceType {
-    // The real implementation would look up the ScienceStore by name.
-    // For now, return INVALID if empty, or a placeholder hash.
     if token.is_empty() {
         return SCIENCE_INVALID;
     }
-    // Simple hash-based placeholder -- the real impl uses ScienceStore lookup
-    SCIENCE_INVALID
+    game_engine::common::rts::get_science_store()
+        .map(|store| store.get_science_from_internal_name(token))
+        .unwrap_or(SCIENCE_INVALID)
 }
 
 // ---------------------------------------------------------------------------

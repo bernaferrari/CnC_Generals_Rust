@@ -5,11 +5,13 @@
 
 use super::collision_geometry::{CollideInfo, GeometryInfo};
 use super::{Coord3D, GameObject, ObjectId, ObjectStatusMask};
+use crate::action_manager::{self, CanEnterType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::{
     CommandSourceType, DisabledType, KindOf, KindOfMaskType, ObjectShroudStatus,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship, INVALID_ID, KIND_OF_MASK_NONE,
 };
+use crate::player::ThePlayerList;
 
 // ---------------------------------------------------------------------------
 // PartitionFilterIsFlying
@@ -326,27 +328,32 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToAtta
 /// Matches C++ PartitionFilterPossibleToEnter.
 pub struct PartitionFilterPossibleToEnter {
     obj_id: ObjectId,
-    _command_source: CommandSourceType,
+    command_source: CommandSourceType,
 }
 
 impl PartitionFilterPossibleToEnter {
     pub fn new(obj_id: ObjectId, command_source: CommandSourceType) -> Self {
         Self {
             obj_id,
-            _command_source: command_source,
+            command_source,
         }
     }
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToEnter {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        // can_enter_object requires ActionManager integration not yet ported.
-        // Approximate: accept structures that are not full and allow containment.
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return guard.is_kind_of(KindOf::Structure)
-                    && !guard.is_effectively_dead()
-                    && !guard.is_kind_of(KindOf::NoGarrison);
+        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
+            if let Ok(src_guard) = src_handle.read() {
+                if let Some(other_handle) = obj.as_object_handle() {
+                    if let Ok(other_guard) = other_handle.read() {
+                        return action_manager::TheActionManager::can_enter_object(
+                            &src_guard,
+                            &other_guard,
+                            self.command_source,
+                            CanEnterType::DontCheckCapacity,
+                        );
+                    }
+                }
             }
         }
         false
@@ -365,25 +372,31 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToEnte
 /// Matches C++ PartitionFilterPossibleToHijack.
 pub struct PartitionFilterPossibleToHijack {
     obj_id: ObjectId,
-    _command_source: CommandSourceType,
+    command_source: CommandSourceType,
 }
 
 impl PartitionFilterPossibleToHijack {
     pub fn new(obj_id: ObjectId, command_source: CommandSourceType) -> Self {
         Self {
             obj_id,
-            _command_source: command_source,
+            command_source,
         }
     }
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToHijack {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        // Hijack checking requires ActionManager integration not yet ported.
-        // Placeholder: accept objects that are vehicles and not dead.
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return guard.is_kind_of(KindOf::Vehicle) && !guard.is_effectively_dead();
+        if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
+            if let Ok(src_guard) = src_handle.read() {
+                if let Some(other_handle) = obj.as_object_handle() {
+                    if let Ok(other_guard) = other_handle.read() {
+                        return action_manager::TheActionManager::can_hijack_vehicle(
+                            &src_guard,
+                            &other_guard,
+                            self.command_source,
+                        );
+                    }
+                }
             }
         }
         false
@@ -796,10 +809,26 @@ impl PartitionFilterRejectBuildings {
         let acquire_enemies =
             if let Some(handle) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(guard) = handle.read() {
-                    // Check if the player is a computer player.
-                    // get_player_type() not yet ported; approximate by checking
-                    // if the player ID is not the human player (player 0).
-                    guard.get_player_id().map(|pid| pid.0 != 0).unwrap_or(false)
+                    // Query ThePlayerList to check if the controlling player is human (C++ uses
+                    // Player::getPlayerType() == PLAYER_TYPE_COMPUTER). This replaces the
+                    // previous hardcoded `player_id != 0` approximation.
+                    if let Some(pid) = guard.get_player_id() {
+                        if let Ok(list) = ThePlayerList().read() {
+                            if let Some(player_arc) = list.get_player(pid.0 as i32) {
+                                if let Ok(player) = player_arc.read() {
+                                    player.get_player_type() != crate::player::PlayerType::Human
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
@@ -890,8 +919,10 @@ impl super::partition_manager::PartitionFilter for PartitionFilterInsignificantB
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
                 if guard.is_structure() {
-                    // is_non_faction_structure not yet ported; approximate
-                    // by checking for TechBuilding or Civilian kinds.
+                    // PARITY_NOTE: C++ calls Object::isNonFactionStructure() which checks
+                    // if the building is not owned by any playable faction. The TechBuilding ||
+                    // Civilian KindOf check is a reasonable approximation — tech buildings and
+                    // civilian structures are the primary non-faction buildings in Generals/ZH.
                     let is_non_faction = guard.is_kind_of(KindOf::TechBuilding)
                         || guard.is_kind_of(KindOf::Civilian);
 

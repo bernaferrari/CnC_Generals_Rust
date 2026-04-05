@@ -6,6 +6,7 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
+use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, Int, ModelConditionFlags, ObjectID, RadiusDecal,
     RadiusDecalTemplate, Real, TheWeaponStore, ThingTemplate, UnsignedInt, Vec3D, FROM_CENTER_2D,
@@ -114,7 +115,17 @@ impl Snapshotable for DeliverPayloadAIUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        self.base.xfer(xfer)?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.door_delay))?;
+        xfer_io(xfer.xfer_real(&mut self.max_distance_to_target))?;
+        xfer_io(xfer.xfer_int(&mut self.max_number_attempts))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.drop_delay))?;
+        xfer.xfer_coord3d(&mut self.drop_offset);
+        xfer.xfer_coord3d(&mut self.drop_variance);
+        xfer_io(xfer.xfer_ascii_string(self.put_in_container_name.as_mut_string_buffer()))?;
+        xfer_io(xfer.xfer_real(&mut self.delivery_decal_radius))?;
         Ok(())
     }
 
@@ -335,12 +346,12 @@ impl Module for DeliverPayloadAIUpdateModule {
 }
 
 impl Snapshotable for DeliverPayloadAIUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.data.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Arc::make_mut(&mut self.data).xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

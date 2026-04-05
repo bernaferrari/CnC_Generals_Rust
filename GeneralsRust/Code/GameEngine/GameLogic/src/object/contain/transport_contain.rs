@@ -449,10 +449,9 @@ impl TransportContain {
         Ok(())
     }
 
-    /// Handle deletion event
+    /// Handle deletion event — C++ TransportContain has no onDelete, so this
+    /// delegates to base class only.
     pub fn on_delete(&mut self) -> GameResult<()> {
-        // Clean up transport-specific state if needed
-        // For now, this is a no-op since we don't have transport-specific cleanup
         Ok(())
     }
 

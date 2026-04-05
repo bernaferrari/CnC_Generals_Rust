@@ -100,7 +100,19 @@ impl Snapshotable for HackInternetAIUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        self.base.xfer(xfer)?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.unpack_time))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.pack_time))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.cash_update_delay))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.cash_update_delay_fast))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.regular_cash_amount))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.veteran_cash_amount))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.elite_cash_amount))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.heroic_cash_amount))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.xp_per_cash_update))?;
+        xfer_io(xfer.xfer_real(&mut self.pack_unpack_variation_factor))?;
         Ok(())
     }
 
@@ -297,12 +309,12 @@ impl Module for HackInternetAIUpdateModule {
 }
 
 impl Snapshotable for HackInternetAIUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.data.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Arc::make_mut(&mut self.data).xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

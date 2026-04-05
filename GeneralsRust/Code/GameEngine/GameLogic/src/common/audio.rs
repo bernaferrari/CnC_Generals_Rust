@@ -44,6 +44,7 @@ pub struct AudioEventRts {
     pub uninterruptable: bool,
     pub should_fade: bool,
     pub playing_handle: AudioHandle,
+    pub volume: f32,
 }
 
 impl AudioEventRts {
@@ -63,6 +64,7 @@ impl AudioEventRts {
             uninterruptable: false,
             should_fade: false,
             playing_handle: 0,
+            volume: 1.0,
         }
     }
 
@@ -130,7 +132,7 @@ impl AudioEventRts {
         self.should_fade
     }
 
-    pub fn set_volume(&mut self, _volume: f32) {
-        // Placeholder for parity with engine-facing audio events.
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
     }
 }
