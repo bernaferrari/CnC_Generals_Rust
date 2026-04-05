@@ -18,6 +18,28 @@ pub enum AnimState {
     Final = 2,
 }
 
+/// Number of animation states (C++: STATECOUNT)
+const STATE_COUNT: usize = 3;
+
+/// Animation playback mode (C++: RenderObjClass::AnimMode)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimMode {
+    /// Play animation once, then hold on last frame (C++: ANIM_MODE_ONCE)
+    Once = 0,
+    /// Loop animation continuously (C++: ANIM_MODE_LOOP)
+    Loop = 1,
+    /// Hold animation at a manually-set frame (C++: ANIM_MODE_MANUAL)
+    Manual = 2,
+}
+
+/// Animation mode table per state (C++: TheAnimModes[STATECOUNT])
+/// INITIAL=ONCE, FLYING=LOOP, FINAL=ONCE
+const ANIM_MODES: [AnimMode; STATE_COUNT] = [
+    AnimMode::Once, // INITIAL
+    AnimMode::Loop, // FLYING
+    AnimMode::Once, // FINAL
+];
+
 /// Minimum frames before FINAL transition (C++: MIN_FINAL_FRAMES)
 const MIN_FINAL_FRAMES: i32 = 3;
 
@@ -40,6 +62,29 @@ pub struct W3DDebrisDraw {
     shadow_id: Option<RenderObjectId>,
     hidden: bool,
     fully_obscured_by_shroud: bool,
+
+    // --- State machine tracking (C++-faithful) ---
+    /// Instance scale from drawable (C++: getDrawable()->getInstanceScale())
+    instance_scale: f32,
+    /// Whether the game-logic object is currently above terrain.
+    /// Set by DebrisBehavior::isAboveTerrain() each frame.
+    /// C++ parity: obj->isAboveTerrain() checked in doDrawModule.
+    above_terrain: bool,
+    /// Whether the current animation has completed.
+    /// Set by the animation system when HLod::Is_Animation_Complete() returns true.
+    /// C++ parity: isAnimationComplete(m_renderObject) checked in doDrawModule.
+    anim_complete: bool,
+    /// Name of the animation currently set on the render object.
+    /// Used to detect animation changes (C++: hanim != m_renderObject->Peek_Animation()).
+    current_anim_name: String,
+    /// Current animation mode set on the render object.
+    current_anim_mode: AnimMode,
+    /// Whether the final FX has already been fired for this FINAL state entry.
+    /// C++ parity: FXList::doFXPos(m_fxFinal, ...) fires once when entering FINAL.
+    fx_final_fired: bool,
+    /// Name of the final FX list to fire on FINAL state entry (C++: m_fxFinal).
+    /// Not preserved across save/load (C++ parity).
+    fx_final_name: String,
 }
 
 impl W3DDebrisDraw {
@@ -57,6 +102,13 @@ impl W3DDebrisDraw {
             shadow_id: None,
             hidden: false,
             fully_obscured_by_shroud: false,
+            instance_scale: 1.0,
+            above_terrain: true,
+            anim_complete: false,
+            current_anim_name: String::new(),
+            current_anim_mode: AnimMode::Once,
+            fx_final_fired: false,
+            fx_final_name: String::new(),
         }
     }
 
@@ -109,33 +161,122 @@ impl W3DDebrisDraw {
 
     /// Main per-frame draw with 3-state animation state machine.
     ///
-    /// Animation mode table: INITIAL=ONCE, FLYING=LOOP, FINAL=ONCE
-    /// State transitions:
-    /// - If not FINAL and object not above terrain and frames > 3: transition to FINAL
-    /// - Else if not FINAL and animation complete: increment state (INITIAL->FLYING->FINAL)
-    /// On entering FINAL: fire finalFX list
-    /// If finalStop: override mode to ANIM_MODE_MANUAL
-    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+    /// C++ parity (W3DDebrisDraw::doDrawModule):
+    /// 1. If no render object, return immediately.
+    /// 2. Apply instance scaling if getDrawable()->getInstanceScale() != 1.0.
+    /// 3. Set transform on render object.
+    /// 4. State transitions:
+    ///    a. If state != FINAL && !aboveTerrain && frames > MIN_FINAL_FRAMES → FINAL
+    ///    b. Else if state < FINAL && isAnimationComplete → state++
+    /// 5. Set animation: lookup hanim for state, apply AnimMode from table.
+    ///    On entering FINAL: fire finalFX; if finalStop, override to ANIM_MODE_MANUAL.
+    /// 6. Increment frame counter.
+    pub fn do_draw_module(&mut self, transform_mtx: &Matrix4<f32>) {
         if self.render_object_id.is_none() {
             return;
         }
 
-        // PARITY_NOTE: Instance scaling if getDrawable()->getInstanceScale() != 1.0
-        // PARITY_NOTE: Set transform on render object
+        // Step 2: Instance scaling
+        // C++: if (getDrawable()->getInstanceScale() != 1.0f) {
+        //   scaledTransform = *transformMtx;
+        //   scaledTransform.Scale(getDrawable()->getInstanceScale());
+        //   transformMtx = &scaledTransform;
+        //   m_renderObject->Set_ObjectScale(getDrawable()->getInstanceScale());
+        // }
+        let effective_transform = if self.instance_scale != 1.0 {
+            let scale = Matrix4::from_scale(self.instance_scale);
+            scale * transform_mtx
+        } else {
+            *transform_mtx
+        };
 
-        // State transition logic
-        if self.state != AnimState::Final {
-            // PARITY_NOTE: Check if object is above terrain
-            // if (!isAboveTerrain && m_frames > MIN_FINAL_FRAMES) { state = FINAL }
-            // else if (isAnimationComplete(m_renderObject)) { state++ }
+        // Step 3: Set transform on render object
+        // PARITY_NOTE: m_renderObject->Set_Transform(*transformMtx)
+        let _ = effective_transform;
+
+        // Step 4: State transition logic
+        let old_state = self.state;
+
+        // C++: if (m_state != FINAL && obj != NULL && !obj->isAboveTerrain() && m_frames > MIN_FINAL_FRAMES)
+        if self.state != AnimState::Final && !self.above_terrain && self.frames > MIN_FINAL_FRAMES {
+            self.state = AnimState::Final;
+        }
+        // C++: else if (m_state < FINAL && isAnimationComplete(m_renderObject))
+        else if self.state != AnimState::Final && self.anim_complete {
+            self.state = match self.state {
+                AnimState::Initial => AnimState::Flying,
+                AnimState::Flying => AnimState::Final,
+                AnimState::Final => AnimState::Final,
+            };
         }
 
-        // PARITY_NOTE: Apply animation based on state
-        // if entering FINAL: fire FXList at drawable position
-        // if finalStop: mode = ANIM_MODE_MANUAL
-        // m_renderObject->Set_Animation(hanim, frame, mode)
+        // Step 5: Set animation for current state
+        // C++: HAnimClass* hanim = m_anims[m_state];
+        // C++: if (hanim != NULL && (hanim != m_renderObject->Peek_Animation() || oldState != m_state))
+        let hanim_name = self.anim_name_for_state(self.state);
+        let anim_changed = hanim_name != self.current_anim_name;
+        let state_changed = old_state != self.state;
 
+        if !hanim_name.is_empty() && (anim_changed || state_changed) {
+            // C++: RenderObjClass::AnimMode m = TheAnimModes[m_state];
+            let mut mode = ANIM_MODES[self.state as usize];
+
+            if self.state == AnimState::Final {
+                // C++: FXList::doFXPos(m_fxFinal, getDrawable()->getPosition(),
+                //   getDrawable()->getTransformMatrix(), 0, NULL, 0.0f);
+                if !self.fx_final_fired && !self.fx_final_name.is_empty() {
+                    // PARITY_NOTE: FXList::doFXPos(m_fxFinal, position, transform, ...)
+                    // FX system not yet wired; fire tracked via fx_final_fired flag
+                }
+                self.fx_final_fired = true;
+
+                // C++: if (m_finalStop) m = RenderObjClass::ANIM_MODE_MANUAL;
+                if self.final_stop {
+                    mode = AnimMode::Manual;
+                }
+            }
+
+            // C++: m_renderObject->Set_Animation(hanim, 0, m);
+            // PARITY_NOTE: Set animation on render object via scene manager
+            self.current_anim_name = hanim_name;
+            self.current_anim_mode = mode;
+        }
+
+        // Step 6: Increment frame counter
+        // C++: ++m_frames;
         self.frames += 1;
+    }
+
+    fn anim_name_for_state(&self, state: AnimState) -> &str {
+        match state {
+            AnimState::Initial => &self.anim_initial,
+            AnimState::Flying => &self.anim_flying,
+            AnimState::Final => &self.anim_final,
+        }
+    }
+
+    pub fn set_instance_scale(&mut self, scale: f32) {
+        self.instance_scale = scale;
+    }
+
+    pub fn set_above_terrain(&mut self, above: bool) {
+        self.above_terrain = above;
+    }
+
+    pub fn set_anim_complete(&mut self, complete: bool) {
+        self.anim_complete = complete;
+    }
+
+    pub fn set_fx_final(&mut self, fx_name: &str) {
+        self.fx_final_name = fx_name.to_string();
+    }
+
+    pub fn get_current_anim_mode(&self) -> AnimMode {
+        self.current_anim_mode
+    }
+
+    pub fn get_state(&self) -> AnimState {
+        self.state
     }
 
     pub fn set_shadows_enabled(&mut self, _enable: bool) {
@@ -198,6 +339,10 @@ impl W3DDebrisDraw {
         };
         self.frames = frames;
         self.final_stop = final_stop;
+        self.current_anim_name = String::new();
+        self.current_anim_mode = AnimMode::Once;
+        self.fx_final_fired = false;
+        self.fx_final_name = String::new();
     }
 
     pub fn crc(&self) -> u32 {
@@ -229,6 +374,7 @@ impl Drop for W3DDebrisDraw {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_wthree_d_debris_draw_basic() {
         let draw = W3DDebrisDraw::new();
@@ -236,6 +382,7 @@ mod tests {
         assert_eq!(draw.frames, 0);
         assert!(!draw.final_stop);
     }
+
     #[test]
     fn test_wthree_d_debris_draw_anim_names() {
         let mut draw = W3DDebrisDraw::new();
@@ -244,6 +391,7 @@ mod tests {
         assert_eq!(draw.anim_final, "FLY");
         assert_eq!(draw.state, AnimState::Initial);
     }
+
     #[test]
     fn test_wthree_d_debris_draw_xfer() {
         let mut draw = W3DDebrisDraw::new();
@@ -255,5 +403,94 @@ mod tests {
         assert_eq!(state, 1);
         assert_eq!(frames, 42);
         assert!(!final_stop);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_no_render_object_early_return() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.do_draw_module(&Matrix4::identity());
+        assert_eq!(draw.frames, 0);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_state_transition_by_terrain() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.set_anim_names("INIT", "FLY", "FINAL");
+        draw.set_model_name("Debris", 0);
+        draw.set_above_terrain(false);
+        for _ in 0..MIN_FINAL_FRAMES + 1 {
+            draw.do_draw_module(&Matrix4::identity());
+        }
+        assert_eq!(draw.state, AnimState::Final);
+        assert!(draw.fx_final_fired);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_state_transition_by_anim_complete() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.set_anim_names("INIT", "FLY", "FINAL");
+        draw.set_model_name("Debris", 0);
+        draw.set_anim_complete(true);
+        draw.do_draw_module(&Matrix4::identity());
+        assert_eq!(draw.state, AnimState::Flying);
+        draw.set_anim_complete(true);
+        draw.do_draw_module(&Matrix4::identity());
+        assert_eq!(draw.state, AnimState::Final);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_final_stop_mode() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.set_anim_names("INIT", "FLY", "STOP");
+        draw.set_model_name("Debris", 0);
+        draw.set_above_terrain(false);
+        for _ in 0..MIN_FINAL_FRAMES + 1 {
+            draw.do_draw_module(&Matrix4::identity());
+        }
+        assert_eq!(draw.state, AnimState::Final);
+        assert_eq!(draw.current_anim_mode, AnimMode::Manual);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_normal_final_mode() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.set_anim_names("INIT", "FLY", "FINAL");
+        draw.set_model_name("Debris", 0);
+        draw.set_above_terrain(false);
+        for _ in 0..MIN_FINAL_FRAMES + 1 {
+            draw.do_draw_module(&Matrix4::identity());
+        }
+        assert_eq!(draw.state, AnimState::Final);
+        assert_eq!(draw.current_anim_mode, AnimMode::Once);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_instance_scaling() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.set_anim_names("INIT", "FLY", "FINAL");
+        draw.set_model_name("Debris", 0);
+        draw.set_instance_scale(2.0);
+        draw.do_draw_module(&Matrix4::identity());
+        assert_eq!(draw.frames, 1);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_anim_modes_table() {
+        assert_eq!(ANIM_MODES[AnimState::Initial as usize], AnimMode::Once);
+        assert_eq!(ANIM_MODES[AnimState::Flying as usize], AnimMode::Loop);
+        assert_eq!(ANIM_MODES[AnimState::Final as usize], AnimMode::Once);
+    }
+
+    #[test]
+    fn test_wthree_d_debris_draw_terrain_priority_over_anim_complete() {
+        let mut draw = W3DDebrisDraw::new();
+        draw.set_anim_names("INIT", "FLY", "FINAL");
+        draw.set_model_name("Debris", 0);
+        draw.set_above_terrain(false);
+        draw.set_anim_complete(true);
+        for _ in 0..MIN_FINAL_FRAMES + 1 {
+            draw.do_draw_module(&Matrix4::identity());
+        }
+        assert_eq!(draw.state, AnimState::Final);
     }
 }
