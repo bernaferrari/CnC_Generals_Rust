@@ -20,6 +20,10 @@ use std::sync::Arc;
 
 pub type RenderObjectId = u64;
 
+pub trait SceneRenderHook: std::fmt::Debug + Send + Sync {
+    fn render(&self, rinfo: &RenderInfo);
+}
+
 /// Maximum number of translucent objects
 pub const MAX_TRANSLUCENT_OBJECTS: usize = 500;
 
@@ -135,7 +139,9 @@ pub struct RenderObject {
     pub id: RenderObjectId,
     pub info: DrawableInfo,
     pub bounding_sphere: BoundingSphere,
+    pub world_transform: Matrix4<f32>,
     pub position: Point3<f32>,
+    pub object_scale: f32,
     pub visible: bool,
     pub force_visible: bool,
     pub hidden: bool,
@@ -145,6 +151,7 @@ pub struct RenderObject {
     pub collision_type: u32,
     pub controlling_player_index: Option<usize>,
     pub is_terrain: bool,
+    pub render_hook: Option<Arc<dyn SceneRenderHook>>,
 }
 
 impl Default for RenderObject {
@@ -159,7 +166,9 @@ impl RenderObject {
             id: 0,
             info: DrawableInfo::new(),
             bounding_sphere: BoundingSphere::default(),
+            world_transform: Matrix4::identity(),
             position: Point3::origin(),
+            object_scale: 1.0,
             visible: true,
             force_visible: false,
             hidden: false,
@@ -169,7 +178,17 @@ impl RenderObject {
             collision_type: 0,
             controlling_player_index: None,
             is_terrain: false,
+            render_hook: None,
         }
+    }
+
+    pub fn with_render_hook(mut self, render_hook: Arc<dyn SceneRenderHook>) -> Self {
+        self.render_hook = Some(render_hook);
+        self
+    }
+
+    pub fn set_render_hook(&mut self, render_hook: Option<Arc<dyn SceneRenderHook>>) {
+        self.render_hook = render_hook;
     }
 
     pub fn is_really_visible(&self) -> bool {
@@ -186,6 +205,17 @@ impl RenderObject {
 
     pub fn set_controlling_player_index(&mut self, player_index: Option<usize>) {
         self.controlling_player_index = player_index;
+    }
+
+    pub fn render(&self, rinfo: &RenderInfo) {
+        if let Some(render_hook) = &self.render_hook {
+            render_hook.render(rinfo);
+            return;
+        }
+
+        // PARITY_NOTE: C++ calls RenderObjClass::Render(rinfo) here. Rust scene traversal now
+        // dispatches through `render_hook` when an object has a concrete render implementation.
+        // Objects without a hook still need the eventual WGPU mesh/material state binding path.
     }
 }
 
@@ -598,8 +628,7 @@ impl W3DScene {
         // Render all visible objects
         for obj in self.render_objects.values() {
             if obj.visible && !obj.hidden {
-                // Object would be rendered here
-                // In full implementation, this calls renderOneObject
+                obj.render(rinfo);
             }
         }
     }
@@ -617,7 +646,7 @@ impl W3DScene {
         self.flush_stencil_shadow_sequence_hook(rinfo, frame_number);
 
         // Translucent objects are still flushed after the occlusion and shadow paths.
-        self.flush_translucent_objects();
+        self.flush_translucent_objects(rinfo);
     }
 
     fn flush_non_stencil_shadow_sequence_hook(&self, rinfo: &RenderInfo, frame_number: u64) {
@@ -630,11 +659,14 @@ impl W3DScene {
     }
 
     /// Flush translucent objects
-    fn flush_translucent_objects(&mut self) {
+    fn flush_translucent_objects(&self, rinfo: &RenderInfo) {
+        // C++ flushTranslucentObjects (W3DScene.cpp:1581): iterates translucent buffer,
+        // sets rinfo.alphaOverride per drawable, calls renderOneObject, then flushes
+        // the mesh renderer and resets alphaOverride.
         for i in 0..self.translucent_objects_count {
             if let Some(Some(id)) = self.translucent_objects.get(i) {
-                if let Some(_obj) = self.render_objects.get(id) {
-                    // Render translucent object (sorted back to front)
+                if let Some(obj) = self.render_objects.get(id) {
+                    obj.render(rinfo);
                 }
             }
         }
@@ -725,6 +757,7 @@ impl W3DScene {
                 &visible_occludees,
                 &occluder_ids,
                 &non_occluder_ids,
+                rinfo,
             );
             return;
         }
@@ -732,19 +765,23 @@ impl W3DScene {
         let mut used_stencil_refs: u32 = 0;
         let mut visible_player_count = 0usize;
 
-        for (player_index, object_ids) in &buckets {
+        // C++ (W3DScene.cpp:1366-1415): iterates each player bucket, sets stencil state per
+        // player color index, then calls renderOneObject on every occluded object in that
+        // bucket. We invoke per-object render here; actual stencil buffer state manipulation
+        // requires WGPU pipeline integration (PARITY_NOTE: stencil enable, Z-enable, stencil
+        // func/pass/zfail/fail ops, and per-player color index ref are all missing).
+        for (_player_index, object_ids) in &buckets {
             let color_index = Self::player_index_to_color_index(visible_player_count + 1);
             visible_player_count += 1;
-
             let stencil_ref = ((color_index as u32) << 3) | 0x80;
             used_stencil_refs |= stencil_ref;
 
-            // Emulate the per-player color assignment. The actual draw call is omitted here, but
-            // we still stamp the occluded flag and keep deterministic bucket order.
-            let _synthetic_color = Self::synthetic_player_color(*player_index, color_index);
             for id in object_ids {
-                if let Some(obj) = self.render_objects.get_mut(&id) {
+                if let Some(obj) = self.render_objects.get_mut(id) {
                     obj.info.flags.set(DrawableInfoFlags::IS_OCCLUDED);
+                }
+                if let Some(obj) = self.render_objects.get(id) {
+                    obj.render(rinfo);
                 }
             }
         }
@@ -766,6 +803,7 @@ impl W3DScene {
             &visible_occludees,
             &occluder_ids,
             &non_occluder_ids,
+            rinfo,
         );
     }
 
@@ -774,6 +812,7 @@ impl W3DScene {
         visible_occludees: &[RenderObjectId],
         occluders: &[RenderObjectId],
         non_occluders_or_occludees: &[RenderObjectId],
+        rinfo: &RenderInfo,
     ) {
         if visible_occludees.is_empty()
             && occluders.is_empty()
@@ -786,19 +825,19 @@ impl W3DScene {
         // occludees, then occluders, then non-occluder/non-occludee objects.
         for id in visible_occludees {
             if let Some(obj) = self.render_objects.get(id) {
-                let _ = obj;
+                obj.render(rinfo);
             }
         }
 
         for id in occluders {
             if let Some(obj) = self.render_objects.get(id) {
-                let _ = obj;
+                obj.render(rinfo);
             }
         }
 
         for id in non_occluders_or_occludees {
             if let Some(obj) = self.render_objects.get(id) {
-                let _ = obj;
+                obj.render(rinfo);
             }
         }
     }
