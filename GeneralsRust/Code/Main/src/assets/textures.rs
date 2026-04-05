@@ -10,6 +10,7 @@ use crate::assets::archive::ArchiveFileSystem;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
+use ww3d_renderer_3d::{load_dds_from_memory, load_tga_from_memory, DdsTextureType};
 
 /// Texture formats supported by C&C Generals
 #[derive(Debug, Clone, Copy)]
@@ -58,6 +59,21 @@ pub struct RawTexture {
     pub format: TextureFormat,
     pub has_alpha: bool,
     dds_compression: Option<DdsCompression>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaterTextureAssetPayload {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaterTextureAssetSet {
+    pub water: WaterTextureAssetPayload,
+    pub normal_map: WaterTextureAssetPayload,
+    pub caustics: WaterTextureAssetPayload,
 }
 
 impl RawTexture {
@@ -573,9 +589,88 @@ impl TextureManager {
         self.raw_cache.get(&texture_key)
     }
 
+    pub async fn load_water_texture_assets(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+    ) -> Result<WaterTextureAssetSet> {
+        let water_name = self
+            .load_first_available_raw_texture(archive_system, ["TWWater01.tga"])
+            .await?;
+        let normal_map_name = self
+            .load_first_available_raw_texture(archive_system, Self::water_normal_map_candidates())
+            .await?;
+        let caustics_name = self
+            .load_first_available_raw_texture(archive_system, Self::water_caustics_candidates())
+            .await?;
+
+        Ok(WaterTextureAssetSet {
+            water: self.clone_water_texture_asset_payload(&water_name)?,
+            normal_map: self.clone_water_texture_asset_payload(&normal_map_name)?,
+            caustics: self.clone_water_texture_asset_payload(&caustics_name)?,
+        })
+    }
+
     pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
         let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         self.known_missing_textures.contains(&texture_key)
+    }
+
+    fn clone_water_texture_asset_payload(
+        &self,
+        texture_name: &str,
+    ) -> Result<WaterTextureAssetPayload> {
+        let raw = self
+            .get_raw_texture(texture_name)
+            .ok_or_else(|| anyhow!("Water texture '{}' was not cached", texture_name))?;
+
+        Ok(WaterTextureAssetPayload {
+            name: texture_name.to_string(),
+            width: raw.width,
+            height: raw.height,
+            rgba: raw.data.clone(),
+        })
+    }
+
+    async fn load_first_available_raw_texture<I, S>(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        candidates: I,
+    ) -> Result<String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for candidate in candidates {
+            let candidate = candidate.as_ref();
+            self.prime_raw_texture(archive_system, candidate).await?;
+            if self.get_raw_texture(candidate).is_some() && !self.is_known_missing_texture(candidate) {
+                return Ok(candidate.to_string());
+            }
+        }
+
+        Err(anyhow!("Failed to load required water texture assets from BIG archives"))
+    }
+
+    fn water_normal_map_candidates() -> Vec<String> {
+        let mut candidates = vec!["Noise0000.tga".to_string()];
+        for i in 0..32 {
+            candidates.push(format!("caustS{:02}.tga", i));
+        }
+        for i in 0..32 {
+            candidates.push(format!("caust{:02}.tga", i));
+        }
+        candidates
+    }
+
+    fn water_caustics_candidates() -> Vec<String> {
+        let mut candidates = Vec::with_capacity(64);
+        for i in 0..32 {
+            candidates.push(format!("caust{:02}.tga", i));
+        }
+        for i in 0..32 {
+            candidates.push(format!("caustS{:02}.tga", i));
+        }
+        candidates
     }
 
     /// Create GPU texture from raw data
@@ -811,401 +906,58 @@ impl TextureManager {
         (blocks_x * blocks_y * Self::dds_block_size_bytes(compression)) as usize
     }
 
-    /// Parse TGA texture format
+    /// Parse TGA texture format — delegates to the canonical WWVegas parser.
     fn parse_tga(&self, data: &[u8], name: String) -> Result<RawTexture> {
         debug!("Parsing TGA texture: {}", name);
 
-        if data.len() < 18 {
-            return Err(anyhow!("TGA file too small: {} bytes", data.len()));
-        }
-
-        // TGA header parsing based on C++ implementation
-        let id_length = data[0];
-        let color_map_type = data[1];
-        let image_type = data[2];
-        let _cmap_start = u16::from_le_bytes([data[3], data[4]]);
-        let cmap_length = u16::from_le_bytes([data[5], data[6]]);
-        let cmap_depth = data[7];
-        let _x_offset = u16::from_le_bytes([data[8], data[9]]);
-        let _y_offset = u16::from_le_bytes([data[10], data[11]]);
-        let width = u16::from_le_bytes([data[12], data[13]]) as u32;
-        let height = u16::from_le_bytes([data[14], data[15]]) as u32;
-        let bits_per_pixel = data[16];
-        let image_descriptor = data[17];
-
-        debug!(
-            "TGA: {}x{}, {} bpp, type {}, id_len: {}",
-            width, height, bits_per_pixel, image_type, id_length
-        );
-
-        if width == 0 || height == 0 {
-            return Err(anyhow!("Invalid TGA dimensions: {}x{}", width, height));
-        }
-
-        // Skip ID field
-        let mut data_offset = 18 + id_length as usize;
-
-        // Skip color map if present
-        if color_map_type == 1 {
-            let color_map_size = cmap_length as usize * (cmap_depth as usize + 7) / 8;
-            data_offset += color_map_size;
-        }
-
-        if data_offset >= data.len() {
-            return Err(anyhow!("TGA file truncated"));
-        }
-
-        let bytes_per_pixel = bits_per_pixel.div_ceil(8);
-        let expected_image_size = (width * height * bytes_per_pixel as u32) as usize;
-
-        if data.len() < data_offset + expected_image_size {
-            return Err(anyhow!("TGA image data truncated"));
-        }
-
-        let image_data = &data[data_offset..];
-        let mut rgba_data = Vec::with_capacity((width * height * 4) as usize);
-
-        // Parse image data based on format
-        match (image_type, bits_per_pixel) {
-            (2, 24) => {
-                // Uncompressed true color, 24-bit
-                for chunk in image_data.chunks_exact(3) {
-                    rgba_data.push(chunk[2]); // R
-                    rgba_data.push(chunk[1]); // G
-                    rgba_data.push(chunk[0]); // B
-                    rgba_data.push(255); // A
-                }
-            }
-            (2, 32) => {
-                // Uncompressed true color, 32-bit
-                for chunk in image_data.chunks_exact(4) {
-                    rgba_data.push(chunk[2]); // R
-                    rgba_data.push(chunk[1]); // G
-                    rgba_data.push(chunk[0]); // B
-                    rgba_data.push(chunk[3]); // A
-                }
-            }
-            (10, 24) => {
-                // RLE compressed true color, 24-bit
-                self.decode_rle_tga(image_data, &mut rgba_data, width, height, 3)?;
-            }
-            (10, 32) => {
-                // RLE compressed true color, 32-bit
-                self.decode_rle_tga(image_data, &mut rgba_data, width, height, 4)?;
-            }
-            _ => {
-                warn!(
-                    "Unsupported TGA format: type {}, {} bpp",
-                    image_type, bits_per_pixel
-                );
-                return Ok(RawTexture::solid_color(
-                    name,
-                    width,
-                    height,
-                    [100, 150, 50, 255],
-                ));
-            }
-        }
-
-        // Check if image needs to be flipped based on image descriptor
-        let origin_upper_left = (image_descriptor & 0x20) != 0;
-        if !origin_upper_left {
-            // Flip vertically (TGA default is bottom-left origin)
-            self.flip_image_vertically(&mut rgba_data, width, height);
-        }
+        let tga = load_tga_from_memory(data).map_err(|e| anyhow!("TGA parse error: {}", e))?;
 
         Ok(RawTexture {
             name,
-            width,
-            height,
-            data: rgba_data,
+            width: tga.width,
+            height: tga.height,
+            data: tga.data,
             format: TextureFormat::TGA,
-            has_alpha: bits_per_pixel == 32,
+            has_alpha: tga.bits_per_pixel == 32,
             dds_compression: None,
         })
     }
 
-    /// Decode RLE compressed TGA data
-    fn decode_rle_tga(
-        &self,
-        compressed_data: &[u8],
-        rgba_data: &mut Vec<u8>,
-        width: u32,
-        height: u32,
-        bytes_per_pixel: usize,
-    ) -> Result<()> {
-        let pixel_count = (width * height) as usize;
-        let mut pixels_written = 0;
-        let mut data_pos = 0;
-
-        while pixels_written < pixel_count && data_pos < compressed_data.len() {
-            let packet_header = compressed_data[data_pos];
-            data_pos += 1;
-
-            let is_rle_packet = (packet_header & 0x80) != 0;
-            let packet_size = ((packet_header & 0x7F) + 1) as usize;
-
-            if is_rle_packet {
-                // RLE packet - repeat one pixel
-                if data_pos + bytes_per_pixel > compressed_data.len() {
-                    return Err(anyhow!("TGA RLE data truncated"));
-                }
-
-                let pixel = &compressed_data[data_pos..data_pos + bytes_per_pixel];
-                data_pos += bytes_per_pixel;
-
-                for _ in 0..packet_size {
-                    if pixels_written >= pixel_count {
-                        break;
-                    }
-                    match bytes_per_pixel {
-                        3 => {
-                            rgba_data.push(pixel[2]); // R
-                            rgba_data.push(pixel[1]); // G
-                            rgba_data.push(pixel[0]); // B
-                            rgba_data.push(255); // A
-                        }
-                        4 => {
-                            rgba_data.push(pixel[2]); // R
-                            rgba_data.push(pixel[1]); // G
-                            rgba_data.push(pixel[0]); // B
-                            rgba_data.push(pixel[3]); // A
-                        }
-                        _ => return Err(anyhow!("Unsupported TGA RLE pixel format")),
-                    }
-                    pixels_written += 1;
-                }
-            } else {
-                // Raw packet - copy pixels directly
-                let bytes_to_read = packet_size * bytes_per_pixel;
-                if data_pos + bytes_to_read > compressed_data.len() {
-                    return Err(anyhow!("TGA raw data truncated"));
-                }
-
-                for i in 0..packet_size {
-                    if pixels_written >= pixel_count {
-                        break;
-                    }
-                    let pixel_start = data_pos + i * bytes_per_pixel;
-                    let pixel = &compressed_data[pixel_start..pixel_start + bytes_per_pixel];
-
-                    match bytes_per_pixel {
-                        3 => {
-                            rgba_data.push(pixel[2]); // R
-                            rgba_data.push(pixel[1]); // G
-                            rgba_data.push(pixel[0]); // B
-                            rgba_data.push(255); // A
-                        }
-                        4 => {
-                            rgba_data.push(pixel[2]); // R
-                            rgba_data.push(pixel[1]); // G
-                            rgba_data.push(pixel[0]); // B
-                            rgba_data.push(pixel[3]); // A
-                        }
-                        _ => return Err(anyhow!("Unsupported TGA pixel format")),
-                    }
-                    pixels_written += 1;
-                }
-                data_pos += bytes_to_read;
-            }
-        }
-
-        if pixels_written != pixel_count {
-            return Err(anyhow!(
-                "TGA pixel count mismatch: expected {}, got {}",
-                pixel_count,
-                pixels_written
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// Flip image vertically
-    fn flip_image_vertically(&self, data: &mut [u8], width: u32, height: u32) {
-        let row_size = (width * 4) as usize;
-        let mut temp_row = vec![0u8; row_size];
-
-        for y in 0..(height / 2) {
-            let top_row_start = (y * width * 4) as usize;
-            let bottom_row_start = ((height - 1 - y) * width * 4) as usize;
-
-            // Copy top row to temp
-            temp_row.copy_from_slice(&data[top_row_start..top_row_start + row_size]);
-
-            // Copy bottom row to top
-            data.copy_within(bottom_row_start..bottom_row_start + row_size, top_row_start);
-
-            // Copy temp to bottom
-            data[bottom_row_start..bottom_row_start + row_size].copy_from_slice(&temp_row);
-        }
-    }
-
-    /// Parse DDS texture format
+    /// Parse DDS texture format — delegates to the canonical WWVegas parser.
     fn parse_dds(&self, data: &[u8], name: String) -> Result<RawTexture> {
         debug!("Parsing DDS texture: {}", name);
 
-        if data.len() < 128 {
-            return Err(anyhow!("DDS file too small: {} bytes", data.len()));
-        }
+        let dds = load_dds_from_memory(data).map_err(|e| anyhow!("DDS parse error: {}", e))?;
 
-        // DDS header parsing based on C++ implementation
-        if &data[0..4] != b"DDS " {
-            return Err(anyhow!("Invalid DDS magic number"));
-        }
+        let level0_data = dds
+            .get_level_data(0)
+            .ok_or_else(|| anyhow!("DDS level 0 data missing"))?;
 
-        let header_size = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-        if header_size != 124 {
-            return Err(anyhow!("Invalid DDS header size: {}", header_size));
-        }
-
-        let flags = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
-        let height = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
-        let width = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
-        let _pitch_or_linear_size = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
-        let _depth = u32::from_le_bytes([data[24], data[25], data[26], data[27]]);
-        let _mipmap_count = u32::from_le_bytes([data[28], data[29], data[30], data[31]]);
-
-        // Pixel format (at offset 76)
-        let _pixel_format_size = u32::from_le_bytes([data[76], data[77], data[78], data[79]]);
-        let pixel_format_flags = u32::from_le_bytes([data[80], data[81], data[82], data[83]]);
-        let four_cc = [data[84], data[85], data[86], data[87]];
-        let rgb_bit_count = u32::from_le_bytes([data[88], data[89], data[90], data[91]]);
-        let _r_bit_mask = u32::from_le_bytes([data[92], data[93], data[94], data[95]]);
-        let _g_bit_mask = u32::from_le_bytes([data[96], data[97], data[98], data[99]]);
-        let _b_bit_mask = u32::from_le_bytes([data[100], data[101], data[102], data[103]]);
-        let a_bit_mask = u32::from_le_bytes([data[104], data[105], data[106], data[107]]);
-
-        debug!(
-            "DDS: {}x{}, flags: 0x{:x}, format_flags: 0x{:x}, fourcc: {:?}, rgb_bits: {}",
-            width, height, flags, pixel_format_flags, four_cc, rgb_bit_count
-        );
-
-        if width == 0 || height == 0 {
-            return Err(anyhow!("Invalid DDS dimensions: {}x{}", width, height));
-        }
-
-        let data_offset = 128; // Standard DDS header size
-        if data_offset >= data.len() {
-            return Err(anyhow!("DDS file truncated"));
-        }
-
-        let image_data = &data[data_offset..];
-        let mut rgba_data = Vec::with_capacity((width * height * 4) as usize);
-
-        // Check for compressed formats (FourCC)
-        if pixel_format_flags & 0x4 != 0 {
-            // DDPF_FOURCC
-            if let Some(compression) = Self::dds_fourcc_to_compression(four_cc) {
-                let expected_size = Self::dds_expected_payload_size(width, height, compression);
-                if image_data.len() < expected_size {
-                    return Err(anyhow!(
-                        "DDS compressed payload truncated: expected at least {}, got {}",
-                        expected_size,
-                        image_data.len()
-                    ));
-                }
-
-                let has_alpha = pixel_format_flags & 0x1 != 0
-                    || matches!(compression, DdsCompression::Dxt3 | DdsCompression::Dxt5);
-
-                return Ok(RawTexture {
-                    name,
-                    width,
-                    height,
-                    data: image_data[..expected_size].to_vec(),
-                    format: TextureFormat::DDS,
-                    has_alpha,
-                    dds_compression: Some(compression),
-                });
-            } else {
-                warn!(
-                    "Unsupported DDS FourCC: {:?}",
-                    std::str::from_utf8(&four_cc).unwrap_or("invalid")
-                );
-                return Ok(RawTexture::solid_color(
-                    name,
-                    width,
-                    height,
-                    [150, 100, 50, 255],
-                ));
+        let dds_compression = match dds.format {
+            wgpu::TextureFormat::Bc1RgbaUnorm | wgpu::TextureFormat::Bc1RgbaUnormSrgb => {
+                Some(DdsCompression::Dxt1)
             }
-        } else if pixel_format_flags & 0x40 != 0 {
-            // DDPF_RGB
-            match rgb_bit_count {
-                32 => {
-                    // Assume BGRA format for 32-bit
-                    for chunk in image_data.chunks_exact(4) {
-                        rgba_data.push(chunk[2]); // R
-                        rgba_data.push(chunk[1]); // G
-                        rgba_data.push(chunk[0]); // B
-                        rgba_data.push(chunk[3]); // A
-                    }
-                }
-                24 => {
-                    // Assume BGR format for 24-bit
-                    for chunk in image_data.chunks_exact(3) {
-                        rgba_data.push(chunk[2]); // R
-                        rgba_data.push(chunk[1]); // G
-                        rgba_data.push(chunk[0]); // B
-                        rgba_data.push(255); // A
-                    }
-                }
-                16 => {
-                    // Assume RGB565 or ARGB1555
-                    for chunk in image_data.chunks_exact(2) {
-                        let pixel = u16::from_le_bytes([chunk[0], chunk[1]]);
-                        if a_bit_mask != 0 {
-                            // ARGB1555
-                            rgba_data.push(((pixel & 0x7C00) >> 7) as u8); // R
-                            rgba_data.push(((pixel & 0x03E0) >> 2) as u8); // G
-                            rgba_data.push(((pixel & 0x001F) << 3) as u8); // B
-                            rgba_data.push(if pixel & 0x8000 != 0 { 255 } else { 0 });
-                        // A
-                        } else {
-                            // RGB565
-                            rgba_data.push(((pixel & 0xF800) >> 8) as u8); // R
-                            rgba_data.push(((pixel & 0x07E0) >> 3) as u8); // G
-                            rgba_data.push(((pixel & 0x001F) << 3) as u8); // B
-                            rgba_data.push(255); // A
-                        }
-                    }
-                }
-                _ => {
-                    warn!("Unsupported DDS RGB bit count: {}", rgb_bit_count);
-                    return Ok(RawTexture::solid_color(
-                        name,
-                        width,
-                        height,
-                        [150, 100, 50, 255],
-                    ));
-                }
+            wgpu::TextureFormat::Bc2RgbaUnorm | wgpu::TextureFormat::Bc2RgbaUnormSrgb => {
+                Some(DdsCompression::Dxt3)
             }
-        } else {
-            warn!(
-                "Unsupported DDS pixel format flags: 0x{:x}",
-                pixel_format_flags
-            );
-            return Ok(RawTexture::solid_color(
-                name,
-                width,
-                height,
-                [150, 100, 50, 255],
-            ));
-        }
+            wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => {
+                Some(DdsCompression::Dxt5)
+            }
+            _ => None,
+        };
 
-        let has_alpha = pixel_format_flags & 0x1 != 0 || // DDPF_ALPHAPIXELS
-                        four_cc == *b"DXT3" || four_cc == *b"DXT5" ||
-                        (rgb_bit_count == 32 && a_bit_mask != 0);
+        let has_alpha = dds_compression.map_or(false, |c| {
+            matches!(c, DdsCompression::Dxt3 | DdsCompression::Dxt5)
+        });
 
         Ok(RawTexture {
             name,
-            width,
-            height,
-            data: rgba_data,
+            width: dds.width,
+            height: dds.height,
+            data: level0_data.to_vec(),
             format: TextureFormat::DDS,
             has_alpha,
-            dds_compression: None,
+            dds_compression,
         })
     }
 
