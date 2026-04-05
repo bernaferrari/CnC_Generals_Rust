@@ -226,7 +226,7 @@ impl ScriptActionDispatcher {
 
     fn relation_from_script_value(&self, relation: i32) -> Relationship {
         match relation {
-            0 => Relationship::Enemies,   // REL_ENEMY / ENEMIES
+            0 => Relationship::Enemies, // REL_ENEMY / ENEMIES
             1 => Relationship::Neutral, // REL_NEUTRAL / NEUTRAL
             2 => Relationship::Allies,  // REL_FRIEND / ALLIES
             _ => Relationship::Neutral,
@@ -12618,10 +12618,7 @@ impl ScriptActionDispatcher {
         };
 
         let mut target_loc = group_center;
-        if matches!(
-            comparison_type,
-            ComparisonType::GreaterEqual | ComparisonType::Greater
-        ) {
+        {
             if let Ok(manager) = get_object_manager().read() {
                 let mut best_dist = f32::MAX;
                 let mut best_pos = None;
@@ -12665,9 +12662,12 @@ impl ScriptActionDispatcher {
 
                     let build_cost = obj_guard.get_build_cost();
                     let meets_value = match comparison_type {
+                        ComparisonType::LessThan => build_cost < value,
+                        ComparisonType::LessEqual => build_cost <= value,
+                        ComparisonType::Equal => build_cost == value,
                         ComparisonType::GreaterEqual => build_cost >= value,
                         ComparisonType::Greater => build_cost > value,
-                        _ => false,
+                        ComparisonType::NotEqual => build_cost != value,
                     };
                     if !meets_value {
                         continue;
@@ -17259,7 +17259,7 @@ impl ScriptConditionEvaluator {
 
             let relationship = unit.relationship_to(&candidate);
             let relation_ok = match alliance {
-                0 => relationship == Relationship::Enemies,   // REL_ENEMY
+                0 => relationship == Relationship::Enemies, // REL_ENEMY
                 1 => relationship == Relationship::Neutral, // REL_NEUTRAL
                 2 => matches!(
                     relationship,
