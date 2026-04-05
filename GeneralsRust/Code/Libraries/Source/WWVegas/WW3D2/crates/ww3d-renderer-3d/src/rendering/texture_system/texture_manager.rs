@@ -5,8 +5,9 @@
 
 use crate::core::error::RendererResult;
 use crate::rendering::texture_system::{
-    AssetTextureLoader, TextureBaseClass, TextureCacheConfig, TextureFileCache,
-    TextureFilteringUtils, TextureSamplerManager, TextureSamplingConfig, TextureUsage,
+    asset_texture_loader::ArchiveFileReader, AssetTextureLoader, TextureBaseClass,
+    TextureCacheConfig, TextureFileCache, TextureFilteringUtils, TextureSamplerManager,
+    TextureSamplingConfig, TextureUsage,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -38,13 +39,26 @@ pub struct TextureManagerStats {
 }
 
 impl TextureManager {
-    /// Create new texture manager
     pub fn new(
         device: Arc<Device>,
         queue: Arc<Queue>,
         asset_manager: Arc<Mutex<AssetManager>>,
     ) -> RendererResult<Self> {
-        let asset_loader = AssetTextureLoader::new(device.clone(), queue, asset_manager)?;
+        Self::with_archive_reader(device, queue, asset_manager, None)
+    }
+
+    pub fn with_archive_reader(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        asset_manager: Arc<Mutex<AssetManager>>,
+        archive_reader: Option<Arc<dyn ArchiveFileReader>>,
+    ) -> RendererResult<Self> {
+        let asset_loader = AssetTextureLoader::with_archive_reader(
+            device.clone(),
+            queue,
+            asset_manager,
+            archive_reader,
+        )?;
         let cache_config = TextureCacheConfig::default();
         let file_cache = TextureFileCache::new_with_config("textures", cache_config);
         let sampler_manager = TextureSamplerManager::new(device);
@@ -56,6 +70,10 @@ impl TextureManager {
             active_textures: HashMap::new(),
             stats: TextureManagerStats::default(),
         })
+    }
+
+    pub fn set_archive_reader(&mut self, reader: Arc<dyn ArchiveFileReader>) {
+        self.asset_loader.set_archive_reader(reader);
     }
 
     /// Load a texture with automatic format detection and caching
