@@ -1044,6 +1044,110 @@ impl HeightMapMesh {
         );
     }
 
+    /// C++ parity: WorldHeightMap::readTiles / TerrainTextureClass asset loading
+    pub fn set_base_texture_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        let (texture, view) = Self::upload_rgba_texture(
+            &self.device,
+            &self.queue,
+            width,
+            height,
+            rgba,
+            "Terrain Base (Asset)",
+        );
+        self.base_texture = texture;
+        self.base_texture_view = view;
+        self.rebuild_bind_group();
+    }
+
+    /// C++ parity: m_alphaTerrainTex cliff/detail atlas
+    pub fn set_detail_texture_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        let (texture, view) = Self::upload_rgba_texture(
+            &self.device,
+            &self.queue,
+            width,
+            height,
+            rgba,
+            "Terrain Detail (Asset)",
+        );
+        self.detail_texture = texture;
+        self.detail_texture_view = view;
+        self.rebuild_bind_group();
+    }
+
+    /// C++ parity: m_alphaEdgeTex blend map
+    pub fn set_blend_texture_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        let (texture, view) = Self::upload_rgba_texture(
+            &self.device,
+            &self.queue,
+            width,
+            height,
+            rgba,
+            "Terrain Blend (Asset)",
+        );
+        self.blend_texture = texture;
+        self.blend_texture_view = view;
+        self.rebuild_bind_group();
+    }
+
+    fn upload_rgba_texture(
+        device: &Device,
+        queue: &Queue,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        label: &str,
+    ) -> (Texture, TextureView) {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &rgba[..(width as usize * height as usize * 4).min(rgba.len())],
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        (texture, view)
+    }
+
+    fn rebuild_bind_group(&mut self) {
+        self.bind_group = Self::create_bind_group(
+            &self.device,
+            &self.bind_group_layout,
+            &self.uniform_buffer,
+            &self.base_texture_view,
+            &self.base_sampler,
+            &self.detail_texture_view,
+            &self.detail_sampler,
+            &self.blend_texture_view,
+            &self.blend_sampler,
+        );
+    }
+
     /// Get height at world position
     pub fn get_height_at(&self, x: f32, y: f32) -> f32 {
         let grid_x = (x / MAP_XY_FACTOR) as usize;

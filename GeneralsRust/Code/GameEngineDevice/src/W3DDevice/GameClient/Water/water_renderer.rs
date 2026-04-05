@@ -1098,6 +1098,159 @@ impl WaterRenderer {
     pub fn set_caustics_enabled(&mut self, enabled: bool) {
         self.enable_caustics = enabled;
     }
+
+    /// C++ parity: WW3DAssetManager::Get_Texture("TWWater01.tga")
+    pub fn set_water_texture_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        self.water_texture = Self::write_texture_data(
+            &self.device,
+            &self.queue,
+            width,
+            height,
+            rgba,
+            "Water Texture (Asset)",
+        );
+        self.rebuild_texture_bind_group();
+    }
+
+    /// C++ parity: initBumpMap() from caust*.tga
+    pub fn set_normal_map_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        self.normal_map = Self::write_texture_data(
+            &self.device,
+            &self.queue,
+            width,
+            height,
+            rgba,
+            "Water Normal Map (Asset)",
+        );
+        self.rebuild_texture_bind_group();
+    }
+
+    /// C++ parity: WW3DAssetManager::Get_Texture("caustXX.tga")
+    pub fn set_caustics_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        self.caustics_texture = Self::write_texture_data(
+            &self.device,
+            &self.queue,
+            width,
+            height,
+            rgba,
+            "Water Caustics Texture (Asset)",
+        );
+        self.rebuild_texture_bind_group();
+    }
+
+    /// Replace all three water textures from BIG-archive RGBA data.
+    /// `None` entries keep the current texture unchanged.
+    pub fn load_textures_from_rgba(
+        &mut self,
+        water: Option<(&[u8], u32, u32)>,
+        normal_map: Option<(&[u8], u32, u32)>,
+        caustics: Option<(&[u8], u32, u32)>,
+    ) {
+        if let Some((rgba, w, h)) = water {
+            self.water_texture = Self::write_texture_data(
+                &self.device,
+                &self.queue,
+                w,
+                h,
+                rgba,
+                "Water Texture (Asset)",
+            );
+        }
+        if let Some((rgba, w, h)) = normal_map {
+            self.normal_map = Self::write_texture_data(
+                &self.device,
+                &self.queue,
+                w,
+                h,
+                rgba,
+                "Water Normal Map (Asset)",
+            );
+        }
+        if let Some((rgba, w, h)) = caustics {
+            self.caustics_texture = Self::write_texture_data(
+                &self.device,
+                &self.queue,
+                w,
+                h,
+                rgba,
+                "Water Caustics Texture (Asset)",
+            );
+        }
+        self.rebuild_texture_bind_group();
+    }
+
+    fn rebuild_texture_bind_group(&mut self) {
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Water Sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let texture_bind_group_layout = self
+            .texture_bind_group
+            .layout()
+            .expect("texture bind group must have a layout");
+
+        self.texture_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Water Texture Bind Group (Asset)"),
+            layout: texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .water_texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .normal_map
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .reflection_texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .caustics_texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+    }
 }
 
 #[cfg(test)]
