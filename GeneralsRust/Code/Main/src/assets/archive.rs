@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::task::JoinHandle;
+use ww3d_renderer_3d::rendering::texture_system::ArchiveFileReader;
 
 /// Unity wrapper around the core archive system.
 pub struct ArchiveFileSystem {
@@ -504,6 +505,45 @@ impl AsyncRead for BlockingAsyncReader {
             }
         }
     }
+}
+
+pub struct BigArchiveFileReader {
+    archive_system: Arc<Mutex<ArchiveFileSystem>>,
+}
+
+impl BigArchiveFileReader {
+    pub fn new(archive_system: Arc<Mutex<ArchiveFileSystem>>) -> Self {
+        Self { archive_system }
+    }
+}
+
+impl ArchiveFileReader for BigArchiveFileReader {
+    fn read_from_archive(&self, path: &str) -> Option<Vec<u8>> {
+        let mut guard = self.archive_system.lock().ok()?;
+        let mut reader = guard.open_reader(path).ok()?;
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).ok()?;
+        if data.is_empty() {
+            return None;
+        }
+        Some(data)
+    }
+}
+
+static BIG_ARCHIVE_READER: OnceLock<Arc<BigArchiveFileReader>> = OnceLock::new();
+
+pub fn init_big_archive_file_reader() -> Result<()> {
+    let archive_system = get_archive_file_system()
+        .ok_or_else(|| anyhow!("Archive file system not initialized"))?;
+    let reader = Arc::new(BigArchiveFileReader::new(archive_system));
+    BIG_ARCHIVE_READER
+        .set(reader)
+        .map_err(|_| anyhow!("Big archive reader already initialized"))?;
+    Ok(())
+}
+
+pub fn get_big_archive_file_reader() -> Option<Arc<BigArchiveFileReader>> {
+    BIG_ARCHIVE_READER.get().cloned()
 }
 
 #[cfg(test)]
