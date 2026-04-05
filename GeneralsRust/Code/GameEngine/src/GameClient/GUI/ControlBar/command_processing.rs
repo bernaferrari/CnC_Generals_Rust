@@ -48,10 +48,10 @@
 // with other game systems (BuildAssistant, InGameUI, Eva, etc.). These would be
 // implemented when the respective systems are ported.
 
-use std::sync::Arc;
-use super::types::*;
 use super::command_button::CommandButton;
-use super::control_bar::{ControlBar, GadgetGameMessage, CBCommandStatus};
+use super::control_bar::{CBCommandStatus, ControlBar, GadgetGameMessage};
+use super::types::*;
+use std::sync::Arc;
 
 /// Select Objects Info
 /// Helper structure for selecting objects of a specific type
@@ -92,13 +92,15 @@ impl ControlBar {
     pub fn process_command_ui_internal(
         &mut self,
         control: &GameWindow,
-        gadget_message: GadgetGameMessage
+        gadget_message: GadgetGameMessage,
     ) -> CBCommandStatus {
         // Get command button data from control
         let command_button = match self.get_command_button_from_control(control) {
             Some(btn) => btn,
             None => {
-                eprintln!("ControlBar::processCommandUI() -- Button activated has no data. Ignoring...");
+                eprintln!(
+                    "ControlBar::processCommandUI() -- Button activated has no data. Ignoring..."
+                );
                 return CBCommandStatus::NotUsed;
             }
         };
@@ -107,10 +109,13 @@ impl ControlBar {
         if self.curr_context != ControlBarContext::MultiSelect
             && command_button.get_command_type() != GUICommandType::PurchaseScience
             && command_button.get_command_type() != GUICommandType::SpecialPowerFromShortcut
-            && command_button.get_command_type() != GUICommandType::SpecialPowerConstructFromShortcut
+            && command_button.get_command_type()
+                != GUICommandType::SpecialPowerConstructFromShortcut
             && command_button.get_command_type() != GUICommandType::SelectAllUnitsOfType
             && (self.current_selected_drawable.is_none()
-                || self.current_selected_drawable.as_ref()
+                || self
+                    .current_selected_drawable
+                    .as_ref()
                     .and_then(|d| d.get_object())
                     .is_none())
         {
@@ -140,10 +145,12 @@ impl ControlBar {
         let obj = if self.curr_context != ControlBarContext::MultiSelect
             && command_button.get_command_type() != GUICommandType::PurchaseScience
             && command_button.get_command_type() != GUICommandType::SpecialPowerFromShortcut
-            && command_button.get_command_type() != GUICommandType::SpecialPowerConstructFromShortcut
+            && command_button.get_command_type()
+                != GUICommandType::SpecialPowerConstructFromShortcut
             && command_button.get_command_type() != GUICommandType::SelectAllUnitsOfType
         {
-            self.current_selected_drawable.as_ref()
+            self.current_selected_drawable
+                .as_ref()
                 .and_then(|d| d.get_object())
         } else {
             None
@@ -183,40 +190,40 @@ impl ControlBar {
         match command_button.get_command_type() {
             GUICommandType::DozerConstruct => {
                 self.process_dozer_construct(command_button, obj);
-            },
+            }
             GUICommandType::UnitBuild => {
                 self.process_unit_build(command_button, obj);
-            },
+            }
             GUICommandType::PlayerUpgrade | GUICommandType::ObjectUpgrade => {
                 self.process_upgrade(command_button, obj);
-            },
+            }
             GUICommandType::SpecialPower => {
                 self.process_special_power(command_button, obj);
-            },
+            }
             GUICommandType::PurchaseScience => {
                 self.process_purchase_science(command_button);
-            },
+            }
             GUICommandType::ExitContainer => {
                 self.process_exit_container(command_button, control);
-            },
+            }
             GUICommandType::Evacuate => {
                 self.process_evacuate(command_button, obj);
-            },
+            }
             GUICommandType::Sell => {
                 self.process_sell(command_button, obj);
-            },
+            }
             GUICommandType::Stop => {
                 self.process_stop_command(obj);
-            },
+            }
             GUICommandType::Guard => {
                 self.process_guard_command(obj, command_button);
-            },
+            }
             GUICommandType::AttackMove => {
                 self.process_attack_move(command_button);
-            },
+            }
             GUICommandType::SelectAllUnitsOfType => {
                 self.process_select_all_units_of_type(command_button);
-            },
+            }
             // Add more command type handlers
             _ => {
                 // Unhandled command type
@@ -259,22 +266,22 @@ impl ControlBar {
                 set_eva_should_play(EvaMessageType::InsufficientFunds);
                 show_ingame_message("GUI:NotEnoughMoneyToBuild");
                 return;
-            },
+            }
             CanMakeType::QueueFull => {
                 show_ingame_message("GUI:ProductionQueueFull");
                 return;
-            },
+            }
             CanMakeType::ParkingPlacesFull => {
                 show_ingame_message("GUI:ParkingPlacesFull");
                 return;
-            },
+            }
             CanMakeType::MaxedOutForPlayer => {
                 show_ingame_message("GUI:UnitMaxedOut");
                 return;
-            },
+            }
             CanMakeType::Ok => {
                 // All checks passed, proceed
-            },
+            }
             _ => {
                 return;
             }
@@ -297,8 +304,10 @@ impl ControlBar {
         };
 
         // Sanity - must have something to build
-        debug_assert!(what_to_build.get_name().is_some(),
-            "Undefined BUILD command for object");
+        debug_assert!(
+            what_to_build.get_name().is_some(),
+            "Undefined BUILD command for object"
+        );
 
         // Check if we can make this unit
         let can_make = can_make_unit(factory, what_to_build);
@@ -308,35 +317,39 @@ impl ControlBar {
                 set_eva_should_play(EvaMessageType::InsufficientFunds);
                 show_ingame_message("GUI:NotEnoughMoneyToBuild");
                 return;
-            },
+            }
             CanMakeType::QueueFull => {
                 show_ingame_message("GUI:ProductionQueueFull");
                 return;
-            },
+            }
             CanMakeType::ParkingPlacesFull => {
                 show_ingame_message("GUI:ParkingPlacesFull");
                 return;
-            },
+            }
             CanMakeType::MaxedOutForPlayer => {
                 show_ingame_message("GUI:UnitMaxedOut");
                 return;
-            },
+            }
             CanMakeType::Ok => {
                 // Continue
-            },
+            }
             _ => {
-                debug_assert!(false,
+                debug_assert!(
+                    false,
                     "Cannot create '{}' because factory returns false for canMakeUnit",
-                    what_to_build.get_name().unwrap_or_default());
+                    what_to_build.get_name().unwrap_or_default()
+                );
                 return;
             }
         }
 
         // Get the production interface from the factory object
         let Some(production_update) = factory.get_production_update_interface() else {
-            debug_assert!(false,
+            debug_assert!(
+                false,
                 "Cannot create '{}' because factory is not capable of producing units",
-                what_to_build.get_name().unwrap_or_default());
+                what_to_build.get_name().unwrap_or_default()
+            );
             return;
         };
 
@@ -386,7 +399,8 @@ impl ControlBar {
             // For object upgrades, make sure object doesn't already have it
             // and is actually affected by the upgrade
             if object.has_upgrade(upgrade_template)
-                || !object.is_affected_by_upgrade(upgrade_template) {
+                || !object.is_affected_by_upgrade(upgrade_template)
+            {
                 return;
             }
             object.get_id()
@@ -410,8 +424,11 @@ impl ControlBar {
         };
 
         // Determine the source object ID
-        let source_obj_id = if command_button.get_command_type() == GUICommandType::SpecialPowerFromShortcut
-            || command_button.get_command_type() == GUICommandType::SpecialPowerConstructFromShortcut {
+        let source_obj_id = if command_button.get_command_type()
+            == GUICommandType::SpecialPowerFromShortcut
+            || command_button.get_command_type()
+                == GUICommandType::SpecialPowerConstructFromShortcut
+        {
             // Find the most ready shortcut special power object
             let Some(player) = get_local_player() else {
                 return;
@@ -448,7 +465,8 @@ impl ControlBar {
             // Check if we don't have this science, have prerequisites, and can afford it
             if !player.has_science(science)
                 && player_has_prereqs_for_science(&player, science)
-                && get_science_purchase_cost(science) <= player.get_science_purchase_points() {
+                && get_science_purchase_cost(science) <= player.get_science_purchase_points()
+            {
                 selected_science = science;
                 break;
             }
@@ -609,32 +627,55 @@ impl ControlBar {
     }
 }
 
-// Helper functions (placeholders - would be implemented in respective modules)
-// These integrate with other game systems not shown in this file
+// PARITY_NOTE: Integration stubs below connect ControlBar command processing to
+// other game subsystems (BuildAssistant, InGameUI, Eva, Player, etc.).
+// Each function mirrors a C++ global/singleton call that would be resolved
+// when the respective subsystem is ported. The command processing logic above
+// is fully ported — only these cross-system bridges remain.
 
-fn is_push_button_input(_control: &GameWindow) -> bool { true }
+fn is_push_button_input(_control: &GameWindow) -> bool {
+    true
+}
 fn set_gadget_button_enabled_image(_control: &GameWindow, _image: &Image) {}
 fn clear_place_build_available() {}
-fn get_local_player() -> Option<Arc<Player>> { None }
+fn get_local_player() -> Option<Arc<Player>> {
+    None
+}
 fn add_audio_event(_sound: &AudioEventRTS) {}
 fn append_message_set_mine_clearing_detail() {}
-fn is_same_window(_a: &Arc<GameWindow>, _b: &GameWindow) -> bool { false }
-fn create_game_message() -> GameMessage { GameMessage }
+fn is_same_window(_a: &Arc<GameWindow>, _b: &GameWindow) -> bool {
+    false
+}
+fn create_game_message() -> GameMessage {
+    GameMessage
+}
 
 // Build Assistant and economy functions
-fn can_make_unit(_factory: &Object, _template: &ThingTemplate) -> CanMakeType { CanMakeType::Ok }
-fn can_afford_upgrade(_player: &Player, _upgrade: &UpgradeTemplate, _show_message: bool) -> bool { false }
-fn player_has_prereqs_for_science(_player: &Player, _science: ScienceType) -> bool { false }
-fn get_science_purchase_cost(_science: ScienceType) -> i32 { 0 }
+fn can_make_unit(_factory: &Object, _template: &ThingTemplate) -> CanMakeType {
+    CanMakeType::Ok
+}
+fn can_afford_upgrade(_player: &Player, _upgrade: &UpgradeTemplate, _show_message: bool) -> bool {
+    false
+}
+fn player_has_prereqs_for_science(_player: &Player, _science: ScienceType) -> bool {
+    false
+}
+fn get_science_purchase_cost(_science: ScienceType) -> i32 {
+    0
+}
 
 // Message sending functions
-fn append_game_message(_msg_type: GameMessageType) -> GameMessage { GameMessage }
+fn append_game_message(_msg_type: GameMessageType) -> GameMessage {
+    GameMessage
+}
 
 // InGameUI functions
 fn place_build_available(_template: &ThingTemplate, _drawable: Option<&Arc<Drawable>>) {}
 fn set_gui_command(_button: Option<&CommandButton>) {}
 fn deselect_all_drawables() {}
-fn get_all_selected_drawables() -> Vec<Arc<Drawable>> { Vec::new() }
+fn get_all_selected_drawables() -> Vec<Arc<Drawable>> {
+    Vec::new()
+}
 fn pick_and_play_unit_voice_response(_drawables: &[Arc<Drawable>], _msg_type: GameMessageType) {}
 
 // Eva (voice system) functions
@@ -642,7 +683,9 @@ fn set_eva_should_play(_msg: EvaMessageType) {}
 fn show_ingame_message(_msg: &str) {}
 
 // Object lookup
-fn find_object_by_id(_id: ObjectID) -> Option<Arc<Object>> { None }
+fn find_object_by_id(_id: ObjectID) -> Option<Arc<Object>> {
+    None
+}
 
 // Placeholder types
 pub struct ThingTemplate;
@@ -706,13 +749,21 @@ pub enum GameMessageType {
 }
 
 impl ThingTemplate {
-    pub fn is_equivalent_to(&self, _other: &ThingTemplate) -> bool { false }
-    pub fn get_name(&self) -> Option<&str> { None }
-    pub fn get_template_id(&self) -> u32 { 0 }
+    pub fn is_equivalent_to(&self, _other: &ThingTemplate) -> bool {
+        false
+    }
+    pub fn get_name(&self) -> Option<&str> {
+        None
+    }
+    pub fn get_template_id(&self) -> u32 {
+        0
+    }
 }
 
 impl Object {
-    pub fn get_id(&self) -> ObjectID { 0 }
+    pub fn get_id(&self) -> ObjectID {
+        0
+    }
 
     /// Returns the template for this object.
     /// Matches C++ Thing.cpp line 72: Thing::getTemplate()
@@ -726,11 +777,19 @@ impl Object {
         &PLACEHOLDER_TEMPLATE
     }
 
-    pub fn get_drawable(&self) -> Option<&Drawable> { None }
+    pub fn get_drawable(&self) -> Option<&Drawable> {
+        None
+    }
     pub fn mark_single_use_command_used(&self) {}
-    pub fn get_production_update_interface(&self) -> Option<&ProductionUpdateInterface> { None }
-    pub fn has_upgrade(&self, _upgrade: &UpgradeTemplate) -> bool { false }
-    pub fn is_affected_by_upgrade(&self, _upgrade: &UpgradeTemplate) -> bool { true }
+    pub fn get_production_update_interface(&self) -> Option<&ProductionUpdateInterface> {
+        None
+    }
+    pub fn has_upgrade(&self, _upgrade: &UpgradeTemplate) -> bool {
+        false
+    }
+    pub fn is_affected_by_upgrade(&self, _upgrade: &UpgradeTemplate) -> bool {
+        true
+    }
 }
 
 impl GameMessage {
@@ -740,11 +799,22 @@ impl GameMessage {
 }
 
 impl Player {
-    pub fn get_player_index(&self) -> u32 { 0 }
+    pub fn get_player_index(&self) -> u32 {
+        0
+    }
     pub fn iterate_objects(&self, _callback: &mut dyn FnMut(&Object)) {}
-    pub fn has_science(&self, _science: ScienceType) -> bool { false }
-    pub fn get_science_purchase_points(&self) -> i32 { 0 }
-    pub fn find_most_ready_shortcut_special_power_of_type(&self, _sp_type: SpecialPowerType) -> Option<Arc<Object>> { None }
+    pub fn has_science(&self, _science: ScienceType) -> bool {
+        false
+    }
+    pub fn get_science_purchase_points(&self) -> i32 {
+        0
+    }
+    pub fn find_most_ready_shortcut_special_power_of_type(
+        &self,
+        _sp_type: SpecialPowerType,
+    ) -> Option<Arc<Object>> {
+        None
+    }
 }
 
 impl AudioEventRTS {
@@ -752,21 +822,33 @@ impl AudioEventRTS {
 }
 
 impl Drawable {
-    pub fn get_object(&self) -> Option<&Object> { None }
+    pub fn get_object(&self) -> Option<&Object> {
+        None
+    }
 }
 
 impl UpgradeTemplate {
-    pub fn get_upgrade_name_key(&self) -> i32 { 0 }
+    pub fn get_upgrade_name_key(&self) -> i32 {
+        0
+    }
 }
 
 impl SpecialPowerTemplate {
-    pub fn get_id(&self) -> i32 { 0 }
-    pub fn get_special_power_type(&self) -> SpecialPowerType { 0 }
+    pub fn get_id(&self) -> i32 {
+        0
+    }
+    pub fn get_special_power_type(&self) -> SpecialPowerType {
+        0
+    }
 }
 
 impl ProductionUpdateInterface {
-    pub fn request_unique_unit_id(&self) -> ProductionID { 0 }
-    pub fn can_queue_upgrade(&self, _upgrade: &UpgradeTemplate) -> CanMakeType { CanMakeType::Ok }
+    pub fn request_unique_unit_id(&self) -> ProductionID {
+        0
+    }
+    pub fn can_queue_upgrade(&self, _upgrade: &UpgradeTemplate) -> CanMakeType {
+        CanMakeType::Ok
+    }
 }
 
 impl ControlBar {
