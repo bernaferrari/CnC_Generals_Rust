@@ -258,6 +258,9 @@ pub struct TerrainRenderingSystemBuilder {
     height: Option<usize>,
     height_data: Option<Vec<u8>>,
     lod_level: TerrainLOD,
+    source_tiles: Vec<TileData>,
+    edge_tiles: Vec<TileData>,
+    texture_classes: Vec<TextureClass>,
 }
 
 impl TerrainRenderingSystemBuilder {
@@ -267,6 +270,9 @@ impl TerrainRenderingSystemBuilder {
             height: None,
             height_data: None,
             lod_level: TerrainLOD::Max,
+            source_tiles: Vec::new(),
+            edge_tiles: Vec::new(),
+            texture_classes: Vec::new(),
         }
     }
 
@@ -290,6 +296,21 @@ impl TerrainRenderingSystemBuilder {
         self
     }
 
+    pub fn source_tiles(mut self, tiles: Vec<TileData>) -> Self {
+        self.source_tiles = tiles;
+        self
+    }
+
+    pub fn edge_tiles(mut self, tiles: Vec<TileData>) -> Self {
+        self.edge_tiles = tiles;
+        self
+    }
+
+    pub fn texture_classes(mut self, classes: Vec<TextureClass>) -> Self {
+        self.texture_classes = classes;
+        self
+    }
+
     pub fn build(
         self,
         device: Arc<Device>,
@@ -308,6 +329,18 @@ impl TerrainRenderingSystemBuilder {
             height_data,
             bind_group_layout,
         )?;
+
+        for class in self.texture_classes {
+            system.add_texture_class(class);
+        }
+
+        if !self.source_tiles.is_empty() {
+            system.load_textures(self.source_tiles)?;
+        }
+
+        if !self.edge_tiles.is_empty() {
+            system.load_edge_tiles(self.edge_tiles)?;
+        }
 
         system.set_lod_level(self.lod_level);
 
