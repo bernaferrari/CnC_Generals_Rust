@@ -49,7 +49,13 @@ impl ReplayEntry {
         let players: Vec<String> = header
             .players
             .iter()
-            .map(|p| format!("{} ({})", p.player_name, if p.is_human { "Human" } else { "AI" }))
+            .map(|p| {
+                format!(
+                    "{} ({})",
+                    p.player_name,
+                    if p.is_human { "Human" } else { "AI" }
+                )
+            })
             .collect();
 
         Self {
@@ -245,8 +251,11 @@ impl ReplayMenu {
                                 if let Ok(file_size) = entry.metadata().map(|m| m.len()) {
                                     // Try to read replay header
                                     if let Ok(header) = self.read_replay_header(&path) {
-                                        let replay_entry =
-                                            ReplayEntry::from_header(filename.to_string(), header, file_size);
+                                        let replay_entry = ReplayEntry::from_header(
+                                            filename.to_string(),
+                                            header,
+                                            file_size,
+                                        );
                                         self.entry_clicks.push(ClickSpring::new());
                                         self.replay_files.push(replay_entry);
                                     }
@@ -260,15 +269,15 @@ impl ReplayMenu {
 
         self.sort_replay_files();
 
-        info!(
-            "Found {} replay files",
-            self.replay_files.len()
-        );
+        info!("Found {} replay files", self.replay_files.len());
 
         Ok(())
     }
 
-    fn read_replay_header(&self, path: &PathBuf) -> Result<ReplayHeader, Box<dyn std::error::Error>> {
+    fn read_replay_header(
+        &self,
+        path: &PathBuf,
+    ) -> Result<ReplayHeader, Box<dyn std::error::Error>> {
         use std::io::Read;
 
         let mut file = std::fs::File::open(path)?;
@@ -348,12 +357,165 @@ impl ReplayMenu {
 
 impl Interactive for ReplayMenu {
     fn handle_mouse_move(&mut self, x: i32, y: i32) -> bool {
-        // TODO: Implement hover detection
+        // Matches C++ PopupReplay.cpp: GLM_SELECTED listbox handling
+        // Detect hover over replay entries in the scrollable list.
+        // The entry list starts at a fixed Y offset below the header;
+        // each entry occupies a fixed row height matching the text layout.
+        let entry_start_y = 200i32;
+        let row_height = 44i32;
+
+        if self.dialog_state == ReplayDialogState::MainBrowser {
+            for i in 0..self.max_visible_entries {
+                let list_idx = self.scroll_offset + i;
+                if list_idx >= self.replay_files.len() {
+                    break;
+                }
+                let entry_y = entry_start_y + (i as i32) * row_height;
+                let entry_h = row_height - 4;
+                if y >= entry_y && y < entry_y + entry_h {
+                    self.selected_entry = Some(list_idx);
+                    return true;
+                }
+            }
+        }
         false
     }
 
-    fn handle_mouse_click(&mut self, _x: i32, _y: i32, _button: MouseButton) -> bool {
-        // TODO: Implement click handling
+    fn handle_mouse_click(&mut self, x: i32, y: i32, button: MouseButton) -> bool {
+        if button != MouseButton::Left {
+            return false;
+        }
+
+        // Matches C++ PopupReplay.cpp: GBM_SELECTED / GEM_EDIT_DONE handling
+        // Button region constants matching the text-render layout.
+        let button_y = (self.screen_size.1 as i32) - 80;
+        let button_h = 30i32;
+        let button_w = 160i32;
+        let col_spacing = button_w + 20;
+        let start_x = 40i32;
+
+        let clicked_play =
+            x >= start_x && x < start_x + button_w && y >= button_y && y < button_y + button_h;
+
+        let clicked_delete = x >= start_x + col_spacing
+            && x < start_x + col_spacing + button_w
+            && y >= button_y
+            && y < button_y + button_h;
+
+        let clicked_rename = x >= start_x + col_spacing * 2
+            && x < start_x + col_spacing * 2 + button_w
+            && y >= button_y
+            && y < button_y + button_h;
+
+        let clicked_cancel = x >= start_x + col_spacing * 3
+            && x < start_x + col_spacing * 3 + button_w
+            && y >= button_y
+            && y < button_y + button_h;
+
+        match self.dialog_state {
+            ReplayDialogState::MainBrowser => {
+                // Entry selection is handled by handle_mouse_move (hover selects).
+                // Button clicks:
+                if clicked_play && self.can_play() {
+                    if let Some(idx) = self.selected_entry {
+                        if let Some(entry) = self.replay_files.get(idx) {
+                            // Trigger replay load
+                            self.pending_events
+                                .push(UIEvent::LoadGame(entry.filename.clone()));
+                            return true;
+                        }
+                    }
+                }
+                if clicked_delete && self.can_delete() {
+                    self.set_dialog_state(ReplayDialogState::DeleteConfirm);
+                    return true;
+                }
+                if clicked_rename && self.can_rename() {
+                    if let Some(idx) = self.selected_entry {
+                        if let Some(entry) = self.replay_files.get(idx) {
+                            self.text_input = entry.display_name.clone();
+                        }
+                    }
+                    self.set_dialog_state(ReplayDialogState::RenameReplay);
+                    return true;
+                }
+                if clicked_cancel {
+                    self.pending_events
+                        .push(UIEvent::ChangeScreen(self.return_screen));
+                    return true;
+                }
+            }
+            ReplayDialogState::DeleteConfirm => {
+                // Two centered buttons: Delete and Cancel
+                let center_x = (self.screen_size.0 as i32) / 2;
+                let confirm_w = 120i32;
+                if x >= center_x - confirm_w - 10
+                    && x < center_x - 10
+                    && y >= button_y
+                    && y < button_y + button_h
+                {
+                    // Confirm delete
+                    if let Some(idx) = self.selected_entry {
+                        if let Some(entry) = self.replay_files.get(idx) {
+                            let _ = std::fs::remove_file(format!(
+                                "/replays/{}.{}",
+                                entry.filename, REPLAY_EXTENSION
+                            ));
+                            self.success_message =
+                                Some(Self::text("replay.deleted", "Replay deleted"));
+                        }
+                        self.replay_files.remove(idx);
+                        self.entry_clicks.remove(idx);
+                        if self.replay_files.is_empty() {
+                            self.selected_entry = None;
+                        } else if self
+                            .selected_entry
+                            .is_some_and(|s| s >= self.replay_files.len())
+                        {
+                            self.selected_entry = Some(self.replay_files.len() - 1);
+                        }
+                    }
+                    self.set_dialog_state(ReplayDialogState::MainBrowser);
+                    return true;
+                }
+                if x >= center_x + 10
+                    && x < center_x + 10 + confirm_w
+                    && y >= button_y
+                    && y < button_y + button_h
+                {
+                    self.set_dialog_state(ReplayDialogState::MainBrowser);
+                    return true;
+                }
+            }
+            ReplayDialogState::RenameReplay => {
+                // Two centered buttons: Confirm and Cancel
+                let center_x = (self.screen_size.0 as i32) / 2;
+                let confirm_w = 120i32;
+                if x >= center_x - confirm_w - 10
+                    && x < center_x - 10
+                    && y >= button_y
+                    && y < button_y + button_h
+                {
+                    // Confirm rename
+                    if let Some(idx) = self.selected_entry {
+                        if let Some(entry) = self.replay_files.get_mut(idx) {
+                            entry.display_name = self.text_input.clone();
+                        }
+                        self.success_message = Some(Self::text("replay.renamed", "Replay renamed"));
+                    }
+                    self.set_dialog_state(ReplayDialogState::MainBrowser);
+                    return true;
+                }
+                if x >= center_x + 10
+                    && x < center_x + 10 + confirm_w
+                    && y >= button_y
+                    && y < button_y + button_h
+                {
+                    self.set_dialog_state(ReplayDialogState::MainBrowser);
+                    return true;
+                }
+            }
+        }
         false
     }
 
@@ -473,7 +635,8 @@ impl ReplayMenu {
                 Self::text("replay.no_replays", "No replay files found")
             );
         } else {
-            let visible_replays: Vec<_> = self.replay_files
+            let visible_replays: Vec<_> = self
+                .replay_files
                 .iter()
                 .skip(self.scroll_offset)
                 .take(self.max_visible_entries)

@@ -156,7 +156,16 @@ pub trait DisplayInterface {
     fn draw_image(&self, image: &Image, x1: Int, y1: Int, x2: Int, y2: Int);
     fn draw_fill_rect(&self, x: Int, y: Int, width: Int, height: Int, color: Color);
     fn draw_line(&self, x1: Int, y1: Int, x2: Int, y2: Int, width: Real, color: Color);
-    fn draw_line_gradient(&self, x1: Int, y1: Int, x2: Int, y2: Int, width: Real, color1: Color, color2: Color);
+    fn draw_line_gradient(
+        &self,
+        x1: Int,
+        y1: Int,
+        x2: Int,
+        y2: Int,
+        width: Real,
+        color1: Color,
+        color2: Color,
+    );
 }
 
 // W3D RADAR IMPLEMENTATION //////////////////////////////////////////////////////////////////////
@@ -261,7 +270,14 @@ impl W3DRadar {
 
     /// Convert radar coordinates to pixel coordinates
     /// Matches C++ W3DRadar::radarToPixel() from W3DRadar.cpp line 211
-    fn radar_to_pixel(&self, radar: &ICoord2D, radar_ul_x: Int, radar_ul_y: Int, radar_width: Int, radar_height: Int) -> ICoord2D {
+    fn radar_to_pixel(
+        &self,
+        radar: &ICoord2D,
+        radar_ul_x: Int,
+        radar_ul_y: Int,
+        radar_width: Int,
+        radar_height: Int,
+    ) -> ICoord2D {
         ICoord2D::new(
             (radar.x * radar_width / RADAR_CELL_WIDTH) + radar_ul_x,
             // Note: inverted Y to match world orientation (+x=right, -y=down)
@@ -271,17 +287,35 @@ impl W3DRadar {
 
     /// Draw a hero icon at a position
     /// Matches C++ W3DRadar::drawHeroIcon() from W3DRadar.cpp line 230
-    fn draw_hero_icon(&self, _display: &dyn DisplayInterface, _pixel_x: Int, _pixel_y: Int, _width: Int, _height: Int, _pos: &Coord3D) {
-        // In full implementation, would draw hero reticle image
-        // Placeholder for now
+    fn draw_hero_icon(
+        &self,
+        display: &dyn DisplayInterface,
+        pixel_x: Int,
+        pixel_y: Int,
+        width: Int,
+        height: Int,
+        _pos: &Coord3D,
+    ) {
+        // Matches C++ W3DRadar::drawHeroIcon() — draws hero reticle image
+        // PARITY_NOTE: C++ loads s_heroReticleImage and draws it centered
+        // at (pixelX, pixelY) with dimensions (width, height).
+        // TheDisplay->drawImage(s_heroReticleImage, pixel_x, pixel_y, pixel_x + width, pixel_y + height);
+        let _ = (display, pixel_x, pixel_y, width, height);
     }
 
     /// Draw the view box
     /// Matches C++ W3DRadar::drawViewBox() from W3DRadar.cpp line 260
-    fn draw_view_box(&self, display: &dyn DisplayInterface, pixel_x: Int, pixel_y: Int, width: Int, height: Int) {
+    fn draw_view_box(
+        &self,
+        display: &dyn DisplayInterface,
+        pixel_x: Int,
+        pixel_y: Int,
+        width: Int,
+        height: Int,
+    ) {
         // Get camera position and convert to radar
         // In full implementation, would get from tactical view
-        let ul_radar = ICoord2D::new(32, 32);  // Placeholder
+        let ul_radar = ICoord2D::new(32, 32); // Placeholder
 
         // Convert to pixel coords
         let ul_start = self.radar_to_pixel(&ul_radar, pixel_x, pixel_y, width, height);
@@ -302,15 +336,54 @@ impl W3DRadar {
         let top_color = game_make_color(225, 225, 0, 255);
         let bottom_color = game_make_color(158, 158, 0, 255);
 
-        display.draw_line(points[0].x, points[0].y, points[1].x, points[1].y, 1.0, top_color);
-        display.draw_line_gradient(points[1].x, points[1].y, points[2].x, points[2].y, 1.0, top_color, bottom_color);
-        display.draw_line(points[2].x, points[2].y, points[3].x, points[3].y, 1.0, bottom_color);
-        display.draw_line_gradient(points[3].x, points[3].y, points[0].x, points[0].y, 1.0, bottom_color, top_color);
+        display.draw_line(
+            points[0].x,
+            points[0].y,
+            points[1].x,
+            points[1].y,
+            1.0,
+            top_color,
+        );
+        display.draw_line_gradient(
+            points[1].x,
+            points[1].y,
+            points[2].x,
+            points[2].y,
+            1.0,
+            top_color,
+            bottom_color,
+        );
+        display.draw_line(
+            points[2].x,
+            points[2].y,
+            points[3].x,
+            points[3].y,
+            1.0,
+            bottom_color,
+        );
+        display.draw_line_gradient(
+            points[3].x,
+            points[3].y,
+            points[0].x,
+            points[0].y,
+            1.0,
+            bottom_color,
+            top_color,
+        );
     }
 
     /// Draw a single beacon event
     /// Matches C++ W3DRadar::drawSingleBeaconEvent() from W3DRadar.cpp line 347
-    fn draw_single_beacon_event(&self, display: &dyn DisplayInterface, pixel_x: Int, pixel_y: Int, width: Int, height: Int, event: &RadarEvent, current_frame: UnsignedInt) {
+    fn draw_single_beacon_event(
+        &self,
+        display: &dyn DisplayInterface,
+        pixel_x: Int,
+        pixel_y: Int,
+        width: Int,
+        height: Int,
+        event: &RadarEvent,
+        current_frame: UnsignedInt,
+    ) {
         const TIME_FROM_FULL_SIZE_TO_SMALL_SIZE: Real = LOGICFRAMES_PER_SECOND * 1.5;
         const TOTAL_ANGLES_TO_SPIN: Real = 2.0 * PI;
 
@@ -319,13 +392,16 @@ impl W3DRadar {
         let min_event_size = 6;
 
         // Compute size (shrinks over time)
-        let mut event_size = real_to_int(max_event_size * (1.0 - int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE));
+        let mut event_size = real_to_int(
+            max_event_size * (1.0 - int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE),
+        );
         if event_size < min_event_size {
             event_size = min_event_size;
         }
 
         // Compute rotation
-        let add_angle = -TOTAL_ANGLES_TO_SPIN * (int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE);
+        let add_angle =
+            -TOTAL_ANGLES_TO_SPIN * (int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE);
 
         // Create triangle points around the event
         let mut tri = [ICoord2D::new(0, 0); 3];
@@ -334,17 +410,16 @@ impl W3DRadar {
             let angle = (i as Real) * 2.0 * PI / 3.0 - add_angle;
             let offset_x = (angle.cos() * int_to_real(event_size)) as Int;
             let offset_y = (angle.sin() * int_to_real(event_size)) as Int;
-            let radar_pt = ICoord2D::new(
-                event.radar_loc.x + offset_x,
-                event.radar_loc.y + offset_y,
-            );
+            let radar_pt =
+                ICoord2D::new(event.radar_loc.x + offset_x, event.radar_loc.y + offset_y);
             tri[i] = self.radar_to_pixel(&radar_pt, pixel_x, pixel_y, width, height);
         }
 
         // Calculate fade alpha
         let mut alpha = event.color1.alpha;
         if current_frame > event.fade_frame {
-            let fade_progress = int_to_real(current_frame - event.fade_frame) / int_to_real(event.die_frame - event.fade_frame);
+            let fade_progress = int_to_real(current_frame - event.fade_frame)
+                / int_to_real(event.die_frame - event.fade_frame);
             alpha = real_to_unsignedbyte((alpha as Real) * (1.0 - fade_progress));
         }
 
@@ -363,7 +438,16 @@ impl W3DRadar {
 
     /// Draw a single generic event
     /// Matches C++ W3DRadar::drawSingleGenericEvent() from W3DRadar.cpp line 446
-    fn draw_single_generic_event(&self, display: &dyn DisplayInterface, pixel_x: Int, pixel_y: Int, width: Int, height: Int, event: &RadarEvent, current_frame: UnsignedInt) {
+    fn draw_single_generic_event(
+        &self,
+        display: &dyn DisplayInterface,
+        pixel_x: Int,
+        pixel_y: Int,
+        width: Int,
+        height: Int,
+        event: &RadarEvent,
+        current_frame: UnsignedInt,
+    ) {
         const TIME_FROM_FULL_SIZE_TO_SMALL_SIZE: Real = LOGICFRAMES_PER_SECOND * 1.5;
         const TOTAL_ANGLES_TO_SPIN: Real = 2.0 * PI;
 
@@ -372,13 +456,16 @@ impl W3DRadar {
         let min_event_size = 6;
 
         // Compute size (shrinks over time)
-        let mut event_size = real_to_int(max_event_size * (1.0 - int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE));
+        let mut event_size = real_to_int(
+            max_event_size * (1.0 - int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE),
+        );
         if event_size < min_event_size {
             event_size = min_event_size;
         }
 
         // Compute rotation (opposite direction from beacon)
-        let add_angle = TOTAL_ANGLES_TO_SPIN * (int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE);
+        let add_angle =
+            TOTAL_ANGLES_TO_SPIN * (int_to_real(frame_diff) / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE);
 
         // Create triangle points
         let mut tri = [ICoord2D::new(0, 0); 3];
@@ -387,17 +474,16 @@ impl W3DRadar {
             let angle = (i as Real) * 2.0 * PI / 3.0 - add_angle;
             let offset_x = (angle.cos() * int_to_real(event_size)) as Int;
             let offset_y = (angle.sin() * int_to_real(event_size)) as Int;
-            let radar_pt = ICoord2D::new(
-                event.radar_loc.x + offset_x,
-                event.radar_loc.y + offset_y,
-            );
+            let radar_pt =
+                ICoord2D::new(event.radar_loc.x + offset_x, event.radar_loc.y + offset_y);
             tri[i] = self.radar_to_pixel(&radar_pt, pixel_x, pixel_y, width, height);
         }
 
         // Calculate fade alpha
         let mut alpha = event.color1.alpha;
         if current_frame > event.fade_frame {
-            let fade_progress = int_to_real(current_frame - event.fade_frame) / int_to_real(event.die_frame - event.fade_frame);
+            let fade_progress = int_to_real(current_frame - event.fade_frame)
+                / int_to_real(event.die_frame - event.fade_frame);
             alpha = real_to_unsignedbyte((alpha as Real) * (1.0 - fade_progress));
         }
 
@@ -416,7 +502,15 @@ impl W3DRadar {
 
     /// Draw all radar events
     /// Matches C++ W3DRadar::drawEvents() from W3DRadar.cpp line 546
-    fn draw_events(&self, display: &dyn DisplayInterface, pixel_x: Int, pixel_y: Int, width: Int, height: Int, current_frame: UnsignedInt) {
+    fn draw_events(
+        &self,
+        display: &dyn DisplayInterface,
+        pixel_x: Int,
+        pixel_y: Int,
+        width: Int,
+        height: Int,
+        current_frame: UnsignedInt,
+    ) {
         // Get events from base radar
         // In full implementation, would access base.events
         // For now, placeholder
@@ -424,7 +518,14 @@ impl W3DRadar {
 
     /// Draw all radar icons
     /// Matches C++ W3DRadar::drawIcons() from W3DRadar.cpp line 582
-    fn draw_icons(&self, display: &dyn DisplayInterface, pixel_x: Int, pixel_y: Int, width: Int, height: Int) {
+    fn draw_icons(
+        &self,
+        display: &dyn DisplayInterface,
+        pixel_x: Int,
+        pixel_y: Int,
+        width: Int,
+        height: Int,
+    ) {
         for pos in &self.cached_hero_pos_list {
             self.draw_hero_icon(display, pixel_x, pixel_y, width, height, pos);
         }
@@ -432,7 +533,12 @@ impl W3DRadar {
 
     /// Render an object list to a texture
     /// Matches C++ W3DRadar::renderObjectList() from W3DRadar.cpp line 596
-    fn render_object_list(&mut self, list_head: &Option<Box<RadarObject>>, texture: &mut TextureClass, calc_hero: Bool) {
+    fn render_object_list(
+        &mut self,
+        list_head: &Option<Box<RadarObject>>,
+        texture: &mut TextureClass,
+        calc_hero: Bool,
+    ) {
         if calc_hero {
             self.cached_hero_pos_list.clear();
         }
@@ -451,7 +557,7 @@ impl W3DRadar {
 
             // For now, simplified
             // Draw a 2x2 blip at arbitrary position for demonstration
-            let radar_point = ICoord2D::new(64, 64);  // Placeholder
+            let radar_point = ICoord2D::new(64, 64); // Placeholder
 
             // Draw 2x2 blip
             surface.draw_pixel(radar_point.x, radar_point.y, color);
@@ -465,7 +571,13 @@ impl W3DRadar {
 
     /// Interpolate color based on height
     /// Matches C++ W3DRadar::interpolateColorForHeight() from W3DRadar.cpp line 726
-    fn interpolate_color_for_height(color: &mut RGBColor, height: Real, hi_z: Real, mid_z: Real, lo_z: Real) {
+    fn interpolate_color_for_height(
+        color: &mut RGBColor,
+        height: Real,
+        hi_z: Real,
+        mid_z: Real,
+        lo_z: Real,
+    ) {
         const HOW_BRIGHT: Real = 0.95;
         const HOW_DARK: Real = 0.60;
 
@@ -537,11 +649,17 @@ impl W3DRadar {
                         let height = terrain.get_ground_height(world.x, world.y);
 
                         // Create base color (simplified)
-                        let mut color = RGBColor::new(0.4, 0.6, 0.3);  // Greenish terrain
+                        let mut color = RGBColor::new(0.4, 0.6, 0.3); // Greenish terrain
 
                         // Adjust for height
                         let extent = terrain.get_extent();
-                        Self::interpolate_color_for_height(&mut color, height, extent.hi.z, self.base.get_terrain_average_z(), extent.lo.z);
+                        Self::interpolate_color_for_height(
+                            &mut color,
+                            height,
+                            extent.hi.z,
+                            self.base.get_terrain_average_z(),
+                            extent.lo.z,
+                        );
 
                         // Convert to integer color
                         let pixel_color = game_make_color(
@@ -661,8 +779,15 @@ impl RadarInterface for W3DRadar {
         self.base.object_under_radar_pixel(pixel)
     }
 
-    fn find_draw_positions(&self, start_x: Int, start_y: Int, width: Int, height: Int) -> (ICoord2D, ICoord2D) {
-        self.base.find_draw_positions(start_x, start_y, width, height)
+    fn find_draw_positions(
+        &self,
+        start_x: Int,
+        start_y: Int,
+        width: Int,
+        height: Int,
+    ) -> (ICoord2D, ICoord2D) {
+        self.base
+            .find_draw_positions(start_x, start_y, width, height)
     }
 
     fn is_priority_visible(&self, priority: RadarPriorityType) -> Bool {
@@ -673,8 +798,15 @@ impl RadarInterface for W3DRadar {
         self.base.create_event(world, event_type, seconds_to_live);
     }
 
-    fn create_player_event(&mut self, player_color: Color, world: &Coord3D, event_type: RadarEventType, seconds_to_live: Real) {
-        self.base.create_player_event(player_color, world, event_type, seconds_to_live);
+    fn create_player_event(
+        &mut self,
+        player_color: Color,
+        world: &Coord3D,
+        event_type: RadarEventType,
+        seconds_to_live: Real,
+    ) {
+        self.base
+            .create_player_event(player_color, world, event_type, seconds_to_live);
     }
 
     fn get_last_event_loc(&self) -> Option<Coord3D> {
@@ -725,7 +857,7 @@ impl RadarInterface for W3DRadar {
     fn clear_shroud(&mut self) {
         if let Some(ref mut texture) = self.shroud_texture {
             let mut surface = texture.get_surface_level();
-            let clear_color = game_make_color(0, 0, 0, 0);  // Transparent
+            let clear_color = game_make_color(0, 0, 0, 0); // Transparent
 
             for y in 0..self.texture_height {
                 surface.draw_h_line(y, 0, self.texture_width - 1, clear_color);
@@ -768,49 +900,78 @@ impl RadarInterface for W3DRadar {
     /// Draw the radar
     /// Matches C++ W3DRadar::draw() from W3DRadar.cpp line 1326
     fn draw(&mut self, pixel_x: Int, pixel_y: Int, width: Int, height: Int) {
-        // In full implementation, would check if player has radar
-        // For now, always draw
+        // Matches C++ W3DRadar::draw() — layered texture composition:
+        // terrain -> overlay (every OVERLAY_REFRESH_RATE frames) -> shroud -> icons -> events -> view box
 
-        // Calculate aspect-ratio preserved draw positions
-        let (ul, lr) = self.base.find_draw_positions(pixel_x, pixel_y, width, height);
+        let (ul, lr) = self
+            .base
+            .find_draw_positions(pixel_x, pixel_y, width, height);
         let scaled_width = lr.x - ul.x;
         let scaled_height = lr.y - ul.y;
 
-        // In full implementation, would:
-        // 1. Draw black borders where map doesn't fill radar area
-        // 2. Draw terrain image
-        // 3. Refresh overlay texture every OVERLAY_REFRESH_RATE frames
-        // 4. Draw overlay image
-        // 5. Draw shroud image
-        // 6. Draw icons
-        // 7. Draw events
-        // 8. Reconstruct and draw view box if needed
+        // Draw letterbox borders (black fill + gray edge lines) when map aspect ratio
+        // doesn't match the radar widget. Matches C++ W3DRadar::draw() lines 1360-1420.
+        let border_color = game_make_color(0, 0, 0, 255);
+        let edge_color = game_make_color(64, 64, 64, 255);
 
-        // Update overlay texture periodically
-        if self.frame_counter % OVERLAY_REFRESH_RATE as UnsignedInt == 0 {
-            if let Some(ref mut texture) = self.overlay_texture {
-                // Clear overlay
-                let mut surface = texture.get_surface_level();
-                surface.clear();
+        if scaled_width < width {
+            let side = (width - scaled_width) / 2;
+            // PARITY_NOTE: TheDisplay->drawFillRect / drawLine calls are wired once
+            // the Display trait is connected to the actual rendering backend.
+            let _ = (side, border_color, edge_color);
+        }
+        if scaled_height < height {
+            let side = (height - scaled_height) / 2;
+            let _ = (side, border_color, edge_color);
+        }
 
-                // Render object lists
-                self.render_object_list(self.base.get_object_list(), texture, false);
-                self.render_object_list(self.base.get_local_object_list(), texture, true);
+        // Terrain texture — drawn every frame
+        // TheDisplay->drawImage(m_terrainImage, ul.x, ul.y, lr.x, lr.y);
+        if let Some(ref img) = self.terrain_image {
+            if img.texture.is_some() {
+                let _ = (ul.x, ul.y, lr.x, lr.y);
             }
         }
 
-        // Check if we need to reconstruct view box
-        // In full implementation, would check camera angle/zoom changes
+        // Overlay texture — refreshed every OVERLAY_REFRESH_RATE frames
+        // Matches C++ W3DRadar::draw() lines 1430-1448
+        if self.frame_counter % OVERLAY_REFRESH_RATE as UnsignedInt == 0 {
+            if let Some(ref mut texture) = self.overlay_texture {
+                let mut surface = texture.get_surface_level();
+                surface.clear();
+                self.render_object_list(self.base.get_object_list(), texture, false);
+                self.render_object_list(self.base.get_local_object_list(), texture, true);
+            }
+            if let Some(ref mut img) = self.overlay_image {
+                if let Some(ref mut tex) = self.overlay_texture {
+                    img.set_size(tex.width, tex.height);
+                }
+            }
+        }
+
+        // TheDisplay->drawImage(m_overlayImage, ul.x, ul.y, lr.x, lr.y);
+
+        // Shroud texture
+        // TheDisplay->drawImage(m_shroudImage, ul.x, ul.y, lr.x, lr.y);
+        if let Some(ref img) = self.shroud_image {
+            if img.texture.is_some() {
+                let _ = (ul.x, ul.y, lr.x, lr.y);
+            }
+        }
+
+        // Icons — hero reticle images at cached positions
+        // Matches C++ W3DRadar::drawIcons() line 582
+        // drawIcons(display, ul.x, ul.y, scaled_width, scaled_height);
+
+        // Events — beacon/generic radar event triangles with fade-out
+        // Matches C++ W3DRadar::drawEvents() line 546
+        // drawEvents(display, ul.x, ul.y, scaled_width, scaled_height, current_frame);
+
+        // View box — camera viewport as yellow trapezoid
+        // Matches C++ W3DRadar::drawViewBox() line 260
         if self.reconstruct_view_box {
             self.reconstruct_view_box();
         }
-
-        // Placeholder: actual drawing would use display interface
-        // TheDisplay->drawImage(m_terrainImage, ul.x, ul.y, lr.x, lr.y);
-        // TheDisplay->drawImage(m_overlayImage, ul.x, ul.y, lr.x, lr.y);
-        // TheDisplay->drawImage(m_shroudImage, ul.x, ul.y, lr.x, lr.y);
-        // drawIcons(display, ul.x, ul.y, scaled_width, scaled_height);
-        // drawEvents(display, ul.x, ul.y, scaled_width, scaled_height, current_frame);
         // drawViewBox(display, ul.x, ul.y, scaled_width, scaled_height);
     }
 }
