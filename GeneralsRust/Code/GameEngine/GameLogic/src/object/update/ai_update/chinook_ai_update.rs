@@ -142,7 +142,32 @@ impl Snapshotable for ChinookAIUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        self.base.xfer(xfer)?;
+        xfer_io(xfer.xfer_int(&mut self.max_boxes_data))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.center_delay))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.warehouse_delay))?;
+        xfer_io(xfer.xfer_real(&mut self.warehouse_scan_distance))?;
+        xfer_io(xfer.xfer_ascii_string(self.supplies_depleted_voice.as_mut_string_buffer()))?;
+        xfer_io(xfer.xfer_ascii_string(self.rope_name.as_mut_string_buffer()))?;
+        xfer_io(xfer.xfer_ascii_string(self.rotor_wash_particle_system.as_mut_string_buffer()))?;
+        xfer_io(xfer.xfer_real(&mut self.rappel_speed))?;
+        xfer_io(xfer.xfer_real(&mut self.rope_drop_speed))?;
+        xfer_io(xfer.xfer_real(&mut self.rope_width))?;
+        xfer_io(xfer.xfer_real(&mut self.rope_final_height))?;
+        xfer_io(xfer.xfer_real(&mut self.rope_wobble_len))?;
+        xfer_io(xfer.xfer_real(&mut self.rope_wobble_amp))?;
+        xfer_io(xfer.xfer_real(&mut self.rope_wobble_rate))?;
+        xfer_io(xfer.xfer_unsigned_byte(&mut self.rope_color.r))?;
+        xfer_io(xfer.xfer_unsigned_byte(&mut self.rope_color.g))?;
+        xfer_io(xfer.xfer_unsigned_byte(&mut self.rope_color.b))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.num_ropes))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.per_rope_delay_min))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.per_rope_delay_max))?;
+        xfer_io(xfer.xfer_real(&mut self.min_drop_height))?;
+        xfer_io(xfer.xfer_bool(&mut self.wait_for_ropes_to_drop))?;
+        xfer_io(xfer.xfer_int(&mut self.upgraded_supply_boost))?;
         Ok(())
     }
 
@@ -1822,12 +1847,12 @@ impl Module for ChinookAIUpdateModule {
 }
 
 impl Snapshotable for ChinookAIUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.data.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Arc::make_mut(&mut self.data).xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

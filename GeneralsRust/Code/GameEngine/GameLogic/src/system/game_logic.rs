@@ -1953,11 +1953,9 @@ impl GameLogic {
         // Phase 16: Frame Increment (C++ lines 3799-3802)
         // -----------------------------------------------------------------------
         // C++: if (!m_startNewGame) { m_frame++; }
-        //
-        // The frame is NOT incremented here because the caller passes the
-        // frame number explicitly. The caller is responsible for incrementing
-        // between calls. (In C++, GameLogic owns the frame counter; in Rust
-        // the caller (update_game_logic) drives the frame.)
+        if !crate::helpers::TheGameLogic::is_start_new_game_requested() {
+            self.frame += 1;
+        }
 
         self.is_in_update = false;
 

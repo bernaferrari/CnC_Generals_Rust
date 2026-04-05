@@ -618,8 +618,8 @@ impl AttackPriorityInfo {
 }
 
 impl XferSnapshot for AttackPriorityInfo {
-    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        Ok(())
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -701,8 +701,8 @@ impl SequentialScript {
 }
 
 impl XferSnapshot for SequentialScript {
-    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        Ok(())
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        self.xfer(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -1898,12 +1898,11 @@ impl ScriptEngine {
             log::info!("ScriptEngine first update: named cache populated");
         }
 
-        // Update timers
-        if self.end_game_timer >= 0 {
+        if self.end_game_timer > 0 {
             self.end_game_timer -= 1;
-            if self.end_game_timer <= 0 {
-                log::info!("End game timer expired");
-                // In real implementation, this would end the game
+            if self.end_game_timer < 1 {
+                log::info!("End game timer expired, clearing game data");
+                let _ = TheGameLogic::clear_game_data();
             }
         }
 
@@ -3207,6 +3206,16 @@ impl ScriptEngine {
     pub fn remove_all_sequential_scripts_for_object(&mut self, object_id: ObjectID) {
         self.sequential_scripts
             .retain(|script| script.object_id != object_id);
+    }
+
+    /// Check if a specific object has any active sequential scripts running.
+    /// PARITY_NOTE: C++ ScriptConditions does not have a case for UNIT_COMPLETED_SEQUENTIAL_EXECUTION
+    /// in its evaluateCondition switch (hits default DEBUG_CRASH returning false). This provides
+    /// the intended semantics: returns false if scripts are still active, true if none remain.
+    pub fn has_active_sequential_script_for_object(&self, object_id: ObjectID) -> bool {
+        self.sequential_scripts
+            .iter()
+            .any(|script| script.object_id == object_id)
     }
 
     /// Remove all sequential scripts bound to a specific team.

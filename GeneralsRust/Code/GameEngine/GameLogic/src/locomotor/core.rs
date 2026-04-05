@@ -21,8 +21,8 @@ use std::sync::{Arc, Mutex, RwLock};
 // ENUMS AND CONSTANTS
 // ============================================================================
 
-/// Logic frames per second matching C++ TheGlobalData::m_framesPerSecond
-const LOGICFRAMES_PER_SECOND: u32 = 30;
+/// Logic frames per second — canonical constant from Common (C++ TheGlobalData::m_framesPerSecond)
+use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 
 /// Donut timer delay in seconds. Matches C++ Locomotor.cpp:31 DONUT_TIME_DELAY_SECONDS
 const DONUT_TIME_DELAY_SECONDS: Real = 2.5;

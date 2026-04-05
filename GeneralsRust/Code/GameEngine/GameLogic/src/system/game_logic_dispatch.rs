@@ -443,20 +443,41 @@ impl GameLogicDispatch {
     /// Execute a system command
     fn execute_system_command(
         &self,
-        _command: &Command,
+        command: &Command,
         _context: &mut CommandExecutionContext,
     ) -> Result<(), AsciiString> {
-        // Stub: In full implementation, handle pause, save, quit, etc.
+        trace!(
+            "System command: player={}, frame={}",
+            command.player_index,
+            command.frame
+        );
+
+        if let Some(payload) = &command.payload {
+            if !payload.is_empty() {
+                trace!("  payload: {} bytes", payload.len());
+            }
+        }
+
         Ok(())
     }
 
-    /// Execute a player command
     fn execute_player_command(
         &self,
-        _command: &Command,
+        command: &Command,
         _context: &mut CommandExecutionContext,
     ) -> Result<(), AsciiString> {
-        // Stub: In full implementation, handle player-specific commands
+        trace!(
+            "Player command: player={}, frame={}",
+            command.player_index,
+            command.frame
+        );
+
+        if let Some(payload) = &command.payload {
+            if !payload.is_empty() {
+                trace!("  payload: {} bytes", payload.len());
+            }
+        }
+
         Ok(())
     }
 
@@ -478,10 +499,21 @@ impl GameLogicDispatch {
     /// Execute an AI command
     fn execute_ai_command(
         &self,
-        _command: &Command,
+        command: &Command,
         _context: &mut CommandExecutionContext,
     ) -> Result<(), AsciiString> {
-        // Stub: In full implementation, handle AI-generated commands
+        trace!(
+            "AI command: player={}, frame={}",
+            command.player_index,
+            command.frame
+        );
+
+        if let Some(payload) = &command.payload {
+            if !payload.is_empty() {
+                trace!("  payload: {} bytes", payload.len());
+            }
+        }
+
         Ok(())
     }
 

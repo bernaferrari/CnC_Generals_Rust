@@ -528,7 +528,35 @@ impl IconInfo {
 }
 
 impl Snapshotable for IconInfo {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut icon_count)
+            .map_err(|e| format!("{:?}", e))?;
+
+        for icon_type in IconType::XFER_ORDER {
+            let Some(icon) = self.icons.get(&icon_type) else {
+                continue;
+            };
+
+            let mut icon_name = icon_type.name().to_string();
+            xfer.xfer_ascii_string(&mut icon_name)
+                .map_err(|e| format!("{:?}", e))?;
+
+            let mut keep = *self.keep_till_frame.get(&icon_type).unwrap_or(&0);
+            xfer.xfer_unsigned_int(&mut keep)
+                .map_err(|e| format!("{:?}", e))?;
+
+            let icon = icon
+                .as_any()
+                .downcast_ref::<Anim2DIcon>()
+                .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?;
+            let mut template_name = icon.template_name().to_string();
+            xfer.xfer_ascii_string(&mut template_name)
+                .map_err(|e| format!("{:?}", e))?;
+
+            icon.xfer(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -890,7 +918,31 @@ impl TintEnvelope {
 }
 
 impl Snapshotable for TintEnvelope {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut attack_rate = self.attack_rate;
+        xfer_vector3(xfer, &mut attack_rate)?;
+
+        let mut decay_rate = self.decay_rate;
+        xfer_vector3(xfer, &mut decay_rate)?;
+
+        let mut peak_color = self.peak_color;
+        xfer_vector3(xfer, &mut peak_color)?;
+
+        let mut current_color = self.current_color;
+        xfer_vector3(xfer, &mut current_color)?;
+
+        let mut sustain_counter = self.sustain_counter;
+        xfer.xfer_unsigned_int(&mut sustain_counter)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut state = envelope_state_to_u8(self.state);
+        xfer.xfer_unsigned_byte(&mut state)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut effective = self.is_effective;
+        xfer.xfer_bool(&mut effective)
+            .map_err(|e| format!("{:?}", e))?;
+
         Ok(())
     }
 
@@ -1627,6 +1679,14 @@ impl BasicDrawable {
         self.hidden_by_stealth = hidden;
     }
 
+    fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
+        self.object_id.map_or(false, |obj_id| {
+            OBJECT_REGISTRY.get_object(obj_id).map_or(false, |obj_arc| {
+                obj_arc.read().map_or(false, |obj| obj.is_kind_of(kind))
+            })
+        })
+    }
+
     /// Full stealth look logic ported from C++ Drawable::setStealthLook (Drawable.cpp:2527-2606).
     /// Sets stealth opacity, hidden-by-stealth flag, and second material pass opacity
     /// based on the stealth look type. The trait's set_stealth_look delegates here.
@@ -1659,10 +1719,9 @@ impl BasicDrawable {
 
                 // C++ sets second material pass for heat-vision on detected friendlies,
                 // but not on mines (evil hack per srj todo).
-                // PARITY_NOTE: KINDOF_MINE check not yet available (Drawable.cpp:2574).
-                // When ported, add: && !is_kind_of(KINDOF_MINE) to the condition below.
-                // For now, heat-vision is applied to all detected friendlies including mines.
-                if look == StealthLook::VisibleFriendlyDetected {
+                if look == StealthLook::VisibleFriendlyDetected
+                    && !self.is_object_kind_of(gamelogic::common::types::KindOf::Mine)
+                {
                     self.second_material_pass_opacity = 1.0;
                 } else {
                     self.second_material_pass_opacity = 0.0;
@@ -1673,13 +1732,13 @@ impl BasicDrawable {
                 self.second_material_pass_opacity = 0.0;
             }
             StealthLook::VisibleDetected => {
-                // Non-controlling player can see the stealthed unit via heat vision.
                 self.hidden_by_stealth = false;
                 // C++ disables heat-vision on mines (same hack as above).
-                // PARITY_NOTE: KINDOF_MINE check not yet available (Drawable.cpp:2592).
-                // When ported, add: if is_kind_of(KINDOF_MINE) { opacity = 0.0 }.
-                // For now, heat-vision is enabled for all detected stealthed units.
-                self.second_material_pass_opacity = 1.0;
+                if self.is_object_kind_of(gamelogic::common::types::KindOf::Mine) {
+                    self.second_material_pass_opacity = 0.0;
+                } else {
+                    self.second_material_pass_opacity = 1.0;
+                }
             }
             StealthLook::Invisible => {
                 self.hidden_by_stealth = true;
@@ -2915,7 +2974,174 @@ impl Drawable for BasicDrawable {
 }
 
 impl Snapshotable for BasicDrawable {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut id = self.id.0;
+        xfer.xfer_unsigned_int(&mut id)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut flags = self.model_condition_flags.clone();
+        xfer_model_condition_flags(xfer, &mut flags)?;
+
+        let mut position = self.position;
+        xfer_vector3(xfer, &mut position)?;
+
+        let mut instance_transform = self.instance_transform;
+        xfer_matrix4(xfer, &mut instance_transform)?;
+
+        let mut instance_scale = self.instance_scale;
+        xfer.xfer_real(&mut instance_scale)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut status_bits = self.status.bits;
+        xfer.xfer_unsigned_int(&mut status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut tint_status_bits = self.tint_status.bits;
+        xfer.xfer_unsigned_int(&mut tint_status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut prev_tint_status_bits = self.prev_tint_status.bits;
+        xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut visible = self.visible;
+        xfer.xfer_bool(&mut visible)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut hidden = self.hidden;
+        xfer.xfer_bool(&mut hidden)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut hidden_by_stealth = self.hidden_by_stealth;
+        xfer.xfer_bool(&mut hidden_by_stealth)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut selected = self.selected;
+        xfer.xfer_bool(&mut selected)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut selectable = self.selectable;
+        xfer.xfer_bool(&mut selectable)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut opacity = self.opacity;
+        xfer.xfer_real(&mut opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut explicit_opacity = self.explicit_opacity;
+        xfer.xfer_real(&mut explicit_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut stealth_opacity = self.stealth_opacity;
+        xfer.xfer_real(&mut stealth_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut effective_stealth_opacity = self.effective_stealth_opacity;
+        xfer.xfer_real(&mut effective_stealth_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
+        xfer.xfer_unsigned_byte(&mut stealth_look)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut tint_color = self.tint_color;
+        xfer_vector3(xfer, &mut tint_color)?;
+
+        let mut has_tint_envelope = self.tint_envelope.is_some();
+        xfer.xfer_bool(&mut has_tint_envelope)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_tint_envelope {
+            if let Some(ref envelope) = self.tint_envelope {
+                Snapshotable::crc(envelope, xfer)?;
+            }
+        }
+
+        let mut has_selection_flash = self.selection_flash_envelope.is_some();
+        xfer.xfer_bool(&mut has_selection_flash)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_selection_flash {
+            if let Some(ref envelope) = self.selection_flash_envelope {
+                Snapshotable::crc(envelope, xfer)?;
+            }
+        }
+
+        let mut has_icon_info = self.icon_info.is_some();
+        xfer.xfer_bool(&mut has_icon_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_icon_info {
+            if let Some(ref icon_info) = self.icon_info {
+                Snapshotable::crc(icon_info, xfer)?;
+            }
+        }
+
+        let mut has_loco_info = self.loco_info.is_some();
+        xfer.xfer_bool(&mut has_loco_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_loco_info {
+            if let Some(ref loco_info) = self.loco_info {
+                Snapshotable::crc(loco_info, xfer)?;
+            }
+        }
+
+        let mut receives_dynamic_lights = self.receives_dynamic_lights;
+        xfer.xfer_bool(&mut receives_dynamic_lights)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
+        xfer.xfer_unsigned_byte(&mut decal_type)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut terrain_decal_size = self.terrain_decal_size;
+        xfer_vector3(xfer, &mut terrain_decal_size)?;
+
+        let mut decal_opacity = self.decal_opacity;
+        xfer.xfer_real(&mut decal_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
+        xfer.xfer_real(&mut decal_opacity_fade_target)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
+        xfer.xfer_real(&mut decal_opacity_fade_rate)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
+        xfer.xfer_unsigned_byte(&mut fade_mode)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut time_to_fade = self.time_to_fade;
+        xfer.xfer_unsigned_int(&mut time_to_fade)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut time_elapsed_fade = self.time_elapsed_fade;
+        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut second_material_pass_opacity = self.second_material_pass_opacity;
+        xfer.xfer_real(&mut second_material_pass_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut flash_count = self.flash_count;
+        xfer.xfer_unsigned_int(&mut flash_count)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut flash_color = self.flash_color;
+        xfer_vector3(xfer, &mut flash_color)?;
+
+        let mut has_expiration = self.expiration_frame.is_some();
+        xfer.xfer_bool(&mut has_expiration)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_expiration {
+            let mut frame = self.expiration_frame.unwrap_or(0);
+            xfer.xfer_unsigned_int(&mut frame)
+                .map_err(|e| format!("{:?}", e))?;
+        }
+
+        let mut current_frame = self.current_frame;
+        xfer.xfer_unsigned_int(&mut current_frame)
+            .map_err(|e| format!("{:?}", e))?;
+
         Ok(())
     }
 
@@ -2931,7 +3157,8 @@ impl Snapshotable for BasicDrawable {
         self.id = DrawableId(id);
 
         if version >= 2 {
-            xfer_model_condition_flags(xfer, &mut self.model_condition_flags)?;
+            let mut flags = self.model_condition_flags.clone();
+            xfer_model_condition_flags(xfer, &mut flags)?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.replace_model_condition_flags(self.model_condition_flags.clone(), true);
             }

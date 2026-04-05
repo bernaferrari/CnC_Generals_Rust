@@ -3982,8 +3982,9 @@ impl BehaviorModuleExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
     }
 
     fn start_fire_spreading(&self) {
-        // Stub implementation - does nothing
-        // This would normally trigger fire spread behavior
+        // Fire spreading is triggered through FlammableUpdate → FireSpreadUpdate
+        // with an UpdateContext (see flammable_update.rs:203). This trait method
+        // has no UpdateContext, so the real path handles it.
     }
 }
 

@@ -3977,11 +3977,11 @@ impl Object {
         self.armor_set_flags.clear(flag);
     }
 
-    /// C++ parity: Object::getAmmoPipShowingInfo (Drawable.cpp line 2874).
-    /// Returns (numTotal, numFull) for ammo pip display. Returns (0, 0) when not applicable.
-    /// TODO: fully port C++ ammo pip logic from WeaponSet.
     pub fn get_ammo_pip_info(&self) -> (i32, i32) {
-        (0, 0)
+        match self.weapon_set.find_ammo_pip_showing_weapon() {
+            Some(w) => (w.get_template().get_clip_size(), w.get_remaining_ammo() as i32),
+            None => (0, 0),
+        }
     }
 
     pub fn reload_all_ammo(&mut self, now: bool) -> GameLogicResult<()> {
@@ -6899,8 +6899,6 @@ impl Object {
     // HELPER METHODS FOR CRITICAL SYSTEMS
     //=========================================================================
 
-    /// Set a model condition state flag
-    /// Stub implementation - full implementation would update visual state
     pub fn set_model_condition_state(&mut self, flag: ModelConditionFlags) {
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable) = drawable.write() {
@@ -6909,8 +6907,6 @@ impl Object {
         }
     }
 
-    /// Clear a model condition state flag
-    /// Stub implementation - full implementation would update visual state
     pub fn clear_model_condition_state(&mut self, flag: ModelConditionFlags) {
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable) = drawable.write() {
@@ -9585,8 +9581,6 @@ impl Object {
         Ok(())
     }
 
-    /// Execute a command button at a target object
-    /// Stub implementation for compilation
     pub fn do_command_button_at_object(
         &self,
         button_id: u32,
@@ -10031,7 +10025,7 @@ impl Object {
 
     //=========================================================================
     // CONTAINER AND PARTITION METHODS
-    // Stub implementations for container and spatial partition management
+    // Container and spatial partition management
     //=========================================================================
 
     /// Set the container that contains this object

@@ -297,14 +297,46 @@ pub fn get_damage_fx_store_mut() -> std::sync::MutexGuard<'static, DamageFXStore
 pub struct DamageTypeFlags;
 
 impl DamageTypeFlags {
-    /// Get damage type from name
-    pub fn get_single_bit_from_name(name: &str) -> Option<DamageType> {
-        // Placeholder implementation
-        match name.to_lowercase().as_str() {
-            "explosion" => Some(0),
-            "flame" => Some(1),
-            "laser" => Some(2),
-            "small_arms" => Some(3),
+    pub fn get_single_bit_from_name(name: &str) -> Option<u32> {
+        match name.to_uppercase().as_str() {
+            "EXPLOSION" => Some(0),
+            "CRUSH" => Some(1),
+            "ARMOR_PIERCING" => Some(2),
+            "SMALL_ARMS" => Some(3),
+            "GATTLING" => Some(4),
+            "RADIATION" => Some(5),
+            "FLAME" => Some(6),
+            "LASER" => Some(7),
+            "SNIPER" => Some(8),
+            "POISON" => Some(9),
+            "HEALING" => Some(10),
+            "UNRESISTABLE" => Some(11),
+            "WATER" => Some(12),
+            "DEPLOY" => Some(13),
+            "SURRENDER" => Some(14),
+            "HACK" => Some(15),
+            "KILLPILOT" => Some(16),
+            "PENALTY" => Some(17),
+            "FALLING" => Some(18),
+            "MELEE" => Some(19),
+            "DISARM" => Some(20),
+            "HAZARD_CLEANUP" => Some(21),
+            "PARTICLE_BEAM" => Some(22),
+            "TOPPLING" => Some(23),
+            "INFANTRY_MISSILE" => Some(24),
+            "AURORA_BOMB" => Some(25),
+            "LAND_MINE" => Some(26),
+            "JET_MISSILES" => Some(27),
+            "STEALTHJET_MISSILES" => Some(28),
+            "MOLOTOV_COCKTAIL" => Some(29),
+            "COMANCHE_VULCAN" => Some(30),
+            "SUBDUAL_MISSILE" => Some(31),
+            "SUBDUAL_VEHICLE" => Some(32),
+            "SUBDUAL_BUILDING" => Some(33),
+            "SUBDUAL_UNRESISTABLE" => Some(34),
+            "MICROWAVE" => Some(35),
+            "KILL_GARRISONED" => Some(36),
+            "STATUS" => Some(37),
             _ => None,
         }
     }
