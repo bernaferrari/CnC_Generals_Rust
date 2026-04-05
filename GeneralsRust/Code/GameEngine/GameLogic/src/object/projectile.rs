@@ -6,10 +6,14 @@
 use crate::common::ObjectID;
 use crate::common::*;
 use crate::damage::DamageInfo;
+use crate::helpers::TheThingFactory;
+use crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModuleData;
+use crate::object::draw::w3d_projectile_draw::W3DProjectileDrawModuleData;
+use crate::object::update::missile_ai_update::MissileAIUpdateModuleData;
 use crate::object::Object;
 use crate::physics::{ballistics, get_physics_engine, AIR_RESISTANCE, GRAVITY};
 use crate::team::Team;
-use crate::weapon::{DamageType, Weapon, WeaponTemplate};
+use crate::weapon::{DamageType, WeaponTemplate};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Types of projectiles
@@ -188,12 +192,116 @@ impl Projectile {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let projectile_type = Self::determine_projectile_type(&weapon_template);
         let movement_pattern = Self::determine_movement_pattern(&weapon_template);
+        let weapon_speed = weapon_template
+            .weapon_speed
+            .max(weapon_template.min_weapon_speed);
+        let guided = Self::has_projectile_behavior(&weapon_template, "MissileAIUpdate")
+            || Self::has_projectile_behavior(&weapon_template, "SmartBombTargetHomingUpdate");
+        let missile_ai = Self::missile_ai_data(&weapon_template);
+        let dumb_projectile = Self::dumb_projectile_data(&weapon_template);
+
+        let initial_velocity = missile_ai
+            .as_ref()
+            .map(|data| {
+                if data.use_weapon_speed {
+                    weapon_speed
+                } else if data.initial_velocity > 0.0 {
+                    data.initial_velocity
+                } else {
+                    weapon_speed
+                }
+            })
+            .unwrap_or(weapon_speed);
+
+        let lifetime = missile_ai
+            .as_ref()
+            .and_then(|data| {
+                if data.fuel_lifetime > 0 {
+                    Some(data.fuel_lifetime as Real / LOGICFRAMES_PER_SECOND as Real)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                dumb_projectile.as_ref().and_then(|data| {
+                    if data.max_lifespan > 0 {
+                        Some(data.max_lifespan as Real / LOGICFRAMES_PER_SECOND as Real)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .or_else(|| {
+                if weapon_template.continuous_fire_coast_frames > 0 {
+                    Some(
+                        weapon_template.continuous_fire_coast_frames as Real
+                            / LOGICFRAMES_PER_SECOND as Real,
+                    )
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(Real::INFINITY);
+
+        let homing_delay = missile_ai
+            .as_ref()
+            .map(|data| {
+                if data.initial_distance <= 0.0 {
+                    0.0
+                } else {
+                    let speed = if data.use_weapon_speed {
+                        weapon_speed
+                    } else if data.initial_velocity > 0.0 {
+                        data.initial_velocity
+                    } else {
+                        weapon_speed
+                    };
+                    if speed <= 0.0 {
+                        0.0
+                    } else {
+                        data.initial_distance / speed
+                    }
+                }
+            })
+            .unwrap_or(0.0);
+
+        let max_guidance_time = missile_ai
+            .as_ref()
+            .and_then(|data| {
+                if data.fuel_lifetime > 0 {
+                    Some(data.fuel_lifetime as Real / LOGICFRAMES_PER_SECOND as Real)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(Real::INFINITY);
+
+        let trail_effects = Self::projectile_trail_particle_name(&weapon_template)
+            .map(|name| vec![name])
+            .unwrap_or_default();
+        let trail_length = Self::projectile_trail_interval_seconds(&weapon_template).unwrap_or(0.0);
+
+        let friendly_fire = weapon_template
+            .affects_mask
+            .contains(crate::weapon::WeaponAffectsMask::ALLIES)
+            || weapon_template
+                .affects_mask
+                .contains(crate::weapon::WeaponAffectsMask::SELF)
+            || weapon_template
+                .affects_mask
+                .contains(crate::weapon::WeaponAffectsMask::KILLS_SELF);
+
+        let guidance_type = if guided {
+            GuidanceType::RadarGuided
+        } else {
+            GuidanceType::None
+        };
 
         Ok(Projectile {
             base_object: base_object.clone(),
             projectile_type,
             movement_pattern,
-            guidance_type: weapon_template.get_guidance_type(),
+            guidance_type,
 
             source_weapon: Some(weapon_template.clone()),
             source_object,
@@ -206,35 +314,36 @@ impl Projectile {
 
             velocity: Coord3D::new(0.0, 0.0, 0.0),
             acceleration: Coord3D::new(0.0, 0.0, 0.0),
-            max_speed: weapon_template.get_projectile_speed(),
-            turning_rate: weapon_template.get_projectile_turning_rate(),
-            lifetime: weapon_template.get_projectile_lifetime(),
+            max_speed: weapon_speed,
+            turning_rate: 0.0,
+            lifetime,
             age: 0.0,
 
-            initial_velocity: weapon_template.get_initial_velocity(),
+            initial_velocity,
             launch_angle: Self::calculate_launch_angle(
                 source_position,
                 target_position,
-                weapon_template.get_initial_velocity(),
+                initial_velocity,
             ),
-            gravity_scale: weapon_template.get_gravity_scale(),
-            air_resistance_scale: weapon_template.get_air_resistance_scale(),
+            gravity_scale: 1.0,
+            air_resistance_scale: 1.0,
 
-            damage_amount: weapon_template.get_damage(),
-            damage_type: weapon_template.get_damage_type(),
-            damage_radius: weapon_template.get_damage_radius(),
-            penetration: weapon_template.get_armor_penetration(),
-            damage_falloff: weapon_template.get_damage_falloff(),
-            friendly_fire: weapon_template.allows_friendly_fire(),
+            damage_amount: weapon_template.primary_damage,
+            damage_type: weapon_template.damage_type,
+            damage_radius: weapon_template.primary_damage_radius,
+            penetration: 0.0,
+            damage_falloff: 0.0,
+            friendly_fire,
 
-            lock_on_range: weapon_template.get_lock_on_range(),
-            guidance_accuracy: weapon_template.get_guidance_accuracy(),
+            lock_on_range: weapon_template.continue_attack_range,
+            guidance_accuracy: 0.0,
             lock_lost_time: 0.0,
-            max_guidance_time: weapon_template.get_max_guidance_time(),
+            max_guidance_time,
 
-            trail_length: weapon_template.get_trail_length(),
-            trail_color: weapon_template.get_trail_color(),
-            muzzle_flash: weapon_template.has_muzzle_flash(),
+            trail_length,
+            trail_color: Color::white(),
+            muzzle_flash: !weapon_template.projectile_name.is_empty()
+                || !weapon_template.projectile_stream_name.is_empty(),
             impact_effects: {
                 let veterancy = crate::helpers::TheGameLogic::find_object_by_id(source_object)
                     .and_then(|obj| obj.read().ok().map(|guard| guard.get_veterancy_level()))
@@ -256,7 +365,7 @@ impl Projectile {
                     Vec::new()
                 }
             },
-            trail_effects: weapon_template.get_trail_effects(),
+            trail_effects,
             exhaust_particle_system_id: {
                 let object_id = base_object
                     .read()
@@ -283,24 +392,28 @@ impl Projectile {
                 }
             },
 
-            launch_sound: weapon_template.get_launch_sound(),
-            flight_sound: weapon_template.get_flight_sound(),
-            impact_sound: weapon_template.get_impact_sound(),
+            launch_sound: if weapon_template.fire_sound.is_empty() {
+                None
+            } else {
+                Some(weapon_template.fire_sound.name().to_string())
+            },
+            flight_sound: None,
+            impact_sound: None,
 
-            proximity_fuse: weapon_template.get_proximity_fuse(),
-            impact_fuse: weapon_template.has_impact_fuse(),
-            timer_fuse: weapon_template.get_timer_fuse(),
-            altitude_fuse: weapon_template.get_altitude_fuse(),
+            proximity_fuse: 0.0,
+            impact_fuse: true,
+            timer_fuse: 0.0,
+            altitude_fuse: 0.0,
 
-            submunition_count: weapon_template.get_submunition_count(),
-            submunition_type: weapon_template.get_submunition_type(),
-            submunition_spread: weapon_template.get_submunition_spread(),
+            submunition_count: 0,
+            submunition_type: None,
+            submunition_spread: 0.0,
 
-            piercing: weapon_template.is_piercing(),
-            bounces_remaining: weapon_template.get_bounce_count(),
-            bounce_angle_loss: weapon_template.get_bounce_angle_loss(),
-            can_be_shot_down: weapon_template.can_be_intercepted(),
-            stealth_penetrating: weapon_template.penetrates_stealth(),
+            piercing: false,
+            bounces_remaining: 0,
+            bounce_angle_loss: 0.0,
+            can_be_shot_down: true,
+            stealth_penetrating: false,
 
             has_hit_target: false,
             is_guided: movement_pattern == ProjectileMovement::Guided
@@ -309,17 +422,17 @@ impl Projectile {
             is_intercepted: false,
             guidance_active: false,
 
-            flare_vulnerability: weapon_template.get_flare_vulnerability(),
-            chaff_vulnerability: weapon_template.get_chaff_vulnerability(),
-            ecm_vulnerability: weapon_template.get_ecm_vulnerability(),
+            flare_vulnerability: 0.0,
+            chaff_vulnerability: 0.0,
+            ecm_vulnerability: 0.0,
 
-            homing_delay: weapon_template.get_homing_delay(),
-            homing_force: weapon_template.get_homing_force(),
-            prediction_time: weapon_template.get_prediction_time(),
+            homing_delay,
+            homing_force: if guided { 1.0 } else { 0.0 },
+            prediction_time: if guided { 0.25 } else { 0.0 },
 
             physics_active: movement_pattern == ProjectileMovement::Ballistic,
-            collision_radius: weapon_template.get_collision_radius(),
-            collision_height: weapon_template.get_collision_height(),
+            collision_radius: 0.0,
+            collision_height: 0.0,
         })
     }
 
@@ -695,11 +808,13 @@ impl Projectile {
     // Helper methods and type definitions
     fn determine_projectile_type(weapon_template: &WeaponTemplate) -> ProjectileType {
         // Analyze weapon template to determine projectile type
-        if weapon_template.is_guided() {
+        if Self::has_projectile_behavior(weapon_template, "MissileAIUpdate")
+            || Self::has_projectile_behavior(weapon_template, "SmartBombTargetHomingUpdate")
+        {
             ProjectileType::Missile
-        } else if weapon_template.has_arc_trajectory() {
+        } else if Self::has_projectile_behavior(weapon_template, "DumbProjectileBehavior") {
             ProjectileType::Shell
-        } else if weapon_template.is_beam_weapon() {
+        } else if !weapon_template.laser_name.is_empty() {
             ProjectileType::Beam
         } else {
             ProjectileType::Bullet
@@ -707,15 +822,116 @@ impl Projectile {
     }
 
     fn determine_movement_pattern(weapon_template: &WeaponTemplate) -> ProjectileMovement {
-        if weapon_template.is_beam_weapon() {
+        if !weapon_template.laser_name.is_empty() {
             ProjectileMovement::Beam
-        } else if weapon_template.is_guided() {
+        } else if Self::has_projectile_behavior(weapon_template, "MissileAIUpdate")
+            || Self::has_projectile_behavior(weapon_template, "SmartBombTargetHomingUpdate")
+        {
             ProjectileMovement::Guided
-        } else if weapon_template.has_arc_trajectory() {
+        } else if Self::has_projectile_behavior(weapon_template, "DumbProjectileBehavior") {
             ProjectileMovement::Ballistic
         } else {
             ProjectileMovement::Straight
         }
+    }
+
+    fn projectile_template(
+        weapon_template: &WeaponTemplate,
+    ) -> Option<Arc<dyn crate::common::ThingTemplate>> {
+        let name = weapon_template.projectile_name.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("NONE") {
+            return None;
+        }
+        TheThingFactory::find_template(name)
+    }
+
+    fn has_projectile_behavior(weapon_template: &WeaponTemplate, behavior_name: &str) -> bool {
+        let Some(template) = Self::projectile_template(weapon_template) else {
+            return false;
+        };
+        template
+            .get_behavior_module_info()
+            .iter()
+            .any(|info| info.name.as_str() == behavior_name)
+    }
+
+    fn missile_ai_data(weapon_template: &WeaponTemplate) -> Option<MissileAIUpdateModuleData> {
+        let template = Self::projectile_template(weapon_template)?;
+        for info in template.get_behavior_module_info() {
+            if info.name.as_str() != "MissileAIUpdate" {
+                continue;
+            }
+            if let Some(data) = info
+                .data
+                .as_any()
+                .downcast_ref::<MissileAIUpdateModuleData>()
+            {
+                return Some(data.clone());
+            }
+        }
+        None
+    }
+
+    fn dumb_projectile_data(
+        weapon_template: &WeaponTemplate,
+    ) -> Option<DumbProjectileBehaviorModuleData> {
+        let template = Self::projectile_template(weapon_template)?;
+        for info in template.get_behavior_module_info() {
+            if info.name.as_str() != "DumbProjectileBehavior" {
+                continue;
+            }
+            if let Some(data) = info
+                .data
+                .as_any()
+                .downcast_ref::<DumbProjectileBehaviorModuleData>()
+            {
+                return Some(data.clone());
+            }
+        }
+        None
+    }
+
+    fn projectile_trail_particle_name(weapon_template: &WeaponTemplate) -> Option<String> {
+        let template = Self::projectile_template(weapon_template)?;
+        for info in template.get_draw_module_info() {
+            if info.name.as_str() != "W3DProjectileDraw" {
+                continue;
+            }
+            if let Some(data) = info
+                .data
+                .as_any()
+                .downcast_ref::<W3DProjectileDrawModuleData>()
+            {
+                let name = data.trail_particle_system.as_str().trim();
+                return if name.is_empty() {
+                    None
+                } else {
+                    Some(name.to_string())
+                };
+            }
+        }
+        None
+    }
+
+    fn projectile_trail_interval_seconds(weapon_template: &WeaponTemplate) -> Option<Real> {
+        let template = Self::projectile_template(weapon_template)?;
+        for info in template.get_draw_module_info() {
+            if info.name.as_str() != "W3DProjectileDraw" {
+                continue;
+            }
+            if let Some(data) = info
+                .data
+                .as_any()
+                .downcast_ref::<W3DProjectileDrawModuleData>()
+            {
+                return Some(if data.trail_interval_frames == 0 {
+                    0.0
+                } else {
+                    data.trail_interval_frames as Real / LOGICFRAMES_PER_SECOND as Real
+                });
+            }
+        }
+        None
     }
 
     /// Calculate parabolic velocity for artillery-style arc

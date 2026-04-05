@@ -5555,16 +5555,127 @@ impl ScriptActionDispatcher {
                     return Ok(ScriptActionResult::Success);
                 }
             }
-            // Match C++ TEAM_HUNT with command modes:
-            // - GUI_COMMAND_SWITCH_WEAPON
-            // - GUI_COMMAND_FIRE_WEAPON (DoAttackObject)
-            // - GUICOMMANDMODE_HIJACK_VEHICLE
-            // - GUICOMMANDMODE_CONVERT_TO_CARBOMB
-            // - GUICOMMANDMODE_SABOTAGE_BUILDING
             CommandType::SwitchWeapons
             | CommandType::DoAttackObject
             | CommandType::ConvertToCarbomb
             | CommandType::Enter => {}
+            // PARITY_NOTE: C++ ScriptActions.cpp doTeamHuntWithCommandButton() (lines 2047-2073)
+            // explicitly rejects these GUI command types and catches all others via `default`.
+            // In C++ the explicitly listed types are: GUI_COMMAND_OBJECT_UPGRADE,
+            // GUI_COMMAND_PLAYER_UPGRADE, GUI_COMMAND_DOZER_CONSTRUCT,
+            // GUI_COMMAND_DOZER_CONSTRUCT_CANCEL, GUI_COMMAND_UNIT_BUILD,
+            // GUI_COMMAND_CANCEL_UNIT_BUILD, GUI_COMMAND_CANCEL_UPGRADE,
+            // GUI_COMMAND_ATTACK_MOVE, GUI_COMMAND_GUARD, GUI_COMMAND_GUARD_WITHOUT_PURSUIT,
+            // GUI_COMMAND_GUARD_FLYING_UNITS_ONLY, GUI_COMMAND_WAYPOINTS,
+            // GUI_COMMAND_EXIT_CONTAINER, GUI_COMMAND_EVACUATE,
+            // GUI_COMMAND_EXECUTE_RAILED_TRANSPORT, GUI_COMMAND_BEACON_DELETE,
+            // GUI_COMMAND_SET_RALLY_POINT, GUI_COMMAND_SELL, GUI_COMMAND_HACK_INTERNET,
+            // GUI_COMMAND_TOGGLE_OVERCHARGE (plus conditional POW_RETURN_TO_PRISON,
+            // PICK_UP_PRISONER under ALLOW_SURRENDER).
+            //
+            // Rust maps GUI command strings to CommandType via map_gui_command_to_command_type().
+            // Types below are all known-mapped types that C++ rejects (either explicitly or via
+            // `default` fallthrough). We list them all explicitly to avoid silent drops.
+            CommandType::QueueUpgrade              // C++: OBJECT_UPGRADE, PLAYER_UPGRADE
+            | CommandType::DozerConstruct          // C++: DOZER_CONSTRUCT
+            | CommandType::DozerCancelConstruct    // C++: DOZER_CONSTRUCT_CANCEL
+            | CommandType::QueueUnitCreate         // C++: UNIT_BUILD
+            | CommandType::CancelUnitCreate        // C++: CANCEL_UNIT_BUILD
+            | CommandType::CancelUpgrade           // C++: CANCEL_UPGRADE
+            | CommandType::DoAttackMoveTo          // C++: ATTACK_MOVE
+            | CommandType::DoGuardPosition         // C++: GUARD, GUARD_WITHOUT_PURSUIT, GUARD_FLYING_UNITS_ONLY
+            | CommandType::DoStop                  // C++: STOP (falls to default)
+            | CommandType::AddWaypoint             // C++: WAYPOINTS
+            | CommandType::Exit                    // C++: EXIT_CONTAINER
+            | CommandType::Evacuate                // C++: EVACUATE
+            | CommandType::ExecuteRailedTransport  // C++: EXECUTE_RAILED_TRANSPORT
+            | CommandType::CombatDropAtLocation    // C++: COMBATDROP (falls to default)
+            | CommandType::RemoveBeacon            // C++: BEACON_DELETE
+            | CommandType::SetRallyPoint           // C++: SET_RALLY_POINT
+            | CommandType::Sell                    // C++: SELL
+            | CommandType::PurchaseScience         // C++: PURCHASE_SCIENCE (falls to default)
+            | CommandType::InternetHack            // C++: HACK_INTERNET
+            | CommandType::ToggleOvercharge        // C++: TOGGLE_OVERCHARGE
+            | CommandType::PlaceBeacon             // C++: PLACE_BEACON (falls to default)
+            | CommandType::MetaSelectMatchingUnits // C++: SELECT_ALL_UNITS_OF_TYPE (falls to default)
+            => {
+                log::warn!(
+                    "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' is not hunt-capable (type {:?})",
+                    command_button_name,
+                    command_button.get_command_type()
+                );
+                return Ok(ScriptActionResult::Success);
+            }
+            // PARITY_NOTE: Unsupported/unknown GUI command strings currently map to Invalid in
+            // map_gui_command_to_command_type(). C++ reports script debug errors for these.
+            // Also covers conditional C++ types GUI_COMMAND_POW_RETURN_TO_PRISON and
+            // GUICOMMANDMODE_PICK_UP_PRISONER (ALLOW_SURRENDER) which have no Rust mapping.
+            CommandType::Invalid => {
+                log::warn!(
+                    "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' mapped to invalid/unsupported command type",
+                    command_button_name
+                );
+                return Ok(ScriptActionResult::Success);
+            }
+            // PARITY_NOTE: CommandType variants that exist in the enum but are NOT currently
+            // produced by map_gui_command_to_command_type(). These cannot appear from
+            // command_button.get_command_type() today, but are listed explicitly for
+            // forward-compatibility if the mapping is extended. C++ rejects all of these
+            // via `default` (line 2073 of ScriptActions.cpp).
+            CommandType::CaptureBuilding
+            | CommandType::DisableVehicleHack
+            | CommandType::StealCashHack
+            | CommandType::DisableBuildingHack
+            | CommandType::SnipeVehicle
+            | CommandType::DoSalvage
+            | CommandType::DoSpecialPowerOverrideDestination
+            | CommandType::DoWeapon
+            | CommandType::DoWeaponAtLocation
+            | CommandType::DoWeaponAtObject
+            | CommandType::DoSpecialPowerAtLocation
+            | CommandType::DoSpecialPowerAtObject
+            | CommandType::DoMoveTo
+            | CommandType::DoForceMoveTo
+            | CommandType::DoForceAttackObject
+            | CommandType::DoForceAttackGround
+            | CommandType::DoGuardObject
+            | CommandType::DoScatter
+            | CommandType::DoAttackSquad
+            | CommandType::GetRepaired
+            | CommandType::GetHealed
+            | CommandType::DoRepair
+            | CommandType::ResumeConstruction
+            | CommandType::Dock
+            | CommandType::DozerConstructLine
+            | CommandType::DoCheer
+            | CommandType::SelfDestruct
+            | CommandType::CreateFormation
+            | CommandType::SetMineClearingDetail
+            | CommandType::EnableRetaliationMode
+            | CommandType::SetBeaconText
+            | CommandType::SetReplayCamera
+            | CommandType::ClearInGamePopupMessage
+            | CommandType::LogicCrc
+            | CommandType::CreateSelectedGroup
+            | CommandType::CreateSelectedGroupNoSound
+            | CommandType::DestroySelectedGroup
+            | CommandType::RemoveFromSelectedGroup
+            | CommandType::SelectedGroupCommand
+            | CommandType::AreaSelection
+            | CommandType::CombatDropAtObject
+            => {
+                log::warn!(
+                    "TEAM_HUNT_WITH_COMMAND_BUTTON: '{}' is not hunt-capable (type {:?})",
+                    command_button_name,
+                    command_button.get_command_type()
+                );
+                return Ok(ScriptActionResult::Success);
+            }
+            // Catch-all for any future CommandType variants not explicitly listed above.
+            // PARITY_NOTE: C++ uses `default` to reject all unhandled types with an error
+            // message. This arm provides the same safety net — if a new CommandType is added
+            // to the enum but not handled here, it will be caught and logged rather than
+            // silently proceeding to the hunt logic.
             _ => {
                 log::warn!(
                     "TEAM_HUNT_WITH_COMMAND_BUTTON: unsupported command button '{}' (type {:?})",
