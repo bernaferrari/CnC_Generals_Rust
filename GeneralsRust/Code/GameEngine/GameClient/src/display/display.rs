@@ -25,6 +25,8 @@ use crate::terrain::TerrainVisual;
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
 use crate::video_player::{get_video_player, VideoPlayerInterface};
 use crate::video_stream::VideoStreamInterface;
+#[cfg(feature = "w3d_support")]
+use crate::w3d::W3DParticleSystemBridge;
 use gamelogic::helpers::TheGameLogic;
 use log::{error, warn};
 use nalgebra::{Matrix4, Point3, Vector3};
@@ -38,6 +40,8 @@ pub type DebugDisplayCallback = fn(&mut DebugDisplay, Option<&mut dyn Any>);
 pub struct Display {
     graphics: GraphicsContext,
     particle_renderer: Option<Arc<Mutex<GpuParticleRenderer>>>,
+    #[cfg(feature = "w3d_support")]
+    particle_bridge: Mutex<W3DParticleSystemBridge>,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     start_time: Instant,
@@ -91,6 +95,8 @@ impl Display {
         Self {
             graphics,
             particle_renderer,
+            #[cfg(feature = "w3d_support")]
+            particle_bridge: Mutex::new(W3DParticleSystemBridge::new()),
             depth_texture,
             depth_view,
             start_time: Instant::now(),
@@ -494,12 +500,20 @@ impl SubsystemInterface for Display {
         self.letterbox_fade_start_time = None;
         self.stop_movie();
         self.reset_views();
+        #[cfg(feature = "w3d_support")]
+        {
+            self.particle_bridge = Mutex::new(W3DParticleSystemBridge::new());
+        }
         Ok(())
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.update_views();
         self.update_movie_playback();
+        #[cfg(feature = "w3d_support")]
+        if let Ok(mut bridge) = self.particle_bridge.lock() {
+            bridge.queue_particle_render();
+        }
         Ok(())
     }
 }
@@ -610,7 +624,34 @@ impl DisplayInterface for Display {
             }
         });
 
-        // Particle, decal, and weather rendering pass
+        // Particle rendering via W3DParticleSystemBridge
+        #[cfg(feature = "w3d_support")]
+        if let Some(renderer) = self.particle_renderer.as_ref() {
+            if let Ok(manager_guard) = get_particle_system_manager() {
+                if let Some(manager) = manager_guard.as_ref() {
+                    let mut uniforms = self.build_particle_uniforms();
+                    let particle_count: usize = manager
+                        .all_particle_systems()
+                        .map(|s| s.particle_count())
+                        .sum();
+                    uniforms.particle_count = particle_count as u32;
+                    if let Ok(mut renderer_guard) = renderer.lock() {
+                        if let Ok(mut bridge) = self.particle_bridge.lock() {
+                            bridge.do_particles(
+                                manager,
+                                &mut *renderer_guard,
+                                &mut encoder,
+                                &view,
+                                &self.depth_view,
+                                &uniforms,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(feature = "w3d_support"))]
         if let Some(renderer) = self.particle_renderer.as_ref() {
             if let Ok(manager_guard) = get_particle_system_manager() {
                 if let Some(manager) = manager_guard.as_ref() {
@@ -632,6 +673,10 @@ impl DisplayInterface for Display {
                     }
                 }
             }
+        }
+
+        // Weather and decal rendering pass
+        if let Some(renderer) = self.particle_renderer.as_ref() {
             if let Ok(weather_guard) = get_weather_system() {
                 if let Some(weather) = weather_guard.as_ref() {
                     let particles = weather.get_all_particles();
