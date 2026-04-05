@@ -98,9 +98,18 @@ impl TerrainRenderingSystem {
             texture_mgr.load_source_tile(idx, tile)?;
         }
 
-        // Update texture atlases
         texture_mgr.update_base_atlas()?;
         texture_mgr.update_detail_atlas()?;
+
+        let mut heightmap = self.heightmap.write();
+        heightmap.update_textures_from_views(
+            texture_mgr.get_base_view(),
+            texture_mgr.get_base_sampler(),
+            texture_mgr.get_detail_view(),
+            texture_mgr.get_detail_sampler(),
+            texture_mgr.get_blend_view(),
+            texture_mgr.get_blend_sampler(),
+        );
 
         Ok(())
     }
@@ -114,6 +123,16 @@ impl TerrainRenderingSystem {
         }
 
         texture_mgr.update_detail_atlas()?;
+
+        let mut heightmap = self.heightmap.write();
+        heightmap.update_textures_from_views(
+            texture_mgr.get_base_view(),
+            texture_mgr.get_base_sampler(),
+            texture_mgr.get_detail_view(),
+            texture_mgr.get_detail_sampler(),
+            texture_mgr.get_blend_view(),
+            texture_mgr.get_blend_sampler(),
+        );
 
         Ok(())
     }
