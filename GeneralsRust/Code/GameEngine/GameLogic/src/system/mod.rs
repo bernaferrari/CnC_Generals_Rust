@@ -25,7 +25,6 @@ pub mod rank_info;
 pub mod shroud_manager;
 pub mod stealth_conditions;
 pub mod stealth_errors;
-pub mod stealth_features_missing;
 pub mod stealth_integration;
 pub mod stealth_integration_layer;
 pub mod stealth_manager;

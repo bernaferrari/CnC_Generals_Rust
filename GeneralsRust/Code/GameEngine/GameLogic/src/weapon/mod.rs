@@ -42,8 +42,6 @@ pub(crate) mod ballistics;
 pub mod bezier; // Bezier curve system for projectile flight paths
 mod damage_application;
 mod damage_calculator;
-mod damage_feedback;
-mod damage_modifiers;
 mod damage_over_time;
 pub mod damage_system;
 mod healing_system;
@@ -74,12 +72,7 @@ pub use damage_application::{
     should_apply_damage, DamageApplicator, DamageInfo as WeaponDamageInfo, DamageInfoInput,
     DamageInfoOutput, Relationship as DamageRelationship, HUGE_DAMAGE_AMOUNT,
 };
-pub use damage_calculator::{
-    ArmorProperties, ArmorSet, ArmorType as DamageCalculatorArmorType, DamageCalculator,
-    DamageResult,
-};
-pub use damage_feedback::*;
-pub use damage_modifiers::*;
+pub use damage_calculator::{ArmorSet, DamageCalculator, DamageResult};
 pub use damage_over_time::*;
 pub use damage_system::*;
 pub use healing_system::*;

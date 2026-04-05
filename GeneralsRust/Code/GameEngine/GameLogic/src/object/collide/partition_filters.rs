@@ -7,6 +7,7 @@ use super::collision_geometry::{CollideInfo, GeometryInfo};
 use super::{Coord3D, GameObject, ObjectId, ObjectStatusMask};
 use crate::action_manager::{self, CanEnterType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
+use crate::common::types::ControlBarInterface;
 use crate::common::{
     CommandSourceType, DisabledType, KindOf, KindOfMaskType, ObjectShroudStatus,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship, INVALID_ID, KIND_OF_MASK_NONE,
@@ -71,16 +72,46 @@ impl super::partition_manager::PartitionFilter for PartitionFilterWouldCollide {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         let obj_pos = obj.get_position();
         let obj_orientation = obj.get_orientation();
-        // Use the major radius as height approximation since get_max_height_above_position
-        // is not yet ported on GeometryInfo.
-        let obj_geom = GeometryInfo::new_sphere(5.0, false);
-        let obj_height = obj_geom.get_major_radius();
+        let Some(obj_handle) = obj.as_object_handle() else {
+            return false;
+        };
+        let Ok(obj_guard) = obj_handle.read() else {
+            return false;
+        };
+
+        let geom = obj_guard.get_geometry_info();
+        let dx = geom.bounds.max.x - geom.bounds.min.x;
+        let dy = geom.bounds.max.y - geom.bounds.min.y;
+        let dz = geom.bounds.max.z - geom.bounds.min.z;
+        let radius = (dx.max(dy) * 0.5).max(0.01);
+        let height = dz.max(0.01);
+        let is_small = geom.is_small;
+
+        let obj_geom = match obj_guard.get_template_geometry_type() {
+            Some(game_engine::system::geometry::GeometryType::Sphere) => {
+                GeometryInfo::new_sphere(radius, is_small)
+            }
+            Some(game_engine::system::geometry::GeometryType::Box) => {
+                GeometryInfo::new_box(dx.max(0.01), dy.max(0.01), is_small)
+            }
+            Some(game_engine::system::geometry::GeometryType::Cylinder) => {
+                GeometryInfo::new_cylinder(radius, height, is_small)
+            }
+            None => {
+                if height <= radius * 0.5 {
+                    GeometryInfo::new_sphere(radius, is_small)
+                } else {
+                    GeometryInfo::new_cylinder(radius, height, is_small)
+                }
+            }
+        };
+        let obj_height = obj_geom.get_max_height_above_position();
 
         let this_info = CollideInfo::new(self.position, self.geometry.clone(), self.angle);
         let that_info = CollideInfo::new(obj_pos, obj_geom, obj_orientation);
 
         // Z collision check
-        let this_height = self.geometry.get_major_radius();
+        let this_height = self.geometry.get_max_height_above_position();
         let z_ok = this_info.position.z + this_height >= that_info.position.z
             && this_info.position.z <= that_info.position.z + obj_height;
 
@@ -226,10 +257,26 @@ impl PartitionFilterAcceptOnSquad {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnSquad {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        // Squad membership is not yet exposed on the GameObject trait.
-        // This is a placeholder that accepts non-dead objects.
-        // Full implementation will hook into the Squad system once ported.
-        !obj.is_effectively_dead()
+        if obj.is_effectively_dead() {
+            return false;
+        }
+
+        if self.squad_id == INVALID_ID {
+            return true;
+        }
+
+        if let Some(handle) = obj.as_object_handle() {
+            if let Ok(guard) = handle.read() {
+                if let Some(team_id) = guard.get_team_id() {
+                    // PARITY_NOTE: Squad identity is not yet ported separately from Team.
+                    // Until Squad APIs exist on Object/GameObject, use team id as best available
+                    // membership discriminator while still honoring this filter's squad_id.
+                    return team_id == self.squad_id;
+                }
+            }
+        }
+
+        true
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1418,10 +1465,10 @@ impl super::partition_manager::PartitionFilter for PartitionFilterUnmannedObject
 /// Accept/reject objects that can/cannot have a specific command button used on them.
 /// Matches C++ PartitionFilterValidCommandButtonTarget.
 pub struct PartitionFilterValidCommandButtonTarget {
-    _source_id: ObjectId,
-    _command_button_id: u32,
+    source_id: ObjectId,
+    command_button_id: u32,
     match_flag: bool,
-    _command_source: CommandSourceType,
+    command_source: CommandSourceType,
 }
 
 impl PartitionFilterValidCommandButtonTarget {
@@ -1432,19 +1479,53 @@ impl PartitionFilterValidCommandButtonTarget {
         command_source: CommandSourceType,
     ) -> Self {
         Self {
-            _source_id: source_id,
-            _command_button_id: command_button_id,
+            source_id,
+            command_button_id,
             match_flag,
-            _command_source: command_source,
+            command_source,
         }
     }
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandButtonTarget {
-    fn allow(&self, _obj: &dyn GameObject) -> bool {
-        // CommandButton validation requires UI/CommandButton system not yet ported.
-        // Placeholder: accept all objects.
-        self.match_flag
+    fn allow(&self, obj: &dyn GameObject) -> bool {
+        let mut valid_target = false;
+
+        if let Some(target_handle) = obj.as_object_handle() {
+            if let Ok(target_guard) = target_handle.read() {
+                valid_target = !target_guard.is_kind_of(KindOf::Inert)
+                    && !target_guard.is_kind_of(KindOf::Projectile);
+
+                if valid_target {
+                    if let Some(source_handle) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.source_id)
+                    {
+                        if let Ok(source_guard) = source_handle.read() {
+                            if let Some(control_bar) = crate::control_bar::get_control_bar_bridge()
+                            {
+                                if let Some(button_any) =
+                                    control_bar.get_command_button(self.command_button_id)
+                                {
+                                    if let Some(command_button) =
+                                        button_any
+                                            .downcast_ref::<crate::command_button::CommandButton>()
+                                    {
+                                        valid_target = command_button.is_valid_to_use_on(
+                                            &source_guard,
+                                            Some(&target_guard),
+                                            None,
+                                            self.command_source,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        valid_target == self.match_flag
     }
 
     fn debug_name(&self) -> &'static str {

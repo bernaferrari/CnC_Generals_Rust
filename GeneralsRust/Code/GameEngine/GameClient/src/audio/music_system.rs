@@ -142,6 +142,9 @@ pub struct MusicSystem {
     track_names: Vec<String>,
     /// Current position in the sequential track list.
     sequential_index: usize,
+    /// Per-track play completion counts. Incremented each time a track finishes
+    /// playing naturally (matches C++ audio callback tracking).
+    play_counts: HashMap<String, u32>,
 }
 
 impl MusicSystem {
@@ -162,6 +165,7 @@ impl MusicSystem {
             shuffle: true,
             track_names: Vec::new(),
             sequential_index: 0,
+            play_counts: HashMap::new(),
         }
     }
 
@@ -325,10 +329,8 @@ impl MusicSystem {
     }
 
     /// Whether a specific track has completed playback.
-    pub fn has_track_completed(&self, track_name: &str, _number_of_times: u32) -> bool {
-        // This would require tracking play counts; for now return false.
-        let _ = track_name;
-        false
+    pub fn has_track_completed(&self, track_name: &str, number_of_times: u32) -> bool {
+        self.play_counts.get(track_name).copied().unwrap_or(0) >= number_of_times
     }
 
     /// Get the name of the currently playing track.
@@ -387,6 +389,9 @@ impl MusicSystem {
 
         // Auto-advance: if the current track finished, play the next one.
         if self.playing && self.current_handle != 0 && !engine.is_playing(self.current_handle) {
+            if let Some(name) = self.current_track_name() {
+                *self.play_counts.entry(name).or_insert(0) += 1;
+            }
             self.current_handle = 0;
             self.next_track(engine);
         }

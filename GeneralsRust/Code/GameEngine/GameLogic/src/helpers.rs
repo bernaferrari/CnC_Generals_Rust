@@ -752,6 +752,16 @@ impl TheGameLogic {
         Ok(())
     }
 
+    pub fn queue_objects_changed_trigger_areas(object_id: ObjectID) {
+        if object_id == INVALID_ID {
+            return;
+        }
+
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.queue_objects_changed_trigger_areas(object_id);
+        }
+    }
+
     /// Get current frame number (mirrors C++ TheGameLogic::Get_Frame)
     pub fn get_frame() -> UnsignedInt {
         crate::system::game_logic::current_frame()
@@ -2031,6 +2041,10 @@ impl TheGameClient {
         // in lock-step with the simulation. The current Rust client-side
         // does not maintain a separate frame counter.
         let _ = _frame; // suppress unused warning until full implementation
+    }
+
+    pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {
+        log::debug!("GameClient::notify_terrain_object_moved({})", object_id);
     }
 
     pub fn create_drawable(&self, template: &dyn crate::common::ThingTemplate) -> u32 {

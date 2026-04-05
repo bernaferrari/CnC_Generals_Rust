@@ -26,6 +26,8 @@ use crate::message_stream::game_message::{
     Coord3D as MsgCoord3D, GameMessageType, ICoord2D as MsgICoord2D,
 };
 use crate::message_stream::message_stream::append_message_to_stream;
+use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::ini::get_anim2d_collection;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::CommandSourceType;
@@ -37,6 +39,7 @@ use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 
 /// Re-export of the INI settings type from the Common crate's INI parser.
 /// C++: InGameUI fieldParseTable settings (InGameUI.cpp:752-856, ini_in_game_ui.rs)
@@ -803,20 +806,19 @@ impl WorldAnimationOptions {
 }
 
 /// C++: WorldAnimationData (InGameUI.h:275-289)
-/// Tracks state for a world-space 2D animation. The actual Anim2D rendering
-/// pipeline is deferred; we store position/timing/option state for now.
-#[derive(Debug, Clone)]
+/// Tracks state for a world-space 2D animation.
+#[derive(Clone)]
 pub struct WorldAnimationData {
-    /// C++: m_anim — the animation template name (Anim2D rendering deferred)
-    pub animation_name: String,
+    /// C++: m_anim — the live Anim2D instance
+    anim: Arc<parking_lot::Mutex<crate::system::Anim2D>>,
     /// C++: m_worldPos
-    pub world_pos: Coord3D,
+    world_pos: Coord3D,
     /// C++: m_expireFrame
-    pub expire_frame: u32,
+    expire_frame: u32,
     /// C++: m_options
-    pub options: WorldAnimationOptions,
+    options: WorldAnimationOptions,
     /// C++: m_zRisePerSecond
-    pub z_rise_per_second: f32,
+    z_rise_per_second: f32,
 }
 
 /// Main in-game UI manager
@@ -2894,9 +2896,22 @@ impl InGameUI {
         if duration_seconds <= 0.0 || animation_name.is_empty() {
             return;
         }
+
+        let Some(collection) = get_anim2d_collection() else {
+            return;
+        };
+        let collection_guard = collection.read();
+        let template = collection_guard.find_template(&AsciiString::from(animation_name));
+        let Some(template) = template else {
+            return;
+        };
+        drop(collection_guard);
+
+        let anim = crate::system::Anim2D::new(template, None);
+
         let expire_frame = self.current_frame + (duration_seconds * 30.0) as u32;
         self.world_animations.push(WorldAnimationData {
-            animation_name: animation_name.to_string(),
+            anim,
             world_pos: pos,
             expire_frame,
             options,
@@ -2909,33 +2924,101 @@ impl InGameUI {
     }
 
     pub fn update_and_draw_world_animations(&mut self) {
+        const FRAMES_BEFORE_EXPIRE_TO_FADE: u32 = 30;
+
         let current_frame = self.current_frame;
+        let paused = TheGameLogic::is_game_paused();
 
-        for anim in &mut self.world_animations {
-            if anim.z_rise_per_second != 0.0 {
-                anim.world_pos.z += anim.z_rise_per_second / 30.0;
-            }
-        }
+        let local_player_index = gamelogic::player::player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|player| player.read().ok().map(|g| g.get_player_index() as u32));
 
-        self.world_animations.retain(|anim| {
-            if current_frame >= anim.expire_frame {
-                return false;
+        let mut i = 0;
+        while i < self.world_animations.len() {
+            let expired = if !paused {
+                current_frame >= self.world_animations[i].expire_frame
+                    || (self.world_animations[i]
+                        .options
+                        .contains(WorldAnimationOptions::PLAY_ONCE_AND_DESTROY)
+                        && self.world_animations[i]
+                            .anim
+                            .lock()
+                            .get_status()
+                            .contains(crate::system::Anim2DStatus::COMPLETE))
+            } else {
+                current_frame >= self.world_animations[i].expire_frame
+            };
+
+            if expired {
+                self.world_animations.remove(i);
+                continue;
             }
-            if anim
+
+            if !paused && self.world_animations[i].z_rise_per_second != 0.0 {
+                self.world_animations[i].world_pos.z +=
+                    self.world_animations[i].z_rise_per_second / 30.0;
+            }
+
+            let shrouded = local_player_index
+                .map(|player_idx| {
+                    get_shroud_manager()
+                        .lock()
+                        .ok()
+                        .map(|shroud| {
+                            shroud.get_shroud_state(player_idx, &self.world_animations[i].world_pos)
+                                != ShroudState::Visible
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+
+            if shrouded {
+                i += 1;
+                continue;
+            }
+
+            if self.world_animations[i]
                 .options
-                .contains(WorldAnimationOptions::PLAY_ONCE_AND_DESTROY)
+                .contains(WorldAnimationOptions::FADE_ON_EXPIRE)
             {
-                // Anim2D pipeline not yet ported — the animation is treated as still playing
-                // until expire_frame. C++ would check Anim2D::isDone() here to early-remove
-                // completed one-shot animations, but since we have no playback engine yet,
-                // frame-based expiry above is the only lifecycle gate.
+                let frames_till_expire = self.world_animations[i]
+                    .expire_frame
+                    .saturating_sub(current_frame);
+                if frames_till_expire < FRAMES_BEFORE_EXPIRE_TO_FADE {
+                    let alpha = frames_till_expire as f32 / FRAMES_BEFORE_EXPIRE_TO_FADE as f32;
+                    self.world_animations[i].anim.lock().set_alpha(alpha);
+                }
             }
-            // Rendering pipeline (shroud visibility check, screen projection, zoom scaling,
-            // fade alpha computation, and actual 2D draw calls) is deferred until the
-            // Anim2D/WLDrawing subsystem is ported. State tracking (position, z-rise,
-            // expire_frame) is fully maintained for parity.
-            true
-        });
+
+            let screen = self.world_to_screen(&self.world_animations[i].world_pos);
+            if let Some(screen) = screen {
+                let mut anim_guard = self.world_animations[i].anim.lock();
+                let width = anim_guard.get_current_frame_width() as f32;
+                let height = anim_guard.get_current_frame_height() as f32;
+
+                let zoom_scale = with_tactical_view_ref(|view| {
+                    let max_zoom = view.max_zoom();
+                    let zoom = view.zoom();
+                    if zoom > 0.0 {
+                        max_zoom / zoom
+                    } else {
+                        1.0
+                    }
+                });
+
+                let scaled_width = (width * zoom_scale) as i32;
+                let scaled_height = (height * zoom_scale) as i32;
+
+                let draw_x = (screen.x - scaled_width as f32 / 2.0) as i32;
+                let draw_y = (screen.y - scaled_height as f32 / 2.0) as i32;
+
+                anim_guard.draw_sized(draw_x, draw_y, scaled_width, scaled_height);
+            }
+
+            i += 1;
+        }
     }
 
     // ── Lifecycle methods ──────────────────────────────────────────────

@@ -2,16 +2,12 @@
 //!
 //! PARITY_NOTE: The following fabricated mechanics have been removed because they
 //! have NO equivalent in the C++ GeneralsMD codebase:
-//!   - PenetrationResult enum (bounced/partial/full/overpenetration)
 //!   - Critical hit system (get_critical_multiplier, is_critical_hit flag)
-//!   - Environmental modifiers (WeatherCondition, TerrainType, EnvironmentalFactors)
 //!   - Armor deflection (deflection_chance, check_deflection)
 //!   - Armor penetration/penetration modifier calculations
-//!   - Status effects from damage (StatusEffect enum)
 //!   - Range-based damage falloff (calculate_range_modifier)
 //!   - Line-of-sight obstruction for area damage
 //!   - Armor degradation / condition / self-repair
-//!   - Armor type categories (Reactive, Composite, EnergyShield)
 //!
 //! The C++ armor system is purely a coefficient multiplier table:
 //!   final_damage = base_damage * armor_condition_coefficient
@@ -22,21 +18,6 @@ use crate::{GameLogicError, GameLogicResult};
 
 use std::collections::HashMap;
 
-// ---------------------------------------------------------------------------
-// Stub types kept for backward-compatible public API
-// ---------------------------------------------------------------------------
-
-/// PARITY_NOTE: Fabricated enum — C++ has no armor type categories.
-/// Kept as a unit-only stub to avoid breaking callers that reference the name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ArmorType {
-    None,
-}
-
-/// PARITY_NOTE: Most fields were fabricated. Only `resistances` (the coefficient
-/// table) maps to C++ ArmorTemplate::m_damageMultiplier. All other fields
-/// (deflection, degradation, condition, self-repair, kinetic/explosive/energy
-/// reductions) are removed.
 #[derive(Debug, Clone)]
 pub struct ArmorSet {
     /// PARITY_NOTE: This is the only field with C++ equivalence.
@@ -44,14 +25,6 @@ pub struct ArmorSet {
     pub resistances: HashMap<DamageType, f32>,
 }
 
-/// PARITY_NOTE: Entirely fabricated — all fields removed.
-/// Kept as empty struct to avoid breaking callers.
-#[derive(Debug, Clone, Default)]
-pub struct ArmorProperties {}
-
-/// PARITY_NOTE: Fabricated — removed PenetrationResult, critical_hit,
-/// critical_multiplier, deflected, penetration_result, environmental_modifiers,
-/// and status_effects. Only the coefficient-based fields remain.
 #[derive(Debug, Clone)]
 pub struct DamageResult {
     /// Final damage after armor coefficient applied
@@ -60,37 +33,6 @@ pub struct DamageResult {
     pub raw_damage: f32,
     /// Damage absorbed by armor (raw - final)
     pub armor_absorption: f32,
-}
-
-// ---------------------------------------------------------------------------
-// Stub types for removed fabricated enums (kept so mod.rs glob re-exports
-// don't break downstream)
-// ---------------------------------------------------------------------------
-
-/// PARITY_NOTE: Fabricated — removed. Stub kept for API compatibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PenetrationResult {
-    Full,
-}
-
-/// PARITY_NOTE: Fabricated — removed. Stub kept for API compatibility.
-#[derive(Debug, Clone)]
-pub enum StatusEffect {}
-
-/// PARITY_NOTE: Fabricated — removed. Stub kept for API compatibility.
-#[derive(Debug, Clone)]
-pub struct EnvironmentalFactors {}
-
-/// PARITY_NOTE: Fabricated — removed. Stub kept for API compatibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WeatherCondition {
-    Clear,
-}
-
-/// PARITY_NOTE: Fabricated — removed. Stub kept for API compatibility.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TerrainType {
-    Open,
 }
 
 // ---------------------------------------------------------------------------
@@ -138,10 +80,6 @@ impl DamageCalculator {
     }
 
     /// Calculate area damage with distance-based falloff.
-    ///
-    /// PARITY_NOTE: Simplified. C++ Weapon.cpp uses WeaponTemplate's
-    /// primary/secondary damage radii with linear falloff between them.
-    /// Non-linear falloff (powf(1.5)) and LOS obstruction are removed.
     pub fn calculate_area_damage(
         weapon_template: &WeaponTemplate,
         weapon_bonus: &WeaponBonus,
@@ -149,32 +87,59 @@ impl DamageCalculator {
         targets: &[(ObjectId, Coord3D, ArmorSet)],
     ) -> GameLogicResult<HashMap<ObjectId, DamageResult>> {
         let mut results = HashMap::new();
-        let blast_radius = weapon_template.get_primary_damage_radius(weapon_bonus);
+        let primary_radius = weapon_template.get_primary_damage_radius(weapon_bonus);
+        let secondary_radius = weapon_template.get_secondary_damage_radius(weapon_bonus);
+        let primary_damage = weapon_template.get_primary_damage(weapon_bonus);
+        let secondary_damage = weapon_template.get_secondary_damage(weapon_bonus);
+
+        let valid_secondary_radius = if secondary_radius > primary_radius {
+            secondary_radius
+        } else {
+            0.0
+        };
+        let blast_radius = primary_radius.max(valid_secondary_radius);
 
         for (object_id, target_pos, armor) in targets {
             let distance = explosion_center.distance(*target_pos);
 
-            if distance <= blast_radius {
-                // C++ linear falloff: full damage at center, zero at edge
-                let falloff_factor = if blast_radius > 0.0 {
-                    1.0 - (distance / blast_radius)
-                } else {
-                    1.0
-                };
-
-                let mut modified_weapon = weapon_template.clone();
-                modified_weapon.primary_damage *= falloff_factor;
-
-                let damage_result = Self::calculate_damage(
-                    &modified_weapon,
-                    weapon_bonus,
-                    armor,
-                    target_pos,
-                    explosion_center,
-                )?;
-
-                results.insert(*object_id, damage_result);
+            if distance > blast_radius {
+                continue;
             }
+
+            let zone_damage = if valid_secondary_radius > 0.0 {
+                if distance <= primary_radius {
+                    primary_damage
+                } else {
+                    let span = valid_secondary_radius - primary_radius;
+                    let t = if span > 0.0 {
+                        (distance - primary_radius) / span
+                    } else {
+                        1.0
+                    };
+                    secondary_damage * (1.0 - t).clamp(0.0, 1.0)
+                }
+            } else if primary_radius > 0.0 {
+                primary_damage * (1.0 - (distance / primary_radius)).clamp(0.0, 1.0)
+            } else {
+                primary_damage
+            };
+
+            if zone_damage <= 0.0 {
+                continue;
+            }
+
+            let mut modified_weapon = weapon_template.clone();
+            modified_weapon.primary_damage = zone_damage;
+
+            let damage_result = Self::calculate_damage(
+                &modified_weapon,
+                &WeaponBonus::new(),
+                armor,
+                target_pos,
+                explosion_center,
+            )?;
+
+            results.insert(*object_id, damage_result);
         }
 
         Ok(results)
