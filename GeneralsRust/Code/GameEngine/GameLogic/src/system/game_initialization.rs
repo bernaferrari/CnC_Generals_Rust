@@ -700,8 +700,8 @@ impl GameInitializer {
                     continue;
                 }
                 let rel = match system_player.get_relationship(j) {
-                    super::player_init::PlayerRelationship::Ally => Relationship::Ally,
-                    super::player_init::PlayerRelationship::Enemy => Relationship::Enemy,
+                    super::player_init::PlayerRelationship::Ally => Relationship::Allies,
+                    super::player_init::PlayerRelationship::Enemy => Relationship::Enemies,
                     super::player_init::PlayerRelationship::Neutral => Relationship::Neutral,
                 };
                 let other_arc = match logic_players.get(j) {

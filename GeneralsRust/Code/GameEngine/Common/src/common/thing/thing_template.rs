@@ -2058,12 +2058,14 @@ impl ThingTemplate {
 
                 // --- KindOf ---
                 "KindOf" => {
-                    // The actual KindOf mask resolution is done in the GameLogic
-                    // crate which knows the full KindOf enum.  Here we store the
-                    // raw string so GameLogic can resolve it post-parse if needed.
-                    // For now we leave kindof as 0; the GameLogic layer should
-                    // call resolve_kindof_mask() after this.
-                    // TODO: resolve via GameLogic KindOf enum
+                    use crate::common::system::kind_of::KindOfMask;
+                    let mut mask = KindOfMask::empty();
+                    for token in trimmed.split_whitespace() {
+                        if let Some(flag) = KindOfMask::from_string(token) {
+                            mask |= flag;
+                        }
+                    }
+                    self.kindof = mask.bits() as u64;
                 }
 
                 // --- UI ---

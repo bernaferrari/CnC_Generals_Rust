@@ -140,7 +140,7 @@ pub struct PartitionFilterRelationship {
 
 /// Relationship allow flag constants (matching C++ PartitionFilterRelationship::RelationshipAllowTypes).
 pub const RELATIONSHIP_ALLOW_ALLIES: u32 = 1 << (Relationship::Allies as u32);
-pub const RELATIONSHIP_ALLOW_ENEMIES: u32 = 1 << (Relationship::Enemy as u32);
+pub const RELATIONSHIP_ALLOW_ENEMIES: u32 = 1 << (Relationship::Enemies as u32);
 pub const RELATIONSHIP_ALLOW_NEUTRAL: u32 = 1 << (Relationship::Neutral as u32);
 
 impl PartitionFilterRelationship {
@@ -406,13 +406,27 @@ pub struct PartitionFilterLastAttackedBy {
 
 impl PartitionFilterLastAttackedBy {
     pub fn new(obj_id: ObjectId) -> Self {
-        // Body module / last-damage-source tracking not yet fully exposed.
-        // Default to INVALID_ID.
-        // TODO: Hook into BodyModule::getLastDamageInfo once ported.
-        let _obj_exists = crate::object::registry::OBJECT_REGISTRY
-            .get_object(obj_id)
-            .is_some();
-        let last_attacked_by = INVALID_ID;
+        let last_attacked_by =
+            if let Some(handle) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(guard) = handle.read() {
+                    if let Some(body) = guard.get_body_module() {
+                        if let Ok(body_guard) = body.lock() {
+                            body_guard
+                                .get_last_damage_info()
+                                .map(|info| info.source_id)
+                                .unwrap_or(INVALID_ID)
+                        } else {
+                            INVALID_ID
+                        }
+                    } else {
+                        INVALID_ID
+                    }
+                } else {
+                    INVALID_ID
+                }
+            } else {
+                INVALID_ID
+            };
         Self { last_attacked_by }
     }
 }
@@ -815,7 +829,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                     if let Ok(src_guard) = src_handle.read() {
                         let rel = src_guard.relationship_to(&other_guard);
 
-                        if rel != Relationship::Enemy {
+                        if rel != Relationship::Enemies {
                             return false;
                         }
 
@@ -977,7 +991,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
                 {
                     if let Ok(src_guard) = src_handle.read() {
                         let rel = src_guard.relationship_to(&other_guard);
-                        if rel != Relationship::Enemy {
+                        if rel != Relationship::Enemies {
                             return false;
                         }
 
@@ -1177,9 +1191,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliat
                 let rel = compute_player_affiliation(self.player_id, &other_guard);
 
                 let matches = match rel {
-                    Relationship::Enemy => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
+                    Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
                     Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
-                    Relationship::Ally | Relationship::Allies | Relationship::Friend => {
+                    Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                         self.affiliation & AFFILIATION_ALLOW_ALLIES != 0
                     }
                 };
@@ -1210,7 +1224,7 @@ fn compute_player_affiliation(player_id: PlayerId, obj: &crate::object::Object) 
 
     // Same player = friend
     if obj_player_id == player_id {
-        return Relationship::Friend;
+        return Relationship::Allies;
     }
 
     // Neutral player

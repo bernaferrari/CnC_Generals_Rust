@@ -633,7 +633,7 @@ impl AIPlayer {
             }
             if let Some(team_arc) = obj_guard.get_team() {
                 if let Ok(team) = team_arc.read() {
-                    if player_guard.get_relationship_with_team(&team) == Relationship::Enemy {
+                    if player_guard.get_relationship_with_team(&team) == Relationship::Enemies {
                         return false;
                     }
                 }
@@ -1346,7 +1346,7 @@ impl AIPlayer {
             if let Some(team_arc) = obj_guard.get_team() {
                 if let Ok(team) = team_arc.read() {
                     if player_guard.get_relationship_with_team(&team)
-                        == crate::common::Relationship::Enemy
+                        == crate::common::Relationship::Enemies
                     {
                         continue;
                     }

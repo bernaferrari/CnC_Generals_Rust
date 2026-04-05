@@ -22,8 +22,8 @@
 //! - `Display.cpp` - setShroudLevel() interface
 //! - `TerrainRenderObject.cpp` - Terrain/shroud blending
 
-use std::sync::Arc;
 use log::{debug, trace, warn};
+use std::sync::Arc;
 
 /// Maximum number of players
 const MAX_PLAYER_COUNT: usize = 8;
@@ -55,9 +55,9 @@ impl CellShroudStatus {
     /// Matches C++ texture encoding
     pub fn to_texture_value(&self) -> u8 {
         match self {
-            CellShroudStatus::Shrouded => 0,   // 0.0 in normalized form
-            CellShroudStatus::Fogged => 128,   // 0.5 in normalized form
-            CellShroudStatus::Clear => 255,    // 1.0 in normalized form
+            CellShroudStatus::Shrouded => 0, // 0.0 in normalized form
+            CellShroudStatus::Fogged => 128, // 0.5 in normalized form
+            CellShroudStatus::Clear => 255,  // 1.0 in normalized form
         }
     }
 

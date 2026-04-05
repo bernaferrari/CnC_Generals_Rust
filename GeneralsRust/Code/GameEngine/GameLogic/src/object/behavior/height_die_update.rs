@@ -11,6 +11,7 @@ use crate::common::{
     Bool, Coord3D, KindOf, ModuleData, PathfindLayerEnum, Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::TheGameLogic;
+use crate::helpers::TheParticleSystemManager;
 use crate::helpers::ThePartitionManager;
 use crate::helpers::TheTerrainLogic;
 use crate::modules::{
@@ -257,14 +258,13 @@ impl UpdateModuleInterface for HeightDieUpdate {
             && pos.z < d.destroy_attached_particles_at_height
             && (self.has_died || direction_ok)
         {
-            // Destroy attached particle systems.
-            // In C++, TheParticleSystemManager->destroyAttachedSystems(getObject()) is called.
-            // In the Rust port, particle systems are managed client-side.
-            // This is a placeholder for when particle management is integrated.
-            #[cfg(feature = "particle_systems")]
-            {
-                // TODO: call particle system manager to destroy attached systems
-                log::debug!("HeightDieUpdate: destroying attached particle systems for object");
+            // C++ HeightDieUpdate.cpp:234 — TheParticleSystemManager->destroyAttachedSystems(getObject())
+            if let Some(obj_guard) = obj_arc.read().ok() {
+                let obj_id = obj_guard.id();
+                drop(obj_guard);
+                if let Some(ps_manager) = TheParticleSystemManager::get() {
+                    ps_manager.destroy_attached_systems(obj_id);
+                }
             }
 
             // Don't do this again. C++ line 237

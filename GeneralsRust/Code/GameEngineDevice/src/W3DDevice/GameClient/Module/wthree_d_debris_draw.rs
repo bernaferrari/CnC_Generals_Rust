@@ -1,7 +1,7 @@
 //! WthreeDDebrisDraw Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DDebrisDraw.h
-//! 
+//!
 //! This module provides drawing and rendering functionality.
 
 use std::{

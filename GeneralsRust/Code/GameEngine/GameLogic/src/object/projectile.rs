@@ -953,7 +953,7 @@ impl Projectile {
                             let rel = source_guard.relationship_to(&candidate_guard);
                             matches!(
                                 rel,
-                                crate::common::Relationship::Enemy
+                                crate::common::Relationship::Enemies
                                     | crate::common::Relationship::Neutral
                             )
                         } else {
@@ -1015,7 +1015,7 @@ impl Projectile {
                     let rel = source_guard.relationship_to(&target_guard);
                     if !matches!(
                         rel,
-                        crate::common::Relationship::Enemy | crate::common::Relationship::Neutral
+                        crate::common::Relationship::Enemies | crate::common::Relationship::Neutral
                     ) {
                         return Ok(());
                     }

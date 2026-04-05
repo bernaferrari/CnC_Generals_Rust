@@ -226,7 +226,7 @@ impl ScriptActionDispatcher {
 
     fn relation_from_script_value(&self, relation: i32) -> Relationship {
         match relation {
-            0 => Relationship::Enemy,   // REL_ENEMY / ENEMIES
+            0 => Relationship::Enemies,   // REL_ENEMY / ENEMIES
             1 => Relationship::Neutral, // REL_NEUTRAL / NEUTRAL
             2 => Relationship::Allies,  // REL_FRIEND / ALLIES
             _ => Relationship::Neutral,
@@ -4643,7 +4643,7 @@ impl ScriptActionDispatcher {
                     .and_then(|list| list.get_player(owner_id as i32).cloned())
                 {
                     if let (Ok(controller), Ok(owner)) = (controller_arc.read(), owner_arc.read()) {
-                        if controller.get_relationship(&owner) == Relationship::Enemy {
+                        if controller.get_relationship(&owner) == Relationship::Enemies {
                             continue;
                         }
                     }
@@ -5780,7 +5780,7 @@ impl ScriptActionDispatcher {
             &group_arc,
             &source_obj,
             &command_button,
-            |source, candidate| source.relationship_to(candidate) == Relationship::Enemy,
+            |source, candidate| source.relationship_to(candidate) == Relationship::Enemies,
         );
 
         if let Some(target_id) = target_id {
@@ -5871,7 +5871,7 @@ impl ScriptActionDispatcher {
             &source_obj,
             &command_button,
             |source, candidate| {
-                source.relationship_to(candidate) == Relationship::Enemy
+                source.relationship_to(candidate) == Relationship::Enemies
                     && candidate.is_kind_of(kind)
             },
         );
@@ -5912,7 +5912,7 @@ impl ScriptActionDispatcher {
             &source_obj,
             &command_button,
             |source, candidate| {
-                source.relationship_to(candidate) == Relationship::Enemy
+                source.relationship_to(candidate) == Relationship::Enemies
                     && candidate.is_kind_of(crate::common::KindOf::Structure)
             },
         );
@@ -5959,7 +5959,7 @@ impl ScriptActionDispatcher {
             &source_obj,
             &command_button,
             |source, candidate| {
-                source.relationship_to(candidate) == Relationship::Enemy
+                source.relationship_to(candidate) == Relationship::Enemies
                     && candidate.is_kind_of(crate::common::KindOf::Structure)
                     && candidate.is_kind_of(kind)
             },
@@ -6009,7 +6009,7 @@ impl ScriptActionDispatcher {
             &command_button,
             |source, candidate| {
                 let rel = source.relationship_to(candidate);
-                if !matches!(rel, Relationship::Enemy | Relationship::Neutral) {
+                if !matches!(rel, Relationship::Enemies | Relationship::Neutral) {
                     return false;
                 }
                 let template_ref: &dyn crate::common::ThingTemplate =
@@ -6167,7 +6167,7 @@ impl ScriptActionDispatcher {
                     Relationship::Neutral
                 };
 
-                matches!(relationship, Relationship::Enemy | Relationship::Neutral)
+                matches!(relationship, Relationship::Enemies | Relationship::Neutral)
             })
         });
 
@@ -12658,7 +12658,7 @@ impl ScriptActionDispatcher {
                         continue;
                     };
                     if controlling_player_guard.get_relationship(&target_player_guard)
-                        != Relationship::Enemy
+                        != Relationship::Enemies
                     {
                         continue;
                     }
@@ -12789,21 +12789,21 @@ impl ScriptActionDispatcher {
             let relationship = source_guard.relationship_to(&target_guard);
             let relationship_ok = if requires_object_target {
                 (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
-                    && relationship == Relationship::Enemy)
+                    && relationship == Relationship::Enemies)
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
                         && relationship == Relationship::Neutral)
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
                         && matches!(
                             relationship,
-                            Relationship::Ally | Relationship::Allies | Relationship::Friend
+                            Relationship::Allies | Relationship::Allies | Relationship::Allies
                         ))
                     || (!options.intersects(
                         SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
                             | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
                             | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
-                    ) && relationship == Relationship::Enemy)
+                    ) && relationship == Relationship::Enemies)
             } else {
-                relationship == Relationship::Enemy
+                relationship == Relationship::Enemies
             };
             if !relationship_ok {
                 continue;
@@ -17259,11 +17259,11 @@ impl ScriptConditionEvaluator {
 
             let relationship = unit.relationship_to(&candidate);
             let relation_ok = match alliance {
-                0 => relationship == Relationship::Enemy,   // REL_ENEMY
+                0 => relationship == Relationship::Enemies,   // REL_ENEMY
                 1 => relationship == Relationship::Neutral, // REL_NEUTRAL
                 2 => matches!(
                     relationship,
-                    Relationship::Ally | Relationship::Allies | Relationship::Friend
+                    Relationship::Allies | Relationship::Allies | Relationship::Allies
                 ), // REL_FRIEND
                 _ => false,
             };
@@ -17787,7 +17787,7 @@ impl ScriptConditionEvaluator {
                         let rel = player_guard.get_relationship(&owner_guard);
                         if matches!(
                             rel,
-                            Relationship::Ally | Relationship::Allies | Relationship::Friend
+                            Relationship::Allies | Relationship::Allies | Relationship::Allies
                         ) {
                             continue;
                         }

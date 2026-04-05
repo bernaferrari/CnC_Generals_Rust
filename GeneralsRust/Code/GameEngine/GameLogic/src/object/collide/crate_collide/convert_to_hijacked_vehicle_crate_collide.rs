@@ -98,7 +98,7 @@ impl ConvertToHijackedVehicleCrateCollide {
         // Only hijack enemy objects.
         let hijacker = self.base.get_object().map_err(GameError::from)?;
         let hijacker_lock = hijacker.read().map_err(|_| GameError::LockError)?;
-        if hijacker_lock.relationship_to(&other_lock) != Relationship::Enemy {
+        if hijacker_lock.relationship_to(&other_lock) != Relationship::Enemies {
             return Ok(false);
         }
 

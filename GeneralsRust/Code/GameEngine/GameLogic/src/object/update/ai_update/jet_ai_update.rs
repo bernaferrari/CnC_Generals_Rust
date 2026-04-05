@@ -1249,8 +1249,8 @@ impl JetAIUpdate {
                 let relationship = jet_guard.relationship_to(candidate);
                 if !matches!(
                     relationship,
-                    crate::common::Relationship::Friend
-                        | crate::common::Relationship::Ally
+                    crate::common::Relationship::Allies
+                        | crate::common::Relationship::Allies
                         | crate::common::Relationship::Allies
                 ) {
                     return false;

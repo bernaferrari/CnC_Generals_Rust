@@ -1,7 +1,7 @@
 //! WthreeDStatusCircle Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DStatusCircle.h
-//! 
+//!
 //! This module provides functionality for wthree d status circle.
 
 use std::{

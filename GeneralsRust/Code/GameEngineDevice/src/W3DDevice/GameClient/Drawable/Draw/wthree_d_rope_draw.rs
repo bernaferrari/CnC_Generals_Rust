@@ -1,4 +1,22 @@
 //! W3D rope draw module (port of W3DRopeDraw.cpp).
+//!
+//! ## Pipeline Status: DEAD CODE (not instantiated at runtime)
+//!
+//! This struct is never created or called anywhere in the draw pipeline. The
+//! active implementation is `gamelogic::object::draw::W3DRopeDraw`, which is
+//! instantiated by `module_overrides.rs` and dispatched by
+//! `GameLogic Drawable::draw()`.
+//!
+//! However, the GameLogic version only computes segment positions in
+//! memory — it never creates `SegmentedLine` objects in
+//! `W3DDisplay::global_scene()`. This file contains the **reference
+//! rendering implementation** that shows how rope segments should be
+//! submitted to the W3D scene once the pipeline gap is closed.
+//!
+//! ### Why this can't be simply wired in
+//!
+//! See `wthree_d_laser_draw.rs` for the dependency-chain explanation.
+//! The same architectural constraint applies to all line-based draw modules.
 
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
 use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
@@ -107,7 +125,11 @@ impl W3DRopeDraw {
 
         if !self.segments.is_empty() {
             let deflection = self.cur_wobble_phase.sin() * self.wobble_amp;
-            let mut start = Point3::new(self.start_pos.x, self.start_pos.y, self.start_pos.z + self.cur_z_offset);
+            let mut start = Point3::new(
+                self.start_pos.x,
+                self.start_pos.y,
+                self.start_pos.z + self.cur_z_offset,
+            );
             let each_len = if self.segments.is_empty() {
                 0.0
             } else {
@@ -167,7 +189,11 @@ impl W3DRopeDraw {
 
             let mut line = SegmentedLine::new();
             line.set_width(self.width * 0.5);
-            line.set_color(Vector3::new(self.color.red, self.color.green, self.color.blue));
+            line.set_color(Vector3::new(
+                self.color.red,
+                self.color.green,
+                self.color.blue,
+            ));
             line.set_points(&[
                 Point3::new(pos.x, pos.y, pos.z),
                 Point3::new(pos.x, pos.y, pos.z + each_len),
@@ -175,7 +201,11 @@ impl W3DRopeDraw {
 
             let mut soft_line = SegmentedLine::new();
             soft_line.set_width(self.width);
-            soft_line.set_color(Vector3::new(self.color.red, self.color.green, self.color.blue));
+            soft_line.set_color(Vector3::new(
+                self.color.red,
+                self.color.green,
+                self.color.blue,
+            ));
             soft_line.set_opacity(0.5);
             soft_line.set_points(&[
                 Point3::new(pos.x, pos.y, pos.z),

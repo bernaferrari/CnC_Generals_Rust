@@ -1,7 +1,7 @@
 //! WorldHeightMap Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/WorldHeightMap.h
-//! 
+//!
 //! This module provides functionality for world height map.
 
 use std::{

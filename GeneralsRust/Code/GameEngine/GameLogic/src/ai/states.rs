@@ -7635,9 +7635,9 @@ impl ClassicState for AIEnterState {
                 cmd_source,
                 CanEnterType::CheckCapacity,
             ) {
-                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemy {
+                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemies {
                     let can_attack = owner_guard.get_able_to_attack_specific_object(
-                        AbleToAttackType::CanAttackSpecific,
+                        AbleToAttackType::NewTarget,
                         &goal_guard,
                         CommandSourceType::FromAi,
                     );
@@ -8082,7 +8082,7 @@ fn find_enemy_in_container(killer: &Object, building: &Object) -> Option<ObjectI
         }
         // C++ line 405: killer->getRelationship(*it) == ENEMIES
         // Order matters: we check if killer considers it an enemy, not vice versa.
-        if killer.relationship_to(&contained_guard) == Relationship::Enemy {
+        if killer.relationship_to(&contained_guard) == Relationship::Enemies {
             return Some(id);
         }
     }
@@ -8310,7 +8310,7 @@ fn cannot_possibly_attack_object_state(
         .as_ref()
         .and_then(|payload| payload.downcast_ref::<AttackContinuationData>())
         .map(|data| data.attack_type)
-        .unwrap_or(AbleToAttackType::CanAttackSpecific);
+        .unwrap_or(AbleToAttackType::NewTarget);
 
     let cmd_source = owner_guard
         .get_ai_update_interface()
@@ -9166,7 +9166,7 @@ impl ClassicState for AIAttackFireWeaponState {
                                             return false;
                                         }
                                         match owner_guard.get_able_to_attack_specific_object(
-                                            AbleToAttackType::CanAttackSpecific,
+                                            AbleToAttackType::NewTarget,
                                             obj,
                                             last_cmd_source,
                                         ) {

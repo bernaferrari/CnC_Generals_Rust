@@ -1855,7 +1855,7 @@ impl AIState for AIAttackState {
                 }
             }
 
-            if relationship != Relationship::Enemy {
+            if relationship != Relationship::Enemies {
                 return StateReturnType::Failed;
             }
 

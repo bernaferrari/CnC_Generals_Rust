@@ -403,8 +403,8 @@ impl HordeUpdate {
                 let relationship = obj.relationship_to(&other);
                 if !matches!(
                     relationship,
-                    crate::common::Relationship::Friend
-                        | crate::common::Relationship::Ally
+                    crate::common::Relationship::Allies
+                        | crate::common::Relationship::Allies
                         | crate::common::Relationship::Allies
                 ) {
                     continue;

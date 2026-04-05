@@ -18,7 +18,9 @@ use crate::W3DDevice::GameClient::GUI::Gadget::{
     wthree_d_static_text::{w3d_gadget_static_text_draw, w3d_gadget_static_text_image_draw},
     wthree_d_tab_control::{w3d_gadget_tab_control_draw, w3d_gadget_tab_control_image_draw},
     wthree_d_text_entry::{w3d_gadget_text_entry_draw, w3d_gadget_text_entry_image_draw},
-    wthree_d_vertical_slider::{w3d_gadget_vertical_slider_draw, w3d_gadget_vertical_slider_image_draw},
+    wthree_d_vertical_slider::{
+        w3d_gadget_vertical_slider_draw, w3d_gadget_vertical_slider_image_draw,
+    },
 };
 
 use crate::W3DDevice::GameClient::wthree_d_game_window::WthreeDGameWindow;

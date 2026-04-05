@@ -293,7 +293,7 @@ impl AreaDamageApplicator {
                 if let Ok(attacker_guard) = attacker_arc.read() {
                     if matches!(
                         attacker_guard.relationship_to(object),
-                        Relationship::Friend | Relationship::Ally | Relationship::Allies
+                        Relationship::Allies | Relationship::Allies | Relationship::Allies
                     ) {
                         return false;
                     }

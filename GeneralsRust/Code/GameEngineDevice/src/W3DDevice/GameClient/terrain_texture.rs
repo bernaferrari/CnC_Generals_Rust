@@ -11,13 +11,13 @@
 //! - Alpha blend maps (splatmaps)
 //! - Edge blending for transitions
 
-use wgpu::{
-    Device, Queue, Texture, TextureView, Sampler, TextureDescriptor, TextureUsages,
-    TextureFormat, TextureDimension, Extent3d, SamplerDescriptor, AddressMode,
-    FilterMode, TextureViewDescriptor, ImageCopyTexture, ImageDataLayout, Origin3d,
-};
-use std::sync::Arc;
 use anyhow::Result;
+use std::sync::Arc;
+use wgpu::{
+    AddressMode, Device, Extent3d, FilterMode, ImageCopyTexture, ImageDataLayout, Origin3d, Queue,
+    Sampler, SamplerDescriptor, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureView, TextureViewDescriptor,
+};
 
 // Constants from C++ WorldHeightMap.h and TerrainTex.h
 pub const TILE_OFFSET: usize = 8; // TerrainTex.h line 17
@@ -49,7 +49,11 @@ impl TileData {
 
     pub fn from_pixels(width: u32, height: u32, pixels: Vec<u8>) -> Self {
         assert_eq!(pixels.len(), (width * height * 4) as usize);
-        Self { width, height, pixels }
+        Self {
+            width,
+            height,
+            pixels,
+        }
     }
 }
 
@@ -260,7 +264,12 @@ impl TerrainTextureManager {
         let source_tile_positions = &mut self.source_tile_positions;
         let texture_classes = &mut self.texture_classes;
         source_tile_positions.fill(None);
-        Self::pack_tiles_into_atlas(source_tiles, source_tile_positions, texture_classes, &mut atlas_data);
+        Self::pack_tiles_into_atlas(
+            source_tiles,
+            source_tile_positions,
+            texture_classes,
+            &mut atlas_data,
+        );
 
         // Upload to GPU
         self.queue.write_texture(
@@ -294,7 +303,12 @@ impl TerrainTextureManager {
         let edge_tile_positions = &mut self.edge_tile_positions;
         let texture_classes = &mut self.texture_classes;
         edge_tile_positions.fill(None);
-        Self::pack_tiles_into_atlas(edge_tiles, edge_tile_positions, texture_classes, &mut atlas_data);
+        Self::pack_tiles_into_atlas(
+            edge_tiles,
+            edge_tile_positions,
+            texture_classes,
+            &mut atlas_data,
+        );
 
         self.queue.write_texture(
             ImageCopyTexture {
@@ -342,7 +356,9 @@ impl TerrainTextureManager {
 
         // Find the tile in the texture classes
         for class in &self.texture_classes {
-            if tile_index >= class.first_tile as i16 && tile_index < (class.first_tile + class.num_tiles) as i16 {
+            if tile_index >= class.first_tile as i16
+                && tile_index < (class.first_tile + class.num_tiles) as i16
+            {
                 let tile_offset = tile_index - class.first_tile as i16;
                 let tile_width = class.width.max(1);
                 let tile_height = class.width.max(1);
@@ -369,12 +385,7 @@ impl TerrainTextureManager {
 
     /// Create blend tile information
     /// Corresponds to C++ WorldHeightMap blend tile generation
-    pub fn create_blend_tile(
-        &mut self,
-        tile_index: i16,
-        alpha: [u8; 4],
-        flip: bool,
-    ) -> usize {
+    pub fn create_blend_tile(&mut self, tile_index: i16, alpha: [u8; 4], flip: bool) -> usize {
         let uv = self.get_uv_for_tile(tile_index);
 
         let blend_tile = BlendTileInfo {
@@ -400,7 +411,10 @@ impl TerrainTextureManager {
         )
     }
 
-    fn find_texture_class_for_tile(texture_classes: &[TextureClass], tile_index: usize) -> Option<usize> {
+    fn find_texture_class_for_tile(
+        texture_classes: &[TextureClass],
+        tile_index: usize,
+    ) -> Option<usize> {
         texture_classes.iter().enumerate().find_map(|(idx, class)| {
             let start = class.first_tile;
             let end = class.first_tile.saturating_add(class.num_tiles);
@@ -422,7 +436,9 @@ impl TerrainTextureManager {
         let border = Self::atlas_border();
         let (outer_width, outer_height) = Self::tile_outer_extent(tile);
 
-        if outer_x.checked_add(outer_width)? > atlas_size || outer_y.checked_add(outer_height)? > atlas_size {
+        if outer_x.checked_add(outer_width)? > atlas_size
+            || outer_y.checked_add(outer_height)? > atlas_size
+        {
             return None;
         }
 
@@ -444,7 +460,8 @@ impl TerrainTextureManager {
                 let dst_idx = ((dst_y * atlas_size + dst_x) * 4) as usize;
 
                 if src_idx + 3 < tile.pixels.len() && dst_idx + 3 < atlas_data.len() {
-                    atlas_data[dst_idx..dst_idx + 4].copy_from_slice(&tile.pixels[src_idx..src_idx + 4]);
+                    atlas_data[dst_idx..dst_idx + 4]
+                        .copy_from_slice(&tile.pixels[src_idx..src_idx + 4]);
                 }
             }
         }
@@ -572,7 +589,12 @@ impl TerrainTextureManager {
 
     /// Generate blend map texture
     /// Corresponds to C++ AlphaEdgeTextureClass::update
-    pub fn update_blend_map(&self, map_width: usize, map_height: usize, blend_indices: &[i16]) -> Result<()> {
+    pub fn update_blend_map(
+        &self,
+        map_width: usize,
+        map_height: usize,
+        blend_indices: &[i16],
+    ) -> Result<()> {
         if map_width == 0 || map_height == 0 {
             return Ok(());
         }
@@ -602,10 +624,10 @@ impl TerrainTextureManager {
                         let tex_idx = ((tex_y * TERRAIN_TEXTURE_SIZE + tex_x) * 4) as usize;
 
                         if tex_idx + 3 < blend_data.len() {
-                            blend_data[tex_idx] = alpha;     // R
+                            blend_data[tex_idx] = alpha; // R
                             blend_data[tex_idx + 1] = alpha; // G
                             blend_data[tex_idx + 2] = alpha; // B
-                            blend_data[tex_idx + 3] = alpha;  // A
+                            blend_data[tex_idx + 3] = alpha; // A
                         }
                     }
                 }
@@ -701,8 +723,14 @@ mod tests {
 
     #[test]
     fn test_resolve_blend_alpha_uses_all_corners() {
-        assert_eq!(TerrainTextureManager::resolve_blend_alpha([0, 255, 255, 255]), 191);
-        assert_eq!(TerrainTextureManager::resolve_blend_alpha([255, 0, 0, 0]), 64);
+        assert_eq!(
+            TerrainTextureManager::resolve_blend_alpha([0, 255, 255, 255]),
+            191
+        );
+        assert_eq!(
+            TerrainTextureManager::resolve_blend_alpha([255, 0, 0, 0]),
+            64
+        );
     }
 
     #[test]

@@ -11,15 +11,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use glam::{Vec2, Vec3};
 use thiserror::Error;
 use wgpu::TextureView;
 
 use super::ui_renderer::{UIRect, UIRenderer, UIRendererError};
+use super::window_video_manager::with_window_video_manager;
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
 use crate::helpers::TheInGameUI;
 use crate::input::keyboard::KeyboardState;
-use crate::input::mouse::{ButtonState, MouseButton, MouseState};
+use crate::input::mouse::{with_mouse, ButtonState, MouseButton, MouseState};
 use crate::message_stream::game_message::{
     Coord3D as MsgCoord3D, GameMessageType, ICoord2D as MsgICoord2D,
 };
@@ -27,12 +29,21 @@ use crate::message_stream::message_stream::append_message_to_stream;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::CommandSourceType;
-use gamelogic::common::{Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID};
+use gamelogic::common::{
+    Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID, ObjectShroudStatus, MAX_PLAYER_COUNT,
+};
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+
+/// Re-export of the INI settings type from the Common crate's INI parser.
+/// C++: InGameUI fieldParseTable settings (InGameUI.cpp:752-856, ini_in_game_ui.rs)
+pub use game_engine::common::ini::ini_in_game_ui::{
+    Coord2D as IniCoord2D, ICoord2D as IniICoord2D, InGameUISettings as InGameUIIniSettings,
+    RGBAColorInt,
+};
 
 /// In-game UI errors
 #[derive(Error, Debug)]
@@ -69,6 +80,389 @@ const MIN_DRAG_DISTANCE: f32 = 5.0;
 
 /// Minimum drag distance for line build placement (pixels)
 const PLACEMENT_DRAG_DISTANCE: f32 = 5.0;
+
+/// Default floating text timeout in logic frames (C++: LOGICFRAMES_PER_SECOND / 3 = 10)
+const DEFAULT_FLOATING_TEXT_TIMEOUT: u32 = 10;
+
+/// Maximum number of floating text entries
+const MAX_FLOATING_TEXT: usize = 30;
+
+/// C++: InGameUI::UIMessage (InGameUI.h:615-621)
+/// Stores a single HUD message text entry. Newer messages are at lower indices.
+#[derive(Debug, Clone)]
+pub struct MessageText {
+    /// The full text to display
+    pub text: String,
+    /// Packed ARGB color for this message instance (stays with it across shifts)
+    pub color: u32,
+    /// Logic frame when this message was created
+    pub creation_frame: u32,
+}
+
+/// C++: MAX_UI_MESSAGES = 6 (InGameUI.h:622)
+const MAX_UI_MESSAGES: usize = 6;
+
+/// C++: InGameUI::MilitarySubtitleData (InGameUI.h:624-637)
+/// Stores state for the military-style caption overlay.
+#[derive(Debug, Clone)]
+pub struct MilitarySubtitle {
+    /// The complete subtitle text (each line separated by "\n")
+    pub text: String,
+    /// Current character index for typewriter effect
+    pub index: usize,
+    /// Screen position for drawing
+    pub position: (f32, f32),
+    /// Lifetime end frame (absolute logic frame)
+    pub lifetime_frame: u32,
+    /// Whether the typewriter block is drawn (true) or blank (false)
+    pub block_drawn: bool,
+    /// Frame at which the current block state started
+    pub block_begin_frame: u32,
+    /// Position where the upper-left of the block should begin
+    pub block_pos: (f32, f32),
+    /// If current frame >= this, increment typewriter position
+    pub increment_on_frame: u32,
+    /// ARGB color for subtitle text
+    pub color: u32,
+}
+
+/// C++: InGameUI::FloatingTextData (InGameUI.h)
+#[derive(Debug, Clone)]
+pub struct FloatingTextData {
+    pub text: String,
+    pub position: Coord3D,
+    pub color: (u8, u8, u8),
+    pub creation_frame: u32,
+    pub timeout: u32,
+    pub move_up_speed: f32,
+}
+
+/// C++: NamedTimerInfo (InGameUI.h:217-228)
+#[derive(Debug, Clone)]
+pub struct NamedTimerData {
+    pub name: String,
+    pub text: String,
+    pub is_countdown: bool,
+}
+
+/// Mouse cursor types. C++: Mouse::MouseCursor (Mouse.h:121-190)
+/// Ordering and discriminant values must match C++ exactly for save/load parity.
+/// Note: C++ has `NORMAL = FIRST_CURSOR` (both value 1) which Rust cannot represent
+/// as two variants with the same discriminant, so we use `FirstCursor` to represent both.
+/// Conditional variants (#ifdef ALLOW_DEMORALIZE / ALLOW_SURRENDER) are excluded since
+/// they are not defined in retail Zero Hour builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum MouseCursor {
+    /// C++: INVALID_MOUSE_CURSOR = -1
+    Invalid = -1,
+    /// C++: NONE = 0
+    None = 0,
+    /// C++: FIRST_CURSOR = 1, NORMAL = FIRST_CURSOR = 1
+    FirstCursor = 1,
+    /// C++: ARROW = 2
+    Arrow = 2,
+    /// C++: SCROLL = 3
+    Scroll = 3,
+    /// C++: CROSS = 4
+    Cross = 4,
+    /// C++: MOVETO = 5
+    MoveTo = 5,
+    /// C++: ATTACKMOVETO = 6
+    AttackMoveTo = 6,
+    /// C++: ATTACK_OBJECT = 7
+    AttackObject = 7,
+    /// C++: FORCE_ATTACK_OBJECT = 8
+    ForceAttackObject = 8,
+    /// C++: FORCE_ATTACK_GROUND = 9
+    ForceAttackGround = 9,
+    /// C++: BUILD_PLACEMENT = 10
+    BuildPlacement = 10,
+    /// C++: INVALID_BUILD_PLACEMENT = 11
+    InvalidBuildPlacement = 11,
+    /// C++: GENERIC_INVALID = 12
+    GenericInvalid = 12,
+    /// C++: SELECTING = 13
+    Selecting = 13,
+    /// C++: ENTER_FRIENDLY = 14
+    EnterFriendly = 14,
+    /// C++: ENTER_AGGRESSIVELY = 15
+    EnterAggressively = 15,
+    /// C++: SET_RALLY_POINT = 16
+    SetRallyPoint = 16,
+    /// C++: GET_REPAIRED = 17
+    GetRepaired = 17,
+    /// C++: GET_HEALED = 18
+    GetHealed = 18,
+    /// C++: DO_REPAIR = 19
+    DoRepair = 19,
+    /// C++: RESUME_CONSTRUCTION = 20
+    ResumeConstruction = 20,
+    /// C++: CAPTUREBUILDING = 21
+    CaptureBuilding = 21,
+    /// C++: SNIPE_VEHICLE = 22
+    SnipeVehicle = 22,
+    /// C++: LASER_GUIDED_MISSILES = 23
+    LaserGuidedMissiles = 23,
+    /// C++: TANKHUNTER_TNT_ATTACK = 24
+    TankHunterTntAttack = 24,
+    /// C++: STAB_ATTACK = 25
+    StabAttack = 25,
+    /// C++: PLACE_REMOTE_CHARGE = 26
+    PlaceRemoteCharge = 26,
+    /// C++: PLACE_TIMED_CHARGE = 27
+    PlaceTimedCharge = 27,
+    /// C++: DEFECTOR = 28
+    Defector = 28,
+    /// C++: DOCK = 29
+    Dock = 29,
+    /// C++: FIRE_FLAME = 30
+    FireFlame = 30,
+    /// C++: FIRE_BOMB = 31
+    FireBomb = 31,
+    /// C++: PLACE_BEACON = 32
+    PlaceBeacon = 32,
+    /// C++: DISGUISE_AS_VEHICLE = 33
+    DisguiseAsVehicle = 33,
+    /// C++: WAYPOINT = 34
+    Waypoint = 34,
+    /// C++: OUTRANGE = 35
+    OutOfRange = 35,
+    /// C++: STAB_ATTACK_INVALID = 36
+    StabAttackInvalid = 36,
+    /// C++: PLACE_CHARGE_INVALID = 37
+    PlaceChargeInvalid = 37,
+    /// C++: HACK = 38
+    Hack = 38,
+    /// C++: PARTICLE_UPLINK_CANNON = 39
+    ParticleUplinkCannon = 39,
+    /// C++: NUM_MOUSE_CURSORS = 40 (sentinel, keep last)
+    NumMouseCursors = 40,
+}
+
+impl Default for MouseCursor {
+    fn default() -> Self {
+        Self::Arrow
+    }
+}
+
+impl MouseCursor {
+    /// Total number of cursor types (excluding Invalid and NumMouseCursors sentinels).
+    pub const COUNT: i32 = 40;
+
+    /// Convert discriminant to enum, returning None for out-of-range values.
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            -1 => Some(Self::Invalid),
+            0 => Some(Self::None),
+            1 => Some(Self::FirstCursor),
+            2 => Some(Self::Arrow),
+            3 => Some(Self::Scroll),
+            4 => Some(Self::Cross),
+            5 => Some(Self::MoveTo),
+            6 => Some(Self::AttackMoveTo),
+            7 => Some(Self::AttackObject),
+            8 => Some(Self::ForceAttackObject),
+            9 => Some(Self::ForceAttackGround),
+            10 => Some(Self::BuildPlacement),
+            11 => Some(Self::InvalidBuildPlacement),
+            12 => Some(Self::GenericInvalid),
+            13 => Some(Self::Selecting),
+            14 => Some(Self::EnterFriendly),
+            15 => Some(Self::EnterAggressively),
+            16 => Some(Self::SetRallyPoint),
+            17 => Some(Self::GetRepaired),
+            18 => Some(Self::GetHealed),
+            19 => Some(Self::DoRepair),
+            20 => Some(Self::ResumeConstruction),
+            21 => Some(Self::CaptureBuilding),
+            22 => Some(Self::SnipeVehicle),
+            23 => Some(Self::LaserGuidedMissiles),
+            24 => Some(Self::TankHunterTntAttack),
+            25 => Some(Self::StabAttack),
+            26 => Some(Self::PlaceRemoteCharge),
+            27 => Some(Self::PlaceTimedCharge),
+            28 => Some(Self::Defector),
+            29 => Some(Self::Dock),
+            30 => Some(Self::FireFlame),
+            31 => Some(Self::FireBomb),
+            32 => Some(Self::PlaceBeacon),
+            33 => Some(Self::DisguiseAsVehicle),
+            34 => Some(Self::Waypoint),
+            35 => Some(Self::OutOfRange),
+            36 => Some(Self::StabAttackInvalid),
+            37 => Some(Self::PlaceChargeInvalid),
+            38 => Some(Self::Hack),
+            39 => Some(Self::ParticleUplinkCannon),
+            40 => Some(Self::NumMouseCursors),
+            _ => None,
+        }
+    }
+}
+
+/// Mouse interaction mode. C++: InGameUI::MouseMode (InGameUI.h:599-605)
+/// Tracks what kind of mouse interaction is currently active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(i32)]
+pub enum MouseMode {
+    /// C++: MOUSEMODE_DEFAULT = 0 — normal gameplay cursor
+    #[default]
+    Default = 0,
+    /// C++: MOUSEMODE_BUILD_PLACE = 1 — placing a building/structure
+    BuildPlace = 1,
+    /// C++: MOUSEMODE_GUI_COMMAND = 2 — executing a UI command button action
+    GuiCommand = 2,
+}
+
+impl MouseMode {
+    pub fn from_i32(value: i32) -> Self {
+        match value {
+            1 => Self::BuildPlace,
+            2 => Self::GuiCommand,
+            _ => Self::Default,
+        }
+    }
+}
+
+/// Hint types for visual command feedback. C++: InGameUI::HintType (InGameUI.h:588-596)
+/// MOVE_HINT = 0, ATTACK_HINT = 1, DEBUG_HINT = 2 (debug only), NUM_HINT_TYPES = 2 or 3
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum HintType {
+    /// C++: MOVE_HINT = 0
+    Move = 0,
+    /// C++: ATTACK_HINT = 1
+    Attack = 1,
+    /// C++: FORCE_ATTACK (Rust extension for force attack hints)
+    ForceAttack = 2,
+    /// C++: GARRISON_HINT (Rust extension for garrison hints)
+    Garrison = 3,
+    /// C++: COMMAND_HINT (Rust extension for command hints)
+    Command = 4,
+    /// C++: Area selection hint
+    AreaSelect = 5,
+}
+
+/// Hint data for visual command feedback. C++: MoveHintStruct (InGameUI.h:608-613)
+/// Stores a world-space command indicator that fades over time.
+#[derive(Debug, Clone)]
+pub struct HintData {
+    /// The type of hint being displayed
+    pub hint_type: HintType,
+    /// World-space start position (e.g., unit position for move commands)
+    pub start: Coord3D,
+    /// World-space end position (e.g., destination for move commands)
+    pub end: Coord3D,
+    /// Logic frame when this hint was created. C++: m_moveHint[].frame
+    pub creation_frame: u32,
+    /// Source object ID that issued this command. C++: m_moveHint[].sourceID
+    pub source_id: u32,
+    /// How many logic frames this hint should be displayed (30 FPS standard).
+    /// C++: hints are drawn while frame != 0, expired by setting frame = 0.
+    pub lifetime_frames: u32,
+}
+
+/// Maximum number of simultaneous move hints. C++: MAX_MOVE_HINTS = 256
+const MAX_MOVE_HINTS: usize = 256;
+
+/// C++: InGameUI m_idleWorkers[MAX_PLAYER_COUNT] — per-player idle worker tracking
+#[derive(Debug, Clone)]
+pub struct IdleWorkerData {
+    pub object_id: ObjectID,
+    pub player_index: u8,
+}
+
+/// Radius cursor types. C++: RadiusCursorType enum (InGameUI.h:45-84)
+/// Tracks the kind of radius decal overlay shown when targeting special powers or attacks.
+/// Ordering and values must match C++ for parity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum RadiusCursorType {
+    None = 0,
+    AttackDamageArea = 1,
+    AttackScatterArea = 2,
+    AttackContinueArea = 3,
+    GuardArea = 4,
+    EmergencyRepair = 5,
+    FriendlySpecialPower = 6,
+    OffensiveSpecialPower = 7,
+    SuperweaponScatterArea = 8,
+    ParticleCannon = 9,
+    A10Strike = 10,
+    CarpetBomb = 11,
+    DaisyCutter = 12,
+    Paradrop = 13,
+    SpySatellite = 14,
+    SpectreGunship = 15,
+    HelixNapalmBomb = 16,
+    NuclearMissile = 17,
+    EmpPulse = 18,
+    ArtilleryBarrage = 19,
+    NapalmStrike = 20,
+    ClusterMines = 21,
+    ScudStorm = 22,
+    AnthraxBomb = 23,
+    Ambush = 24,
+    Radar = 25,
+    SpyDrone = 26,
+    Frenzy = 27,
+    ClearMines = 28,
+    Ambulance = 29,
+    /// Sentinel — must be last. C++: RADIUSCURSOR_COUNT
+    Count = 30,
+}
+
+impl RadiusCursorType {
+    /// Total number of radius cursor types. C++: RADIUSCURSOR_COUNT
+    pub const COUNT: u32 = 30;
+}
+
+impl Default for RadiusCursorType {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+/// Radius cursor state. C++: m_curRadiusCursor + m_curRcType (InGameUI.h:799-801)
+/// State-only tracking — actual decal rendering is handled by the rendering subsystem.
+#[derive(Debug, Clone)]
+pub struct RadiusCursorState {
+    pub cursor_type: RadiusCursorType,
+    pub active: bool,
+    pub position: Coord3D,
+    pub radius: f32,
+}
+
+impl RadiusCursorState {
+    pub fn new() -> Self {
+        Self {
+            cursor_type: RadiusCursorType::None,
+            active: false,
+            position: Coord3D::new(0.0, 0.0, 0.0),
+            radius: 0.0,
+        }
+    }
+}
+
+impl Default for RadiusCursorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Superweapon timer tracking data. C++: SuperweaponInfo (InGameUI.h:148-193)
+/// Simplified from C++ — state-only tracking; rendering handled by the UI subsystem.
+#[derive(Debug, Clone)]
+pub struct SuperweaponTimerData {
+    pub player_index: u8,
+    pub object_id: ObjectID,
+    pub power_name: String,
+    pub ready_frame: u32,
+    pub countdown_text: String,
+    pub ready: bool,
+    pub hidden_by_script: bool,
+    pub hidden_by_science: bool,
+}
 
 /// Selection box representation
 #[derive(Debug, Clone, Copy)]
@@ -391,6 +785,40 @@ impl ResourceDisplay {
     }
 }
 
+/// C++: WorldAnimationOptions (InGameUI.h:269-272)
+/// Bit-flag options for world animations. Ordering and values match C++ for parity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldAnimationOptions(u32);
+
+impl WorldAnimationOptions {
+    pub const NONE: Self = Self(0x00000000);
+    /// C++: WORLD_ANIM_FADE_ON_EXPIRE = 0x00000001
+    pub const FADE_ON_EXPIRE: Self = Self(0x00000001);
+    /// C++: WORLD_ANIM_PLAY_ONCE_AND_DESTROY = 0x00000002
+    pub const PLAY_ONCE_AND_DESTROY: Self = Self(0x00000002);
+
+    pub fn contains(&self, other: Self) -> bool {
+        (self.0 & other.0) != 0
+    }
+}
+
+/// C++: WorldAnimationData (InGameUI.h:275-289)
+/// Tracks state for a world-space 2D animation. The actual Anim2D rendering
+/// pipeline is deferred; we store position/timing/option state for now.
+#[derive(Debug, Clone)]
+pub struct WorldAnimationData {
+    /// C++: m_anim — the animation template name (Anim2D rendering deferred)
+    pub animation_name: String,
+    /// C++: m_worldPos
+    pub world_pos: Coord3D,
+    /// C++: m_expireFrame
+    pub expire_frame: u32,
+    /// C++: m_options
+    pub options: WorldAnimationOptions,
+    /// C++: m_zRisePerSecond
+    pub z_rise_per_second: f32,
+}
+
 /// Main in-game UI manager
 pub struct InGameUI {
     /// Selection box state
@@ -425,6 +853,138 @@ pub struct InGameUI {
 
     /// Last update time
     last_update: Instant,
+
+    pub floating_texts: Vec<FloatingTextData>,
+    pub idle_workers: Vec<IdleWorkerData>,
+    pub current_frame: u32,
+
+    radius_cursor: RadiusCursorState,
+    superweapon_timers: Vec<SuperweaponTimerData>,
+
+    /// C++: m_mouseMode (InGameUI.h:770)
+    mouse_mode: MouseMode,
+    /// C++: TheMouse->m_currentCursor, stored here for parity. C++: m_mouseModeCursor (InGameUI.h:771)
+    current_cursor: MouseCursor,
+    /// C++: m_mouseModeCursor (InGameUI.h:771) — cursor to restore after GUI command completes
+    mouse_mode_cursor: MouseCursor,
+    /// C++: m_isScrolling (InGameUI.h:768)
+    is_scrolling: bool,
+    /// C++: m_isSelecting (InGameUI.h:769)
+    is_selecting: bool,
+    /// C++: m_scrollAmt (InGameUI.h:773)
+    scroll_amount_x: f32,
+    scroll_amount_y: f32,
+    /// C++: m_mousedOverDrawableID (InGameUI.h:772)
+    moused_over_drawable_id: u32,
+    /// C++: m_moveHint[MAX_MOVE_HINTS] + m_nextMoveHint (InGameUI.h:694-695)
+    hints: Vec<HintData>,
+    next_hint_index: usize,
+
+    named_timers: Vec<NamedTimerData>,
+    named_timer_last_flash_frame: i32,
+    named_timer_used_flash_color: bool,
+    show_named_timers: bool,
+
+    gui_command: Option<String>,
+    quit_menu_visible: bool,
+
+    window_layouts: HashMap<String, bool>,
+
+    // ── Message display (C++: m_messageColor1/2, m_messagePosition, etc.) ──
+    message_color1: u32,
+    message_color2: u32,
+    message_position: (i32, i32),
+    message_font_name: String,
+    message_point_size: i32,
+    message_bold: bool,
+    message_delay_ms: i32,
+    messages_enabled: bool,
+    messages: Vec<MessageText>,
+
+    // ── Military subtitle (C++: m_militaryCaption*, m_militarySubtitle) ──
+    military_caption_color: (u8, u8, u8, u8),
+    military_caption_position: (i32, i32),
+    military_caption_title_font: String,
+    military_caption_title_point_size: i32,
+    military_caption_title_bold: bool,
+    military_caption_font: String,
+    military_caption_point_size: i32,
+    military_caption_bold: bool,
+    military_caption_randomize_typing: bool,
+    military_caption_speed: i32,
+    current_military_subtitle: Option<MilitarySubtitle>,
+
+    // ── Floating text INI values (C++: m_floatingTextTimeOut, etc.) ──
+    floating_text_timeout_frames: u32,
+    floating_text_move_up_speed: f32,
+    floating_text_vanish_rate: f32,
+
+    // ── Superweapon countdown (C++: m_superweaponPosition, etc.) ──
+    superweapon_countdown_position: (f32, f32),
+    superweapon_flash_duration: f32,
+    superweapon_flash_color: u32,
+    superweapon_normal_font: String,
+    superweapon_normal_point_size: i32,
+    superweapon_normal_bold: bool,
+    superweapon_ready_font: String,
+    superweapon_ready_point_size: i32,
+    superweapon_ready_bold: bool,
+    superweapon_last_flash_frame: u32,
+    superweapon_used_flash_color: bool,
+
+    // ── Popup messages (C++: m_popupMessageColor) ──
+    popup_message_color: u32,
+
+    // ── Drawable caption (C++: m_drawableCaption*) ──
+    drawable_caption_font: String,
+    drawable_caption_point_size: i32,
+    drawable_caption_bold: bool,
+    drawable_caption_color: u32,
+
+    // ── Scroll anchors (C++: m_drawRMBScrollAnchor, m_moveRMBScrollAnchor) ──
+    draw_rmb_scroll_anchor: bool,
+    move_rmb_scroll_anchor: bool,
+
+    // ── Combat modes (C++ InGameUI.h:812-816) ──────────────────────────
+    /// C++: m_waypointMode (InGameUI.h:812) — are we in waypoint plotting mode?
+    waypoint_mode: bool,
+    /// C++: m_forceAttackMode (InGameUI.h:813) — are we in force attack mode? (CTRL key)
+    force_attack_mode: bool,
+    /// C++: m_forceMoveToMode (InGameUI.h:814) — are we in force move mode?
+    force_move_to_mode: bool,
+    /// C++: m_attackMoveToMode (InGameUI.h:815) — are we in attack move mode?
+    attack_move_to_mode: bool,
+    /// C++: m_preferSelection (InGameUI.h:816) — shift key has been depressed
+    prefer_selection_mode: bool,
+
+    // ── Camera control state (C++ InGameUI.h:818-822) ──────────────────
+    /// C++: m_cameraRotatingLeft (InGameUI.h:818) — KP4
+    camera_rotating_left: bool,
+    /// C++: m_cameraRotatingRight (InGameUI.h:819) — KP6
+    camera_rotating_right: bool,
+    /// C++: m_cameraZoomingIn (InGameUI.h:820) — KP8
+    camera_zooming_in: bool,
+    /// C++: m_cameraZoomingOut (InGameUI.h:822) — KP2
+    camera_zooming_out: bool,
+    /// C++: m_cameraTrackingDrawable (InGameUI.h:821)
+    camera_tracking_drawable: bool,
+
+    // ── Selection tracking (C++ InGameUI.h:707) ────────────────────────
+    /// C++: m_frameSelectionChanged (InGameUI.h:707) — Frame when the selection last changed
+    frame_selection_changed: u32,
+
+    /// C++: m_duringDoubleClickAttackMoveGuardHintTimer (InGameUI.h)
+    /// When > 0, command hints are suppressed. Decremented each logic frame.
+    double_click_attack_move_guard_timer: u32,
+
+    // ── Movie playback (C++: InGameUI.h:688,713-718) ──
+    /// C++: m_currentlyPlayingMovie (InGameUI.h:688)
+    currently_playing_movie: Option<String>,
+    /// C++: m_cameoVideoBuffer/m_cameoVideoStream (InGameUI.h:717-718)
+    cameo_movie_playing: Option<String>,
+
+    // ── World animations (C++: m_worldAnimationList, InGameUI.h:830) ──
+    world_animations: Vec<WorldAnimationData>,
 }
 
 impl InGameUI {
@@ -450,6 +1010,108 @@ impl InGameUI {
             player_id: 0,
             ui_time: 0.0,
             last_update: Instant::now(),
+            floating_texts: Vec::new(),
+            idle_workers: Vec::new(),
+            current_frame: 0,
+            radius_cursor: RadiusCursorState::new(),
+            superweapon_timers: Vec::new(),
+            mouse_mode: MouseMode::Default,
+            current_cursor: MouseCursor::Arrow,
+            mouse_mode_cursor: MouseCursor::Arrow,
+            is_scrolling: false,
+            is_selecting: false,
+            scroll_amount_x: 0.0,
+            scroll_amount_y: 0.0,
+            moused_over_drawable_id: 0,
+            hints: Vec::new(),
+            next_hint_index: 0,
+            named_timers: Vec::new(),
+            named_timer_last_flash_frame: 0,
+            named_timer_used_flash_color: false,
+            show_named_timers: true,
+            gui_command: None,
+            quit_menu_visible: false,
+            window_layouts: HashMap::new(),
+
+            // Message display defaults (C++ constructor: InGameUI.cpp:899-906)
+            message_color1: 0xFFFFFFFF, // GameMakeColor(255,255,255,255)
+            message_color2: 0xFFB4B4B4, // GameMakeColor(180,180,180,255)
+            message_position: (10, 10),
+            message_font_name: "Arial".to_string(),
+            message_point_size: 10,
+            message_bold: false,
+            message_delay_ms: 5000,
+            messages_enabled: true, // C++: m_messagesOn = TRUE
+            messages: Vec::new(),
+
+            // Military caption defaults (C++ constructor: InGameUI.cpp:908-924)
+            military_caption_color: (200, 200, 30, 255),
+            military_caption_position: (10, 380),
+            military_caption_title_font: "Courier".to_string(),
+            military_caption_title_point_size: 12,
+            military_caption_title_bold: true,
+            military_caption_font: "Courier".to_string(),
+            military_caption_point_size: 12,
+            military_caption_bold: false,
+            military_caption_randomize_typing: false,
+            military_caption_speed: 1,
+            current_military_subtitle: None,
+
+            // Floating text INI defaults (C++ constructor: InGameUI.cpp:1013-1015)
+            floating_text_timeout_frames: DEFAULT_FLOATING_TEXT_TIMEOUT,
+            floating_text_move_up_speed: 1.0,
+            floating_text_vanish_rate: 0.1,
+
+            // Superweapon countdown defaults (C++ constructor: InGameUI.cpp:980-992)
+            superweapon_countdown_position: (0.7, 0.7),
+            superweapon_flash_duration: 1.0,
+            superweapon_flash_color: 0xFFFFFFFF,
+            superweapon_normal_font: "Arial".to_string(),
+            superweapon_normal_point_size: 10,
+            superweapon_normal_bold: false,
+            superweapon_ready_font: "Arial".to_string(),
+            superweapon_ready_point_size: 10,
+            superweapon_ready_bold: false,
+            superweapon_last_flash_frame: 0,
+            superweapon_used_flash_color: true,
+
+            // Popup message defaults (C++ constructor: InGameUI.cpp:925)
+            popup_message_color: 0xFFFFFFFF,
+
+            // Drawable caption defaults (C++ constructor: InGameUI.cpp:1017-1020)
+            drawable_caption_font: "Arial".to_string(),
+            drawable_caption_point_size: 10,
+            drawable_caption_bold: false,
+            drawable_caption_color: 0xFFFFFFFF,
+
+            // Scroll anchors (C++ constructor: InGameUI.cpp:1022-1023)
+            draw_rmb_scroll_anchor: false,
+            move_rmb_scroll_anchor: false,
+
+            // Combat modes (C++ constructor: InGameUI.cpp)
+            waypoint_mode: false,
+            force_attack_mode: false,
+            force_move_to_mode: false,
+            attack_move_to_mode: false,
+            prefer_selection_mode: false,
+
+            // Camera control (C++ constructor: InGameUI.cpp)
+            camera_rotating_left: false,
+            camera_rotating_right: false,
+            camera_zooming_in: false,
+            camera_zooming_out: false,
+            camera_tracking_drawable: false,
+
+            // Selection tracking
+            frame_selection_changed: 0,
+            double_click_attack_move_guard_timer: 0,
+
+            // Movie playback (C++ constructor: InGameUI.cpp)
+            currently_playing_movie: None,
+            cameo_movie_playing: None,
+
+            // World animations
+            world_animations: Vec::new(),
         }
     }
 
@@ -1149,6 +1811,462 @@ impl InGameUI {
         self.sync_selection_state();
     }
 
+    pub fn add_floating_text(&mut self, text: String, position: Coord3D, color: (u8, u8, u8)) {
+        if self.floating_texts.len() >= MAX_FLOATING_TEXT {
+            self.floating_texts.remove(0);
+        }
+        self.floating_texts.push(FloatingTextData {
+            text,
+            position,
+            color,
+            creation_frame: self.current_frame,
+            timeout: DEFAULT_FLOATING_TEXT_TIMEOUT,
+            move_up_speed: 1.0,
+        });
+    }
+
+    pub fn clear_floating_texts(&mut self) {
+        self.floating_texts.clear();
+    }
+
+    pub fn update_floating_texts(&mut self) {
+        self.floating_texts
+            .retain(|ft| self.current_frame - ft.creation_frame < ft.timeout);
+        for ft in &mut self.floating_texts {
+            ft.position.z += ft.move_up_speed;
+        }
+    }
+
+    pub fn add_idle_worker(&mut self, object_id: ObjectID, player_index: u8) {
+        if !self.idle_workers.iter().any(|w| w.object_id == object_id) {
+            self.idle_workers.push(IdleWorkerData {
+                object_id,
+                player_index,
+            });
+        }
+    }
+
+    pub fn remove_idle_worker(&mut self, object_id: ObjectID, _player_index: u8) {
+        self.idle_workers.retain(|w| w.object_id != object_id);
+    }
+
+    pub fn find_idle_worker(&self, object_id: ObjectID) -> bool {
+        self.idle_workers.iter().any(|w| w.object_id == object_id)
+    }
+
+    pub fn get_idle_worker_count(&self, player_index: u8) -> usize {
+        self.idle_workers
+            .iter()
+            .filter(|w| w.player_index == player_index)
+            .count()
+    }
+
+    pub fn select_next_idle_worker(&self, player_index: u8) -> Option<ObjectID> {
+        self.idle_workers
+            .iter()
+            .find(|w| w.player_index == player_index)
+            .map(|w| w.object_id)
+    }
+
+    pub fn reset_idle_workers(&mut self) {
+        self.idle_workers.clear();
+    }
+
+    pub fn set_radius_cursor(
+        &mut self,
+        cursor_type: RadiusCursorType,
+        position: Coord3D,
+        radius: f32,
+    ) {
+        if cursor_type == self.radius_cursor.cursor_type && self.radius_cursor.active {
+            return;
+        }
+        if cursor_type == RadiusCursorType::None {
+            self.clear_radius_cursor();
+            return;
+        }
+        if radius <= 0.0 {
+            return;
+        }
+        self.radius_cursor.cursor_type = cursor_type;
+        self.radius_cursor.active = true;
+        self.radius_cursor.position = position;
+        self.radius_cursor.radius = radius;
+    }
+
+    pub fn clear_radius_cursor(&mut self) {
+        self.radius_cursor.cursor_type = RadiusCursorType::None;
+        self.radius_cursor.active = false;
+        self.radius_cursor.radius = 0.0;
+    }
+
+    pub fn is_radius_cursor_active(&self) -> bool {
+        self.radius_cursor.active
+    }
+
+    pub fn get_radius_cursor_type(&self) -> RadiusCursorType {
+        self.radius_cursor.cursor_type
+    }
+
+    pub fn update_radius_cursor(&mut self, mouse_pos: Coord3D) {
+        if !self.radius_cursor.active {
+            return;
+        }
+        self.radius_cursor.position = mouse_pos;
+    }
+
+    pub fn add_superweapon_timer(
+        &mut self,
+        player_index: u8,
+        object_id: ObjectID,
+        power_name: String,
+        ready_frame: u32,
+    ) {
+        let existing = self.superweapon_timers.iter().any(|t| {
+            t.player_index == player_index && t.power_name == power_name && t.object_id == object_id
+        });
+        if existing {
+            return;
+        }
+        self.superweapon_timers.push(SuperweaponTimerData {
+            player_index,
+            object_id,
+            power_name,
+            ready_frame,
+            countdown_text: String::new(),
+            ready: false,
+            hidden_by_script: false,
+            hidden_by_science: false,
+        });
+    }
+
+    pub fn remove_superweapon_timer(
+        &mut self,
+        player_index: u8,
+        object_id: ObjectID,
+        power_name: &str,
+    ) -> bool {
+        let before = self.superweapon_timers.len();
+        self.superweapon_timers.retain(|t| {
+            !(t.player_index == player_index
+                && t.object_id == object_id
+                && t.power_name == power_name)
+        });
+        self.superweapon_timers.len() < before
+    }
+
+    pub fn update_superweapon_timers(&mut self, current_frame: u32) {
+        const LOGICFRAMES_PER_SECOND: u32 = 30;
+        for timer in &mut self.superweapon_timers {
+            if timer.hidden_by_script || timer.hidden_by_science {
+                continue;
+            }
+            if current_frame >= timer.ready_frame && timer.ready_frame > 0 {
+                if !timer.ready {
+                    timer.ready = true;
+                }
+                timer.countdown_text = "READY".to_string();
+            } else if timer.ready_frame > 0 {
+                let remaining = timer.ready_frame.saturating_sub(current_frame);
+                let total_seconds = remaining / LOGICFRAMES_PER_SECOND;
+                let minutes = total_seconds / 60;
+                let seconds = total_seconds % 60;
+                timer.countdown_text = format!("{}:{:02}", minutes, seconds);
+                timer.ready = false;
+            }
+        }
+    }
+
+    pub fn get_superweapon_timers(&self) -> &[SuperweaponTimerData] {
+        &self.superweapon_timers
+    }
+
+    // ── Mouse cursor system ──────────────────────────────────────────────
+    // C++: InGameUI::setMouseCursor() (InGameUI.cpp:516-525)
+
+    pub fn set_mouse_cursor(&mut self, cursor: MouseCursor) {
+        self.current_cursor = cursor;
+        if self.mouse_mode == MouseMode::GuiCommand
+            && cursor != MouseCursor::Arrow
+            && cursor != MouseCursor::Scroll
+        {
+            self.mouse_mode_cursor = cursor;
+        }
+    }
+
+    pub fn get_mouse_cursor(&self) -> MouseCursor {
+        self.current_cursor
+    }
+
+    pub fn set_mouse_mode(&mut self, mode: MouseMode) {
+        self.mouse_mode = mode;
+        if mode != MouseMode::GuiCommand {
+            self.mouse_mode_cursor = MouseCursor::Arrow;
+        }
+    }
+
+    pub fn get_mouse_mode(&self) -> MouseMode {
+        self.mouse_mode
+    }
+
+    pub fn get_mouse_mode_cursor(&self) -> MouseCursor {
+        self.mouse_mode_cursor
+    }
+
+    // ── Scroll / select state ────────────────────────────────────────────
+    // C++: InGameUI::setScrolling() (InGameUI.cpp:2787)
+    // C++: InGameUI::setSelecting() (InGameUI.cpp:2824)
+
+    pub fn set_scrolling(&mut self, scrolling: bool) {
+        if self.is_scrolling == scrolling {
+            return;
+        }
+        if scrolling {
+            self.set_mouse_cursor(MouseCursor::Scroll);
+        } else {
+            self.set_mouse_cursor(MouseCursor::Arrow);
+        }
+        self.is_scrolling = scrolling;
+        if !scrolling {
+            self.scroll_amount_x = 0.0;
+            self.scroll_amount_y = 0.0;
+        }
+    }
+
+    pub fn is_scrolling(&self) -> bool {
+        self.is_scrolling
+    }
+
+    pub fn set_selecting(&mut self, selecting: bool) {
+        if self.is_selecting == selecting {
+            return;
+        }
+        self.is_selecting = selecting;
+    }
+
+    pub fn is_selecting(&self) -> bool {
+        self.is_selecting
+    }
+
+    pub fn set_scroll_amount(&mut self, x: f32, y: f32) {
+        self.scroll_amount_x = x;
+        self.scroll_amount_y = y;
+    }
+
+    pub fn get_scroll_amount(&self) -> (f32, f32) {
+        (self.scroll_amount_x, self.scroll_amount_y)
+    }
+
+    pub fn set_moused_over_drawable_id(&mut self, id: u32) {
+        self.moused_over_drawable_id = id;
+    }
+
+    pub fn get_moused_over_drawable_id(&self) -> u32 {
+        self.moused_over_drawable_id
+    }
+
+    // ── Hint system ──────────────────────────────────────────────────────
+    // C++: InGameUI::createMoveHint() (InGameUI.cpp:2141)
+    // C++: InGameUI::createAttackHint() (InGameUI.cpp:2176)
+    // C++: InGameUI::expireHint() (InGameUI.cpp:3812)
+
+    pub fn create_move_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
+        self.expire_hint_for_source(HintType::Move, source_id);
+
+        if self.hints.len() >= MAX_MOVE_HINTS {
+            self.expire_oldest_hint(HintType::Move);
+        }
+
+        self.hints.push(HintData {
+            hint_type: HintType::Move,
+            start,
+            end,
+            creation_frame: self.current_frame,
+            source_id,
+            lifetime_frames: 60,
+        });
+    }
+
+    pub fn create_attack_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
+        self.expire_hint_for_source(HintType::Attack, source_id);
+
+        if self.hints.len() >= MAX_MOVE_HINTS {
+            self.expire_oldest_hint(HintType::Attack);
+        }
+
+        self.hints.push(HintData {
+            hint_type: HintType::Attack,
+            start,
+            end,
+            creation_frame: self.current_frame,
+            source_id,
+            lifetime_frames: 60,
+        });
+    }
+
+    pub fn create_force_attack_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
+        if self.hints.len() >= MAX_MOVE_HINTS {
+            self.expire_oldest_hint(HintType::ForceAttack);
+        }
+
+        self.hints.push(HintData {
+            hint_type: HintType::ForceAttack,
+            start,
+            end,
+            creation_frame: self.current_frame,
+            source_id,
+            lifetime_frames: 60,
+        });
+    }
+
+    pub fn create_garrison_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
+        if self.hints.len() >= MAX_MOVE_HINTS {
+            self.expire_oldest_hint(HintType::Garrison);
+        }
+
+        self.hints.push(HintData {
+            hint_type: HintType::Garrison,
+            start,
+            end,
+            creation_frame: self.current_frame,
+            source_id,
+            lifetime_frames: 60,
+        });
+    }
+
+    pub fn begin_area_select_hint(&mut self) {
+        self.hints.push(HintData {
+            hint_type: HintType::AreaSelect,
+            start: Coord3D::new(0.0, 0.0, 0.0),
+            end: Coord3D::new(0.0, 0.0, 0.0),
+            creation_frame: self.current_frame,
+            source_id: 0,
+            lifetime_frames: 300,
+        });
+    }
+
+    pub fn end_area_select_hint(&mut self) {
+        if let Some(pos) = self
+            .hints
+            .iter()
+            .rposition(|h| h.hint_type == HintType::AreaSelect)
+        {
+            self.hints.remove(pos);
+        }
+    }
+
+    /// C++: InGameUI::expireHint() (InGameUI.cpp:3812) — expire a specific hint by type and index.
+    pub fn expire_hint(&mut self, hint_type: HintType, hint_index: usize) {
+        if hint_index >= self.hints.len() {
+            return;
+        }
+        if self.hints[hint_index].hint_type == hint_type {
+            self.hints.remove(hint_index);
+        }
+    }
+
+    pub fn expire_hints(&mut self) {
+        self.hints
+            .retain(|h| self.current_frame < h.creation_frame + h.lifetime_frames);
+    }
+
+    pub fn clear_hints(&mut self) {
+        self.hints.clear();
+    }
+
+    pub fn get_hints(&self) -> &[HintData] {
+        &self.hints
+    }
+
+    // ── Named timer system ─────────────────────────────────────────────
+    // C++: InGameUI::addNamedTimer() (InGameUI.cpp)
+    // C++: InGameUI::removeNamedTimer() (InGameUI.cpp)
+    // C++: InGameUI::showNamedTimerDisplay() (InGameUI.cpp)
+
+    pub fn add_named_timer(&mut self, name: &str, text: String, is_countdown: bool) {
+        self.named_timers.retain(|t| t.name != name);
+        self.named_timers.push(NamedTimerData {
+            name: name.to_string(),
+            text,
+            is_countdown,
+        });
+    }
+
+    pub fn remove_named_timer(&mut self, name: &str) {
+        self.named_timers.retain(|t| t.name != name);
+    }
+
+    pub fn show_named_timer_display(&mut self, show: bool) {
+        self.show_named_timers = show;
+    }
+
+    pub fn get_named_timers(&self) -> &[NamedTimerData] {
+        &self.named_timers
+    }
+
+    // ── GUI command system ─────────────────────────────────────────────
+    // C++: InGameUI::setGUICommand() (InGameUI.cpp:2865)
+    // C++: InGameUI::getGUICommand() (InGameUI.cpp:2923)
+
+    pub fn set_gui_command(&mut self, command: Option<String>) {
+        self.gui_command = command;
+    }
+
+    pub fn get_gui_command(&self) -> Option<&String> {
+        self.gui_command.as_ref()
+    }
+
+    // ── Quit menu ──────────────────────────────────────────────────────
+    // C++: InGameUI::setQuitMenuVisible() (InGameUI.h:460)
+    // C++: InGameUI::isQuitMenuVisible() (InGameUI.h:461)
+
+    pub fn set_quit_menu_visible(&mut self, visible: bool) {
+        self.quit_menu_visible = visible;
+    }
+
+    pub fn is_quit_menu_visible(&self) -> bool {
+        self.quit_menu_visible
+    }
+
+    // ── Window layout registration ─────────────────────────────────────
+    // C++: InGameUI::registerWindowLayout() (InGameUI.cpp)
+    // C++: InGameUI::unregisterWindowLayout() (InGameUI.cpp)
+
+    pub fn register_window_layout(&mut self, name: &str) {
+        self.window_layouts.insert(name.to_string(), true);
+    }
+
+    pub fn unregister_window_layout(&mut self, name: &str) {
+        self.window_layouts.remove(name);
+    }
+
+    pub fn is_window_layout_registered(&self, name: &str) -> bool {
+        self.window_layouts.get(name).copied().unwrap_or(false)
+    }
+
+    // ── Region builder helper ──────────────────────────────────────────
+
+    pub fn build_region(&self, x: f32, y: f32, width: f32, height: f32) -> IRegion2D {
+        IRegion2D::new(
+            ICoord2D::new(x as i32, y as i32),
+            ICoord2D::new((x + width) as i32, (y + height) as i32),
+        )
+    }
+
+    fn expire_hint_for_source(&mut self, hint_type: HintType, source_id: u32) {
+        if source_id == 0 {
+            return;
+        }
+        self.hints
+            .retain(|h| !(h.hint_type == hint_type && h.source_id == source_id));
+    }
+
+    fn expire_oldest_hint(&mut self, hint_type: HintType) {
+        if let Some(pos) = self.hints.iter().position(|h| h.hint_type == hint_type) {
+            self.hints.remove(pos);
+        }
+    }
+
     /// Render the in-game UI
     pub fn render(&self) -> Result<()> {
         if !self.enabled {
@@ -1382,12 +2500,1230 @@ impl InGameUI {
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
+
+    // ── Combat mode methods ────────────────────────────────────────────
+    // C++: InGameUI.h:506-519
+
+    pub fn set_force_attack_mode(&mut self, enabled: bool) {
+        self.force_attack_mode = enabled;
+    }
+
+    pub fn is_in_force_attack_mode(&self) -> bool {
+        self.force_attack_mode
+    }
+
+    pub fn set_force_move_to_mode(&mut self, enabled: bool) {
+        self.force_move_to_mode = enabled;
+    }
+
+    pub fn is_in_force_move_to_mode(&self) -> bool {
+        self.force_move_to_mode
+    }
+
+    pub fn toggle_attack_move_to_mode(&mut self) -> bool {
+        self.attack_move_to_mode = !self.attack_move_to_mode;
+        self.attack_move_to_mode
+    }
+
+    pub fn is_in_attack_move_to_mode(&self) -> bool {
+        self.attack_move_to_mode
+    }
+
+    pub fn clear_attack_move_to_mode(&mut self) {
+        self.attack_move_to_mode = false;
+    }
+
+    pub fn set_waypoint_mode(&mut self, enabled: bool) {
+        self.waypoint_mode = enabled;
+    }
+
+    pub fn is_in_waypoint_mode(&self) -> bool {
+        self.waypoint_mode
+    }
+
+    pub fn set_prefer_selection_mode(&mut self, enabled: bool) {
+        self.prefer_selection_mode = enabled;
+    }
+
+    pub fn is_in_prefer_selection_mode(&self) -> bool {
+        self.prefer_selection_mode
+    }
+
+    // ── Camera control methods ─────────────────────────────────────────
+    // C++: InGameUI.h:521-531
+
+    pub fn set_camera_rotate_left(&mut self, set: bool) {
+        self.camera_rotating_left = set;
+    }
+
+    pub fn is_camera_rotating_left(&self) -> bool {
+        self.camera_rotating_left
+    }
+
+    pub fn set_camera_rotate_right(&mut self, set: bool) {
+        self.camera_rotating_right = set;
+    }
+
+    pub fn is_camera_rotating_right(&self) -> bool {
+        self.camera_rotating_right
+    }
+
+    pub fn set_camera_zoom_in(&mut self, set: bool) {
+        self.camera_zooming_in = set;
+    }
+
+    pub fn is_camera_zooming_in(&self) -> bool {
+        self.camera_zooming_in
+    }
+
+    pub fn set_camera_zoom_out(&mut self, set: bool) {
+        self.camera_zooming_out = set;
+    }
+
+    pub fn is_camera_zooming_out(&self) -> bool {
+        self.camera_zooming_out
+    }
+
+    pub fn set_camera_tracking_drawable(&mut self, set: bool) {
+        self.camera_tracking_drawable = set;
+    }
+
+    pub fn is_camera_tracking_drawable(&self) -> bool {
+        self.camera_tracking_drawable
+    }
+
+    // ── Selection query methods ────────────────────────────────────────
+    // C++: InGameUI.cpp:4116 (areSelectedObjectsControllable)
+    // C++: InGameUI.cpp:3333 (isAnySelectedKindOf)
+    // C++: InGameUI.cpp:3357 (isAllSelectedKindOf)
+
+    pub fn are_selected_objects_controllable(&self) -> bool {
+        let selection_manager = get_selection_manager();
+        let Ok(manager) = selection_manager.read() else {
+            return false;
+        };
+        let Some(selection) = manager.get_player_selection_ref(self.player_id as i32) else {
+            return false;
+        };
+        let selected = selection.get_selected_objects();
+        if selected.is_empty() {
+            return false;
+        }
+        // C++: All selected objects have the same local controller, return first one
+        if let Some(&first_id) = selected.first() {
+            if let Some(obj) = TheGameLogic::find_object_by_id(first_id) {
+                if let Ok(guard) = obj.read() {
+                    return guard.is_locally_controlled();
+                }
+            }
+        }
+        false
+    }
+
+    pub fn is_any_selected_kind_of(&self, kind_of: KindOf) -> bool {
+        let selection_manager = get_selection_manager();
+        let Ok(manager) = selection_manager.read() else {
+            return false;
+        };
+        let Some(selection) = manager.get_player_selection_ref(self.player_id as i32) else {
+            return false;
+        };
+        for object_id in selection.get_selected_objects() {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(guard) = obj.read() {
+                    if guard.is_kind_of(kind_of) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    pub fn is_all_selected_kind_of(&self, kind_of: KindOf) -> bool {
+        let selection_manager = get_selection_manager();
+        let Ok(manager) = selection_manager.read() else {
+            return true; // vacuously true when nothing selected (matches C++ empty-loop behavior)
+        };
+        let Some(selection) = manager.get_player_selection_ref(self.player_id as i32) else {
+            return true;
+        };
+        for object_id in selection.get_selected_objects() {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(guard) = obj.read() {
+                    if !guard.is_kind_of(kind_of) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    // ── Advanced selection methods ─────────────────────────────────────
+    // C++: InGameUI.cpp:4900 (selectUnitsMatchingCurrentSelection)
+    // C++: InGameUI.cpp:4850 (selectMatchingAcrossMap)
+
+    pub fn select_units_matching_current_selection(&mut self) -> i32 {
+        // C++: First tries selectMatchingAcrossScreen(), if 0 results tries selectMatchingAcrossMap()
+        let screen_count = self.select_matching_across_screen();
+        if screen_count > 0 {
+            return screen_count;
+        }
+        self.select_matching_across_map()
+    }
+
+    pub fn select_matching_across_screen(&mut self) -> i32 {
+        let screen_region = with_tactical_view_ref(|view| {
+            let tl = view.screen_to_world(&IPoint2::new(0, 0)).ok()?;
+            let br = view
+                .screen_to_world(&IPoint2::new(
+                    self.screen_size.x as i32,
+                    self.screen_size.y as i32,
+                ))
+                .ok()?;
+            Some(IRegion2D::new(
+                ICoord2D::new(tl.x.min(br.x).floor() as i32, tl.y.min(br.y).floor() as i32),
+                ICoord2D::new(tl.x.max(br.x).ceil() as i32, tl.y.max(br.y).ceil() as i32),
+            ))
+        });
+        let region = match screen_region {
+            Some(r) => r,
+            None => return self.select_matching_across_map(),
+        };
+        self.select_matching_across_region(&region)
+    }
+
+    fn select_matching_across_region(&mut self, region: &IRegion2D) -> i32 {
+        let selection_manager = get_selection_manager();
+        let selected_ids = if let Ok(manager) = selection_manager.read() {
+            manager
+                .get_player_selection_ref(self.player_id as i32)
+                .map(|s| s.get_selected_objects())
+                .unwrap_or_default()
+        } else {
+            return -1;
+        };
+
+        let mut templates: Vec<String> = Vec::new();
+        for &object_id in &selected_ids {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(guard) = obj.read() {
+                    if guard.is_locally_controlled() {
+                        let name = guard.get_template_name().to_string();
+                        if !templates.contains(&name) {
+                            templates.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if templates.is_empty() {
+            return -1;
+        }
+
+        let mut matching: Vec<ObjectID> = Vec::new();
+        for obj in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if !guard.is_selectable() || !guard.is_locally_controlled() {
+                continue;
+            }
+            let pos = guard.get_position();
+            if pos.x < region.lo.x as f32
+                || pos.x > region.hi.x as f32
+                || pos.y < region.lo.y as f32
+                || pos.y > region.hi.y as f32
+            {
+                continue;
+            }
+            if templates.iter().any(|t| t == guard.get_template_name()) {
+                matching.push(guard.get_id());
+            }
+        }
+
+        if matching.is_empty() {
+            return 0;
+        }
+
+        let count = matching.len() as i32;
+        let selection_manager = get_selection_manager();
+        if let Ok(mut manager) = selection_manager.write() {
+            if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
+                selection.select_objects(matching, SelectionType::Add);
+            }
+        }
+        self.frame_selection_changed = self.current_frame;
+        self.sync_selection_state();
+        count
+    }
+
+    pub fn select_matching_across_map(&mut self) -> i32 {
+        // C++: InGameUI.cpp:4671 (selectMatchingAcrossRegion with NULL region)
+        // Gets templates from current selection, iterates all objects, selects matching
+        let selection_manager = get_selection_manager();
+        let selected_ids = if let Ok(manager) = selection_manager.read() {
+            manager
+                .get_player_selection_ref(self.player_id as i32)
+                .map(|s| s.get_selected_objects())
+                .unwrap_or_default()
+        } else {
+            return -1;
+        };
+
+        // Collect unique template names from locally-controlled selected objects
+        let mut templates: Vec<String> = Vec::new();
+        for &object_id in &selected_ids {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(guard) = obj.read() {
+                    if guard.is_locally_controlled() {
+                        let name = guard.get_template_name().to_string();
+                        if !templates.contains(&name) {
+                            templates.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if templates.is_empty() {
+            return -1;
+        }
+
+        // Select all matching objects across the map
+        let mut matching: Vec<ObjectID> = Vec::new();
+        for obj in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if !guard.is_selectable() {
+                continue;
+            }
+            if !guard.is_locally_controlled() {
+                continue;
+            }
+            let obj_template = guard.get_template_name();
+            if templates.iter().any(|t| t == obj_template) {
+                matching.push(guard.get_id());
+            }
+        }
+
+        if matching.is_empty() {
+            return 0;
+        }
+
+        let count = matching.len() as i32;
+        let selection_manager = get_selection_manager();
+        if let Ok(mut manager) = selection_manager.write() {
+            if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
+                selection.select_objects(matching, SelectionType::Add);
+            }
+        }
+        self.frame_selection_changed = self.current_frame;
+        self.sync_selection_state();
+        count
+    }
+
+    // ── Drawable lifecycle ─────────────────────────────────────────────
+    // C++: InGameUI.cpp:3415 (disregardDrawable)
+
+    pub fn disregard_drawable(&mut self, drawable_id: u32) {
+        self.deselect_object(drawable_id);
+    }
+
+    // ── Selection change tracking ──────────────────────────────────────
+
+    pub fn get_frame_selection_changed(&self) -> u32 {
+        self.frame_selection_changed
+    }
+
+    // ── Movie playback ────────────────────────────────────────────────
+    // C++: InGameUI.cpp:3874 (playMovie), 3901 (stopMovie),
+    //       3929 (playCameoMovie), 3959 (stopCameoMovie)
+
+    pub fn play_movie(&mut self, movie_name: &str) {
+        self.stop_movie();
+        self.currently_playing_movie = Some(movie_name.to_string());
+    }
+
+    pub fn stop_movie(&mut self) {
+        if self.currently_playing_movie.is_some() {
+            with_window_video_manager(|manager| manager.stop_all_movies());
+        }
+        self.currently_playing_movie = None;
+    }
+
+    pub fn is_movie_playing(&self) -> bool {
+        self.currently_playing_movie.is_some()
+    }
+
+    pub fn get_currently_playing_movie(&self) -> Option<&str> {
+        self.currently_playing_movie.as_deref()
+    }
+
+    pub fn play_cameo_movie(&mut self, movie_name: &str) {
+        self.stop_cameo_movie();
+        self.cameo_movie_playing = Some(movie_name.to_string());
+    }
+
+    pub fn stop_cameo_movie(&mut self) {
+        if self.cameo_movie_playing.is_some() {
+            with_window_video_manager(|manager| manager.stop_all_movies());
+        }
+        self.cameo_movie_playing = None;
+    }
+
+    pub fn is_cameo_movie_playing(&self) -> bool {
+        self.cameo_movie_playing.is_some()
+    }
+
+    // ── World animations ──────────────────────────────────────────────
+    // C++: InGameUI.cpp:5257 (addWorldAnimation), 5292 (clearWorldAnimations),
+    //       5323 (updateAndDrawWorldAnimations)
+
+    pub fn add_world_animation(
+        &mut self,
+        animation_name: &str,
+        pos: Coord3D,
+        options: WorldAnimationOptions,
+        duration_seconds: f32,
+        z_rise_per_second: f32,
+    ) {
+        if duration_seconds <= 0.0 || animation_name.is_empty() {
+            return;
+        }
+        let expire_frame = self.current_frame + (duration_seconds * 30.0) as u32;
+        self.world_animations.push(WorldAnimationData {
+            animation_name: animation_name.to_string(),
+            world_pos: pos,
+            expire_frame,
+            options,
+            z_rise_per_second,
+        });
+    }
+
+    pub fn clear_world_animations(&mut self) {
+        self.world_animations.clear();
+    }
+
+    pub fn update_and_draw_world_animations(&mut self) {
+        let current_frame = self.current_frame;
+
+        for anim in &mut self.world_animations {
+            if anim.z_rise_per_second != 0.0 {
+                anim.world_pos.z += anim.z_rise_per_second / 30.0;
+            }
+        }
+
+        self.world_animations.retain(|anim| {
+            if current_frame >= anim.expire_frame {
+                return false;
+            }
+            if anim
+                .options
+                .contains(WorldAnimationOptions::PLAY_ONCE_AND_DESTROY)
+            {
+                // Anim2D pipeline not yet ported — the animation is treated as still playing
+                // until expire_frame. C++ would check Anim2D::isDone() here to early-remove
+                // completed one-shot animations, but since we have no playback engine yet,
+                // frame-based expiry above is the only lifecycle gate.
+            }
+            // Rendering pipeline (shroud visibility check, screen projection, zoom scaling,
+            // fade alpha computation, and actual 2D draw calls) is deferred until the
+            // Anim2D/WLDrawing subsystem is ported. State tracking (position, z-rise,
+            // expire_frame) is fully maintained for parity.
+            true
+        });
+    }
+
+    // ── Lifecycle methods ──────────────────────────────────────────────
+    // C++: InGameUI.cpp:1571 (preDraw)
+    // C++: InGameUI.cpp:3426 (postDraw)
+
+    pub fn pre_draw(&mut self, frame: u32) {
+        self.current_frame = frame;
+        if self.double_click_attack_move_guard_timer > 0 {
+            self.double_click_attack_move_guard_timer -= 1;
+        }
+        self.expire_hints();
+        self.update_floating_texts();
+        self.update_superweapon_timers(frame);
+        self.update_and_draw_world_animations();
+    }
+
+    pub fn post_draw(&mut self, _frame: u32) {
+        // C++: postDraw renders messages, military subtitles, superweapon timers
+        // Rendering is handled separately in the Rust architecture; this hook
+        // exists for any post-render cleanup logic needed later.
+    }
+
+    // ── Input enable/disable with mode clearing ────────────────────────
+    // C++: InGameUI.cpp:3382 (setInputEnabled)
+
+    pub fn set_input_enabled_and_clear_modes(&mut self, enabled: bool) {
+        if !enabled {
+            self.set_selecting(false);
+        }
+
+        if !enabled {
+            // C++: Clear all special modes when input is disabled (cinematic safety)
+            self.force_attack_mode = false;
+            self.force_move_to_mode = false;
+            self.waypoint_mode = false;
+            self.prefer_selection_mode = false;
+            self.camera_rotating_left = false;
+            self.camera_rotating_right = false;
+            self.camera_zooming_in = false;
+            self.camera_zooming_out = false;
+        }
+        self.enabled = enabled;
+    }
 }
 
 impl Default for SelectionBox {
     fn default() -> Self {
         Self::new()
     }
+}
+
+impl Snapshotable for InGameUI {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> std::result::Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> std::result::Result<(), String> {
+        let current_version: XferVersion = 3;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        if version >= 2 {
+            xfer.xfer_int(&mut self.named_timer_last_flash_frame)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut self.named_timer_used_flash_color)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut self.show_named_timers)
+                .map_err(|e| e.to_string())?;
+
+            let mut timer_count = self.named_timers.len() as i32;
+            xfer.xfer_int(&mut timer_count).map_err(|e| e.to_string())?;
+
+            if xfer.is_writing() {
+                for timer in self.named_timers.iter() {
+                    let mut name = timer.name.clone();
+                    let mut text = timer.text.clone();
+                    let mut is_countdown = timer.is_countdown;
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_unicode_string(&mut text)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_bool(&mut is_countdown)
+                        .map_err(|e| e.to_string())?;
+                }
+            } else if xfer.is_reading() {
+                self.named_timers.clear();
+                for _ in 0..timer_count {
+                    let mut name = String::new();
+                    let mut text = String::new();
+                    let mut is_countdown = false;
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_unicode_string(&mut text)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_bool(&mut is_countdown)
+                        .map_err(|e| e.to_string())?;
+                    self.add_named_timer(&name, text, is_countdown);
+                }
+            }
+        }
+
+        xfer.xfer_bool(&mut self.quit_menu_visible)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> std::result::Result<(), String> {
+        Ok(())
+    }
+}
+
+impl InGameUI {
+    // ── HUD message system ──────────────────────────────────────────────
+    // C++: InGameUI::message() (InGameUI.cpp:1993), addMessageText() (InGameUI.cpp:2061)
+
+    pub fn message(&mut self, text: &str) {
+        self.add_message_text(text, None);
+    }
+
+    pub fn message_color(&mut self, text: &str, color: u32) {
+        self.add_message_text(text, Some(color));
+    }
+
+    fn add_message_text(&mut self, text: &str, rgb_color: Option<u32>) {
+        if !self.messages_enabled {
+            return;
+        }
+
+        let color1 = rgb_color.unwrap_or(self.message_color1);
+        let color2 = rgb_color.unwrap_or(self.message_color2);
+
+        let color = if self.messages.is_empty() || self.messages[0].color == color2 {
+            color1
+        } else {
+            color2
+        };
+
+        let msg = MessageText {
+            text: text.to_string(),
+            color,
+            creation_frame: self.current_frame,
+        };
+
+        self.messages.insert(0, msg);
+        if self.messages.len() > MAX_UI_MESSAGES {
+            self.messages.truncate(MAX_UI_MESSAGES);
+        }
+    }
+
+    pub fn toggle_messages(&mut self) -> bool {
+        self.messages_enabled = !self.messages_enabled;
+        self.messages_enabled
+    }
+
+    pub fn are_messages_enabled(&self) -> bool {
+        self.messages_enabled
+    }
+
+    pub fn expire_messages(&mut self) {
+        let delay_frames = (self.message_delay_ms as f32 / 33.0) as u32;
+        self.messages
+            .retain(|m| self.current_frame < m.creation_frame + delay_frames);
+    }
+
+    pub fn remove_message_at_index(&mut self, index: usize) {
+        if index < self.messages.len() {
+            self.messages.remove(index);
+        }
+    }
+
+    pub fn get_messages(&self) -> &[MessageText] {
+        &self.messages
+    }
+
+    pub fn get_message_color1(&self) -> u32 {
+        self.message_color1
+    }
+
+    pub fn get_message_color2(&self) -> u32 {
+        self.message_color2
+    }
+
+    pub fn get_message_position(&self) -> (i32, i32) {
+        self.message_position
+    }
+
+    pub fn get_message_font_name(&self) -> &str {
+        &self.message_font_name
+    }
+
+    pub fn get_message_point_size(&self) -> i32 {
+        self.message_point_size
+    }
+
+    pub fn is_message_bold(&self) -> bool {
+        self.message_bold
+    }
+
+    // ── Military subtitle system ─────────────────────────────────────────
+    // C++: InGameUI::militarySubtitle() (InGameUI.cpp:4039)
+    // C++: InGameUI::removeMilitarySubtitle() (InGameUI.cpp:4093)
+
+    pub fn military_subtitle(&mut self, title: &str, duration_ms: i32) {
+        if title.is_empty() || duration_ms <= 0 {
+            return;
+        }
+
+        let multiplier_x = self.screen_size.x / 800.0;
+        let multiplier_y = self.screen_size.y / 600.0;
+
+        let pos_x = self.military_caption_position.0 as f32 * multiplier_x;
+        let pos_y = self.military_caption_position.1 as f32 * multiplier_y;
+
+        let lifetime_frame = self.current_frame + (30 * duration_ms as u32) / 1000;
+
+        let color = ((self.military_caption_color.3 as u32) << 24)
+            | ((self.military_caption_color.0 as u32) << 16)
+            | ((self.military_caption_color.1 as u32) << 8)
+            | (self.military_caption_color.2 as u32);
+
+        self.current_military_subtitle = Some(MilitarySubtitle {
+            text: title.to_string(),
+            index: 0,
+            position: (pos_x, pos_y),
+            lifetime_frame,
+            block_drawn: true,
+            block_begin_frame: self.current_frame,
+            block_pos: (pos_x, pos_y),
+            increment_on_frame: self.current_frame
+                + (30 * self.military_caption_speed as u32) / 1000,
+            color,
+        });
+    }
+
+    pub fn remove_military_subtitle(&mut self) {
+        self.current_military_subtitle = None;
+    }
+
+    pub fn get_military_subtitle(&self) -> Option<&MilitarySubtitle> {
+        self.current_military_subtitle.as_ref()
+    }
+
+    pub fn expire_military_subtitle(&mut self) {
+        if let Some(ref sub) = self.current_military_subtitle {
+            if self.current_frame >= sub.lifetime_frame {
+                self.current_military_subtitle = None;
+            }
+        }
+    }
+
+    // ── Popup message system ─────────────────────────────────────────────
+    // C++: InGameUI::popupMessage() (InGameUI.cpp:5137)
+
+    pub fn get_popup_message_color(&self) -> u32 {
+        self.popup_message_color
+    }
+
+    // ── INI settings loading ─────────────────────────────────────────────
+    // C++: InGameUI::init() loads Data\INI\InGameUI.ini via TheINIParser
+
+    pub fn init_from_settings(&mut self, settings: &InGameUIIniSettings) {
+        if settings.max_selection_size > 0 {
+            self.selection_state = SelectionState::new(settings.max_selection_size as usize);
+        }
+
+        self.message_color1 = settings.message_color1;
+        self.message_color2 = settings.message_color2;
+        self.message_position = (settings.message_position.x, settings.message_position.y);
+        self.message_font_name = settings.message_font.clone();
+        self.message_point_size = settings.message_point_size;
+        self.message_bold = settings.message_bold;
+        self.message_delay_ms = settings.message_delay_ms;
+
+        self.military_caption_color = (
+            settings.military_caption_color.red,
+            settings.military_caption_color.green,
+            settings.military_caption_color.blue,
+            settings.military_caption_color.alpha,
+        );
+        self.military_caption_position = (
+            settings.military_caption_position.x,
+            settings.military_caption_position.y,
+        );
+        self.military_caption_title_font = settings.military_caption_title_font.clone();
+        self.military_caption_title_point_size = settings.military_caption_title_point_size;
+        self.military_caption_title_bold = settings.military_caption_title_bold;
+        self.military_caption_font = settings.military_caption_font.clone();
+        self.military_caption_point_size = settings.military_caption_point_size;
+        self.military_caption_bold = settings.military_caption_bold;
+        self.military_caption_randomize_typing = settings.military_caption_randomize_typing;
+        self.military_caption_speed = settings.military_caption_speed;
+
+        self.superweapon_countdown_position = (
+            settings.superweapon_position.x,
+            settings.superweapon_position.y,
+        );
+        self.superweapon_flash_duration = settings.superweapon_flash_duration;
+        self.superweapon_flash_color = settings.superweapon_flash_color;
+        self.superweapon_normal_font = settings.superweapon_normal_font.clone();
+        self.superweapon_normal_point_size = settings.superweapon_normal_point_size;
+        self.superweapon_normal_bold = settings.superweapon_normal_bold;
+        self.superweapon_ready_font = settings.superweapon_ready_font.clone();
+        self.superweapon_ready_point_size = settings.superweapon_ready_point_size;
+        self.superweapon_ready_bold = settings.superweapon_ready_bold;
+
+        self.drawable_caption_font = settings.drawable_caption_font.clone();
+        self.drawable_caption_point_size = settings.drawable_caption_point_size;
+        self.drawable_caption_bold = settings.drawable_caption_bold;
+        self.drawable_caption_color = settings.drawable_caption_color;
+
+        self.draw_rmb_scroll_anchor = settings.draw_rmb_scroll_anchor;
+        self.move_rmb_scroll_anchor = settings.move_rmb_scroll_anchor;
+    }
+
+    // ── Command hint system ──────────────────────────────────────────────
+    // C++: InGameUI::createCommandHint() (InGameUI.cpp:2500-2772)
+    // C++: InGameUI::createMouseoverHint() (InGameUI.cpp:2217-2494)
+
+    /// Invalid drawable ID sentinel. C++: INVALID_DRAWABLE_ID (Drawable.h)
+    /// In Rust, 0 is used as the invalid sentinel for moused_over_drawable_id.
+    const INVALID_DRAWABLE_ID: u32 = 0;
+
+    /// Get selection count. C++: InGameUI::getSelectCount() (InGameUI.h)
+    fn get_select_count(&self) -> usize {
+        self.get_selection().len()
+    }
+
+    fn cursor_name_to_i32(&self, name: &str) -> i32 {
+        match name {
+            "ARROW" => MouseCursor::Arrow as i32,
+            "SELECTING" => MouseCursor::Selecting as i32,
+            "MOVETO" => MouseCursor::MoveTo as i32,
+            "ATTACKMOVETO" => MouseCursor::AttackMoveTo as i32,
+            "ATTACK_OBJECT" => MouseCursor::AttackObject as i32,
+            "FORCE_ATTACK_OBJECT" => MouseCursor::ForceAttackObject as i32,
+            "FORCE_ATTACK_GROUND" => MouseCursor::ForceAttackGround as i32,
+            "BUILD_PLACEMENT" => MouseCursor::BuildPlacement as i32,
+            "INVALID_BUILD_PLACEMENT" => MouseCursor::InvalidBuildPlacement as i32,
+            "GENERIC_INVALID" => MouseCursor::GenericInvalid as i32,
+            "SET_RALLY_POINT" => MouseCursor::SetRallyPoint as i32,
+            "GET_REPAIRED" => MouseCursor::GetRepaired as i32,
+            "DOCK" => MouseCursor::Dock as i32,
+            "GET_HEALED" => MouseCursor::GetHealed as i32,
+            "DO_REPAIR" => MouseCursor::DoRepair as i32,
+            "RESUME_CONSTRUCTION" => MouseCursor::ResumeConstruction as i32,
+            "ENTER_FRIENDLY" => MouseCursor::EnterFriendly as i32,
+            "ENTER_AGGRESSIVELY" => MouseCursor::EnterAggressively as i32,
+            "DEFECTOR" => MouseCursor::Defector as i32,
+            "CAPTUREBUILDING" => MouseCursor::CaptureBuilding as i32,
+            "HACK" => MouseCursor::Hack as i32,
+            "OUTRANGE" => MouseCursor::OutOfRange as i32,
+            "WAYPOINT" => MouseCursor::Waypoint as i32,
+            _ => MouseCursor::Arrow as i32,
+        }
+    }
+
+    /// Port of C++ InGameUI::createCommandHint() (InGameUI.cpp:2500-2772).
+    ///
+    /// Handles 25+ message types across 3 mouse modes to set the appropriate
+    /// mouse cursor and radius cursor as a preview of what command would be
+    /// issued if the player clicked.
+    pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
+        // Early exit: no cursor hints while scrolling, selecting, or in playback
+        if self.is_scrolling || self.is_selecting {
+            return;
+        }
+
+        // C++: setRadiusCursorNone() at the top of createCommandHint
+        self.clear_radius_cursor();
+
+        // C++: doubleClickAttackMove guard timer — suppresses hints for a few frames
+        // after a double-click attack-move to prevent spurious cursor flicker.
+        if self.double_click_attack_move_guard_timer > 0 {
+            return;
+        }
+
+        // C++: underWindow — WindowManager not yet ported; no opaque window
+        // can cover the game area in the current architecture, so underWindow = false.
+        let _under_window = false;
+
+        match self.mouse_mode {
+            MouseMode::Default => {
+                // C++: InGameUI.cpp:2585-2688
+                // This section only applies when there is no specific cursor mode happening.
+                // C++: if (underWindow || (srcObj && !srcObj->isLocallyControlled()))
+                // underWindow = false (WindowManager not ported; no opaque window covers game area)
+                // srcObj locally-controlled check: look up moused-over drawable if available
+                let src_locally_controlled =
+                    if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                        match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
+                            Some(obj) => obj
+                                .read()
+                                .map(|g| g.is_locally_controlled())
+                                .unwrap_or(true),
+                            None => true,
+                        }
+                    } else {
+                        true
+                    };
+                if !src_locally_controlled {
+                    return;
+                }
+
+                match hint_type {
+                    CommandHintType::MoveTo => {
+                        // C++: MSG_DO_MOVETO_HINT (InGameUI.cpp:2595-2608)
+                        // If hovering over a selectable, locally-controlled, non-structure drawable,
+                        // C++ uses SELECTING cursor instead of MoveTo.
+                        if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                            if let Some(obj) =
+                                OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
+                            {
+                                if let Ok(guard) = obj.read() {
+                                    if guard.is_selectable()
+                                        && guard.is_locally_controlled()
+                                        && !guard.is_kind_of(KindOf::Structure)
+                                        && !guard.is_kind_of(KindOf::Mine)
+                                    {
+                                        self.set_mouse_cursor(MouseCursor::Selecting);
+                                    } else {
+                                        self.set_mouse_cursor(MouseCursor::MoveTo);
+                                    }
+                                } else {
+                                    self.set_mouse_cursor(MouseCursor::MoveTo);
+                                }
+                            } else {
+                                self.set_mouse_cursor(MouseCursor::MoveTo);
+                            }
+                        } else {
+                            self.set_mouse_cursor(MouseCursor::MoveTo);
+                        }
+                    }
+                    CommandHintType::AttackMoveTo => {
+                        // C++: MSG_DO_ATTACKMOVETO_HINT (InGameUI.cpp:2610-2615)
+                        if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                            if let Some(obj) =
+                                OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
+                            {
+                                if let Ok(guard) = obj.read() {
+                                    if guard.is_selectable() && guard.is_locally_controlled() {
+                                        self.set_mouse_cursor(MouseCursor::Selecting);
+                                    } else {
+                                        self.set_mouse_cursor(MouseCursor::AttackMoveTo);
+                                    }
+                                } else {
+                                    self.set_mouse_cursor(MouseCursor::AttackMoveTo);
+                                }
+                            } else {
+                                self.set_mouse_cursor(MouseCursor::AttackMoveTo);
+                            }
+                        } else {
+                            self.set_mouse_cursor(MouseCursor::AttackMoveTo);
+                        }
+                    }
+                    CommandHintType::AddWaypoint => {
+                        // C++: MSG_ADD_WAYPOINT_HINT (InGameUI.cpp:2616-2618)
+                        self.set_mouse_cursor(MouseCursor::Waypoint);
+                    }
+                    CommandHintType::AttackObject => {
+                        // C++: MSG_DO_ATTACK_OBJECT_HINT (InGameUI.cpp:2619-2621)
+                        // C++ downgrades to MoveTo if the target is under shroud for the local player.
+                        let cursor = if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                            let shrouded =
+                                match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
+                                    Some(obj) => obj
+                                        .read()
+                                        .map(|g| {
+                                            matches!(
+                                                g.get_shrouded_status(self.player_id as i32),
+                                                ObjectShroudStatus::Shrouded
+                                                    | ObjectShroudStatus::Fogged
+                                            )
+                                        })
+                                        .unwrap_or(false),
+                                    None => false,
+                                };
+                            if shrouded {
+                                MouseCursor::MoveTo
+                            } else {
+                                MouseCursor::AttackObject
+                            }
+                        } else {
+                            MouseCursor::AttackObject
+                        };
+                        self.set_mouse_cursor(cursor);
+                    }
+                    CommandHintType::AttackObjectAfterMoving => {
+                        // C++: MSG_DO_ATTACK_OBJECT_AFTER_MOVING_HINT (InGameUI.cpp:2622-2624)
+                        self.set_mouse_cursor(MouseCursor::OutOfRange);
+                    }
+                    CommandHintType::ForceAttackObject => {
+                        // C++: MSG_DO_FORCE_ATTACK_OBJECT_HINT (InGameUI.cpp:2625-2627)
+                        self.set_mouse_cursor(MouseCursor::ForceAttackObject);
+                    }
+                    CommandHintType::ForceAttackGround => {
+                        // C++: MSG_DO_FORCE_ATTACK_GROUND_HINT (InGameUI.cpp:2628-2630)
+                        self.set_mouse_cursor(MouseCursor::ForceAttackGround);
+                    }
+                    CommandHintType::GetRepaired => {
+                        // C++: MSG_GET_REPAIRED_HINT (InGameUI.cpp:2631-2633)
+                        self.set_mouse_cursor(MouseCursor::GetRepaired);
+                    }
+                    CommandHintType::Dock => {
+                        // C++: MSG_DOCK_HINT (InGameUI.cpp:2634-2636)
+                        self.set_mouse_cursor(MouseCursor::Dock);
+                    }
+                    CommandHintType::GetHealed => {
+                        // C++: MSG_GET_HEALED_HINT (InGameUI.cpp:2637-2639)
+                        self.set_mouse_cursor(MouseCursor::GetHealed);
+                    }
+                    CommandHintType::DoRepair => {
+                        // C++: MSG_DO_REPAIR_HINT (InGameUI.cpp:2640-2642)
+                        self.set_mouse_cursor(MouseCursor::DoRepair);
+                    }
+                    CommandHintType::ResumeConstruction => {
+                        // C++: MSG_RESUME_CONSTRUCTION_HINT (InGameUI.cpp:2643-2645)
+                        self.set_mouse_cursor(MouseCursor::ResumeConstruction);
+                    }
+                    CommandHintType::Enter => {
+                        // C++: MSG_ENTER_HINT (InGameUI.cpp:2646-2648)
+                        self.set_mouse_cursor(MouseCursor::EnterFriendly);
+                    }
+                    CommandHintType::ConvertToCarbomb
+                    | CommandHintType::Hijack
+                    | CommandHintType::Sabotage => {
+                        // C++: MSG_CONVERT_TO_CARBOMB_HINT, MSG_HIJACK_HINT,
+                        //       MSG_SABOTAGE_HINT (InGameUI.cpp:2649-2653)
+                        self.set_mouse_cursor(MouseCursor::EnterAggressively);
+                    }
+                    CommandHintType::Defector => {
+                        // C++: MSG_DEFECTOR_HINT (InGameUI.cpp:2654-2656)
+                        self.set_mouse_cursor(MouseCursor::Defector);
+                    }
+                    CommandHintType::PickUpPrisoner => {
+                        // C++: MSG_PICK_UP_PRISONER_HINT (InGameUI.cpp:2658-2661)
+                        // ALLOW_SURRENDER conditional — not in retail Zero Hour
+                        // Keep for parity if the build supports it
+                        self.set_mouse_cursor(MouseCursor::Defector); // Closest available cursor
+                    }
+                    CommandHintType::CaptureBuilding => {
+                        // C++: MSG_CAPTUREBUILDING_HINT (InGameUI.cpp:2662-2664)
+                        self.set_mouse_cursor(MouseCursor::CaptureBuilding);
+                    }
+                    CommandHintType::Hack => {
+                        // C++: MSG_HACK_HINT (InGameUI.cpp:2665-2667)
+                        self.set_mouse_cursor(MouseCursor::Hack);
+                    }
+                    CommandHintType::ImpossibleAttack => {
+                        // C++: MSG_IMPOSSIBLE_ATTACK_HINT (InGameUI.cpp:2668-2670)
+                        self.set_mouse_cursor(MouseCursor::GenericInvalid);
+                    }
+                    CommandHintType::SetRallyPoint => {
+                        // C++: MSG_SET_RALLY_POINT_HINT (InGameUI.cpp:2671-2676)
+                        // If hovering over a selectable, locally-controlled drawable, use SELECTING
+                        if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                            if let Some(obj) =
+                                OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
+                            {
+                                if let Ok(guard) = obj.read() {
+                                    if guard.is_selectable() && guard.is_locally_controlled() {
+                                        self.set_mouse_cursor(MouseCursor::Selecting);
+                                    } else {
+                                        self.set_mouse_cursor(MouseCursor::SetRallyPoint);
+                                    }
+                                } else {
+                                    self.set_mouse_cursor(MouseCursor::SetRallyPoint);
+                                }
+                            } else {
+                                self.set_mouse_cursor(MouseCursor::SetRallyPoint);
+                            }
+                        } else {
+                            self.set_mouse_cursor(MouseCursor::SetRallyPoint);
+                        }
+                    }
+                    CommandHintType::SpecialPowerOverrideDestination => {
+                        // C++: MSG_DO_SPECIAL_POWER_OVERRIDE_DESTINATION_HINT (InGameUI.cpp:2677-2679)
+                        self.set_mouse_cursor(MouseCursor::ParticleUplinkCannon);
+                    }
+                    CommandHintType::DoSalvage => {
+                        // C++: MSG_DO_SALVAGE_HINT (InGameUI.cpp:2680-2682)
+                        self.set_mouse_cursor(MouseCursor::MoveTo);
+                    }
+                    CommandHintType::Invalid => {
+                        // C++: MSG_DO_INVALID_HINT (InGameUI.cpp:2683-2685)
+                        self.set_mouse_cursor(MouseCursor::GenericInvalid);
+                    }
+                    CommandHintType::ValidGuiCommand | CommandHintType::InvalidGuiCommand => {
+                        // These are handled in MOUSEMODE_GUI_COMMAND, not here.
+                        // Fall through to no-op in Default mode.
+                    }
+                }
+            }
+            MouseMode::BuildPlace => {
+                // C++: InGameUI.cpp:2689-2708
+                // underWindow = false (WindowManager not ported)
+
+                match hint_type {
+                    CommandHintType::MoveTo
+                    | CommandHintType::AttackMoveTo
+                    | CommandHintType::AddWaypoint => {
+                        // C++: MSG_DO_MOVETO_HINT, MSG_DO_ATTACKMOVETO_HINT, MSG_ADD_WAYPOINT
+                        // C++: setMouseCursor(Mouse::BUILD_PLACEMENT) (InGameUI.cpp:2701)
+                        self.set_mouse_cursor(MouseCursor::BuildPlacement);
+                    }
+                    CommandHintType::AttackObject | CommandHintType::AttackObjectAfterMoving => {
+                        // C++: MSG_DO_ATTACK_OBJECT_HINT, MSG_DO_ATTACK_OBJECT_AFTER_MOVING_HINT
+                        // C++: setMouseCursor(Mouse::INVALID_BUILD_PLACEMENT) (InGameUI.cpp:2705)
+                        self.set_mouse_cursor(MouseCursor::InvalidBuildPlacement);
+                    }
+                    _ => {
+                        // Other hint types in build-place mode default to build cursor
+                        self.set_mouse_cursor(MouseCursor::BuildPlacement);
+                    }
+                }
+            }
+            MouseMode::GuiCommand => {
+                // C++: InGameUI.cpp:2710-2769
+                // underWindow = false (WindowManager not ported)
+
+                if let Some(pending) = TheInGameUI::get_pending_command() {
+                    let cursor_name = &pending.cursor_name;
+                    if !cursor_name.is_empty() {
+                        if let Some(cursor) =
+                            MouseCursor::from_i32(self.cursor_name_to_i32(cursor_name))
+                        {
+                            self.set_mouse_cursor(cursor);
+                        } else {
+                            self.set_mouse_cursor(self.mouse_mode_cursor);
+                        }
+                    } else {
+                        self.set_mouse_cursor(self.mouse_mode_cursor);
+                    }
+                    let rc_type = &pending.radius_cursor_type;
+                    if !rc_type.is_empty() && !rc_type.eq_ignore_ascii_case("NONE") {
+                        TheInGameUI::set_radius_cursor_active_with_type(rc_type);
+                    }
+                } else {
+                    self.set_mouse_cursor(self.mouse_mode_cursor);
+                }
+            }
+        }
+    }
+
+    /// Port of C++ InGameUI::createMouseoverHint() (InGameUI.cpp:2217-2494).
+    ///
+    /// Handles mouse-over drawable/location hints. Updates the moused-over
+    /// drawable ID and sets the cursor to SELECTING for selectable+controlled
+    /// drawables, or ARROW otherwise.
+    ///
+    /// Simplified from C++: tooltip display (setCursorTooltip, displayName,
+    /// playerColor, shroud checks) is deferred until the tooltip system is ported.
+    pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
+        // Phase 1: Early exit guards
+        // C++: if (m_isScrolling || m_isSelecting) return;
+        if self.is_scrolling || self.is_selecting {
+            return;
+        }
+
+        // C++: underWindow — WindowManager not yet ported; underWindow = false
+        let _under_window = false;
+
+        // Phase 2: Update moused_over_drawable_id
+        // C++: InGameUI.cpp:2254-2454 — extensive tooltip/drawable logic
+        if is_location_hint {
+            // C++: else branch (MSG_MOUSEOVER_LOCATION_HINT) — line 2451-2454
+            self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+        } else if let Some(draw_id) = drawable_id {
+            if draw_id == Self::INVALID_DRAWABLE_ID {
+                self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+            } else {
+                self.moused_over_drawable_id = draw_id;
+                // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
+                // Deferred C++ behaviors: MobMemberSlavedUpdate redirect, Disguiser detection,
+                // SupplyWarehouseDockUpdate dollar amount, Warehouse contents feedback.
+                if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
+                    if let Ok(guard) = obj.read() {
+                        let display_name = guard.get_template_name().to_string();
+                        with_mouse(|m| {
+                            m.set_cursor_tooltip(display_name, None, None, None);
+                        });
+                    }
+                }
+            }
+        } else {
+            self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
+        }
+
+        // C++: TheMouse->resetTooltipDelay() when ID changes
+        with_mouse(|m| m.reset_tooltip_delay());
+
+        // Phase 3: Cursor assignment
+        // C++: InGameUI.cpp:2462-2493
+        if self.mouse_mode == MouseMode::Default
+            && !self.is_scrolling
+            && !self.is_selecting
+            && self.get_select_count() == 0
+        {
+            // C++: TheRecorder->getMode() != RECORDERMODETYPE_PLAYBACK check deferred
+            // C++: TheLookAtTranslator->hasMouseMovedRecently() check deferred
+
+            if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
+                // C++: CanSelectDrawable(draw, FALSE) and obj->isLocallyControlled()
+                let can_select = match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
+                    Some(obj_ref) => obj_ref
+                        .read()
+                        .map(|g| g.is_selectable() && g.is_locally_controlled())
+                        .unwrap_or(false),
+                    None => false,
+                };
+                if can_select {
+                    self.set_mouse_cursor(MouseCursor::Selecting);
+                } else {
+                    self.set_mouse_cursor(MouseCursor::Arrow);
+                }
+            } else {
+                self.set_mouse_cursor(MouseCursor::Arrow);
+            }
+        } else if self.mouse_mode == MouseMode::GuiCommand {
+            // C++: InGameUI.cpp:2490-2493
+            // Restore the saved command cursor
+            self.set_mouse_cursor(self.mouse_mode_cursor);
+        }
+    }
+}
+
+/// Command hint types. C++: GameMessage types used in InGameUI::createCommandHint() (InGameUI.cpp:2500-2772)
+///
+/// Maps from GameMessageType variants to the cursor assignment logic in createCommandHint.
+/// Each variant corresponds to one or more C++ GameMessage::Type values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandHintType {
+    /// C++: MSG_DO_MOVETO_HINT
+    MoveTo,
+    /// C++: MSG_DO_ATTACKMOVETO_HINT
+    AttackMoveTo,
+    /// C++: MSG_ADD_WAYPOINT_HINT
+    AddWaypoint,
+    /// C++: MSG_DO_ATTACK_OBJECT_HINT
+    AttackObject,
+    /// C++: MSG_DO_ATTACK_OBJECT_AFTER_MOVING_HINT
+    AttackObjectAfterMoving,
+    /// C++: MSG_DO_FORCE_ATTACK_OBJECT_HINT
+    ForceAttackObject,
+    /// C++: MSG_DO_FORCE_ATTACK_GROUND_HINT
+    ForceAttackGround,
+    /// C++: MSG_GET_REPAIRED_HINT
+    GetRepaired,
+    /// C++: MSG_DOCK_HINT
+    Dock,
+    /// C++: MSG_GET_HEALED_HINT
+    GetHealed,
+    /// C++: MSG_DO_REPAIR_HINT
+    DoRepair,
+    /// C++: MSG_RESUME_CONSTRUCTION_HINT
+    ResumeConstruction,
+    /// C++: MSG_ENTER_HINT
+    Enter,
+    /// C++: MSG_CONVERT_TO_CARBOMB_HINT
+    ConvertToCarbomb,
+    /// C++: MSG_HIJACK_HINT
+    Hijack,
+    /// C++: MSG_SABOTAGE_HINT
+    Sabotage,
+    /// C++: MSG_DEFECTOR_HINT
+    Defector,
+    /// C++: MSG_PICK_UP_PRISONER_HINT (ALLOW_SURRENDER conditional)
+    PickUpPrisoner,
+    /// C++: MSG_CAPTUREBUILDING_HINT
+    CaptureBuilding,
+    /// C++: MSG_HACK_HINT
+    Hack,
+    /// C++: MSG_IMPOSSIBLE_ATTACK_HINT
+    ImpossibleAttack,
+    /// C++: MSG_SET_RALLY_POINT_HINT
+    SetRallyPoint,
+    /// C++: MSG_DO_SPECIAL_POWER_OVERRIDE_DESTINATION_HINT
+    SpecialPowerOverrideDestination,
+    /// C++: MSG_DO_SALVAGE_HINT
+    DoSalvage,
+    /// C++: MSG_DO_INVALID_HINT
+    Invalid,
+    /// C++: MSG_VALID_GUICOMMAND_HINT
+    ValidGuiCommand,
+    /// C++: MSG_INVALID_GUICOMMAND_HINT
+    InvalidGuiCommand,
 }
 
 #[cfg(test)]

@@ -734,7 +734,16 @@ impl SidesList {
 impl SubsystemInterface for SidesList {}
 
 impl Snapshot for SidesList {
-    fn crc(&self, _xfer: &mut dyn Xfer) {}
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut version: XferVersion = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+        let mut v = self.get_num_sides() as i32;
+        let _ = xfer.xfer_int(&mut v);
+        for side in &self.sides {
+            let mut v = side.scripts.is_some();
+            let _ = xfer.xfer_bool(&mut v);
+        }
+    }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         let current_version: XferVersion = 1;

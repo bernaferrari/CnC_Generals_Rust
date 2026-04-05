@@ -119,8 +119,8 @@ impl FogConfig {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct FogUniforms {
-    pub fog_color: [f32; 4],    // RGB + padding
-    pub fog_params: [f32; 4],   // start, end, density, mode (as f32)
+    pub fog_color: [f32; 4],  // RGB + padding
+    pub fog_params: [f32; 4], // start, end, density, mode (as f32)
 }
 
 impl From<&FogConfig> for FogUniforms {
@@ -134,12 +134,7 @@ impl From<&FogConfig> for FogUniforms {
 
         Self {
             fog_color: [config.color[0], config.color[1], config.color[2], 1.0],
-            fog_params: [
-                config.start,
-                config.end,
-                config.density,
-                mode_value,
-            ],
+            fog_params: [config.start, config.end, config.density, mode_value],
         }
     }
 }
@@ -234,7 +229,11 @@ impl AtmosphericSystem {
     }
 
     /// Set fog configuration for a specific time of day
-    pub fn set_fog_for_time(&mut self, time_of_day: super::sky_rendering::TimeOfDay, fog: FogConfig) {
+    pub fn set_fog_for_time(
+        &mut self,
+        time_of_day: super::sky_rendering::TimeOfDay,
+        fog: FogConfig,
+    ) {
         self.fog_configs[time_of_day as usize] = fog;
     }
 
@@ -246,9 +245,9 @@ impl AtmosphericSystem {
         sun_direction: [f32; 3],
     ) -> [f32; 3] {
         // Dot product between view and sun direction
-        let cos_angle = view_direction[0] * sun_direction[0] +
-                        view_direction[1] * sun_direction[1] +
-                        view_direction[2] * sun_direction[2];
+        let cos_angle = view_direction[0] * sun_direction[0]
+            + view_direction[1] * sun_direction[1]
+            + view_direction[2] * sun_direction[2];
 
         // Rayleigh phase function: (3/16π)(1 + cos²θ)
         let phase = 0.75 * (1.0 + cos_angle * cos_angle);

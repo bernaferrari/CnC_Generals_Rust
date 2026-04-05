@@ -2,7 +2,7 @@
 //!
 //! Provides a thick, textured line composed of segments, used by laser and rope effects.
 
-use cgmath::{Point3, Vector2, Vector3, InnerSpace};
+use cgmath::{InnerSpace, Point3, Vector2, Vector3};
 
 /// Texture mapping mode for segmented lines (mirrors SegLineRendererClass::TextureMapMode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

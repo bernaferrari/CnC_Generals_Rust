@@ -495,8 +495,8 @@ impl MainMenu {
     }
 
     fn set_dropdown_hidden(&self, state: &MainMenuState, dropdown: DropdownType, hide: bool) {
-        // TODO(ui-refactor): keep dropdown visibility as explicit compat state so future
-        // frontends can map to this behavior without re-deriving C++ menu rules.
+        // Explicit compat state mirrors C++ GameWindow::hide() per-dropdown visibility,
+        // so replacement frontends don't need to re-derive C++ menu transition rules.
         if let Some(Some(window_id)) = state.dropdown_windows.get(&dropdown) {
             self.hide_window_by_id(state, *window_id, None, hide);
         }

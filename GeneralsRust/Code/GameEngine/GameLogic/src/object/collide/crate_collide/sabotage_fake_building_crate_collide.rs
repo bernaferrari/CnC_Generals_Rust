@@ -87,7 +87,7 @@ impl SabotageFakeBuildingCrateCollide {
             .map_err(|_| GameError::LockError)?
             .relationship_to(&other_lock);
 
-        if relationship != Relationship::Enemy {
+        if relationship != Relationship::Enemies {
             return Ok(false);
         }
 

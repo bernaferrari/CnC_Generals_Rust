@@ -1339,7 +1339,7 @@ impl AISkirmishPlayer {
             let Ok(team_guard) = team_arc.read() else {
                 continue;
             };
-            if me_guard.get_relationship_with_team(&team_guard) != Relationship::Enemy {
+            if me_guard.get_relationship_with_team(&team_guard) != Relationship::Enemies {
                 continue;
             }
 

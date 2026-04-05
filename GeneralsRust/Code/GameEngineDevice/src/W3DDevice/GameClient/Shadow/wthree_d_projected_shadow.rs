@@ -412,8 +412,15 @@ impl W3DProjectedShadow {
     /// Update shadow texture and projection
     /// C++: void W3DProjectedShadow::update()
     pub fn update(&mut self) {
-        // C++ updates texture based on light/object movement
-        // TODO: Implement update logic
+        // PARITY_NOTE: C++ W3DProjectedShadow.cpp:2215 W3DProjectedShadow::update
+        // 1. If light position changed (getLightPosHistory != current light pos):
+        //    call updateTexture(lightPos) to re-render shadow texture
+        // 2. If object position changed (m_lastObjPosition != robj->Get_Position()):
+        //    a. For SHADOW_PROJECTION type: compute perspective projection
+        //       (normalize objToLight, place light 2000 units from object,
+        //        call m_shadowProjector->Compute_Perspective_Projection)
+        //    b. Call setObjPosHistory with new position
+        // Requires: W3DShadowManager (getLightPosWorld), TexProjectClass, RenderObjClass
     }
 
     /// Update shadow texture image

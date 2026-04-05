@@ -42,8 +42,11 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use glam;
+
 use crate::assets::{AssetConfig, AssetHandle, AssetManager, AssetPriority};
 use crate::audio::GameAudio;
+use crate::audio::{AudioEngine, AudioEventQueue, MusicSystem, SpeechSystem};
 use crate::core::script_action_handler::{
     apply_pending_script_display_state, get_script_fps_limit, get_script_visual_speed_multiplier,
     register_script_display_bridge, reset_script_action_runtime_state,
@@ -118,7 +121,7 @@ use game_engine::common::frame_clock::FrameTiming;
 use gamelogic::common::types::{ObjectID, Real, INVALID_ID};
 use gamelogic::helpers::{
     register_animation_metadata_hook, register_scorch_hook, register_terrain_tree_hook,
-    TerrainTreeEvent, TheGameLogic, TheScriptEngine,
+    TerrainTreeEvent, TheGameClient, TheGameLogic, TheScriptEngine,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::Object as GameLogicObject;
@@ -979,6 +982,11 @@ pub struct GameClient {
     // Subsystems
     subsystem_manager: SubsystemManager,
 
+    audio_event_queue: Option<AudioEventQueue>,
+    music_system: Option<MusicSystem>,
+    speech_system: Option<SpeechSystem>,
+    audio_engine: Option<AudioEngine>,
+
     // Performance tracking
     rendered_object_count: u32,
     last_update_time: Instant,
@@ -1131,6 +1139,10 @@ impl GameClient {
             message_dispatcher: Arc::new(GameClientMessageDispatcher::new()),
             network_bridge: None,
             subsystem_manager: SubsystemManager::new(),
+            audio_event_queue: Some(AudioEventQueue::new(256)),
+            music_system: Some(MusicSystem::new()),
+            speech_system: Some(SpeechSystem::new()),
+            audio_engine: AudioEngine::new().ok(),
             rendered_object_count: 0,
             last_update_time: Instant::now(),
             target_frame_duration: Duration::from_millis(33),
@@ -2021,6 +2033,10 @@ impl GameClient {
         };
         self.update_drawable_animations(visual_delta)?;
 
+        // 4. Read projectile stream state from GameLogic DRAWABLE_STATE and
+        //    submit to the render bridge for the Device renderer to consume.
+        self.submit_projectile_streams_to_bridge()?;
+
         Ok(())
     }
 
@@ -2055,6 +2071,43 @@ impl GameClient {
                 }
             }
         })?;
+        Ok(())
+    }
+
+    fn submit_projectile_streams_to_bridge(&mut self) -> GameClientResult<()> {
+        let Some(the_client) = TheGameClient::get() else {
+            return Ok(());
+        };
+
+        let object_ids: Vec<u32> = self.drawable_object_map.keys().copied().collect();
+
+        if let Ok(mut bridge_guard) = crate::render_bridge::get_render_bridge().lock() {
+            if let Some(bridge) = bridge_guard.as_mut() {
+                for object_id in object_ids {
+                    if let Some(stream) = the_client.get_drawable_projectile_stream(object_id) {
+                        let lines = stream
+                            .lines
+                            .iter()
+                            .map(|seg| {
+                                seg.iter()
+                                    .map(|p| glam::Vec3::new(p.x, p.y, p.z))
+                                    .collect::<Vec<_>>()
+                            })
+                            .collect();
+
+                        let submission = crate::render_bridge::ProjectileStreamSubmission {
+                            drawable_id: object_id,
+                            lines,
+                            texture_name: stream.texture_name.as_str().to_string(),
+                            width: stream.width,
+                            tile_factor: stream.tile_factor,
+                            scroll_rate: stream.scroll_rate,
+                        };
+                        bridge.submit_projectile_stream(submission);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -2128,6 +2181,9 @@ impl GameClient {
     fn init_core_subsystems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing core subsystems");
         self.init_draw_group_info()?;
+
+        let bridge = crate::helpers::TacticalViewBridge::new();
+        gamelogic::helpers::register_camera_view_bridge(std::sync::Arc::new(bridge));
 
         Ok(())
     }
@@ -2672,6 +2728,38 @@ impl GameClient {
         if let Some(ref audio) = self.subsystem_manager.audio {
             audio.lock().unwrap().update()?;
         }
+
+        if let (Some(ref mut queue), Some(ref mut engine)) =
+            (&mut self.audio_event_queue, &mut self.audio_engine)
+        {
+            for request in queue.drain() {
+                match request {
+                    crate::audio::AudioRequest::Play { event, .. } => {
+                        let _ = engine.play_event(&event.event_name, event.position);
+                    }
+                    crate::audio::AudioRequest::Pause { handle } => {
+                        // AudioEngine doesn't have pause yet; stop for now.
+                        engine.stop_event(handle);
+                    }
+                    crate::audio::AudioRequest::Stop { handle } => {
+                        engine.stop_event(handle);
+                    }
+                }
+            }
+        }
+
+        if let (Some(ref mut music), Some(ref mut engine)) =
+            (&mut self.music_system, &mut self.audio_engine)
+        {
+            music.update(engine);
+        }
+
+        if let (Some(ref mut speech), Some(ref mut engine)) =
+            (&mut self.speech_system, &mut self.audio_engine)
+        {
+            speech.update(engine);
+        }
+
         Ok(())
     }
 

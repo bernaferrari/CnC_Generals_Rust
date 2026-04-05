@@ -1516,12 +1516,7 @@ impl TerrainLogic {
         }
 
         if let Some(trigger_id) = best_trigger_id {
-            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
-                return Some(handle);
-            }
-            if let Some(trigger) = self.trigger_areas.get_by_id(trigger_id) {
-                return self.water_handles.get(trigger.get_trigger_name());
-            }
+            return self.water_handles_by_trigger_id.get(&trigger_id);
         }
         None
     }
@@ -1534,12 +1529,10 @@ impl TerrainLogic {
 
         let trigger_id = self.resolve_water_trigger_id(name);
         if trigger_id >= 0 {
-            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
-                return Some(handle);
-            }
+            return self.water_handles_by_trigger_id.get(&trigger_id);
         }
 
-        self.water_handles.get(name)
+        None
     }
 
     /// Get water height
@@ -1582,9 +1575,7 @@ impl TerrainLogic {
             }
         }
 
-        self.water_handles
-            .get(water_name)
-            .map(|handle| handle.get_current_height())
+        None
     }
 
     fn update_polygon_water_height_by_id(
@@ -1824,13 +1815,12 @@ impl TerrainLogic {
         }
         let trigger_id = self.resolve_water_trigger_id(water_name);
         if trigger_id >= 0 {
-            if let Some(handle) = self.water_handles_by_trigger_id.get(&trigger_id) {
-                return Some((trigger_id, handle));
-            }
+            return self
+                .water_handles_by_trigger_id
+                .get(&trigger_id)
+                .map(|handle| (trigger_id, handle));
         }
-        self.water_handles
-            .get(water_name)
-            .map(|handle| (-1, handle))
+        None
     }
 
     /// Set water height
@@ -2954,6 +2944,24 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn make_water_trigger(
+        id: Int,
+        name: &str,
+        z: Int,
+        min_x: Int,
+        min_y: Int,
+        max_x: Int,
+        max_y: Int,
+    ) -> PolygonTrigger {
+        let mut trigger = PolygonTrigger::new(id, AsciiString::from(name), Vec::new());
+        trigger.set_water_area(true);
+        trigger.add_point(ICoord3D::new(min_x, min_y, z));
+        trigger.add_point(ICoord3D::new(max_x, min_y, z));
+        trigger.add_point(ICoord3D::new(max_x, max_y, z));
+        trigger.add_point(ICoord3D::new(min_x, max_y, z));
+        trigger
+    }
+
     #[test]
     fn bridge_info_from_parts_matches_expected_rectangle() {
         let bridge_info = TerrainLogic::bridge_info_from_parts(
@@ -2961,7 +2969,7 @@ mod tests {
             0.0,
             6.0,
             2.0,
-            INVALID_ID,
+            crate::object::INVALID_ID,
         );
 
         assert_eq!(bridge_info.from_left, Coord3D::new(4.0, 22.0, 3.0));
@@ -2978,7 +2986,7 @@ mod tests {
             0.0,
             6.0,
             2.0,
-            INVALID_ID,
+            crate::object::INVALID_ID,
         );
 
         let mut terrain = TerrainLogic::new();
@@ -3055,6 +3063,69 @@ mod tests {
         assert!(terrain
             .get_waypoint_by_name(&AsciiString::from("WaveGuide1"))
             .is_some());
+    }
+
+    #[test]
+    fn water_handle_lookup_by_name_prefers_trigger_identity_over_name_cache() {
+        let mut terrain = TerrainLogic::new();
+        terrain.add_trigger_area(make_water_trigger(11, "SharedWater", 12, 0, 0, 40, 40));
+        terrain.add_trigger_area(make_water_trigger(
+            22,
+            "SharedWater",
+            28,
+            100,
+            100,
+            140,
+            140,
+        ));
+
+        terrain.water_handles.insert(
+            AsciiString::from("SharedWater"),
+            WaterHandle::new(
+                AsciiString::from("SharedWater"),
+                999.0,
+                Region3D::new(
+                    Coord3D::new(-1.0, -1.0, -1.0),
+                    Coord3D::new(-1.0, -1.0, -1.0),
+                ),
+            ),
+        );
+
+        let by_name = terrain
+            .get_water_handle_by_name(&AsciiString::from("SharedWater"))
+            .expect("expected first matching water trigger");
+        assert_eq!(by_name.get_current_height(), 12.0);
+        assert_eq!(by_name.get_bounds().lo.z, 12.0);
+
+        let first_location = terrain
+            .get_water_handle(10.0, 10.0)
+            .expect("expected first trigger to resolve by location");
+        assert_eq!(first_location.get_current_height(), 12.0);
+
+        let second_location = terrain
+            .get_water_handle(110.0, 110.0)
+            .expect("expected second trigger to resolve by location");
+        assert_eq!(second_location.get_current_height(), 28.0);
+    }
+
+    #[test]
+    fn water_handle_lookup_by_name_ignores_orphaned_name_cache_entries() {
+        let mut terrain = TerrainLogic::new();
+        terrain.water_handles.insert(
+            AsciiString::from("OrphanedWater"),
+            WaterHandle::new(
+                AsciiString::from("OrphanedWater"),
+                42.0,
+                Region3D::new(Coord3D::new(1.0, 1.0, 1.0), Coord3D::new(2.0, 2.0, 2.0)),
+            ),
+        );
+
+        assert!(
+            terrain
+                .get_water_handle_by_name(&AsciiString::from("OrphanedWater"))
+                .is_none(),
+            "C++ TerrainLogic::getWaterHandleByName only resolves polygon-trigger water handles"
+        );
     }
 
     #[test]

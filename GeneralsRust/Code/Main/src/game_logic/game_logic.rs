@@ -4974,7 +4974,7 @@ impl GameLogic {
                             shooter_id: object_id,
                             shooter_pos,
                             target_id: None,
-                            target_pos: target_loc,
+                            target_pos: Some(target_loc),
                             damage: weapon_damage,
                             speed: 200.0,
                         });

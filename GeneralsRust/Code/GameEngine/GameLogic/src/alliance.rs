@@ -392,8 +392,8 @@ impl AllianceManager {
         relationship: Relationship,
     ) {
         match relationship {
-            Relationship::Ally => self.ally_players(player1, player2),
-            Relationship::Enemy => self.make_players_enemies(player1, player2),
+            Relationship::Allies => self.ally_players(player1, player2),
+            Relationship::Enemies => self.make_players_enemies(player1, player2),
             Relationship::Neutral => {
                 self.break_player_alliance(player1, player2);
                 self.break_player_enemy(player1, player2);
@@ -410,8 +410,8 @@ impl AllianceManager {
         relationship: Relationship,
     ) {
         match relationship {
-            Relationship::Ally => self.ally_teams(team1, team2),
-            Relationship::Enemy => self.make_teams_enemies(team1, team2),
+            Relationship::Allies => self.ally_teams(team1, team2),
+            Relationship::Enemies => self.make_teams_enemies(team1, team2),
             Relationship::Neutral => {
                 self.break_team_alliance(team1, team2);
                 self.break_team_enemy(team1, team2);

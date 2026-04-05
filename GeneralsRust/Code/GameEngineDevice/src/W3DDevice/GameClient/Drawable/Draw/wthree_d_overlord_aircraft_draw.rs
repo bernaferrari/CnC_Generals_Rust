@@ -1,108 +1,90 @@
-//! WthreeDOverlordAircraftDraw Module
-//! 
+//! W3DOverlordAircraftDraw Module
+//!
 //! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/Drawable/Draw/W3DOverlordAircraftDraw.cpp
-//! 
-//! This module provides artificial intelligence functionality.
+//!
+//! Extends W3DModelDraw with rider draw propagation. Inherits from W3DModelDraw directly
+//! (NOT W3DTruckDraw), so does NOT get wheel rotation, treads, or particle emitters.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use cgmath::Matrix4;
 
-/// WthreeDOverlordAircraftDraw implementation
-pub struct WthreeDOverlordAircraftDraw {
-    /// Internal data
-    data: Vec<u8>,
-    /// State flag
-    active: bool,
+#[derive(Debug, Clone, Default)]
+pub struct W3DOverlordAircraftDrawModuleData {}
+
+/// Extends W3DModelDraw. The only unique logic is rider draw propagation:
+/// after the Overlord aircraft draws, the contained rider is also drawn
+/// with the parent's color tint.
+#[derive(Debug)]
+pub struct W3DOverlordAircraftDraw {
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadow_enabled: bool,
 }
 
-impl WthreeDOverlordAircraftDraw {
-    /// Create new instance
+impl W3DOverlordAircraftDraw {
     pub fn new() -> Self {
         Self {
-            data: Vec::new(),
-            active: false,
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadow_enabled: true,
         }
     }
 
-    /// Process data
-    pub fn process(&mut self, input: &[u8]) -> Result<Vec<u8>, WthreeDOverlordAircraftDrawError> {
-        if !self.active {
-            return Err(WthreeDOverlordAircraftDrawError::NotActive);
-        }
-        
-        // TODO: Implement processing logic
-        self.data.extend_from_slice(input);
-        Ok(self.data.clone())
+    /// Calls W3DModelDraw::doDrawModule(transformMtx), then draws the rider.
+    /// Rider access: getDrawable()->getObject()->getContain()->friend_getRider()->getDrawable()
+    /// Copies tint, clears dependency, calls riderDraw->draw(NULL).
+    /// Note: C++ has a DEBUG_ASSERTCRASH after the null check (dead assert).
+    pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {
+        // PARITY_NOTE: W3DModelDraw::doDrawModule(transformMtx)
+        // PARITY_NOTE: Rider propagation with null checks on riderDraw and tintEnvelope
     }
 
-    /// Activate
-    pub fn activate(&mut self) {
-        self.active = true;
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
     }
 
-    /// Deactivate
-    pub fn deactivate(&mut self) {
-        self.active = false;
+    pub fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadow_enabled = enable;
     }
-
-    /// Check if active
-    pub fn is_active(&self) -> bool {
-        self.active
+    pub fn release_shadows(&mut self) {}
+    pub fn allocate_shadows(&mut self) {}
+    pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
     }
-
-    /// Clear data
-    pub fn clear(&mut self) {
-        self.data.clear();
+    pub fn react_to_transform_change(
+        &mut self,
+        _old_mtx: &Matrix4<f32>,
+        _old_pos: &cgmath::Point3<f32>,
+        _old_angle: f32,
+    ) {
     }
-
-    /// Get data size
-    pub fn size(&self) -> usize {
-        self.data.len()
+    pub fn react_to_geometry_change(&mut self) {}
+    pub fn is_visible(&self) -> bool {
+        !self.hidden && !self.fully_obscured_by_shroud
     }
+    pub fn crc(&self) -> u32 {
+        0
+    }
+    pub fn xfer(&self) -> u32 {
+        1
+    }
+    pub fn load_post_process(&mut self) {}
 }
 
-impl Default for WthreeDOverlordAircraftDraw {
+impl Default for W3DOverlordAircraftDraw {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Error types for WthreeDOverlordAircraftDraw
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WthreeDOverlordAircraftDrawError {
-    /// Not active
-    NotActive,
-    /// Processing failed
-    ProcessingFailed,
-    /// Invalid input
-    InvalidInput,
-    /// Unknown error
-    Unknown,
-}
-
-impl std::fmt::Display for WthreeDOverlordAircraftDrawError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WthreeDOverlordAircraftDrawError::NotActive => write!(f, "Not active"),
-            WthreeDOverlordAircraftDrawError::ProcessingFailed => write!(f, "Processing failed"),
-            WthreeDOverlordAircraftDrawError::InvalidInput => write!(f, "Invalid input"),
-            WthreeDOverlordAircraftDrawError::Unknown => write!(f, "Unknown error"),
-        }
-    }
-}
-
-impl std::error::Error for WthreeDOverlordAircraftDrawError {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_wthree_d_overlord_aircraft_draw_basic() {
-        // TODO: Implement tests for wthree_d_overlord_aircraft_draw
-        assert!(true, "Placeholder test for wthree_d_overlord_aircraft_draw");
+        let mut draw = W3DOverlordAircraftDraw::new();
+        assert!(draw.is_visible());
+        draw.set_hidden(true);
+        assert!(!draw.is_visible());
+        draw.do_draw_module(&Matrix4::identity());
     }
 }

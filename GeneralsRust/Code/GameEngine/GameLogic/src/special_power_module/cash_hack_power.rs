@@ -167,7 +167,7 @@ impl CashHackSpecialPower {
             };
 
             match rel {
-                Relationship::Enemy => {
+                Relationship::Enemies => {
                     let should_replace = match best_enemy.as_ref() {
                         None => true,
                         Some((_, best)) => money > *best,

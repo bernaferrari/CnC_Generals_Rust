@@ -231,8 +231,8 @@ impl Snapshotable for ProjectileStreamUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
         for id in &mut self.projectile_ids {

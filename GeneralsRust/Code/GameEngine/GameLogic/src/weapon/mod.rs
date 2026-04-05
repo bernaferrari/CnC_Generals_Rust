@@ -538,167 +538,6 @@ pub enum VeterancyLevel {
     Heroic = 3,
 }
 
-/// Damage types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DamageType {
-    Explosion,
-    Crush,
-    SmallArms,
-    Flame,
-    Laser,
-    Toxin,
-    Radiation,
-    Emp,
-    LeadershipBonus,
-    Unresistable,
-    Healing,
-    Subdual,
-    Status,
-    Particle,
-    Combat,
-    Hazard,
-    DemoralizingShock,
-    Sniper,
-    Poison,
-    ParticleBeam,
-    Microwave,
-    Disarm,
-}
-
-/// Death types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DeathType {
-    Normal,
-    Suicided,
-    Crushed,
-    Exploded,
-    Poisoned,
-    Toppled,
-    Burned,
-    Flooded,
-    Lasered,
-    Extra1,
-    Extra2,
-    Extra3,
-    Extra4,
-    Extra5,
-    Extra6,
-    Extra7,
-    Extra8,
-    PoisonedBeta,
-    PoisonedGamma,
-}
-
-impl From<DamageType> for crate::weapon::damage_system::DamageType {
-    fn from(value: DamageType) -> crate::weapon::damage_system::DamageType {
-        match value {
-            DamageType::Explosion => crate::weapon::damage_system::DamageType::Explosion,
-            DamageType::Crush => crate::weapon::damage_system::DamageType::Crush,
-            DamageType::SmallArms => crate::weapon::damage_system::DamageType::SmallArms,
-            DamageType::Flame => crate::weapon::damage_system::DamageType::Flame,
-            DamageType::Laser => crate::weapon::damage_system::DamageType::Laser,
-            DamageType::Toxin => crate::weapon::damage_system::DamageType::Poison,
-            DamageType::Radiation => crate::weapon::damage_system::DamageType::Radiation,
-            DamageType::Emp => crate::weapon::damage_system::DamageType::Status,
-            DamageType::LeadershipBonus => crate::weapon::damage_system::DamageType::Status,
-            DamageType::Unresistable => crate::weapon::damage_system::DamageType::Unresistable,
-            DamageType::Healing => crate::weapon::damage_system::DamageType::Healing,
-            DamageType::Subdual => crate::weapon::damage_system::DamageType::SubdualVehicle,
-            DamageType::Status => crate::weapon::damage_system::DamageType::Status,
-            DamageType::Particle => crate::weapon::damage_system::DamageType::ParticleBeam,
-            DamageType::Combat => crate::weapon::damage_system::DamageType::ArmorPiercing,
-            DamageType::Hazard => crate::weapon::damage_system::DamageType::HazardCleanup,
-            DamageType::DemoralizingShock => crate::weapon::damage_system::DamageType::Status,
-            DamageType::Sniper => crate::weapon::damage_system::DamageType::Sniper,
-            DamageType::Poison => crate::weapon::damage_system::DamageType::Poison,
-            DamageType::ParticleBeam => crate::weapon::damage_system::DamageType::ParticleBeam,
-            DamageType::Microwave => crate::weapon::damage_system::DamageType::Microwave,
-            DamageType::Disarm => crate::weapon::damage_system::DamageType::Status,
-        }
-    }
-}
-
-impl From<DeathType> for crate::weapon::damage_system::DeathType {
-    fn from(value: DeathType) -> crate::weapon::damage_system::DeathType {
-        match value {
-            DeathType::Normal => crate::weapon::damage_system::DeathType::Normal,
-            DeathType::Suicided => crate::weapon::damage_system::DeathType::Suicided,
-            DeathType::Crushed => crate::weapon::damage_system::DeathType::Crushed,
-            DeathType::Exploded => crate::weapon::damage_system::DeathType::Exploded,
-            DeathType::Poisoned => crate::weapon::damage_system::DeathType::Poisoned,
-            DeathType::Toppled => crate::weapon::damage_system::DeathType::Toppled,
-            DeathType::Burned => crate::weapon::damage_system::DeathType::Burned,
-            DeathType::Flooded => crate::weapon::damage_system::DeathType::Flooded,
-            DeathType::Lasered => crate::weapon::damage_system::DeathType::Lasered,
-            DeathType::Extra1 => crate::weapon::damage_system::DeathType::Detonated,
-            DeathType::Extra2 => crate::weapon::damage_system::DeathType::Splatted,
-            DeathType::Extra3 => crate::weapon::damage_system::DeathType::PoisonedBeta,
-            DeathType::Extra4 => crate::weapon::damage_system::DeathType::Extra2,
-            DeathType::Extra5 => crate::weapon::damage_system::DeathType::Extra3,
-            DeathType::Extra6 => crate::weapon::damage_system::DeathType::Extra4,
-            DeathType::Extra7 => crate::weapon::damage_system::DeathType::Extra5,
-            DeathType::Extra8 => crate::weapon::damage_system::DeathType::Extra6,
-            DeathType::PoisonedBeta => crate::weapon::damage_system::DeathType::PoisonedBeta,
-            DeathType::PoisonedGamma => crate::weapon::damage_system::DeathType::PoisonedGamma,
-        }
-    }
-}
-
-impl From<DamageType> for crate::damage::DamageType {
-    fn from(value: DamageType) -> crate::damage::DamageType {
-        match value {
-            DamageType::Explosion => crate::damage::DamageType::Explosion,
-            DamageType::Crush => crate::damage::DamageType::Crush,
-            DamageType::SmallArms => crate::damage::DamageType::SmallArms,
-            DamageType::Flame => crate::damage::DamageType::Flame,
-            DamageType::Laser => crate::damage::DamageType::Laser,
-            DamageType::Toxin => crate::damage::DamageType::Poison,
-            DamageType::Radiation => crate::damage::DamageType::Radiation,
-            DamageType::Emp => crate::damage::DamageType::Status,
-            DamageType::LeadershipBonus => crate::damage::DamageType::Status,
-            DamageType::Unresistable => crate::damage::DamageType::Unresistable,
-            DamageType::Healing => crate::damage::DamageType::Healing,
-            DamageType::Subdual => crate::damage::DamageType::SubdualVehicle,
-            DamageType::Status => crate::damage::DamageType::Status,
-            DamageType::Particle => crate::damage::DamageType::ParticleBeam,
-            DamageType::Combat => crate::damage::DamageType::ArmorPiercing,
-            DamageType::Hazard => crate::damage::DamageType::HazardCleanup,
-            DamageType::DemoralizingShock => crate::damage::DamageType::Status,
-            DamageType::Sniper => crate::damage::DamageType::Sniper,
-            DamageType::Poison => crate::damage::DamageType::Poison,
-            DamageType::ParticleBeam => crate::damage::DamageType::ParticleBeam,
-            DamageType::Microwave => crate::damage::DamageType::Microwave,
-            DamageType::Disarm => crate::damage::DamageType::Status,
-        }
-    }
-}
-
-impl From<DeathType> for crate::damage::DeathType {
-    fn from(value: DeathType) -> crate::damage::DeathType {
-        match value {
-            DeathType::Normal => crate::damage::DeathType::Normal,
-            DeathType::Suicided => crate::damage::DeathType::Suicided,
-            DeathType::Crushed => crate::damage::DeathType::Crushed,
-            DeathType::Exploded => crate::damage::DeathType::Exploded,
-            DeathType::Poisoned => crate::damage::DeathType::Poisoned,
-            DeathType::Toppled => crate::damage::DeathType::Toppled,
-            DeathType::Burned => crate::damage::DeathType::Burned,
-            DeathType::Flooded => crate::damage::DeathType::Flooded,
-            DeathType::Lasered => crate::damage::DeathType::Lasered,
-            DeathType::Extra1 => crate::damage::DeathType::Detonated,
-            DeathType::Extra2 => crate::damage::DeathType::Splatted,
-            DeathType::Extra3 => crate::damage::DeathType::PoisonedBeta,
-            DeathType::Extra4 => crate::damage::DeathType::Extra2,
-            DeathType::Extra5 => crate::damage::DeathType::Extra3,
-            DeathType::Extra6 => crate::damage::DeathType::Extra4,
-            DeathType::Extra7 => crate::damage::DeathType::Extra5,
-            DeathType::Extra8 => crate::damage::DeathType::Extra6,
-            DeathType::PoisonedBeta => crate::damage::DeathType::PoisonedBeta,
-            DeathType::PoisonedGamma => crate::damage::DeathType::PoisonedGamma,
-        }
-    }
-}
-
 impl From<ObjectStatusTypes> for crate::common::ObjectStatusTypes {
     fn from(value: ObjectStatusTypes) -> crate::common::ObjectStatusTypes {
         crate::common::ObjectStatusTypes::from_u32(value.0)
@@ -714,6 +553,18 @@ impl From<ObjectStatusTypes> for crate::weapon::damage_system::ObjectStatusTypes
 impl From<crate::weapon::damage_system::ObjectStatusTypes> for ObjectStatusTypes {
     fn from(value: crate::weapon::damage_system::ObjectStatusTypes) -> Self {
         ObjectStatusTypes::new(value.bits())
+    }
+}
+
+impl From<damage_system::DamageType> for crate::damage::DamageType {
+    fn from(v: damage_system::DamageType) -> Self {
+        crate::damage::DamageType::from_u32(v as u32)
+    }
+}
+
+impl From<damage_system::DeathType> for crate::damage::DeathType {
+    fn from(v: damage_system::DeathType) -> Self {
+        crate::damage::DeathType::from_u32(v as u32)
     }
 }
 
@@ -749,14 +600,15 @@ impl ObjectStatusTypes {
     }
 }
 
-/// Weapon status
+/// Weapon status — discriminants must match C++ WeaponStatus enum (WeaponStatus.h)
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeaponStatus {
-    PreAttack,
-    ReadyToFire,
-    BetweenFiringShots,
-    ReloadingClip,
-    OutOfAmmo,
+    ReadyToFire,        // C++ = 0
+    OutOfAmmo,          // C++ = 1
+    BetweenFiringShots, // C++ = 2
+    ReloadingClip,      // C++ = 3
+    PreAttack,          // C++ = 4
 }
 
 /// Weapon firing errors
@@ -4039,9 +3891,9 @@ impl Weapon {
                                 let rel = source.relationship_to(&victim_guard);
                                 if matches!(
                                     rel,
-                                    Relationship::Ally
+                                    Relationship::Allies
                                         | Relationship::Allies
-                                        | Relationship::Friend
+                                        | Relationship::Allies
                                 ) && source
                                     .get_template()
                                     .is_equivalent_to(victim_guard.get_template().as_ref())
@@ -4065,10 +3917,10 @@ impl Weapon {
                             .map(|source| victim_guard.relationship_to(source))
                             .unwrap_or(Relationship::Neutral);
                         let required_mask = match relationship {
-                            Relationship::Ally | Relationship::Allies | Relationship::Friend => {
+                            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                                 WeaponAffectsMask::ALLIES
                             }
-                            Relationship::Enemy => WeaponAffectsMask::ENEMIES,
+                            Relationship::Enemies => WeaponAffectsMask::ENEMIES,
                             _ => WeaponAffectsMask::NEUTRALS,
                         };
                         if !self.template.affects_mask.contains(required_mask) {
@@ -4418,7 +4270,7 @@ impl Weapon {
                 {
                     let relationship = source_t.get_relationship(&target_t);
                     // Only enemies can be targeted; not allies, friends, or self
-                    matches!(relationship, Relationship::Enemy)
+                    matches!(relationship, Relationship::Enemies)
                 } else {
                     true // Lock error, assume enemy
                 }
@@ -4881,10 +4733,10 @@ impl Weapon {
             let relationship_mask = source_guard
                 .as_ref()
                 .map(|source| match source.relationship_to(&obj) {
-                    Relationship::Ally | Relationship::Allies | Relationship::Friend => {
+                    Relationship::Allies | Relationship::Allies | Relationship::Allies => {
                         WeaponAffectsMask::ALLIES
                     }
-                    Relationship::Enemy => WeaponAffectsMask::ENEMIES,
+                    Relationship::Enemies => WeaponAffectsMask::ENEMIES,
                     _ => WeaponAffectsMask::NEUTRALS,
                 })
                 .unwrap_or(WeaponAffectsMask::NEUTRALS);
@@ -4977,21 +4829,21 @@ fn weapon_slot_from_u32(value: u32) -> WeaponSlotType {
 
 fn weapon_status_to_u32(status: WeaponStatus) -> u32 {
     match status {
-        WeaponStatus::PreAttack => 0,
-        WeaponStatus::ReadyToFire => 1,
+        WeaponStatus::ReadyToFire => 0,
+        WeaponStatus::OutOfAmmo => 1,
         WeaponStatus::BetweenFiringShots => 2,
         WeaponStatus::ReloadingClip => 3,
-        WeaponStatus::OutOfAmmo => 4,
+        WeaponStatus::PreAttack => 4,
     }
 }
 
 fn weapon_status_from_u32(value: u32) -> WeaponStatus {
     match value {
-        0 => WeaponStatus::PreAttack,
-        1 => WeaponStatus::ReadyToFire,
+        0 => WeaponStatus::ReadyToFire,
+        1 => WeaponStatus::OutOfAmmo,
         2 => WeaponStatus::BetweenFiringShots,
         3 => WeaponStatus::ReloadingClip,
-        4 => WeaponStatus::OutOfAmmo,
+        4 => WeaponStatus::PreAttack,
         _ => WeaponStatus::OutOfAmmo,
     }
 }

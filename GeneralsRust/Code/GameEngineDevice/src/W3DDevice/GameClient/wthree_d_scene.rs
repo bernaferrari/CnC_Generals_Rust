@@ -652,8 +652,16 @@ impl W3DScene {
 
     fn build_shadow_render_info(&self, rinfo: &RenderInfo, frame_number: u64) -> ShadowRenderInfo {
         let camera_frustum = Some(ShadowFrustum::from_camera(
-            glam::Vec3::new(rinfo.camera.position.x, rinfo.camera.position.y, rinfo.camera.position.z),
-            glam::Vec3::new(rinfo.camera.direction.x, rinfo.camera.direction.y, rinfo.camera.direction.z),
+            glam::Vec3::new(
+                rinfo.camera.position.x,
+                rinfo.camera.position.y,
+                rinfo.camera.position.z,
+            ),
+            glam::Vec3::new(
+                rinfo.camera.direction.x,
+                rinfo.camera.direction.y,
+                rinfo.camera.direction.z,
+            ),
             rinfo.camera.near_z,
             rinfo.camera.far_z,
             rinfo.camera.fov,
@@ -713,7 +721,11 @@ impl W3DScene {
 
         self.occluded_objects_count = buckets.values().map(|ids| ids.len()).sum();
         if self.occluded_objects_count == 0 {
-            self.flush_deferred_lists_without_stencil(&visible_occludees, &occluder_ids, &non_occluder_ids);
+            self.flush_deferred_lists_without_stencil(
+                &visible_occludees,
+                &occluder_ids,
+                &non_occluder_ids,
+            );
             return;
         }
 
@@ -750,7 +762,11 @@ impl W3DScene {
 
         // Non-occluder/occludee and occluder lists are still present in the deferred queues.
         // We keep the flush ordering explicit even though the real mesh renderer is not wired in.
-        self.flush_deferred_lists_without_stencil(&visible_occludees, &occluder_ids, &non_occluder_ids);
+        self.flush_deferred_lists_without_stencil(
+            &visible_occludees,
+            &occluder_ids,
+            &non_occluder_ids,
+        );
     }
 
     fn flush_deferred_lists_without_stencil(
@@ -759,7 +775,10 @@ impl W3DScene {
         occluders: &[RenderObjectId],
         non_occluders_or_occludees: &[RenderObjectId],
     ) {
-        if visible_occludees.is_empty() && occluders.is_empty() && non_occluders_or_occludees.is_empty() {
+        if visible_occludees.is_empty()
+            && occluders.is_empty()
+            && non_occluders_or_occludees.is_empty()
+        {
             return;
         }
 
@@ -789,10 +808,7 @@ impl W3DScene {
         list: &[Option<RenderObjectId>],
         count: usize,
     ) -> Vec<RenderObjectId> {
-        list.iter()
-            .take(count)
-            .filter_map(|id| *id)
-            .collect()
+        list.iter().take(count).filter_map(|id| *id).collect()
     }
 
     fn is_occluded_by_any_occluder(

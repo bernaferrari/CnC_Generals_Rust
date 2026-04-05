@@ -579,7 +579,7 @@ impl Team {
                     continue;
                 }
 
-                if source.relationship_to(&candidate) == Relationship::Enemy {
+                if source.relationship_to(&candidate) == Relationship::Enemies {
                     return (true, true);
                 }
             }
@@ -1814,13 +1814,13 @@ impl Team {
     pub fn is_allied_with(&self, that_team: &Team) -> Bool {
         matches!(
             self.get_relationship(that_team),
-            Relationship::Friend | Relationship::Ally | Relationship::Allies
+            Relationship::Allies | Relationship::Allies | Relationship::Allies
         )
     }
 
     /// Check if this team is enemy with another team
     pub fn is_enemy_with(&self, that_team: &Team) -> Bool {
-        matches!(self.get_relationship(that_team), Relationship::Enemy)
+        matches!(self.get_relationship(that_team), Relationship::Enemies)
     }
 
     /// Check if this team is neutral with another team
@@ -3688,15 +3688,15 @@ mod tests {
     #[test]
     fn set_override_team_relationship_ignores_invalid_id() {
         let mut team = Team::new(AsciiString::from("RelationsTeam"), 1);
-        team.set_override_team_relationship(TEAM_ID_INVALID, Relationship::Enemy);
+        team.set_override_team_relationship(TEAM_ID_INVALID, Relationship::Enemies);
         assert!(team.team_relations.is_none());
     }
 
     #[test]
     fn remove_override_team_relationship_invalid_id_clears_overrides() {
         let mut team = Team::new(AsciiString::from("RelationsTeam"), 1);
-        team.set_override_team_relationship(2, Relationship::Enemy);
-        team.set_override_team_relationship(3, Relationship::Ally);
+        team.set_override_team_relationship(2, Relationship::Enemies);
+        team.set_override_team_relationship(3, Relationship::Allies);
         assert!(team.remove_override_team_relationship(TEAM_ID_INVALID));
         assert!(team
             .team_relations
@@ -3708,8 +3708,8 @@ mod tests {
     #[test]
     fn remove_override_player_relationship_invalid_id_clears_overrides() {
         let mut team = Team::new(AsciiString::from("RelationsTeam"), 1);
-        team.set_override_player_relationship(0, Relationship::Enemy);
-        team.set_override_player_relationship(1, Relationship::Ally);
+        team.set_override_player_relationship(0, Relationship::Enemies);
+        team.set_override_player_relationship(1, Relationship::Allies);
         assert!(team.remove_override_player_relationship(crate::player::PLAYER_INDEX_INVALID));
         assert!(team
             .player_relations

@@ -88,15 +88,11 @@ impl W3DFontLibrary {
             return None;
         }
 
-        if let Some(existing) = self
-            .fonts
-            .iter_mut()
-            .find(|font| {
-                font.point_size == point_size
-                    && font.bold == bold
-                    && font.name_string.eq_ignore_ascii_case(name)
-            })
-        {
+        if let Some(existing) = self.fonts.iter_mut().find(|font| {
+            font.point_size == point_size
+                && font.bold == bold
+                && font.name_string.eq_ignore_ascii_case(name)
+        }) {
             return Some(NonNull::from(existing.as_mut()));
         }
 

@@ -1,7 +1,7 @@
 //! WthreeDDisplayStringManager Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DDisplayStringManager.h
-//! 
+//!
 //! This module provides resource management.
 
 use std::{
@@ -32,7 +32,10 @@ impl WthreeDDisplayStringManager {
         if self.initialized {
             return Ok(());
         }
-        // TODO: Initialize manager
+        // PARITY_NOTE: C++ W3DDisplayStringManager.cpp manages UnicodeString display strings
+        // for the W3D device. init() creates the font/text rendering resources.
+        // shutdown() frees all allocated DisplayString objects.
+        // Full port requires: UnicodeString system, font rendering, text layout engine.
         self.initialized = true;
         Ok(())
     }
@@ -42,7 +45,9 @@ impl WthreeDDisplayStringManager {
         if !self.initialized {
             return;
         }
-        // TODO: Cleanup resources
+        // PARITY_NOTE: C++ W3DDisplayStringManager::~W3DDisplayStringManager frees all
+        // DisplayString objects. Each DisplayString holds font, text, color, position data.
+        // Full port requires: DisplayString deallocation, font resource cleanup.
         self.resources.clear();
         self.initialized = false;
     }
@@ -79,7 +84,9 @@ pub enum WthreeDDisplayStringManagerError {
 impl std::fmt::Display for WthreeDDisplayStringManagerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WthreeDDisplayStringManagerError::NotInitialized => write!(f, "Manager not initialized"),
+            WthreeDDisplayStringManagerError::NotInitialized => {
+                write!(f, "Manager not initialized")
+            }
             WthreeDDisplayStringManagerError::ResourceNotFound => write!(f, "Resource not found"),
             WthreeDDisplayStringManagerError::Unknown => write!(f, "Unknown manager error"),
         }
@@ -94,7 +101,11 @@ mod tests {
 
     #[test]
     fn test_wthree_d_display_string_manager_basic() {
-        // TODO: Implement tests for wthree_d_display_string_manager
-        assert!(true, "Placeholder test for wthree_d_display_string_manager");
+        let mut mgr = WthreeDDisplayStringManager::new();
+        assert!(!mgr.is_initialized());
+        mgr.initialize().unwrap();
+        assert!(mgr.is_initialized());
+        mgr.shutdown();
+        assert!(!mgr.is_initialized());
     }
 }

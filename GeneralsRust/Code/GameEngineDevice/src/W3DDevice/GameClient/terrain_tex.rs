@@ -15,7 +15,7 @@
 
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wgpu::{Device, Queue, Texture, TextureView, Sampler};
+use wgpu::{Device, Queue, Sampler, Texture, TextureView};
 
 // =============================================================================
 // CONSTANTS - Must match C++ TerrainTex.cpp exactly
@@ -387,12 +387,18 @@ impl TextureClass {
     /// Apply texture to rendering pipeline (virtual function in C++)
     /// To be overridden by subclasses
     pub fn apply(&self, stage: u32) {
-        let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
+        let mut state = self
+            .apply_state
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         state.stage = stage;
     }
 
     fn reset_apply_state(&self) {
-        let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
+        let mut state = self
+            .apply_state
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         state.stage = 0;
     }
 
@@ -411,7 +417,10 @@ impl TextureClass {
     }
 
     fn set_apply_state(&self, stage: u32, filter: TextureFilter) {
-        let mut state = self.apply_state.lock().unwrap_or_else(|err| err.into_inner());
+        let mut state = self
+            .apply_state
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         state.stage = stage;
         state.filter = filter;
     }
@@ -552,7 +561,9 @@ impl TerrainTextureClass {
                 // Copy pixels with format conversion
                 for j in 0..TILE_PIXEL_EXTENT {
                     let bgr_data = tile.get_rgb_data_for_width(TILE_PIXEL_EXTENT);
-                    let src_row_offset = ((TILE_PIXEL_EXTENT - 1 - j) * TILE_BYTES_PER_PIXEL * TILE_PIXEL_EXTENT) as usize;
+                    let src_row_offset = ((TILE_PIXEL_EXTENT - 1 - j)
+                        * TILE_BYTES_PER_PIXEL
+                        * TILE_PIXEL_EXTENT) as usize;
 
                     let row = (position.y as u32 + j) as usize;
                     let dst_row_offset = row * surface_width as usize * pixel_bytes as usize;
@@ -601,7 +612,8 @@ impl TerrainTextureClass {
 
                 // Copy before (wrap from end)
                 for k in 0..4 {
-                    let src_idx = row_offset + (column + width as usize - 4 + k) * pixel_bytes as usize;
+                    let src_idx =
+                        row_offset + (column + width as usize - 4 + k) * pixel_bytes as usize;
                     let dst_idx = row_offset + (column - 4 + k) * pixel_bytes as usize;
                     if dst_idx < pixel_data.len() && src_idx < pixel_data.len() {
                         pixel_data[dst_idx] = pixel_data[src_idx];
@@ -630,7 +642,8 @@ impl TerrainTextureClass {
                 let copy_len = (width as usize + 8) * pixel_bytes as usize;
 
                 if dst_row + copy_start + copy_len <= pixel_data.len()
-                    && src_row + copy_start + copy_len <= pixel_data.len() {
+                    && src_row + copy_start + copy_len <= pixel_data.len()
+                {
                     pixel_data.copy_within(
                         src_row + copy_start..src_row + copy_start + copy_len,
                         dst_row + copy_start,
@@ -642,7 +655,8 @@ impl TerrainTextureClass {
                 let dst_row = (origin.y as usize + width as usize + j) * row_bytes;
 
                 if dst_row + copy_start + copy_len <= pixel_data.len()
-                    && src_row + copy_start + copy_len <= pixel_data.len() {
+                    && src_row + copy_start + copy_len <= pixel_data.len()
+                {
                     pixel_data.copy_within(
                         src_row + copy_start..src_row + copy_start + copy_len,
                         dst_row + copy_start,
@@ -697,9 +711,21 @@ impl TerrainTextureClass {
             .map(|data| data.trilinear_terrain_tex)
             .unwrap_or(false);
 
-        filter.set_min_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
-        filter.set_mag_filter(if use_linear { FilterType::Linear } else { FilterType::Point });
-        filter.set_mip_mapping(if use_trilinear { FilterType::Linear } else { FilterType::Point });
+        filter.set_min_filter(if use_linear {
+            FilterType::Linear
+        } else {
+            FilterType::Point
+        });
+        filter.set_mag_filter(if use_linear {
+            FilterType::Linear
+        } else {
+            FilterType::Point
+        });
+        filter.set_mip_mapping(if use_trilinear {
+            FilterType::Linear
+        } else {
+            FilterType::Point
+        });
         filter.set_u_addr_mode(AddressMode::Clamp);
         filter.set_v_addr_mode(AddressMode::Clamp);
         filter
@@ -742,20 +768,28 @@ impl TerrainTextureClass {
                     pixels_per_cell,
                 ) {
                     let bgr_data = WorldHeightMap::tile_data_for_width(tile, pixels_per_cell);
-                    if bgr_data.len() < (pixels_per_cell * pixels_per_cell * TILE_BYTES_PER_PIXEL) as usize {
+                    if bgr_data.len()
+                        < (pixels_per_cell * pixels_per_cell * TILE_BYTES_PER_PIXEL) as usize
+                    {
                         continue;
                     }
 
                     // Convert and copy pixels
                     for k in (0..pixels_per_cell as i32).rev() {
-                        let dst_row = (pixels_per_cell as i32 * (cell_width - cell_y - 1) + k) as usize;
-                        let dst_row_offset = dst_row * surface_width as usize * pixel_bytes as usize;
-                        let dst_col_offset = (cell_x as u32 * pixels_per_cell) as usize * pixel_bytes as usize;
+                        let dst_row =
+                            (pixels_per_cell as i32 * (cell_width - cell_y - 1) + k) as usize;
+                        let dst_row_offset =
+                            dst_row * surface_width as usize * pixel_bytes as usize;
+                        let dst_col_offset =
+                            (cell_x as u32 * pixels_per_cell) as usize * pixel_bytes as usize;
 
                         for l in 0..pixels_per_cell as usize {
                             let src_idx = ((pixels_per_cell as usize - 1 - k as usize)
-                                * pixels_per_cell as usize + l) * TILE_BYTES_PER_PIXEL as usize;
-                            let dst_idx = dst_row_offset + dst_col_offset + l * pixel_bytes as usize;
+                                * pixels_per_cell as usize
+                                + l)
+                                * TILE_BYTES_PER_PIXEL as usize;
+                            let dst_idx =
+                                dst_row_offset + dst_col_offset + l * pixel_bytes as usize;
 
                             if src_idx + 2 < bgr_data.len() && dst_idx + 1 < pixel_data.len() {
                                 let b = bgr_data[src_idx + 2];
@@ -843,7 +877,8 @@ impl AlphaTerrainTextureClass {
     /// Apply with alpha blending (C++ lines 475-602)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-        self.base.set_apply_state(stage, TerrainTextureClass::terrain_filter());
+        self.base
+            .set_apply_state(stage, TerrainTextureClass::terrain_filter());
     }
 }
 
@@ -905,7 +940,9 @@ impl AlphaEdgeTextureClass {
                 for j in 0..TILE_PIXEL_EXTENT {
                     let row = (position.y as u32 + j) as usize;
                     let bgr_data = tile.get_rgb_data_for_width(TILE_PIXEL_EXTENT);
-                    let src_row_offset = ((TILE_PIXEL_EXTENT - 1 - j) * TILE_BYTES_PER_PIXEL * TILE_PIXEL_EXTENT) as usize;
+                    let src_row_offset = ((TILE_PIXEL_EXTENT - 1 - j)
+                        * TILE_BYTES_PER_PIXEL
+                        * TILE_PIXEL_EXTENT) as usize;
                     let dst_row_offset = row * surface_width as usize * pixel_bytes as usize;
                     let dst_offset = dst_row_offset + column * pixel_bytes as usize;
 
@@ -971,7 +1008,8 @@ impl AlphaEdgeTextureClass {
     /// Apply edge texture (C++ lines 811-866)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-        self.base.set_apply_state(stage, TerrainTextureClass::terrain_filter());
+        self.base
+            .set_apply_state(stage, TerrainTextureClass::terrain_filter());
     }
 }
 
@@ -1054,11 +1092,11 @@ impl CloudMapTerrainTextureClass {
 
         Self {
             base,
-            x_slide_per_second: -0.02, // C++ line 887
+            x_slide_per_second: -0.02,        // C++ line 887
             y_slide_per_second: -0.02 * 1.50, // C++ line 888
-            cur_tick: 0, // C++ line 889
-            x_offset: 0.0, // C++ line 890
-            y_offset: 0.0, // C++ line 891
+            cur_tick: 0,                      // C++ line 889
+            x_offset: 0.0,                    // C++ line 890
+            y_offset: 0.0,                    // C++ line 891
         }
     }
 
@@ -1118,7 +1156,8 @@ impl ScorchTextureClass {
     /// Apply scorch texture (C++ lines 1074-1108)
     pub fn apply(&self, stage: u32) {
         self.base.apply(stage);
-        self.base.set_apply_state(stage, TerrainTextureClass::terrain_filter());
+        self.base
+            .set_apply_state(stage, TerrainTextureClass::terrain_filter());
     }
 }
 
@@ -1146,10 +1185,8 @@ mod tests {
         let g: u8 = 128;
         let b: u8 = 64;
 
-        let pixel_16bit: u16 = 0x8000
-            + (((b >> 3) as u16) << 10)
-            + (((g >> 3) as u16) << 5)
-            + ((r >> 3) as u16);
+        let pixel_16bit: u16 =
+            0x8000 + (((b >> 3) as u16) << 10) + (((g >> 3) as u16) << 5) + ((r >> 3) as u16);
 
         // Verify format: A1R5G5B5
         // Alpha = 1 (bit 15)
@@ -1205,9 +1242,9 @@ mod tests {
     fn test_alpha_channel_logic() {
         // Test alpha channel assignment (C++ lines 789-795)
         let test_cases = [
-            ((0u8, 0u8, 0u8), 0x80u8),     // Black -> 50% alpha
-            ((255, 255, 255), 0x00),        // White -> transparent
-            ((128, 64, 32), 0xFF),          // Other -> opaque
+            ((0u8, 0u8, 0u8), 0x80u8), // Black -> 50% alpha
+            ((255, 255, 255), 0x00),   // White -> transparent
+            ((128, 64, 32), 0xFF),     // Other -> opaque
         ];
 
         for ((r, g, b), expected_alpha) in test_cases.iter() {

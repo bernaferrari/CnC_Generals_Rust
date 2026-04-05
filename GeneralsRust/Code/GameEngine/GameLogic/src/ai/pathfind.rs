@@ -12,6 +12,7 @@ use crate::object::*;
 use crate::path::SURFACE_GROUND;
 use crate::terrain::get_terrain_logic;
 use game_engine::common::system::{Snapshotable, Xfer};
+use slotmap::{DefaultKey, SlotMap};
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -23,18 +24,42 @@ pub const PATH_MAX_PRIORITY: i32 = i32::MAX;
 /// Maximum wall pieces supported
 pub const MAX_WALL_PIECES: usize = 128;
 
-/// PathNodes are used to create a final Path to return from the pathfinder
+/// Index key for PathNode within the Path's SlotMap.
+/// Replaces all raw pointer usage with safe index references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct PathNodeKey(slotmap::DefaultKey);
+
+impl From<slotmap::KeyData> for PathNodeKey {
+    fn from(data: slotmap::KeyData) -> Self {
+        PathNodeKey(slotmap::DefaultKey::from(data))
+    }
+}
+
+unsafe impl slotmap::Key for PathNodeKey {
+    fn null() -> Self {
+        PathNodeKey(slotmap::DefaultKey::null())
+    }
+
+    fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+
+    fn data(&self) -> slotmap::KeyData {
+        self.0.data()
+    }
+}
+
+/// PathNodes are used to create a final Path to return from the pathfinder.
+/// All node ownership is managed through the Path's SlotMap.
 pub struct PathNode {
     /// Position of this node
     pos: Coord3D,
     /// Layer for this section
     layer: PathfindLayerEnum,
-    /// Next node in the path
-    next: Option<Box<PathNode>>,
-    /// Previous node in the path
-    prev: Option<*mut PathNode>, // Using raw pointer to avoid circular reference
-    /// Next node in optimized path
-    next_opti: Option<*mut PathNode>,
+    /// Previous node in the path (index into SlotMap)
+    prev: Option<PathNodeKey>,
+    /// Next node in optimized path (index into SlotMap)
+    next_opti: Option<PathNodeKey>,
     /// Distance to next optimized node
     next_opti_dist_2d: f32,
     /// Normalized direction vector to next optimized node
@@ -50,7 +75,6 @@ impl PathNode {
         Self {
             pos: Coord3D::new(0.0, 0.0, 0.0),
             layer: PathfindLayerEnum::Invalid,
-            next: None,
             prev: None,
             next_opti: None,
             next_opti_dist_2d: 0.0,
@@ -80,43 +104,54 @@ impl PathNode {
         self.layer = layer;
     }
 
-    /// Get next node in path
-    pub fn get_next(&self) -> Option<&PathNode> {
-        self.next.as_ref().map(|n| n.as_ref())
+    /// Get next node in path. Follows the next_opti chain from head to tail,
+    /// looking for the node whose prev points to `self_key`.
+    pub fn get_next<'a>(
+        &'a self,
+        self_key: PathNodeKey,
+        nodes: &'a SlotMap<PathNodeKey, PathNode>,
+    ) -> Option<&'a PathNode> {
+        // The "next" node in the path is the one whose `prev` == Some(self_key).
+        // We search by iterating from head. Since paths are short, this is fine.
+        // For optimization, we use next_opti chain when available.
+        for (_, node) in nodes.iter() {
+            if node.prev == Some(self_key) {
+                return Some(node);
+            }
+        }
+        None
     }
 
     /// Get next node in optimized path
-    pub fn get_next_optimized(&self) -> (Option<&PathNode>, Coord2D, f32) {
-        let next = self.next_opti.map(|ptr| unsafe { &*ptr });
+    pub fn get_next_optimized<'a>(
+        &'a self,
+        nodes: &'a SlotMap<PathNodeKey, PathNode>,
+    ) -> (Option<&'a PathNode>, Coord2D, f32) {
+        let next = self.next_opti.and_then(|key| nodes.get(key));
         (next, self.next_opti_dir_norm_2d, self.next_opti_dist_2d)
     }
 
-    fn next_ptr(&self) -> Option<*const PathNode> {
-        self.next
-            .as_ref()
-            .map(|next| next.as_ref() as *const PathNode)
-    }
+    /// Set next optimized node link and compute distance/direction from positions.
+    pub fn set_next_optimized(
+        &mut self,
+        next_key: Option<PathNodeKey>,
+        next_pos: Option<&Coord3D>,
+    ) {
+        if let Some((_, pos)) = next_key.zip(next_pos) {
+            let dx = pos.x - self.pos.x;
+            let dy = pos.y - self.pos.y;
+            self.next_opti_dist_2d = (dx * dx + dy * dy).sqrt();
 
-    /// Set next optimized node
-    pub fn set_next_optimized(&mut self, node: Option<*mut PathNode>) {
-        if let Some(ptr) = node {
-            unsafe {
-                let dx = (*ptr).pos.x - self.pos.x;
-                let dy = (*ptr).pos.y - self.pos.y;
-                self.next_opti_dist_2d = (dx * dx + dy * dy).sqrt();
-
-                if self.next_opti_dist_2d == 0.0 {
-                    self.next_opti_dist_2d = 0.01; // Avoid division by zero
-                }
-
-                self.next_opti_dir_norm_2d =
-                    Coord2D::new(dx / self.next_opti_dist_2d, dy / self.next_opti_dist_2d);
+            if self.next_opti_dist_2d == 0.0 {
+                self.next_opti_dist_2d = 0.01;
             }
+
+            self.next_opti_dir_norm_2d =
+                Coord2D::new(dx / self.next_opti_dist_2d, dy / self.next_opti_dist_2d);
         } else {
-            // Match C++: clear optimization distance when there's no next node.
             self.next_opti_dist_2d = 0.0;
         }
-        self.next_opti = node;
+        self.next_opti = next_key;
     }
 
     /// Check if this node can be optimized
@@ -129,9 +164,15 @@ impl PathNode {
         self.can_optimize = can_opt;
     }
 
-    /// Compute direction vector to next node
-    pub fn compute_direction_vector(&self) -> Option<Coord3D> {
-        if let Some(next) = &self.next {
+    /// Compute direction vector to next node.
+    /// `self_key` is this node's key, used to find the next node via prev lookup.
+    pub fn compute_direction_vector(
+        &self,
+        self_key: PathNodeKey,
+        nodes: &SlotMap<PathNodeKey, PathNode>,
+    ) -> Option<Coord3D> {
+        // Try to find next node (one whose prev == self_key)
+        if let Some(next) = self.get_next(self_key, nodes) {
             let mut dir = Coord3D::new(
                 next.pos.x - self.pos.x,
                 next.pos.y - self.pos.y,
@@ -144,9 +185,8 @@ impl PathNode {
                 dir.z /= length;
             }
             Some(dir)
-        } else if let Some(prev_ptr) = self.prev {
-            unsafe {
-                let prev = &*prev_ptr;
+        } else if let Some(prev_key) = self.prev {
+            if let Some(prev) = nodes.get(prev_key) {
                 let mut dir = Coord3D::new(
                     self.pos.x - prev.pos.x,
                     self.pos.y - prev.pos.y,
@@ -159,6 +199,8 @@ impl PathNode {
                     dir.z /= length;
                 }
                 Some(dir)
+            } else {
+                Some(Coord3D::new(0.0, 0.0, 0.0))
             }
         } else {
             Some(Coord3D::new(0.0, 0.0, 0.0))
@@ -177,12 +219,18 @@ pub struct ClosestPointOnPathInfo {
     pub layer: PathfindLayerEnum,
 }
 
-/// Path class encapsulates a path returned by the pathfinder
+/// Path class encapsulates a path returned by the pathfinder.
+/// All nodes are owned in a SlotMap; head/tail are index keys.
+/// The path is ordered head -> tail via the `prev` chain (each node's prev
+/// points to the node that was inserted before it, so iterating from head
+/// through prev gives the forward path order).
 pub struct Path {
-    /// First node in the path
-    path: Option<Box<PathNode>>,
-    /// Last node in the path (for efficient appending)
-    path_tail: Option<*mut PathNode>,
+    /// All nodes owned in a SlotMap
+    nodes: SlotMap<PathNodeKey, PathNode>,
+    /// First node key in the path
+    head: Option<PathNodeKey>,
+    /// Last node key in the path (for efficient appending)
+    tail: Option<PathNodeKey>,
     /// Whether the path has been optimized
     is_optimized: bool,
     /// Whether an ally is blocking this path
@@ -194,18 +242,15 @@ pub struct Path {
     cpop_out: ClosestPointOnPathInfo,
 }
 
-// Path is only accessed through external synchronization in game logic.
-unsafe impl Send for Path {}
-unsafe impl Sync for Path {}
-
 impl Path {
     /// Maximum times to return cached point-on-path result
     const MAX_CPOP: i32 = 20;
 
     pub fn new() -> Self {
         Self {
-            path: None,
-            path_tail: None,
+            nodes: SlotMap::with_key(),
+            head: None,
+            tail: None,
             is_optimized: false,
             blocked_by_ally: false,
             cpop_valid: false,
@@ -221,35 +266,68 @@ impl Path {
 
     /// Get first node in the path
     pub fn get_first_node(&self) -> Option<&PathNode> {
-        self.path.as_ref().map(|n| n.as_ref())
+        self.head.and_then(|key| self.nodes.get(key))
+    }
+
+    /// Iterate path from head to tail, calling `f` for each (key, node) pair.
+    /// Order: head first, then following the chain via prev links.
+    fn for_each_node<F>(&self, mut f: F)
+    where
+        F: FnMut(PathNodeKey, &PathNode),
+    {
+        let mut current = self.head;
+        while let Some(key) = current {
+            if let Some(node) = self.nodes.get(key) {
+                let next = node.prev; // prev of current points to the node inserted after it
+                f(key, node);
+                current = next;
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Collect ordered keys from head to tail.
+    fn ordered_keys(&self) -> Vec<PathNodeKey> {
+        let mut keys = Vec::new();
+        let mut current = self.head;
+        while let Some(key) = current {
+            keys.push(key);
+            current = self.nodes.get(key).and_then(|n| n.prev);
+        }
+        keys
     }
 
     /// Update the position of the last node
     pub fn update_last_node(&mut self, pos: &Coord3D) {
-        if let Some(tail_ptr) = self.path_tail {
-            unsafe {
-                (*tail_ptr).set_position(pos);
+        if let Some(tail_key) = self.tail {
+            if let Some(tail_node) = self.nodes.get_mut(tail_key) {
+                tail_node.set_position(pos);
                 if let Ok(terrain) = get_terrain_logic().read() {
                     let layer = terrain.get_layer_for_destination(pos);
-                    (*tail_ptr).set_layer(path_layer_from_u32(layer as u32));
+                    tail_node.set_layer(path_layer_from_u32(layer as u32));
                 }
             }
         }
 
         if self.is_optimized {
-            if let (Some(head), Some(tail_ptr)) = (self.path.as_deref(), self.path_tail) {
-                let mut current = head as *const PathNode as *mut PathNode;
-                unsafe {
-                    while !current.is_null() {
-                        if (*current).next_opti == Some(tail_ptr) {
-                            (*current).set_next_optimized(Some(tail_ptr));
-                            break;
+            if let Some(head_key) = self.head {
+                let tail_key = self.tail;
+                let mut current = Some(head_key);
+                while let Some(cur_key) = current {
+                    let points_to_tail = self
+                        .nodes
+                        .get(cur_key)
+                        .map(|n| n.next_opti == tail_key)
+                        .unwrap_or(false);
+                    if points_to_tail {
+                        let tail_pos = self.tail.and_then(|k| self.nodes.get(k)).map(|n| n.pos);
+                        if let Some(node) = self.nodes.get_mut(cur_key) {
+                            node.set_next_optimized(tail_key, tail_pos.as_ref());
                         }
-                        match (*current).next_opti {
-                            Some(next) => current = next,
-                            None => break,
-                        }
+                        break;
                     }
+                    current = self.nodes.get(cur_key).and_then(|n| n.next_opti);
                 }
             }
         }
@@ -257,31 +335,31 @@ impl Path {
 
     /// Add a new node at the head of the path
     pub fn prepend_node(&mut self, pos: &Coord3D, layer: PathfindLayerEnum) {
-        let mut new_node = Box::new(PathNode::new());
+        let mut new_node = PathNode::new();
         new_node.set_position(pos);
         new_node.set_layer(layer);
 
-        if let Some(mut old_head) = self.path.take() {
-            let new_ptr = new_node.as_mut() as *mut PathNode;
-            old_head.prev = Some(new_ptr);
-            new_node.next = Some(old_head);
+        let new_key = self.nodes.insert(new_node);
+
+        if let Some(old_head_key) = self.head {
+            // Old head's prev should point to the new node
+            // (prev means "the node that comes after me in head->tail order")
+            self.nodes[old_head_key].prev = Some(new_key);
         } else {
             // This is the first node, so it's also the tail
-            self.path_tail = Some(new_node.as_mut());
+            self.tail = Some(new_key);
         }
 
-        self.path = Some(new_node);
+        self.head = Some(new_key);
         self.is_optimized = false;
     }
 
     /// Add a new node at the end of the path
     pub fn append_node(&mut self, pos: &Coord3D, layer: PathfindLayerEnum) {
         if self.is_optimized {
-            if let Some(tail_ptr) = self.path_tail {
-                unsafe {
-                    if (*tail_ptr).get_position().x == pos.x
-                        && (*tail_ptr).get_position().y == pos.y
-                    {
+            if let Some(tail_key) = self.tail {
+                if let Some(tail_node) = self.nodes.get(tail_key) {
+                    if tail_node.get_position().x == pos.x && tail_node.get_position().y == pos.y {
                         // Match C++: ignore duplicate segment when optimized.
                         return;
                     }
@@ -289,26 +367,26 @@ impl Path {
             }
         }
 
-        let mut new_node = Box::new(PathNode::new());
+        let mut new_node = PathNode::new();
         new_node.set_position(pos);
         new_node.set_layer(layer);
 
-        let new_node_ptr = new_node.as_mut() as *mut PathNode;
+        let new_key = self.nodes.insert(new_node);
 
-        if let Some(tail_ptr) = self.path_tail {
-            unsafe {
-                new_node.prev = Some(tail_ptr);
-                (*tail_ptr).next = Some(new_node);
-                if self.is_optimized {
-                    (*tail_ptr).set_next_optimized(Some(new_node_ptr));
+        if let Some(tail_key) = self.tail {
+            self.nodes[new_key].prev = Some(tail_key);
+            if self.is_optimized {
+                let new_pos = self.nodes.get(new_key).map(|n| n.pos);
+                if let Some(tail_node) = self.nodes.get_mut(tail_key) {
+                    tail_node.set_next_optimized(Some(new_key), new_pos.as_ref());
                 }
             }
         } else {
             // This is the first node
-            self.path = Some(new_node);
+            self.head = Some(new_key);
         }
 
-        self.path_tail = Some(new_node_ptr);
+        self.tail = Some(new_key);
     }
 
     /// Check if path is blocked by ally
@@ -321,6 +399,13 @@ impl Path {
         self.blocked_by_ally = blocked;
     }
 
+    fn set_opti_link(&mut self, from_key: PathNodeKey, to_key: Option<PathNodeKey>) {
+        let to_pos = to_key.and_then(|k| self.nodes.get(k)).map(|n| n.pos);
+        if let Some(node) = self.nodes.get_mut(from_key) {
+            node.set_next_optimized(to_key, to_pos.as_ref());
+        }
+    }
+
     /// Optimize the path to discard redundant nodes
     pub fn optimize(
         &mut self,
@@ -329,24 +414,23 @@ impl Path {
         blocked: bool,
     ) {
         self.blocked_by_ally = blocked;
-        let mut raw_nodes: Vec<*mut PathNode> = Vec::new();
-        let mut raw_points: Vec<Coord3D> = Vec::new();
-        let mut raw_layers: Vec<PathfindLayerEnum> = Vec::new();
 
-        let mut current = self.path.as_deref_mut().map(|node| node as *mut PathNode);
-        while let Some(ptr) = current {
-            unsafe {
-                raw_nodes.push(ptr);
-                raw_points.push((*ptr).pos);
-                raw_layers.push((*ptr).layer);
-                current = (*ptr).next.as_deref_mut().map(|node| node as *mut PathNode);
-            }
-        }
+        // Collect ordered node keys, points, and layers from head to tail
+        let ordered_keys = self.ordered_keys();
+        let raw_nodes: Vec<PathNodeKey> = ordered_keys.clone();
+        let raw_points: Vec<Coord3D> = ordered_keys
+            .iter()
+            .filter_map(|&key| self.nodes.get(key).map(|n| n.pos))
+            .collect();
+        let raw_layers: Vec<PathfindLayerEnum> = ordered_keys
+            .iter()
+            .filter_map(|&key| self.nodes.get(key).map(|n| n.layer))
+            .collect();
 
         if raw_nodes.len() <= 1 {
-            if let Some(ptr) = raw_nodes.first().copied() {
-                unsafe {
-                    (*ptr).set_next_optimized(None);
+            if let Some(&key) = raw_nodes.first() {
+                if let Some(node) = self.nodes.get_mut(key) {
+                    node.set_next_optimized(None, None);
                 }
             }
             self.is_optimized = true;
@@ -435,40 +519,28 @@ impl Path {
         }
 
         if optimized_indices.is_empty() || optimized_indices.first() != Some(&0) {
-            // Fall back to raw chain when mapping fails.
-            let mut current = self.path.as_deref_mut().map(|node| node as *mut PathNode);
-            while let Some(ptr) = current {
-                let next = unsafe { (*ptr).next.as_deref_mut().map(|node| node as *mut PathNode) };
-                unsafe {
-                    (*ptr).set_next_optimized(next);
-                }
-                current = next;
+            for window in raw_nodes.windows(2) {
+                self.set_opti_link(window[0], Some(window[1]));
+            }
+            if let Some(&last_key) = raw_nodes.last() {
+                self.set_opti_link(last_key, None);
             }
             self.is_optimized = true;
             return;
         }
 
-        for &ptr in &raw_nodes {
-            unsafe {
-                (*ptr).set_next_optimized(None);
-            }
+        for &key in &raw_nodes {
+            self.set_opti_link(key, None);
         }
 
         for window in optimized_indices.windows(2) {
             if let [from_idx, to_idx] = window {
-                let from_ptr = raw_nodes[*from_idx];
-                let to_ptr = raw_nodes[*to_idx];
-                unsafe {
-                    (*from_ptr).set_next_optimized(Some(to_ptr));
-                }
+                self.set_opti_link(raw_nodes[*from_idx], Some(raw_nodes[*to_idx]));
             }
         }
 
         if let Some(&last_idx) = optimized_indices.last() {
-            let last_ptr = raw_nodes[last_idx];
-            unsafe {
-                (*last_ptr).set_next_optimized(None);
-            }
+            self.set_opti_link(raw_nodes[last_idx], None);
         }
 
         self.is_optimized = true;
@@ -486,13 +558,11 @@ impl Path {
             && (a.z - b.z).abs() <= close_enough
     }
 
-    /// Compute closest point on path to given position
     pub fn compute_point_on_path(
         &mut self,
         _obj: &Arc<RwLock<Object>>,
         pos: &Coord3D,
     ) -> ClosestPointOnPathInfo {
-        // Check if we can use cached result
         if self.cpop_valid && self.cpop_countdown > 0 && Self::is_really_close(pos, &self.cpop_in) {
             self.cpop_countdown -= 1;
             return ClosestPointOnPathInfo {
@@ -502,7 +572,7 @@ impl Path {
             };
         }
 
-        if self.path.is_none() {
+        if self.head.is_none() {
             self.cpop_valid = false;
             return ClosestPointOnPathInfo {
                 dist_along_path: 0.0,
@@ -511,22 +581,26 @@ impl Path {
             };
         }
 
-        // Compute new closest point
         let mut best_dist_sqr = f32::MAX;
         let mut best_point = *pos;
         let mut best_layer = self
-            .path
-            .as_ref()
+            .head
+            .and_then(|key| self.nodes.get(key))
             .map(|node| node.get_layer())
             .unwrap_or(PathfindLayerEnum::Ground);
         let mut dist_along_path = 0.0;
 
-        let mut current_node = self.path.as_deref();
+        let keys = self.ordered_keys();
         let mut path_distance = 0.0;
+        for (i, &key) in keys.iter().enumerate() {
+            let node = match self.nodes.get(key) {
+                Some(n) => n,
+                None => continue,
+            };
 
-        while let Some(node) = current_node {
-            let next_node = match node.get_next_optimized().0.or_else(|| node.get_next()) {
-                Some(next) => next,
+            let next_key = node.next_opti.or(keys.get(i + 1).copied());
+            let next_node = match next_key.and_then(|k| self.nodes.get(k)) {
+                Some(n) => n,
                 None => break,
             };
 
@@ -543,10 +617,12 @@ impl Path {
             }
 
             path_distance += (*next_node.get_position() - *node.get_position()).length();
-            current_node = node.get_next_optimized().0.or_else(|| node.get_next());
+
+            if next_key != keys.get(i + 1).copied() {
+                break;
+            }
         }
 
-        // Cache the result
         self.cpop_valid = true;
         self.cpop_countdown = Self::MAX_CPOP;
         self.cpop_in = *pos;
@@ -661,36 +737,36 @@ impl Snapshotable for Path {
 
         let mut count: i32 = 0;
         if !xfer.is_loading() {
-            let mut node = self.path.as_deref();
-            while let Some(current) = node {
-                count += 1;
-                node = current.get_next();
-            }
+            count = self.nodes.len() as i32;
         }
 
         xfer.xfer_int(&mut count)
             .map_err(|e| format!("Failed to xfer Path node count: {:?}", e))?;
 
         if xfer.is_loading() {
-            self.path = None;
-            self.path_tail = None;
+            self.nodes.clear();
+            self.head = None;
+            self.tail = None;
             self.cpop_valid = false;
             self.cpop_countdown = Self::MAX_CPOP;
         }
 
         if !xfer.is_loading() {
+            // Save: iterate from tail backwards to head via prev chain
             let mut remaining = count;
-            let mut node_ptr = self.path_tail;
-            while let Some(ptr) = node_ptr {
-                unsafe {
-                    (*ptr).id = remaining;
+            let mut current = self.tail;
+            while let Some(key) = current {
+                {
+                    let node = self.nodes.get_mut(key).unwrap();
+                    node.id = remaining;
                 }
+                let node = self.nodes.get(key).unwrap();
 
                 let mut node_id = remaining;
                 xfer.xfer_int(&mut node_id)
                     .map_err(|e| format!("Failed to xfer Path node id: {:?}", e))?;
 
-                let mut pos = unsafe { *(*ptr).get_position() };
+                let mut pos = *node.get_position();
                 xfer.xfer_real(&mut pos.x)
                     .map_err(|e| format!("Failed to xfer Path node pos.x: {:?}", e))?;
                 xfer.xfer_real(&mut pos.y)
@@ -698,31 +774,35 @@ impl Snapshotable for Path {
                 xfer.xfer_real(&mut pos.z)
                     .map_err(|e| format!("Failed to xfer Path node pos.z: {:?}", e))?;
 
-                let layer = unsafe { (*ptr).get_layer() };
+                let layer = node.get_layer();
                 let mut layer_value = layer as u32;
                 xfer.xfer_unsigned_int(&mut layer_value)
                     .map_err(|e| format!("Failed to xfer Path node layer: {:?}", e))?;
 
-                let mut can_opt = unsafe { (*ptr).can_optimize() };
+                let mut can_opt = node.can_optimize();
                 xfer.xfer_bool(&mut can_opt)
                     .map_err(|e| format!("Failed to xfer Path node can_optimize: {:?}", e))?;
 
                 let mut opt_id: i32 = -1;
-                unsafe {
-                    if let Some(next) = (*ptr).next_opti {
-                        opt_id = (*next).id;
+                if let Some(next_key) = node.next_opti {
+                    if let Some(next_node) = self.nodes.get(next_key) {
+                        opt_id = next_node.id;
                     }
                 }
                 xfer.xfer_int(&mut opt_id)
                     .map_err(|e| format!("Failed to xfer Path opt id: {:?}", e))?;
 
                 remaining -= 1;
-                node_ptr = unsafe { (*ptr).prev };
+                // Walk backwards: current node's prev points to the next node in traversal order,
+                // so to go backwards from tail to head, we need to find who points to us.
+                // But actually prev means "the node after me in head->tail order", so
+                // from tail, tail.prev is the node before tail. This IS backwards traversal.
+                current = node.prev;
             }
         } else {
-            use std::collections::HashMap;
+            // Load: rebuild SlotMap from saved data
             let mut remaining = count;
-            let mut id_map: HashMap<i32, *mut PathNode> = HashMap::new();
+            let mut id_map: HashMap<i32, PathNodeKey> = HashMap::new();
             let mut pending_opt: Vec<(i32, i32)> = Vec::new();
             while remaining > 0 {
                 let mut node_id: i32 = 0;
@@ -749,21 +829,25 @@ impl Snapshotable for Path {
                 xfer.xfer_int(&mut opt_id)
                     .map_err(|e| format!("Failed to xfer Path opt id: {:?}", e))?;
 
-                let mut new_node = Box::new(PathNode::new());
+                let mut new_node = PathNode::new();
                 new_node.id = node_id;
                 new_node.set_position(&pos);
                 new_node.set_layer(path_layer_from_u32(layer_value));
                 new_node.set_can_optimize(can_opt);
 
-                let new_ptr = new_node.as_mut() as *mut PathNode;
-                if let Some(mut old_head) = self.path.take() {
-                    old_head.prev = Some(new_ptr);
-                    new_node.next = Some(old_head);
+                let new_key = self.nodes.insert(new_node);
+
+                // First node inserted becomes head, each subsequent node becomes new head
+                // (because save iterated tail->head, load prepends to rebuild head->tail)
+                if let Some(old_head_key) = self.head.take() {
+                    // New node becomes head, old head's prev points to new node
+                    self.nodes[new_key].prev = Some(old_head_key);
                 } else {
-                    self.path_tail = Some(new_ptr);
+                    // First node is also tail
+                    self.tail = Some(new_key);
                 }
-                self.path = Some(new_node);
-                id_map.insert(node_id, new_ptr);
+                self.head = Some(new_key);
+                id_map.insert(node_id, new_key);
 
                 if opt_id > 0 {
                     pending_opt.push((node_id, opt_id));
@@ -773,12 +857,10 @@ impl Snapshotable for Path {
             }
 
             for (node_id, opt_id) in pending_opt {
-                if let (Some(node_ptr), Some(opti_ptr)) =
+                if let (Some(&node_key), Some(&opti_key)) =
                     (id_map.get(&node_id), id_map.get(&opt_id))
                 {
-                    unsafe {
-                        (*(*node_ptr)).set_next_optimized(Some(*opti_ptr));
-                    }
+                    self.set_opti_link(node_key, Some(opti_key));
                 }
             }
         }

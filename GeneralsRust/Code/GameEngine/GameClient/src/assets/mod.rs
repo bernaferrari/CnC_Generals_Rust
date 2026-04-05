@@ -434,6 +434,14 @@ impl AssetManager {
         self.audio_loader.stop_sound(instance_id)
     }
 
+    pub fn pause_audio_instance(&self, instance_id: u64) -> Result<(), AudioError> {
+        self.audio_loader.pause_sound(instance_id)
+    }
+
+    pub fn resume_audio_instance(&self, instance_id: u64) -> Result<(), AudioError> {
+        self.audio_loader.resume_sound(instance_id)
+    }
+
     pub fn is_audio_instance_playing(&self, instance_id: u64) -> bool {
         self.audio_loader.is_sound_playing(instance_id)
     }

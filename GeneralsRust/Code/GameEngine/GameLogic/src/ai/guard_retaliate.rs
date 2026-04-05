@@ -85,7 +85,7 @@ fn scan_guard_retaliate_inner_target(
 
         if is_enter_guard {
             if is_hijack_guard {
-                if owner_guard.relationship_to(candidate) != Relationship::Enemy {
+                if owner_guard.relationship_to(candidate) != Relationship::Enemies {
                     return false;
                 }
                 return TheActionManager::can_hijack_vehicle(
@@ -106,7 +106,7 @@ fn scan_guard_retaliate_inner_target(
             );
         }
 
-        if owner_guard.relationship_to(candidate) != Relationship::Enemy {
+        if owner_guard.relationship_to(candidate) != Relationship::Enemies {
             return false;
         }
         if candidate.is_kind_of(KindOf::Structure) && !candidate.is_kind_of(KindOf::Defense) {
@@ -114,7 +114,7 @@ fn scan_guard_retaliate_inner_target(
         }
         matches!(
             owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::CanAttackSpecific,
+                AbleToAttackType::NewTarget,
                 candidate,
                 CommandSourceType::FromAi,
             ),
@@ -1262,7 +1262,7 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
                                 if let Some(target) = get_legacy_object(info.source_id) {
                                     if let Ok(target_guard) = target.read() {
                                         if owner_guard.relationship_to(&target_guard)
-                                            == Relationship::Enemy
+                                            == Relationship::Enemies
                                         {
                                             self.base.set_nemesis_to_attack(info.source_id);
                                             nemesis = Some(target.clone());
@@ -1389,11 +1389,11 @@ pub fn has_attacked_me_and_i_can_return_fire_retaliate(machine: &StateMachine) -
                     if attacker_guard.is_effectively_dead() {
                         return false;
                     }
-                    if owner_ref.relationship_to(&*attacker_guard) != Relationship::Enemy {
+                    if owner_ref.relationship_to(&*attacker_guard) != Relationship::Enemies {
                         return false;
                     }
                     let can_attack = owner_ref.get_able_to_attack_specific_object(
-                        AbleToAttackType::CanAttackSpecific,
+                        AbleToAttackType::NewTarget,
                         &*attacker_guard,
                         CommandSourceType::FromAi,
                     );

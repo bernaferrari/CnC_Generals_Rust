@@ -450,10 +450,46 @@ pub struct View {
     camera_rotate: Option<CameraRotateTransition>,
     camera_zoom: Option<CameraZoomTransition>,
     camera_pitch: Option<CameraPitchTransition>,
+    rotate_camera_toward: Option<RotateCameraToward>,
     shake_intensity: f32,
     shake_angle_cos: f32,
     shake_angle_sin: f32,
     shake_offset: Vector2,
+}
+
+/// State for `rotateCameraTowardObject` / `rotateCameraTowardPosition`.
+///
+/// Mirrors C++ `W3DView::TRotateCameraInfo` (W3DView.h line 53).
+#[derive(Debug, Clone)]
+struct RotateCameraToward {
+    num_frames: i32,
+    cur_frame: i32,
+    num_hold_frames: i32,
+    ease_in: f32,
+    ease_out: f32,
+    track_object: bool,
+    target_object_id: Option<u32>,
+    target_position: Point3,
+    start_angle: f32,
+    end_angle: f32,
+}
+
+impl RotateCameraToward {
+    fn total_frames(&self) -> i32 {
+        self.num_frames + self.num_hold_frames
+    }
+}
+
+fn parabolic_ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let t_prime = if t < 0.5 {
+        0.5 * (2.0 * t) * (2.0 * t)
+    } else {
+        let t2 = (t - 0.5) * 2.0;
+        let t2 = t2.sqrt();
+        0.5 + 0.5 * t2
+    };
+    t_prime * 0.5 + t * 0.5
 }
 
 impl View {
@@ -507,6 +543,7 @@ impl View {
             camera_rotate: None,
             camera_zoom: None,
             camera_pitch: None,
+            rotate_camera_toward: None,
             shake_intensity: 0.0,
             shake_angle_cos: 0.0,
             shake_angle_sin: 0.0,
@@ -1117,6 +1154,8 @@ impl View {
             }
         }
 
+        self.rotate_camera_toward_one_frame();
+
         // Update camera following/tether logic if locked to an object.
         if let Some(object_id) = self.camera_lock_id {
             if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
@@ -1343,6 +1382,7 @@ impl View {
             && self.camera_rotate.is_none()
             && self.camera_zoom.is_none()
             && self.camera_pitch.is_none()
+            && self.rotate_camera_toward.is_none()
     }
 
     /// Move camera to location and restore default orientation/zoom.
@@ -1453,6 +1493,90 @@ impl View {
             ease_out,
             self.pitch_angle,
         ));
+    }
+
+    fn rotate_camera_toward_one_frame(&mut self) {
+        let disable_camera = get_global_data()
+            .map(|g| g.read().disable_camera_movement)
+            .unwrap_or(false);
+
+        let finished = {
+            let info = match &mut self.rotate_camera_toward {
+                Some(info) => info,
+                None => return,
+            };
+
+            info.cur_frame += 1;
+
+            if disable_camera {
+                info.cur_frame >= info.total_frames()
+            } else if info.track_object {
+                if info.cur_frame <= info.total_frames() {
+                    if let Some(obj_id) = info.target_object_id {
+                        if let Some(object) = TheGameLogic::find_object_by_id(obj_id) {
+                            if let Ok(guard) = object.read() {
+                                let pos = guard.get_position();
+                                info.target_position = Point3::new(pos.x, pos.y, pos.z);
+                            }
+                        }
+                    }
+
+                    let center = Point3::new(
+                        self.position.x + self.width as f32 * 0.5,
+                        self.position.y + self.height as f32 * 0.5,
+                        self.position.z,
+                    );
+                    let dir_x = info.target_position.x - center.x;
+                    let dir_y = info.target_position.y - center.y;
+                    let dir_length = (dir_x * dir_x + dir_y * dir_y).sqrt();
+
+                    if dir_length >= 0.1 {
+                        let mut angle = (dir_x / dir_length).acos();
+                        if dir_y < 0.0 {
+                            angle = -angle;
+                        }
+                        angle -= PI / 2.0;
+                        angle = normalize_angle(angle);
+
+                        if info.cur_frame <= info.num_frames {
+                            let factor =
+                                parabolic_ease(info.cur_frame as f32 / info.num_frames as f32);
+                            let mut angle_diff = angle - self.angle;
+                            angle_diff = normalize_angle(angle_diff);
+                            angle_diff *= factor;
+                            self.angle += angle_diff;
+                            self.angle = normalize_angle(self.angle);
+                        } else {
+                            self.angle = angle;
+                        }
+                    }
+                }
+                info.cur_frame >= info.total_frames()
+            } else if info.cur_frame <= info.num_frames {
+                let factor = parabolic_ease(info.cur_frame as f32 / info.num_frames as f32);
+                self.angle = info.start_angle + (info.end_angle - info.start_angle) * factor;
+                self.angle = normalize_angle(self.angle);
+                info.cur_frame >= info.total_frames()
+            } else {
+                true
+            }
+        };
+
+        if finished {
+            let track_object = self
+                .rotate_camera_toward
+                .as_ref()
+                .map_or(false, |i| i.track_object);
+            let end_angle = self
+                .rotate_camera_toward
+                .as_ref()
+                .map_or(0.0, |i| i.end_angle);
+            self.rotate_camera_toward = None;
+            self.freeze_time_for_camera_movement = false;
+            if !track_object {
+                self.angle = end_angle;
+            }
+        }
     }
 
     /// Set final zoom for an active movement (C++ `W3DView::cameraModFinalZoom`).
@@ -1584,6 +1708,107 @@ impl View {
                 0.0,
                 current,
             ));
+        }
+    }
+
+    /// C++ parity for `W3DView::rotateCameraTowardObject`.
+    pub fn rotate_camera_toward_object(
+        &mut self,
+        object_id: u32,
+        milliseconds: i32,
+        hold_milliseconds: i32,
+        ease_in: f32,
+        ease_out: f32,
+    ) {
+        let hold_ms = if hold_milliseconds < 1 {
+            0
+        } else {
+            hold_milliseconds
+        };
+        let num_hold_frames = (hold_ms as f32 / FRAME_LENGTH_MS) as i32;
+        let num_hold_frames = num_hold_frames.max(0);
+
+        let ms = if milliseconds < 1 { 1 } else { milliseconds };
+        let num_frames = (ms as f32 / FRAME_LENGTH_MS) as i32;
+        let num_frames = num_frames.max(1);
+
+        let (ease_in, ease_out) = ease_ratios(ms, ease_in, ease_out);
+
+        self.rotate_camera_toward = Some(RotateCameraToward {
+            num_frames,
+            cur_frame: 0,
+            num_hold_frames,
+            ease_in,
+            ease_out,
+            track_object: true,
+            target_object_id: Some(object_id),
+            target_position: Point3::zero(),
+            start_angle: 0.0,
+            end_angle: 0.0,
+        });
+        self.camera_path = None;
+        if self.freeze_time_for_camera_movement {
+            self.freeze_time_for_camera_movement_active = true;
+        }
+    }
+
+    /// C++ parity for `W3DView::rotateCameraTowardPosition`.
+    pub fn rotate_camera_toward_position(
+        &mut self,
+        pos: &Point3,
+        milliseconds: i32,
+        ease_in: f32,
+        ease_out: f32,
+        reverse_rotation: bool,
+    ) {
+        let ms = if milliseconds < 1 { 1 } else { milliseconds };
+        let num_frames = (ms as f32 / FRAME_LENGTH_MS) as i32;
+        let num_frames = num_frames.max(1);
+
+        let center = Point3::new(
+            self.position.x + self.width as f32 * 0.5,
+            self.position.y + self.height as f32 * 0.5,
+            self.position.z,
+        );
+        let dir_x = pos.x - center.x;
+        let dir_y = pos.y - center.y;
+        let dir_length = (dir_x * dir_x + dir_y * dir_y).sqrt();
+        if dir_length < 0.1 {
+            return;
+        }
+
+        let mut angle = (dir_x / dir_length).acos();
+        if dir_y < 0.0 {
+            angle = -angle;
+        }
+        angle -= PI / 2.0;
+        angle = normalize_angle(angle);
+
+        if reverse_rotation {
+            if self.angle < angle {
+                angle -= 2.0 * PI;
+            } else {
+                angle += 2.0 * PI;
+            }
+        }
+
+        let (ease_in, ease_out) = ease_ratios(ms, ease_in, ease_out);
+
+        self.rotate_camera_toward = Some(RotateCameraToward {
+            num_frames,
+            cur_frame: 0,
+            num_hold_frames: 0,
+            ease_in,
+            ease_out,
+            track_object: false,
+            target_object_id: None,
+            target_position: *pos,
+            start_angle: self.angle,
+            end_angle: angle,
+        });
+        self.camera_path = None;
+        if self.freeze_time_for_camera_movement {
+            self.freeze_time_for_camera_movement_active = true;
         }
     }
 

@@ -1,7 +1,7 @@
 //! WthreeDCustomScene Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DCustomScene.h
-//! 
+//!
 //! This module provides functionality for wthree d custom scene.
 
 use std::{

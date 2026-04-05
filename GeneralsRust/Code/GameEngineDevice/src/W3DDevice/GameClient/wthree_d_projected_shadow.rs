@@ -1,7 +1,7 @@
 //! WthreeDProjectedShadow Module
-//! 
+//!
 //! Corresponds to C++ file: GameEngineDevice/Include/W3DDevice/GameClient/W3DProjectedShadow.h
-//! 
+//!
 //! This module provides shadow rendering functionality.
 
 use std::{

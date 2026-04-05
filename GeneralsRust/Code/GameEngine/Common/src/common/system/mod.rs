@@ -31,6 +31,7 @@ pub mod object_status_types;
 pub mod quick_trig;
 pub mod quoted_printable;
 pub mod radar;
+pub mod scene_submission;
 pub mod ram_file;
 pub mod registry;
 pub mod snapshot;
@@ -58,6 +59,7 @@ pub use data_chunk_io::{DataChunkInfo, DataChunkInput, DataChunkOutput, DataChun
 pub use geometry::{
     BoundingBox, Coord3D, GeometryInfo, GeometryType, Matrix3D, Point2D, Point3D, Rectangle,
 };
+pub use scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
 pub use snapshot::{Snapshot, SnapshotManager, Snapshotable};
 pub use subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState};
 pub use xfer::{

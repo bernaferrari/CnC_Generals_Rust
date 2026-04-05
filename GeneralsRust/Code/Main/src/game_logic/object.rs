@@ -468,7 +468,7 @@ impl Object {
                     shooter_id,
                     shooter_pos,
                     target_id: Some(target_id),
-                    target_pos: shooter_pos, // placeholder
+                    target_pos: None,
                     damage: weapon_damage,
                     speed: weapon_speed,
                 });

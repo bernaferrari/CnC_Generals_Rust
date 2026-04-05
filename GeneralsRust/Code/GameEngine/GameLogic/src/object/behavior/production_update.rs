@@ -278,8 +278,14 @@ impl ProductionUpdateInterface for ProductionUpdate {
 
     fn resume_production(&mut self) {}
 
-    fn set_hold_door_open(&mut self, exit_door: usize, hold_it: bool) {
-        let _ = (exit_door, hold_it);
+    fn set_hold_door_open(&mut self, _exit_door: usize, hold_it: bool) {
+        if hold_it {
+            if let Some(object) = self.object.upgrade() {
+                if let Ok(mut guard) = object.write() {
+                    guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+                }
+            }
+        }
     }
 }
 

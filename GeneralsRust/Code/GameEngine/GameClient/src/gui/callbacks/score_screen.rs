@@ -669,7 +669,7 @@ fn grab_single_player_info(state: &mut ScoreScreenState) {
                             })
                             .unwrap_or(gamelogic::prelude::Relationship::Neutral);
 
-                        let is_allied = relationship == gamelogic::prelude::Relationship::Ally;
+                        let is_allied = relationship == gamelogic::prelude::Relationship::Allies;
                         if (is_friend && is_allied) || (!is_friend && !is_allied) {
                             let score = player.get_score_keeper();
                             gather.total_buildings_built += score.get_total_buildings_built();
