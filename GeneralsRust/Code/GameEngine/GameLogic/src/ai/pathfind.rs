@@ -1631,3 +1631,54 @@ pub fn update_goal_for_object(
 
     Ok(())
 }
+
+/// PARITY_NOTE: C++ uses full A* pathfind map (AIPathfind.cpp). Rust uses simplified
+/// direct path with terrain height sampling until the full pathfind map is ported.
+pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<Vec<Coord3D>> {
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let dist_2d = (dx * dx + dy * dy).sqrt();
+
+    if dist_2d < PATHFIND_CLOSE_ENOUGH {
+        return Some(vec![start, end]);
+    }
+
+    // Try full A* pathfinder first, fall back to straight-line if unavailable.
+    if let Some(pathfinder) = THE_AI.read().ok().and_then(|ai| ai.pathfinder()) {
+        if let Ok(pf_guard) = pathfinder.read() {
+            if let Some(waypoints) =
+                pf_guard.find_path(&start, &end, crate::path::SURFACE_GROUND, false)
+            {
+                if !waypoints.is_empty() {
+                    return Some(waypoints);
+                }
+            }
+        }
+    }
+
+    let step_size = PATHFIND_CELL_SIZE_F;
+    let num_steps = (dist_2d / step_size).ceil() as usize;
+    let num_steps = num_steps.min(2000);
+
+    let mut path = Vec::with_capacity(num_steps + 2);
+    path.push(start);
+
+    let _ = obj;
+
+    for i in 1..num_steps {
+        let t = i as f32 / num_steps as f32;
+        let mut pos = Coord3D::new(start.x + dx * t, start.y + dy * t, 0.0);
+        if let Ok(terrain) = get_terrain_logic().read() {
+            pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+        }
+        path.push(pos);
+    }
+
+    let mut final_pos = end;
+    if let Ok(terrain) = get_terrain_logic().read() {
+        final_pos.z = terrain.get_ground_height(final_pos.x, final_pos.y, None);
+    }
+    path.push(final_pos);
+
+    Some(path)
+}

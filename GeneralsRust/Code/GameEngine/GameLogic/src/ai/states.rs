@@ -2956,6 +2956,148 @@ impl ClassicState for AIWaitState {
     }
 }
 
+/// Follow state - move toward and track the goal object.
+/// PARITY_NOTE: C++ does not have a standalone AIFollowState. C++ uses
+/// AIAttackAndFollowObject (attack+follow) or AIFollowPathState (path following).
+/// This state provides pure follow behavior: move toward goal object's position,
+/// re-issueing move commands as the target moves. No attack logic is included.
+/// This is used for formation following, escort, and group movement scenarios.
+#[derive(Debug)]
+pub struct AIFollowState {
+    base: State,
+    /// The object we are following
+    target: Option<Arc<RwLock<Object>>>,
+    /// Whether a move command has been issued this frame
+    issued_move: bool,
+    /// Distance threshold to consider "close enough" to the target
+    follow_distance: Real,
+    /// Last known target position (for detecting target movement)
+    last_target_pos: Coord3D,
+}
+
+impl AIFollowState {
+    pub fn new(machine: &StateMachine) -> Self {
+        Self {
+            base: State::new(machine, "AIFollow"),
+            target: None,
+            issued_move: false,
+            follow_distance: 3.0 * PATHFIND_CELL_SIZE_F,
+            last_target_pos: Coord3D::new(0.0, 0.0, 0.0),
+        }
+    }
+
+    pub fn set_follow_distance(&mut self, distance: Real) {
+        self.follow_distance = distance;
+    }
+}
+
+impl StateImplementation for AIFollowState {
+    fn on_enter(&mut self) -> StateReturnType {
+        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update(&mut self) -> StateReturnType {
+        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {
+        let _ = self.classic_on_exit(_status);
+    }
+}
+
+impl ClassicState for AIFollowState {
+    fn base_state(&self) -> &State {
+        &self.base
+    }
+
+    fn base_state_mut(&mut self) -> &mut State {
+        &mut self.base
+    }
+
+    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let target = self
+            .base
+            .get_machine_goal_object()
+            .ok_or_else(|| "AIFollow state missing goal object".to_string())?;
+        self.target = Some(target.clone());
+
+        if let Ok(target_guard) = target.read() {
+            self.last_target_pos = *target_guard.get_position();
+        }
+
+        self.issued_move = false;
+
+        Ok(StateReturnType::Continue)
+    }
+
+    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        let Some(target) = &self.target else {
+            return Ok(StateReturnType::Failure);
+        };
+
+        let target_pos = {
+            let Ok(target_guard) = target.read() else {
+                return Ok(StateReturnType::Failure);
+            };
+            if target_guard.is_effectively_dead() {
+                return Ok(StateReturnType::Failure);
+            }
+            *target_guard.get_position()
+        };
+
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "AIFollow state missing machine owner".to_string())?;
+
+        let owner_pos = {
+            let Ok(owner_guard) = owner.read() else {
+                return Ok(StateReturnType::Failure);
+            };
+            *owner_guard.get_position()
+        };
+
+        let dx = target_pos.x - owner_pos.x;
+        let dy = target_pos.y - owner_pos.y;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        let tdx = target_pos.x - self.last_target_pos.x;
+        let tdy = target_pos.y - self.last_target_pos.y;
+        let target_moved = (tdx * tdx + tdy * tdy).sqrt() > PATHFIND_CELL_SIZE_F;
+
+        if dist <= self.follow_distance && !target_moved {
+            self.issued_move = false;
+            return Ok(StateReturnType::Continue);
+        }
+
+        self.last_target_pos = target_pos;
+
+        if !self.issued_move || target_moved {
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        let mut params = AiCommandParams::new(
+                            crate::ai::AiCommandType::MoveToPosition,
+                            crate::ai::CommandSourceType::FromAi,
+                        );
+                        params.pos = target_pos;
+                        let _ = ai_guard.execute_command(&params);
+                        self.issued_move = true;
+                    }
+                }
+            }
+        }
+
+        Ok(StateReturnType::Continue)
+    }
+
+    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        self.target = None;
+        self.issued_move = false;
+        Ok(())
+    }
+}
+
 /// Busy state - remain busy until AI reports idle.
 #[derive(Debug)]
 pub struct AIBusyState {
