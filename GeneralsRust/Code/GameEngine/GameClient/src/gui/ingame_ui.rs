@@ -667,6 +667,15 @@ impl PlacementPreview {
     }
 }
 
+/// A single minimap ping animation.
+#[derive(Debug, Clone)]
+pub struct MinimapPing {
+    pub world_pos: Vec2,
+    pub color: [f32; 4],
+    pub creation_frame: u32,
+    pub lifetime_frames: u32,
+}
+
 /// Minimap state and rendering
 #[derive(Debug)]
 pub struct Minimap {
@@ -987,6 +996,14 @@ pub struct InGameUI {
 
     // ── World animations (C++: m_worldAnimationList, InGameUI.h:830) ──
     world_animations: Vec<WorldAnimationData>,
+
+    // ── Superweapon script visibility (C++: m_superweaponHiddenByScript, InGameUI.h:680) ──
+    /// C++: m_superweaponHiddenByScript — when true, superweapon timers are hidden globally
+    superweapon_hidden_by_script: bool,
+
+    // ── Minimap ping animations ──
+    /// Active minimap pings, each with a world position and expiration frame.
+    minimap_pings: Vec<MinimapPing>,
 }
 
 impl InGameUI {
@@ -1114,6 +1131,12 @@ impl InGameUI {
 
             // World animations
             world_animations: Vec::new(),
+
+            // C++: m_superweaponHiddenByScript = FALSE (InGameUI.cpp:993)
+            superweapon_hidden_by_script: false,
+
+            // Minimap pings
+            minimap_pings: Vec::new(),
         }
     }
 
@@ -2269,6 +2292,414 @@ impl InGameUI {
         }
     }
 
+    // ── Draw pipeline: main render entry ─────────────────────────────
+    // C++: InGameUI::draw() (pure virtual in C++, implemented in subclasses)
+    // C++ calls drawSelectionAnims(), drawPlacementCursor(), drawRadarBall(), etc.
+
+    /// Main draw pipeline. Renders selection indicators, placement cursor,
+    /// team/waypoint overlay lines, and minimap ping animations.
+    /// C++: InGameUI::draw() — pure virtual, subclass calls sub-draw methods.
+    pub fn draw(&mut self) -> std::result::Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let mut renderer = self
+            .renderer
+            .write()
+            .map_err(|_| "Failed to lock renderer".to_string())?;
+
+        self.draw_selection_anims(&mut renderer)?;
+
+        if let Some(ref preview) = self.placement_preview {
+            let pos = Coord3D::new(preview.position.x, preview.position.y, preview.position.z);
+            self.draw_placement_cursor(&mut renderer, &pos)?;
+        }
+
+        self.draw_team_waypoint_lines(&mut renderer)?;
+        self.draw_minimap_pings(&mut renderer)?;
+
+        if self.selection_box.active && self.selection_box.is_significant() {
+            self.render_selection_box(&mut renderer)
+                .map_err(|e| e.to_string())?;
+        }
+
+        if self.minimap.visible {
+            self.render_minimap(&mut renderer)
+                .map_err(|e| e.to_string())?;
+        }
+
+        self.render_resources(&mut renderer)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// C++: drawSelectionAnims() — iterates selected drawables, draws
+    /// health bars (green/yellow/red based on HP), veterancy pips, and
+    /// selection rings on terrain.
+    fn draw_selection_anims(&self, renderer: &mut UIRenderer) -> std::result::Result<(), String> {
+        let selected = self.get_selection();
+        for &obj_id in &selected {
+            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(o) => o,
+                None => continue,
+            };
+            let guard = match obj.read() {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+
+            let pos = guard.get_position();
+            let world = Coord3D::new(pos.x, pos.y, pos.z);
+            let Some(screen) = self.world_to_screen(&world) else {
+                continue;
+            };
+
+            let health_pct = guard.get_health_percentage();
+            if health_pct > 0.0 {
+                let bar_width = 40.0;
+                let bar_height = 4.0;
+                let bar_x = screen.x - bar_width / 2.0;
+                let bar_y = screen.y - 30.0;
+
+                renderer
+                    .draw_rect_with_scissor(
+                        UIRect::new(bar_x, bar_y, bar_width, bar_height),
+                        [0.2, 0.2, 0.2, 0.7],
+                        None,
+                    )
+                    .map_err(|e| e.to_string())?;
+
+                let fill_color = if health_pct > 0.66 {
+                    [0.0, 1.0, 0.0, 0.9]
+                } else if health_pct > 0.33 {
+                    [1.0, 1.0, 0.0, 0.9]
+                } else {
+                    [1.0, 0.0, 0.0, 0.9]
+                };
+
+                renderer
+                    .draw_rect_with_scissor(
+                        UIRect::new(bar_x, bar_y, bar_width * health_pct, bar_height),
+                        fill_color,
+                        None,
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+
+            let rank = guard.get_veterancy_level();
+            let rank_val = rank as i32;
+            if rank_val > 0 {
+                let pip_size = 4.0;
+                let pip_x = screen.x + 20.0;
+                let pip_y = screen.y - 25.0;
+                for i in 0..rank_val.min(3) {
+                    renderer
+                        .draw_rect_with_scissor(
+                            UIRect::new(
+                                pip_x,
+                                pip_y - (i as f32) * (pip_size + 1.0),
+                                pip_size,
+                                pip_size,
+                            ),
+                            [1.0, 0.85, 0.0, 1.0],
+                            None,
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+
+            let ring_radius = 20.0f32;
+            let segments = 24u32;
+            for i in 0..segments {
+                let angle1 = (i as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
+                let angle2 = ((i + 1) as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
+                let x1 = screen.x + ring_radius * angle1.cos();
+                let y1 = screen.y + ring_radius * angle1.sin();
+                let x2 = screen.x + ring_radius * angle2.cos();
+                let y2 = screen.y + ring_radius * angle2.sin();
+                renderer.draw_line(
+                    Vec2::new(x1, y1),
+                    Vec2::new(x2, y2),
+                    1.5,
+                    [0.0, 1.0, 0.0, 0.6],
+                    0.0,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// C++: drawPlacementCursor() — renders ghost building at the given
+    /// position using the placement template's drawable. Tints green if
+    /// placeable, red if blocked.
+    fn draw_placement_cursor(
+        &self,
+        renderer: &mut UIRenderer,
+        pos: &Coord3D,
+    ) -> std::result::Result<(), String> {
+        let Some(ref preview) = self.placement_preview else {
+            return Ok(());
+        };
+
+        let Some(screen_pos) = self.world_to_screen(pos) else {
+            return Ok(());
+        };
+
+        let size = preview.footprint * 50.0;
+        let rect = UIRect::new(
+            screen_pos.x - size.x / 2.0,
+            screen_pos.y - size.y / 2.0,
+            size.x,
+            size.y,
+        );
+
+        let tint_color = if preview.is_legal {
+            [
+                LEGAL_BUILD_COLOR[0],
+                LEGAL_BUILD_COLOR[1],
+                LEGAL_BUILD_COLOR[2],
+                PLACEMENT_OPACITY,
+            ]
+        } else {
+            [
+                ILLEGAL_BUILD_COLOR[0],
+                ILLEGAL_BUILD_COLOR[1],
+                ILLEGAL_BUILD_COLOR[2],
+                PLACEMENT_OPACITY,
+            ]
+        };
+
+        let border_color = if preview.is_legal {
+            [0.0, 1.0, 0.0, 1.0]
+        } else {
+            [1.0, 0.0, 0.0, 1.0]
+        };
+
+        renderer
+            .draw_rect_outline_with_scissor(rect, 2.0, border_color, None)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// Draw team/waypoint overlay lines connecting waypoints for selected units.
+    /// C++: waypoint lines are drawn in the tactical view overlay.
+    fn draw_team_waypoint_lines(
+        &self,
+        renderer: &mut UIRenderer,
+    ) -> std::result::Result<(), String> {
+        for hint in &self.hints {
+            if hint.hint_type != HintType::Move && hint.hint_type != HintType::Command {
+                continue;
+            }
+            if self.current_frame >= hint.creation_frame + hint.lifetime_frames {
+                continue;
+            }
+
+            let start_screen = self.world_to_screen(&hint.start);
+            let end_screen = self.world_to_screen(&hint.end);
+            if let (Some(s), Some(e)) = (start_screen, end_screen) {
+                let fade = 1.0
+                    - (self.current_frame - hint.creation_frame) as f32
+                        / hint.lifetime_frames as f32;
+                let alpha = fade.clamp(0.0, 1.0);
+                let line_color = match hint.hint_type {
+                    HintType::Move => [0.0, 1.0, 0.0, alpha * 0.6],
+                    HintType::Command => [1.0, 1.0, 0.0, alpha * 0.6],
+                    _ => [1.0, 1.0, 1.0, alpha * 0.6],
+                };
+                renderer.draw_line(s, e, 1.5, line_color, 0.0);
+            }
+        }
+        Ok(())
+    }
+
+    /// Draw minimap ping animations — expanding circles at ping locations.
+    fn draw_minimap_pings(&self, renderer: &mut UIRenderer) -> std::result::Result<(), String> {
+        for ping in &self.minimap_pings {
+            let elapsed = self.current_frame.saturating_sub(ping.creation_frame);
+            if elapsed >= ping.lifetime_frames {
+                continue;
+            }
+
+            let progress = elapsed as f32 / ping.lifetime_frames as f32;
+            let alpha = 1.0 - progress;
+            let minimap_pos = self.minimap.world_to_minimap(ping.world_pos);
+            let max_radius = 15.0f32;
+            let radius = max_radius * progress;
+
+            let segments = 16u32;
+            for i in 0..segments {
+                let a1 = (i as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
+                let a2 = ((i + 1) as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
+                let x1 = minimap_pos.x + radius * a1.cos();
+                let y1 = minimap_pos.y + radius * a1.sin();
+                let x2 = minimap_pos.x + radius * a2.cos();
+                let y2 = minimap_pos.y + radius * a2.sin();
+                let color = [
+                    ping.color[0],
+                    ping.color[1],
+                    ping.color[2],
+                    alpha * ping.color[3],
+                ];
+                renderer.draw_line(
+                    Vec2::new(x1, y1),
+                    Vec2::new(x2, y2),
+                    1.5,
+                    [0.0, 1.0, 0.0, 0.6],
+                    0.0,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Add a minimap ping at the given world position.
+    pub fn add_minimap_ping(&mut self, world_pos: Vec2, color: [f32; 4], lifetime_frames: u32) {
+        self.minimap_pings.push(MinimapPing {
+            world_pos,
+            color,
+            creation_frame: self.current_frame,
+            lifetime_frames,
+        });
+    }
+
+    /// Expire old minimap pings.
+    pub fn expire_minimap_pings(&mut self) {
+        self.minimap_pings
+            .retain(|p| self.current_frame < p.creation_frame + p.lifetime_frames);
+    }
+
+    // ── Control group methods ────────────────────────────────────────
+    // C++: InGameUI has 10 control groups (0-9), mapped to Ctrl+0 through Ctrl+9
+
+    /// Add a single object to a control group. C++: binds object to group number.
+    pub fn add_to_control_group(&mut self, group: i32, obj_id: ObjectID) {
+        if !(0..=9).contains(&group) {
+            return;
+        }
+        let group_idx = group as usize;
+        let selection_manager = get_selection_manager();
+        let Ok(mut manager) = selection_manager.write() else {
+            return;
+        };
+        if let Some(state) = manager.get_player_selection(self.player_id as i32) {
+            let group_ids = state.get_control_group_objects(group_idx).to_vec();
+            if !group_ids.contains(&obj_id) {
+                let mut updated = group_ids;
+                updated.push(obj_id);
+                state.set_control_group_objects(group_idx, updated);
+            }
+        }
+    }
+
+    /// Get all objects in a control group. Returns empty vec if group is empty.
+    pub fn get_control_group(&self, group: i32) -> Vec<ObjectID> {
+        if !(0..=9).contains(&group) {
+            return Vec::new();
+        }
+        let selection_manager = get_selection_manager();
+        if let Ok(manager) = selection_manager.read() {
+            if let Some(state) = manager.get_player_selection_ref(self.player_id as i32) {
+                return state.get_control_group_objects(group as usize).to_vec();
+            }
+        }
+        Vec::new()
+    }
+
+    /// Select all objects in a control group. Replaces current selection.
+    pub fn select_control_group(&mut self, group: i32) {
+        if !(0..=9).contains(&group) {
+            return;
+        }
+        let group_idx = group as usize;
+        let group_ids = {
+            let selection_manager = get_selection_manager();
+            let Ok(manager) = selection_manager.read() else {
+                return;
+            };
+            let Some(state) = manager.get_player_selection_ref(self.player_id as i32) else {
+                return;
+            };
+            let ids = state.get_control_group_objects(group_idx);
+            if ids.is_empty() {
+                return;
+            }
+            ids.to_vec()
+        };
+
+        let selection_manager = get_selection_manager();
+        if let Ok(mut manager) = selection_manager.write() {
+            if let Some(state) = manager.get_player_selection(self.player_id as i32) {
+                state.select_objects(group_ids, SelectionType::Replace);
+            }
+        }
+        self.frame_selection_changed = self.current_frame;
+        self.sync_selection_state();
+    }
+
+    // ── Build placement template methods ─────────────────────────────
+    // C++: placeBuildAvailable(), getPendingPlaceType()
+
+    /// Set the current build placement template. C++: placeBuildAvailable()
+    /// Passing None clears the placement state.
+    pub fn set_placement_template(&mut self, template: Option<String>) {
+        match template {
+            Some(name) => {
+                let footprint = TheThingFactory::find_template(&name)
+                    .map(|t| {
+                        let info = t.get_template_geometry_info();
+                        let half_w = (info.bounds.max.x - info.bounds.min.x) / 2.0;
+                        let half_h = (info.bounds.max.y - info.bounds.min.y) / 2.0;
+                        Vec2::new(half_w.abs().max(1.0), half_h.abs().max(1.0))
+                    })
+                    .unwrap_or(Vec2::new(1.0, 1.0));
+                self.start_building_placement(name, footprint);
+            }
+            None => {
+                self.cancel_building_placement();
+            }
+        }
+    }
+
+    /// Get the current placement template name. C++: getPendingPlaceType()
+    pub fn get_placement_template(&self) -> Option<&str> {
+        self.placement_preview
+            .as_ref()
+            .map(|p| p.template_name.as_str())
+    }
+
+    /// Check if placement is legal at the given position.
+    /// C++: BuildAssistant::isLocationLegalToBuild() with quick checks.
+    /// Validates terrain passability, object overlap, and proximity.
+    pub fn can_place_at(&self, pos: &Coord3D) -> bool {
+        let Some(ref preview) = self.placement_preview else {
+            return false;
+        };
+
+        let validator = FoundationValidator::new_strict();
+        validator
+            .validate_placement(
+                pos,
+                &preview.template_name,
+                preview.rotation,
+                self.player_id as ObjectID,
+            )
+            .is_ok()
+    }
+
+    /// Set/get superweapon display hidden by script.
+    /// C++: setSuperweaponDisplayEnabledByScript() / getSuperweaponDisplayEnabledByScript()
+    pub fn set_superweapon_hidden_by_script(&mut self, hidden: bool) {
+        self.superweapon_hidden_by_script = hidden;
+    }
+
+    pub fn is_superweapon_hidden_by_script(&self) -> bool {
+        self.superweapon_hidden_by_script
+    }
+
     /// Render the in-game UI
     pub fn render(&self) -> Result<()> {
         if !self.enabled {
@@ -3124,6 +3555,128 @@ impl Snapshotable for InGameUI {
 
         xfer.xfer_bool(&mut self.quit_menu_visible)
             .map_err(|e| e.to_string())?;
+
+        // C++: xfer->xferBool(&m_superweaponHiddenByScript) (InGameUI.cpp:387)
+        xfer.xfer_bool(&mut self.superweapon_hidden_by_script)
+            .map_err(|e| e.to_string())?;
+
+        // Save/restore selection list (object IDs)
+        let mut selection_count = self.get_selection().len() as i32;
+        xfer.xfer_int(&mut selection_count)
+            .map_err(|e| e.to_string())?;
+
+        if xfer.is_writing() {
+            for obj_id in self.get_selection() {
+                let mut id = obj_id as u32;
+                xfer.xfer_u32(&mut id).map_err(|e| e.to_string())?;
+            }
+        } else if xfer.is_reading() {
+            let mut ids: Vec<ObjectID> = Vec::with_capacity(selection_count.max(0) as usize);
+            for _ in 0..selection_count.max(0) {
+                let mut id: u32 = 0;
+                xfer.xfer_u32(&mut id).map_err(|e| e.to_string())?;
+                ids.push(id);
+            }
+            let selection_manager = get_selection_manager();
+            if let Ok(mut manager) = selection_manager.write() {
+                if let Some(state) = manager.get_player_selection(self.player_id as i32) {
+                    state.select_objects(ids, SelectionType::Replace);
+                }
+            }
+            self.sync_selection_state();
+        }
+
+        // Save/restore control groups (10 groups, each a list of object IDs)
+        for group_idx in 0..10usize {
+            let group = self.get_control_group(group_idx as i32);
+            let mut count = group.len() as i32;
+            xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+
+            if xfer.is_writing() {
+                for obj_id in group {
+                    let mut id = obj_id as u32;
+                    xfer.xfer_u32(&mut id).map_err(|e| e.to_string())?;
+                }
+            } else if xfer.is_reading() {
+                let mut group_ids: Vec<ObjectID> = Vec::with_capacity(count.max(0) as usize);
+                for _ in 0..count.max(0) {
+                    let mut id: u32 = 0;
+                    xfer.xfer_u32(&mut id).map_err(|e| e.to_string())?;
+                    group_ids.push(id);
+                }
+                let sm = get_selection_manager();
+                let Ok(mut manager) = sm.write() else {
+                    continue;
+                };
+                if let Some(state) = manager.get_player_selection(self.player_id as i32) {
+                    state.set_control_group_objects(group_idx, group_ids);
+                }
+            }
+        }
+
+        // Save/restore superweapon timer data
+        // C++: iterates m_superweapons[playerIndex][powerName] list, saves per-entry
+        if xfer.is_writing() {
+            let mut sw_count = self.superweapon_timers.len() as i32;
+            xfer.xfer_int(&mut sw_count).map_err(|e| e.to_string())?;
+            for timer in &self.superweapon_timers {
+                let mut player_index = timer.player_index as i32;
+                let mut object_id = timer.object_id as u32;
+                let mut ready_frame = timer.ready_frame;
+                let mut hidden_by_script = timer.hidden_by_script;
+                let mut hidden_by_science = timer.hidden_by_science;
+                let mut ready = timer.ready;
+                let mut power_name = timer.power_name.clone();
+
+                xfer.xfer_int(&mut player_index)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_u32(&mut object_id).map_err(|e| e.to_string())?;
+                xfer.xfer_ascii_string(&mut power_name)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
+                xfer.xfer_bool(&mut hidden_by_script)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_bool(&mut hidden_by_science)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_bool(&mut ready).map_err(|e| e.to_string())?;
+            }
+        } else if xfer.is_reading() {
+            let mut sw_count: i32 = 0;
+            xfer.xfer_int(&mut sw_count).map_err(|e| e.to_string())?;
+            self.superweapon_timers.clear();
+            for _ in 0..sw_count.max(0) {
+                let mut player_index: i32 = 0;
+                let mut object_id: u32 = 0;
+                let mut power_name = String::new();
+                let mut ready_frame: u32 = 0;
+                let mut hidden_by_script = false;
+                let mut hidden_by_science = false;
+                let mut ready = false;
+
+                xfer.xfer_int(&mut player_index)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_u32(&mut object_id).map_err(|e| e.to_string())?;
+                xfer.xfer_ascii_string(&mut power_name)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
+                xfer.xfer_bool(&mut hidden_by_script)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_bool(&mut hidden_by_science)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_bool(&mut ready).map_err(|e| e.to_string())?;
+
+                self.superweapon_timers.push(SuperweaponTimerData {
+                    player_index: player_index as u8,
+                    object_id,
+                    power_name,
+                    ready_frame,
+                    countdown_text: String::new(),
+                    ready,
+                    hidden_by_script,
+                    hidden_by_science,
+                });
+            }
+        }
 
         Ok(())
     }
