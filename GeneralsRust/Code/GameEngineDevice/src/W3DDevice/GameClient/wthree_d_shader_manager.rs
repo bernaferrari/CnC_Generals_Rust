@@ -383,6 +383,13 @@ pub struct W3DShaderManager {
     compiled_shaders: HashMap<ShaderType, CompiledShader>,
     render_targets: HashMap<String, ManagedRenderTarget>,
     active_render_target: Option<String>,
+    filter_pipeline_bw: Option<RenderPipeline>,
+    filter_pipeline_motion_blur: Option<RenderPipeline>,
+    filter_pipeline_crossfade: Option<RenderPipeline>,
+    filter_pipeline_viewport: Option<RenderPipeline>,
+    filter_uniform_buffer: Option<Buffer>,
+    filter_bind_group_layout_texture: Option<BindGroupLayout>,
+    filter_bind_group_layout_uniform: Option<BindGroupLayout>,
 }
 
 impl Default for W3DShaderManager {
@@ -421,6 +428,13 @@ impl W3DShaderManager {
             compiled_shaders: HashMap::new(),
             render_targets: HashMap::new(),
             active_render_target: None,
+            filter_pipeline_bw: None,
+            filter_pipeline_motion_blur: None,
+            filter_pipeline_crossfade: None,
+            filter_pipeline_viewport: None,
+            filter_uniform_buffer: None,
+            filter_bind_group_layout_texture: None,
+            filter_bind_group_layout_uniform: None,
         };
         manager.register_default_shaders();
         manager
@@ -442,9 +456,22 @@ impl W3DShaderManager {
         self.detect_hardware_from_device(&context.device);
         self.init_filters()?;
         self.compile_shader_variants(&context.device)?;
+        self.compile_filter_pipelines(&context.device)?;
         self.ensure_render_target("water_reflection", 1024, 1024, true)?;
         self.ensure_render_target("shadow_map", 2048, 2048, true)?;
         self.ensure_render_target("cloud_layer", 1024, 1024, false)?;
+        self.ensure_render_target(
+            "scene_capture",
+            context.device.limits().max_texture_dimension_2d.min(2048),
+            context.device.limits().max_texture_dimension_2d.min(2048),
+            true,
+        )?;
+        self.ensure_render_target(
+            "scene_capture_2",
+            context.device.limits().max_texture_dimension_2d.min(2048),
+            context.device.limits().max_texture_dimension_2d.min(2048),
+            true,
+        )?;
         self.initialized = true;
         Ok(())
     }
@@ -460,6 +487,11 @@ impl W3DShaderManager {
         self.current_shader = ShaderType::Invalid;
         self.current_filter = FilterType::NullFilter;
         self.rendering_to_texture = false;
+        self.filter_pipeline_bw = None;
+        self.filter_pipeline_motion_blur = None;
+        self.filter_pipeline_crossfade = None;
+        self.filter_pipeline_viewport = None;
+        self.filter_uniform_buffer = None;
         self.initialized = false;
     }
 

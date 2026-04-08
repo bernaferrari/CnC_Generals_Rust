@@ -23,8 +23,10 @@ use game_engine::common::bit_flags::{
     create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
 };
 use game_engine::common::ini::{get_anim2d_collection, get_global_data, Anim2DTemplate};
+use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::common::types::FormationID;
+use gamelogic::common::types::WeaponSlotType;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
 use gamelogic::object::update::BeaconClientUpdateModule;
@@ -1140,6 +1142,245 @@ pub enum TerrainDecalType {
     ShadowTexture,
 }
 
+// ---------------------------------------------------------------------------
+// DrawModule trait — draw dispatch interface for BasicDrawable
+// ---------------------------------------------------------------------------
+// PARITY_NOTE: C++ Drawable holds an array of DrawModule pointers per ThingTemplate
+// and dispatches render/bone/FX queries through them via ObjectDrawInterface.
+// The Rust BasicDrawable stores owned DrawModule trait objects and iterates them
+// for the same queries. When the full W3D draw module system is ported,
+// individual modules (W3DModelDraw, W3DTreeDraw, etc.) will implement this trait.
+
+/// Trait for draw modules attached to a `BasicDrawable`.
+///
+/// C++ parity: `DrawModule` base class + `ObjectDrawInterface` for bone/FX queries.
+/// Each method corresponds to a C++ dispatch loop inside `Drawable::methodName()`.
+pub trait DrawModule: std::fmt::Debug + Send + Sync {
+    /// Draw this module. C++ `DrawModule::doDrawModule(transformMtx)`.
+    fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {}
+
+    /// Return barrel count for the given weapon slot.
+    /// C++ `ObjectDrawInterface::getBarrelCount(wslot)`.
+    fn get_barrel_count(&self, _wslot: WeaponSlotType) -> i32 {
+        0
+    }
+
+    /// Handle weapon fire FX at the barrel position.
+    /// C++ `ObjectDrawInterface::handleWeaponFireFX(wslot, barrel, fxl, speed, victimPos, radius)`.
+    /// Returns true if the FX was consumed.
+    fn handle_weapon_fire_fx(
+        &mut self,
+        _wslot: WeaponSlotType,
+        _barrel: i32,
+        _fx_list: Option<&FXListRef>,
+        _weapon_speed: f32,
+        _victim_pos: Option<&Vector3>,
+        _damage_radius: f32,
+    ) -> bool {
+        false
+    }
+
+    /// Query pristine (unanimated) bone positions.
+    /// C++ `ObjectDrawInterface::getPristineBonePositionsForConditionState(...)`.
+    /// Returns number of bones found.
+    fn get_pristine_bone_positions(
+        &self,
+        _bone_name_prefix: &str,
+        _start_index: i32,
+        _positions: &mut [Vector3],
+        _transforms: &mut [Matrix4],
+    ) -> i32 {
+        0
+    }
+
+    /// Query current (animated) bone positions.
+    /// C++ `ObjectDrawInterface::getCurrentBonePositions(...)`.
+    /// Returns number of bones found.
+    fn get_current_bone_positions(
+        &self,
+        _bone_name_prefix: &str,
+        _start_index: i32,
+        _positions: &mut [Vector3],
+        _transforms: &mut [Matrix4],
+    ) -> i32 {
+        0
+    }
+
+    /// Query current world-space bone transform.
+    /// C++ `ObjectDrawInterface::getCurrentWorldspaceClientBonePositions(...)`.
+    fn get_current_worldspace_client_bone_positions(
+        &self,
+        _bone_name: &str,
+        _transform: &mut Matrix4,
+    ) -> bool {
+        false
+    }
+
+    /// Get projectile launch offset from bone data.
+    /// C++ `ObjectDrawInterface::getProjectileLaunchOffset(...)`.
+    fn get_projectile_launch_offset(
+        &self,
+        _wslot: WeaponSlotType,
+        _barrel: i32,
+        _launch_pos: &mut Matrix4,
+        _turret: WhichTurretType,
+        _turret_rot_pos: &mut Vector3,
+        _turret_pitch_pos: Option<&mut Vector3>,
+    ) -> bool {
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BoneData — stores bone positions for draw modules without W3D bone systems
+// ---------------------------------------------------------------------------
+
+/// Bone position storage for draw modules that lack a W3D HTreeClass.
+///
+/// PARITY_NOTE: In C++, bone data lives inside the W3D RenderObjClass → HTreeClass.
+/// This struct provides the same query interface using pre-loaded data from INI.
+/// When the full W3D system is ported, this will be replaced by actual HTree queries.
+#[derive(Debug, Clone)]
+pub struct BoneData {
+    /// Map from bone name prefix to ordered list of (position, transform) pairs.
+    /// Index in the Vec corresponds to the bone suffix (01, 02, ...).
+    pub pristine_bones: HashMap<String, Vec<(Vector3, Matrix4)>>,
+    /// Animated bone positions — same layout, updated each frame.
+    pub current_bones: HashMap<String, Vec<(Vector3, Matrix4)>>,
+    /// World-space bone transforms — single transform per named bone.
+    pub worldspace_bones: HashMap<String, Matrix4>,
+    /// Per-slot barrel counts (Primary, Secondary, Tertiary).
+    pub barrel_counts: [i32; 3],
+}
+
+impl Default for BoneData {
+    fn default() -> Self {
+        Self {
+            pristine_bones: HashMap::new(),
+            current_bones: HashMap::new(),
+            worldspace_bones: HashMap::new(),
+            barrel_counts: [0; 3],
+        }
+    }
+}
+
+impl BoneData {
+    /// Create empty bone data with specified barrel counts.
+    pub fn with_barrel_counts(primary: i32, secondary: i32, tertiary: i32) -> Self {
+        Self {
+            barrel_counts: [primary, secondary, tertiary],
+            ..Default::default()
+        }
+    }
+
+    /// Add a pristine bone entry.
+    pub fn add_pristine_bone(&mut self, name: &str, position: Vector3, transform: Matrix4) {
+        self.pristine_bones
+            .entry(name.to_string())
+            .or_default()
+            .push((position, transform));
+    }
+
+    /// Add a current (animated) bone entry.
+    pub fn add_current_bone(&mut self, name: &str, position: Vector3, transform: Matrix4) {
+        self.current_bones
+            .entry(name.to_string())
+            .or_default()
+            .push((position, transform));
+    }
+
+    /// Set a world-space bone transform.
+    pub fn set_worldspace_bone(&mut self, name: &str, transform: Matrix4) {
+        self.worldspace_bones.insert(name.to_string(), transform);
+    }
+
+    /// Query pristine bone positions matching `bone_name_prefix` starting at `start_index`.
+    /// Returns count of bones written into `positions` and `transforms`.
+    /// C++ parity: `ObjectDrawInterface::getPristineBonePositionsForConditionState`.
+    pub fn query_pristine_bones(
+        &self,
+        bone_name_prefix: &str,
+        start_index: i32,
+        positions: &mut [Vector3],
+        transforms: &mut [Matrix4],
+    ) -> i32 {
+        let bones = match self.pristine_bones.get(bone_name_prefix) {
+            Some(b) => b,
+            None => return 0,
+        };
+        let start = start_index.max(0) as usize;
+        if start >= bones.len() {
+            return 0;
+        }
+        let max_write = positions.len().min(transforms.len());
+        let available = &bones[start..];
+        let count = available.len().min(max_write);
+        for i in 0..count {
+            positions[i] = available[i].0;
+            transforms[i] = available[i].1;
+        }
+        count as i32
+    }
+
+    /// Query current (animated) bone positions matching `bone_name_prefix`.
+    /// C++ parity: `ObjectDrawInterface::getCurrentBonePositions`.
+    pub fn query_current_bones(
+        &self,
+        bone_name_prefix: &str,
+        start_index: i32,
+        positions: &mut [Vector3],
+        transforms: &mut [Matrix4],
+    ) -> i32 {
+        let bones = match self.current_bones.get(bone_name_prefix) {
+            Some(b) => b,
+            None => return 0,
+        };
+        let start = start_index.max(0) as usize;
+        if start >= bones.len() {
+            return 0;
+        }
+        let max_write = positions.len().min(transforms.len());
+        let available = &bones[start..];
+        let count = available.len().min(max_write);
+        for i in 0..count {
+            positions[i] = available[i].0;
+            transforms[i] = available[i].1;
+        }
+        count as i32
+    }
+
+    /// Query world-space bone transform.
+    /// C++ parity: `ObjectDrawInterface::getCurrentWorldspaceClientBonePositions`.
+    pub fn query_worldspace_bone(&self, bone_name: &str, transform: &mut Matrix4) -> bool {
+        match self.worldspace_bones.get(bone_name) {
+            Some(t) => {
+                *transform = *t;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Get barrel count for a weapon slot.
+    pub fn barrel_count_for_slot(&self, wslot: WeaponSlotType) -> i32 {
+        match wslot {
+            WeaponSlotType::Primary => self.barrel_counts[0],
+            WeaponSlotType::Secondary => self.barrel_counts[1],
+            WeaponSlotType::Tertiary => self.barrel_counts[2],
+        }
+    }
+}
+
+/// Placeholder type for FXList references in draw module dispatch.
+///
+/// PARITY_NOTE: C++ passes `const FXList*` through `handleWeaponFireFX`.
+/// The actual FXList system lives in `crate::fx_list`. This type alias
+/// provides a named reference for the draw module trait without pulling
+/// in the full FXList type (which depends on gamelogic Coord3D/Matrix3D).
+/// When the W3D draw module system is fully ported, this will be replaced
+/// by the real FXList reference.
+pub type FXListRef = str;
+
 /// Main drawable trait that all renderable objects must implement
 pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Get unique identifier for this drawable
@@ -1334,6 +1575,14 @@ pub struct BasicDrawable {
     /// C++ parity: Drawable::m_drawableFullyObscuredByShroud.
     /// When true, the drawable is completely hidden by fog-of-war and should not render.
     drawable_fully_obscured_by_shroud: bool,
+    /// Draw modules attached to this drawable.
+    /// C++ parity: `m_modules[MODULETYPE_DRAW - FIRST_DRAWABLE_MODULE_TYPE]`.
+    /// Iterated for render dispatch, bone queries, FX, and barrel counts.
+    draw_modules: Vec<Box<dyn DrawModule>>,
+    /// Bone data for modules without W3D bone systems.
+    /// PARITY_NOTE: In C++, this data lives in W3D RenderObjClass → HTreeClass.
+    /// Here it's stored inline as a fallback when no W3D draw module is present.
+    bone_data: Option<BoneData>,
 }
 
 impl DrawableDowncast for BasicDrawable {
@@ -1395,6 +1644,8 @@ impl BasicDrawable {
             indicator_color: None,
             static_images_inited: false,
             drawable_fully_obscured_by_shroud: false,
+            draw_modules: Vec::new(),
+            bone_data: None,
         }
     }
 
@@ -2533,6 +2784,288 @@ impl BasicDrawable {
             self.draw_veterancy(health_region);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Draw module management
+    // -----------------------------------------------------------------------
+
+    /// Add a draw module to this drawable.
+    /// C++ parity: Drawable constructor allocates DrawModules from ThingTemplate.
+    pub fn add_draw_module(&mut self, module: Box<dyn DrawModule>) {
+        self.draw_modules.push(module);
+    }
+
+    /// Get reference to the draw modules list.
+    pub fn get_draw_modules(&self) -> &[Box<dyn DrawModule>] {
+        &self.draw_modules
+    }
+
+    /// Get mutable reference to the draw modules list.
+    pub fn get_draw_modules_mut(&mut self) -> &mut Vec<Box<dyn DrawModule>> {
+        &mut self.draw_modules
+    }
+
+    /// Set bone data for this drawable.
+    /// PARITY_NOTE: In C++, bone data comes from W3D RenderObjClass → HTreeClass.
+    /// Stored inline as fallback for modules without W3D bone systems.
+    pub fn set_bone_data(&mut self, data: BoneData) {
+        self.bone_data = Some(data);
+    }
+
+    /// Get reference to bone data if present.
+    pub fn get_bone_data(&self) -> Option<&BoneData> {
+        self.bone_data.as_ref()
+    }
+
+    /// Get mutable reference to bone data, creating if needed.
+    pub fn get_bone_data_mut(&mut self) -> &mut BoneData {
+        if self.bone_data.is_none() {
+            self.bone_data = Some(BoneData::default());
+        }
+        self.bone_data.as_mut().unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // Weapon fire FX dispatch
+    // -----------------------------------------------------------------------
+
+    /// Handle weapon fire FX: apply recoil, then dispatch FX to draw modules.
+    /// C++ parity: `Drawable::handleWeaponFireFX` (Drawable.cpp:4216-4239).
+    /// Applies recoil impulse to loco info, then iterates draw modules to
+    /// dispatch FX at the weapon barrel position.
+    pub fn handle_weapon_fire_fx(
+        &mut self,
+        wslot: WeaponSlotType,
+        barrel: i32,
+        fx_list: Option<&FXListRef>,
+        weapon_speed: f32,
+        recoil_amount: f32,
+        recoil_angle: f32,
+        victim_pos: Option<&Vector3>,
+        damage_radius: f32,
+    ) -> bool {
+        // C++ applies recoil impulse if recoil_amount != 0
+        if recoil_amount != 0.0 {
+            let mut adjusted_angle = recoil_angle;
+            // C++ adjusts recoil from absolute to relative by subtracting object orientation.
+            // PARITY_NOTE: getObject()->getOrientation() requires object binding.
+            // For now, apply recoil directly; orientation adjustment will be added when
+            // Object::getOrientation() is wired.
+            if let Some(_obj_id) = self.object_id {
+                // TODO: adjusted_angle -= object.getOrientation();
+            }
+            // C++ flips direction 180 degrees
+            adjusted_angle += std::f32::consts::PI;
+
+            if let Some(ref mut loco) = self.loco_info {
+                loco.acceleration_pitch_rate += recoil_amount * adjusted_angle.cos();
+                loco.acceleration_roll_rate += recoil_amount * adjusted_angle.sin();
+            }
+        }
+
+        // C++ iterates draw modules and dispatches FX
+        for dm in &mut self.draw_modules {
+            if dm.handle_weapon_fire_fx(
+                wslot,
+                barrel,
+                fx_list,
+                weapon_speed,
+                victim_pos,
+                damage_radius,
+            ) {
+                return true;
+            }
+        }
+        false
+    }
+
+    // -----------------------------------------------------------------------
+    // Barrel count
+    // -----------------------------------------------------------------------
+
+    /// Get barrel count for the given weapon slot.
+    /// C++ parity: `Drawable::getBarrelCount` (Drawable.cpp:4242-4252).
+    /// Iterates draw modules; first non-zero count wins.
+    pub fn get_barrel_count(&self, wslot: WeaponSlotType) -> i32 {
+        // C++ iterates draw modules first
+        for dm in &self.draw_modules {
+            let count = dm.get_barrel_count(wslot);
+            if count != 0 {
+                return count;
+            }
+        }
+        // Fall back to bone_data barrel counts if no draw module provides them
+        if let Some(ref bd) = self.bone_data {
+            return bd.barrel_count_for_slot(wslot);
+        }
+        0
+    }
+
+    // -----------------------------------------------------------------------
+    // Bone position queries
+    // -----------------------------------------------------------------------
+
+    /// Query pristine (unanimated) bone positions from the model.
+    /// C++ parity: `Drawable::getPristineBonePositions` (Drawable.cpp:747-773).
+    /// Iterates draw modules, aggregating results. Falls back to inline bone_data.
+    pub fn get_pristine_bone_positions(
+        &self,
+        bone_name: &str,
+        start: i32,
+        positions: &mut [Vector3],
+        transforms: &mut [Matrix4],
+    ) -> i32 {
+        let max_bones = positions.len().min(transforms.len());
+        let mut count = 0;
+        let mut remaining = max_bones;
+
+        // C++ iterates draw modules
+        for dm in &self.draw_modules {
+            if remaining == 0 {
+                break;
+            }
+            let sub = dm.get_pristine_bone_positions(
+                bone_name,
+                start,
+                &mut positions[count..],
+                &mut transforms[count..],
+            );
+            if sub > 0 {
+                count += sub as usize;
+                remaining = remaining.saturating_sub(sub as usize);
+            }
+        }
+
+        // Fall back to inline bone_data
+        if count == 0 {
+            if let Some(ref bd) = self.bone_data {
+                return bd.query_pristine_bones(bone_name, start, positions, transforms);
+            }
+        }
+        count as i32
+    }
+
+    /// Query current (animated) bone positions from the model.
+    /// C++ parity: `Drawable::getCurrentClientBonePositions` (Drawable.cpp:776-802).
+    pub fn get_current_client_bone_positions(
+        &self,
+        bone_name: &str,
+        start: i32,
+        positions: &mut [Vector3],
+        transforms: &mut [Matrix4],
+    ) -> i32 {
+        let max_bones = positions.len().min(transforms.len());
+        let mut count = 0;
+        let mut remaining = max_bones;
+
+        for dm in &self.draw_modules {
+            if remaining == 0 {
+                break;
+            }
+            let sub = dm.get_current_bone_positions(
+                bone_name,
+                start,
+                &mut positions[count..],
+                &mut transforms[count..],
+            );
+            if sub > 0 {
+                count += sub as usize;
+                remaining = remaining.saturating_sub(sub as usize);
+            }
+        }
+
+        if count == 0 {
+            if let Some(ref bd) = self.bone_data {
+                return bd.query_current_bones(bone_name, start, positions, transforms);
+            }
+        }
+        count as i32
+    }
+
+    /// Query current world-space bone transform.
+    /// C++ parity: `Drawable::getCurrentWorldspaceClientBonePositions` (Drawable.cpp:805-814).
+    pub fn get_current_worldspace_client_bone_positions(
+        &self,
+        bone_name: &str,
+        transform: &mut Matrix4,
+    ) -> bool {
+        // C++ iterates draw modules
+        for dm in &self.draw_modules {
+            if dm.get_current_worldspace_client_bone_positions(bone_name, transform) {
+                return true;
+            }
+        }
+        // Fall back to inline bone_data
+        if let Some(ref bd) = self.bone_data {
+            return bd.query_worldspace_bone(bone_name, transform);
+        }
+        false
+    }
+
+    // -----------------------------------------------------------------------
+    // Projectile launch offset
+    // -----------------------------------------------------------------------
+
+    /// Calculate projectile spawn position using bone data.
+    /// C++ parity: `Drawable::getProjectileLaunchOffset` (Drawable.cpp:655-664).
+    /// Iterates draw modules requesting projectile launch offset from
+    /// ObjectDrawInterface. Falls back to bone_data lookup.
+    pub fn get_projectile_launch_offset(
+        &self,
+        wslot: WeaponSlotType,
+        barrel: i32,
+        launch_pos: &mut Matrix4,
+        turret: WhichTurretType,
+        turret_rot_pos: &mut Vector3,
+        mut turret_pitch_pos: Option<&mut Vector3>,
+    ) -> bool {
+        // C++ iterates draw modules via ObjectDrawInterface.
+        // PARITY_NOTE: Rust draw modules currently skip the pitch parameter
+        // since the W3D bone transform pipeline isn't fully connected yet.
+        for dm in &self.draw_modules {
+            if dm.get_projectile_launch_offset(
+                wslot,
+                barrel,
+                launch_pos,
+                turret,
+                turret_rot_pos,
+                None,
+            ) {
+                if let Some(ref mut pitch) = turret_pitch_pos {
+                    **pitch = *turret_rot_pos;
+                }
+                return true;
+            }
+        }
+
+        // Fall back: derive from bone_data if available.
+        // PARITY_NOTE: C++ computes this from W3D bone transforms. Here we
+        // approximate by looking up "WeaponBone" entries in bone_data.
+        if let Some(ref bd) = self.bone_data {
+            let bone_name = match wslot {
+                WeaponSlotType::Primary => "WeaponBone",
+                WeaponSlotType::Secondary => "WeaponBone02",
+                WeaponSlotType::Tertiary => "WeaponBone03",
+            };
+            let bones = match bd.current_bones.get(bone_name) {
+                Some(b) => b,
+                None => match bd.pristine_bones.get(bone_name) {
+                    Some(b) => b,
+                    None => return false,
+                },
+            };
+            let idx = barrel.max(0) as usize;
+            if idx < bones.len() {
+                *launch_pos = bones[idx].1;
+                *turret_rot_pos = bones[idx].0;
+                if let Some(ref mut pitch) = turret_pitch_pos {
+                    **pitch = bones[idx].0;
+                }
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl Drawable for BasicDrawable {
@@ -2880,6 +3413,12 @@ impl Drawable for BasicDrawable {
             if let Some(bridge) = bridge_guard.as_mut() {
                 bridge.submit(submission);
             }
+        }
+
+        // C++ parity: Drawable::draw() iterates draw modules after setting up
+        // the world transform. Each draw module renders its portion of the model.
+        for dm in &mut self.draw_modules {
+            dm.do_draw(&world_transform, view_matrix, projection_matrix);
         }
     }
 

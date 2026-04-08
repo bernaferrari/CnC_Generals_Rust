@@ -577,7 +577,7 @@ fn parse_superweapon_flash_duration(
     target: &mut InGameUISettings,
     _tokens: &[&str],
 ) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.superweapon_flash_duration = INI::parse_duration_real(&token)?;
     Ok(())
 }
@@ -661,7 +661,7 @@ fn parse_named_timer_flash_duration(
     target: &mut InGameUISettings,
     _tokens: &[&str],
 ) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.named_timer_flash_duration = INI::parse_duration_real(&token)?;
     Ok(())
 }
@@ -752,7 +752,7 @@ fn parse_floating_text_timeout(
     target: &mut InGameUISettings,
     _tokens: &[&str],
 ) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.floating_text_timeout = INI::parse_duration_unsigned_int(&token)?;
     Ok(())
 }
@@ -762,7 +762,7 @@ fn parse_floating_text_move_up_speed(
     target: &mut InGameUISettings,
     _tokens: &[&str],
 ) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.floating_text_move_up_speed = INI::parse_velocity_real(&token)?;
     Ok(())
 }
@@ -772,7 +772,7 @@ fn parse_floating_text_vanish_rate(
     target: &mut InGameUISettings,
     _tokens: &[&str],
 ) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.floating_text_vanish_rate = INI::parse_velocity_real(&token)?;
     Ok(())
 }

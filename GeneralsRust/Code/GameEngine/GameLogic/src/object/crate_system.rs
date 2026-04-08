@@ -375,55 +375,36 @@ pub fn parse_crate_template_definition(
     let template = template_ref.ok_or(game_engine::common::ini::INIError::UnknownError)?;
 
     // Parse fields until End
-    while let Some(token) = ini.get_next_token() {
+    while let Some(token) = ini.get_next_token_or_null() {
         match token.as_str() {
             "End" => break,
             "CreationChance" => {
-                let token_str = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let token_str = ini.get_next_token()?;
                 let val = game_engine::common::ini::INI::parse_real(&token_str)?;
                 template.creation_chance = val;
             }
             "VeterancyLevel" => {
-                // C++: INI::parseIndexList with TheVeterancyNames
-                let level_str = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let level_str = ini.get_next_token()?;
                 template.veterancy_level = Some(parse_veterancy_level(&level_str));
             }
             "KilledByType" => {
-                // C++: KindOfMaskType::parseFromINI -- parse KindOf flags
-                let kind_str = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let kind_str = ini.get_next_token()?;
                 template.killed_by_type_kindof = parse_kind_of_mask(&kind_str);
             }
             "KillerScience" => {
-                // C++: INI::parseScience
-                let sci_str = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let sci_str = ini.get_next_token()?;
                 template.killer_science = parse_science_type(&sci_str);
             }
             "CrateObject" => {
-                // C++: CrateTemplate::parseCrateCreationEntry
-                // Format: CrateObject <name> <chance>
-                let crate_name = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
-                let chance_str = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let crate_name = ini.get_next_token()?;
+                let chance_str = ini.get_next_token()?;
                 let chance: f32 = chance_str
                     .parse()
                     .map_err(|_| game_engine::common::ini::INIError::InvalidData)?;
                 template.add_possible_crate(crate_name, chance);
             }
             "OwnedByMaker" => {
-                let token_str = ini
-                    .get_next_token()
-                    .ok_or(game_engine::common::ini::INIError::InvalidData)?;
+                let token_str = ini.get_next_token()?;
                 let val = game_engine::common::ini::INI::parse_bool(&token_str)?;
                 template.is_owned_by_maker = val;
             }
