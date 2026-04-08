@@ -14,8 +14,9 @@ use crate::ai::modules::{
 };
 use crate::ai::{AiError, AiGroup, AttitudeType, ScienceType, AI, THE_AI};
 use crate::common::{
-    AsciiString, ControlBarInterface, Coord2D, Coord3D, KindOf, ObjectID, ObjectStatusMaskType,
-    ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate, UnsignedInt,
+    AsciiString, ControlBarInterface, Coord2D, Coord3D, CoordOrigin, KindOf, ObjectID,
+    ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate,
+    UnsignedInt,
 };
 use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{
@@ -524,6 +525,216 @@ impl AIPlayer {
     /// Public update entrypoint used by the integration layer.
     pub fn update(&mut self) -> Result<(), AiError> {
         <Self as AiPlayerTrait>::update(self)
+    }
+
+    /// Main AI think loop with frame parameter.
+    /// Matches C++ AIPlayer::update() flow: evaluate state, build, attack.
+    pub fn update_with_frame(&mut self, frame: u32) -> Result<(), AiError> {
+        if self.team_timer > 0 {
+            self.team_timer -= 1;
+        } else {
+            self.ready_to_build_team = true;
+            self.team_delay = 0;
+        }
+
+        if self.structure_timer > 0 {
+            self.structure_timer -= 1;
+        } else {
+            self.ready_to_build_structure = true;
+            self.build_delay = 0;
+        }
+
+        if self.build_delay > 0 {
+            self.build_delay -= 1;
+        }
+
+        if self.team_delay > 0 {
+            self.team_delay -= 1;
+        }
+
+        self.analyze_economic_situation()?;
+        self.analyze_military_situation()?;
+        self.analyze_threats()?;
+
+        if self.ready_to_build_structure && self.build_delay == 0 {
+            self.do_base_building()?;
+            self.process_base_building()?;
+        }
+
+        if self.ready_to_build_team && self.team_delay == 0 {
+            self.select_team_to_build()?;
+            self.do_team_building()?;
+            self.queue_supply_truck()?;
+        }
+
+        self.check_ready_teams()?;
+        self.check_queued_teams()?;
+
+        self.process_attack_decisions(frame)?;
+
+        self.do_upgrades_and_skills()?;
+        self.update_bridge_repair()?;
+
+        Ok(())
+    }
+
+    fn process_attack_decisions(&mut self, _frame: u32) -> Result<(), AiError> {
+        let strength = self.military_state.total_military_strength;
+        let threat = self.threat_assessment.overall_threat_level;
+
+        if strength <= 0.0 {
+            return Ok(());
+        }
+
+        let attack_ratio = match self.difficulty {
+            GameDifficulty::Easy => 1.5,
+            GameDifficulty::Normal => 1.0,
+            GameDifficulty::Hard => 0.7,
+            GameDifficulty::Brutal => 0.5,
+        };
+
+        if strength >= threat * attack_ratio {
+            self.launch_attack()?;
+        }
+
+        Ok(())
+    }
+
+    fn analyze_military_situation(&mut self) -> Result<(), AiError> {
+        let Some(player_arc) = self.get_player_arc() else {
+            return Ok(());
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return Ok(());
+        };
+
+        let mut total_strength = 0.0f32;
+        let mut counts: HashMap<String, i32> = HashMap::new();
+
+        for obj_id in player_guard.get_all_objects() {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
+                continue;
+            }
+
+            if obj_guard.is_kind_of(KindOf::Infantry) {
+                *counts.entry("infantry".to_string()).or_insert(0) += 1;
+                total_strength += 1.0;
+            } else if obj_guard.is_kind_of(KindOf::Vehicle) {
+                *counts.entry("vehicle".to_string()).or_insert(0) += 1;
+                total_strength += 2.0;
+            } else if obj_guard.is_kind_of(KindOf::Aircraft) {
+                *counts.entry("aircraft".to_string()).or_insert(0) += 1;
+                total_strength += 3.0;
+            }
+        }
+
+        self.military_state.unit_counts_by_type = counts;
+        self.military_state.total_military_strength = total_strength;
+
+        Ok(())
+    }
+
+    fn analyze_threats(&mut self) -> Result<(), AiError> {
+        let Some(player_arc) = self.get_player_arc() else {
+            return Ok(());
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return Ok(());
+        };
+
+        let base_center = self.get_base_center().unwrap_or_else(Coord3D::origin);
+        let scan_radius = 500.0f32;
+
+        let mut threat_level = 0.0f32;
+        let mut immediate_threats = Vec::new();
+
+        if let Some(partition) = ThePartitionManager::get() {
+            for obj_id in partition.get_objects_in_range(&base_center, scan_radius) {
+                let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                    continue;
+                };
+                let Ok(obj_guard) = obj_arc.read() else {
+                    continue;
+                };
+                if obj_guard.is_destroyed() {
+                    continue;
+                }
+                let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                    continue;
+                };
+                if owner_id as u32 == self.player_id {
+                    continue;
+                }
+                if let Some(owner_arc) = player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(owner_id as i32).cloned())
+                {
+                    if let Ok(owner_guard) = owner_arc.read() {
+                        if owner_guard.get_player_type() == PlayerType::Neutral {
+                            continue;
+                        }
+                    }
+                }
+                let Some(target_team_arc) = obj_guard.get_team() else {
+                    continue;
+                };
+                let Ok(target_team) = target_team_arc.read() else {
+                    continue;
+                };
+                if player_guard.get_relationship_with_team(&target_team) != Relationship::Enemies {
+                    continue;
+                }
+
+                let severity = if obj_guard.is_kind_of(KindOf::Structure) {
+                    0.3
+                } else if obj_guard.is_kind_of(KindOf::Vehicle) {
+                    0.7
+                } else if obj_guard.is_kind_of(KindOf::Infantry) {
+                    0.5
+                } else if obj_guard.is_kind_of(KindOf::Aircraft) {
+                    0.8
+                } else {
+                    0.2
+                };
+
+                threat_level += severity;
+
+                immediate_threats.push(ThreatInfo {
+                    threat_id: obj_id,
+                    threat_type: ThreatType::Military,
+                    location: *obj_guard.get_position(),
+                    severity,
+                    time_detected: TheGameLogic::get_frame(),
+                    estimated_time_to_impact: 0,
+                });
+            }
+        }
+
+        self.threat_assessment.immediate_threats = immediate_threats;
+        self.threat_assessment.overall_threat_level = threat_level;
+
+        self.threat_assessment.recommended_response = if threat_level > 5.0 {
+            ThreatResponse::Emergency
+        } else if threat_level > 3.0 {
+            ThreatResponse::Attack
+        } else if threat_level > 1.0 {
+            ThreatResponse::Defend
+        } else if threat_level > 0.0 {
+            ThreatResponse::Monitor
+        } else {
+            ThreatResponse::None
+        };
+
+        self.military_state.enemy_strength_estimate = threat_level * 2.0;
+
+        Ok(())
     }
 
     pub fn get_build_delay(&self) -> u32 {
@@ -2175,134 +2386,6 @@ impl AIPlayer {
             }
         }
         count
-    }
-
-    /// Analyze military situation
-    fn analyze_military_situation(&mut self) -> Result<(), AiError> {
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-        else {
-            return Ok(());
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(());
-        };
-
-        self.military_state.unit_counts_by_type.clear();
-        let mut total_strength = 0.0;
-        for obj_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !(obj_guard.is_kind_of(KindOf::Vehicle)
-                || obj_guard.is_kind_of(KindOf::Infantry)
-                || obj_guard.is_kind_of(KindOf::Aircraft))
-            {
-                continue;
-            }
-            let name = obj_guard.get_template_name().to_string();
-            *self
-                .military_state
-                .unit_counts_by_type
-                .entry(name)
-                .or_insert(0) += 1;
-            let cost = obj_guard.get_template().calc_cost_to_build(None).max(1) as f32;
-            total_strength += cost;
-        }
-        self.military_state.total_military_strength = total_strength;
-
-        let mut enemy_strength = 0.0;
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if owner_id as u32 == self.player_id {
-                continue;
-            }
-            if let Some(player) = player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(owner_id as i32).cloned())
-            {
-                if let Ok(enemy_guard) = player.read() {
-                    if enemy_guard.get_player_type() == PlayerType::Neutral {
-                        continue;
-                    }
-                }
-            }
-            if !(obj_guard.is_kind_of(KindOf::Vehicle)
-                || obj_guard.is_kind_of(KindOf::Infantry)
-                || obj_guard.is_kind_of(KindOf::Aircraft))
-            {
-                continue;
-            }
-            let cost = obj_guard.get_template().calc_cost_to_build(None).max(1) as f32;
-            enemy_strength += cost;
-        }
-        self.military_state.enemy_strength_estimate = enemy_strength;
-
-        Ok(())
-    }
-
-    /// Analyze current threats
-    fn analyze_threats(&mut self) -> Result<(), AiError> {
-        // Clear old threats
-        self.threat_assessment.immediate_threats.clear();
-        self.threat_assessment.potential_threats.clear();
-
-        let _ = self.compute_center_and_radius_of_base();
-        let base_center = self.base_center;
-        let scan_radius = self.base_radius + SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE;
-        let mut threat_score = 0.0;
-        for obj_arc in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if owner_id as u32 == self.player_id {
-                continue;
-            }
-            if !(obj_guard.is_kind_of(KindOf::Vehicle)
-                || obj_guard.is_kind_of(KindOf::Infantry)
-                || obj_guard.is_kind_of(KindOf::Aircraft)
-                || obj_guard.is_kind_of(KindOf::Defense))
-            {
-                continue;
-            }
-            let pos = obj_guard.get_position();
-            let dx = pos.x - base_center.x;
-            let dy = pos.y - base_center.y;
-            if dx * dx + dy * dy > scan_radius * scan_radius {
-                continue;
-            }
-            let cost = obj_guard.get_template().calc_cost_to_build(None).max(1) as f32;
-            threat_score += cost;
-        }
-
-        let denom = (self.military_state.total_military_strength + 1.0).max(1.0);
-        let threat_level = (threat_score / denom).min(1.0);
-        self.threat_assessment.overall_threat_level = threat_level;
-        self.threat_assessment.recommended_response = if threat_level > 0.8 {
-            ThreatResponse::Emergency
-        } else if threat_level > 0.5 {
-            ThreatResponse::Defend
-        } else if threat_level > 0.2 {
-            ThreatResponse::Monitor
-        } else {
-            ThreatResponse::None
-        };
-
-        Ok(())
     }
 
     /// Calculate average base health from all structures
