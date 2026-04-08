@@ -572,6 +572,25 @@ impl ParticleSystemManager {
         self.create_particle_system_with_id(template, system_id, create_slaves)
     }
 
+    /// Create a particle system by template name at a given world position.
+    ///
+    /// Convenience wrapper that looks up the template by name, creates the
+    /// system, and sets its initial position.
+    pub fn create_particle_system_at(
+        &mut self,
+        template_name: &str,
+        pos: Point3<f32>,
+    ) -> Result<ParticleSystemId, ParticleSystemError> {
+        let template = self
+            .find_template(template_name)
+            .ok_or_else(|| ParticleSystemError::TemplateNotFound(template_name.to_string()))?;
+        let id = self.create_particle_system(&template, true)?;
+        if let Some(system) = self.active_systems.get_mut(&id) {
+            system.set_position(pos);
+        }
+        Ok(id)
+    }
+
     /// Create a particle system using an explicit ID (used by save/load restore paths).
     pub fn create_particle_system_with_id(
         &mut self,
@@ -795,6 +814,34 @@ impl ParticleSystemManager {
 
     pub fn set_local_player_index(&mut self, index: i32) {
         self.local_player_index = index;
+    }
+
+    // -----------------------------------------------------------------------
+    // Convenience wrappers matching C++ API naming conventions
+    // -----------------------------------------------------------------------
+
+    /// Update all active particle systems for the given frame.
+    ///
+    /// Thin wrapper around [`Self::update`] that uses the stored local player
+    /// index.  Matches the C++ `ParticleSystemManager::update(frame)` pattern.
+    pub fn update_particle_systems(&mut self, frame: u32) {
+        self.update(self.local_player_index, frame);
+    }
+
+    /// Collect references to all active particle systems for rendering.
+    ///
+    /// Callers pass the collected slice to
+    /// [`ParticleRenderer::render_particles`].  Matches the C++ draw-path
+    /// where the manager hands its system list to the renderer.
+    pub fn draw_particle_systems(&self) -> Vec<&ParticleSystem> {
+        self.active_systems.values().map(|b| b.as_ref()).collect()
+    }
+
+    /// Total number of living particles across all active systems.
+    ///
+    /// Alias for [`Self::particle_count`] matching the C++ getter name.
+    pub fn get_particle_count(&self) -> usize {
+        self.particle_count
     }
 }
 
