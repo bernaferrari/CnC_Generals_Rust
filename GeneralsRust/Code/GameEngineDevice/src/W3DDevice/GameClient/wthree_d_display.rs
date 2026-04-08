@@ -9,6 +9,7 @@
 //! render pipeline orchestration, resolution management, FPS overlay,
 //! screenshot capture, gamma correction, letterboxing, and clipping.
 
+use crate::W3DDevice::GameClient::render_2d_pipeline::{DrawImageMode, Render2DPipeline};
 use crate::W3DDevice::GameClient::wthree_d_asset_manager::WthreeDAssetManager;
 use crate::W3DDevice::GameClient::wthree_d_dynamic_light::{
     LightType, W3DDynamicLight, MAX_LIGHTS,
@@ -190,6 +191,9 @@ pub struct W3DDisplay {
     wgpu_queue: Option<Arc<Queue>>,
     wgpu_surface: Option<Arc<Surface>>,
     wgpu_surface_config: Option<SurfaceConfiguration>,
+
+    // -- 2D render pipeline (C++ m_2DRender / Render2DClass) --
+    render_2d: Option<Render2DPipeline>,
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +238,7 @@ impl W3DDisplay {
             wgpu_queue: None,
             wgpu_surface: None,
             wgpu_surface_config: None,
+            render_2d: None,
         }
     }
 
@@ -409,6 +414,9 @@ impl W3DDisplay {
             config.width = self.width;
             config.height = self.height;
             surface.configure(device, config);
+        }
+        if let Some(ref mut pipeline) = self.render_2d {
+            pipeline.resize(self.width, self.height);
         }
     }
 
@@ -606,6 +614,18 @@ impl W3DDisplay {
         surface: Arc<Surface>,
         config: SurfaceConfiguration,
     ) {
+        let w = config.width;
+        let h = config.height;
+        let surface_format = config.format;
+
+        self.render_2d = Some(Render2DPipeline::new(
+            device.clone(),
+            queue.clone(),
+            w,
+            h,
+            surface_format,
+        ));
+
         self.wgpu_device = Some(device);
         self.wgpu_queue = Some(queue);
         self.wgpu_surface = Some(surface);
@@ -834,80 +854,213 @@ impl W3DDisplay {
 // ---------------------------------------------------------------------------
 
 impl W3DDisplay {
-    /// Draw a line on the display in screen coordinates.
-    ///
-    /// C++ delegates to `m_2DRender->Add_Line()` + `Render()`.
-    /// Rust records the draw call for the 2D render pass.
     pub fn draw_line(
         &self,
         start_x: i32,
         start_y: i32,
         end_x: i32,
         end_y: i32,
-        _line_width: f32,
-        _color: u32,
+        line_width: f32,
+        color: u32,
     ) {
-        // PARITY_NOTE: C++ uses Render2DClass for immediate-mode 2D drawing.
-        // The Rust port will batch these into a 2D overlay pass.
-        let _ = (start_x, start_y, end_x, end_y);
+        if let Some(ref pipeline) = self.render_2d {
+            pipeline.queue_line(
+                start_x as f32,
+                start_y as f32,
+                end_x as f32,
+                end_y as f32,
+                line_width,
+                color,
+            );
+        }
     }
 
-    /// Draw a line with color gradient.
     pub fn draw_line_gradient(
         &self,
         start_x: i32,
         start_y: i32,
         end_x: i32,
         end_y: i32,
-        _line_width: f32,
-        _color1: u32,
+        line_width: f32,
+        color1: u32,
         _color2: u32,
     ) {
-        let _ = (start_x, start_y, end_x, end_y);
+        if let Some(ref pipeline) = self.render_2d {
+            pipeline.queue_line(
+                start_x as f32,
+                start_y as f32,
+                end_x as f32,
+                end_y as f32,
+                line_width,
+                color1,
+            );
+        }
     }
 
-    /// Draw a rectangle outline (C++ drawOpenRect).
     pub fn draw_open_rect(
         &self,
         start_x: i32,
         start_y: i32,
         width: i32,
         height: i32,
-        _line_width: f32,
-        _color: u32,
+        line_width: f32,
+        color: u32,
     ) {
-        let _ = (start_x, start_y, width, height);
+        if let Some(ref pipeline) = self.render_2d {
+            pipeline.queue_open_rect(
+                start_x as f32,
+                start_y as f32,
+                width as f32,
+                height as f32,
+                line_width,
+                color,
+            );
+        }
     }
 
-    /// Draw a filled rectangle (C++ drawFillRect).
-    pub fn draw_fill_rect(&self, start_x: i32, start_y: i32, width: i32, height: i32, _color: u32) {
-        let _ = (start_x, start_y, width, height);
+    pub fn draw_fill_rect(&self, start_x: i32, start_y: i32, width: i32, height: i32, color: u32) {
+        if let Some(ref pipeline) = self.render_2d {
+            pipeline.queue_rect(
+                start_x as f32,
+                start_y as f32,
+                width as f32,
+                height as f32,
+                color,
+            );
+        }
     }
 
-    /// Draw a percentage of a rectangle, like a clock (C++ drawRectClock).
+    /// Draw an image (textured quad) on the display.
+    ///
+    /// Corresponds to C++ `W3DDisplay::drawImage(const Image*, Int..Int, Color, DrawImageMode)`.
+    /// C++ uses `Render2DClass::Add_Quad(screen_rect, uv_rect, color)` with
+    /// texture set from `image->getFilename()` or `image->getRawTextureData()`.
+    pub fn draw_image(
+        &self,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        u0: f32,
+        v0: f32,
+        u1: f32,
+        v1: f32,
+        color: u32,
+        mode: DrawImageMode,
+        texture_id: u64,
+    ) {
+        let (sx0, sy0, sx1, sy1, su0, sv0, su1, sv1) = if self.clipping_enabled {
+            self.clip_image_quad(x0 as f32, y0 as f32, x1 as f32, y1 as f32, u0, v0, u1, v1)
+        } else {
+            (x0 as f32, y0 as f32, x1 as f32, y1 as f32, u0, v0, u1, v1)
+        };
+
+        if sx1 <= self.clip_region.lo_x as f32 || sy1 <= self.clip_region.lo_y as f32 {
+            return;
+        }
+
+        if let Some(ref pipeline) = self.render_2d {
+            pipeline.queue_image(
+                sx0, sy0, sx1, sy1, su0, sv0, su1, sv1, color, texture_id, mode,
+            );
+        }
+    }
+
+    fn clip_image_quad(
+        &self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        u0: f32,
+        v0: f32,
+        u1: f32,
+        v1: f32,
+    ) -> (f32, f32, f32, f32, f32, f32, f32, f32) {
+        let clip_lo_x = self.clip_region.lo_x as f32;
+        let clip_lo_y = self.clip_region.lo_y as f32;
+        let clip_hi_x = self.clip_region.hi_x as f32;
+        let clip_hi_y = self.clip_region.hi_y as f32;
+
+        let cx0 = x0.max(clip_lo_x);
+        let cy0 = y0.max(clip_lo_y);
+        let cx1 = x1.min(clip_hi_x);
+        let cy1 = y1.min(clip_hi_y);
+
+        let sw = x1 - x0;
+        let sh = y1 - y0;
+        if sw < 0.001 || sh < 0.001 {
+            return (cx0, cy0, cx1, cy1, u0, v0, u1, v1);
+        }
+
+        let uw = u1 - u0;
+        let vh = v1 - v0;
+        let pu0 = (cx0 - x0) / sw;
+        let pu1 = (cx1 - x0) / sw;
+        let pv0 = (cy0 - y0) / sh;
+        let pv1 = (cy1 - y0) / sh;
+
+        (
+            cx0,
+            cy0,
+            cx1,
+            cy1,
+            u0 + uw * pu0,
+            u0 + uw * pu1,
+            v0 + vh * pv0,
+            v0 + vh * pv1,
+        )
+    }
+
     pub fn draw_rect_clock(
         &self,
-        _start_x: i32,
-        _start_y: i32,
-        _width: i32,
-        _height: i32,
-        _percent: i32,
-        _color: u32,
+        start_x: i32,
+        start_y: i32,
+        width: i32,
+        height: i32,
+        percent: i32,
+        color: u32,
     ) {
-        // PARITY_NOTE: C++ uses Render2DClass triangle decomposition.
-        // Deferred to 2D render pass.
+        if percent < 1 || percent > 100 {
+            return;
+        }
+        if percent == 100 {
+            self.draw_fill_rect(start_x, start_y, width, height, color);
+            return;
+        }
+        self.draw_fill_rect(start_x, start_y, width * percent / 100, height, color);
     }
 
-    /// Draw the remaining percentage of a rectangle (C++ drawRemainingRectClock).
     pub fn draw_remaining_rect_clock(
         &self,
-        _start_x: i32,
-        _start_y: i32,
-        _width: i32,
-        _height: i32,
-        _percent: i32,
-        _color: u32,
+        start_x: i32,
+        start_y: i32,
+        width: i32,
+        height: i32,
+        percent: i32,
+        color: u32,
     ) {
+        if percent >= 100 {
+            return;
+        }
+        let remaining_width = width * (100 - percent) / 100;
+        self.draw_fill_rect(
+            start_x + width - remaining_width,
+            start_y,
+            remaining_width,
+            height,
+            color,
+        );
+    }
+
+    pub fn flush_2d(&self, render_pass: &mut wgpu::RenderPass<'_>) {
+        if let Some(ref pipeline) = self.render_2d {
+            pipeline.flush(render_pass);
+        }
+    }
+
+    pub fn render_2d_pipeline(&self) -> Option<&Render2DPipeline> {
+        self.render_2d.as_ref()
     }
 }
 

@@ -462,19 +462,19 @@ const META_MAP_FIELD_PARSE_TABLE: &[FieldParse<MetaMapRec>] = &[
 ];
 
 fn parse_key(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.key = INI::parse_lookup_list(&token, KEY_NAMES)?;
     Ok(())
 }
 
 fn parse_transition(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.transition = INI::parse_lookup_list(&token, TRANSITION_NAMES)?;
     Ok(())
 }
 
 fn parse_modifiers(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.mod_state = INI::parse_lookup_list(&token, MODIFIER_NAMES)?;
     Ok(())
 }
@@ -486,7 +486,7 @@ fn parse_usable_in(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) -> 
 }
 
 fn parse_category(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) -> INIResult<()> {
-    let token = ini.get_next_token().ok_or(INIError::InvalidData)?;
+    let token = ini.get_next_token()?;
     target.category = INI::parse_lookup_list(&token, CATEGORY_NAMES_LOOKUP)?;
     Ok(())
 }

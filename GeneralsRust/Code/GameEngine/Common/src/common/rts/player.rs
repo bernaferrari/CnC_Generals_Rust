@@ -891,6 +891,9 @@ pub struct Player {
     /// Production time change percentages by thing name
     /// C++: m_productionTimeChanges (Player.h line 352)
     production_time_changes: HashMap<String, f32>,
+    /// KindOf-based production cost change percentages
+    /// C++: m_kindOfPercentProductionChangeList (Player.h line 353)
+    kind_of_production_cost_changes: Vec<(u64, f32)>,
 
     // =========================================================
     // Special Power Ready Timers (C++ Player.h lines 392-393)
@@ -984,19 +987,11 @@ impl Player {
             // Production changes
             production_cost_changes: HashMap::new(),
             production_time_changes: HashMap::new(),
-            // Special power timers
+            kind_of_production_cost_changes: Vec::new(),
+
+            // Special Power Timers
             special_power_timers: HashMap::new(),
         };
-
-        // C++ lines 236-239: Initialize components with player handle
-        let handle = PlayerHandle::new(index.max(0) as u32);
-        player.energy.init(handle);
-        player.academy_stats.init(handle);
-        player.score_keeper.reset(index);
-
-        // C++ line 235: Call init(NULL)
-        player.init(None);
-
         player
     }
 
@@ -2677,6 +2672,27 @@ impl Player {
             .get(thing_name)
             .copied()
             .unwrap_or(1.0)
+    }
+
+    /// Get production cost change based on KindOf mask.
+    /// C++ Reference: Player::getProductionCostChangeBasedOnKindOf (Player.cpp lines 3842-3859)
+    ///
+    /// Iterates the KindOf-based production cost changes. For each entry whose
+    /// KindOf mask overlaps with the provided `kindof`, the modifier is applied
+    /// multiplicatively: `result *= (1 + percent)`.
+    pub fn get_production_cost_change_based_on_kind_of(&self, kindof: u64) -> f32 {
+        let mut result = 1.0f32;
+        for (mask, percent) in &self.kind_of_production_cost_changes {
+            if (kindof & mask) != 0 {
+                result *= 1.0 + percent;
+            }
+        }
+        result
+    }
+
+    /// Add a KindOf-based production cost change entry.
+    pub fn add_kind_of_production_cost_change(&mut self, kindof: u64, percent: f32) {
+        self.kind_of_production_cost_changes.push((kindof, percent));
     }
 
     // =========================================================

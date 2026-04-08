@@ -4,7 +4,26 @@
 //       from other subsystems. It can work things such as file reading, file writing,
 //       CRC computations etc
 
+use crate::common::ini::ini_upgrade::get_upgrade_center;
+use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
+use crate::common::system::geometry::Matrix3D;
+use crate::common::system::kind_of::KIND_OF_BIT_NAMES;
+use crate::common::thing::thing::KindOfType;
 use std::fmt;
+
+fn get_upgrade_names_sorted() -> Vec<String> {
+    get_upgrade_center()
+        .map(|center| {
+            let mut names = center
+                .get_template_names()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        })
+        .unwrap_or_default()
+}
 
 /// Xfer version type
 ///
@@ -423,6 +442,235 @@ pub trait Xfer {
     /// of at least `data_size` bytes.
     unsafe fn xfer_user(&mut self, data: *mut u8, data_size: usize) -> Result<(), XferStatus> {
         self.xfer_implementation(data, data_size)
+    }
+
+    /// Transfer a single ScienceType value as a string for enum reorder safety.
+    /// Matches C++ Xfer.cpp xferScienceType lines 548-587.
+    fn xfer_science_type(&mut self, science: &mut ScienceType) -> Result<(), XferStatus> {
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                let mut science_name = get_science_store()
+                    .map(|store| store.get_internal_name_for_science(*science).to_string())
+                    .unwrap_or_default();
+                self.xfer_ascii_string(&mut science_name)
+            }
+            XferMode::Load => {
+                let mut science_name = String::new();
+                self.xfer_ascii_string(&mut science_name)?;
+                let resolved = get_science_store()
+                    .map(|store| store.get_science_from_internal_name(science_name.as_str()))
+                    .unwrap_or(SCIENCE_INVALID);
+                if resolved == SCIENCE_INVALID {
+                    eprintln!("xfer_science_type - Unknown science '{}'", science_name);
+                    return Err(XferStatus::UnknownString);
+                }
+                *science = resolved;
+                Ok(())
+            }
+            XferMode::Crc => {
+                // C++ uses xferImplementation with sizeof(ScienceType)
+                unsafe {
+                    self.xfer_implementation(
+                        science as *mut ScienceType as *mut u8,
+                        std::mem::size_of::<ScienceType>(),
+                    )
+                }
+            }
+            _ => {
+                eprintln!(
+                    "xfer_science_type - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                );
+                Err(XferStatus::ModeUnknown)
+            }
+        }
+    }
+
+    /// Transfer a vector of ScienceType values as strings for enum reorder safety.
+    /// Matches C++ Xfer.cpp xferScienceVec lines 591-651.
+    fn xfer_science_vec(&mut self, science_vec: &mut Vec<ScienceType>) -> Result<(), XferStatus> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        let mut count = science_vec.len() as u16;
+        self.xfer_unsigned_short(&mut count)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                for science in science_vec.iter().copied() {
+                    let mut science = science;
+                    self.xfer_science_type(&mut science)?;
+                }
+                Ok(())
+            }
+            XferMode::Load => {
+                // PARITY_NOTE: C++ clears pre-seeded entries instead of failing the load.
+                if !science_vec.is_empty() {
+                    science_vec.clear();
+                }
+
+                for _ in 0..count {
+                    let mut science = SCIENCE_INVALID;
+                    self.xfer_science_type(&mut science)?;
+                    science_vec.push(science);
+                }
+                Ok(())
+            }
+            XferMode::Crc => {
+                // C++ uses xferImplementation with sizeof(ScienceType) per element
+                for science in science_vec.iter() {
+                    let mut science = *science;
+                    unsafe {
+                        self.xfer_implementation(
+                            &mut science as *mut ScienceType as *mut u8,
+                            std::mem::size_of::<ScienceType>(),
+                        )?;
+                    }
+                }
+                Ok(())
+            }
+            _ => {
+                eprintln!(
+                    "xfer_science_vec - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                );
+                Err(XferStatus::ModeUnknown)
+            }
+        }
+    }
+
+    /// Transfer a KindOfType as a string so enum reorders remain safe.
+    /// Matches C++ Xfer.cpp xferKindOf lines 659-704.
+    fn xfer_kind_of(&mut self, kind_of_data: &mut KindOfType) -> Result<(), XferStatus> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                // PARITY_NOTE: C++ persists the single-bit KindOf name for enum reorder safety.
+                let mut kind_of_name = KIND_OF_BIT_NAMES
+                    .get(*kind_of_data as usize)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+                self.xfer_ascii_string(&mut kind_of_name)
+            }
+            XferMode::Load => {
+                let mut kind_of_name = String::new();
+                self.xfer_ascii_string(&mut kind_of_name)?;
+                if let Some(bit) = KIND_OF_BIT_NAMES
+                    .iter()
+                    .position(|name| *name == kind_of_name)
+                {
+                    *kind_of_data = bit as KindOfType;
+                }
+                Ok(())
+            }
+            XferMode::Crc => {
+                // C++ uses xferImplementation with sizeof(KindOfType)
+                unsafe {
+                    self.xfer_implementation(
+                        kind_of_data as *mut KindOfType as *mut u8,
+                        std::mem::size_of::<KindOfType>(),
+                    )
+                }
+            }
+            _ => {
+                eprintln!(
+                    "xfer_kind_of - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                );
+                Err(XferStatus::ModeUnknown)
+            }
+        }
+    }
+
+    /// Transfer an upgrade mask as string names for enum reorder safety.
+    /// Matches C++ Xfer.cpp xferUpgradeMask lines 708-805.
+    fn xfer_upgrade_mask(&mut self, upgrade_mask_data: &mut u128) -> Result<(), XferStatus> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                // Collect upgrade names in deterministic order, matching C++ linked-list iteration
+                let upgrade_names = get_upgrade_names_sorted();
+                let mut selected_names = Vec::new();
+
+                // PARITY_NOTE: C++ writes each set upgrade bit as a name string instead of raw bits.
+                for (index, upgrade_name) in upgrade_names.iter().enumerate() {
+                    if (*upgrade_mask_data & (1u128 << index)) != 0 {
+                        selected_names.push(upgrade_name.clone());
+                    }
+                }
+
+                let mut count = selected_names.len() as u16;
+                self.xfer_unsigned_short(&mut count)?;
+                for mut upgrade_name in selected_names {
+                    self.xfer_ascii_string(&mut upgrade_name)?;
+                }
+                Ok(())
+            }
+            XferMode::Load => {
+                let mut count = 0u16;
+                self.xfer_unsigned_short(&mut count)?;
+                *upgrade_mask_data = 0;
+
+                let upgrade_names = get_upgrade_names_sorted();
+                for _ in 0..count {
+                    let mut upgrade_name = String::new();
+                    self.xfer_ascii_string(&mut upgrade_name)?;
+
+                    let Some(index) = upgrade_names.iter().position(|name| name == &upgrade_name)
+                    else {
+                        eprintln!(
+                            "Xfer::xfer_upgrade_mask - Unknown upgrade '{}'",
+                            upgrade_name
+                        );
+                        return Err(XferStatus::UnknownString);
+                    };
+
+                    *upgrade_mask_data |= 1u128 << index;
+                }
+                Ok(())
+            }
+            XferMode::Crc => {
+                // C++ uses xferImplementation with sizeof(UpgradeMaskType)
+                unsafe {
+                    self.xfer_implementation(
+                        upgrade_mask_data as *mut u128 as *mut u8,
+                        std::mem::size_of::<u128>(),
+                    )
+                }
+            }
+            _ => {
+                eprintln!(
+                    "xfer_upgrade_mask - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                );
+                Err(XferStatus::ModeUnknown)
+            }
+        }
+    }
+
+    /// Transfer a Matrix3D (4x3 transform matrix, 12 Reals).
+    /// Matches C++ Xfer.cpp xferMatrix3D lines 818-843.
+    fn xfer_matrix_3d(&mut self, mtx: &mut Matrix3D) -> Result<(), XferStatus> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        // C++ xfers 3 rows of 4 floats (Vector4 each): (*mtx)[0], (*mtx)[1], (*mtx)[2]
+        for i in 0..3 {
+            for j in 0..4 {
+                self.xfer_real(&mut mtx.m[i][j])?;
+            }
+        }
+
+        Ok(())
     }
 
     /// The actual xfer implementation that each derived struct should implement

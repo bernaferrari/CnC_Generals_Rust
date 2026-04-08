@@ -12,6 +12,7 @@ pub mod gui;
 #[path = "Module/mod.rs"]
 pub mod module;
 pub mod projectile_stream_bridge;
+pub mod render_2d_pipeline;
 #[path = "Shadow/mod.rs"]
 pub mod shadow;
 pub mod sky_rendering;

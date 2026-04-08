@@ -197,7 +197,7 @@ impl UpgradeCenter {
     /// Matches C++ UpgradeCenter::parseUpgradeDefinition
     pub fn parse_upgrade_definition(&mut self, ini: &mut INI) -> Result<(), String> {
         // Read upgrade name
-        let name_token = ini.get_next_token().ok_or("Missing upgrade name")?;
+        let name_token = ini.get_next_token().map_err(|e| format!("{:?}", e))?;
         let name = AsciiString::from(name_token.as_str());
 
         log::debug!("Parsing upgrade definition: {}", name);

@@ -49,10 +49,10 @@ pub use crate::drawable_info::{DrawableInfo, ExtraRenderFlags};
 
 // Re-export commonly used types
 pub use drawable::{
-    BasicDrawable, Color, Drawable, DrawableDowncast, DrawableExt, DrawableId, DrawableOverlayData,
-    DrawableStatus, DrawableType, EnvelopeState, ICoord2D, IRegion2D, Icon, IconInfo, IconType,
-    LocoInfo, Matrix4, StealthLook, TerrainDecalType, TintEnvelope, TintStatus, Vector3, WheelInfo,
-    INVALID_DRAWABLE_ID,
+    BasicDrawable, BoneData, Color, DrawModule, Drawable, DrawableDowncast, DrawableExt,
+    DrawableId, DrawableOverlayData, DrawableStatus, DrawableType, EnvelopeState, FXListRef,
+    ICoord2D, IRegion2D, Icon, IconInfo, IconType, LocoInfo, Matrix4, StealthLook,
+    TerrainDecalType, TintEnvelope, TintStatus, Vector3, WheelInfo, INVALID_DRAWABLE_ID,
 };
 
 pub use drawable_manager::{DrawLayer, DrawableManager, Frustum, RenderPass, RenderStats, Vector4};

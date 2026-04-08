@@ -51,6 +51,20 @@ var blend_texture: texture_2d<f32>;
 @group(0) @binding(6)
 var blend_sampler: sampler;
 
+// Noise texture for terrain detail variation (C++ noise texture stage)
+@group(0) @binding(7)
+var noise_texture: texture_2d<f32>;
+
+@group(0) @binding(8)
+var noise_sampler: sampler;
+
+// Cloud overlay texture projected onto terrain (C++ cloud layer)
+@group(0) @binding(9)
+var cloud_texture: texture_2d<f32>;
+
+@group(0) @binding(10)
+var cloud_sampler: sampler;
+
 // Unpack RGBA8 color from u32 (matches C++ diffuse color format)
 fn unpack_color(packed: u32) -> vec4<f32> {
     let r = f32((packed >> 16u) & 0xFFu) / 255.0;
@@ -162,4 +176,46 @@ fn fs_shoreline(in: VertexOutput) -> @location(0) vec4<f32> {
     var lit_color = terrain_color * in.diffuse;
 
     return vec4<f32>(lit_color.rgb, edge_alpha);
+}
+
+// Fragment shader with noise texture blending.
+// Corresponds to C++ TerrainBaseNoise1/TerrainBaseNoise12 shader variants
+// which blend a noise texture over the base terrain for visual variation.
+@fragment
+fn fs_noise(in: VertexOutput) -> @location(0) vec4<f32> {
+    var base_color = textureSample(base_texture, base_sampler, in.uv0);
+    let detail_color = textureSample(detail_texture, detail_sampler, in.uv1);
+    let blend_factor = textureSample(blend_texture, blend_sampler, in.uv0).r;
+    var terrain_color = mix(base_color, detail_color, blend_factor);
+
+    // Noise texture: tiled at 4x the base UV rate for fine variation
+    // C++ sets noise UV scale per-tile in BaseHeightMap.cpp
+    let noise_uv = in.uv0 * 4.0;
+    let noise_val = textureSample(noise_texture, noise_sampler, noise_uv).r;
+
+    // Blend noise into terrain: modulate brightness ±15%
+    terrain_color = terrain_color * (0.85 + 0.30 * noise_val);
+
+    // Cloud overlay: projected from above using world XZ, slowly scrolling
+    // C++ cloud layer moves with time and is alpha-composited onto terrain
+    let cloud_uv = in.world_position.xz * 0.01 + vec2<f32>(uniforms.time * 0.5, uniforms.time * 0.3);
+    let cloud_val = textureSample(cloud_texture, cloud_sampler, cloud_uv).r;
+
+    // Additive cloud lightening (C++ uses additive blend for cloud layer)
+    terrain_color = terrain_color + vec4<f32>(cloud_val * 0.1);
+
+    var lit_color = terrain_color * in.diffuse;
+
+    lit_color.r = lit_color.r + uniforms.ambient_light.r * 0.1;
+    lit_color.g = lit_color.g + uniforms.ambient_light.g * 0.1;
+    lit_color.b = lit_color.b + uniforms.ambient_light.b * 0.1;
+
+    let fog_start = uniforms.fog_params.x;
+    let fog_end = uniforms.fog_params.y;
+    let distance = length(in.world_position);
+    let fog_factor = clamp((fog_end - distance) / (fog_end - fog_start), 0.0, 1.0);
+    let fog_color = vec3<f32>(0.7, 0.8, 0.9);
+    var final_color = mix(vec3<f32>(fog_color), lit_color.rgb, fog_factor);
+
+    return vec4<f32>(final_color, 1.0);
 }

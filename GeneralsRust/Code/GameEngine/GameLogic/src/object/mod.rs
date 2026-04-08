@@ -6985,6 +6985,17 @@ impl Object {
         self.geometry_info.height_above_terrain = height;
     }
 
+    /// C++ parity: Object::calculateHeightAboveTerrain() (Object.cpp line 2751)
+    pub fn calculate_height_above_terrain(&self) -> Real {
+        let pos = self.get_position();
+        let terrain_z = if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
+            terrain.get_layer_height(pos.x, pos.y, self.layer)
+        } else {
+            0.0
+        };
+        pos.z - terrain_z
+    }
+
     /// Returns true if the object is well above the ground plane. Matches the C++ helper used
     /// by crates to prevent airborne pickups.
     pub fn is_significantly_above_terrain(&self) -> bool {
@@ -7838,6 +7849,26 @@ impl Object {
         self.handle_shroud();
         self.handle_value_map();
         self.handle_threat_map();
+    }
+
+    /// C++ parity: Object::friend_prepareForMapBoundaryAdjust() (Object.cpp line 2777)
+    pub fn friend_prepare_for_map_boundary_adjust(&mut self) {
+        self.partition_last_look.reset();
+        self.partition_reveal_all_last_look.reset();
+        self.partition_last_shroud.reset();
+        self.partition_last_threat.reset();
+        self.partition_last_value.reset();
+    }
+
+    /// C++ parity: Object::friend_notifyOfNewMapBoundary() (Object.cpp line 2799)
+    pub fn friend_notify_of_new_map_boundary(&mut self) {
+        self.handle_partition_cell_maintenance();
+
+        if self.is_off_map() {
+            self.private_status |= ObjectPrivateStatusBits::OffMap as u8;
+        } else {
+            self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
+        }
     }
 
     /// Set visibility flag for a specific player

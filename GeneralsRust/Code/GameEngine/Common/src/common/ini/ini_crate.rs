@@ -214,40 +214,40 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
     // 3. Parse fields
     let template = system_guard.get_mut(&name).unwrap();
 
-    while let Some(token) = ini.get_next_token() {
+    while let Some(token) = ini.get_next_token_or_null() {
         match token.as_str() {
             "End" => break,
 
             // Matches C++: { "CreationChance", INI::parseReal, ... }
             "CreationChance" => {
-                let token_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let token_str = ini.get_next_token()?;
                 let val = INI::parse_real(&token_str)?;
                 template.creation_chance = val;
             }
 
             // Matches C++: { "VeterancyLevel", INI::parseIndexList, TheVeterancyNames, ... }
             "VeterancyLevel" => {
-                let level_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let level_str = ini.get_next_token()?;
                 template.veterancy_level = level_str;
             }
 
             // Matches C++: { "KilledByType", KindOfMaskType::parseFromINI, ... }
             "KilledByType" => {
-                let kind_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let kind_str = ini.get_next_token()?;
                 template.killed_by_type_kindof = parse_kind_of_mask(&kind_str);
             }
 
             // Matches C++: { "KillerScience", INI::parseScience, ... }
             "KillerScience" => {
-                let sci_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let sci_str = ini.get_next_token()?;
                 template.killer_science = sci_str;
             }
 
             // Matches C++: { "CrateObject", CrateTemplate::parseCrateCreationEntry, ... }
             // C++ format: CrateObject <crateName> <crateChance>
             "CrateObject" => {
-                let crate_name = ini.get_next_token().ok_or(INIError::InvalidData)?;
-                let chance_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let crate_name = ini.get_next_token()?;
+                let chance_str = ini.get_next_token()?;
                 let chance: f32 = chance_str.parse().map_err(|_| INIError::InvalidData)?;
                 template.possible_crates.push(ParsedCrateCreationEntry {
                     crate_name,
@@ -257,7 +257,7 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
 
             // Matches C++: { "OwnedByMaker", INI::parseBool, ... }
             "OwnedByMaker" => {
-                let token_str = ini.get_next_token().ok_or(INIError::InvalidData)?;
+                let token_str = ini.get_next_token()?;
                 let val = INI::parse_bool(&token_str)?;
                 template.is_owned_by_maker = val;
             }
