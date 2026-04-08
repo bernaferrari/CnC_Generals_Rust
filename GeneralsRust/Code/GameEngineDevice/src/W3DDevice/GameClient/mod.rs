@@ -5,6 +5,8 @@ pub mod complete_sky_system;
 #[path = "Drawable/mod.rs"]
 pub mod drawable;
 pub mod fow_terrain_overlay;
+pub mod wthree_d_granny;
+pub mod height_map;
 #[path = "GUI/mod.rs"]
 pub mod gui;
 #[path = "Module/mod.rs"]
@@ -38,6 +40,8 @@ pub mod wthree_d_game_font;
 pub mod wthree_d_game_window;
 pub mod wthree_d_game_window_manager;
 pub mod wthree_d_gui_callbacks;
+pub mod wthree_d_in_game_ui;
+pub mod wthree_d_mouse;
 pub mod wthree_d_particle_sys;
 pub mod wthree_d_prop_buffer;
 pub mod wthree_d_road_buffer;
@@ -47,6 +51,7 @@ pub mod wthree_d_segmented_line;
 pub mod wthree_d_shader_manager;
 pub mod wthree_d_shadow;
 pub mod wthree_d_shroud;
+pub mod wthree_d_smudge;
 pub mod wthree_d_snow;
 pub mod wthree_d_terrain_background;
 pub mod wthree_d_terrain_tracks;

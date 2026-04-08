@@ -11,7 +11,7 @@
 
 use super::draw_module::*;
 use crate::common::*;
-use crate::helpers::{TheFXListStore, TheGameClient};
+use crate::helpers::{TheFXListStore, TheGameClient, TERRAIN_TREE_STATE};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -404,10 +404,14 @@ pub struct W3DTreeDraw {
     topple_velocity: Real,
     sink_amount: Real,
     last_world_position: Coord3D,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadows_enabled: bool,
 }
 
 impl W3DTreeDraw {
     pub fn new(data: W3DTreeDrawModuleData) -> Self {
+        let shadows_enabled = data.do_shadow;
         Self {
             data,
             drawable_id: 0,
@@ -420,6 +424,9 @@ impl W3DTreeDraw {
             topple_velocity: 0.0,
             sink_amount: 0.0,
             last_world_position: Coord3D::origin(),
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadows_enabled,
         }
     }
 
@@ -437,6 +444,16 @@ impl W3DTreeDraw {
         self.topple_velocity = 0.0;
         self.sink_amount = 0.0;
         self.last_world_position = Coord3D::origin();
+    }
+
+    fn unregister_tree(&mut self) {
+        if !self.tree_added || self.drawable_id == INVALID_ID {
+            return;
+        }
+        if let Ok(mut tree_map) = TERRAIN_TREE_STATE.lock() {
+            tree_map.remove(&(self.drawable_id as u32));
+        }
+        self.tree_added = false;
     }
 
     pub fn push_aside(&mut self, direction: &Coord3D) {
@@ -572,7 +589,10 @@ impl W3DTreeDraw {
 
 impl Module for W3DTreeDraw {
     fn on_drawable_bound_to_object(&mut self) {}
-    fn on_delete(&mut self) {}
+    fn on_delete(&mut self) {
+        self.unregister_tree();
+        self.reset_runtime_state();
+    }
     fn get_module_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
     }
@@ -592,6 +612,11 @@ impl Module for W3DTreeDraw {
 
 impl DrawModule for W3DTreeDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        if self.hidden || self.fully_obscured_by_shroud {
+            self.unregister_tree();
+            return;
+        }
+
         // Update animations
         self.update_push_aside();
         self.update_topple();
@@ -638,10 +663,23 @@ impl DrawModule for W3DTreeDraw {
         let _ = final_transform;
     }
 
-    fn set_shadows_enabled(&mut self, _enable: bool) {}
+    fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadows_enabled = enable;
+    }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
-    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+        if hidden {
+            self.unregister_tree();
+        }
+    }
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+        if fully_obscured {
+            self.unregister_tree();
+        }
+    }
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
@@ -650,7 +688,9 @@ impl DrawModule for W3DTreeDraw {
     ) {
         // Tree registration is handled in do_draw_module where current transform is available.
     }
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.unregister_tree();
+    }
 }
 
 impl Snapshotable for W3DTreeDraw {

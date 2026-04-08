@@ -119,13 +119,34 @@ impl ObjectDefinition {
                         entry.set_auto_choose_mask(2, Some(parse_u32_field(trimmed_value)?));
                     }
                     "PreferredAgainstPrimary" => {
-                        entry.set_preferred_against_mask(0, Some(parse_u32_field(trimmed_value)?));
+                        entry.set_preferred_against_mask(
+                            0,
+                            Some(
+                                crate::common::system::kind_of::KindOfMask::from_bits_retain(
+                                    parse_u32_field(trimmed_value)? as u128,
+                                ),
+                            ),
+                        );
                     }
                     "PreferredAgainstSecondary" => {
-                        entry.set_preferred_against_mask(1, Some(parse_u32_field(trimmed_value)?));
+                        entry.set_preferred_against_mask(
+                            1,
+                            Some(
+                                crate::common::system::kind_of::KindOfMask::from_bits_retain(
+                                    parse_u32_field(trimmed_value)? as u128,
+                                ),
+                            ),
+                        );
                     }
                     "PreferredAgainstTertiary" => {
-                        entry.set_preferred_against_mask(2, Some(parse_u32_field(trimmed_value)?));
+                        entry.set_preferred_against_mask(
+                            2,
+                            Some(
+                                crate::common::system::kind_of::KindOfMask::from_bits_retain(
+                                    parse_u32_field(trimmed_value)? as u128,
+                                ),
+                            ),
+                        );
                     }
                     "ShareWeaponReloadTime" | "ShareReloadTime" => {
                         entry.set_share_reload_time(Some(parse_bool_field(trimmed_value)?));

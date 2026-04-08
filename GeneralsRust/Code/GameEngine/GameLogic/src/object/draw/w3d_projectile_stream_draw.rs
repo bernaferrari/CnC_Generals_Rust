@@ -179,6 +179,9 @@ pub struct W3DProjectileStreamDraw {
     data: W3DProjectileStreamDrawModuleData,
     cached_lines: Vec<Vec<Coord3D>>,
     owner_id: Option<ObjectID>,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadows_enabled: bool,
 }
 
 impl W3DProjectileStreamDraw {
@@ -187,6 +190,9 @@ impl W3DProjectileStreamDraw {
             data,
             cached_lines: Vec::new(),
             owner_id: None,
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadows_enabled: false,
         }
     }
 
@@ -243,6 +249,22 @@ impl DrawModule for W3DProjectileStreamDraw {
         let Some(owner_id) = self.owner_id else {
             return;
         };
+
+        if self.hidden || self.fully_obscured_by_shroud {
+            self.cached_lines.clear();
+            if let Some(client) = TheGameClient::get() {
+                client.set_drawable_projectile_stream(
+                    owner_id,
+                    Vec::new(),
+                    self.data.texture_name.clone(),
+                    self.data.width,
+                    self.data.tile_factor,
+                    self.data.scroll_rate,
+                );
+            }
+            return;
+        }
+
         let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) else {
             return;
         };
@@ -281,10 +303,17 @@ impl DrawModule for W3DProjectileStreamDraw {
         }
     }
 
-    fn set_shadows_enabled(&mut self, _enable: bool) {}
+    fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadows_enabled = enable;
+    }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
-    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+    }
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+    }
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
@@ -292,7 +321,9 @@ impl DrawModule for W3DProjectileStreamDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.cached_lines.clear();
+    }
 }
 
 impl Snapshotable for W3DProjectileStreamDraw {

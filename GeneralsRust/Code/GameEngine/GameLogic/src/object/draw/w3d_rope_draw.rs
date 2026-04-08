@@ -97,6 +97,9 @@ pub struct W3DRopeDraw {
     cur_wobble_phase: Real,
     cur_z_offset: Real,
     segment_line_ids: Vec<Option<SceneLineId>>,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadows_enabled: bool,
 }
 
 impl W3DRopeDraw {
@@ -117,6 +120,9 @@ impl W3DRopeDraw {
             cur_wobble_phase: 0.0,
             cur_z_offset: 0.0,
             segment_line_ids: Vec::new(),
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadows_enabled: false,
         }
     }
 
@@ -151,6 +157,33 @@ impl W3DRopeDraw {
             z += each_len;
         }
     }
+
+    fn sync_segment_visibility(&mut self, visible: bool) {
+        for (i, seg) in self.segments.iter().enumerate() {
+            let Some(Some(id)) = self.segment_line_ids.get(i) else {
+                continue;
+            };
+            let desc = SceneLineDesc {
+                start: game_engine::common::system::geometry::Coord3D::new(
+                    seg.start.x,
+                    seg.start.y,
+                    seg.start.z,
+                ),
+                end: game_engine::common::system::geometry::Coord3D::new(
+                    seg.end.x, seg.end.y, seg.end.z,
+                ),
+                width: self.width,
+                color_r: self.color.r as f32 / 255.0,
+                color_g: self.color.g as f32 / 255.0,
+                color_b: self.color.b as f32 / 255.0,
+                opacity: 1.0,
+                texture_name: None,
+                tile_factor: 0.0,
+                visible,
+            };
+            update_scene_line(*id, &desc);
+        }
+    }
 }
 
 impl Module for W3DRopeDraw {
@@ -177,6 +210,11 @@ impl Module for W3DRopeDraw {
 
 impl DrawModule for W3DRopeDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        if self.hidden || self.fully_obscured_by_shroud {
+            self.sync_segment_visibility(false);
+            return;
+        }
+
         if self.segments.is_empty() {
             self.build_segments();
         }
@@ -250,10 +288,19 @@ impl DrawModule for W3DRopeDraw {
         }
     }
 
-    fn set_shadows_enabled(&mut self, _enable: bool) {}
+    fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadows_enabled = enable;
+    }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
-    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+        self.sync_segment_visibility(!hidden && !self.fully_obscured_by_shroud);
+    }
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+        self.sync_segment_visibility(!fully_obscured && !self.hidden);
+    }
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
@@ -261,7 +308,9 @@ impl DrawModule for W3DRopeDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.toss_segments();
+    }
 
     fn get_rope_draw_interface(&self) -> Option<&dyn RopeDrawInterface> {
         Some(self)

@@ -52,6 +52,7 @@ pub mod water;
 
 // Complete asset loading system
 pub mod assets;
+pub mod bink;
 pub mod color;
 pub mod credits;
 pub mod display_string;

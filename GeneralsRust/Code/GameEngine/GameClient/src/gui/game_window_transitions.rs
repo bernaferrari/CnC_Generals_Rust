@@ -1873,7 +1873,10 @@ impl Transition for CountUpTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {}
+    fn draw(&mut self) {
+        // C++ parity: CountUpTransition has no custom draw logic.
+        // The count is rendered by the window text (set via set_text() in update()).
+    }
 
     fn skip(&mut self) {
         if !self.is_finished {
@@ -2303,7 +2306,10 @@ impl Transition for TextOnFrameTransition {
         }
     }
 
-    fn draw(&mut self) {}
+    fn draw(&mut self) {
+        // C++ parity: TextOnFrameTransition has no custom draw logic.
+        // The window is shown/hidden in update(); the window system renders content.
+    }
 
     fn skip(&mut self) {
         if !self.is_finished {
@@ -2372,7 +2378,10 @@ impl Transition for ReverseSoundTransition {
         self.is_forward = false;
     }
 
-    fn draw(&mut self) {}
+    fn draw(&mut self) {
+        // C++ parity: ReverseSoundTransition has no custom draw logic.
+        // Only plays a sound event in update(); nothing to render.
+    }
 
     fn skip(&mut self) {
         if !self.is_finished {

@@ -11,7 +11,7 @@ use crate::common::{Bool, Coord3D, KindOf, ObjectID, Real, UnsignedInt, INVALID_
 use crate::damage::{
     DamageInfo, DamageInfoInput, DamageType as LogicDamageType, DeathType as LogicDeathType,
 };
-use crate::helpers::{TheGameLogic, TheTerrainLogic};
+use crate::helpers::{TheGameLogic, TheTerrainLogic, TheThingFactory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::weapon::{
     DamageType, DeathType, WeaponBonus, WeaponBonusConditionFlags, WeaponBonusField,
@@ -664,6 +664,36 @@ impl Weapon {
         self.template.get_attack_range(bonus)
     }
 
+    pub fn get_attack_distance(
+        &self,
+        source_id: ObjectID,
+        victim_id: Option<ObjectID>,
+        bonus: &WeaponBonus,
+    ) -> Real {
+        let mut range = self.get_attack_range(bonus);
+        let Some(source_arc) = OBJECT_REGISTRY.get_object(source_id) else {
+            return range;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return range;
+        };
+
+        if let Some(victim_id) = victim_id {
+            if let Some(victim_arc) = OBJECT_REGISTRY.get_object(victim_id) {
+                if let Ok(victim_guard) = victim_arc.read() {
+                    range += source_guard
+                        .get_geometry_info()
+                        .get_bounding_circle_radius();
+                    range += victim_guard
+                        .get_geometry_info()
+                        .get_bounding_circle_radius();
+                }
+            }
+        }
+
+        range
+    }
+
     /// Estimate damage this weapon would do to a target
     ///
     /// Matches C++ Weapon::estimateWeaponDamage() from Weapon.cpp line 2371
@@ -1038,6 +1068,29 @@ impl Weapon {
         dist_sqr <= attack_range * attack_range
     }
 
+    pub fn is_source_object_with_goal_position_within_attack_range(
+        &self,
+        _source_id: ObjectID,
+        goal_pos: &Coord3D,
+        target_id: Option<ObjectID>,
+        target_pos: Option<&Coord3D>,
+        bonus: &WeaponBonus,
+    ) -> bool {
+        if let Some(target_id) = target_id {
+            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+                return false;
+            };
+            let Ok(target_guard) = target_arc.read() else {
+                return false;
+            };
+            self.is_goal_pos_within_attack_range(goal_pos, target_guard.get_position(), bonus)
+        } else if let Some(target_pos) = target_pos {
+            self.is_goal_pos_within_attack_range(goal_pos, target_pos, bonus)
+        } else {
+            false
+        }
+    }
+
     /// Get remaining ammo (returns 0 if currently reloading)
     ///
     /// Matches C++ Weapon::getRemainingAmmo() from Weapon.h line 666
@@ -1179,6 +1232,211 @@ impl Weapon {
         self.when_we_can_fire_again = other.when_we_can_fire_again;
         self.when_last_reload_started = other.when_last_reload_started;
         self.status = other.status;
+    }
+
+    pub fn new_projectile_fired(
+        &mut self,
+        source_id: ObjectID,
+        projectile_id: ObjectID,
+        victim_id: Option<ObjectID>,
+        victim_pos: Option<&Coord3D>,
+    ) {
+        let stream_name = self.template.projectile_stream_name.trim();
+        if stream_name.is_empty() {
+            return;
+        }
+
+        let mut stream_arc = if self.projectile_stream_id != INVALID_ID {
+            TheGameLogic::find_object_by_id(self.projectile_stream_id)
+        } else {
+            None
+        };
+
+        if stream_arc.is_none() {
+            self.projectile_stream_id = INVALID_ID;
+            let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) else {
+                return;
+            };
+            let Ok(source_guard) = source_arc.read() else {
+                return;
+            };
+            let team_arc = source_guard
+                .get_controlling_player()
+                .and_then(|player| {
+                    player
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_default_team())
+                })
+                .or_else(|| source_guard.get_team());
+            let Some(team_arc) = team_arc else {
+                return;
+            };
+            let Ok(team_guard) = team_arc.read() else {
+                return;
+            };
+            let Some(template) = TheThingFactory::find_template(stream_name) else {
+                return;
+            };
+            let Ok(factory) = TheThingFactory::get() else {
+                return;
+            };
+            let Ok(stream_obj) = factory.new_object(template, &team_guard) else {
+                return;
+            };
+            self.projectile_stream_id = stream_obj
+                .read()
+                .ok()
+                .map(|guard| guard.get_id())
+                .unwrap_or(INVALID_ID);
+            stream_arc = Some(stream_obj);
+        }
+
+        let Some(stream_arc) = stream_arc else {
+            return;
+        };
+        let Ok(mut stream_guard) = stream_arc.write() else {
+            return;
+        };
+        let Some(module) = stream_guard.find_update_module("ProjectileStreamUpdate") else {
+            return;
+        };
+        let _ = module.with_module_downcast::<crate::object::behavior::projectile_stream_update::ProjectileStreamUpdateModule, _, _>(|module| {
+            let update = module.behavior_mut();
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
+                if let Ok(source_guard) = source_arc.read() {
+                    update.set_position(source_guard.get_position());
+                }
+            }
+            update.add_projectile(source_id, projectile_id, victim_id.unwrap_or(INVALID_ID), victim_pos);
+        });
+    }
+
+    pub fn create_laser(
+        &self,
+        source_id: ObjectID,
+        victim_id: Option<ObjectID>,
+        victim_pos: &Coord3D,
+    ) {
+        let laser_name = self.template.laser_name.trim();
+        if laser_name.is_empty() {
+            return;
+        }
+        let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) else {
+            return;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return;
+        };
+        let team_arc = source_guard
+            .get_controlling_player()
+            .and_then(|player| {
+                player
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_default_team())
+            })
+            .or_else(|| source_guard.get_team());
+        let Some(team_arc) = team_arc else {
+            return;
+        };
+        let Ok(team_guard) = team_arc.read() else {
+            return;
+        };
+        let Some(template) = TheThingFactory::find_template(laser_name) else {
+            return;
+        };
+        let Ok(factory) = TheThingFactory::get() else {
+            return;
+        };
+        let Ok(laser_arc) = factory.new_object(template, &team_guard) else {
+            return;
+        };
+        let Ok(mut laser_guard) = laser_arc.write() else {
+            return;
+        };
+        let _ = laser_guard.set_position(source_guard.get_position());
+        let Some(module) = laser_guard.find_update_module("LaserUpdate") else {
+            return;
+        };
+        let _ = module
+            .with_module_downcast::<crate::object::behavior::laser_update::LaserUpdateModule, _, _>(
+                |module| {
+                    if let Some(victim_id) = victim_id {
+                        module.behavior_mut().activate_laser(victim_id);
+                    }
+                    let _ = victim_pos;
+                },
+            );
+    }
+
+    pub fn process_request_assistance(
+        &self,
+        requesting_object_id: ObjectID,
+        victim_object_id: ObjectID,
+    ) {
+        let Some(requesting_arc) = TheGameLogic::find_object_by_id(requesting_object_id) else {
+            return;
+        };
+        let Ok(requesting_guard) = requesting_arc.read() else {
+            return;
+        };
+        let Some(player_arc) = requesting_guard.get_controlling_player() else {
+            return;
+        };
+        let template_name = requesting_guard.get_template_name().to_string();
+        let request_dist_sqr = self.template.get_request_assist_range().powi(2);
+        let requesting_pos = *requesting_guard.get_position();
+        drop(requesting_guard);
+
+        let Ok(player_guard) = player_arc.read() else {
+            return;
+        };
+        for object_id in player_guard.get_all_objects() {
+            if object_id == requesting_object_id {
+                continue;
+            }
+            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.get_template_name() != template_name {
+                continue;
+            }
+            let dx = object_guard.get_position().x - requesting_pos.x;
+            let dy = object_guard.get_position().y - requesting_pos.y;
+            if dx * dx + dy * dy > request_dist_sqr {
+                continue;
+            }
+            for behavior in object_guard.get_behavior_modules() {
+                if let Ok(mut behavior_guard) = behavior.lock() {
+                    let Some(assist) = behavior_guard.get_assisted_targeting_update_interface()
+                    else {
+                        continue;
+                    };
+                    if assist.is_free_to_assist() {
+                        assist.assist_attack(requesting_object_id, victim_object_id);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn get_firing_line_of_sight_origin(&self, source_id: ObjectID) -> Option<Coord3D> {
+        let source_arc = OBJECT_REGISTRY.get_object(source_id)?;
+        let source_guard = source_arc.read().ok()?;
+        let pos = source_guard.get_position();
+        Some(Coord3D::new(
+            pos.x,
+            pos.y,
+            pos.z
+                + source_guard
+                    .get_geometry_info()
+                    .get_max_height_above_position(),
+        ))
     }
 
     /// Fire weapon as projectile detonation (when projectile hits)

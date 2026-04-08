@@ -302,6 +302,12 @@ impl WeaponTemplate {
         self.attack_range
     }
 
+    /// Get request-assist range — how far this weapon can ask allies for help.
+    /// PARITY_NOTE: matches C++ WeaponTemplate::getRequestAssistRange()
+    pub fn get_request_assist_range(&self) -> f32 {
+        self.request_assist_range
+    }
+
     /// Get minimum attack range with undersize applied
     pub fn get_minimum_attack_range(&self) -> f32 {
         const PATHFIND_CELL_SIZE: f32 = 10.0;

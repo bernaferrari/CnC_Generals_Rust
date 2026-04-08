@@ -506,8 +506,7 @@ impl ModuleInfo {
 /// Per-unit sound map type
 pub type PerUnitSoundMap = HashMap<AsciiString, AudioEventRts>;
 
-/// Per-unit FX map type (using Any for FXList placeholder)
-pub type PerUnitFxMap = HashMap<AsciiString, Option<Arc<dyn std::any::Any + Send + Sync>>>;
+pub type PerUnitFxMap = HashMap<AsciiString, Option<Arc<crate::common::ini::ini_fx_list::FXList>>>;
 
 /// Weapon template set placeholder
 #[derive(Debug, Clone)]
@@ -519,7 +518,7 @@ pub struct WeaponTemplateSet {
     /// Command source mask per slot mirroring auto-choose rules.
     auto_choose_masks: [u32; WEAPON_SLOT_COUNT],
     /// Preferred target kind mask per slot (KindOfMaskType placeholder).
-    preferred_against_masks: [u32; WEAPON_SLOT_COUNT],
+    preferred_against_masks: [crate::common::system::kind_of::KindOfMask; WEAPON_SLOT_COUNT],
     /// Whether reload times are shared across all slots in this set.
     is_reload_time_shared: bool,
     /// Whether weapon locks persist when switching to similar sets.
@@ -533,7 +532,8 @@ impl WeaponTemplateSet {
             types: create_weapon_set_flags(),
             weapon_template_names: [None, None, None],
             auto_choose_masks: [u32::MAX; WEAPON_SLOT_COUNT],
-            preferred_against_masks: [0; WEAPON_SLOT_COUNT],
+            preferred_against_masks: [crate::common::system::kind_of::KindOfMask::empty();
+                WEAPON_SLOT_COUNT],
             is_reload_time_shared: false,
             is_weapon_lock_shared_across_sets: false,
         }
@@ -544,7 +544,8 @@ impl WeaponTemplateSet {
         self.types.clear();
         self.weapon_template_names = [None, None, None];
         self.auto_choose_masks = [u32::MAX; WEAPON_SLOT_COUNT];
-        self.preferred_against_masks = [0; WEAPON_SLOT_COUNT];
+        self.preferred_against_masks =
+            [crate::common::system::kind_of::KindOfMask::empty(); WEAPON_SLOT_COUNT];
         self.is_reload_time_shared = false;
         self.is_weapon_lock_shared_across_sets = false;
     }
@@ -593,12 +594,22 @@ impl WeaponTemplateSet {
     }
 
     /// Retrieve the preferred target mask for a slot.
-    pub fn preferred_against_mask(&self, slot: usize) -> u32 {
-        self.preferred_against_masks.get(slot).copied().unwrap_or(0)
+    pub fn preferred_against_mask(
+        &self,
+        slot: usize,
+    ) -> crate::common::system::kind_of::KindOfMask {
+        *self
+            .preferred_against_masks
+            .get(slot)
+            .unwrap_or(&crate::common::system::kind_of::KindOfMask::empty())
     }
 
     /// Define the preferred target mask for a slot.
-    pub fn set_preferred_against_mask(&mut self, slot: usize, mask: u32) {
+    pub fn set_preferred_against_mask(
+        &mut self,
+        slot: usize,
+        mask: crate::common::system::kind_of::KindOfMask,
+    ) {
         if let Some(entry) = self.preferred_against_masks.get_mut(slot) {
             *entry = mask;
         } else {
@@ -664,7 +675,8 @@ pub struct WeaponSetDefinition {
     conditions: Vec<String>,
     weapon_names: [Option<AsciiString>; WEAPON_SLOT_COUNT],
     auto_choose_masks: [Option<u32>; WEAPON_SLOT_COUNT],
-    preferred_against_masks: [Option<u32>; WEAPON_SLOT_COUNT],
+    preferred_against_masks:
+        [Option<crate::common::system::kind_of::KindOfMask>; WEAPON_SLOT_COUNT],
     share_reload_time: Option<bool>,
     share_weapon_lock: Option<bool>,
 }
@@ -709,7 +721,11 @@ impl WeaponSetDefinition {
         }
     }
 
-    pub fn set_preferred_against_mask(&mut self, slot: usize, mask: Option<u32>) {
+    pub fn set_preferred_against_mask(
+        &mut self,
+        slot: usize,
+        mask: Option<crate::common::system::kind_of::KindOfMask>,
+    ) {
         if slot < WEAPON_SLOT_COUNT {
             self.preferred_against_masks[slot] = mask;
         } else {
@@ -770,7 +786,8 @@ struct WeaponSetDefinitionBuilder {
     conditions: Vec<String>,
     weapon_names: [Option<AsciiString>; WEAPON_SLOT_COUNT],
     auto_choose_masks: [Option<u32>; WEAPON_SLOT_COUNT],
-    preferred_against_masks: [Option<u32>; WEAPON_SLOT_COUNT],
+    preferred_against_masks:
+        [Option<crate::common::system::kind_of::KindOfMask>; WEAPON_SLOT_COUNT],
     share_reload_time: Option<bool>,
     share_weapon_lock: Option<bool>,
 }
@@ -803,13 +820,28 @@ impl WeaponSetDefinitionBuilder {
                 self.auto_choose_masks[2] = Some(parse_u32_field(trimmed)?);
             }
             "PreferredAgainstPrimary" => {
-                self.preferred_against_masks[0] = Some(parse_u32_field(trimmed)?);
+                self.preferred_against_masks[0] = Some(
+                    crate::common::system::kind_of::KindOfMask::from_bits_retain(parse_u32_field(
+                        trimmed,
+                    )?
+                        as u128),
+                );
             }
             "PreferredAgainstSecondary" => {
-                self.preferred_against_masks[1] = Some(parse_u32_field(trimmed)?);
+                self.preferred_against_masks[1] = Some(
+                    crate::common::system::kind_of::KindOfMask::from_bits_retain(parse_u32_field(
+                        trimmed,
+                    )?
+                        as u128),
+                );
             }
             "PreferredAgainstTertiary" => {
-                self.preferred_against_masks[2] = Some(parse_u32_field(trimmed)?);
+                self.preferred_against_masks[2] = Some(
+                    crate::common::system::kind_of::KindOfMask::from_bits_retain(parse_u32_field(
+                        trimmed,
+                    )?
+                        as u128),
+                );
             }
             _ => {
                 return Err(format!("Unrecognised weapon set field '{}'", field));
@@ -1010,8 +1042,8 @@ pub struct ThingTemplate {
     hijack_guard: bool,
 
     // Visual properties
-    selected_portrait_image: Option<Arc<dyn std::any::Any + Send + Sync>>, // Image placeholder
-    button_image: Option<Arc<dyn std::any::Any + Send + Sync>>,            // Image placeholder
+    selected_portrait_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
+    button_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
     selected_portrait_image_name: AsciiString,
     button_image_name: AsciiString,
     upgrade_cameo_upgrade_names: [AsciiString; MAX_UPGRADE_CAMEO_UPGRADES],
@@ -1472,7 +1504,7 @@ impl ThingTemplate {
     pub fn get_per_unit_fx(
         &self,
         fx_name: &AsciiString,
-    ) -> Option<&Arc<dyn std::any::Any + Send + Sync>> {
+    ) -> Option<&Arc<crate::common::ini::ini_fx_list::FXList>> {
         self.per_unit_fx.get(fx_name).and_then(|fx| fx.as_ref())
     }
 
@@ -1846,14 +1878,18 @@ impl ThingTemplate {
     }
 
     // Calculation methods for build cost/time with player bonuses
-    pub fn calc_cost_to_build(&self, _player: Option<&dyn std::any::Any>) -> i32 {
-        // This would apply player handicaps and faction modifiers
+    pub fn calc_cost_to_build(
+        &self,
+        _player: Option<&dyn crate::common::thing::module::Thing>,
+    ) -> i32 {
         self.build_cost as i32
     }
 
-    pub fn calc_time_to_build(&self, _player: Option<&dyn std::any::Any>) -> i32 {
-        // This would apply player handicaps, energy penalties, etc.
-        (self.build_time * 30.0) as i32 // Assuming 30 logic frames per second
+    pub fn calc_time_to_build(
+        &self,
+        _player: Option<&dyn crate::common::thing::module::Thing>,
+    ) -> i32 {
+        (self.build_time * 30.0) as i32
     }
 
     pub fn is_buildable_item(&self) -> bool {
