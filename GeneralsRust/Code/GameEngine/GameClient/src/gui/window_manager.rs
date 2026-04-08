@@ -15,8 +15,8 @@ use std::thread_local;
 use std::time::Instant;
 
 use super::gadgets::{
-    ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton, RadioButtonGroup,
-    StaticText, TabControl, TextEntry, VerticalSlider,
+    CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
+    RadioButtonGroup, StaticText, TabControl, TextEntry, VerticalSlider,
 };
 use super::game_window::*;
 use super::game_window_transitions::GameWindowTransitionsHandler;
@@ -3797,6 +3797,355 @@ impl WindowManager {
         for child in &children {
             self.apply_to_window_hierarchy(child, func);
         }
+    }
+    // -----------------------------------------------------------------------
+    // Gadget factory methods
+    // -----------------------------------------------------------------------
+
+    /// PARITY_NOTE: C++ uses `TheWindowManager->getMessageBox()` with explicit
+    /// yes/no button callbacks. This Rust version creates the window directly
+    /// and wires up the callbacks via user data, matching the observable behavior.
+    pub fn gogo_message_box(
+        &mut self,
+        title: &str,
+        body: &str,
+        yes_cb: Option<Box<dyn Fn()>>,
+        no_cb: Option<Box<dyn Fn()>>,
+    ) -> Option<WindowId> {
+        let (screen_w, screen_h) = self.screen_size;
+        let box_w = (screen_w as f32 * 0.4) as i32;
+        let box_h = (screen_h as f32 * 0.25) as i32;
+        let box_x = (screen_w - box_w) / 2;
+        let box_y = (screen_h - box_h) / 2;
+
+        let window = self.create_window(None, box_x, box_y, box_w, box_h).ok()?;
+        let window_id = window.borrow().get_id();
+
+        {
+            let mut wm = window.borrow_mut();
+            wm.set_name("MessageBox");
+            wm.set_text(body);
+            wm.instance_data_mut().text_label = title.to_string();
+            wm.set_status_exact(
+                WindowStatus::ACTIVE
+                    | WindowStatus::ENABLED
+                    | WindowStatus::ABOVE
+                    | WindowStatus::NO_FOCUS,
+            );
+            if let Some(cb) = yes_cb {
+                wm.set_user_data(cb);
+            }
+            wm.set_system_callback(default_system_callback);
+            wm.set_draw_callback(default_draw_callback);
+        }
+
+        let _ = self.set_modal(window);
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_push_button(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_PUSH_BUTTON;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::PushButton(PushButton::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_checkbox(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_CHECK_BOX;
+            let gadget_id = window_id as u32;
+            let box_size = size.0.min(size.1).max(0) as u32;
+            wm.set_widget(WindowWidget::CheckBox(CheckBox::new(
+                gadget_id, pos.0, pos.1, box_size,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_radio_button(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_RADIO_BUTTON;
+            let gadget_id = window_id as u32;
+            let group = RadioButtonGroup::new(gadget_id);
+            let btn_size = size.0.min(size.1).max(0) as u32;
+            wm.set_widget(WindowWidget::RadioButton(RadioButton::new(
+                gadget_id, pos.0, pos.1, btn_size, group,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_tab_control(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_TAB_CONTROL;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::TabControl(TabControl::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_list_box(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_SCROLL_LISTBOX;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::ListBox(ListBox::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_slider(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_HORZ_SLIDER;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::HorizontalSlider(HorizontalSlider::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_progress_bar(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_PROGRESS_BAR;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::ProgressBar(ProgressBar::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_static_text(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_STATIC_TEXT;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::StaticText(StaticText::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_text_entry(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_ENTRY_FIELD;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::TextEntry(TextEntry::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
+    }
+
+    pub fn gogo_gadget_combo_box(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        pos: (i32, i32),
+        size: (i32, i32),
+    ) -> Option<WindowId> {
+        let window = self
+            .create_window(parent, pos.0, pos.1, size.0, size.1)
+            .ok()?;
+        let window_id = window.borrow().get_id();
+        {
+            let mut wm = window.borrow_mut();
+            wm.instance_data_mut().style = GWS_COMBO_BOX;
+            let gadget_id = window_id as u32;
+            wm.set_widget(WindowWidget::ComboBox(ComboBox::new(
+                gadget_id,
+                pos.0,
+                pos.1,
+                size.0.max(0) as u32,
+                size.1.max(0) as u32,
+            )));
+            wm.set_system_callback(default_system_callback);
+            wm.set_input_callback(default_input_callback);
+        }
+        {
+            let mut wm = window.borrow_mut();
+            self.apply_default_draw_callback(&mut wm);
+        }
+        Some(window_id)
     }
 }
 
