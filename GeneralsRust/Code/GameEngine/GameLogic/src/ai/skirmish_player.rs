@@ -55,6 +55,33 @@ pub struct AISkirmishPlayer {
     enemy_air_count: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThreatType {
+    #[default]
+    None,
+    Infantry,
+    Vehicle,
+    Air,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResponseType {
+    #[default]
+    Expand,
+    CounterAttack,
+    DefensiveBuild,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ThreatAssessment {
+    pub threat_level: f32,
+    pub dominant_type: ThreatType,
+    pub recommended_response: ResponseType,
+    pub infantry_count: u32,
+    pub vehicle_count: u32,
+    pub aircraft_count: u32,
+}
+
 impl AISkirmishPlayer {
     pub fn new(player_id: u32) -> Self {
         let skirmish_player = Self {
@@ -1752,5 +1779,241 @@ impl AISkirmishPlayer {
         structure_id: ObjectID,
     ) -> Result<(), crate::ai::AiError> {
         self.base.on_structure_produced(factory_id, structure_id)
+    }
+
+    /// Pick the next build order based on game state, difficulty, and enemy composition.
+    /// Returns the thing template name of the structure to build, or None if nothing to build.
+    /// PARITY_NOTE: C++ picks from the INI BuildList in sequence. This mirrors the
+    /// sequential scan with difficulty-weighted priority adjustments.
+    pub fn pick_build_order(&self) -> Option<String> {
+        let player_arc = self.base.get_player()?;
+        let player_guard = player_arc.read().ok()?;
+        let difficulty = self.base.get_ai_difficulty();
+
+        let mut build_info = player_guard.get_build_list();
+        let mut best_name: Option<String> = None;
+        let mut best_priority: i32 = i32::MIN;
+
+        while let Some(info) = build_info {
+            if info.get_object_id() != crate::common::types::INVALID_ID {
+                build_info = info.get_next();
+                continue;
+            }
+
+            let name = info.get_template_name().to_string();
+            let mut priority: i32 = if info.is_priority_build() { 10 } else { 0 };
+
+            match difficulty {
+                GameDifficulty::Hard => priority += 2,
+                GameDifficulty::Normal => priority += 1,
+                GameDifficulty::Easy => priority -= 1,
+                _ => {}
+            }
+
+            let enemy_infantry_heavy = self.enemy_infantry_count > self.enemy_vehicle_count
+                && self.enemy_infantry_count > self.enemy_air_count;
+            let enemy_vehicle_heavy = self.enemy_vehicle_count > self.enemy_infantry_count
+                && self.enemy_vehicle_count > self.enemy_air_count;
+            let enemy_air_heavy = self.enemy_air_count > self.enemy_infantry_count
+                && self.enemy_air_count > self.enemy_vehicle_count;
+
+            if enemy_infantry_heavy && name.contains("AntiInfantry") {
+                priority += 3;
+            }
+            if enemy_vehicle_heavy && name.contains("AntiTank") {
+                priority += 3;
+            }
+            if enemy_air_heavy && name.contains("AntiAir") {
+                priority += 3;
+            }
+
+            if priority > best_priority {
+                best_priority = priority;
+                best_name = Some(name);
+            }
+
+            build_info = info.get_next();
+        }
+
+        best_name
+    }
+
+    /// Evaluate the current threat level from enemies.
+    /// Returns a threat assessment with threat_level (0.0..1.0) and recommended_response.
+    /// PARITY_NOTE: C++ evaluates threat based on nearby enemy units detected via
+    /// partition manager spatial queries. This mirrors that logic with distance-based
+    /// threat weighting and unit type multipliers.
+    pub fn evaluate_threat(&self) -> ThreatAssessment {
+        let Some(player_arc) = self.base.get_player() else {
+            return ThreatAssessment::default();
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return ThreatAssessment::default();
+        };
+
+        let base_center = match self.base.get_base_center() {
+            Some(c) => c,
+            None => return ThreatAssessment::default(),
+        };
+
+        let mut total_threat: f32 = 0.0;
+        let mut nearby_infantry: u32 = 0;
+        let mut nearby_vehicles: u32 = 0;
+        let mut nearby_aircraft: u32 = 0;
+        let threat_radius: f32 = 500.0;
+
+        if let Some(partition_mgr) = ThePartitionManager::get() {
+            let objects_in_range = partition_mgr.get_objects_in_range(&base_center, threat_radius);
+
+            let Some(my_team_arc) = player_guard.get_default_team() else {
+                return ThreatAssessment::default();
+            };
+            let Ok(my_team) = my_team_arc.read() else {
+                return ThreatAssessment::default();
+            };
+
+            for obj_id in &objects_in_range {
+                let Some(obj_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id)
+                else {
+                    continue;
+                };
+                let Ok(obj_guard) = obj_arc.read() else {
+                    continue;
+                };
+
+                let Some(obj_team_arc) = obj_guard.get_team() else {
+                    continue;
+                };
+                let Ok(obj_team) = obj_team_arc.read() else {
+                    continue;
+                };
+
+                if my_team.get_relationship(&obj_team) != Relationship::Enemies {
+                    continue;
+                }
+
+                let pos = obj_guard.get_position();
+                let dx = pos.x - base_center.x;
+                let dy = pos.y - base_center.y;
+                let dist = (dx * dx + dy * dy).sqrt().max(1.0);
+                let proximity_weight = 1.0 - (dist / threat_radius).min(1.0);
+
+                if obj_guard.is_kind_of(KindOf::Infantry) {
+                    nearby_infantry += 1;
+                    total_threat += 1.0 * proximity_weight;
+                } else if obj_guard.is_kind_of(KindOf::Vehicle) {
+                    nearby_vehicles += 1;
+                    total_threat += 2.0 * proximity_weight;
+                } else if obj_guard.is_kind_of(KindOf::Aircraft) {
+                    nearby_aircraft += 1;
+                    total_threat += 2.5 * proximity_weight;
+                }
+            }
+        }
+
+        let threat_level = (total_threat / 50.0).min(1.0);
+
+        let dominant_type =
+            if nearby_aircraft >= nearby_infantry && nearby_aircraft >= nearby_vehicles {
+                ThreatType::Air
+            } else if nearby_vehicles >= nearby_infantry {
+                ThreatType::Vehicle
+            } else if nearby_infantry > 0 {
+                ThreatType::Infantry
+            } else {
+                ThreatType::None
+            };
+
+        let recommended_response = if threat_level > 0.7 {
+            ResponseType::DefensiveBuild
+        } else if threat_level > 0.4 {
+            ResponseType::CounterAttack
+        } else {
+            ResponseType::Expand
+        };
+
+        ThreatAssessment {
+            threat_level,
+            dominant_type,
+            recommended_response,
+            infantry_count: nearby_infantry,
+            vehicle_count: nearby_vehicles,
+            aircraft_count: nearby_aircraft,
+        }
+    }
+
+    /// Choose the best attack target based on distance, vulnerability, and strategic value.
+    /// Returns (player_index, target_position) of the best target.
+    /// PARITY_NOTE: C++ selects the nearest vulnerable enemy base via player list
+    /// iteration with base-center distance comparison. This mirrors that logic with
+    /// additional strategic weighting for weakened enemies.
+    pub fn choose_attack_target(&self) -> Option<(i32, Coord3D)> {
+        let Some(me_arc) = self.base.get_player() else {
+            return None;
+        };
+        let Ok(me_guard) = me_arc.read() else {
+            return None;
+        };
+        let my_center = self.base.get_base_center()?;
+
+        let Ok(player_list) = ThePlayerList().read() else {
+            return None;
+        };
+
+        let mut best_target: Option<(i32, Coord3D)> = None;
+        let mut best_score: f32 = f32::MAX;
+
+        for player_arc in player_list.iter() {
+            let Ok(player_guard) = player_arc.read() else {
+                continue;
+            };
+
+            let Some(their_team_arc) = player_guard.get_default_team() else {
+                continue;
+            };
+            let Ok(their_team) = their_team_arc.read() else {
+                continue;
+            };
+            let Some(my_team_arc) = me_guard.get_default_team() else {
+                continue;
+            };
+            let Ok(my_team) = my_team_arc.read() else {
+                continue;
+            };
+
+            if my_team.get_relationship(&their_team) != Relationship::Enemies {
+                continue;
+            }
+
+            let has_buildings = player_guard.has_any_build_facility();
+            let has_units = player_guard.has_any_units();
+            if !has_buildings && !has_units {
+                continue;
+            }
+
+            let enemy_center = self
+                .get_enemy_base_center(&player_guard)
+                .unwrap_or(my_center);
+
+            let dx = enemy_center.x - my_center.x;
+            let dy = enemy_center.y - my_center.y;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            let mut score = dist;
+
+            if !has_buildings {
+                score *= 2.0;
+            }
+            if !has_units {
+                score *= 1.5;
+            }
+
+            if score < best_score {
+                best_score = score;
+                best_target = Some((player_guard.get_player_index(), enemy_center));
+            }
+        }
+
+        best_target
     }
 }

@@ -567,6 +567,23 @@ impl PlayerSelection {
         self.control_groups[group_index].objects.len()
     }
 
+    /// Get control group object IDs. Returns empty slice for invalid index.
+    pub fn get_control_group_objects(&self, group_index: usize) -> &[ObjectID] {
+        if group_index >= MAX_CONTROL_GROUPS {
+            return &[];
+        }
+        &self.control_groups[group_index].objects
+    }
+
+    /// Set control group contents directly (used for save/load xfer restore).
+    pub fn set_control_group_objects(&mut self, group_index: usize, objects: Vec<ObjectID>) {
+        if group_index >= MAX_CONTROL_GROUPS {
+            return;
+        }
+        self.control_groups[group_index].objects = objects;
+        self.control_groups[group_index].last_update_frame = self.current_frame;
+    }
+
     /// Select matching units (double-click behavior)
     pub fn select_matching_units(
         &mut self,

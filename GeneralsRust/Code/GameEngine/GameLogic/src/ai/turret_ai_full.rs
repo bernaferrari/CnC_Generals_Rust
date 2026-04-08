@@ -3,9 +3,9 @@
 // Author: Steven Johnson, April 2002
 // Rust port: Faithful translation maintaining all C++ logic
 
-use crate::common::{Coord3D, ObjectID, Real, Int, Bool, UnsignedInt};
-use crate::object::Object;
+use crate::common::{Bool, Coord3D, Int, ObjectID, Real, UnsignedInt};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::Object;
 use crate::weapon::{Weapon, WeaponSlotType};
 use std::f32::consts::PI;
 
@@ -350,7 +350,8 @@ impl TurretAI {
         };
 
         // Create state machine
-        let machine = TurretStateMachine::new(&mut turret as *mut TurretAI, owner, "TurretAI".to_string());
+        let machine =
+            TurretStateMachine::new(&mut turret as *mut TurretAI, owner, "TurretAI".to_string());
         turret.state_machine = Some(Box::new(machine));
 
         turret
@@ -506,7 +507,12 @@ impl TurretAI {
     }
 
     /// Turn toward angle
-    pub fn turn_towards_angle(&mut self, desired_angle: Real, rate_modifier: Real, rel_thresh: Real) -> Bool {
+    pub fn turn_towards_angle(
+        &mut self,
+        desired_angle: Real,
+        rate_modifier: Real,
+        rel_thresh: Real,
+    ) -> Bool {
         let turn_rate = self.data.turn_rate * rate_modifier;
 
         let mut angle_diff = desired_angle - self.angle;
@@ -711,7 +717,12 @@ impl TurretAI {
     }
 
     // Friend functions for state machine
-    pub fn friend_turn_towards_angle(&mut self, desired_angle: Real, rate_modifier: Real, rel_thresh: Real) -> Bool {
+    pub fn friend_turn_towards_angle(
+        &mut self,
+        desired_angle: Real,
+        rate_modifier: Real,
+        rel_thresh: Real,
+    ) -> Bool {
         self.turn_towards_angle(desired_angle, rate_modifier, rel_thresh)
     }
 
@@ -739,9 +750,9 @@ impl TurretAI {
 /// Update sleep time for module updates
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpdateSleepTime {
-    Sleep0,   // Update every frame
-    Sleep30,  // Update every 30 frames
-    Sleep60,  // Update every 60 frames
+    Sleep0,  // Update every frame
+    Sleep30, // Update every 30 frames
+    Sleep60, // Update every 60 frames
 }
 
 /// Notify weapon fired interface
@@ -773,4 +784,39 @@ impl NotifyWeaponFiredInterface for TurretAI {
     fn get_original_victim_pos(&self) -> Option<&Coord3D> {
         None // Turret doesn't track original position
     }
+}
+
+/// Standalone turret AI update function.
+/// PARITY_NOTE: C++ TurretAI::updateTurretAI() is a member function on TurretAI.
+/// This standalone wrapper provides the (turret, obj, frame) signature used by the
+/// game loop, delegating to the member function after performing per-frame setup
+/// like target acquisition scanning when no target is set.
+pub fn turret_ai_update(turret: &mut TurretAI, obj: &Object, frame: u32) -> UpdateSleepTime {
+    if !turret.is_turret_enabled() {
+        return UpdateSleepTime::Sleep30;
+    }
+
+    if turret.has_target() {
+        return turret.update_turret_ai();
+    }
+
+    let Some(owner_arc) = OBJECT_REGISTRY.get_object(turret.get_owner()) else {
+        return UpdateSleepTime::Sleep30;
+    };
+    let Ok(owner_guard) = owner_arc.read() else {
+        return UpdateSleepTime::Sleep30;
+    };
+
+    let my_pos = owner_guard.get_position();
+    let scan_range = owner_guard.get_vision_range();
+
+    let candidate = OBJECT_REGISTRY.find_closest_enemy(&owner_guard, my_pos, scan_range);
+
+    if let Some((enemy_id, enemy_pos)) = candidate {
+        turret.set_turret_target_object(Some(enemy_id), false);
+    } else if turret.is_turret_in_natural_position() {
+        return UpdateSleepTime::Sleep30;
+    }
+
+    turret.update_turret_ai()
 }
