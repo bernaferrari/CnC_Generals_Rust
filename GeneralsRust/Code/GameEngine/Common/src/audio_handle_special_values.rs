@@ -1,2 +1,2 @@
-// Auto-generated C++ compatibility shim
-pub use crate::audio::*;
+pub const AUDIOHANDLE_INVALID: i32 = -1;
+pub const AUDIOHANDLE_ALL_PENDING: i32 = -2;
