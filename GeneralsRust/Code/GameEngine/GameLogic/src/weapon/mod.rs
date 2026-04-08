@@ -4044,6 +4044,128 @@ impl Weapon {
         }
     }
 
+    /// Compute whether the weapon is aimed at the target position.
+    /// Matches C++ turret-aiming logic — checks if facing direction is within `aimDelta` of target.
+    /// Contact weapons always return `true`.
+    pub fn compute_aim(&self, source_id: ObjectId, target_pos: &Coord3D) -> bool {
+        if self.is_contact_weapon() {
+            return true;
+        }
+
+        let aim_delta = self.template.aim_delta;
+        if aim_delta <= 0.0 {
+            return true;
+        }
+
+        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id)
+        else {
+            return false;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return false;
+        };
+        let source_pos = source_guard.get_position();
+
+        let dx = target_pos.x - source_pos.x;
+        let dy = target_pos.y - source_pos.y;
+        if dx.abs() < f32::EPSILON && dy.abs() < f32::EPSILON {
+            return true;
+        }
+        let angle_to_target = dy.atan2(dx);
+        let current_angle = source_guard.get_orientation();
+
+        let mut angle_diff = angle_to_target - current_angle;
+        if angle_diff > std::f32::consts::PI {
+            angle_diff -= 2.0 * std::f32::consts::PI;
+        } else if angle_diff < -std::f32::consts::PI {
+            angle_diff += 2.0 * std::f32::consts::PI;
+        }
+
+        angle_diff.abs() <= aim_delta
+    }
+
+    /// Apply damage to a target object.
+    /// Matches C++ `Object::attemptDamage(&DamageInfo)`. Armor/FX/death handled by body module.
+    /// Returns actual damage dealt after armor, or 0.0 on failure.
+    pub fn deal_damage(
+        &self,
+        target_id: ObjectId,
+        amount: f32,
+        damage_type: crate::damage::DamageType,
+        source_id: Option<ObjectId>,
+    ) -> f32 {
+        let Some(target_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+        else {
+            return 0.0;
+        };
+        let Ok(mut target_guard) = target_arc.write() else {
+            return 0.0;
+        };
+        if target_guard.is_destroyed() {
+            return 0.0;
+        }
+
+        let mut damage_info = crate::damage::DamageInfo::with_simple(
+            amount,
+            source_id.unwrap_or(INVALID_OBJECT_ID),
+            damage_type,
+            crate::damage::DeathType::Normal,
+        );
+
+        if let Some(src_id) = source_id {
+            if let Some(src_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(src_id) {
+                if let Ok(src_guard) = src_arc.read() {
+                    if let Some(player) = src_guard.get_controlling_player() {
+                        if let Ok(player_guard) = player.read() {
+                            damage_info.input.source_player_mask = player_guard.get_player_mask();
+                        }
+                    }
+                }
+            }
+        }
+        damage_info.sync_from_input();
+
+        match target_guard.attempt_damage_with_return(&mut damage_info) {
+            Ok(actual) => actual,
+            Err(_) => 0.0,
+        }
+    }
+
+    /// Enable or disable a weapon bonus condition on the owning object.
+    /// Matches C++ `Object::setWeaponBonusCondition(WeaponBonusConditionType, Bool)`.
+    pub fn set_weapon_bonus_condition(
+        &self,
+        source_id: ObjectId,
+        condition: crate::common::types::WeaponBonusConditionType,
+        enabled: bool,
+    ) {
+        let Some(source_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id)
+        else {
+            return;
+        };
+
+        let Ok(mut source_guard) = source_arc.write() else {
+            return;
+        };
+
+        if enabled {
+            source_guard.set_weapon_bonus_condition(condition);
+        } else {
+            source_guard.clear_weapon_bonus_condition(condition);
+        }
+
+        for slot_idx in 0..crate::common::WEAPONSLOT_COUNT {
+            let slot = match slot_idx {
+                0 => WeaponSlotType::Primary,
+                1 => WeaponSlotType::Secondary,
+                _ => WeaponSlotType::Tertiary,
+            };
+            if let Some(weapon) = source_guard.get_weapon_in_slot_mut(slot) {
+                let _ = weapon.on_weapon_bonus_change(source_id);
+            }
+        }
+    }
+
     /// Update weapon state per frame
     /// C++ Reference: Weapon.cpp update logic
     ///

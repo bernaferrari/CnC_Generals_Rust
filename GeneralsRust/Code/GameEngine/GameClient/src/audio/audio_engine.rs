@@ -487,6 +487,103 @@ impl AudioEngine {
     }
 
     // -----------------------------------------------------------------------
+    // Per-instance position & volume (matches C++ per-handle control)
+    // -----------------------------------------------------------------------
+    // PARITY_NOTE: C++ uses Miles Sound System / DirectSound for real audio
+    // output. Rust uses kira as the backend; position/volume changes on
+    // already-playing instances are tracked in the HashMap but actual
+    // real-time panning requires deeper kira integration. The event tracker
+    // stores the desired state so that when a real backend is connected the
+    // values are already correct.
+
+    /// Update the 3-D world position of a playing audio instance.
+    ///
+    /// Returns `false` if the handle is not currently playing.
+    pub fn set_audio_position(&mut self, handle: AudioHandle, pos: AudioPosition) -> bool {
+        if let Some(inst) = self.instances.get_mut(&handle) {
+            inst.position = Some(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Override the volume of a playing audio instance.
+    ///
+    /// `volume` is clamped to 0.0–1.0. Returns `false` if the handle is
+    /// not currently playing.
+    pub fn set_audio_volume(&mut self, handle: AudioHandle, volume: f32) -> bool {
+        if let Some(inst) = self.instances.get_mut(&handle) {
+            inst.volume = volume.clamp(0.0, 1.0);
+            true
+        } else {
+            false
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Music convenience API (matches C++ TheAudio->playMusic / stopMusic)
+    // -----------------------------------------------------------------------
+
+    /// Play a music track by name with an optional fade-in duration.
+    ///
+    /// Registers a temporary `AudioEventInfo` in the `Music` category and
+    /// plays it.  Returns the handle of the playing track, or `0` on failure.
+    pub fn play_music_track(&mut self, track_name: &str, fade_in: f32) -> AudioHandle {
+        let _ = fade_in; // PARITY_NOTE: fade handled when real backend is connected
+        let info = AudioEventInfo {
+            name: track_name.to_string(),
+            filename: track_name.to_string(),
+            category: AudioCategory::Music,
+            loop_count: 0, // music loops indefinitely
+            volume: self.effective_music_volume(),
+            ..AudioEventInfo::default()
+        };
+        self.play_event_internal(info, None, None, None)
+    }
+
+    /// Stop the currently playing music track with an optional fade-out.
+    ///
+    /// Stops all active instances in the `Music` category.
+    pub fn stop_music(&mut self, fade_out: f32) {
+        let _ = fade_out; // PARITY_NOTE: fade handled when real backend is connected
+        let music_handles: Vec<AudioHandle> = self
+            .instances
+            .iter()
+            .filter_map(|(h, inst)| {
+                if inst.category == AudioCategory::Music {
+                    Some(*h)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for h in music_handles {
+            self.stop_event(h);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // EVA voice convenience API (matches C++ speech/EVA play paths)
+    // -----------------------------------------------------------------------
+
+    /// Play an EVA voice announcement by event name.
+    ///
+    /// Creates a temporary `Streaming` (speech) event and plays it at normal
+    /// priority.  Returns the handle, or `0` if the event could not be played.
+    pub fn play_eva_voice(&mut self, event: &str) -> AudioHandle {
+        let info = AudioEventInfo {
+            name: event.to_string(),
+            filename: event.to_string(),
+            category: AudioCategory::Streaming,
+            volume: self.effective_speech_volume(),
+            priority: AudioPriority::High,
+            ..AudioEventInfo::default()
+        };
+        self.play_event_internal(info, None, None, None)
+    }
+
+    // -----------------------------------------------------------------------
     // Volume controls (matches C++ setVolume / getVolume)
     // -----------------------------------------------------------------------
 
