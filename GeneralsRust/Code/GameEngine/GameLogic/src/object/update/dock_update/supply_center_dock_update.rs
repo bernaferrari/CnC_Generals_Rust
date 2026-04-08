@@ -1,3 +1,3 @@
-//! Compatibility shim for SupplyCenterDockUpdate naming.
-
-pub use crate::object::production::dock_update::*;
+pub use crate::object::production::dock_update::{
+    DockUpdate as SupplyCenterDockUpdate, DockUpdateData as SupplyCenterDockUpdateData,
+};

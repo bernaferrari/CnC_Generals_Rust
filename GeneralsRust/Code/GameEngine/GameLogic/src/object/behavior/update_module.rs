@@ -1,5 +1,4 @@
-//! UpdateModule - compatibility shim for base update module parity.
-//!
-//! The Rust update interface lives in crate::modules.
-
-pub use crate::modules::*;
+pub use crate::modules::{
+    BehaviorModule, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
+    UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+};

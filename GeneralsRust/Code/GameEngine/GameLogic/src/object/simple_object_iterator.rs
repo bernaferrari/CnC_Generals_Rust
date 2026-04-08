@@ -1,3 +1,1 @@
-//! Compatibility shim for legacy Object/SimpleObjectIterator naming.
-
-pub use super::iterator::*;
+pub use super::iterator::{IterOrderType, SimpleObjectIterator};
