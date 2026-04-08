@@ -1,3 +1,4 @@
-//! Compatibility shim for QueueProductionExitUpdate naming.
-
-pub use crate::object::behavior::queue_production_exit_behavior::*;
+pub use crate::object::behavior::queue_production_exit_behavior::{
+    ExitResult, QueueProductionExitBehavior as QueueProductionExitUpdate,
+    QueueProductionExitModuleData as QueueProductionExitUpdateModuleData,
+};

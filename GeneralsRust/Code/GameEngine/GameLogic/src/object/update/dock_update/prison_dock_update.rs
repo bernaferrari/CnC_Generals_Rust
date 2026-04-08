@@ -1,3 +1,1 @@
-//! Compatibility shim for PrisonDockUpdate naming.
-
-pub use crate::object::production::prison_dock::*;
+pub use crate::object::production::prison_dock::{PrisonDockUpdate, PrisonDockUpdateData};

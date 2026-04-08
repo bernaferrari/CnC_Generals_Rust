@@ -1,4 +1,5 @@
-//! Compatibility module for C++ Object/Update/BaseRenerateUpdate.cpp.
-//! Re-exports the implementation from object::behavior::base_renerate_update.
-
-pub use crate::object::behavior::base_renerate_update::*;
+pub use crate::object::behavior::base_regenerate_update::{
+    BaseRegenerateUpdate as BaseRenerateUpdate,
+    BaseRegenerateUpdateModule as BaseRenerateUpdateModule,
+    BaseRegenerateUpdateModuleData as BaseRenerateUpdateModuleData,
+};

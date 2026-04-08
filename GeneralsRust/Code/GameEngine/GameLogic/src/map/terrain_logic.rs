@@ -1,3 +1,1 @@
-//! Compatibility shim for legacy Map/TerrainLogic naming.
-
-pub use crate::terrain::*;
+pub use crate::terrain::{get_terrain_logic, TerrainLogic, Waypoint};
