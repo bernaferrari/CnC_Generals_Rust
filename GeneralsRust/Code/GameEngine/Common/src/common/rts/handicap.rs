@@ -295,13 +295,23 @@ impl Handicap {
         }
     }
 
+    /// Return the multiplier for the given Handicap type for the given thing type.
+    ///
+    /// The thing_type (unit, building, etc.) will generally be examined
+    /// to determine what value to return.
+    ///
+    /// C++ Reference: Handicap::getHandicap(HandicapType, const ThingTemplate*)
+    pub fn get_handicap_for_type(&self, handicap_type: HandicapType, thing_type: ThingType) -> f32 {
+        self.handicaps[handicap_type as usize][thing_type as usize]
+    }
+
     /// Return the multiplier for the given Handicap type on the given template
     ///
     /// The template's type (unit, building, etc.) will generally be examined
     /// to determine what value to return.
     pub fn get_handicap(&self, handicap_type: HandicapType, template: &ThingTemplate) -> f32 {
         let thing_type = Self::get_best_thing_type(template);
-        self.handicaps[handicap_type as usize][thing_type as usize]
+        self.get_handicap_for_type(handicap_type, thing_type)
     }
 
     /// Determine the best ThingType for a given template

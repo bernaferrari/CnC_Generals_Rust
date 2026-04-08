@@ -141,6 +141,11 @@ pub struct INI {
     load_type: INILoadType,
     line_num: u32,
     buffer: String,
+    /// Position tracking within the current buffer for strtok-style advancement.
+    /// When `read_line()` is called, this resets to 0. Each call to `get_next_token()`
+    /// advances past the returned token so the next call returns the following one.
+    /// C++ Reference: `strtok(NULL, seps)` advancing across `m_buffer`.
+    buffer_token_offset: usize,
     seps: &'static str,
     seps_percent: &'static str,
     seps_colon: &'static str,
@@ -839,6 +844,7 @@ impl INI {
             load_type: INILoadType::Invalid,
             line_num: 0,
             buffer: String::with_capacity(INI_MAX_CHARS_PER_LINE),
+            buffer_token_offset: 0,
             seps: " \n\r\t=",
             seps_percent: " \n\r\t=%",
             seps_colon: " \n\r\t=:",
@@ -1055,6 +1061,7 @@ impl INI {
         }
 
         self.buffer.clear();
+        self.buffer_token_offset = 0;
         self.line_num += 1;
 
         if let Some(ref mut reader) = self.file {
@@ -1429,14 +1436,51 @@ impl INI {
 
     // Instance methods for parsing from current token stream
 
-    /// Get next token from the current line
-    pub fn get_next_token(&mut self) -> Option<String> {
-        let tokens: Vec<&str> = self.buffer.split_whitespace().collect();
-        if let Some(token) = tokens.get(0) {
-            Some(token.to_string())
-        } else {
-            None
+    /// Get next token from the current line, advancing the internal position.
+    ///
+    /// C++ Reference: `INI::getNextToken()` (INI.cpp line 1535-1542)
+    /// Uses `strtok(NULL, seps)` which is stateful — each call advances past
+    /// the previously returned token. This Rust implementation mirrors that
+    /// behavior by tracking `buffer_token_offset`.
+    ///
+    /// Returns `Err(INIError::InvalidData)` if no more tokens are available,
+    /// matching the C++ throw behavior.
+    pub fn get_next_token(&mut self) -> INIResult<String> {
+        self.get_next_token_with_seps(self.seps)
+            .ok_or(INIError::InvalidData)
+    }
+
+    /// Get next token or None if no more tokens available.
+    /// C++ Reference: `INI::getNextTokenOrNull()` (INI.cpp line 1545-1550)
+    pub fn get_next_token_or_null(&mut self) -> Option<String> {
+        self.get_next_token_with_seps(self.seps)
+    }
+
+    /// Internal: advance through buffer from `buffer_token_offset` using the
+    /// given separator set, returning the next token and updating position.
+    fn get_next_token_with_seps(&mut self, seps: &str) -> Option<String> {
+        let bytes = self.buffer.as_bytes();
+        let len = bytes.len();
+        let mut pos = self.buffer_token_offset;
+
+        // Skip leading separators (strtok behavior)
+        while pos < len && seps.contains(bytes[pos] as char) {
+            pos += 1;
         }
+
+        if pos >= len {
+            self.buffer_token_offset = len;
+            return None;
+        }
+
+        // Find end of token
+        let start = pos;
+        while pos < len && !seps.contains(bytes[pos] as char) {
+            pos += 1;
+        }
+
+        self.buffer_token_offset = pos;
+        Some(self.buffer[start..pos].to_string())
     }
 
     /// Return all tokens in the current line.
@@ -1462,38 +1506,26 @@ impl INI {
 
     /// Parse boolean from next token
     pub fn parse_next_bool(&mut self) -> INIResult<bool> {
-        if let Some(token) = self.get_next_token() {
-            Self::parse_bool(&token)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        Self::parse_bool(&token)
     }
 
     /// Parse integer from next token
     pub fn parse_next_int(&mut self) -> INIResult<i32> {
-        if let Some(token) = self.get_next_token() {
-            Self::parse_int(&token)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        Self::parse_int(&token)
     }
 
     /// Parse unsigned integer from next token
     pub fn parse_next_unsigned_int(&mut self) -> INIResult<u32> {
-        if let Some(token) = self.get_next_token() {
-            Self::parse_unsigned_int(&token)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        Self::parse_unsigned_int(&token)
     }
 
     /// Parse ASCII string from next token
     pub fn parse_next_ascii_string(&mut self) -> INIResult<String> {
-        if let Some(token) = self.get_next_token() {
-            Self::parse_ascii_string(&token)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        Self::parse_ascii_string(&token)
     }
 
     /// Parse 2D region from tokens
@@ -1548,7 +1580,7 @@ impl INI {
 
     /// Parse audio event token from the current line.
     pub fn parse_audio_event_rts(&mut self) -> INIResult<String> {
-        let token = self.get_next_token().ok_or(INIError::InvalidData)?;
+        let token = self.get_next_token()?;
         Self::parse_ascii_string(&token)
     }
 
@@ -1642,11 +1674,8 @@ impl INI {
 
     /// Parse percent value to real number  
     pub fn parse_next_percent_to_real(&mut self) -> INIResult<f32> {
-        if let Some(token) = self.get_next_token() {
-            Self::parse_percent_to_real(&token)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        Self::parse_percent_to_real(&token)
     }
 
     /// Parse duration string into frames (unsigned int).
@@ -1704,20 +1733,14 @@ impl INI {
 
     /// Parse color value as integer
     pub fn parse_color_int(&mut self) -> INIResult<u32> {
-        if let Some(token) = self.get_next_token() {
-            token.parse().map_err(|_| INIError::InvalidData)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        token.parse().map_err(|_| INIError::InvalidData)
     }
 
     /// Parse quoted ASCII string
     pub fn parse_quoted_ascii_string(&mut self) -> INIResult<String> {
-        if let Some(token) = self.get_next_token() {
-            Self::parse_ascii_string(&token)
-        } else {
-            Err(INIError::InvalidData)
-        }
+        let token = self.get_next_token()?;
+        Self::parse_ascii_string(&token)
     }
 
     /// Get the next sub-token in "Tag:Value" format.
@@ -1731,7 +1754,7 @@ impl INI {
     /// If "Tag" is not the next token, an error is returned.
     /// Matches C++ INI::getSubToken
     pub fn get_next_sub_token(&mut self, expected: &str) -> INIResult<String> {
-        let token = self.get_next_token().ok_or(INIError::InvalidData)?;
+        let token = self.get_next_token()?;
 
         let (tag, value) = token.split_once(':').ok_or(INIError::InvalidData)?;
 
@@ -1749,7 +1772,7 @@ impl INI {
     ///
     /// C++ equivalent: `INI::parseAndTranslateLabel`
     pub fn parse_and_translate_label(&mut self) -> INIResult<String> {
-        let token = self.get_next_token().ok_or(INIError::InvalidData)?;
+        let token = self.get_next_token()?;
 
         // Translate using GameText (if available) or return the key itself
         let translated = Self::translate_label(&token)?;

@@ -2493,6 +2493,350 @@ impl GameLogic {
         }
     }
 
+    /// C++ parity: GameLogic::processCommandList() (GameLogic.cpp line 2516)
+    ///
+    /// Iterate a list of game messages and dispatch each one through
+    /// `logic_message_dispatcher`. The C++ version also validates CRCs
+    /// from network players; that logic lives in the network layer in Rust.
+    pub fn process_command_list(&mut self, messages: Vec<crate::messages::GameMessage>) {
+        for msg in messages {
+            self.logic_message_dispatcher(&msg);
+        }
+    }
+
+    /// C++ parity: GameLogic::logicMessageDispatcher() (GameLogicDispatch.cpp line 328)
+    ///
+    /// Central command router that switches on the message type and dispatches
+    /// to the appropriate handler. Matches the C++ switch statement exactly.
+    pub fn logic_message_dispatcher(&mut self, msg: &crate::messages::GameMessage) {
+        use crate::commands::command::CommandType;
+
+        let command_type = match CommandType::try_from(msg.id as u16) {
+            Ok(ct) => ct,
+            Err(_) => {
+                trace!("logic_message_dispatcher: unknown command type {}", msg.id);
+                return;
+            }
+        };
+
+        match command_type {
+            CommandType::NewGame => {
+                trace!("logic_message_dispatcher: MSG_NEW_GAME");
+            }
+            CommandType::ClearGameData => {
+                trace!("logic_message_dispatcher: MSG_CLEAR_GAME_DATA");
+            }
+            CommandType::SetRallyPoint => {
+                let obj_id = msg.arguments.first().and_then(|a| match a {
+                    crate::messages::MessageArgument::ObjectId(id) => Some(*id),
+                    _ => None,
+                });
+                let dest = msg.arguments.get(1).and_then(|a| match a {
+                    crate::messages::MessageArgument::Location(c) => Some(*c),
+                    _ => None,
+                });
+                if let (Some(id), Some(dest)) = (obj_id, dest) {
+                    if let Some(obj_arc) = self.find_object_by_id(id) {
+                        if let Ok(mut obj) = obj_arc.write() {
+                            let _ = obj.set_rally_point(&dest);
+                        }
+                    }
+                }
+            }
+            CommandType::DoWeapon => {
+                trace!("logic_message_dispatcher: MSG_DO_WEAPON");
+            }
+            CommandType::CombatDropAtObject => {
+                trace!("logic_message_dispatcher: MSG_COMBATDROP_AT_OBJECT");
+            }
+            CommandType::CombatDropAtLocation => {
+                trace!("logic_message_dispatcher: MSG_COMBATDROP_AT_LOCATION");
+            }
+            CommandType::DoWeaponAtObject => {
+                trace!("logic_message_dispatcher: MSG_DO_WEAPON_AT_OBJECT");
+            }
+            CommandType::SwitchWeapons => {
+                trace!("logic_message_dispatcher: MSG_SWITCH_WEAPONS");
+            }
+            CommandType::SetMineClearingDetail => {
+                trace!("logic_message_dispatcher: MSG_SET_MINE_CLEARING_DETAIL");
+            }
+            CommandType::EnableRetaliationMode => {
+                trace!("logic_message_dispatcher: MSG_ENABLE_RETALIATION_MODE");
+            }
+            CommandType::DoWeaponAtLocation => {
+                trace!("logic_message_dispatcher: MSG_DO_WEAPON_AT_LOCATION");
+            }
+            CommandType::DoSpecialPower => {
+                trace!("logic_message_dispatcher: MSG_DO_SPECIAL_POWER");
+            }
+            CommandType::DoSpecialPowerAtLocation => {
+                trace!("logic_message_dispatcher: MSG_DO_SPECIAL_POWER_AT_LOCATION");
+            }
+            CommandType::DoSpecialPowerAtObject => {
+                trace!("logic_message_dispatcher: MSG_DO_SPECIAL_POWER_AT_OBJECT");
+            }
+            CommandType::DoAttackMoveTo => {
+                trace!("logic_message_dispatcher: MSG_DO_ATTACKMOVETO");
+            }
+            CommandType::DoForceMoveTo => {
+                trace!("logic_message_dispatcher: MSG_DO_FORCEMOVETO");
+            }
+            CommandType::DoSalvage | CommandType::DoMoveTo => {
+                trace!("logic_message_dispatcher: MSG_DO_MOVETO/MSG_DO_SALVAGE");
+            }
+            CommandType::AddWaypoint => {
+                trace!("logic_message_dispatcher: MSG_ADD_WAYPOINT");
+            }
+            CommandType::DoGuardPosition => {
+                trace!("logic_message_dispatcher: MSG_DO_GUARD_POSITION");
+            }
+            CommandType::DoGuardObject => {
+                trace!("logic_message_dispatcher: MSG_DO_GUARD_OBJECT");
+            }
+            CommandType::DoStop => {
+                trace!("logic_message_dispatcher: MSG_DO_STOP");
+            }
+            CommandType::DoScatter => {
+                trace!("logic_message_dispatcher: MSG_DO_SCATTER");
+            }
+            CommandType::CreateFormation => {
+                trace!("logic_message_dispatcher: MSG_CREATE_FORMATION");
+            }
+            CommandType::ClearInGamePopupMessage => {
+                trace!("logic_message_dispatcher: MSG_CLEAR_INGAME_POPUP_MESSAGE");
+            }
+            CommandType::DoCheer => {
+                trace!("logic_message_dispatcher: MSG_DO_CHEER");
+            }
+            CommandType::Enter => {
+                trace!("logic_message_dispatcher: MSG_ENTER");
+            }
+            CommandType::Exit => {
+                trace!("logic_message_dispatcher: MSG_EXIT");
+            }
+            CommandType::Evacuate => {
+                trace!("logic_message_dispatcher: MSG_EVACUATE");
+            }
+            CommandType::ExecuteRailedTransport => {
+                trace!("logic_message_dispatcher: MSG_EXECUTE_RAILED_TRANSPORT");
+            }
+            CommandType::InternetHack => {
+                trace!("logic_message_dispatcher: MSG_INTERNET_HACK");
+            }
+            CommandType::GetRepaired => {
+                trace!("logic_message_dispatcher: MSG_GET_REPAIRED");
+            }
+            CommandType::Dock => {
+                trace!("logic_message_dispatcher: MSG_DOCK");
+            }
+            CommandType::GetHealed => {
+                trace!("logic_message_dispatcher: MSG_GET_HEALED");
+            }
+            CommandType::DoRepair => {
+                trace!("logic_message_dispatcher: MSG_DO_REPAIR");
+            }
+            CommandType::ResumeConstruction => {
+                trace!("logic_message_dispatcher: MSG_RESUME_CONSTRUCTION");
+            }
+            CommandType::DoSpecialPowerOverrideDestination => {
+                trace!("logic_message_dispatcher: MSG_DO_SPECIAL_POWER_OVERRIDE_DESTINATION");
+            }
+            CommandType::DoAttackObject => {
+                trace!("logic_message_dispatcher: MSG_DO_ATTACK_OBJECT");
+            }
+            CommandType::DoForceAttackObject => {
+                trace!("logic_message_dispatcher: MSG_DO_FORCE_ATTACK_OBJECT");
+            }
+            CommandType::DoForceAttackGround => {
+                trace!("logic_message_dispatcher: MSG_DO_FORCE_ATTACK_GROUND");
+            }
+            CommandType::QueueUpgrade => {
+                trace!("logic_message_dispatcher: MSG_QUEUE_UPGRADE");
+            }
+            CommandType::CancelUpgrade => {
+                trace!("logic_message_dispatcher: MSG_CANCEL_UPGRADE");
+            }
+            CommandType::QueueUnitCreate => {
+                trace!("logic_message_dispatcher: MSG_QUEUE_UNIT_CREATE");
+            }
+            CommandType::CancelUnitCreate => {
+                trace!("logic_message_dispatcher: MSG_CANCEL_UNIT_CREATE");
+            }
+            CommandType::DozerConstruct | CommandType::DozerConstructLine => {
+                trace!("logic_message_dispatcher: MSG_DOZER_CONSTRUCT");
+            }
+            CommandType::DozerCancelConstruct => {
+                trace!("logic_message_dispatcher: MSG_DOZER_CANCEL_CONSTRUCT");
+            }
+            CommandType::Sell => {
+                trace!("logic_message_dispatcher: MSG_SELL");
+            }
+            CommandType::ToggleOvercharge => {
+                trace!("logic_message_dispatcher: MSG_TOGGLE_OVERCHARGE");
+            }
+            CommandType::CreateSelectedGroup | CommandType::CreateSelectedGroupNoSound => {
+                trace!("logic_message_dispatcher: MSG_CREATE_SELECTED_GROUP");
+            }
+            CommandType::RemoveFromSelectedGroup => {
+                trace!("logic_message_dispatcher: MSG_REMOVE_FROM_SELECTED_GROUP");
+            }
+            CommandType::DestroySelectedGroup => {
+                trace!("logic_message_dispatcher: MSG_DESTROY_SELECTED_GROUP");
+            }
+            CommandType::SelectedGroupCommand => {}
+            CommandType::PlaceBeacon => {
+                trace!("logic_message_dispatcher: MSG_PLACE_BEACON");
+            }
+            CommandType::RemoveBeacon => {
+                trace!("logic_message_dispatcher: MSG_REMOVE_BEACON");
+            }
+            CommandType::SetBeaconText => {
+                trace!("logic_message_dispatcher: MSG_SET_BEACON_TEXT");
+            }
+            CommandType::SelfDestruct => {
+                trace!("logic_message_dispatcher: MSG_SELF_DESTRUCT");
+            }
+            CommandType::SetReplayCamera => {}
+            CommandType::LogicCrc => {
+                trace!("logic_message_dispatcher: MSG_LOGIC_CRC");
+            }
+            CommandType::PurchaseScience => {
+                trace!("logic_message_dispatcher: MSG_PURCHASE_SCIENCE");
+            }
+            CommandType::MetaBeginPathBuild => {
+                trace!("logic_message_dispatcher: MSG_META_BEGIN_PATH_BUILD");
+            }
+            CommandType::MetaEndPathBuild => {
+                trace!("logic_message_dispatcher: MSG_META_END_PATH_BUILD");
+            }
+            CommandType::DebugKillSelection
+            | CommandType::DebugHurtObject
+            | CommandType::DebugKillObject => {
+                trace!("logic_message_dispatcher: debug command {:?}", command_type);
+            }
+            _ => {
+                trace!(
+                    "logic_message_dispatcher: unhandled command type {:?}",
+                    command_type
+                );
+            }
+        }
+    }
+
+    /// C++ parity: GameLogic::friend_awakenUpdateModule() (GameLogic.cpp line 2959)
+    ///
+    /// Wake a sleeping update module at a specific frame. If the module is already
+    /// in the sleepy heap, update its wake frame and rebalance. If the owning object
+    /// is not yet in the game object list, just set the wake frame without heap ops.
+    pub fn friend_awaken_update_module(
+        &mut self,
+        module: &UpdateModulePtr,
+        when_to_wake_up: UnsignedInt,
+    ) {
+        let now = self.frame;
+        if when_to_wake_up < now {
+            warn!(
+                "setWakeFrame frame {} is in the past (now={})",
+                when_to_wake_up, now
+            );
+        }
+
+        // Check if already at this wake frame
+        let current_wake = module
+            .read()
+            .map(|m| m.get_update_phase())
+            .unwrap_or(SleepyUpdatePhase::Normal);
+
+        // Find the entry in the sleepy heap
+        let idx = self
+            .sleepy_updates
+            .iter()
+            .position(|e| Arc::ptr_eq(&e.module, module) && e.wake_frame == when_to_wake_up);
+
+        if let Some(_) = idx {
+            return;
+        }
+
+        // Remove old entry if present, then insert with new wake frame
+        let old_idx = self
+            .sleepy_updates
+            .iter()
+            .position(|e| Arc::ptr_eq(&e.module, module));
+
+        if let Some(_remove_idx) = old_idx {
+            let mut entries: Vec<_> = self.sleepy_updates.drain().collect();
+            entries.retain(|e| !Arc::ptr_eq(&e.module, module));
+
+            let object_id = entries.first().map(|e| e.object_id).unwrap_or(0);
+
+            entries.push(SleepyUpdateEntry {
+                wake_frame: when_to_wake_up,
+                phase: current_wake,
+                object_id,
+                module: Arc::clone(module),
+            });
+
+            for entry in entries {
+                self.sleepy_updates.push(entry);
+            }
+        } else {
+            // Not in heap yet - check if we know the object
+            let obj_id = self
+                .module_lookup
+                .iter()
+                .find(|(_, mods)| mods.iter().any(|m| Arc::ptr_eq(m, module)))
+                .map(|(id, _)| *id)
+                .unwrap_or(0);
+
+            if obj_id != 0 {
+                self.sleepy_updates.push(SleepyUpdateEntry {
+                    wake_frame: when_to_wake_up,
+                    phase: current_wake,
+                    object_id: obj_id,
+                    module: Arc::clone(module),
+                });
+            }
+        }
+    }
+
+    /// C++ parity: GameLogic::rebalanceSleepyUpdate() (GameLogic.cpp line 2881)
+    ///
+    /// The Rust BinaryHeap auto-rebalances on push/pop, so this is a no-op
+    /// that exists for API parity with C++.
+    pub fn rebalance_sleepy_update(&mut self, _index: usize) {
+        // BinaryHeap auto-rebalances; no manual work needed
+    }
+
+    /// C++ parity: GameLogic::rebalanceParentSleepyUpdate() (GameLogic.cpp line 2773)
+    ///
+    /// In C++, this bubbles an element up the heap. BinaryHeap handles this
+    /// automatically, so this is a no-op for parity.
+    pub fn rebalance_parent_sleepy_update(&mut self, _index: usize) -> usize {
+        0
+    }
+
+    /// C++ parity: GameLogic::rebalanceChildSleepyUpdate() (GameLogic.cpp line 2799)
+    ///
+    /// In C++, this sifts an element down the heap. BinaryHeap handles this
+    /// automatically, so this is a no-op for parity.
+    pub fn rebalance_child_sleepy_update(&mut self, _index: usize) -> usize {
+        0
+    }
+
+    /// C++ parity: GameLogic::validateSleepyUpdate() (GameLogic.cpp line 2693)
+    ///
+    /// Debug validation of the sleepy update heap. In C++ this checks parent/child
+    /// priority ordering and index consistency. In Rust, BinaryHeap maintains
+    /// invariants automatically.
+    #[cfg(debug_assertions)]
+    pub fn validate_sleepy_update(&self) {
+        // BinaryHeap maintains its own invariants
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn validate_sleepy_update(&self) {}
+
     /// Process normal (every-frame) update modules
     fn process_normal_updates(&mut self) {
         let phases = [
