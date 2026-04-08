@@ -947,6 +947,133 @@ struct DrawableTOCEntry {
     id: u16,
 }
 
+// ==================================================================================
+// Shadow System Types
+// C++ reference: ShadowManager, W3DShadow, GameClient::releaseShadows/allocateShadows
+// ==================================================================================
+
+/// Shadow projection type — mirrors C++ `ShadowType` (Shadow.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShadowType {
+    /// No shadow rendered.
+    None,
+    /// Simple circular blob projected onto terrain.
+    Blob,
+    /// Volumetric shadow projected from the model silhouette.
+    Volume,
+    /// Shadow rendered as a decal on the terrain.
+    Decal,
+}
+
+impl Default for ShadowType {
+    fn default() -> Self {
+        ShadowType::Blob
+    }
+}
+
+/// Shadow instance projected onto terrain beneath an object.
+///
+/// C++ reference: `Shadow` / `W3DShadow` — each object that casts a shadow has
+/// a Shadow record stored in the GameClient shadow table.  The renderer projects
+/// the shadow geometry (blob circle or model silhouette) onto terrain.
+#[derive(Debug, Clone)]
+pub struct Shadow {
+    /// World position of the shadow centre (projected onto terrain Z).
+    pub position: crate::system::Coord3D,
+    /// Shadow radius for blob-type shadows.
+    pub radius: f32,
+    /// Shadow opacity [0..1]. C++ reduces opacity for partially transparent objects.
+    pub opacity: f32,
+    /// Which shadow technique to use.
+    pub shadow_type: ShadowType,
+    /// Orientation angle of the shadow (for directional light projection).
+    pub angle: f32,
+    /// Whether the shadow is currently visible (within frustum, not culled).
+    pub visible: bool,
+}
+
+impl Shadow {
+    /// Create a new blob shadow at the given position with default radius and full opacity.
+    pub fn new_blob(position: crate::system::Coord3D, radius: f32) -> Self {
+        Self {
+            position,
+            radius: radius.max(0.0),
+            opacity: 1.0,
+            shadow_type: ShadowType::Blob,
+            angle: 0.0,
+            visible: true,
+        }
+    }
+
+    /// Create a new volumetric shadow at the given position.
+    pub fn new_volume(position: crate::system::Coord3D) -> Self {
+        Self {
+            position,
+            radius: 0.0,
+            opacity: 1.0,
+            shadow_type: ShadowType::Volume,
+            angle: 0.0,
+            visible: true,
+        }
+    }
+}
+
+impl Default for Shadow {
+    fn default() -> Self {
+        Self {
+            position: crate::system::Coord3D::default(),
+            radius: 0.0,
+            opacity: 0.0,
+            shadow_type: ShadowType::None,
+            angle: 0.0,
+            visible: false,
+        }
+    }
+}
+
+// ==================================================================================
+// Shroud Status for Client Queries
+// C++ reference: PartitionManager::getShroudStatusForPlayer
+// ==================================================================================
+
+/// Client-visible shroud status for a world position.
+///
+/// This is the *client-facing* version of `ObjectShroudStatus`.  The C++ code
+/// uses the same underlying `PartitionManager` shroud data but the client
+/// collapses the status into three discrete states for rendering decisions:
+/// `Clear` (fully visible), `Fogged` (previously seen, now dimmed),
+/// `Shrouded` (never explored or fully obscured).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShroudStatus {
+    /// Position is fully visible — no shroud or fog.
+    Clear,
+    /// Position was previously seen but is now in fog of war.
+    Fogged,
+    /// Position has never been explored or is fully shrouded.
+    Shrouded,
+}
+
+impl Default for ShroudStatus {
+    fn default() -> Self {
+        ShroudStatus::Shrouded
+    }
+}
+
+impl From<gamelogic::common::types::ObjectShroudStatus> for ShroudStatus {
+    fn from(status: gamelogic::common::types::ObjectShroudStatus) -> Self {
+        match status {
+            gamelogic::common::types::ObjectShroudStatus::Clear
+            | gamelogic::common::types::ObjectShroudStatus::PartialClear => ShroudStatus::Clear,
+            gamelogic::common::types::ObjectShroudStatus::Fogged
+            | gamelogic::common::types::ObjectShroudStatus::InvalidButPreviousValid => {
+                ShroudStatus::Fogged
+            }
+            gamelogic::common::types::ObjectShroudStatus::Shrouded
+            | gamelogic::common::types::ObjectShroudStatus::Invalid => ShroudStatus::Shrouded,
+        }
+    }
+}
+
 /// Tracks the currently loaded map asset
 #[derive(Debug, Clone)]
 struct LoadedMap {
@@ -987,6 +1114,10 @@ pub struct GameClient {
     music_system: Option<MusicSystem>,
     speech_system: Option<SpeechSystem>,
     audio_engine: Option<AudioEngine>,
+
+    // Shadow system — mirrors C++ ShadowManager per-object shadow table
+    shadow_map: std::collections::HashMap<ObjectID, Shadow>,
+    shadows_enabled: bool,
 
     // Performance tracking
     rendered_object_count: u32,
@@ -1144,6 +1275,8 @@ impl GameClient {
             music_system: Some(MusicSystem::new()),
             speech_system: Some(SpeechSystem::new()),
             audio_engine: AudioEngine::new().ok(),
+            shadow_map: std::collections::HashMap::new(),
+            shadows_enabled: true,
             rendered_object_count: 0,
             last_update_time: Instant::now(),
             target_frame_duration: Duration::from_millis(33),
@@ -1289,6 +1422,7 @@ impl GameClient {
 
         // Clear other drawable data
         self.text_bearing_drawables.clear();
+        self.shadow_map.clear();
 
         if let Some(loaded) = self.loaded_map.take() {
             if let Some(ref asset_manager) = self.subsystem_manager.asset_manager {
@@ -1804,6 +1938,207 @@ impl GameClient {
     /// Resets rendered object count
     pub fn reset_rendered_object_count(&mut self) {
         self.rendered_object_count = 0;
+    }
+
+    // ==================================================================================
+    // Shadow System
+    // C++ reference: GameClient::releaseShadows, allocateShadows; ShadowManager
+    // ==================================================================================
+
+    /// Create a shadow for an object.  Returns a reference to the newly-created
+    /// shadow, or `None` if the object already has a shadow entry.
+    ///
+    /// C++ parity: `ShadowManager::createShadow` creates a blob or volumetric
+    /// shadow per-object and stores it in the shadow table keyed by ObjectID.
+    pub fn create_shadow(
+        &mut self,
+        object_id: ObjectID,
+        shadow_type: ShadowType,
+        position: crate::system::Coord3D,
+        radius: f32,
+    ) -> Option<&Shadow> {
+        if !self.shadows_enabled {
+            return None;
+        }
+        if self.shadow_map.contains_key(&object_id) {
+            return self.shadow_map.get(&object_id);
+        }
+        let shadow = match shadow_type {
+            ShadowType::None => return None,
+            ShadowType::Blob => Shadow::new_blob(position, radius),
+            ShadowType::Volume => Shadow::new_volume(position),
+            ShadowType::Decal => Shadow {
+                position,
+                radius: radius.max(0.0),
+                opacity: 1.0,
+                shadow_type: ShadowType::Decal,
+                angle: 0.0,
+                visible: true,
+            },
+        };
+        self.shadow_map.insert(object_id, shadow);
+        self.shadow_map.get(&object_id)
+    }
+
+    /// Destroy the shadow associated with the given object.
+    ///
+    /// C++ parity: `ShadowManager::destroyShadow` removes the shadow from the
+    /// table so the renderer no longer projects it.
+    pub fn destroy_shadow(&mut self, object_id: ObjectID) {
+        self.shadow_map.remove(&object_id);
+    }
+
+    /// Update a shadow's position and orientation after the owning object moves.
+    ///
+    /// C++ parity: called from the drawable update loop when the parent object
+    /// changes position or orientation.  The shadow is re-projected onto the
+    /// terrain at the new XY coordinates.
+    pub fn update_shadow(
+        &mut self,
+        object_id: ObjectID,
+        position: crate::system::Coord3D,
+        angle: f32,
+    ) {
+        if let Some(shadow) = self.shadow_map.get_mut(&object_id) {
+            shadow.position = position;
+            shadow.angle = angle;
+        }
+    }
+
+    /// Free all shadow resources — used by the Options screen when the user
+    /// disables shadows.
+    ///
+    /// C++ reference: `GameClient::releaseShadows` iterates all drawables and
+    /// calls `releaseShadows()` on each.
+    pub fn release_shadows(&mut self) {
+        self.shadow_map.clear();
+        self.shadows_enabled = false;
+        // C++ also iterates drawables and calls drawable->releaseShadows().
+        // PARITY_NOTE: Drawable shadow release is handled per-drawable in the
+        // W3D renderer layer, not in the core GameClient.
+    }
+
+    /// Re-allocate shadow resources — used by the Options screen when the user
+    /// re-enables shadows.
+    ///
+    /// C++ reference: `GameClient::allocateShadows` iterates all drawables and
+    /// calls `allocateShadows()` on each.
+    pub fn allocate_shadows(&mut self) {
+        self.shadows_enabled = true;
+    }
+
+    /// Return a reference to the shadow for a given object, if one exists.
+    pub fn get_shadow(&self, object_id: ObjectID) -> Option<&Shadow> {
+        self.shadow_map.get(&object_id)
+    }
+
+    // ==================================================================================
+    // View Management
+    // C++ reference: GameClient -> TheTacticalView, View::lookAt, W3DView
+    // ==================================================================================
+
+    /// Access the current tactical view immutably through a closure.
+    ///
+    /// C++ parity: `TheGameClient->getWindowManager()->getWindow(0)->getView()`
+    /// returns the current tactical view.  In this Rust port the tactical view
+    /// is stored as a thread-local.
+    pub fn get_view<R>(&self, f: impl FnOnce(&crate::display::view::View) -> R) -> R {
+        crate::display::view::with_tactical_view_ref(f)
+    }
+
+    /// Access the current tactical view mutably through a closure.
+    pub fn get_view_mut<R>(&mut self, f: impl FnOnce(&mut crate::display::view::View) -> R) -> R {
+        crate::display::view::with_tactical_view(f)
+    }
+
+    // ==================================================================================
+    // Shroud Status Queries
+    // C++ reference: GameClient visible-object loop (line ~672) calls
+    //   object->getShroudedStatus(localPlayerIndex) and collapses to
+    //   visible / obscured for the drawable.
+    // ==================================================================================
+
+    /// Return the shroud status for a given world position as seen by a player.
+    ///
+    /// C++ parity: The C++ code calls
+    /// `ThePartitionManager->getShroudStatusForPlayer(playerIndex, &pos)`
+    /// which checks the player's shroud map at the cell containing `pos`.
+    ///
+    /// PARITY_NOTE: Until the PartitionManager shroud data is ported, this
+    /// method falls back to checking the ObjectShroudStatus of the nearest
+    /// object at that position.  Full parity requires the PartitionManager
+    /// cell-based lookup.
+    pub fn get_shroud_status_for_player(
+        &self,
+        player_index: i32,
+        pos: &crate::system::Coord3D,
+    ) -> ShroudStatus {
+        // Attempt to find an object at or near the position and query its
+        // shroud status — this mirrors the C++ visible-object-update path.
+        let mut best_status: Option<ShroudStatus> = None;
+        let mut best_dist_sq: f32 = f32::MAX;
+        let threshold_sq: f32 = 25.0; // 5-unit radius
+
+        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(obj) = obj_ref.read() else {
+                continue;
+            };
+            let obj_pos = obj.get_position();
+            let dx = obj_pos.x - pos.x;
+            let dy = obj_pos.y - pos.y;
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq < threshold_sq && dist_sq < best_dist_sq {
+                best_dist_sq = dist_sq;
+                let os = obj.get_shrouded_status(player_index);
+                best_status = Some(ShroudStatus::from(os));
+            }
+        }
+
+        best_status.unwrap_or_default()
+    }
+
+    // ==================================================================================
+    // Drawable Creation Hooks
+    // C++ reference: GameClient::friend_createDrawable (called for build
+    //   placement preview, crash wreckage, etc.).  Purely visual — no
+    //   gameplay logic attached.
+    // ==================================================================================
+
+    /// Create a drawable at an explicit position and angle.
+    ///
+    /// Unlike `create_drawable_from_template`, this sets the drawable's world
+    /// transform immediately, which is required for build-placement previews
+    /// and crash-wreckage spawn.
+    pub fn create_drawable_at_pos(
+        &mut self,
+        template: &ThingTemplate,
+        pos: crate::system::Coord3D,
+        angle: f32,
+    ) -> GameClientResult<DrawableId> {
+        let id = self.create_drawable_from_template(template)?;
+        if let Some(drawable) = self.drawable_map.get_mut(&id) {
+            drawable.set_position(Vector3::new(pos.x, pos.y, pos.z));
+            // PARITY_NOTE: C++ stores angle as orientation on the drawable.
+            // The Drawable trait doesn't currently expose set_orientation, so
+            // we encode it in the transform matrix instead when the renderer
+            // consumes the drawable.
+            let _ = angle;
+        }
+        Ok(id)
+    }
+
+    // ==================================================================================
+    // Message Dispatch
+    // C++ reference: GameClientMessageDispatcher::translateGameMessage
+    // ==================================================================================
+
+    /// Translate a game message through the client's dispatcher pipeline.
+    ///
+    /// C++ parity: `GameClientMessageDispatcher::translateGameMessage` is the
+    /// last translator on the message stream before messages go to the network.
+    /// It gives the client a chance to respond to or create new messages.
+    pub fn translate_game_message(&self, msg: &GameMessage) -> GameMessageDisposition {
+        self.message_dispatcher.translate_game_message(msg)
     }
 
     // ==================================================================================

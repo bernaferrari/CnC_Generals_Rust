@@ -308,6 +308,14 @@ impl PlayerUpgradeManager {
         self.complete_upgrade(template, player);
     }
 
+    /// Add a completed upgrade directly (flags + mask, no object iteration).
+    /// Used by the top-level `complete_upgrade()` function which handles
+    /// object iteration separately to avoid borrow conflicts.
+    pub fn add_completed_upgrade(&mut self, upgrade_key: NameKeyType, upgrade_mask: UpgradeMask) {
+        self.completed_upgrades.insert(upgrade_key);
+        self.active_upgrades |= upgrade_mask;
+    }
+
     /// Get all in-progress upgrades
     pub fn get_in_progress_upgrades(&self) -> &HashMap<NameKeyType, Upgrade> {
         &self.in_progress_upgrades
