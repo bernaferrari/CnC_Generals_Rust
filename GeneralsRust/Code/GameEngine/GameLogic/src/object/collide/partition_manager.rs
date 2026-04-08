@@ -9,7 +9,7 @@ use super::collision_geometry::{
     collide_test_dispatch, CollideInfo, CollideLocAndNormal, GeometryInfo,
 };
 use super::{CollisionError, Coord3D, GameObject, ObjectId};
-use crate::common::Relationship;
+use crate::common::{PlayerMaskType, Relationship};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::terrain::get_terrain_logic;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -295,6 +295,7 @@ pub struct PartitionManager {
     objects: HashMap<ObjectId, PartitionObject>,
     /// Contact list for collision detection
     contact_list: Vec<(ObjectId, ObjectId)>,
+    fogged_cells: HashMap<usize, HashSet<CellCoord>>,
 }
 
 impl PartitionManager {
@@ -303,7 +304,26 @@ impl PartitionManager {
             cells: HashMap::new(),
             objects: HashMap::new(),
             contact_list: Vec::new(),
+            fogged_cells: HashMap::new(),
         }
+    }
+
+    pub fn shutdown(&mut self) {
+        self.clear();
+        self.fogged_cells.clear();
+    }
+
+    pub fn register_ghost_object(
+        &mut self,
+        id: ObjectId,
+        position: Coord3D,
+        geometry: GeometryInfo,
+    ) -> Result<(), CollisionError> {
+        self.register_object(id, position, geometry)
+    }
+
+    pub fn unregister_ghost_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
+        self.unregister_object(id)
     }
 
     /// Register an object in the partition system
@@ -1554,6 +1574,120 @@ impl PartitionManager {
         }
 
         terrain_height + tallest_height
+    }
+
+    pub fn refresh_shroud_for_local_player(&self) {
+        if let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() {
+            shroud.refresh_shroud_for_local_player();
+        }
+    }
+
+    pub fn calc_min_radius(&self, cur: CellCoord) -> i32 {
+        let half = PARTITION_CELL_SIZE * 0.5;
+        let centers = [(-half, -half), (half, -half), (-half, half), (half, half)];
+        let x = cur.x as f32 * PARTITION_CELL_SIZE;
+        let y = cur.y as f32 * PARTITION_CELL_SIZE;
+        let others = [
+            (x - half, y - half),
+            (x + half, y - half),
+            (x - half, y + half),
+            (x + half, y + half),
+        ];
+        let mut min_dist_sqr = f32::MAX;
+        for center in centers {
+            for other in others {
+                let dx = center.0 - other.0;
+                let dy = center.1 - other.1;
+                min_dist_sqr = min_dist_sqr.min(dx * dx + dy * dy);
+            }
+        }
+        (min_dist_sqr.sqrt() / PARTITION_CELL_SIZE).ceil() as i32
+    }
+
+    pub fn calc_radius_vec(&self) -> Vec<Vec<CellCoord>> {
+        let mut result = vec![Vec::new()];
+        for cell in self.cells.keys().copied() {
+            let radius = self.calc_min_radius(cell).max(0) as usize;
+            if radius >= result.len() {
+                result.resize(radius + 1, Vec::new());
+            }
+            result[radius].push(cell);
+        }
+        result
+    }
+
+    pub fn get_vector_to(&self, from: &Coord3D, to: &Coord3D) -> Coord3D {
+        Coord3D::new(to.x - from.x, to.y - from.y, to.z - from.z)
+    }
+
+    pub fn get_distance_squared(&self, from: &Coord3D, to: &Coord3D) -> f32 {
+        let dx = from.x - to.x;
+        let dy = from.y - to.y;
+        let dz = from.z - to.z;
+        dx * dx + dy * dy + dz * dz
+    }
+
+    pub fn get_relative_angle_2d(&self, from: &Coord3D, forward: &Coord3D, to: &Coord3D) -> f32 {
+        let mut delta = self.get_vector_to(from, to);
+        delta.z = 0.0;
+        let len = (delta.x * delta.x + delta.y * delta.y).sqrt();
+        if len <= f32::EPSILON {
+            return 0.0;
+        }
+        delta.x /= len;
+        delta.y /= len;
+        let dot = (forward.x * delta.x + forward.y * delta.y).clamp(-1.0, 1.0);
+        let mut angle = dot.acos();
+        let perp_z = forward.x * delta.y - forward.y * delta.x;
+        if perp_z < 0.0 {
+            angle = -angle;
+        }
+        angle
+    }
+
+    pub fn do_shroud_cover(&self, center: &Coord3D, radius: f32, player_mask: PlayerMaskType) {
+        if let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() {
+            let c = glam::Vec3::new(center.x, center.y, center.z);
+            shroud.do_shroud_cover(&c, radius, player_mask.bits());
+        }
+    }
+
+    pub fn undo_shroud_cover(&self, center: &Coord3D, radius: f32, player_mask: PlayerMaskType) {
+        if let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() {
+            let c = glam::Vec3::new(center.x, center.y, center.z);
+            shroud.undo_shroud_cover(&c, radius, player_mask.bits());
+        }
+    }
+
+    pub fn get_cell_center_pos(&self, x: i32, y: i32) -> Coord3D {
+        Coord3D::new(
+            x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
+            y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
+            0.0,
+        )
+    }
+
+    pub fn store_fogged_cells(&mut self, player_index: usize, _store_to_fog: bool) {
+        self.fogged_cells
+            .insert(player_index, self.cells.keys().copied().collect());
+    }
+
+    pub fn restore_fogged_cells(&self, player_index: usize, restore_to_fog: bool) {
+        let Some(cells) = self.fogged_cells.get(&player_index) else {
+            return;
+        };
+        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+            return;
+        };
+        for cell in cells {
+            let center = self.get_cell_center_pos(cell.x, cell.y);
+            let c = glam::Vec3::new(center.x, center.y, center.z);
+            if restore_to_fog {
+                shroud.undo_shroud_reveal(&c, PARTITION_CELL_SIZE, 1u32 << player_index);
+            } else {
+                shroud.do_shroud_reveal(&c, PARTITION_CELL_SIZE, 1u32 << player_index);
+            }
+        }
     }
 
     /// Clear all data

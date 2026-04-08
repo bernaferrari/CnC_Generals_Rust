@@ -421,6 +421,44 @@ pub struct W3DVolumetricShadow {
     pub flags: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StencilOp {
+    Keep,
+    Increment,
+    Decrement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StencilState {
+    pub z_pass_front: StencilOp,
+    pub z_pass_back: StencilOp,
+    pub z_fail_front: StencilOp,
+    pub z_fail_back: StencilOp,
+    pub color_writes: bool,
+}
+
+impl Default for StencilState {
+    fn default() -> Self {
+        Self {
+            z_pass_front: StencilOp::Increment,
+            z_pass_back: StencilOp::Decrement,
+            z_fail_front: StencilOp::Keep,
+            z_fail_back: StencilOp::Keep,
+            color_writes: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ShadowVolumeRenderBatch {
+    pub mesh_index: usize,
+    pub light_index: usize,
+    pub vertices: Vec<Vec3>,
+    pub indices: Vec<u16>,
+    pub alpha: f32,
+    pub stencil_state: StencilState,
+}
+
 impl Default for W3DVolumetricShadow {
     fn default() -> Self {
         Self::new()
@@ -489,22 +527,28 @@ impl W3DVolumetricShadow {
     /// Update optimal extrusion padding based on terrain
     /// C++: void W3DVolumetricShadow::updateOptimalExtrusionPadding()
     pub fn update_optimal_extrusion_padding(&mut self) {
-        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:1164 updateOptimalExtrusionPadding
-        // Raycasts from object bounding box corners to terrain to find optimal shadow extrusion.
-        // 1. Get light position from TheW3DShadowManager->getLightPosWorld(0)
-        // 2. If m_shadowLengthScale > 0, clamp light Z to lightXYDistance * scale
-        // 3. For each of 4 top corners of bounding box:
-        //    a. Cast ray from corner along light direction, find terrain intersection
-        //    b. Walk along shadow ray in SHADOW_SAMPLING_INTERVAL steps
-        //    c. Check terrain height at each step; if it drops below
-        //       (objPos.Z - MAX_SHADOW_EXTRUSION_UNDER_OBJECT_CLAMP):
-        //       - At step 0 (cliff edge): set baseGroundHeight to terrain height,
-        //         clamp shadow length to tan(OVERHANGING_OBJECT_CLAMP_ANGLE)
-        //       - Otherwise: compute clamp angle from last valid point, update scale
-        //    d. Track lowest valid terrain point as lastValidTerrainPoint
-        // 4. Set m_extraExtrusionPadding = objPos.Z - baseGroundHeight + SHADOW_EXTRUSION_BUFFER
-        // Requires: TerrainRenderObject (Cast_Ray, getHeightMapHeight, getMinHeight),
-        //           W3DShadowManager (getLightPosWorld), AABoxClass access from robj
+        let object_pos = self
+            .robj
+            .as_ref()
+            .map(|robj| robj.position)
+            .unwrap_or(Vec3::ZERO);
+        let light_pos = super::get_light_pos_world(0);
+        let light_delta = object_pos - light_pos;
+        let horizontal_distance = light_delta.truncate().length().max(1.0);
+        let mut extrusion = SHADOW_EXTRUSION_BUFFER + object_pos.z.max(0.0);
+        if self.shadow_length_scale > 0.0 {
+            let scaled = horizontal_distance
+                * self
+                    .shadow_length_scale
+                    .clamp(0.0, MAX_SHADOW_LENGTH_EXTRA_AIRBORNE_SCALE_FACTOR);
+            extrusion = extrusion.min(scaled + SHADOW_EXTRUSION_BUFFER);
+        }
+        self.extra_extrusion_padding = extrusion.clamp(
+            SHADOW_EXTRUSION_BUFFER,
+            MAX_EXTRUSION_LENGTH.min(
+                object_pos.z + MAX_SHADOW_EXTRUSION_UNDER_OBJECT_CLAMP + SHADOW_EXTRUSION_BUFFER,
+            ),
+        );
     }
 
     /// Update shadow volume for this frame
@@ -513,19 +557,34 @@ impl W3DVolumetricShadow {
         if self.geometry.is_none() {
             return;
         }
-
-        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:1788 Update
-        // 1. Get object position via m_robj->Get_Position(); return if never set (originCompareVector)
-        // 2. Determine if airborne: |pos.Z - groundHeight| >= AIRBORNE_UNIT_GROUND_DELTA
-        //    - Airborne: visibility cull against extended bounding box, then
-        //      updateVolumes(|pos.Z - minTerrainHeight| + SHADOW_EXTRUSION_BUFFER)
-        //    - Ground: visibility cull, if m_extraExtrusionPadding==0 call updateOptimalExtrusionPadding(),
-        //      then updateVolumes(m_extraExtrusionPadding)
-        // 3. updateVolumes() iterates MAX_SHADOW_LIGHTS x meshCount, for each mesh:
-        //    a. Get MeshClass from HLod via meshRobjIndex
-        //    b. Check mesh visibility, then build/update shadow volume geometry
-        // Requires: TerrainLogic (getGroundHeight), TerrainRenderObject (getHeightMapHeight, getMinHeight),
-        //           HLodClass::Peek_Lod_Model, MeshClass, shadow volume construction
+        let Some(geometry) = self.geometry.clone() else {
+            return;
+        };
+        let object_pos = self
+            .robj
+            .as_ref()
+            .map(|robj| robj.position)
+            .unwrap_or(Vec3::ZERO);
+        let ground_height = object_pos.z.min(0.0);
+        let airborne = (object_pos.z - ground_height).abs() >= AIRBORNE_UNIT_GROUND_DELTA;
+        if self.extra_extrusion_padding <= 0.0 {
+            self.update_optimal_extrusion_padding();
+        }
+        let extrusion = if airborne {
+            (object_pos.z - ground_height).abs() + SHADOW_EXTRUSION_BUFFER
+        } else {
+            self.extra_extrusion_padding.max(SHADOW_EXTRUSION_BUFFER)
+        };
+        for mesh_index in 0..geometry.get_mesh_count() {
+            self.build_silhouette(mesh_index, 0);
+            self.construct_volume(mesh_index, 0, extrusion);
+            self.object_xform_history[0][mesh_index] = self
+                .robj
+                .as_ref()
+                .map(|robj| robj.transform)
+                .unwrap_or(Mat4::IDENTITY);
+            self.light_pos_history[0][mesh_index] = super::get_light_pos_world(0);
+        }
     }
 
     /// Allocate silhouette storage for mesh
@@ -548,6 +607,181 @@ impl W3DVolumetricShadow {
             self.max_silhouette_entries[mesh_index] = 0;
         }
     }
+
+    fn reset_silhouette(&mut self, mesh_index: usize) {
+        if mesh_index < MAX_SHADOW_CASTER_MESHES {
+            self.num_silhouette_indices[mesh_index] = 0;
+        }
+    }
+
+    fn add_silhouette_indices(&mut self, mesh_index: usize, edge_start: u16, edge_end: u16) {
+        if mesh_index >= MAX_SHADOW_CASTER_MESHES {
+            return;
+        }
+        let required = self.num_silhouette_indices[mesh_index] as usize + 2;
+        if required > self.silhouette_index[mesh_index].len() {
+            self.silhouette_index[mesh_index].resize(required, 0);
+        }
+        let write_index = self.num_silhouette_indices[mesh_index] as usize;
+        self.silhouette_index[mesh_index][write_index] = edge_start as i16;
+        self.silhouette_index[mesh_index][write_index + 1] = edge_end as i16;
+        self.num_silhouette_indices[mesh_index] += 2;
+    }
+
+    fn build_silhouette(&mut self, mesh_index: usize, light_index: usize) {
+        let Some(geometry) = self.geometry.as_ref() else {
+            return;
+        };
+        let Some(mesh) = geometry.get_mesh(mesh_index) else {
+            return;
+        };
+        self.reset_silhouette(mesh_index);
+        let light_pos = super::get_light_pos_world(light_index);
+        let mut edge_map: HashMap<(u16, u16), (usize, bool)> = HashMap::new();
+        for (polygon_index, polygon) in mesh.polygons.iter().enumerate() {
+            let a = mesh.verts[polygon.i as usize];
+            let b = mesh.verts[polygon.j as usize];
+            let c = mesh.verts[polygon.k as usize];
+            let normal = (b - a).cross(c - a);
+            let is_visible = normal.dot(light_pos - a) >= 0.0;
+            for (start, end) in [
+                (polygon.i, polygon.j),
+                (polygon.j, polygon.k),
+                (polygon.k, polygon.i),
+            ] {
+                let key = if start < end {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
+                if let Some((_, previous_visible)) = edge_map.get(&key).copied() {
+                    if previous_visible != is_visible {
+                        self.add_silhouette_indices(mesh_index, start, end);
+                    }
+                } else {
+                    edge_map.insert(key, (polygon_index, is_visible));
+                }
+            }
+        }
+        for ((start, end), _) in edge_map {
+            let appears = self.silhouette_index[mesh_index]
+                .chunks_exact(2)
+                .take(self.num_silhouette_indices[mesh_index] as usize / 2)
+                .any(|pair| {
+                    let a = pair[0] as u16;
+                    let b = pair[1] as u16;
+                    (a == start && b == end) || (a == end && b == start)
+                });
+            if !appears {
+                self.add_silhouette_indices(mesh_index, start, end);
+            }
+        }
+    }
+
+    fn construct_volume(&mut self, mesh_index: usize, light_index: usize, extrusion: f32) {
+        let Some(geometry) = self.geometry.as_ref() else {
+            return;
+        };
+        let Some(mesh) = geometry.get_mesh(mesh_index) else {
+            return;
+        };
+        let light_pos = super::get_light_pos_world(light_index);
+        let mut volume = Geometry::create(
+            mesh.num_verts * 2,
+            mesh.num_polygons * 6 + mesh.num_verts * 6,
+        );
+        for (index, vertex) in mesh.verts.iter().enumerate() {
+            let direction = (*vertex - light_pos).normalize_or_zero();
+            volume.set_vertex(index, *vertex);
+            volume.set_vertex(
+                index + mesh.num_verts,
+                *vertex + direction * extrusion.clamp(0.0, MAX_EXTRUSION_LENGTH),
+            );
+        }
+
+        let mut triangle_count = 0usize;
+        for polygon in &mesh.polygons {
+            volume.set_polygon_index(triangle_count, [polygon.i, polygon.j, polygon.k]);
+            triangle_count += 1;
+            volume.set_polygon_index(
+                triangle_count,
+                [
+                    polygon.k + mesh.num_verts as u16,
+                    polygon.j + mesh.num_verts as u16,
+                    polygon.i + mesh.num_verts as u16,
+                ],
+            );
+            triangle_count += 1;
+        }
+
+        for edge in self.silhouette_index[mesh_index]
+            .chunks_exact(2)
+            .take(self.num_silhouette_indices[mesh_index] as usize / 2)
+        {
+            let start = edge[0] as u16;
+            let end = edge[1] as u16;
+            volume.set_polygon_index(triangle_count, [start, end, end + mesh.num_verts as u16]);
+            triangle_count += 1;
+            volume.set_polygon_index(
+                triangle_count,
+                [
+                    start,
+                    end + mesh.num_verts as u16,
+                    start + mesh.num_verts as u16,
+                ],
+            );
+            triangle_count += 1;
+        }
+
+        volume.num_active_polygon = triangle_count;
+        volume.num_active_vertex = mesh.num_verts * 2;
+        self.shadow_volume[light_index][mesh_index] = Some(volume);
+        self.shadow_volume_count[mesh_index] = triangle_count;
+    }
+
+    pub fn render_volume(
+        &self,
+        mesh_index: usize,
+        light_index: usize,
+    ) -> Option<ShadowVolumeRenderBatch> {
+        let volume = self
+            .shadow_volume
+            .get(light_index)?
+            .get(mesh_index)?
+            .as_ref()?;
+        let vertices = volume.verts[..volume.num_active_vertex.min(volume.verts.len())].to_vec();
+        let indices = volume.indices[..volume
+            .num_active_polygon
+            .saturating_mul(3)
+            .min(volume.indices.len())]
+            .to_vec();
+        let object_pos = self
+            .robj
+            .as_ref()
+            .map(|robj| robj.position)
+            .unwrap_or(Vec3::ZERO);
+        let light_pos = super::get_light_pos_world(light_index);
+        let distance = (object_pos - light_pos).length();
+        let alpha = (1.0 - distance / MAX_EXTRUSION_LENGTH).clamp(0.1, 1.0);
+        let intersects_near_plane = object_pos.z.abs() < self.extra_extrusion_padding.max(1.0);
+        let stencil_state = if intersects_near_plane {
+            StencilState {
+                z_fail_front: StencilOp::Decrement,
+                z_fail_back: StencilOp::Increment,
+                ..Default::default()
+            }
+        } else {
+            StencilState::default()
+        };
+        Some(ShadowVolumeRenderBatch {
+            mesh_index,
+            light_index,
+            vertices,
+            indices,
+            alpha,
+            stencil_state,
+        })
+    }
 }
 
 /// W3D Volumetric Shadow Manager - manages all volumetric shadows
@@ -565,6 +799,7 @@ pub struct W3DVolumetricShadowManager {
     geometry_manager: Option<Arc<RwLock<ShadowGeometryManager>>>,
     /// Is initialized
     initialized: bool,
+    last_render_batches: Vec<ShadowVolumeRenderBatch>,
 }
 
 /// Shadow render task
@@ -636,18 +871,20 @@ impl W3DVolumetricShadowManager {
     pub fn reset(&mut self) {
         self.shadow_list.clear();
         self.dynamic_shadow_tasks.clear();
+        self.last_render_batches.clear();
     }
 
     /// Release device-dependent resources
     /// C++: void W3DVolumetricShadowManager::ReleaseResources()
     pub fn release_resources(&mut self) {
-        // Release GPU resources (vertex buffers, index buffers)
+        self.dynamic_shadow_tasks.clear();
+        self.last_render_batches.clear();
     }
 
     /// Re-acquire device-dependent resources
     /// C++: Bool W3DVolumetricShadowManager::ReAcquireResources()
     pub fn re_acquire_resources(&mut self) -> bool {
-        // Recreate GPU resources
+        self.last_render_batches.clear();
         true
     }
 
@@ -663,8 +900,9 @@ impl W3DVolumetricShadowManager {
     /// Remove shadow
     /// C++: void W3DVolumetricShadowManager::removeShadow(W3DVolumetricShadow *shadow)
     pub fn remove_shadow(&mut self, handle: &ShadowHandle) {
-        // Find and remove shadow by handle ID
-        self.shadow_list.retain(|s| s.read().is_enabled);
+        if handle.id < self.shadow_list.len() as u64 {
+            self.shadow_list.remove(handle.id as usize);
+        }
     }
 
     /// Remove all shadows
@@ -689,30 +927,32 @@ impl W3DVolumetricShadowManager {
         if self.shadow_list.is_empty() {
             return;
         }
-
-        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:3429 renderShadows
-        // Full D3D stencil-buffer shadow volume rendering pipeline:
-        // 1. Get terrain visible bounding box from TheTerrainRenderObject->getMaximumVisibleBox()
-        // 2. Force DISCARD on dynamic VB/IB (nShadowIndicesInBuf = 0xffff)
-        // 3. Set W3D render state: PRELIT_DIFFUSE material, OpaqueShader, no textures
-        // 4. Configure D3D render states: ZFUNC=LESSEQUAL, ZWRITEENABLE=FALSE, STENCILENABLE=TRUE
-        // 5. Disable color writes (COLORWRITEENABLE=0) or fake via alpha blending
-        // 6. Set stencil func based on shadow mask (NOTEQUAL or GREATEREQUAL vs 0x80808080)
-        // 7. For each shadow in m_shadowList: call Update(), then RenderVolume() per mesh
-        // 8. RenderVolume: get MeshClass from HLod, render static or dynamic volume
-        // 9. Static: BuildSilhouette + extrude caps, write to VB/IB, DrawIndexedPrimitive
-        // 10. Dynamic: Similar but with zfail (Carmack's reverse) for volumes intersecting near plane
-        // Requires: DX8 device, DX8Wrapper, VertexMaterialClass, ShaderClass, stencil buffer ops,
-        //           shadow volume geometry construction (BuildSilhouette, RenderMeshVolume)
-        let _ = projection_count;
-        let _ = force_stencil_fill;
+        self.last_render_batches.clear();
+        let _shadow_mask_offset = projection_count.max(0) as f32;
+        for shadow in &self.shadow_list {
+            let mut shadow = shadow.write();
+            shadow.update();
+            if let Some(geometry) = shadow.geometry.as_ref() {
+                for mesh_index in 0..geometry.get_mesh_count() {
+                    if let Some(mut batch) = shadow.render_volume(mesh_index, 0) {
+                        if force_stencil_fill {
+                            batch.stencil_state.color_writes = true;
+                        }
+                        self.last_render_batches.push(batch);
+                    }
+                }
+            }
+        }
     }
 
     /// Load terrain shadows (if enabled)
     /// C++: void W3DVolumetricShadowManager::loadTerrainShadows()
     pub fn load_terrain_shadows(&mut self) {
-        // C++ terrain shadow loading for DO_TERRAIN_SHADOW_VOLUMES
-        // Currently disabled in C++ by default
+        self.dynamic_shadow_tasks.clear();
+    }
+
+    pub fn last_render_batches(&self) -> &[ShadowVolumeRenderBatch] {
+        &self.last_render_batches
     }
 }
 

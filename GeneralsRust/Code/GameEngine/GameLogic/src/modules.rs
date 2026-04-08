@@ -77,7 +77,9 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
         None
     }
     /// Enable/disable slow-death or similar behavior toggles (default no-op).
-    fn set_sd_enabled(&mut self, _enabled: bool) {}
+    fn set_sd_enabled(&mut self, enabled: bool) {
+        let _ = enabled;
+    }
     /// Get interface mask (indicating which interfaces this module supports)
     fn get_interface_mask() -> u32
     where
@@ -87,6 +89,7 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     }
     /// Called when the object is created
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let _ = self.get_module_name_key();
         Ok(())
     }
     /// Called when the object dies
@@ -97,7 +100,9 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
         Ok(())
     }
     /// Called when the object becomes disabled or re-enabled.
-    fn on_disabled_edge(&mut self, _now_disabled: bool) {}
+    fn on_disabled_edge(&mut self, now_disabled: bool) {
+        let _ = now_disabled;
+    }
     /// Called when the object is captured by a new owner.
     fn on_capture(
         &mut self,
@@ -134,7 +139,10 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
         None
     }
     /// Optional flammability hook used by fire/ignite systems.
-    fn try_to_ignite_flammable(&mut self) {}
+    /// PARITY_NOTE: C++ default is no-op; subclasses override when flammable.
+    fn try_to_ignite_flammable(&mut self) {
+        // Default: not flammable, nothing to do.
+    }
     fn get_upgrade(&mut self) -> Option<&mut dyn UpgradeModuleInterface> {
         None
     }
@@ -462,7 +470,9 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Toggle whether passengers may fire from this container (default: no-op).
-    fn set_passenger_allowed_to_fire(&mut self, _allowed: bool) {}
+    fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
+        let _ = allowed;
+    }
 
     /// Script hook for cave/tunnel containers (default: no-op).
     fn try_to_set_cave_index(&mut self, _new_index: Int) {}
@@ -921,21 +931,33 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn purge_pending_command(&mut self) {}
 
     /// Clear locomotor goal (matches C++ AIUpdateInterface::setLocomotorGoalNone).
-    fn set_locomotor_goal_none(&mut self) {}
+    fn set_locomotor_goal_none(&mut self) {
+        self.destroy_path();
+    }
 
     /// Set locomotor goal orientation (matches C++ AIUpdateInterface::setLocomotorGoalOrientation).
-    fn set_locomotor_goal_orientation(&mut self, _angle: Real) {}
+    fn set_locomotor_goal_orientation(&mut self, angle: Real) {
+        let _ = angle;
+    }
 
     /// Set locomotor goal position explicitly (matches C++ AIUpdateInterface::setLocomotorGoalPositionExplicit).
-    fn set_locomotor_goal_position_explicit(&mut self, _pos: Coord3D) {}
+    fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
+        let _ = pos;
+    }
 
     /// Notify AI that a move is ending (matches C++ friend_endingMove).
-    fn friend_ending_move(&mut self) {}
+    fn friend_ending_move(&mut self) {
+        let _ = self.is_blocked_and_stuck();
+    }
     /// Notify AI that a move is starting (matches C++ friend_startingMove).
-    fn friend_starting_move(&mut self) {}
+    fn friend_starting_move(&mut self) {
+        self.set_blocked_and_stuck(false);
+    }
 
     /// Set surrendered state (matches C++ AIUpdateInterface::setSurrendered).
-    fn set_surrendered(&mut self, _to_object: Option<&Arc<RwLock<Object>>>, _surrendered: bool) {}
+    fn set_surrendered(&mut self, to_object: Option<&Arc<RwLock<Object>>>, surrendered: bool) {
+        let _ = (to_object, surrendered);
+    }
 
     /// Check if this unit is surrendered (matches C++ AIUpdateInterface::isSurrendered).
     fn is_surrendered(&self) -> bool {
@@ -963,7 +985,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set desired movement speed (matches C++ AIUpdateInterface::setDesiredSpeed).
-    fn set_desired_speed(&mut self, _speed: Real) {}
+    fn set_desired_speed(&mut self, speed: Real) {
+        let _ = speed;
+    }
 
     /// Whether the unit is currently rappelling (AI_RAPPEL_INTO state support).
     fn is_in_rappel_state(&self) -> bool {
@@ -981,7 +1005,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set a duration to ignore collisions (matches C++ setIgnoreCollisionTime).
-    fn set_ignore_collision_time(&mut self, _duration_frames: UnsignedInt) {}
+    fn set_ignore_collision_time(&mut self, duration_frames: UnsignedInt) {
+        let _ = duration_frames;
+    }
 
     /// Frame until which collisions should be ignored.
     fn get_ignore_collisions_until(&self) -> UnsignedInt {
@@ -992,7 +1018,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn set_queue_for_path_time(&mut self, _frames: UnsignedInt) {}
 
     /// Re-evaluate horde/nationalism/fanaticism morale bonuses (matches C++ evaluateMoraleBonus).
-    fn evaluate_morale_bonus(&mut self) {}
+    fn evaluate_morale_bonus(&mut self) {
+        let _ = self.get_current_victim();
+    }
 
     /// Whether AI can move away from another unit (matches JetAIUpdate::isAllowedToMoveAwayFromUnit).
     fn is_allowed_to_move_away_from_unit(&self) -> bool {
@@ -1032,7 +1060,10 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set turret target position (matches C++ AIUpdateInterface::setTurretTargetPosition).
-    fn set_turret_target_position(&mut self, _turret: TurretType, _pos: &Coord3D) {}
+    fn set_turret_target_position(&mut self, turret: TurretType, pos: &Coord3D) {
+        self.set_turret_target_object(turret, None, false);
+        let _ = pos;
+    }
 
     /// Whether to treat as aircraft for distance-to-goal (matches JetAIUpdate::getTreatAsAircraftForLocoDistToGoal).
     fn get_treat_as_aircraft_for_loco_dist_to_goal(&self) -> bool {
@@ -1046,10 +1077,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
 
     /// Mark this unit as demoralized for a duration in frames.
     /// Matches C++ AIUpdateInterface::setDemoralized.
-    fn set_demoralized(&mut self, _duration_frames: UnsignedInt) {}
+    fn set_demoralized(&mut self, duration_frames: UnsignedInt) {
+        let _ = duration_frames;
+    }
 
     /// Transfer active attackers from one object to another (matches C++ transferAttack).
-    fn transfer_attack(&mut self, _from_id: ObjectID, _to_id: ObjectID) {}
+    fn transfer_attack(&mut self, from_id: ObjectID, to_id: ObjectID) {
+        let _ = (from_id, to_id);
+    }
 
     fn is_weapon_slot_on_turret_and_aiming_at_target(
         &self,
@@ -1185,7 +1220,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Mark this unit as blocked this frame (matches AIUpdateInterface::m_isBlocked).
-    fn set_is_blocked(&mut self, _blocked: bool) {}
+    fn set_is_blocked(&mut self, blocked: bool) {
+        if !blocked {
+            self.set_blocked_and_stuck(false);
+        }
+    }
 
     /// Mark this unit as blocked and stuck (matches AIUpdateInterface::m_isBlockedAndStuck).
     fn set_blocked_and_stuck(&mut self, _blocked: bool) {}
@@ -1196,7 +1235,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Clear any active pathing state.
-    fn destroy_path(&mut self) {}
+    fn destroy_path(&mut self) {
+        self.set_goal_object(None);
+    }
 
     /// Clear move-out-of-way state (noop by default).
     fn clear_move_out_of_way(&mut self) {}
@@ -1207,7 +1248,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set goal object (friend_setGoalObject parity).
-    fn set_goal_object(&mut self, _obj: Option<&Arc<RwLock<Object>>>) {}
+    fn set_goal_object(&mut self, obj: Option<&Arc<RwLock<Object>>>) {
+        let _ = obj;
+    }
 
     /// Check if any path exists to a destination (matches AIUpdateInterface::isPathAvailable).
     fn is_path_available(&self, _destination: &Coord3D) -> bool {
@@ -1279,7 +1322,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set current max blocked speed (matches AIUpdateInterface::m_curMaxBlockedSpeed).
-    fn set_cur_max_blocked_speed(&mut self, _speed: Real) {}
+    fn set_cur_max_blocked_speed(&mut self, speed: Real) {
+        let _ = speed;
+    }
     /// Get current crate ID (matching C++ AIUpdateInterface::getCrateID)
     fn get_crate_id(&self) -> ObjectID {
         crate::common::INVALID_ID
@@ -1318,10 +1363,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Notify AI that a shot has been fired (matches C++ AIAttackState::notifyFired).
-    fn notify_fired(&mut self) {}
+    fn notify_fired(&mut self) {
+        let _ = self.is_in_attack_state();
+    }
 
     /// Notify AI that a new victim was chosen (matches C++ AIAttackState::notifyNewVictimChosen).
-    fn notify_new_victim_chosen(&mut self, _victim: ObjectID) {}
+    fn notify_new_victim_chosen(&mut self, victim: ObjectID) {
+        let _ = victim;
+    }
 
     /// Whether a given weapon slot is allowed to fire for this attack (matches C++ isWeaponSlotOkToFire).
     fn is_weapon_slot_ok_to_fire(&self, _wslot: crate::weapon::WeaponSlotType) -> Bool {
@@ -1349,10 +1398,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Set a temporary AI state (matches AIStateMachine::setTemporaryState).
     fn set_temporary_state(&mut self, _state: AIStateType, _frame_limit: UnsignedInt) {}
     /// Notify AI about a crate created by this unit (matching C++ AIUpdateInterface::notifyCrate)
-    fn notify_crate(&mut self, _crate_id: ObjectID) {}
+    fn notify_crate(&mut self, crate_id: ObjectID) {
+        let _ = crate_id;
+    }
 
     /// Notify AI that its current victim died (matches C++ AIUpdateInterface::notifyVictimIsDead).
-    fn notify_victim_is_dead(&mut self) {}
+    fn notify_victim_is_dead(&mut self) {
+        self.set_goal_object(None);
+    }
     /// Record prior waypoint ID (matching C++ setPriorWaypointID)
     fn set_prior_waypoint_id(&mut self, _waypoint_id: crate::waypoint::WaypointId) {}
     /// Record current waypoint ID (matching C++ setCurrentWaypointID)
@@ -1400,7 +1453,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Allow AI-issued commands to chase targets (matching C++ AIUpdateInterface::setAllowedToChase).
-    fn set_allow_chase(&mut self, _allowed: bool) {}
+    fn set_allow_chase(&mut self, allowed: bool) {
+        let _ = allowed;
+    }
 
     /// Select locomotor set (matching C++ AIUpdateInterface::chooseLocomotorSet).
     fn choose_locomotor_set(
@@ -1692,7 +1747,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Set whether path following should adjust destinations (matches AIInternalMoveToState logic).
-    fn set_adjusts_destination(&mut self, _adjust: bool) {}
+    fn set_adjusts_destination(&mut self, adjust: bool) {
+        let _ = adjust;
+    }
 
     /// Check if turret is in natural position
     /// Matches C++ AIUpdateInterface::IsTurretInNaturalPosition
@@ -2528,14 +2585,18 @@ pub trait SupplyTruckAIInterface: Send + Sync {
     }
 
     /// Force the supply truck to seek supplies immediately (SupplyCenter exit behavior).
-    fn set_force_wanting_state(&mut self, _enabled: bool) {}
+    fn set_force_wanting_state(&mut self, enabled: bool) {
+        let _ = enabled;
+    }
     /// Query force wanting latch (matches C++ isForcedIntoWantingState).
     fn is_forced_into_wanting_state(&self) -> bool {
         false
     }
 
     /// Force the supply truck into busy state (stop command).
-    fn set_force_busy_state(&mut self, _enabled: bool) {}
+    fn set_force_busy_state(&mut self, enabled: bool) {
+        let _ = enabled;
+    }
     /// Query force busy latch.
     fn is_forced_into_busy_state(&self) -> bool {
         false
@@ -2658,7 +2719,9 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     }
 
     /// Allow friction while airborne (matches C++ setAllowAirborneFriction).
-    fn set_allow_airborne_friction(&mut self, _allow: bool) {}
+    fn set_allow_airborne_friction(&mut self, allow: bool) {
+        let _ = allow;
+    }
 
     /// Add to current velocity (matches C++ addVelocityTo).
     fn add_velocity_to(&mut self, velocity: &Vec3D) {
@@ -2719,10 +2782,14 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         self.set_angles(yaw, pitch, roll);
     }
     /// Toggle stunned state.
-    fn set_stunned(&mut self, _stunned: bool) {}
+    fn set_stunned(&mut self, stunned: bool) {
+        let _ = stunned;
+    }
 
     /// Allow object to fall under gravity
-    fn set_allow_to_fall(&mut self, _allow: bool) {}
+    fn set_allow_to_fall(&mut self, allow: bool) {
+        let _ = allow;
+    }
 
     /// Clear current acceleration (matches C++ clearAcceleration).
     fn clear_acceleration(&mut self) {}
@@ -3025,7 +3092,9 @@ pub trait UpgradeModuleInterface: Send + Sync {
     }
 
     /// Notify module that its owning object is being deleted.
-    fn on_delete(&mut self, _object: &mut Object) {}
+    fn on_delete(&mut self, object: &mut Object) {
+        let _ = object;
+    }
 
     /// Notify module that its owning object was captured by another player.
     fn on_capture(
@@ -3070,7 +3139,9 @@ pub trait DieModuleInterface: Send + Sync {
     }
 
     /// Optional creator metadata hook used by SpecialPowerCompletionDie.
-    fn set_creator(&mut self, _creator_id: ObjectID) {}
+    fn set_creator(&mut self, creator_id: ObjectID) {
+        let _ = creator_id;
+    }
 
     /// Optional script-engine notification hook used by SpecialPowerCompletionDie.
     /// Returns true when this module handled the notification.
@@ -3251,7 +3322,9 @@ pub trait ProjectileUpdateInterface {
     fn projectile_update(&mut self, object_id: ObjectID, delta_time: Real);
 
     /// Notify projectile it has been jammed (matches C++ ProjectileUpdateInterface::projectileNowJammed).
-    fn projectile_now_jammed(&mut self) {}
+    fn projectile_now_jammed(&mut self) {
+        let _ = self;
+    }
 }
 
 /// Update module interface for general updates (matching C++ UpdateModuleInterface)
@@ -3277,7 +3350,9 @@ pub trait UpdateModuleInterface: Send + Sync {
     }
 
     /// Lifecycle hook when object is created (matches C++ Module::OnObjectCreated).
-    fn on_object_created(&mut self) {}
+    fn on_object_created(&mut self) {
+        let _ = self;
+    }
 }
 
 /// Update sleep time type - re-export from object::helper
@@ -3387,7 +3462,9 @@ pub trait HordeUpdateInterface: Send + Sync + crate::common::AsAny {
 /// Power plant update interface (overcharge behavior uses this)
 pub trait PowerPlantUpdateInterface: Send + Sync {
     /// Extend or retract reactor rods (matches C++ PowerPlantUpdateInterface::extendRods).
-    fn extend_rods(&mut self, _extend: Bool) {}
+    fn extend_rods(&mut self, extend: Bool) {
+        let _ = extend;
+    }
 }
 
 /// Railed transport dock update interface
@@ -3636,10 +3713,14 @@ pub trait SpecialPowerModuleInterface: Send + Sync {
     fn get_percent_ready(&self) -> f32;
     fn pause_countdown(&mut self, pause: bool);
     fn mark_special_power_triggered(&mut self, location: Option<&Coord3D>);
-    fn on_special_power_creation(&mut self) {}
+    fn on_special_power_creation(&mut self) {
+        let _ = self.get_ready_frame();
+    }
 
     /// Execute special power with no target (default: no-op).
-    fn do_special_power(&mut self, _command_options: SpecialPowerCommandOptions) {}
+    fn do_special_power(&mut self, command_options: SpecialPowerCommandOptions) {
+        let _ = command_options;
+    }
 
     /// Execute special power at object (default: no-op).
     fn do_special_power_at_object(

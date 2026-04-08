@@ -83,7 +83,10 @@ pub trait DrawModule: Module {
     }
 
     /// Set drawable hidden state (matches C++ DrawModule::setHidden).
-    fn set_hidden(&mut self, _hidden: bool) {}
+    fn set_hidden(&mut self, _hidden: bool) {
+        // PARITY_NOTE: C++ DrawModule has no shared hidden-state storage at the base class.
+        // Modules that own concrete client primitives must override this hook themselves.
+    }
 
     /// Set terrain decal opacity
     ///
@@ -328,7 +331,10 @@ pub trait ObjectDrawInterface {
 
     /// Notify the draw module that a dependent drawable is ready for explicit draw.
     /// Mirrors C++ `ObjectDrawInterface::notifyDrawModuleDependencyCleared`.
-    fn notify_draw_module_dependency_cleared(&mut self) {}
+    fn notify_draw_module_dependency_cleared(&mut self) {
+        // PARITY_NOTE: only object/model draw modules participate in dependency-driven
+        // explicit draw unblocking; non-model implementations intentionally do nothing.
+    }
 
     /// Replace model condition state
     ///

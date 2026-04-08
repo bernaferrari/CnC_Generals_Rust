@@ -86,6 +86,9 @@ pub struct W3DTracerDraw {
     line_start: Coord3D,
     line_end: Coord3D,
     scene_line_id: Option<SceneLineId>,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadows_enabled: bool,
 }
 
 impl W3DTracerDraw {
@@ -102,7 +105,38 @@ impl W3DTracerDraw {
             line_start: Coord3D::origin(),
             line_end: Coord3D::origin(),
             scene_line_id: None,
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadows_enabled: false,
         }
+    }
+
+    fn sync_scene_visibility(&mut self, visible: bool) {
+        let Some(id) = self.scene_line_id else {
+            return;
+        };
+
+        let desc = SceneLineDesc {
+            start: game_engine::common::system::geometry::Coord3D::new(
+                self.line_start.x,
+                self.line_start.y,
+                self.line_start.z,
+            ),
+            end: game_engine::common::system::geometry::Coord3D::new(
+                self.line_end.x,
+                self.line_end.y,
+                self.line_end.z,
+            ),
+            width: self.width,
+            color_r: self.color.r as f32 / 255.0,
+            color_g: self.color.g as f32 / 255.0,
+            color_b: self.color.b as f32 / 255.0,
+            opacity: self.opacity,
+            texture_name: None,
+            tile_factor: 0.0,
+            visible,
+        };
+        update_scene_line(id, &desc);
     }
 }
 
@@ -132,6 +166,11 @@ impl Module for W3DTracerDraw {
 
 impl DrawModule for W3DTracerDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        if self.hidden || self.fully_obscured_by_shroud {
+            self.sync_scene_visibility(false);
+            return;
+        }
+
         let translation = transform_mtx.w_axis;
         self.current_pos = Coord3D::new(translation.x, translation.y, translation.z);
 
@@ -176,10 +215,20 @@ impl DrawModule for W3DTracerDraw {
         }
     }
 
-    fn set_shadows_enabled(&mut self, _enable: bool) {}
+    fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadows_enabled = enable;
+    }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
-    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+        self.sync_scene_visibility(!hidden && !self.fully_obscured_by_shroud);
+    }
+
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+        self.sync_scene_visibility(!fully_obscured && !self.hidden);
+    }
 
     fn react_to_transform_change(
         &mut self,
@@ -191,7 +240,9 @@ impl DrawModule for W3DTracerDraw {
         self.current_pos = *old_pos;
     }
 
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.sync_scene_visibility(!self.hidden && !self.fully_obscured_by_shroud);
+    }
 
     fn get_tracer_draw_interface(&self) -> Option<&dyn TracerDrawInterface> {
         Some(self)

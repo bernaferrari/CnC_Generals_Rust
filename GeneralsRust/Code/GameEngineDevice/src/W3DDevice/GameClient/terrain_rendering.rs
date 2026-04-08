@@ -921,6 +921,89 @@ impl HeightMapMesh {
         );
     }
 
+    pub fn set_global_lighting(
+        &mut self,
+        ambient_light: Vector3<f32>,
+        light_direction: Vector3<f32>,
+        light_color: Vector3<f32>,
+    ) {
+        self.ambient_light = ambient_light;
+        self.light_directions[0] = if light_direction.magnitude2() > 0.0 {
+            light_direction.normalize()
+        } else {
+            Vector3::new(0.0, -1.0, 0.0)
+        };
+        self.light_colors[0] = light_color;
+        self.num_lights = 1;
+    }
+
+    pub fn update_height_region(
+        &mut self,
+        start_x: usize,
+        start_y: usize,
+        region_width: usize,
+        region_height: usize,
+        new_heights: &[u8],
+    ) -> Result<()> {
+        if region_width == 0 || region_height == 0 {
+            return Ok(());
+        }
+
+        let required = region_width.saturating_mul(region_height);
+        if new_heights.len() < required {
+            anyhow::bail!(
+                "height region too small: got {}, need {}",
+                new_heights.len(),
+                required
+            );
+        }
+
+        let end_x = (start_x + region_width).min(self.width);
+        let end_y = (start_y + region_height).min(self.height);
+
+        for y in start_y..end_y {
+            for x in start_x..end_x {
+                let src_idx = (y - start_y) * region_width + (x - start_x);
+                let dst_idx = y * self.width + x;
+                if let Some(height) = new_heights.get(src_idx) {
+                    self.height_data[dst_idx] = *height;
+                }
+            }
+        }
+
+        let (min_height, max_height) = Self::calculate_height_bounds(&self.height_data);
+        self.min_height = min_height;
+        self.max_height = max_height;
+
+        let chunk_x0 = start_x / VERTEX_BUFFER_TILE_LENGTH;
+        let chunk_y0 = start_y / VERTEX_BUFFER_TILE_LENGTH;
+        let chunk_x1 = end_x.saturating_sub(1) / VERTEX_BUFFER_TILE_LENGTH;
+        let chunk_y1 = end_y.saturating_sub(1) / VERTEX_BUFFER_TILE_LENGTH;
+
+        for chunk_y in chunk_y0..=chunk_y1 {
+            for chunk_x in chunk_x0..=chunk_x1 {
+                let chunk_index = chunk_y * self.num_chunks_x + chunk_x;
+                if chunk_index >= self.chunks.len() {
+                    continue;
+                }
+
+                let mut replacement = Self::create_chunk(
+                    &self.device,
+                    chunk_x,
+                    chunk_y,
+                    self.width,
+                    self.height,
+                    &self.height_data,
+                )?;
+                replacement.visible = self.chunks[chunk_index].visible;
+                replacement.lod_level = self.chunks[chunk_index].lod_level;
+                self.chunks[chunk_index] = replacement;
+            }
+        }
+
+        Ok(())
+    }
+
     /// C++ parity: WorldHeightMap::readTiles / TerrainTextureClass asset loading
     pub fn set_base_texture_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
         let (texture, view) = Self::upload_rgba_texture(
@@ -1023,6 +1106,27 @@ impl HeightMapMesh {
             &self.blend_texture_view,
             &self.blend_sampler,
         );
+    }
+
+    pub fn update_height_data(&mut self, height_data: Vec<u8>) -> Result<()> {
+        self.height_data = height_data;
+        (self.min_height, self.max_height) = Self::calculate_height_bounds(&self.height_data);
+
+        let mut rebuilt_chunks = Vec::with_capacity(self.num_chunks_x * self.num_chunks_y);
+        for chunk_y in 0..self.num_chunks_y {
+            for chunk_x in 0..self.num_chunks_x {
+                rebuilt_chunks.push(Self::create_chunk(
+                    &self.device,
+                    chunk_x,
+                    chunk_y,
+                    self.width,
+                    self.height,
+                    &self.height_data,
+                )?);
+            }
+        }
+        self.chunks = rebuilt_chunks;
+        Ok(())
     }
 
     /// Get height at world position

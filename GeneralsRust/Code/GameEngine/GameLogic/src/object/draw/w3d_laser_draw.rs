@@ -435,6 +435,9 @@ pub struct W3DLaserDraw {
     has_texture: bool,
     texture_aspect_ratio: Real,
     scene_line_ids: Vec<Option<SceneLineId>>,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadows_enabled: bool,
 }
 
 impl W3DLaserDraw {
@@ -453,6 +456,9 @@ impl W3DLaserDraw {
             has_texture: false,
             texture_aspect_ratio: 1.0,
             scene_line_ids: Vec::new(),
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadows_enabled: false,
         }
     }
 
@@ -578,6 +584,41 @@ impl W3DLaserDraw {
         self.release_scene_lines();
         self.scene_line_ids.resize(required, None);
     }
+
+    fn sync_scene_visibility(&mut self, visible: bool) {
+        for (index, maybe_id) in self.scene_line_ids.iter().enumerate() {
+            let Some(id) = maybe_id else {
+                continue;
+            };
+            let Some(line) = self.lines.get(index) else {
+                continue;
+            };
+            let (cr, cg, cb, ca) = color_components_real(line.color);
+            let desc = SceneLineDesc {
+                start: game_engine::common::system::geometry::Coord3D::new(
+                    line.start.x,
+                    line.start.y,
+                    line.start.z,
+                ),
+                end: game_engine::common::system::geometry::Coord3D::new(
+                    line.end.x, line.end.y, line.end.z,
+                ),
+                width: line.width,
+                color_r: cr,
+                color_g: cg,
+                color_b: cb,
+                opacity: ca,
+                texture_name: if self.has_texture {
+                    Some(self.data.texture_name.to_string())
+                } else {
+                    None
+                },
+                tile_factor: line.tile_factor,
+                visible: visible && line.visible,
+            };
+            update_scene_line(*id, &desc);
+        }
+    }
 }
 
 impl Module for W3DLaserDraw {
@@ -605,6 +646,11 @@ impl Module for W3DLaserDraw {
 impl DrawModule for W3DLaserDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         let _ = transform_mtx;
+
+        if self.hidden || self.fully_obscured_by_shroud {
+            self.sync_scene_visibility(false);
+            return;
+        }
 
         let needs_update = self.refresh_from_laser_update();
 
@@ -746,10 +792,19 @@ impl DrawModule for W3DLaserDraw {
         }
     }
 
-    fn set_shadows_enabled(&mut self, _enable: bool) {}
+    fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadows_enabled = enable;
+    }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
-    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+        self.sync_scene_visibility(!hidden && !self.fully_obscured_by_shroud);
+    }
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+        self.sync_scene_visibility(!fully_obscured && !self.hidden);
+    }
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
@@ -757,7 +812,9 @@ impl DrawModule for W3DLaserDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.self_dirty = true;
+    }
     fn is_laser(&self) -> bool {
         true
     }

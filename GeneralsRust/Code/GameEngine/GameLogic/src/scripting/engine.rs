@@ -3694,6 +3694,397 @@ impl ScriptEngine {
 
         false
     }
+
+    // =========================================================================
+    // MISSING METHODS PORTED FROM C++ ScriptEngine
+    // =========================================================================
+
+    // PARITY_NOTE: C++ ScriptEngine::notifyOfObjectDestruction
+    pub fn notify_of_object_destruction(&mut self, object_id: ObjectID) {
+        let tracker = get_named_object_tracker();
+        let name = tracker.get_object_name(object_id).ok().flatten();
+        if let Some(name) = name {
+            if !name.is_empty() {
+                let _ = tracker.unregister_object(object_id);
+            }
+        }
+
+        if self.condition_object == Some(object_id) {
+            self.condition_object = None;
+        }
+        if self.calling_object == Some(object_id) {
+            self.calling_object = None;
+        }
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::notifyOfTeamDestruction
+    pub fn notify_of_team_destruction(&mut self, team_name: &str) {
+        if team_name.is_empty() {
+            return;
+        }
+
+        self.remove_all_sequential_scripts_for_team(team_name);
+
+        if self.calling_team.as_deref() == Some(team_name) {
+            self.calling_team = None;
+        }
+        if self.condition_team.as_deref() == Some(team_name) {
+            self.condition_team = None;
+        }
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::forceUnfreezeTime
+    pub fn force_unfreeze_time(&mut self) {}
+
+    // PARITY_NOTE: C++ ScriptEngine::clearFlag
+    pub fn clear_flag(&mut self, name: &str) {
+        for j in 0..Self::MAX_PLAYER_COUNT {
+            let mod_name = format!("{}{}", name, j);
+            for i in 1..self.num_flags {
+                if let Some(flag) = &mut self.flags[i] {
+                    if flag.name == mod_name {
+                        flag.value = false;
+                    }
+                }
+            }
+        }
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::clearTeamFlags
+    pub fn clear_team_flags(&mut self) {
+        self.clear_flag("USA Team is Building");
+        self.clear_flag("USA Air Team Is Building");
+        self.clear_flag("USA Inf Team Is Building");
+        self.clear_flag("China Team is Building");
+        self.clear_flag("China Air Team Is Building");
+        self.clear_flag("China Inf Team Is Building");
+        self.clear_flag("GLA Team is Building");
+        self.clear_flag("GLA Inf Team Is Building");
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::didUnitExist
+    pub fn did_unit_exist(&self, unit_name: &str) -> bool {
+        let tracker = get_named_object_tracker();
+        tracker.did_object_exist(unit_name).unwrap_or(false)
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::runScript
+    pub fn run_script(&mut self, script_name: &str, team_name: Option<&str>) {
+        if script_name.is_empty() || script_name == "<none>" {
+            return;
+        }
+
+        let saved_current_player = self.current_player.clone();
+        let saved_calling_team = self.calling_team.take();
+
+        self.condition_team = None;
+        self.current_player = None;
+
+        if let Some(team_name_str) = team_name {
+            self.calling_team = Some(team_name_str.to_string());
+            if let Ok(mut factory) = get_team_factory().lock() {
+                if let Some(team_arc) = factory.find_team(team_name_str) {
+                    if let Ok(team_guard) = team_arc.read() {
+                        if let Some(player_id) = team_guard.get_controlling_player_id() {
+                            self.current_player =
+                                crate::player::player_list().read().ok().and_then(|list| {
+                                    list.get_player(player_id as i32).cloned()
+                                }).and_then(|p| {
+                                    p.read().ok().and_then(|p| {
+                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(p.get_player_name_key())
+                                    })
+                                });
+                        }
+                    }
+                }
+            }
+        }
+
+        let _found = self
+            .execute_subroutine_by_name(script_name)
+            .unwrap_or(false);
+
+        self.calling_team = saved_calling_team;
+        self.current_player = saved_current_player;
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::runObjectScript
+    pub fn run_object_script(&mut self, script_name: &str, object_id: ObjectID) {
+        if script_name.is_empty() || script_name == "<none>" {
+            return;
+        }
+
+        let saved_calling_object = self.calling_object;
+        self.calling_object = Some(object_id);
+
+        let _found = self
+            .execute_subroutine_by_name(script_name)
+            .unwrap_or(false);
+
+        self.calling_object = saved_calling_object;
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::evaluateConditions
+    pub fn evaluate_conditions(
+        &mut self,
+        script: &mut Script,
+        team_name: Option<&str>,
+        player_name: Option<&str>,
+    ) -> bool {
+        let saved_calling_team = self.calling_team.take();
+        let saved_current_player = self.current_player.clone();
+
+        self.calling_team = team_name.map(|s| s.to_string());
+
+        if player_name.is_some() {
+            self.current_player = player_name.map(|s| s.to_string());
+        } else if let Some(ref tname) = self.calling_team {
+            if let Ok(mut factory) = get_team_factory().lock() {
+                if let Some(team_arc) = factory.find_team(tname) {
+                    if let Ok(team_guard) = team_arc.read() {
+                        if let Some(pid) = team_guard.get_controlling_player_id() {
+                            self.current_player =
+                                crate::player::player_list().read().ok().and_then(|list| {
+                                    list.get_player(pid as i32).cloned()
+                                }).and_then(|p| {
+                                    p.read().ok().and_then(|p| {
+                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(p.get_player_name_key())
+                                    })
+                                });
+                        }
+                    }
+                }
+            }
+        }
+
+        let result = if let Some(or_cond) = script.condition.as_deref_mut() {
+            let mut test_value = false;
+            let mut current_or = Some(or_cond);
+            while let Some(or_node) = current_or {
+                if let Some(and_cond) = or_node.first_and.as_deref_mut() {
+                    let mut and_term = true;
+                    let mut current_and: Option<&mut Condition> = Some(and_cond);
+                    while let Some(cond) = current_and {
+                        let cond_type = cond.get_condition_type();
+                        let cond_result = match cond_type {
+                            ConditionType::Counter => self.evaluate_counter_condition_inline(cond),
+                            ConditionType::Flag => self.evaluate_flag_condition_inline(cond),
+                            ConditionType::TimerExpired => {
+                                self.evaluate_timer_condition_inline(cond)
+                            }
+                            ConditionType::ConditionTrue => true,
+                            ConditionType::ConditionFalse => false,
+                            _ => false,
+                        };
+                        if !cond_result {
+                            and_term = false;
+                            break;
+                        }
+                        current_and = cond.next_and_condition.as_deref_mut();
+                    }
+                    if and_term {
+                        test_value = true;
+                        break;
+                    }
+                }
+                current_or = or_node.next_or.as_deref_mut();
+            }
+            test_value
+        } else {
+            false
+        };
+
+        self.calling_team = saved_calling_team;
+        self.current_player = saved_current_player;
+        result
+    }
+
+    fn evaluate_counter_condition_inline(&self, condition: &Condition) -> bool {
+        let Some(param0) = condition.get_parameter(0) else {
+            return false;
+        };
+        let Some(param1) = condition.get_parameter(1) else {
+            return false;
+        };
+        let Some(param2) = condition.get_parameter(2) else {
+            return false;
+        };
+
+        let counter_name = param0.get_string();
+        let comparison = param1.get_int();
+        let target_value = param2.get_int();
+        let counter_value = self.get_counter(counter_name).map(|c| c.value).unwrap_or(0);
+
+        match comparison {
+            0 => counter_value < target_value,
+            1 => counter_value <= target_value,
+            2 => counter_value == target_value,
+            3 => counter_value >= target_value,
+            4 => counter_value > target_value,
+            5 => counter_value != target_value,
+            _ => false,
+        }
+    }
+
+    fn evaluate_flag_condition_inline(&self, condition: &Condition) -> bool {
+        let Some(param0) = condition.get_parameter(0) else {
+            return false;
+        };
+        let Some(param1) = condition.get_parameter(1) else {
+            return false;
+        };
+
+        let flag_name = param0.get_string();
+        let target_value = param1.get_int() != 0;
+        self.get_flag(flag_name).map(|f| f.value).unwrap_or(false) == target_value
+    }
+
+    fn evaluate_timer_condition_inline(&self, condition: &Condition) -> bool {
+        let Some(param0) = condition.get_parameter(0) else {
+            return false;
+        };
+        let counter_name = param0.get_string();
+        self.get_counter(counter_name)
+            .map(|c| c.is_countdown_timer && c.value < 1)
+            .unwrap_or(false)
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::removeSequentialScript (empty body in C++)
+    pub fn remove_sequential_script(&mut self, _script: &SequentialScript) {}
+
+    // PARITY_NOTE: C++ ScriptEngine::adjustTimer
+    pub fn adjust_timer(
+        &mut self,
+        counter_name: &str,
+        value: i32,
+        millisecond_timer: bool,
+        add: bool,
+    ) -> GameLogicResult<()> {
+        let index = self.allocate_counter(counter_name)?;
+        let Some(counter) = &mut self.counters[index] else {
+            return Ok(());
+        };
+        if millisecond_timer {
+            let msec_frames = Self::frames_from_millisecond_script_seconds(value as f32);
+            let delta = if add { msec_frames } else { -msec_frames };
+            counter.value += delta;
+        } else {
+            let delta = if add { value } else { -value };
+            counter.value += delta;
+        }
+        Ok(())
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::getStats
+    pub fn get_stats_detailed(&self) -> (String, f32, f32, f32) {
+        #[cfg(feature = "script_profiling")]
+        {
+            (self.get_stats(), self.stats.cur_update_time, 0.0, 0.0)
+        }
+        #[cfg(not(feature = "script_profiling"))]
+        {
+            (
+                "Script Engine Profiling disabled.".to_string(),
+                0.0,
+                0.0,
+                0.0,
+            )
+        }
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::addObjectToCache
+    pub fn add_object_to_cache(&mut self, object_id: ObjectID) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return;
+        };
+        let Ok(obj) = obj_arc.read() else { return };
+        let name = obj.get_name();
+        if name.is_empty() {
+            return;
+        }
+        let tracker = get_named_object_tracker();
+        let _ = tracker.register_named_object(name.to_string(), object_id);
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::removeObjectFromCache
+    pub fn remove_object_from_cache(&mut self, object_id: ObjectID) {
+        let tracker = get_named_object_tracker();
+        let _ = tracker.unregister_object(object_id);
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::restartTimer (only restarts if value > 0)
+    pub fn restart_timer_if_positive(&mut self, name: &str) -> GameLogicResult<()> {
+        let index = self.allocate_counter(name)?;
+        if let Some(counter) = &mut self.counters[index] {
+            if counter.value > 0 {
+                counter.is_countdown_timer = true;
+            }
+        }
+        Ok(())
+    }
+
+    // PARITY_NOTE: C++ ScriptEngine::setTimer with random/msec params
+    pub fn set_timer_with_params(
+        &mut self,
+        name: &str,
+        value: f32,
+        millisecond_timer: bool,
+        random: bool,
+        random_max: Option<f32>,
+    ) -> GameLogicResult<()> {
+        let index = self.allocate_counter(name)?;
+        let Some(counter) = &mut self.counters[index] else {
+            return Ok(());
+        };
+
+        let effective_value = if random {
+            let max = random_max.unwrap_or(value);
+            crate::helpers::get_game_logic_random_value_real(value.min(max), value.max(max))
+        } else {
+            value
+        };
+
+        if millisecond_timer {
+            counter.value = Self::frames_from_millisecond_script_seconds(effective_value);
+        } else {
+            counter.value = effective_value as i32;
+        }
+        counter.is_countdown_timer = true;
+        Ok(())
+    }
+
+    // PARITY_NOTE: C++ always returns FALSE (no case in switch)
+    pub fn has_unit_completed_sequential_script(
+        &self,
+        _object: ObjectID,
+        _script_name: &str,
+    ) -> bool {
+        false
+    }
+
+    // PARITY_NOTE: C++ always returns FALSE (no case in switch)
+    pub fn has_team_completed_sequential_script(
+        &self,
+        _team_name: &str,
+        _script_name: &str,
+    ) -> bool {
+        false
+    }
+
+    /// PARITY_NOTE: C++ FRAMES_TO_SHOW_WIN_LOSE_MESSAGE = 120
+    pub fn start_end_game_timer_cxx(&mut self) {
+        self.end_game_timer = 120;
+    }
+
+    /// PARITY_NOTE: C++ FRAMES_TO_SHOW_WIN_LOSE_MESSAGE = 120
+    pub fn start_close_window_timer_cxx(&mut self) {
+        self.close_window_timer = 120;
+    }
+
+    /// PARITY_NOTE: C++ startQuickEndGameTimer = 1 frame
+    pub fn start_quick_end_game_timer_cxx(&mut self) {
+        self.end_game_timer = 1;
+    }
 }
 
 impl XferSnapshot for ScriptEngine {

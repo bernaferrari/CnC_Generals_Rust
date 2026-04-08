@@ -7461,6 +7461,10 @@ impl Object {
         }
     }
 
+    pub fn set_vision_spied(&mut self, setting: Bool, by_whom: Int) {
+        self.set_vision_spied_by_player(by_whom, setting);
+    }
+
     /// Returns true if this object's vision is currently spied by `player_index`.
     pub fn is_vision_spied_by_player(&self, player_index: UnsignedInt) -> bool {
         let idx = player_index as usize;
@@ -9992,6 +9996,22 @@ impl Object {
                 );
         }
 
+        Ok(())
+    }
+
+    pub fn do_special_power_using_waypoints(
+        &self,
+        special_power_name: &str,
+        waypoint: &crate::object::special_power_module::Waypoint,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) -> Result<(), String> {
+        if self.is_disabled() {
+            return Ok(());
+        }
+
+        self.with_special_power_module_mut_by_name(special_power_name, |sp_module| {
+            sp_module.do_special_power_using_waypoints(waypoint, command_options);
+        });
         Ok(())
     }
 

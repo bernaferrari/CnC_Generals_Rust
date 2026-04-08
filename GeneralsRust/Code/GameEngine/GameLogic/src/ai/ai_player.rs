@@ -718,6 +718,11 @@ impl AIPlayer {
         true
     }
 
+    /// C++ parity helper for supply-center bookkeeping.
+    pub fn check_for_supply_center(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
+        self.on_structure_produced(crate::common::INVALID_OBJECT_ID, structure_id)
+    }
+
     pub fn select_team_to_build_ai(&mut self) -> bool {
         self.select_team_to_build().unwrap_or(false)
     }
@@ -766,6 +771,11 @@ impl AIPlayer {
     /// Select skill set for this AI
     pub fn select_skillset(&mut self, skillset: i32) {
         self.skillset_selector = skillset;
+    }
+
+    /// Legacy C++-style wrapper for team-building logic.
+    pub fn process_team_building(&mut self) -> Result<(), AiError> {
+        self.do_team_building()
     }
 
     /// Check if we have a supply source that's safe
@@ -1323,6 +1333,34 @@ impl AIPlayer {
         location: Coord3D,
     ) -> Result<(), AiError> {
         self.build_specific_building_near_location(thing_name, location)
+    }
+
+    /// Build near the first member of the specified team, falling back to a normal build request.
+    pub fn build_specific_building_nearest_team(
+        &mut self,
+        thing_name: &str,
+        team_name: &str,
+    ) -> Result<(), AiError> {
+        let team_arc = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(team_name));
+
+        let team_location = team_arc
+            .and_then(|team| team.read().ok().map(|guard| guard.get_members().to_vec()))
+            .and_then(|members| {
+                members.into_iter().find_map(|id| {
+                    OBJECT_REGISTRY
+                        .get_object(id)
+                        .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
+                })
+            });
+
+        if let Some(location) = team_location {
+            self.build_specific_building_near_location(thing_name, location)
+        } else {
+            self.build_specific_ai_building(thing_name)
+        }
     }
 
     fn find_supply_center(&self, minimum_cash: i32) -> Option<Arc<RwLock<Object>>> {
@@ -3482,6 +3520,16 @@ impl AIPlayer {
         Ok(())
     }
 
+    /// Returns true if a dozer/worker is already present in the current queue.
+    pub fn dozer_in_queue(&self) -> bool {
+        self.team_build_queue.iter().any(|team| {
+            team.work_orders.iter().any(|order| {
+                order.thing_template.eq_ignore_ascii_case("Dozer")
+                    || order.thing_template.eq_ignore_ascii_case("Worker")
+            })
+        })
+    }
+
     /// Repair a structure by sending dozer
     /// Matches C++ AIPlayer repairStructure logic
     pub(crate) fn repair_structure(&mut self, structure_id: ObjectID) -> Result<(), AiError> {
@@ -3499,6 +3547,40 @@ impl AIPlayer {
             }
         }
 
+        Ok(())
+    }
+
+    /// Remove all queued teams from both the build and ready queues.
+    pub fn clear_teams_in_queue(&mut self) {
+        self.team_build_queue.clear();
+        self.team_ready_queue.clear();
+    }
+
+    /// Remove queued references to a team that is about to be destroyed.
+    pub fn ai_pre_team_destroy(&mut self, team_name: &str) {
+        self.team_build_queue.retain(|team| {
+            team.team_name
+                .as_deref()
+                .map(|name| name != team_name)
+                .unwrap_or(true)
+        });
+        self.team_ready_queue.retain(|team| {
+            team.team_name
+                .as_deref()
+                .map(|name| name != team_name)
+                .unwrap_or(true)
+        });
+    }
+
+    /// C++-style supply-center guard entry point.
+    pub fn guard_supply_center(
+        &mut self,
+        _team_name: &str,
+        min_supplies: i32,
+    ) -> Result<(), AiError> {
+        self.attacked_supply_center = self
+            .find_supply_center(min_supplies)
+            .and_then(|warehouse| warehouse.read().ok().map(|guard| guard.get_id()));
         Ok(())
     }
 

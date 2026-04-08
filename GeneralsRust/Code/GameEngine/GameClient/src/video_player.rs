@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
+use crate::bink::ensure_bink_provider_registered;
 use crate::video_stream::{VideoStream, VideoStreamInterface};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
@@ -104,6 +105,7 @@ pub struct VideoPlayer {
     first_stream: Option<Box<VideoStream>>,
     active_streams: Vec<Weak<Mutex<ManagedVideoStreamState>>>,
     provider_is_valid: Bool,
+    has_focus: Bool,
 }
 
 impl VideoPlayer {
@@ -113,6 +115,7 @@ impl VideoPlayer {
             first_stream: None,
             active_streams: Vec::new(),
             provider_is_valid: false,
+            has_focus: true,
         }
     }
 
@@ -227,8 +230,11 @@ impl Default for VideoPlayer {
 
 impl VideoPlayerInterface for VideoPlayer {
     fn init(&mut self) {
+        ensure_bink_provider_registered();
         self.videos_available_for_play.clear();
         self.load_known_video_registry_files();
+        self.provider_is_valid = VideoPlayer::has_registered_provider();
+        self.has_focus = true;
     }
 
     fn reset(&mut self) {
@@ -236,6 +242,9 @@ impl VideoPlayerInterface for VideoPlayer {
     }
 
     fn update(&mut self) {
+        if !self.has_focus {
+            return;
+        }
         let mut current = self.first_stream.as_deref_mut();
         while let Some(stream) = current {
             stream.update();
@@ -249,9 +258,13 @@ impl VideoPlayerInterface for VideoPlayer {
         self.provider_is_valid = false;
     }
 
-    fn lose_focus(&mut self) {}
+    fn lose_focus(&mut self) {
+        self.has_focus = false;
+    }
 
-    fn regain_focus(&mut self) {}
+    fn regain_focus(&mut self) {
+        self.has_focus = true;
+    }
 
     fn open(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
         let resolved_path = self.resolve_movie_path(&movie_title)?;

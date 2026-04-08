@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use super::particle_manager::*;
 use crate::core::DrawableId;
+use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Individual particle information (matches C++ ParticleInfo)
 #[derive(Debug, Clone)]
@@ -458,6 +459,291 @@ impl Particle {
             self.color_rate = [0.0, 0.0, 0.0];
         }
     }
+}
+
+impl Snapshotable for ParticleInfo {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        xfer_vec3(xfer, &mut self.velocity)?;
+        xfer_point3(xfer, &mut self.position)?;
+        xfer_point3(xfer, &mut self.emitter_position)?;
+        xfer.xfer_real(&mut self.vel_damping)
+            .map_err(|e| e.to_string())?;
+
+        let mut temp_angle = 0.0f32;
+        xfer.xfer_real(&mut temp_angle).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut temp_angle).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.angle_z)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_real(&mut temp_angle).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut temp_angle).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.angular_rate_z)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_unsigned_int(&mut self.lifetime)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.size).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.size_rate)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.size_rate_damping)
+            .map_err(|e| e.to_string())?;
+
+        for key in &mut self.alpha_keys {
+            xfer.xfer_real(&mut key.value).map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut key.frame)
+                .map_err(|e| e.to_string())?;
+        }
+
+        for key in &mut self.color_keys {
+            for component in &mut key.color {
+                xfer.xfer_real(component).map_err(|e| e.to_string())?;
+            }
+            xfer.xfer_unsigned_int(&mut key.frame)
+                .map_err(|e| e.to_string())?;
+        }
+
+        xfer.xfer_real(&mut self.color_scale)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.particle_up_towards_emitter)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_randomness)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl Snapshotable for Particle {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        ParticleInfo {
+            velocity: self.velocity,
+            position: self.position,
+            emitter_position: self.emitter_position,
+            vel_damping: self.vel_damping,
+            angle_z: self.angle_z,
+            angular_rate_z: self.angular_rate_z,
+            angular_damping: self.angular_damping,
+            lifetime: self.lifetime,
+            size: self.size,
+            size_rate: self.size_rate,
+            size_rate_damping: self.size_rate_damping,
+            alpha_keys: self.alpha_keys,
+            color_keys: self.color_keys,
+            color_scale: self.color_scale,
+            wind_randomness: self.wind_randomness,
+            particle_up_towards_emitter: self.particle_up_towards_emitter,
+        }
+        .xfer(xfer)?;
+
+        xfer.xfer_unsigned_int(&mut self.personality)
+            .map_err(|e| e.to_string())?;
+        xfer_vec3(xfer, &mut self.acceleration)?;
+        xfer_point3(xfer, &mut self.last_position)?;
+        xfer.xfer_unsigned_int(&mut self.lifetime_left)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.create_timestamp)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.alpha).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.alpha_rate)
+            .map_err(|e| e.to_string())?;
+
+        let mut alpha_target_key = self.alpha_target_key as i32;
+        xfer.xfer_int(&mut alpha_target_key)
+            .map_err(|e| e.to_string())?;
+        self.alpha_target_key = alpha_target_key.max(0) as usize;
+
+        for component in &mut self.color {
+            xfer.xfer_real(component).map_err(|e| e.to_string())?;
+        }
+        for component in &mut self.color_rate {
+            xfer.xfer_real(component).map_err(|e| e.to_string())?;
+        }
+
+        let mut color_target_key = self.color_target_key as i32;
+        xfer.xfer_int(&mut color_target_key)
+            .map_err(|e| e.to_string())?;
+        self.color_target_key = color_target_key.max(0) as usize;
+
+        let mut drawable_id = 0u32;
+        xfer.xfer_drawable_id(&mut drawable_id)
+            .map_err(|e| e.to_string())?;
+
+        let mut controlled_system = self.controlled_system.unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
+        xfer.xfer_unsigned_int(&mut controlled_system)
+            .map_err(|e| e.to_string())?;
+        self.controlled_system = if controlled_system == INVALID_PARTICLE_SYSTEM_ID {
+            None
+        } else {
+            Some(controlled_system)
+        };
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.system_next = None;
+            self.system_prev = None;
+            self.overall_next = None;
+            self.overall_prev = None;
+            self.in_system_list = false;
+            self.in_overall_list = false;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.alpha_target_key = self.alpha_target_key.min(MAX_KEYFRAMES.saturating_sub(1));
+        self.color_target_key = self.color_target_key.min(MAX_KEYFRAMES.saturating_sub(1));
+        Ok(())
+    }
+}
+
+impl Snapshotable for ParticleSystem {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_unsigned_int(&mut self.system_id)
+            .map_err(|e| e.to_string())?;
+
+        let mut attached_drawable_id = self.attached_drawable_id.0;
+        xfer.xfer_drawable_id(&mut attached_drawable_id)
+            .map_err(|e| e.to_string())?;
+        self.attached_drawable_id = DrawableId(attached_drawable_id);
+
+        xfer.xfer_object_id(&mut self.attached_object_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_local_identity)
+            .map_err(|e| e.to_string())?;
+        xfer_matrix3(xfer, &mut self.local_transform)?;
+        xfer.xfer_bool(&mut self.is_identity)
+            .map_err(|e| e.to_string())?;
+        xfer_matrix3(xfer, &mut self.transform)?;
+        xfer.xfer_unsigned_int(&mut self.burst_delay_left)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.delay_left)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.start_timestamp)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.system_lifetime_left)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.personality_counter)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_forever)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.accumulated_size_bonus)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_stopped)
+            .map_err(|e| e.to_string())?;
+        xfer_vec3(xfer, &mut self.vel_coeff)?;
+        xfer.xfer_real(&mut self.count_coeff)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.delay_coeff)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.size_coeff)
+            .map_err(|e| e.to_string())?;
+        xfer_point3(xfer, &mut self.position)?;
+        xfer_point3(xfer, &mut self.last_position)?;
+        xfer.xfer_bool(&mut self.is_first_pos)
+            .map_err(|e| e.to_string())?;
+
+        let mut slave_system = self.slave_system.unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
+        let mut master_system = self.master_system.unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
+        xfer.xfer_unsigned_int(&mut slave_system)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut master_system)
+            .map_err(|e| e.to_string())?;
+        self.slave_system = if slave_system == INVALID_PARTICLE_SYSTEM_ID {
+            None
+        } else {
+            Some(slave_system)
+        };
+        self.master_system = if master_system == INVALID_PARTICLE_SYSTEM_ID {
+            None
+        } else {
+            Some(master_system)
+        };
+
+        let mut particle_count = self.particles.len() as u32;
+        xfer.xfer_unsigned_int(&mut particle_count)
+            .map_err(|e| e.to_string())?;
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.particles.clear();
+            for _ in 0..particle_count {
+                let mut particle = Particle::new(&ParticleInfo::default(), 0, 0);
+                particle.xfer(xfer)?;
+                self.particles.push_back(particle);
+            }
+        } else {
+            for particle in &mut self.particles {
+                particle.xfer(xfer)?;
+            }
+        }
+
+        self.particle_count = self.particles.len();
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.control_particle = None;
+        self.particle_count = self.particles.len();
+
+        for (index, particle) in self.particles.iter_mut().enumerate() {
+            particle.load_post_process()?;
+            if particle.controlled_system.is_some() {
+                self.control_particle = Some(index);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn xfer_vec3(xfer: &mut dyn Xfer, value: &mut Vector3<f32>) -> Result<(), String> {
+    xfer.xfer_real(&mut value.x).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut value.y).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut value.z).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn xfer_point3(xfer: &mut dyn Xfer, value: &mut Point3<f32>) -> Result<(), String> {
+    xfer.xfer_real(&mut value.x).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut value.y).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut value.z).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn xfer_matrix3(xfer: &mut dyn Xfer, value: &mut Matrix3<f32>) -> Result<(), String> {
+    for element in value.as_mut_slice() {
+        xfer.xfer_real(element).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Particle system (matches C++ ParticleSystem)

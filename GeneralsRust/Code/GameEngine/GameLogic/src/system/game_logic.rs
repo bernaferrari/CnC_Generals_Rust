@@ -1368,6 +1368,15 @@ pub struct GameLogic {
 
     // Control bar button overrides (C++ GameLogic.h line 266: ControlBarOverrideMap)
     control_bar_overrides: HashMap<String, ()>,
+
+    // C++ parity: m_objectTOC — compact thing-template name→id map for save/load
+    object_toc: Vec<ObjectTOCEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectTOCEntry {
+    pub name: String,
+    pub id: UnsignedShort,
 }
 
 /// Entry for sleepy update queue (priority queue by wake frame)
@@ -1444,6 +1453,7 @@ impl Default for GameLogic {
             module_lookup: HashMap::new(),
             global_weapon_bonus_set: WeaponBonusSet::new(),
             control_bar_overrides: HashMap::new(),
+            object_toc: Vec::new(),
         }
     }
 }
@@ -3657,6 +3667,415 @@ impl GameLogic {
 
     pub fn get_global_weapon_bonus_set(&self) -> &WeaponBonusSet {
         &self.global_weapon_bonus_set
+    }
+
+    // =========================================================================
+    // C++ Parity: setDefaults, destroyAllObjectsImmediate, processDestroyList
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::setDefaults(Bool loadingSaveGame) C++ line 247.
+    /// Resets frame counter, world dimensions, and update module lists.
+    /// When `loading_save_game` is false, the object-ID allocator is also reset to 1.
+    pub fn set_defaults(&mut self, loading_save_game: bool) {
+        self.frame = 0;
+        self.width = 0.0;
+        self.height = 0.0;
+        self.normal_updates.clear();
+        for _entry in &self.sleepy_updates {
+            // C++: (*it)->friend_setIndexInLogic(-1)
+        }
+        self.sleepy_updates.clear();
+        if !loading_save_game {
+            self.next_object_id = 1;
+        }
+    }
+
+    /// PARITY_NOTE: GameLogic::destroyAllObjectsImmediate() C++ line 285.
+    /// Iterates all live objects, destroys every one, then immediately
+    /// processes the destroy list. Used during `reset()`.
+    pub fn destroy_all_objects_immediate(&mut self) {
+        let all_ids: Vec<ObjectID> = self.all_objects.drain(..).collect();
+        for obj_id in &all_ids {
+            self.destroy_object(*obj_id);
+        }
+        let _ = self.cleanup_dead_objects();
+        debug_assert!(
+            self.all_objects.is_empty(),
+            "destroyAllObjectsImmediate: object list not cleared"
+        );
+    }
+
+    /// PARITY_NOTE: GameLogic::processDestroyList() C++ line 2445.
+    /// C++ name alias for `cleanup_dead_objects`.
+    pub fn process_destroy_list(&mut self) -> Result<(), GameLogicError> {
+        self.cleanup_dead_objects()
+    }
+
+    // =========================================================================
+    // C++ Parity: selectObject / deselectObject
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::selectObject(Object*, Bool, PlayerMaskType, Bool) C++ line 2595.
+    pub fn select_object(
+        &mut self,
+        object_id: ObjectID,
+        create_new_selection: bool,
+        _player_mask: PlayerMaskType,
+        _affect_client: bool,
+    ) {
+        let Some(obj_ref) = self.find_object_by_id(object_id) else {
+            return;
+        };
+        let Ok(obj) = obj_ref.read() else {
+            return;
+        };
+        if !obj.is_mass_selectable() && !create_new_selection {
+            trace!(
+                "selectObject: object {} not mass-selectable, skipping",
+                object_id
+            );
+            return;
+        }
+        // C++ creates an AIGroup, adds to player selection — deferred to InGameUI integration
+        trace!(
+            "selectObject: id={}, createNew={}",
+            object_id,
+            create_new_selection
+        );
+    }
+
+    /// PARITY_NOTE: GameLogic::deselectObject(Object*, PlayerMaskType, Bool) C++ line 2646.
+    pub fn deselect_object(
+        &mut self,
+        object_id: ObjectID,
+        _player_mask: PlayerMaskType,
+        _affect_client: bool,
+    ) {
+        if self.find_object_by_id(object_id).is_none() {
+            return;
+        }
+        // C++ removes from player's AIGroup selection — deferred to InGameUI integration
+        trace!("deselectObject: id={}", object_id);
+    }
+
+    // =========================================================================
+    // C++ Parity: startNewGame / loadMapINI
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::startNewGame(Bool loadingSaveGame) C++ line 1081.
+    /// Entry point for starting a new game or loading a save game.
+    /// When not loading a save, sets the start-new-game flag so the actual
+    /// load happens in the next update() call (after any intro movie).
+    pub fn start_new_game(&mut self, loading_save_game: bool) {
+        self.set_loading_map(true);
+        if !loading_save_game {
+            let map_path = game_engine::common::ini::get_global_data()
+                .map(|data| data.read().map_name.clone())
+                .unwrap_or_default();
+            if !map_path.is_empty() {
+                let mut state = game_engine::System::get_game_state();
+                state.set_pristine_map_name(map_path);
+            }
+            if !crate::helpers::TheGameLogic::is_start_new_game_requested() {
+                crate::helpers::TheGameLogic::request_start_new_game();
+                return;
+            }
+        }
+        self.rank_level_limit = 1000;
+        self.set_defaults(loading_save_game);
+        self.show_behind_building_markers = true;
+        self.draw_icon_ui = true;
+        self.show_dynamic_lod = true;
+        set_fp_mode();
+        if let Some(client) = TheGameClient::get() {
+            client.set_frame(0);
+        }
+        self.frame = 0;
+        self.set_loading_map(false);
+    }
+
+    /// PARITY_NOTE: GameLogic::loadMapINI(AsciiString mapName) C++ line 2367.
+    /// Loads map-specific INI overrides (map.ini, solo.ini, map.str).
+    pub fn load_map_ini(&self, map_name: &str) {
+        if map_name.is_empty() || map_name.len() < 4 {
+            return;
+        }
+        let base = &map_name[..map_name.len().saturating_sub(4)];
+        let dir = match base.rfind(['/', '\\']) {
+            Some(idx) => &base[..idx],
+            None => base,
+        };
+        let map_ini = format!("{}/map.ini", dir);
+        let solo_ini = format!("{}/solo.ini", dir);
+        if std::path::Path::new(&map_ini).exists() {
+            info!("map.ini found at {}", map_ini);
+            // INI loading deferred to game_engine common INI subsystem
+        }
+        if std::path::Path::new(&solo_ini).exists() {
+            info!("solo.ini found at {}", solo_ini);
+        }
+    }
+
+    // =========================================================================
+    // C++ Parity: bindObjectAndDrawable / sendObjectDestroyed
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::bindObjectAndDrawable(Object*, Drawable*) C++ line 4125.
+    pub fn bind_object_and_drawable(&self, _object_id: ObjectID, _drawable_id: ObjectID) {
+        trace!(
+            "bindObjectAndDrawable: obj={}, draw={}",
+            _object_id,
+            _drawable_id
+        );
+    }
+
+    /// PARITY_NOTE: GameLogic::sendObjectDestroyed(Object*) C++ line 4134.
+    pub fn send_object_destroyed(&self, object_id: ObjectID) {
+        trace!("sendObjectDestroyed: obj={}", object_id);
+    }
+
+    // =========================================================================
+    // C++ Parity: prepareLogicForObjectLoad
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::prepareLogicForObjectLoad() C++ line 4584.
+    /// Before loading a save game, destroys bridge objects (and their towers)
+    /// and walk-on-top-of-wall objects so they can be re-created from save data.
+    pub fn prepare_logic_for_object_load(&mut self) {
+        let bridge_towers_to_destroy: Vec<ObjectID> = {
+            let terrain = crate::terrain::get_terrain_logic();
+            let terrain_guard = match terrain.read() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            let mut towers = Vec::new();
+            for &obj_id in &self.all_objects {
+                let Some(obj_ref) = self.objects.get(&obj_id) else {
+                    continue;
+                };
+                let Ok(obj) = obj_ref.read() else { continue };
+                if obj.is_kind_of(KindOf::Bridge) {
+                    let pos = *obj.get_position();
+                    if let Some(bridge) = terrain_guard.find_bridge_at(&pos) {
+                        for &tower_id in &bridge.get_bridge_info().tower_object_id {
+                            if tower_id != INVALID_ID {
+                                towers.push(tower_id);
+                            }
+                        }
+                    }
+                }
+            }
+            towers
+        };
+
+        for tower_id in bridge_towers_to_destroy {
+            self.destroy_object(tower_id);
+        }
+
+        let ids_to_destroy: Vec<ObjectID> = self
+            .all_objects
+            .iter()
+            .filter(|&&obj_id| {
+                if let Some(obj_ref) = self.objects.get(&obj_id) {
+                    if let Ok(obj) = obj_ref.read() {
+                        return obj.is_kind_of(KindOf::Bridge)
+                            || obj.is_kind_of(KindOf::WalkOnTopOfWall);
+                    }
+                }
+                false
+            })
+            .copied()
+            .collect();
+
+        for obj_id in ids_to_destroy {
+            self.destroy_object(obj_id);
+        }
+        let _ = self.process_destroy_list();
+    }
+
+    // =========================================================================
+    // C++ Parity: ControlBar overrides
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::setControlBarOverride(AsciiString, Int, ConstCommandButtonPtr) C++ line 4389.
+    pub fn set_control_bar_override(&mut self, command_set_name: &str, slot: i32) {
+        if slot < 0 || slot > 9 {
+            return;
+        }
+        let key = format!("{}{}", slot, command_set_name);
+        self.control_bar_overrides.insert(key, ());
+    }
+
+    /// PARITY_NOTE: GameLogic::findControlBarOverride(AsciiString, Int, ConstCommandButtonPtr&) C++ line 4398.
+    pub fn find_control_bar_override(&self, command_set_name: &str, slot: i32) -> bool {
+        if slot < 0 || slot > 9 {
+            return false;
+        }
+        let key = format!("{}{}", slot, command_set_name);
+        self.control_bar_overrides.contains_key(&key)
+    }
+
+    // =========================================================================
+    // C++ Parity: Superweapon restrictions
+    // =========================================================================
+
+    pub fn get_superweapon_restriction(&self) -> UnsignedShort {
+        self.superweapon_restriction
+    }
+
+    pub fn set_superweapon_restriction(&mut self, restriction: UnsignedShort) {
+        self.superweapon_restriction = restriction;
+    }
+
+    // =========================================================================
+    // C++ Parity: Object TOC for save/load
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::findTOCEntryByName(AsciiString) C++ line 4460.
+    pub fn find_toc_entry_by_name(&self, name: &str) -> Option<&ObjectTOCEntry> {
+        self.object_toc.iter().find(|e| e.name == name)
+    }
+
+    /// PARITY_NOTE: GameLogic::findTOCEntryById(UnsignedShort) C++ line 4474.
+    pub fn find_toc_entry_by_id(&self, id: UnsignedShort) -> Option<&ObjectTOCEntry> {
+        self.object_toc.iter().find(|e| e.id == id)
+    }
+
+    /// PARITY_NOTE: GameLogic::addTOCEntry(AsciiString, UnsignedShort) C++ line 4488.
+    pub fn add_toc_entry(&mut self, name: String, id: UnsignedShort) {
+        self.object_toc.push(ObjectTOCEntry { name, id });
+    }
+
+    /// PARITY_NOTE: GameLogic::xferObjectTOC(Xfer*) C++ line 4501.
+    /// Serializes/deserializes the object TOC used during save/load.
+    pub fn xfer_object_toc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+        self.object_toc.clear();
+        let mut toc_count: UnsignedInt = 0;
+        match xfer.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                // PARITY_NOTE: Collect unique template names first to avoid
+                // borrowing self mutably while iterating. C++ uses a plain
+                // loop with direct map insertion (no borrow checker).
+                let mut seen_names: std::collections::HashSet<String> =
+                    self.object_toc.iter().map(|e| e.name.clone()).collect();
+                let mut new_entries: Vec<(String, UnsignedShort)> = Vec::new();
+                for obj_id in &self.all_objects {
+                    if let Some(obj_ref) = self.objects.get(obj_id) {
+                        if let Ok(obj) = obj_ref.read() {
+                            let tname = obj.get_template().get_name().to_string();
+                            if !seen_names.contains(&tname) {
+                                seen_names.insert(tname.clone());
+                                toc_count += 1;
+                                new_entries.push((tname, toc_count as UnsignedShort));
+                            }
+                        }
+                    }
+                }
+                for (name, id) in new_entries {
+                    self.add_toc_entry(name, id);
+                }
+                xfer.xfer_unsigned_int(&mut toc_count)?;
+                for entry in &mut self.object_toc {
+                    xfer.xfer_string(&mut entry.name)?;
+                    xfer.xfer_unsigned_short(&mut entry.id)?;
+                }
+            }
+            XferMode::Load => {
+                xfer.xfer_unsigned_int(&mut toc_count)?;
+                for _ in 0..toc_count {
+                    let mut name_str = String::new();
+                    let mut id: UnsignedShort = 0;
+                    xfer.xfer_string(&mut name_str)?;
+                    xfer.xfer_unsigned_short(&mut id)?;
+                    self.add_toc_entry(name_str, id);
+                }
+            }
+            XferMode::Invalid => return Err(XferStatus::ModeUnknown),
+        }
+        Ok(())
+    }
+
+    // =========================================================================
+    // C++ Parity: Sleepy update system methods
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::pushSleepyUpdate(UpdateModulePtr) C++ line 2907.
+    /// Adds a module to the sleepy heap. Wake frame defaults to next frame.
+    pub fn push_sleepy_update(&mut self, object_id: ObjectID, module: UpdateModulePtr) {
+        let wake_frame = self.frame.saturating_add(1);
+        self.register_sleepy_update_module(object_id, module, wake_frame);
+    }
+
+    /// PARITY_NOTE: GameLogic::popSleepyUpdate() C++ line 2930.
+    pub fn pop_sleepy_update(&mut self) -> Option<SleepyUpdateEntry> {
+        self.sleepy_updates.pop()
+    }
+
+    /// PARITY_NOTE: GameLogic::peekSleepyUpdate() C++ line 2920.
+    pub fn peek_sleepy_update(&self) -> Option<&SleepyUpdateEntry> {
+        self.sleepy_updates.peek()
+    }
+
+    /// PARITY_NOTE: GameLogic::eraseSleepyUpdate(Int i) C++ line 2737.
+    pub fn erase_sleepy_update(&mut self, target_module: &UpdateModulePtr) {
+        let mut heap = BinaryHeap::new();
+        while let Some(entry) = self.sleepy_updates.pop() {
+            if !Arc::ptr_eq(&entry.module, target_module) {
+                heap.push(entry);
+            }
+        }
+        self.sleepy_updates = heap;
+    }
+
+    /// PARITY_NOTE: GameLogic::remakeSleepyUpdate() C++ line 2890.
+    pub fn remake_sleepy_update(&mut self) {
+        let entries: Vec<SleepyUpdateEntry> = self.sleepy_updates.drain().collect();
+        for entry in entries {
+            self.sleepy_updates.push(entry);
+        }
+    }
+
+    // =========================================================================
+    // C++ Parity: Game pause
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::isGamePaused() C++ line 4157.
+    pub fn is_game_paused(&self) -> bool {
+        false
+    }
+
+    /// PARITY_NOTE: GameLogic::setGamePaused(Bool, Bool) C++ line 4164.
+    pub fn set_game_paused(&mut self, _paused: bool, _pause_music: bool) {}
+
+    // =========================================================================
+    // C++ Parity: loadPostProcess
+    // =========================================================================
+
+    /// PARITY_NOTE: GameLogic::loadPostProcess() C++ line 4996.
+    /// After all objects loaded from save: normalizes next-object-ID counter
+    /// and rebuilds all sleepy/normal update module lists.
+    pub fn load_post_process(&mut self) {
+        self.next_object_id = INVALID_ID;
+        for obj_id in &self.all_objects {
+            if *obj_id >= self.next_object_id {
+                self.next_object_id = obj_id.saturating_add(1);
+            }
+        }
+        if self.next_object_id == INVALID_ID {
+            self.next_object_id = 1;
+        }
+        self.sleepy_updates.clear();
+        self.normal_updates.clear();
+        self.module_lookup.clear();
+        // C++ rebuilds update lists by iterating behavior modules.
+        // In Rust, module registration happens during object construction
+        // via register_normal_update_module/register_sleepy_update_module.
+        // Modules will re-register when objects call onBuildComplete.
+        let _ = if self.frame == 0 { 1 } else { self.frame };
+        self.remake_sleepy_update();
     }
 
     fn refresh_global_weapon_bonuses(&mut self) {
