@@ -121,6 +121,9 @@ pub struct W3DDebrisDraw {
     state_frame_count: u32,
     final_stopped: bool,
     owner_id: Option<ObjectID>,
+    hidden: bool,
+    fully_obscured_by_shroud: bool,
+    shadows_enabled: bool,
 }
 
 impl W3DDebrisDraw {
@@ -138,6 +141,9 @@ impl W3DDebrisDraw {
             state_frame_count: 0,
             final_stopped: false,
             owner_id: None,
+            hidden: false,
+            fully_obscured_by_shroud: false,
+            shadows_enabled: false,
         }
     }
 
@@ -217,7 +223,7 @@ impl Module for W3DDebrisDraw {
 
 impl DrawModule for W3DDebrisDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        if self.model_name.is_empty() {
+        if self.model_name.is_empty() || self.hidden || self.fully_obscured_by_shroud {
             return;
         }
 
@@ -273,13 +279,18 @@ impl DrawModule for W3DDebrisDraw {
         let _ = (transform_mtx, self.get_current_animation());
     }
 
-    fn set_shadows_enabled(&mut self, _enable: bool) {
-        // Shadows controlled by shadow_type
+    fn set_shadows_enabled(&mut self, enable: bool) {
+        self.shadows_enabled = enable;
     }
 
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
-    fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+    }
+    fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        self.fully_obscured_by_shroud = fully_obscured;
+    }
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
@@ -287,7 +298,9 @@ impl DrawModule for W3DDebrisDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.state_frame_count = 0;
+    }
 
     fn get_debris_draw_interface(&self) -> Option<&dyn DebrisDrawInterface> {
         Some(self)

@@ -476,7 +476,24 @@ impl Gadget for ComboBox {
         Vec::new()
     }
 
-    fn update(&mut self, _delta_time: f32) {}
+    fn update(&mut self, _delta_time: f32) {
+        // C++ GadgetComboBox is event-driven with no per-frame update.
+        // Validate selected index still points at a valid item.
+        if let Some(idx) = self.selected_index {
+            if idx >= self.items.len() {
+                self.selected_index = if self.items.is_empty() { None } else { Some(0) };
+                self.text = self
+                    .selected_index
+                    .and_then(|i| self.items.get(i))
+                    .map(|item| item.text.clone())
+                    .unwrap_or_default();
+            }
+        }
+        // Close dropdown if all items removed.
+        if self.dropdown_open && self.items.is_empty() {
+            self.dropdown_open = false;
+        }
+    }
 
     fn render(&self, theme: &GadgetTheme) {
         if !self.visible {

@@ -12,6 +12,7 @@
 //! - Frustum culling
 
 use super::{
+    height_map::{HeightMap as TerrainHeightMap, WorldHeightMap},
     terrain_lod::{LODTransition, TerrainLOD, TerrainLODManager},
     terrain_rendering::{DynamicLight, HeightMapMesh, TerrainUniforms},
     terrain_texture::{BlendTileInfo, TerrainTextureManager, TextureClass, TileData},
@@ -87,6 +88,28 @@ impl TerrainRenderingSystem {
             time: 0.0,
             enabled: true,
         })
+    }
+
+    pub fn from_world_height_map(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        world_height_map: Arc<RwLock<WorldHeightMap>>,
+        bind_group_layout: &BindGroupLayout,
+    ) -> Result<Self> {
+        let height_map = TerrainHeightMap::from_world_map(world_height_map);
+        Self::new(
+            device,
+            queue,
+            height_map.width() as usize,
+            height_map.height() as usize,
+            height_map.height_data_for_render(),
+            bind_group_layout,
+        )
+    }
+
+    pub fn sync_height_map(&self, height_map: &TerrainHeightMap) -> Result<()> {
+        let mut mesh = self.heightmap.write();
+        mesh.update_height_data(height_map.height_data_for_render())
     }
 
     /// Load terrain textures from map data

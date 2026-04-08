@@ -1137,14 +1137,14 @@ mod tests {
         }
     }
 
-    fn placeholder_new_module(
+    fn test_new_module(
         _thing: Arc<dyn Thing>,
         _module_data: Arc<dyn ModuleData>,
     ) -> Box<dyn Module> {
         Box::new(TestStubModule)
     }
 
-    fn placeholder_new_module_data(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    fn test_new_module_data(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
         Box::new(StubModuleData)
     }
 
@@ -1190,8 +1190,8 @@ mod tests {
         let mut factory = ModuleFactory::new();
         let name = AsciiString::from("StubModule");
         factory.add_module_internal(
-            Some(placeholder_new_module),
-            Some(placeholder_new_module_data),
+            Some(test_new_module),
+            Some(test_new_module_data),
             ModuleType::Behavior,
             &name,
             ModuleInterfaceType::NONE,

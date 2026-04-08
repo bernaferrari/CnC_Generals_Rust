@@ -1939,7 +1939,7 @@ pub struct DrawableState {
 
 static DRAWABLE_STATE: Lazy<Mutex<HashMap<u32, DrawableState>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-static TERRAIN_TREE_STATE: Lazy<Mutex<HashMap<u32, TerrainTreeRegistration>>> =
+pub static TERRAIN_TREE_STATE: Lazy<Mutex<HashMap<u32, TerrainTreeRegistration>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Bridge trait for camera view operations.

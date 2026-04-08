@@ -499,7 +499,45 @@ impl Gadget for TabControl {
         Vec::new()
     }
 
-    fn update(&mut self, _delta_time: f32) {}
+    fn update(&mut self, _delta_time: f32) {
+        // C++ GadgetTabControl is event-driven with no per-frame update.
+        // Validate selected tab still points at a valid, enabled tab.
+        if let Some(selected_id) = self.selected_tab {
+            let still_valid = self
+                .tabs
+                .iter()
+                .any(|t| t.id == selected_id && t.enabled && t.visible);
+            if !still_valid {
+                // Fall back to the first valid tab.
+                if let Some(first_valid) = self.tabs.iter().find(|t| t.enabled && t.visible) {
+                    self.selected_tab = Some(first_valid.id);
+                    self.active_index = self
+                        .tabs
+                        .iter()
+                        .position(|t| t.id == first_valid.id)
+                        .unwrap_or(0);
+                } else {
+                    self.selected_tab = None;
+                    self.active_index = 0;
+                }
+            } else {
+                // Keep active_index in sync.
+                if let Some(pos) = self.tabs.iter().position(|t| t.id == selected_id) {
+                    self.active_index = pos;
+                }
+            }
+        } else if !self.tabs.is_empty() {
+            // Auto-select first valid tab if none selected.
+            if let Some(first_valid) = self.tabs.iter().find(|t| t.enabled && t.visible) {
+                self.selected_tab = Some(first_valid.id);
+                self.active_index = self
+                    .tabs
+                    .iter()
+                    .position(|t| t.id == first_valid.id)
+                    .unwrap_or(0);
+            }
+        }
+    }
 
     #[allow(unused_variables)]
     fn render(&self, theme: &GadgetTheme) {

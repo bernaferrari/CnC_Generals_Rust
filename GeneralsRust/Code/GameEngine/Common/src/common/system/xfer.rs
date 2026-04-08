@@ -10,8 +10,28 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use super::geometry::{Coord3D, Matrix3D, Point2D};
+use super::kind_of::KIND_OF_BIT_NAMES;
 use super::snapshot::Snapshot;
-use std::io::{self, Read, Write};
+use crate::common::ini::ini_upgrade::get_upgrade_center;
+use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
+use crate::common::thing::thing::KindOfType;
+use crate::System::SaveGame::get_game_state;
+use std::io;
+
+fn upgrade_names_in_serialization_order() -> Option<Vec<String>> {
+    let center = get_upgrade_center()?;
+    let mut names = center
+        .get_template_names()
+        .into_iter()
+        .map(|name| name.clone())
+        .collect::<Vec<_>>();
+
+    // PARITY_NOTE: C++ iterates TheUpgradeCenter's linked-list order. The current Rust
+    // UpgradeCenter exposes templates through a HashMap, so sort names to keep save output
+    // deterministic until the linked-list parity layer exists here too.
+    names.sort();
+    Some(names)
+}
 
 /// Type alias for XferVersion - matches C++ line 29
 /// C++ Reference: typedef UnsignedByte XferVersion (1 byte)
@@ -397,6 +417,29 @@ pub trait Xfer {
         }
     }
 
+    fn xfer_map_name(&mut self, map_name_data: &mut String) -> io::Result<()> {
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                // PARITY_NOTE: C++ converts runtime map paths to portable save paths before writing.
+                let mut portable_name =
+                    get_game_state().real_map_path_to_portable_map_path(map_name_data.as_str());
+                self.xfer_ascii_string(&mut portable_name)
+            }
+            XferMode::Load => {
+                // PARITY_NOTE: C++ reads the portable bytes first, then translates back to the real path.
+                self.xfer_ascii_string(map_name_data)?;
+                *map_name_data =
+                    get_game_state().portable_map_path_to_real_map_path(map_name_data.as_str());
+                Ok(())
+            }
+            XferMode::Crc => {
+                // PARITY_NOTE: The C++ implementation intentionally does nothing in CRC mode here.
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Xfer marker label - purely for readability, explicitly discarded on load
     /// Matches C++ Xfer.cpp lines 176-178
     fn xfer_marker_label(&mut self, _ascii_string_data: &str) -> io::Result<()> {
@@ -536,6 +579,271 @@ pub trait Xfer {
                 drawable_id as *mut u32 as *mut u8,
                 std::mem::size_of::<u32>(),
             )
+        }
+    }
+
+    fn xfer_stl_object_id_list(&mut self, object_id_list_data: &mut Vec<u32>) -> io::Result<()> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        let mut list_count = object_id_list_data.len() as u16;
+        self.xfer_unsigned_short(&mut list_count)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                // PARITY_NOTE: C++ writes version, u16 count, then raw ObjectIDs in list order.
+                for object_id in object_id_list_data.iter().copied() {
+                    let mut object_id = object_id;
+                    self.xfer_object_id(&mut object_id)?;
+                }
+                Ok(())
+            }
+            XferMode::Load => {
+                if !object_id_list_data.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Xfer::xfer_stl_object_id_list - object list should be empty before loading",
+                    ));
+                }
+
+                for _ in 0..list_count {
+                    let mut object_id = 0u32;
+                    self.xfer_object_id(&mut object_id)?;
+                    object_id_list_data.push(object_id);
+                }
+                Ok(())
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "xfer_stl_object_id_list - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                ),
+            )),
+        }
+    }
+
+    fn xfer_stl_int_list(&mut self, int_list_data: &mut Vec<i32>) -> io::Result<()> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        let mut list_count = int_list_data.len() as u16;
+        self.xfer_unsigned_short(&mut list_count)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                // PARITY_NOTE: C++ uses the same versioned list encoding for Int values.
+                for int_value in int_list_data.iter().copied() {
+                    let mut int_value = int_value;
+                    self.xfer_int(&mut int_value)?;
+                }
+                Ok(())
+            }
+            XferMode::Load => {
+                if !int_list_data.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Xfer::xfer_stl_int_list - int list should be empty before loading",
+                    ));
+                }
+
+                for _ in 0..list_count {
+                    let mut int_value = 0i32;
+                    self.xfer_int(&mut int_value)?;
+                    int_list_data.push(int_value);
+                }
+                Ok(())
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "xfer_stl_int_list - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                ),
+            )),
+        }
+    }
+
+    fn xfer_science_type(&mut self, science: &mut ScienceType) -> io::Result<()> {
+        let mut science_name = String::new();
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                // PARITY_NOTE: Save/load uses science internal names so NameKey reorderings stay compatible.
+                science_name = get_science_store()
+                    .map(|store| store.get_internal_name_for_science(*science).to_string())
+                    .unwrap_or_default();
+                self.xfer_ascii_string(&mut science_name)
+            }
+            XferMode::Load => {
+                self.xfer_ascii_string(&mut science_name)?;
+                let resolved = get_science_store()
+                    .map(|store| store.get_science_from_internal_name(science_name.as_str()))
+                    .unwrap_or(SCIENCE_INVALID);
+                if resolved == SCIENCE_INVALID {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("xfer_science_type - Unknown science '{}'", science_name),
+                    ));
+                }
+                *science = resolved;
+                Ok(())
+            }
+            XferMode::Crc => self.xfer_int(science),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "xfer_science_type - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                ),
+            )),
+        }
+    }
+
+    fn xfer_science_vec(&mut self, science_vec: &mut Vec<ScienceType>) -> io::Result<()> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        let mut count = science_vec.len() as u16;
+        self.xfer_unsigned_short(&mut count)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                for science in science_vec.iter().copied() {
+                    let mut science = science;
+                    self.xfer_science_type(&mut science)?;
+                }
+                Ok(())
+            }
+            XferMode::Load => {
+                // PARITY_NOTE: C++ clears pre-seeded entries here instead of failing the load.
+                if !science_vec.is_empty() {
+                    science_vec.clear();
+                }
+
+                for _ in 0..count {
+                    let mut science = SCIENCE_INVALID;
+                    self.xfer_science_type(&mut science)?;
+                    science_vec.push(science);
+                }
+                Ok(())
+            }
+            XferMode::Crc => {
+                for science in science_vec.iter().copied() {
+                    let mut science = science;
+                    self.xfer_int(&mut science)?;
+                }
+                Ok(())
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "xfer_science_vec - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                ),
+            )),
+        }
+    }
+
+    fn xfer_kind_of(&mut self, kind_of_data: &mut KindOfType) -> io::Result<()> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                // PARITY_NOTE: C++ persists the single-bit KindOf name so enum reorderings remain safe.
+                let mut kind_of_name = KIND_OF_BIT_NAMES
+                    .get(*kind_of_data as usize)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string();
+                self.xfer_ascii_string(&mut kind_of_name)
+            }
+            XferMode::Load => {
+                let mut kind_of_name = String::new();
+                self.xfer_ascii_string(&mut kind_of_name)?;
+                if let Some(bit) = KIND_OF_BIT_NAMES
+                    .iter()
+                    .position(|name| *name == kind_of_name)
+                {
+                    *kind_of_data = bit as KindOfType;
+                }
+                Ok(())
+            }
+            XferMode::Crc => self.xfer_unsigned_int(kind_of_data),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "xfer_kind_of - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                ),
+            )),
+        }
+    }
+
+    fn xfer_upgrade_mask(&mut self, upgrade_mask_data: &mut u128) -> io::Result<()> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        self.xfer_version(&mut version, CURRENT_VERSION)?;
+
+        match self.get_xfer_mode() {
+            XferMode::Save => {
+                let upgrade_names = upgrade_names_in_serialization_order().unwrap_or_default();
+                let mut selected_names = Vec::new();
+
+                // PARITY_NOTE: C++ writes each set upgrade bit as a name string instead of raw bits.
+                for (index, upgrade_name) in upgrade_names.into_iter().enumerate() {
+                    if (*upgrade_mask_data & (1u128 << index)) != 0 {
+                        selected_names.push(upgrade_name);
+                    }
+                }
+
+                let mut count = selected_names.len() as u16;
+                self.xfer_unsigned_short(&mut count)?;
+                for mut upgrade_name in selected_names {
+                    self.xfer_ascii_string(&mut upgrade_name)?;
+                }
+                Ok(())
+            }
+            XferMode::Load => {
+                let mut count = 0u16;
+                self.xfer_unsigned_short(&mut count)?;
+                *upgrade_mask_data = 0;
+
+                let upgrade_names = upgrade_names_in_serialization_order();
+                for _ in 0..count {
+                    let mut upgrade_name = String::new();
+                    self.xfer_ascii_string(&mut upgrade_name)?;
+
+                    let Some(index) = upgrade_names
+                        .as_ref()
+                        .and_then(|names| names.iter().position(|name| name == &upgrade_name))
+                    else {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!(
+                                "Xfer::xfer_upgrade_mask - Unknown upgrade '{}'",
+                                upgrade_name
+                            ),
+                        ));
+                    };
+
+                    *upgrade_mask_data |= 1u128 << index;
+                }
+                Ok(())
+            }
+            XferMode::Crc => self.xfer_u128(upgrade_mask_data),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "xfer_upgrade_mask - Unknown xfer mode {:?}",
+                    self.get_xfer_mode()
+                ),
+            )),
         }
     }
 

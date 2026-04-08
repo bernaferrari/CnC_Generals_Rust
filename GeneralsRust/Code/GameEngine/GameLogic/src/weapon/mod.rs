@@ -1052,6 +1052,10 @@ impl WeaponTemplate {
         self.attack_range
     }
 
+    pub fn get_request_assist_range(&self) -> f32 {
+        self.request_assist_range
+    }
+
     pub fn get_name(&self) -> &str {
         &self.name
     }

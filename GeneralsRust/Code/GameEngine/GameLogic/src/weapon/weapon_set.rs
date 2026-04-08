@@ -14,6 +14,7 @@ use crate::common::{
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::system::kind_of::KindOfMask;
 use game_engine::common::system::Snapshotable;
 use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
 use std::collections::HashMap;
@@ -90,7 +91,7 @@ pub struct WeaponTemplateSet {
     /// Auto-choose mask for each weapon slot
     pub auto_choose_mask: [u32; 3],
     /// Preferred target kinds for each weapon
-    pub preferred_against: [u32; 3], // KindOfMaskType equivalent
+    pub preferred_against: [KindOfMask; 3],
     /// Whether reload time is shared across weapons
     pub is_reload_time_shared: bool,
     /// Whether weapon locks are shared across weapon sets
@@ -103,7 +104,7 @@ impl WeaponTemplateSet {
             conditions: WeaponSetFlags::new(),
             weapon_templates: [None, None, None],
             auto_choose_mask: [0xffffffff; 3], // Allow all command sources by default
-            preferred_against: [0; 3],         // No preference by default
+            preferred_against: [KindOfMask::empty(); 3], // No preference by default
             is_reload_time_shared: false,
             is_weapon_lock_shared_across_sets: false,
         }
@@ -114,7 +115,7 @@ impl WeaponTemplateSet {
         self.conditions.clear_all();
         self.weapon_templates = [None, None, None];
         self.auto_choose_mask = [0xffffffff; 3];
-        self.preferred_against = [0; 3];
+        self.preferred_against = [KindOfMask::empty(); 3];
         self.is_reload_time_shared = false;
         self.is_weapon_lock_shared_across_sets = false;
     }
@@ -219,11 +220,11 @@ impl WeaponTemplateSet {
     }
 
     /// Get preferred against mask for specific slot
-    pub fn get_preferred_against_mask(&self, slot: WeaponSlotType) -> u32 {
-        self.preferred_against
+    pub fn get_preferred_against_mask(&self, slot: WeaponSlotType) -> KindOfMask {
+        *self
+            .preferred_against
             .get(slot as usize)
-            .copied()
-            .unwrap_or(0)
+            .unwrap_or(&KindOfMask::empty())
     }
 }
 
@@ -742,13 +743,13 @@ impl WeaponSet {
             let mut attack_range = attack_range;
             if let Some(template_set) = &self.current_weapon_template_set {
                 let preferred_mask = template_set.get_preferred_against_mask(slot);
-                if preferred_mask != 0 {
+                if !preferred_mask.is_empty() {
                     // C++ line 870: victim->isKindOfMulti(preferredAgainst, KINDOFMASK_NONE)
                     if let Some(target) =
                         crate::object::registry::OBJECT_REGISTRY.get_object(target_obj)
                     {
                         if let Ok(target_guard) = target.read() {
-                            if target_guard.is_kind_of_mask(preferred_mask) {
+                            if target_guard.is_kind_of_mask(preferred_mask.bits() as u32) {
                                 // C++ lines 872-878: Boost damage/range massively for preferred targets
                                 const HUGE_DAMAGE: f32 = 1e10;
                                 const HUGE_RANGE: f32 = 1e10;
@@ -1333,6 +1334,7 @@ mod tests {
     use crate::weapon::WeaponTemplate;
     use game_engine::common::ascii_string::AsciiString;
     use game_engine::common::bit_flags::WeaponSetFlags as EngineWeaponSetBits;
+    use game_engine::common::system::kind_of::KindOfMask;
     use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
 
     #[test]
@@ -1341,7 +1343,7 @@ mod tests {
         engine_set.types_mut().set(EngineWeaponSetBits::HERO, true);
         engine_set.set_weapon_template_name(0, Some(AsciiString::from("HeroWeapon").to_string()));
         engine_set.set_auto_choose_mask(0, 0x7);
-        engine_set.set_preferred_against_mask(0, 0x8);
+        engine_set.set_preferred_against_mask(0, KindOfMask::from_bits_truncate(0x8));
         engine_set.set_reload_time_shared(true);
         engine_set.set_weapon_lock_shared_across_sets(true);
 
@@ -1360,7 +1362,10 @@ mod tests {
         assert!(converted.is_reload_time_shared);
         assert!(converted.is_weapon_lock_shared_across_sets);
         assert_eq!(converted.auto_choose_mask[0], 0x7);
-        assert_eq!(converted.preferred_against[0], 0x8);
+        assert_eq!(
+            converted.preferred_against[0],
+            KindOfMask::from_bits_truncate(0x8)
+        );
         assert!(converted.weapon_templates[0].is_some());
     }
 

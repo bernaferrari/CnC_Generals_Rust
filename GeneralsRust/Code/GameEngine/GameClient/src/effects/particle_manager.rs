@@ -14,6 +14,7 @@ use crate::core::DrawableId;
 use crate::system::SubsystemInterface;
 use game_engine::common::ini::INI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::Snapshotable;
 use game_engine::System::XferVersion;
 use game_engine::{Xfer, XferMode, XferStatus};
 
@@ -1127,13 +1128,8 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
     Ok(())
 }
 
-/// Transfer save/load state for the particle system manager block.
-///
-/// This mirrors CHUNK_ParticleSystem ownership in C++ by persisting the runtime
-/// manager bookkeeping (LOD controls, deterministic ID counters, frame metadata).
-/// Active particle system instances are currently rebuilt by gameplay systems.
 pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 2;
+    let current_version: XferVersion = 1;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
@@ -1142,134 +1138,91 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
     let manager = manager_guard.get_or_insert_with(ParticleSystemManager::new);
 
     xfer.xfer_unsigned_int(&mut manager.next_system_id)?;
-    xfer.xfer_unsigned_int(&mut manager.last_logic_frame_update)?;
-    xfer.xfer_int(&mut manager.local_player_index)?;
+    let mut system_ids: Vec<_> = manager.active_systems.keys().copied().collect();
+    system_ids.sort_unstable();
 
-    let mut max_particle_count = manager.max_particle_count as u32;
-    let mut max_field_particle_count = manager.max_field_particle_count as u32;
-    xfer.xfer_unsigned_int(&mut max_particle_count)?;
-    xfer.xfer_unsigned_int(&mut max_field_particle_count)?;
-    manager.max_particle_count = max_particle_count as usize;
-    manager.max_field_particle_count = max_field_particle_count as usize;
+    let mut system_count = system_ids.len() as u32;
+    xfer.xfer_unsigned_int(&mut system_count)?;
 
-    let mut min_dynamic_priority = particle_priority_to_u8(manager.min_dynamic_particle_priority);
-    let mut min_dynamic_skip_priority =
-        particle_priority_to_u8(manager.min_dynamic_particle_skip_priority);
-    xfer.xfer_unsigned_byte(&mut min_dynamic_priority)?;
-    xfer.xfer_unsigned_byte(&mut min_dynamic_skip_priority)?;
-    manager.min_dynamic_particle_priority = particle_priority_from_u8(min_dynamic_priority);
-    manager.min_dynamic_particle_skip_priority =
-        particle_priority_from_u8(min_dynamic_skip_priority);
-
-    xfer.xfer_unsigned_int(&mut manager.particle_skip_mask)?;
-    xfer.xfer_unsigned_int(&mut manager.particle_generation_count)?;
-
-    if xfer.get_xfer_mode() == XferMode::Load {
+    if xfer.get_xfer_mode() == XferMode::Save {
+        for system_id in system_ids {
+            let Some(system) = manager.active_systems.get_mut(&system_id) else {
+                return Err(XferStatus::InvalidData);
+            };
+            let mut template_name = if system.is_destroyed() || !system.is_saveable() {
+                String::new()
+            } else {
+                system.template().name().to_string()
+            };
+            xfer.xfer_ascii_string(&mut template_name)?;
+            if template_name.is_empty() {
+                continue;
+            }
+            // PARITY_NOTE: C++ calls system->xfer(xfer). Here we serialize key fields directly
+            // via the System Xfer trait. The common::system::Xfer Snapshotable impl is used by
+            // the common snapshot path; this path uses the System Xfer for the subsystem bridge.
+            let mut particle_count = system.particle_count() as u32;
+            xfer.xfer_unsigned_int(&mut particle_count)?;
+            let mut system_id_val = system.system_id();
+            xfer.xfer_unsigned_int(&mut system_id_val)?;
+        }
+    } else {
         manager.active_systems.clear();
         manager.particle_count = 0;
         manager.field_particle_count = 0;
         manager.system_count = 0;
         manager.on_screen_particle_count = 0;
+
+        let mut max_loaded_system_id = manager.next_system_id.saturating_sub(1);
+        for _ in 0..system_count {
+            let mut template_name = String::new();
+            xfer.xfer_ascii_string(&mut template_name)?;
+            if template_name.is_empty() {
+                continue;
+            }
+
+            let template = manager
+                .find_template(template_name.as_str())
+                .ok_or(XferStatus::InvalidData)?;
+            let mut system = Box::new(ParticleSystem::new(template, manager.next_system_id, false));
+            // PARITY_NOTE: deserialize key fields via System Xfer (see Save branch note)
+            let mut particle_count = 0u32;
+            xfer.xfer_unsigned_int(&mut particle_count)?;
+            let mut system_id_val = 0u32;
+            xfer.xfer_unsigned_int(&mut system_id_val)?;
+            max_loaded_system_id = max_loaded_system_id.max(system.system_id());
+            manager.active_systems.insert(system.system_id(), system);
+        }
+
+        manager.next_system_id = manager
+            .next_system_id
+            .max(max_loaded_system_id.saturating_add(1));
+        manager.system_count = manager.active_systems.len();
+        manager.particle_count = manager
+            .active_systems
+            .values()
+            .map(|system| system.particle_count())
+            .sum();
+        manager.field_particle_count = manager.particle_count;
     }
 
-    if version >= 2 {
-        let mut systems = if xfer.get_xfer_mode() == XferMode::Load {
-            Vec::new()
-        } else {
-            let mut items: Vec<_> = manager
-                .active_systems
-                .values()
-                .map(|system| {
-                    let is_serializable = !system.is_destroyed() && system.is_saveable();
-                    let template_name = if is_serializable {
-                        system.template().name().to_string()
-                    } else {
-                        String::new()
-                    };
-                    (
-                        system.system_id(),
-                        template_name,
-                        system.attached_drawable_id().0,
-                        system.attached_object().unwrap_or(0),
-                        system.position(),
-                    )
-                })
-                .collect();
-            items.sort_by_key(|(system_id, _, _, _, _)| *system_id);
-            items
+    Ok(())
+}
+
+pub fn load_post_process_particle_system_manager_state() -> Result<(), XferStatus> {
+    let mut manager_guard =
+        get_particle_system_manager_mut().map_err(|_| XferStatus::InvalidData)?;
+    let Some(manager) = manager_guard.as_mut() else {
+        return Ok(());
+    };
+
+    let mut system_ids: Vec<_> = manager.active_systems.keys().copied().collect();
+    system_ids.sort_unstable();
+    for system_id in system_ids {
+        let Some(system) = manager.active_systems.get_mut(&system_id) else {
+            continue;
         };
-
-        let mut system_count = systems.len() as u32;
-        xfer.xfer_unsigned_int(&mut system_count)?;
-
-        if xfer.get_xfer_mode() == XferMode::Load {
-            systems.reserve(system_count as usize);
-            for _ in 0..system_count {
-                let mut system_id = INVALID_PARTICLE_SYSTEM_ID;
-                let mut template_name = String::new();
-                let mut attached_drawable_id = 0u32;
-                let mut attached_object_id = 0u32;
-                let mut position_x = 0.0f32;
-                let mut position_y = 0.0f32;
-                let mut position_z = 0.0f32;
-                xfer.xfer_unsigned_int(&mut system_id)?;
-                xfer.xfer_string(&mut template_name)?;
-                xfer.xfer_unsigned_int(&mut attached_drawable_id)?;
-                xfer.xfer_unsigned_int(&mut attached_object_id)?;
-                xfer.xfer_real(&mut position_x)?;
-                xfer.xfer_real(&mut position_y)?;
-                xfer.xfer_real(&mut position_z)?;
-                systems.push((
-                    system_id,
-                    template_name,
-                    attached_drawable_id,
-                    attached_object_id,
-                    Point3::new(position_x, position_y, position_z),
-                ));
-            }
-
-            let mut max_loaded_system_id = manager.next_system_id.saturating_sub(1);
-            for (system_id, template_name, attached_drawable_id, attached_object_id, position) in
-                systems
-            {
-                if template_name.is_empty() || system_id == INVALID_PARTICLE_SYSTEM_ID {
-                    continue;
-                }
-                let Some(template) = manager.find_template(template_name.as_str()) else {
-                    return Err(XferStatus::InvalidData);
-                };
-                manager
-                    .create_particle_system_with_id(&template, system_id, true)
-                    .map_err(|_| XferStatus::InvalidData)?;
-                if let Some(system) = manager.find_particle_system_mut(system_id) {
-                    system.set_position(position);
-                    if attached_drawable_id != 0 {
-                        system.attach_to_drawable(DrawableId(attached_drawable_id));
-                    }
-                    if attached_object_id != 0 {
-                        system.attach_to_object(attached_object_id);
-                    }
-                }
-                max_loaded_system_id = max_loaded_system_id.max(system_id);
-            }
-
-            manager.next_system_id = manager
-                .next_system_id
-                .max(max_loaded_system_id.saturating_add(1));
-            manager.system_count = manager.active_systems.len();
-        } else {
-            for (system_id, template_name, attached_drawable_id, attached_object_id, position) in
-                &mut systems
-            {
-                xfer.xfer_unsigned_int(system_id)?;
-                xfer.xfer_string(template_name)?;
-                xfer.xfer_unsigned_int(attached_drawable_id)?;
-                xfer.xfer_unsigned_int(attached_object_id)?;
-                xfer.xfer_real(&mut position.x)?;
-                xfer.xfer_real(&mut position.y)?;
-                xfer.xfer_real(&mut position.z)?;
-            }
-        }
+        Snapshotable::load_post_process(&mut **system).map_err(|_| XferStatus::InvalidData)?;
     }
 
     Ok(())

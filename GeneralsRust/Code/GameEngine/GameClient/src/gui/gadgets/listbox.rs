@@ -920,7 +920,28 @@ impl Gadget for ListBox {
         }
     }
 
-    fn update(&mut self, _delta_time: f32) {}
+    fn update(&mut self, _delta_time: f32) {
+        // Defensive scroll-offset clamping (C++ gadgets are event-driven and have
+        // no per-frame update, but the Rust Gadget trait requires one).
+        let visible = self.visible_rows();
+        if visible == 0 {
+            return;
+        }
+        let max_offset = self.items.len().saturating_sub(visible);
+        if self.scroll_offset > max_offset {
+            self.scroll_offset = max_offset;
+        }
+        // Purge stale selected indices after items were removed externally.
+        self.selected_indices.retain(|&idx| idx < self.items.len());
+        if self.selected_indices.is_empty() {
+            self.last_selected = None;
+        }
+        if let Some(last) = self.last_selected {
+            if last >= self.items.len() {
+                self.last_selected = self.selected_indices.last().copied();
+            }
+        }
+    }
 
     fn render(&self, _theme: &GadgetTheme) {
         if !self.visible {
