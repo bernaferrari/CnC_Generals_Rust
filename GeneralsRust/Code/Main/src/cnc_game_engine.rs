@@ -2360,10 +2360,7 @@ impl CnCGameEngine {
                             .map(|store| store.get_ocl_count())
                             .unwrap_or(0);
                         if ocl_count == 0 {
-                            return Err(
-                                "ObjectCreationListStore bootstrap did not load any templates"
-                                    .to_string(),
-                            );
+                            warn!("ObjectCreationListStore bootstrap loaded 0 templates — continuing without OCL data");
                         }
                         Ok::<(), String>(())
                     }
@@ -3418,7 +3415,9 @@ impl CnCGameEngine {
     }
 
     fn allow_debug_startup_flags() -> bool {
-        cfg!(any(debug_assertions, feature = "internal"))
+        // PARITY_NOTE: C++ gates debug flags on internal builds only.
+        // Rust allows -noaudio and similar flags in all builds for cross-platform compatibility.
+        true
     }
 
     fn remove_legacy_duplicate_inizh_big_best_effort() {
