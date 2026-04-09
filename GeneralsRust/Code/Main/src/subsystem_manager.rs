@@ -1717,7 +1717,9 @@ pub fn init_subsystem_manager() -> Result<()> {
         // Add subsystems in a C++-aligned startup order.
         register_default_subsystems(&mut manager);
 
-        manager.initialize_all()?;
+        if let Err(err) = manager.initialize_all() {
+            warn!("Some subsystems failed to initialize: {err}. Continuing with available subsystems.");
+        }
 
         // C++ parity: GameEngine::init() lines 674-676. These must run after all
         // subsystems are initialized but before the first reset/game start.
