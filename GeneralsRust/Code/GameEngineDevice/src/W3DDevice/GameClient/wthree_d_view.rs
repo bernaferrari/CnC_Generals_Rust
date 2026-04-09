@@ -5,11 +5,13 @@
 //! This module provides comprehensive 3D view management, camera controls, rendering pipeline,
 //! viewport management, frustum culling, and object picking for the W3D graphics engine.
 
+use crate::W3DDevice::GameClient::render_2d_pipeline::Render2DPipeline;
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
-use crate::W3DDevice::GameClient::wthree_d_scene::W3DScene;
+use crate::W3DDevice::GameClient::wthree_d_scene::{RenderInfo, W3DScene};
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::{
     compute_line_perp, SegmentedLine, TextureMapMode,
 };
+use crate::W3DDevice::GameClient::wthree_d_terrain_visual::WthreeDTerrainVisual;
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
 use cgmath::{Deg, EuclideanSpace, InnerSpace, Matrix4, Point3, SquareMatrix, Vector3, Vector4};
@@ -489,8 +491,24 @@ impl W3DView {
         Ok(())
     }
 
-    /// Render the current scene (lines/effects) to the surface.
-    pub fn render_scene(&mut self, scene: &mut W3DScene) -> Result<()> {
+    /// Render the current scene to the surface.
+    ///
+    /// This is the main render pass orchestrator, equivalent to the C++
+    /// draw/render pipeline in W3DDisplay::draw() → WW3D::render() →
+    /// Scene::render() → per-object Render().
+    ///
+    /// Pass order:
+    ///   1. Terrain (HeightMapMesh + shroud overlay)
+    ///   2. Scene objects (render hooks / mesh draw)
+    ///   3. Particles (stub — particle bridge not yet wired)
+    ///   4. Segmented lines (additive overlay)
+    ///   5. 2D UI overlay (Render2DPipeline flush — on top of everything)
+    pub fn render_scene(
+        &mut self,
+        scene: &mut W3DScene,
+        terrain_visual: Option<&WthreeDTerrainVisual>,
+        render_2d: Option<&mut Render2DPipeline>,
+    ) -> Result<()> {
         let device = self
             .device
             .as_ref()
@@ -549,6 +567,53 @@ impl W3DView {
                 occlusion_query_set: None,
             });
 
+            // ----------------------------------------------------------------
+            // Pass 1: Terrain
+            // C++ draws terrain first via W3DTerrainVisual::doRender which
+            // calls HeightMapRenderObjClass::Render then the shroud overlay.
+            // ----------------------------------------------------------------
+            if let Some(terrain) = terrain_visual {
+                terrain.render(&mut render_pass, self.view_projection_matrix);
+            }
+
+            // ----------------------------------------------------------------
+            // Pass 2: Scene objects (meshes)
+            // C++ iterates visible render objects and calls
+            // RenderObjClass::Render which sets pipeline + vertex/index
+            // buffers and issues draw calls. In Rust, objects with a
+            // render_hook get dispatched here; the hook receives RenderInfo
+            // but does not yet carry a WGPU render pass context.
+            // PARITY_NOTE: direct mesh submission through RenderObject
+            // requires the mesh/material pipeline (W3DRenderer) which is
+            // not yet ported. Scene objects with render_hooks that manage
+            // their own WGPU resources will draw correctly once the hook
+            // receives GPU context.
+            // ----------------------------------------------------------------
+            for obj in scene.iter_render_objects() {
+                if obj.is_really_visible() {
+                    // PARITY_NOTE: C++ RenderObjClass::Render(rinfo) binds mesh
+                    // geometry here. The Rust RenderObject::render() dispatches
+                    // through render_hook if set, but the hook API only receives
+                    // &RenderInfo. When the mesh pipeline is ported, this site
+                    // should call obj.render_in_pass(&mut render_pass) or
+                    // equivalent.
+                    obj.render(&RenderInfo::new());
+                }
+            }
+
+            // ----------------------------------------------------------------
+            // Pass 3: Particles
+            // C++ renders particles through ParticleSystem/ParticleRenderer
+            // after opaque objects and before the 2D overlay.
+            // PARITY_NOTE: The particle renderer bridge is not yet wired.
+            // When ParticleRenderer is implemented, call
+            //   particle_renderer.render_particles(&mut render_pass)
+            // here.
+            // ----------------------------------------------------------------
+
+            // ----------------------------------------------------------------
+            // Pass 4: Segmented lines (additive blend, no depth test)
+            // ----------------------------------------------------------------
             if let Some(renderer) = self.line_renderer.as_mut() {
                 let mut camera_dir = self.camera.look_at - self.camera.position;
                 if camera_dir.magnitude2() > 0.0 {
@@ -565,6 +630,14 @@ impl W3DView {
                     scene,
                     &self.textures,
                 )?;
+            }
+
+            // ----------------------------------------------------------------
+            // Pass 5: 2D UI overlay (screen-space, rendered last)
+            // C++ calls Render2DClass::Render() after all 3D drawing.
+            // ----------------------------------------------------------------
+            if let Some(ref mut pipeline_2d) = render_2d {
+                pipeline_2d.flush(&mut render_pass);
             }
         }
 

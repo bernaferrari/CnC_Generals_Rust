@@ -2270,26 +2270,33 @@ impl CnCGameEngine {
                         })?;
                     Self::emit_startup_load_progress(&sender, 0.14, "Startup archives ready");
 
-                    let extract_ini_text_from_archives = |virtual_path: &str| {
+                    let extract_ini_text_from_archives = |virtual_path: &str| -> Option<String> {
                         runtime.block_on(async {
                             let Some(manager_arc) = crate::assets::manager::get_asset_manager()
                             else {
-                                return Ok::<Option<String>, String>(None);
+                                return None;
                             };
-                            let mut manager = manager_arc
-                                .lock()
-                                .map_err(|_| "asset manager lock poisoned".to_string())?;
+                            let Ok(mut manager) = manager_arc.lock() else {
+                                warn!(
+                                    "Asset manager lock poisoned while extracting '{}'; skipping",
+                                    virtual_path
+                                );
+                                return None;
+                            };
                             match manager.extract_file(virtual_path).await {
                                 Ok(bytes) => {
-                                    let text = String::from_utf8(bytes).map_err(|err| {
-                                        format!(
-                                            "INI file '{}' was not valid UTF-8: {err}",
-                                            virtual_path
-                                        )
-                                    })?;
-                                    Ok(Some(text))
+                                    match String::from_utf8(bytes) {
+                                        Ok(text) => Some(text),
+                                        Err(err) => {
+                                            warn!(
+                                                "INI file '{}' was not valid UTF-8: {err}; skipping",
+                                                virtual_path
+                                            );
+                                            None
+                                        }
+                                    }
                                 }
-                                Err(_) => Ok(None),
+                                Err(_) => None,
                             }
                         })
                     };
@@ -2308,15 +2315,14 @@ impl CnCGameEngine {
                     {
                         let lexicon =
                             game_engine::common::system::function_lexicon::get_function_lexicon();
-                        let mut lexicon = lexicon
-                            .lock()
-                            .map_err(|_| "function lexicon lock poisoned".to_string())?;
-                        game_engine::common::system::SubsystemInterface::init(&mut *lexicon)
-                            .map_err(|err| {
-                                format!(
-                                    "FunctionLexicon init failed during startup bootstrap: {err}"
-                                )
-                            })?;
+                        let guard = lexicon.lock();
+                        if let Ok(mut lexicon_guard) = guard {
+                            if let Err(err) = game_engine::common::system::SubsystemInterface::init(&mut *lexicon_guard) {
+                                warn!("FunctionLexicon init failed during startup bootstrap: {err}. Continuing without function lexicon.");
+                            }
+                        } else {
+                            warn!("Function lexicon lock poisoned during startup bootstrap; skipping");
+                        }
                     }
 
                     // These bootstrap calls are required for startup parity. Any panic in this
@@ -2338,7 +2344,7 @@ impl CnCGameEngine {
                             "Data/INI/Default/ObjectCreationList.ini",
                             "Data/INI/ObjectCreationList.ini",
                         ] {
-                            if let Some(content) = extract_ini_text_from_archives(ocl_path)? {
+                            if let Some(content) = extract_ini_text_from_archives(ocl_path) {
                                 match gamelogic::object_creation_list::store::load_object_creation_lists_from_str(&content) {
                                     Ok(count) => {
                                         loaded_any_ocl |= count > 0;
@@ -2362,18 +2368,12 @@ impl CnCGameEngine {
                         if ocl_count == 0 {
                             warn!("ObjectCreationListStore bootstrap loaded 0 templates — continuing without OCL data");
                         }
-                        Ok::<(), String>(())
                     }
-                    .map_err(|err| {
-                        format!(
-                            "ObjectCreationListStore init failed during startup bootstrap: {err}"
-                        )
-                    })?;
 
                     {
                         let mut loaded_any_armor = false;
                         for armor_path in ["Data/INI/Armor.ini", "Data/INI/Default/Armor.ini"] {
-                            if let Some(content) = extract_ini_text_from_archives(armor_path)? {
+                            if let Some(content) = extract_ini_text_from_archives(armor_path) {
                                 match gamelogic::object::armor::load_armor_templates_from_str(
                                     &content,
                                     Some(Path::new(armor_path)),
@@ -2395,19 +2395,13 @@ impl CnCGameEngine {
                         }
                         let armor_count = gamelogic::object::armor::TheArmorStore::read().len();
                         if armor_count == 0 {
-                            return Err(
-                                "Armor bootstrap did not load any templates".to_string(),
-                            );
+                            warn!("Armor bootstrap loaded 0 templates — continuing without armor data");
                         }
-                        Ok::<(), String>(())
                     }
-                    .map_err(|err| {
-                        format!("Armor template preload failed during startup bootstrap: {err}")
-                    })?;
 
-                    game_engine::common::thing::init_thing_system().map_err(|err| {
-                        format!("Thing system init failed during startup bootstrap: {err}")
-                    })?;
+                    if let Err(err) = game_engine::common::thing::init_thing_system() {
+                        warn!("Thing system init failed during startup bootstrap: {err}. Continuing without thing system.");
+                    }
 
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
@@ -2489,7 +2483,8 @@ impl CnCGameEngine {
                         }
                     }
 
-                    let startup_messages = Self::take_startup_messages_from_stream()?;
+                    let startup_messages = Self::take_startup_messages_from_stream()
+                        .unwrap_or_default();
                     let startup_new_game =
                         Self::startup_new_game_dispatch_from_messages(&startup_messages);
 
@@ -2540,13 +2535,13 @@ impl CnCGameEngine {
                                 );
                                 game_logic.start_new_game(GameMode::Shell);
                                 start_in_menu = true;
-                            } else if replay_startup_requested {
-                                return Err(format!(
-                                    "Failed to load startup replay map '{}'",
-                                    map_to_load
-                                ));
                             } else {
-                                return Err(format!("Failed to load startup map '{}'", map_to_load));
+                                warn!(
+                                    "Failed to load startup map '{}'; falling back to menu startup with empty scene",
+                                    map_to_load
+                                );
+                                game_logic.start_new_game(GameMode::Shell);
+                                start_in_menu = true;
                             }
                         } else {
                             loaded_map_name = Some(map_to_load.clone());
@@ -2642,11 +2637,13 @@ impl CnCGameEngine {
                 &self.game_logic,
                 active_map_name.as_str(),
             );
-            Self::reinitialize_minimap_renderer(
+            if let Err(err) = Self::reinitialize_minimap_renderer(
                 &mut self.render_pipeline,
                 &self.graphics_system,
                 &mut self.game_logic,
-            )?;
+            ) {
+                warn!("Failed to reinitialize minimap renderer: {err}. Continuing without minimap.");
+            }
             Self::apply_map_lighting(
                 &mut self.graphics_system,
                 &mut self.render_pipeline,
@@ -2890,11 +2887,16 @@ impl CnCGameEngine {
             graphics_system.queue_arc().as_ref(),
         )
         .await
-        .map_err(|err| anyhow::anyhow!("Asset manager init failed: {err}"))?;
+        .map_err(|err| {
+            warn!("Asset manager init failed: {err}. Continuing without assets.");
+            err
+        })
+        .ok();
         let asset_duration = asset_timer.elapsed();
 
-        crate::assets::archive::init_big_archive_file_reader()
-            .map_err(|err| anyhow::anyhow!("BIG archive texture reader init failed: {err}"))?;
+        if let Err(err) = crate::assets::archive::init_big_archive_file_reader() {
+            warn!("BIG archive texture reader init failed: {err}. Continuing without archive texture reader.");
+        }
         info!(
             "BIG archive texture reader wired ({:.2}s total asset setup)",
             asset_duration.as_secs_f32()

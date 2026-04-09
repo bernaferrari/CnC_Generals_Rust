@@ -199,27 +199,29 @@ impl AssetManager {
         self.register_search_paths(asset_paths);
 
         // Initialize archive system (loads BIG files)
-        self.archive_system
-            .init()
-            .await
-            .map_err(|e| anyhow!("Failed to initialize archive system: {}", e))?;
+        if let Err(e) = self.archive_system.init().await {
+            warn!("Failed to initialize archive system: {}. Continuing without archives.", e);
+        }
 
-        self.load_manual_archives().await?;
-        self.run_startup_maintenance()?;
+        if let Err(e) = self.load_manual_archives().await {
+            warn!("Failed to load manual archives: {}. Continuing without them.", e);
+        }
+        if let Err(e) = self.run_startup_maintenance() {
+            warn!("Startup maintenance failed: {}. Continuing.", e);
+        }
 
         // Initialize texture manager with MAGENTA fallback for missing textures
-        self.texture_manager
-            .init(device, queue)
-            .map_err(|e| anyhow!("Failed to initialize texture manager: {}", e))?;
+        if let Err(e) = self.texture_manager.init(device, queue) {
+            warn!("Failed to initialize texture manager: {}. Continuing without GPU textures.", e);
+        }
 
         // Initialize WW3D Asset Manager - Load object definitions from INIZH.big
         // This matches C++ WW3DAssetManager initialization
         info!("🎮 Initializing WW3D Asset Manager for object definitions and texture lookup");
         let init_start = SystemTime::now();
-        self.ww3d_manager
-            .initialize(&mut self.archive_system)
-            .await
-            .map_err(|e| anyhow!("Failed to initialize WW3D asset manager: {}", e))?;
+        if let Err(e) = self.ww3d_manager.initialize(&mut self.archive_system).await {
+            warn!("Failed to initialize WW3D asset manager: {}. Continuing without object definitions.", e);
+        }
         let init_elapsed = init_start.elapsed().unwrap_or_default();
         info!(
             "✅ WW3D Asset Manager initialized in {:.2}s with {} object definitions",

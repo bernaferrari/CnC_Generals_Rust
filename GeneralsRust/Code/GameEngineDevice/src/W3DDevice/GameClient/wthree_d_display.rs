@@ -18,6 +18,7 @@ use crate::W3DDevice::GameClient::wthree_d_scene::{
     CameraInfo, RenderInfo, W3D2DScene, W3DInterfaceScene, W3DScene,
 };
 use crate::W3DDevice::GameClient::wthree_d_shader_manager::WthreeDShaderManager;
+use crate::W3DDevice::GameClient::wthree_d_terrain_visual::WthreeDTerrainVisual;
 use crate::W3DDevice::GameClient::wthree_d_view::W3DView;
 use anyhow::Result;
 use cgmath::Vector3;
@@ -194,6 +195,9 @@ pub struct W3DDisplay {
 
     // -- 2D render pipeline (C++ m_2DRender / Render2DClass) --
     render_2d: Option<Render2DPipeline>,
+
+    // -- Terrain visual (C++ W3DTerrainVisual / TheTerrainVisual) --
+    terrain_visual: Option<WthreeDTerrainVisual>,
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +243,7 @@ impl W3DDisplay {
             wgpu_surface: None,
             wgpu_surface_config: None,
             render_2d: None,
+            terrain_visual: None,
         }
     }
 
@@ -595,6 +600,21 @@ impl W3DDisplay {
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
+
+    /// Get the terrain visual.
+    pub fn terrain_visual(&self) -> Option<&WthreeDTerrainVisual> {
+        self.terrain_visual.as_ref()
+    }
+
+    /// Get mutable terrain visual.
+    pub fn terrain_visual_mut(&mut self) -> Option<&mut WthreeDTerrainVisual> {
+        self.terrain_visual.as_mut()
+    }
+
+    /// Set the terrain visual (called during map load).
+    pub fn set_terrain_visual(&mut self, visual: WthreeDTerrainVisual) {
+        self.terrain_visual = Some(visual);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -668,7 +688,7 @@ impl W3DDisplay {
     /// 15. Debug overlay
     /// 16. FPS bar
     /// 17. WW3D::End_Render()
-    pub fn render_frame(&self) -> Result<()> {
+    pub fn render_frame(&mut self) -> Result<()> {
         let mut view_guard = self.view.write();
         let Some(view) = view_guard.as_mut() else {
             return Ok(());
@@ -701,17 +721,18 @@ impl W3DDisplay {
         // Add light environment
         rinfo.light_environment = Some(self.scene.read().get_default_light_env().clone());
 
-        // Render the 3D scene
+        // Render the 3D scene (visibility, culling, logic updates)
         {
             let mut scene = self.scene.write();
             scene.render(&mut rinfo);
         }
 
-        // Delegate actual WGPU submission to the view
-        // (The view holds the device/queue/surface and knows how to present)
+        // GPU render pass: terrain → scene objects → particles → lines → 2D UI
         {
             let mut scene = self.scene.write();
-            view.render_scene(&mut scene)?;
+            let terrain = self.terrain_visual.as_ref();
+            let r2d = self.render_2d.as_mut();
+            view.render_scene(&mut scene, terrain, r2d)?;
         }
 
         Ok(())
@@ -727,7 +748,7 @@ impl W3DDisplay {
     ///
     /// C++ `updateAverageFPS()`: keeps a ring buffer of the last 30 FPS samples,
     /// ignoring frame-time spikes >= 0.5s.
-    pub fn update_average_fps(&self) {
+    pub fn update_average_fps(&mut self) {
         let now = std::time::Instant::now();
         let elapsed_nanos = if self.last_frame_time_nanos == 0 {
             // First frame — seed with a nominal 33ms.
@@ -855,7 +876,7 @@ impl W3DDisplay {
 
 impl W3DDisplay {
     pub fn draw_line(
-        &self,
+        &mut self,
         start_x: i32,
         start_y: i32,
         end_x: i32,
@@ -863,7 +884,7 @@ impl W3DDisplay {
         line_width: f32,
         color: u32,
     ) {
-        if let Some(ref pipeline) = self.render_2d {
+        if let Some(ref mut pipeline) = self.render_2d {
             pipeline.queue_line(
                 start_x as f32,
                 start_y as f32,
@@ -876,7 +897,7 @@ impl W3DDisplay {
     }
 
     pub fn draw_line_gradient(
-        &self,
+        &mut self,
         start_x: i32,
         start_y: i32,
         end_x: i32,
@@ -885,7 +906,7 @@ impl W3DDisplay {
         color1: u32,
         _color2: u32,
     ) {
-        if let Some(ref pipeline) = self.render_2d {
+        if let Some(ref mut pipeline) = self.render_2d {
             pipeline.queue_line(
                 start_x as f32,
                 start_y as f32,
@@ -898,7 +919,7 @@ impl W3DDisplay {
     }
 
     pub fn draw_open_rect(
-        &self,
+        &mut self,
         start_x: i32,
         start_y: i32,
         width: i32,
@@ -906,7 +927,7 @@ impl W3DDisplay {
         line_width: f32,
         color: u32,
     ) {
-        if let Some(ref pipeline) = self.render_2d {
+        if let Some(ref mut pipeline) = self.render_2d {
             pipeline.queue_open_rect(
                 start_x as f32,
                 start_y as f32,
@@ -918,8 +939,15 @@ impl W3DDisplay {
         }
     }
 
-    pub fn draw_fill_rect(&self, start_x: i32, start_y: i32, width: i32, height: i32, color: u32) {
-        if let Some(ref pipeline) = self.render_2d {
+    pub fn draw_fill_rect(
+        &mut self,
+        start_x: i32,
+        start_y: i32,
+        width: i32,
+        height: i32,
+        color: u32,
+    ) {
+        if let Some(ref mut pipeline) = self.render_2d {
             pipeline.queue_rect(
                 start_x as f32,
                 start_y as f32,
@@ -936,7 +964,7 @@ impl W3DDisplay {
     /// C++ uses `Render2DClass::Add_Quad(screen_rect, uv_rect, color)` with
     /// texture set from `image->getFilename()` or `image->getRawTextureData()`.
     pub fn draw_image(
-        &self,
+        &mut self,
         x0: i32,
         y0: i32,
         x1: i32,
@@ -1013,7 +1041,7 @@ impl W3DDisplay {
     }
 
     pub fn draw_rect_clock(
-        &self,
+        &mut self,
         start_x: i32,
         start_y: i32,
         width: i32,
@@ -1032,7 +1060,7 @@ impl W3DDisplay {
     }
 
     pub fn draw_remaining_rect_clock(
-        &self,
+        &mut self,
         start_x: i32,
         start_y: i32,
         width: i32,
@@ -1053,8 +1081,8 @@ impl W3DDisplay {
         );
     }
 
-    pub fn flush_2d(&self, render_pass: &mut wgpu::RenderPass<'_>) {
-        if let Some(ref pipeline) = self.render_2d {
+    pub fn flush_2d(&mut self, render_pass: &mut wgpu::RenderPass<'_>) {
+        if let Some(ref mut pipeline) = self.render_2d {
             pipeline.flush(render_pass);
         }
     }
