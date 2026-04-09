@@ -467,7 +467,7 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
                 if let Some(mission) = manager.get_current_mission() {
                     if let Some(general) = generals.general_by_general_name(&mission.general_name) {
                         let header = GameText::fetch("GUI:ChallengeWinText")
-                            .replace("%s", &mission.general_name);
+                            .replace("%s", &GameText::fetch(&mission.general_name));
                         let remarks = GameText::fetch(general.string_defeated());
                         display_challenge_win_loss(
                             state,
@@ -487,10 +487,7 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
 
         let next_map = {
             let mut manager = get_campaign_manager();
-            if let Some(next) = manager.get_next_mission() {
-                let next_name = next.name.clone();
-                manager.set_current_mission(&next_name);
-            }
+            let _ = manager.goto_next_mission();
             manager.get_current_map().unwrap_or_default()
         };
 
@@ -510,22 +507,26 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
                     CampaignDifficulty::Hard => 2,
                 };
                 match campaign.name.as_str() {
-                    "usa" => {
+                    name if name.eq_ignore_ascii_case("usa") => {
                         stats.set_usa_campaign_complete(difficulty_index);
                         stats.set_honors(BATTLE_HONOR_CAMPAIGN_USA as i32);
                     }
-                    "china" => {
+                    name if name.eq_ignore_ascii_case("china") => {
                         stats.set_china_campaign_complete(difficulty_index);
                         stats.set_honors(BATTLE_HONOR_CAMPAIGN_CHINA as i32);
                     }
-                    "gla" => {
+                    name if name.eq_ignore_ascii_case("gla") => {
                         stats.set_gla_campaign_complete(difficulty_index);
                         stats.set_honors(BATTLE_HONOR_CAMPAIGN_GLA as i32);
                     }
                     _ => {}
                 }
-                if campaign.name.starts_with("challenge_") {
-                    stats.set_challenge_campaign_complete(0, difficulty_index);
+                let upper = campaign.name.to_ascii_uppercase();
+                if let Some(index) = upper
+                    .strip_prefix("CHALLENGE_")
+                    .and_then(|value| value.parse::<usize>().ok())
+                {
+                    stats.set_challenge_campaign_complete(index, difficulty_index);
                     stats.set_honors(BATTLE_HONOR_CHALLENGE_MODE as i32);
                 }
             }
@@ -569,6 +570,37 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             hide_window(&state.static_text_game_saved, false);
         }
     } else {
+        let is_challenge = {
+            let manager = get_campaign_manager();
+            manager
+                .get_current_campaign()
+                .map(|campaign| campaign.is_challenge_campaign())
+                .unwrap_or(false)
+        };
+        if is_challenge {
+            if let Some(generals_mutex) = get_challenge_generals() {
+                let generals = generals_mutex.lock().unwrap();
+                let manager = get_campaign_manager();
+                if let Some(mission) = manager.get_current_mission() {
+                    if let Some(general) = generals.general_by_general_name(&mission.general_name) {
+                        let header = GameText::fetch("GUI:ChallengeLossText")
+                            .replace("%s", &GameText::fetch(&mission.general_name));
+                        let remarks = GameText::fetch(general.string_victorious());
+                        display_challenge_win_loss(
+                            state,
+                            general.image_victorious().unwrap_or_default(),
+                            &header,
+                            &remarks,
+                        );
+                        if let Some(audio) = TheAudio::get() {
+                            let event =
+                                gamelogic::common::audio::AudioEventRts::new(general.loss_sound());
+                            audio.add_audio_event(&event);
+                        }
+                    }
+                }
+            }
+        }
         if let Some(button_continue) = state.button_continue.as_ref() {
             set_text(button_continue, &GameText::fetch("GUI:Retry"));
         }
@@ -913,6 +945,13 @@ fn populate_side_info(
             set_text_color(&win, color);
             let _ = win.borrow_mut().hide(false);
         }
+    }
+
+    let name = format!("ScoreScreen.wnd:GameWindowWinner{}", pos);
+    let win = find_child(&state.parent, &name);
+    if let Some(side_icon) = (!gather.side_icon.is_empty()).then_some(gather.side_icon.as_str()) {
+        hide_window(&win, false);
+        set_window_image(&win, side_icon);
     }
 }
 

@@ -7,6 +7,25 @@ use super::gadgets::{ProgressBar, ProgressBarBuilder, ProgressBarStyle};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadingProgressDrawInfo {
+    pub percent: u8,
+    pub value: f32,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadingScreenDrawInfo {
+    pub fade_alpha: f32,
+    pub background_image: Option<String>,
+    pub background_color: [f32; 4],
+    pub map_name: Option<String>,
+    pub stage_name: Option<String>,
+    pub progress: Option<LoadingProgressDrawInfo>,
+    pub tip: Option<String>,
+    pub faction_logo: Option<String>,
+}
+
 /// Loading stage
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadingStage {
@@ -114,6 +133,9 @@ pub struct LoadingScreen {
     tips: VecDeque<LoadingTip>,
     current_tip_index: usize,
     progress_bar: Option<ProgressBar>,
+    map_name: Option<String>,
+    explicit_progress: Option<u8>,
+    faction_logo: Option<String>,
     fade_alpha: f32,
     display_start_time: Option<Instant>,
     last_tip_change: Instant,
@@ -131,6 +153,9 @@ impl LoadingScreen {
             tips: VecDeque::new(),
             current_tip_index: 0,
             progress_bar: None,
+            map_name: None,
+            explicit_progress: None,
+            faction_logo: None,
             fade_alpha: 0.0,
             display_start_time: None,
             last_tip_change: Instant::now(),
@@ -211,6 +236,45 @@ impl LoadingScreen {
     /// Set progress for current stage (0.0 to 1.0)
     pub fn set_stage_progress(&mut self, progress: f32) {
         self.stage_progress = progress.clamp(0.0, 1.0);
+        self.explicit_progress = None;
+    }
+
+    pub fn set_map_name(&mut self, map_name: impl Into<String>) {
+        self.map_name = Some(map_name.into());
+    }
+
+    pub fn clear_map_name(&mut self) {
+        self.map_name = None;
+    }
+
+    pub fn map_name(&self) -> Option<&str> {
+        self.map_name.as_deref()
+    }
+
+    pub fn set_load_progress(&mut self, percent: u8) {
+        let percent = percent.min(100);
+        self.explicit_progress = Some(percent);
+        self.stage_progress = percent as f32 / 100.0;
+        if let Some(progress_bar) = &mut self.progress_bar {
+            progress_bar.set_value(self.stage_progress);
+        }
+    }
+
+    pub fn load_progress(&self) -> u8 {
+        self.explicit_progress
+            .unwrap_or_else(|| (self.total_progress() * 100.0).round().clamp(0.0, 100.0) as u8)
+    }
+
+    pub fn set_faction_logo(&mut self, faction_logo: impl Into<String>) {
+        self.faction_logo = Some(faction_logo.into());
+    }
+
+    pub fn clear_faction_logo(&mut self) {
+        self.faction_logo = None;
+    }
+
+    pub fn faction_logo(&self) -> Option<&str> {
+        self.faction_logo.as_deref()
     }
 
     /// Advance to next stage
@@ -301,7 +365,11 @@ impl LoadingScreen {
         // Update progress bar
         let total_progress = self.total_progress();
         if let Some(progress_bar) = &mut self.progress_bar {
-            progress_bar.set_value(total_progress);
+            let progress = self
+                .explicit_progress
+                .map(|percent| percent as f32 / 100.0)
+                .unwrap_or(total_progress);
+            progress_bar.set_value(progress);
         }
     }
 
@@ -330,38 +398,47 @@ impl LoadingScreen {
         self.progress_bar.as_mut()
     }
 
+    pub fn draw_load_progress(&self) -> Option<LoadingProgressDrawInfo> {
+        if !self.config.show_progress {
+            return None;
+        }
+
+        let percent = self.load_progress();
+        Some(LoadingProgressDrawInfo {
+            percent,
+            value: percent as f32 / 100.0,
+            label: format!("{}%", percent),
+        })
+    }
+
+    pub fn draw(&self) -> Option<LoadingScreenDrawInfo> {
+        if !self.is_visible() {
+            return None;
+        }
+
+        Some(LoadingScreenDrawInfo {
+            fade_alpha: self.fade_alpha,
+            background_image: self.config.background_image.clone(),
+            background_color: self.config.background_color,
+            map_name: self.map_name.clone(),
+            stage_name: self
+                .config
+                .show_stage_name
+                .then(|| self.current_stage().map(|stage| stage.name.clone()))
+                .flatten(),
+            progress: self.draw_load_progress(),
+            tip: self
+                .config
+                .show_tips
+                .then(|| self.current_tip().map(str::to_string))
+                .flatten(),
+            faction_logo: self.faction_logo.clone(),
+        })
+    }
+
     /// Render loading screen.
     pub fn render(&self) {
-        if !self.is_visible() {
-            return;
-        }
-
-        // Apply fade alpha to all rendered elements
-        let alpha = self.fade_alpha;
-
-        // Render background
-        // [Background rendering code]
-
-        // Render stage name
-        if self.config.show_stage_name {
-            if let Some(stage) = self.current_stage() {
-                // [Stage name rendering code]
-            }
-        }
-
-        // Render progress bar
-        if self.config.show_progress {
-            if let Some(progress_bar) = &self.progress_bar {
-                // [Progress bar rendering with alpha]
-            }
-        }
-
-        // Render tip
-        if self.config.show_tips {
-            if let Some(tip) = self.current_tip() {
-                // [Tip rendering code]
-            }
-        }
+        let _ = self.draw();
     }
 
     /// Reset loading screen
@@ -370,6 +447,7 @@ impl LoadingScreen {
         self.current_stage_index = 0;
         self.stage_progress = 0.0;
         self.current_tip_index = 0;
+        self.explicit_progress = None;
         self.fade_alpha = 0.0;
         self.display_start_time = None;
     }
@@ -485,6 +563,22 @@ mod tests {
         loading_screen.add_tip(LoadingTip::new("Tip 2"));
 
         assert_eq!(loading_screen.current_tip(), Some("Tip 1"));
+    }
+
+    #[test]
+    fn test_map_name_and_progress_draw_state() {
+        let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
+        loading_screen.show();
+        loading_screen.set_map_name("Tournament Desert");
+        loading_screen.set_load_progress(42);
+        loading_screen.set_faction_logo("SAFactionLogoLg_US");
+
+        let draw = loading_screen.draw().unwrap();
+        let progress = draw.progress.unwrap();
+        assert_eq!(draw.map_name.as_deref(), Some("Tournament Desert"));
+        assert_eq!(draw.faction_logo.as_deref(), Some("SAFactionLogoLg_US"));
+        assert_eq!(progress.percent, 42);
+        assert_eq!(progress.label, "42%");
     }
 
     #[test]

@@ -898,17 +898,26 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromRight {
         anim_win.vel.x *= -1.0;
         anim_win.vel.y *= -1.0;
         anim_win.finished = false;
-    }
-
-    fn init_animate_window(&self, anim_win: &mut AnimateWindow, screen_size: (i32, i32)) {
-        let (screen_width, _) = screen_size;
-        let rest_pos = {
+        let pos = {
             let win = anim_win.window.borrow();
             let (x, y) = win.get_position();
             Coord2D::new(x, y)
         };
+        anim_win.cur_pos.y = pos.y;
+        anim_win.end_pos.y = pos.y;
+        anim_win.start_pos.y = pos.y;
+    }
+
+    fn init_animate_window(&self, anim_win: &mut AnimateWindow, screen_size: (i32, i32)) {
+        let (screen_width, _) = screen_size;
+        let (rest_pos, size) = {
+            let win = anim_win.window.borrow();
+            let (x, y) = win.get_position();
+            let (w, h) = win.get_size();
+            (Coord2D::new(x, y), Coord2D::new(w, h))
+        };
         let end_pos = rest_pos;
-        let travel_distance = screen_width;
+        let travel_distance = screen_width - rest_pos.x + size.x;
         let start_pos = Coord2D::new(rest_pos.x + travel_distance, rest_pos.y);
         let cur_pos = start_pos;
         {
@@ -1051,8 +1060,7 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromLeft {
             Coord2D::new(x, y)
         };
         let end_pos = rest_pos;
-        let travel_distance = screen_width;
-        let start_pos = Coord2D::new(rest_pos.x - travel_distance, rest_pos.y);
+        let start_pos = Coord2D::new(rest_pos.x - screen_width, rest_pos.y);
         let cur_pos = start_pos;
         {
             let mut win = anim_win.window.borrow_mut();
@@ -1089,9 +1097,9 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromLeft {
         cur_pos.x += vel.x as i32;
         if cur_pos.x > end_pos.x {
             cur_pos.x = end_pos.x;
-            anim_win.finished = true;
             let mut win = anim_win.window.borrow_mut();
             let _ = win.set_position(cur_pos.x, cur_pos.y);
+            anim_win.finished = true;
             return true;
         }
         {
@@ -1102,7 +1110,7 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromLeft {
         if end_pos.x - cur_pos.x <= self.slow_down_threshold {
             vel.x *= self.slow_down_ratio;
         }
-        if vel.x <= 1.0 {
+        if vel.x < 1.0 {
             vel.x = 1.0;
         }
         anim_win.vel = vel;
@@ -1188,15 +1196,15 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromTop {
     }
 
     fn init_animate_window(&self, anim_win: &mut AnimateWindow, screen_size: (i32, i32)) {
-        let (screen_width, _) = screen_size;
-        let rest_pos = {
+        let _ = screen_size;
+        let (rest_pos, height) = {
             let win = anim_win.window.borrow();
             let (x, y) = win.get_position();
-            Coord2D::new(x, y)
+            let (_, h) = win.get_size();
+            (Coord2D::new(x, y), h)
         };
         let end_pos = rest_pos;
-        let travel_distance = screen_width;
-        let start_pos = Coord2D::new(rest_pos.x, rest_pos.y - travel_distance);
+        let start_pos = Coord2D::new(rest_pos.x, -height);
         let cur_pos = start_pos;
         {
             let mut win = anim_win.window.borrow_mut();
