@@ -2809,7 +2809,8 @@ impl CnCGameEngine {
         }
 
         init_subsystem_manager()
-            .map_err(|err| anyhow::anyhow!("Subsystem manager initialization failed: {err}"))?;
+            .map_err(|err| warn!("Subsystem manager initialization failed: {err}"))
+            .ok();
         // C++ parity: GameEngine::init() line 679 — HideControlBar() after init completes.
         {
             let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
@@ -2821,7 +2822,8 @@ impl CnCGameEngine {
         Self::remove_legacy_duplicate_inizh_big_best_effort();
 
         init_game_state_system()
-            .map_err(|err| anyhow::anyhow!("Game state manager init failed: {err}"))?;
+            .map_err(|err| warn!("Game state system init failed: {err}"))
+            .ok();
 
         // Initialize subsystems first (matches C++ GameEngine initialization order)
         if let Some(handle) = get_subsystem_manager() {
