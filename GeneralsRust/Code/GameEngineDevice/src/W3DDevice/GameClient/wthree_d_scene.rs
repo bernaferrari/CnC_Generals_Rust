@@ -1009,6 +1009,11 @@ impl W3DScene {
         self.terrain_object_present = false;
         self.visibility_checked = false;
     }
+
+    /// Iterate all render objects (used by the GPU render pass to draw visible objects).
+    pub fn iter_render_objects(&self) -> impl Iterator<Item = &RenderObject> {
+        self.render_objects.values()
+    }
 }
 
 /// RTS 2D Scene for overlay rendering (matching C++ RTS2DScene)

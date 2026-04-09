@@ -131,7 +131,9 @@ impl Win32GameEngine {
 
         // Initialize asset manager for W3D models (matching C++ W3DAssetManager)
         info!("Initializing Asset Manager for W3D models...");
-        init_asset_manager(&device, &queue).await?;
+        if let Err(err) = init_asset_manager(&device, &queue).await {
+            warn!("Asset Manager init failed: {err}. Continuing without assets.");
+        }
         info!("Asset Manager initialized - ready to load W3D models!");
 
         // Create shaders (matching C++ shader system)
