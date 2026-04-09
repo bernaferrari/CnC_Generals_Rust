@@ -14,6 +14,7 @@ use crate::W3DDevice::GameClient::wthree_d_asset_manager::WthreeDAssetManager;
 use crate::W3DDevice::GameClient::wthree_d_dynamic_light::{
     LightType, W3DDynamicLight, MAX_LIGHTS,
 };
+use crate::W3DDevice::GameClient::wthree_d_particle_sys::WthreeDParticleSys;
 use crate::W3DDevice::GameClient::wthree_d_scene::{
     CameraInfo, RenderInfo, W3D2DScene, W3DInterfaceScene, W3DScene,
 };
@@ -198,6 +199,7 @@ pub struct W3DDisplay {
 
     // -- Terrain visual (C++ W3DTerrainVisual / TheTerrainVisual) --
     terrain_visual: Option<WthreeDTerrainVisual>,
+    particle_system: Option<WthreeDParticleSys>,
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +246,7 @@ impl W3DDisplay {
             wgpu_surface_config: None,
             render_2d: None,
             terrain_visual: None,
+            particle_system: None,
         }
     }
 
@@ -645,6 +648,7 @@ impl W3DDisplay {
             h,
             surface_format,
         ));
+        self.particle_system = Some(WthreeDParticleSys::with_device(&device, surface_format));
 
         self.wgpu_device = Some(device);
         self.wgpu_queue = Some(queue);
@@ -731,8 +735,10 @@ impl W3DDisplay {
         {
             let mut scene = self.scene.write();
             let terrain = self.terrain_visual.as_ref();
+            let asset_manager = self.asset_manager.as_ref();
+            let particle_system = self.particle_system.as_mut();
             let r2d = self.render_2d.as_mut();
-            view.render_scene(&mut scene, terrain, r2d)?;
+            view.render_scene(&mut scene, terrain, asset_manager, particle_system, r2d)?;
         }
 
         Ok(())
