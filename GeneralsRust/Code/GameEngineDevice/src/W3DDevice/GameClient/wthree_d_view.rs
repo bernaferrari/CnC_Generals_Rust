@@ -6,7 +6,9 @@
 //! viewport management, frustum culling, and object picking for the W3D graphics engine.
 
 use crate::W3DDevice::GameClient::render_2d_pipeline::Render2DPipeline;
+use crate::W3DDevice::GameClient::wthree_d_asset_manager::WthreeDAssetManager;
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
+use crate::W3DDevice::GameClient::wthree_d_particle_sys::WthreeDParticleSys;
 use crate::W3DDevice::GameClient::wthree_d_scene::{RenderInfo, W3DScene};
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::{
     compute_line_perp, SegmentedLine, TextureMapMode,
@@ -34,6 +36,7 @@ use wgpu::{
     TextureUsages, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState,
     VertexStepMode,
 };
+use ww3d_assets::rendering::Vertex as AssetVertex;
 
 /// Maximum number of waypoints for camera movement
 pub const MAX_WAYPOINTS: usize = 25;
@@ -357,6 +360,7 @@ pub struct W3DView {
     pub render_pipeline: Option<Arc<RenderPipeline>>,
     pub uniform_buffer: Option<Buffer>,
     pub bind_group: Option<BindGroup>,
+    pub mesh_renderer: Option<MeshRenderer>,
     pub line_renderer: Option<LineRenderer>,
     pub depth_stencil_texture: Option<Arc<Texture>>,
     pub depth_stencil_view: Option<Arc<TextureView>>,
@@ -443,6 +447,7 @@ impl W3DView {
             render_pipeline: None,
             uniform_buffer: None,
             bind_group: None,
+            mesh_renderer: None,
             line_renderer: None,
             depth_stencil_texture: None,
             depth_stencil_view: None,
@@ -485,6 +490,10 @@ impl W3DView {
             &self.queue.as_ref().unwrap(),
             self.surface_config.as_ref().unwrap().format,
         )?);
+        self.mesh_renderer = Some(MeshRenderer::new(
+            &device,
+            self.surface_config.as_ref().unwrap().format,
+        )?);
         self.initialized = true;
         self.needs_redraw = true;
         self.update_camera_matrices()?;
@@ -507,6 +516,8 @@ impl W3DView {
         &mut self,
         scene: &mut W3DScene,
         terrain_visual: Option<&WthreeDTerrainVisual>,
+        asset_manager: Option<&WthreeDAssetManager>,
+        particle_system: Option<&mut WthreeDParticleSys>,
         render_2d: Option<&mut Render2DPipeline>,
     ) -> Result<()> {
         let device = self
@@ -589,15 +600,16 @@ impl W3DView {
             // their own WGPU resources will draw correctly once the hook
             // receives GPU context.
             // ----------------------------------------------------------------
-            for obj in scene.iter_render_objects() {
-                if obj.is_really_visible() {
-                    // PARITY_NOTE: C++ RenderObjClass::Render(rinfo) binds mesh
-                    // geometry here. The Rust RenderObject::render() dispatches
-                    // through render_hook if set, but the hook API only receives
-                    // &RenderInfo. When the mesh pipeline is ported, this site
-                    // should call obj.render_in_pass(&mut render_pass) or
-                    // equivalent.
-                    obj.render(&RenderInfo::new());
+            if let Some(mesh_renderer) = self.mesh_renderer.as_mut() {
+                let render_info = build_render_info_from_camera(&self.camera);
+                mesh_renderer.begin_frame(queue, self.view_projection_matrix);
+                mesh_renderer.bind(&mut render_pass);
+
+                for obj in scene.iter_render_objects() {
+                    if obj.is_really_visible() {
+                        mesh_renderer.set_world_transform(queue, obj.world_transform);
+                        obj.render(&render_info, Some(&mut render_pass), asset_manager);
+                    }
                 }
             }
 
@@ -611,9 +623,14 @@ impl W3DView {
             // here.
             // ----------------------------------------------------------------
 
-            // ----------------------------------------------------------------
-            // Pass 4: Segmented lines (additive blend, no depth test)
-            // ----------------------------------------------------------------
+            if let Some(particle_system) = particle_system {
+                particle_system.render(&mut render_pass);
+            }
+
+            if let Some(ref mut pipeline_2d) = render_2d {
+                pipeline_2d.flush(&mut render_pass);
+            }
+
             if let Some(renderer) = self.line_renderer.as_mut() {
                 let mut camera_dir = self.camera.look_at - self.camera.position;
                 if camera_dir.magnitude2() > 0.0 {
@@ -630,14 +647,6 @@ impl W3DView {
                     scene,
                     &self.textures,
                 )?;
-            }
-
-            // ----------------------------------------------------------------
-            // Pass 5: 2D UI overlay (screen-space, rendered last)
-            // C++ calls Render2DClass::Render() after all 3D drawing.
-            // ----------------------------------------------------------------
-            if let Some(ref mut pipeline_2d) = render_2d {
-                pipeline_2d.flush(&mut render_pass);
             }
         }
 
@@ -1366,6 +1375,184 @@ impl W3DView {
         self.depth_stencil_texture = Some(Arc::new(depth_texture));
         self.depth_stencil_view = Some(Arc::new(depth_view));
         Ok(())
+    }
+}
+
+fn build_render_info_from_camera(camera: &CameraState) -> RenderInfo {
+    let mut render_info = RenderInfo::new();
+    let mut direction = camera.look_at - camera.position;
+    if direction.magnitude2() > 0.0 {
+        direction = direction.normalize();
+    } else {
+        direction = Vector3::new(0.0, 0.0, -1.0);
+    }
+    render_info.camera.position = camera.position;
+    render_info.camera.direction = direction;
+    render_info.camera.near_z = camera.near_plane;
+    render_info.camera.far_z = camera.far_plane;
+    render_info.camera.fov = camera.field_of_view.0;
+    render_info
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct MeshUniform {
+    view_proj: [[f32; 4]; 4],
+    world: [[f32; 4]; 4],
+}
+
+struct MeshRenderer {
+    pipeline: RenderPipeline,
+    uniform_buffer: Buffer,
+    bind_group: BindGroup,
+}
+
+impl std::fmt::Debug for MeshRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MeshRenderer").finish()
+    }
+}
+
+impl MeshRenderer {
+    fn new(device: &Device, target_format: wgpu::TextureFormat) -> Result<Self> {
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("w3d_mesh_shader"),
+            source: ShaderSource::Wgsl(include_str!("wthree_d_mesh.wgsl").into()),
+        });
+
+        let uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("w3d_mesh_uniforms"),
+            size: std::mem::size_of::<MeshUniform>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("w3d_mesh_uniform_layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("w3d_mesh_uniform_bind_group"),
+            layout: &bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("w3d_mesh_pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("w3d_mesh_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[mesh_vertex_layout()],
+            },
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(ColorTargetState {
+                    format: target_format,
+                    blend: Some(BlendState::ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: MultisampleState::default(),
+            multiview: None,
+        });
+
+        Ok(Self {
+            pipeline,
+            uniform_buffer,
+            bind_group,
+        })
+    }
+
+    fn begin_frame(&self, queue: &Queue, view_projection_matrix: Matrix4<f32>) {
+        let uniform = MeshUniform {
+            view_proj: view_projection_matrix.into(),
+            world: Matrix4::<f32>::identity().into(),
+        };
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
+    }
+
+    fn bind<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+    }
+
+    fn set_world_transform(&self, queue: &Queue, world_transform: Matrix4<f32>) {
+        let uniform = MeshUniform {
+            view_proj: Matrix4::<f32>::identity().into(),
+            world: world_transform.into(),
+        };
+        queue.write_buffer(
+            &self.uniform_buffer,
+            std::mem::size_of::<[[f32; 4]; 4]>() as u64,
+            bytemuck::bytes_of(&uniform.world),
+        );
+    }
+}
+
+fn mesh_vertex_layout<'a>() -> VertexBufferLayout<'a> {
+    VertexBufferLayout {
+        array_stride: std::mem::size_of::<AssetVertex>() as u64,
+        step_mode: VertexStepMode::Vertex,
+        attributes: &[
+            VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                offset: std::mem::size_of::<[f32; 3]>() as u64,
+                shader_location: 1,
+                format: VertexFormat::Float32x3,
+            },
+            VertexAttribute {
+                offset: (std::mem::size_of::<[f32; 3]>() * 2) as u64,
+                shader_location: 2,
+                format: VertexFormat::Float32x2,
+            },
+            VertexAttribute {
+                offset: (std::mem::size_of::<[f32; 3]>() * 2 + std::mem::size_of::<[f32; 2]>())
+                    as u64,
+                shader_location: 3,
+                format: VertexFormat::Float32x4,
+            },
+        ],
     }
 }
 

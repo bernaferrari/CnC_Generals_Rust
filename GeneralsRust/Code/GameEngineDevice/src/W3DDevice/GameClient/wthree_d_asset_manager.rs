@@ -322,6 +322,12 @@ impl WthreeDAssetManager {
         self.prototypes.get(name)
     }
 
+    pub fn find_prototype_by_handle(&self, handle_id: u64) -> Option<&AssetPrototype> {
+        self.prototypes
+            .values()
+            .find(|prototype| hash_name(&prototype.name) == handle_id)
+    }
+
     /// Find a mutable prototype by name.
     pub fn find_prototype_mut(&mut self, name: &str) -> Option<&mut AssetPrototype> {
         self.prototypes.get_mut(name)

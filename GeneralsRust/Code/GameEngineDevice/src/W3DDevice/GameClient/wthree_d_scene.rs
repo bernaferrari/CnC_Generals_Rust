@@ -5,6 +5,7 @@
 //! This module provides comprehensive scene management including render object management,
 //! visibility culling, lighting, occlusion, translucent object sorting, and scene rendering.
 
+use crate::W3DDevice::GameClient::wthree_d_asset_manager::{AssetMeshPayload, WthreeDAssetManager};
 use crate::W3DDevice::GameClient::wthree_d_dynamic_light::{
     LightEnvironment, W3DDynamicLight, MAX_LIGHTS,
 };
@@ -17,6 +18,7 @@ use cgmath::{Matrix4, Point3, SquareMatrix, Vector3, Zero};
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use wgpu::{IndexFormat, RenderPass};
 
 pub type RenderObjectId = u64;
 
@@ -138,6 +140,7 @@ impl BoundingSphere {
 pub struct RenderObject {
     pub id: RenderObjectId,
     pub info: DrawableInfo,
+    pub prototype_handle: Option<u64>,
     pub bounding_sphere: BoundingSphere,
     pub world_transform: Matrix4<f32>,
     pub position: Point3<f32>,
@@ -165,6 +168,7 @@ impl RenderObject {
         Self {
             id: 0,
             info: DrawableInfo::new(),
+            prototype_handle: None,
             bounding_sphere: BoundingSphere::default(),
             world_transform: Matrix4::identity(),
             position: Point3::origin(),
@@ -187,8 +191,17 @@ impl RenderObject {
         self
     }
 
+    pub fn with_prototype_handle(mut self, prototype_handle: u64) -> Self {
+        self.prototype_handle = Some(prototype_handle);
+        self
+    }
+
     pub fn set_render_hook(&mut self, render_hook: Option<Arc<dyn SceneRenderHook>>) {
         self.render_hook = render_hook;
+    }
+
+    pub fn set_prototype_handle(&mut self, prototype_handle: Option<u64>) {
+        self.prototype_handle = prototype_handle;
     }
 
     pub fn is_really_visible(&self) -> bool {
@@ -207,15 +220,45 @@ impl RenderObject {
         self.controlling_player_index = player_index;
     }
 
-    pub fn render(&self, rinfo: &RenderInfo) {
+    pub fn prototype_meshes<'a>(
+        &'a self,
+        asset_manager: &'a WthreeDAssetManager,
+    ) -> Option<&'a [AssetMeshPayload]> {
+        let prototype_handle = self.prototype_handle?;
+        let prototype = asset_manager.find_prototype_by_handle(prototype_handle)?;
+        Some(prototype.meshes.as_slice())
+    }
+
+    pub fn render<'a>(
+        &'a self,
+        rinfo: &RenderInfo,
+        render_pass: Option<&mut RenderPass<'a>>,
+        asset_manager: Option<&'a WthreeDAssetManager>,
+    ) {
         if let Some(render_hook) = &self.render_hook {
             render_hook.render(rinfo);
             return;
         }
 
-        // PARITY_NOTE: C++ calls RenderObjClass::Render(rinfo) here. Rust scene traversal now
-        // dispatches through `render_hook` when an object has a concrete render implementation.
-        // Objects without a hook still need the eventual WGPU mesh/material state binding path.
+        let (Some(render_pass), Some(asset_manager)) = (render_pass, asset_manager) else {
+            return;
+        };
+
+        let Some(meshes) = self.prototype_meshes(asset_manager) else {
+            return;
+        };
+
+        for mesh in meshes {
+            let (Some(vertex_buffer), Some(index_buffer)) =
+                (&mesh.vertex_buffer, &mesh.index_buffer)
+            else {
+                continue;
+            };
+
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), IndexFormat::Uint32);
+            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
     }
 }
 
@@ -628,7 +671,7 @@ impl W3DScene {
         // Render all visible objects
         for obj in self.render_objects.values() {
             if obj.visible && !obj.hidden {
-                obj.render(rinfo);
+                obj.render(rinfo, None, None);
             }
         }
     }
@@ -666,7 +709,7 @@ impl W3DScene {
         for i in 0..self.translucent_objects_count {
             if let Some(Some(id)) = self.translucent_objects.get(i) {
                 if let Some(obj) = self.render_objects.get(id) {
-                    obj.render(rinfo);
+                    obj.render(rinfo, None, None);
                 }
             }
         }
@@ -781,7 +824,7 @@ impl W3DScene {
                     obj.info.flags.set(DrawableInfoFlags::IS_OCCLUDED);
                 }
                 if let Some(obj) = self.render_objects.get(id) {
-                    obj.render(rinfo);
+                    obj.render(rinfo, None, None);
                 }
             }
         }
@@ -825,19 +868,19 @@ impl W3DScene {
         // occludees, then occluders, then non-occluder/non-occludee objects.
         for id in visible_occludees {
             if let Some(obj) = self.render_objects.get(id) {
-                obj.render(rinfo);
+                obj.render(rinfo, None, None);
             }
         }
 
         for id in occluders {
             if let Some(obj) = self.render_objects.get(id) {
-                obj.render(rinfo);
+                obj.render(rinfo, None, None);
             }
         }
 
         for id in non_occluders_or_occludees {
             if let Some(obj) = self.render_objects.get(id) {
-                obj.render(rinfo);
+                obj.render(rinfo, None, None);
             }
         }
     }
