@@ -274,8 +274,14 @@ impl SubsystemInterface for GlobalDataSubsystem {
         let mut global_data = GlobalData::new();
 
         // Load default and override INI files (matches C++ pattern)
-        global_data.load_ini("Data/INI/Default/GameData.ini")?;
-        global_data.load_ini("Data/INI/GameData.ini")?;
+        global_data
+            .load_ini("Data/INI/Default/GameData.ini")
+            .map_err(|e| warn!("Default GameData.ini not found: {e}"))
+            .ok();
+        global_data
+            .load_ini("Data/INI/GameData.ini")
+            .map_err(|e| warn!("GameData.ini override not found: {e}"))
+            .ok();
 
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
