@@ -11,6 +11,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
+use ww3d_assets::loaders::hierarchy_loader::W3DHierarchy;
+use ww3d_assets::loaders::mesh_loader::W3DMesh;
+use ww3d_assets::rendering::Vertex as W3DVertex;
+use ww3d_assets::{HlodPrototype, W3DLoader, W3DModel};
 
 // ---------------------------------------------------------------------------
 // Constants (matching C++)
@@ -78,6 +83,59 @@ pub struct AssetPrototype {
     pub cache_key: Option<String>,
     /// Optional team color applied to this prototype
     pub object_color: u32,
+    pub source_path: Option<PathBuf>,
+    pub meshes: Vec<AssetMeshPayload>,
+    pub hierarchy: Option<AssetHierarchyData>,
+    pub hlod: Option<AssetHlodData>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetMeshPayload {
+    pub name: String,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub material_name: Option<String>,
+    pub texture_names: Vec<String>,
+    pub bounding_min: [f32; 3],
+    pub bounding_max: [f32; 3],
+    pub bounding_sphere_center: [f32; 3],
+    pub bounding_sphere_radius: f32,
+    pub vertex_buffer: Option<Arc<wgpu::Buffer>>,
+    pub index_buffer: Option<Arc<wgpu::Buffer>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetHierarchyData {
+    pub name: String,
+    pub pivots: Vec<AssetHierarchyPivot>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetHierarchyPivot {
+    pub name: String,
+    pub parent_idx: i32,
+    pub translation: [f32; 3],
+    pub rotation: [f32; 4],
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetHlodData {
+    pub name: String,
+    pub hierarchy_name: String,
+    pub lods: Vec<AssetHlodLod>,
+    pub proxies: Vec<AssetHlodProxy>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetHlodLod {
+    pub max_screen_size: f32,
+    pub mesh_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetHlodProxy {
+    pub name: String,
+    pub bone_index: u32,
 }
 
 impl AssetPrototype {
@@ -90,6 +148,20 @@ impl AssetPrototype {
             self.ref_count -= 1;
         }
         self.ref_count == 0
+    }
+
+    fn mesh(name: String, source_path: Option<PathBuf>, mesh: AssetMeshPayload) -> Self {
+        Self {
+            name,
+            class_id: AssetClassId::Mesh,
+            ref_count: 1,
+            cache_key: None,
+            object_color: 0,
+            source_path,
+            meshes: vec![mesh],
+            hierarchy: None,
+            hlod: None,
+        }
     }
 }
 
@@ -405,12 +477,255 @@ impl WthreeDAssetManager {
     }
 
     fn try_load_w3d_file(&mut self, _filename: &str, _base_name: &str) -> bool {
-        // PARITY_NOTE: C++ WW3DAssetManager::Load_3D_Assets opens the file,
-        // parses W3D chunk headers (HIERARCHY, MESH, HLOD, ANIMATION, etc.),
-        // and registers each as a prototype.
-        // The Rust port defers actual W3D binary parsing to the w3d_loader
-        // module. For now, return false (asset not found).
-        false
+        let filename = _filename;
+        let base_name = _base_name;
+        let path = Path::new(filename);
+        if !path.exists() {
+            return false;
+        }
+
+        let model = match W3DLoader::load(path) {
+            Ok(model) => model,
+            Err(err) => {
+                log::warn!("Failed to parse W3D file {}: {}", filename, err);
+                return false;
+            }
+        };
+
+        let source_path = Some(path.to_path_buf());
+        let hierarchies = model
+            .hierarchies
+            .iter()
+            .map(|hierarchy| {
+                (
+                    hierarchy.header.name.to_ascii_lowercase(),
+                    Self::convert_hierarchy(hierarchy),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        let mesh_payloads = model
+            .meshes
+            .iter()
+            .filter_map(|mesh| match self.build_mesh_payload(mesh) {
+                Some(payload) => Some((mesh.header.mesh_name.to_ascii_lowercase(), payload)),
+                None => {
+                    log::warn!(
+                        "Skipping empty mesh '{}' from {}",
+                        mesh.header.mesh_name,
+                        filename
+                    );
+                    None
+                }
+            })
+            .collect::<HashMap<_, _>>();
+
+        if mesh_payloads.is_empty() && model.hlods.is_empty() {
+            return false;
+        }
+
+        for mesh in &model.meshes {
+            let mesh_name = mesh.header.mesh_name.trim_end_matches('\0');
+            if mesh_name.is_empty() {
+                continue;
+            }
+
+            if let Some(payload) = mesh_payloads.get(&mesh_name.to_ascii_lowercase()) {
+                let mut proto = AssetPrototype::mesh(
+                    mesh_name.to_string(),
+                    source_path.clone(),
+                    payload.clone(),
+                );
+                proto.hierarchy = Self::find_mesh_hierarchy(mesh, &model, &hierarchies);
+                self.add_prototype(proto);
+            }
+        }
+
+        for hlod in &model.hlods {
+            let proto = self.build_hlod_prototype(hlod, &mesh_payloads, &hierarchies, source_path.clone());
+            self.add_prototype(proto);
+        }
+
+        if !self.prototypes.contains_key(base_name) {
+            if let Some(hlod) = model
+                .hlods
+                .iter()
+                .find(|hlod| hlod.name.eq_ignore_ascii_case(base_name))
+                .or_else(|| model.hlods.first())
+            {
+                let alias = self.build_hlod_prototype(hlod, &mesh_payloads, &hierarchies, source_path.clone());
+                self.prototypes.insert(base_name.to_string(), AssetPrototype { name: base_name.to_string(), ..alias });
+            } else if let Some(mesh) = model
+                .meshes
+                .iter()
+                .find(|mesh| mesh.header.mesh_name.eq_ignore_ascii_case(base_name))
+                .or_else(|| model.meshes.first())
+            {
+                if let Some(payload) = mesh_payloads.get(&mesh.header.mesh_name.to_ascii_lowercase()) {
+                    let mut proto = AssetPrototype::mesh(
+                        base_name.to_string(),
+                        source_path.clone(),
+                        payload.clone(),
+                    );
+                    proto.hierarchy = Self::find_mesh_hierarchy(mesh, &model, &hierarchies);
+                    self.prototypes.insert(base_name.to_string(), proto);
+                }
+            }
+        }
+
+        self.prototypes.contains_key(base_name)
+    }
+
+    fn build_mesh_payload(&self, mesh: &W3DMesh) -> Option<AssetMeshPayload> {
+        if mesh.vertices.is_empty() || mesh.triangles.is_empty() {
+            return None;
+        }
+
+        let vertices = mesh
+            .vertices
+            .iter()
+            .enumerate()
+            .map(|(index, position)| {
+                let normal = mesh.normals.get(index).copied().unwrap_or_default();
+                let uv = mesh.tex_coords.get(index).copied().unwrap_or_default();
+
+                W3DVertex {
+                    position: *position,
+                    normal,
+                    uv,
+                    color: glam::Vec4::ONE,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let indices = mesh
+            .triangles
+            .iter()
+            .flat_map(|triangle| triangle.iter().copied())
+            .collect::<Vec<_>>();
+
+        let (vertex_buffer, index_buffer) = if let Some(device) = &self.device {
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("W3D Mesh Vertex Buffer: {}", mesh.header.mesh_name)),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("W3D Mesh Index Buffer: {}", mesh.header.mesh_name)),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            });
+            (Some(Arc::new(vertex_buffer)), Some(Arc::new(index_buffer)))
+        } else {
+            (None, None)
+        };
+
+        Some(AssetMeshPayload {
+            name: mesh.header.mesh_name.clone(),
+            vertex_count: vertices.len() as u32,
+            index_count: indices.len() as u32,
+            material_name: mesh
+                .textures
+                .first()
+                .map(|texture| texture.name.clone())
+                .filter(|name| !name.is_empty()),
+            texture_names: mesh.textures.iter().map(|texture| texture.name.clone()).collect(),
+            bounding_min: mesh.header.min.to_array(),
+            bounding_max: mesh.header.max.to_array(),
+            bounding_sphere_center: mesh.header.sph_center.to_array(),
+            bounding_sphere_radius: mesh.header.sph_radius,
+            vertex_buffer,
+            index_buffer,
+        })
+    }
+
+    fn convert_hierarchy(hierarchy: &W3DHierarchy) -> AssetHierarchyData {
+        AssetHierarchyData {
+            name: hierarchy.header.name.clone(),
+            pivots: hierarchy
+                .pivots
+                .iter()
+                .map(|pivot| AssetHierarchyPivot {
+                    name: pivot.name.clone(),
+                    parent_idx: pivot.parent_idx,
+                    translation: pivot.translation.to_array(),
+                    rotation: [pivot.rotation.x, pivot.rotation.y, pivot.rotation.z, pivot.rotation.w],
+                })
+                .collect(),
+        }
+    }
+
+    fn find_mesh_hierarchy(
+        mesh: &W3DMesh,
+        model: &W3DModel,
+        hierarchies: &HashMap<String, AssetHierarchyData>,
+    ) -> Option<AssetHierarchyData> {
+        let container_name = mesh.header.container_name.trim_end_matches('\0');
+        if !container_name.is_empty() {
+            if let Some(hierarchy) = hierarchies.get(&container_name.to_ascii_lowercase()) {
+                return Some(hierarchy.clone());
+            }
+        }
+
+        model
+            .hierarchies
+            .first()
+            .and_then(|hierarchy| hierarchies.get(&hierarchy.header.name.to_ascii_lowercase()))
+            .cloned()
+    }
+
+    fn build_hlod_prototype(
+        &self,
+        hlod: &HlodPrototype,
+        mesh_payloads: &HashMap<String, AssetMeshPayload>,
+        hierarchies: &HashMap<String, AssetHierarchyData>,
+        source_path: Option<PathBuf>,
+    ) -> AssetPrototype {
+        let mesh_names = hlod
+            .lods
+            .iter()
+            .flat_map(|lod| lod.models.iter().map(|model| model.name.to_ascii_lowercase()))
+            .collect::<Vec<_>>();
+
+        let meshes = mesh_names
+            .iter()
+            .filter_map(|mesh_name| mesh_payloads.get(mesh_name).cloned())
+            .collect::<Vec<_>>();
+
+        let hierarchy = hierarchies
+            .get(&hlod.hierarchy_name.to_ascii_lowercase())
+            .cloned();
+
+        AssetPrototype {
+            name: hlod.name.clone(),
+            class_id: AssetClassId::Hlod,
+            ref_count: 1,
+            cache_key: None,
+            object_color: 0,
+            source_path,
+            meshes,
+            hierarchy,
+            hlod: Some(AssetHlodData {
+                name: hlod.name.clone(),
+                hierarchy_name: hlod.hierarchy_name.clone(),
+                lods: hlod
+                    .lods
+                    .iter()
+                    .map(|lod| AssetHlodLod {
+                        max_screen_size: lod.max_screen_size,
+                        mesh_names: lod.models.iter().map(|model| model.name.clone()).collect(),
+                    })
+                    .collect(),
+                proxies: hlod
+                    .proxy_entries
+                    .iter()
+                    .map(|proxy| AssetHlodProxy {
+                        name: proxy.name.clone(),
+                        bone_index: proxy.bone_index,
+                    })
+                    .collect(),
+            }),
+        }
     }
 
     /// Preload a model asset (C++ preloadModelAssets).
@@ -880,6 +1195,10 @@ mod tests {
             ref_count: 1,
             cache_key: None,
             object_color: 0,
+            source_path: None,
+            meshes: Vec::new(),
+            hierarchy: None,
+            hlod: None,
         };
         mgr.add_prototype(proto);
 
@@ -905,6 +1224,10 @@ mod tests {
             ref_count: 1,
             cache_key: None,
             object_color: 0,
+            source_path: None,
+            meshes: Vec::new(),
+            hierarchy: None,
+            hlod: None,
         };
         mgr.add_prototype(proto);
 
@@ -924,6 +1247,10 @@ mod tests {
             ref_count: 5,
             cache_key: None,
             object_color: 0,
+            source_path: None,
+            meshes: Vec::new(),
+            hierarchy: None,
+            hlod: None,
         });
         mgr.add_prototype(AssetPrototype {
             name: "B".to_string(),
@@ -931,6 +1258,10 @@ mod tests {
             ref_count: 3,
             cache_key: None,
             object_color: 0,
+            source_path: None,
+            meshes: Vec::new(),
+            hierarchy: None,
+            hlod: None,
         });
 
         mgr.free_assets();
