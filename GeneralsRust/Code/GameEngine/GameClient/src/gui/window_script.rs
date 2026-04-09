@@ -63,6 +63,7 @@ pub struct WindowDefinition {
     pub slider_data: Option<SliderData>,
     pub radio_button_data: Option<RadioButtonData>,
     pub static_text_data: Option<StaticTextData>,
+    pub image_offset: (i32, i32),
     pub system_callback: String,
     pub input_callback: String,
     pub tooltip_callback: String,
@@ -372,6 +373,12 @@ fn parse_window_statement(
         "SLIDERDATA" => window.slider_data = Some(parse_slider_data(val)),
         "RADIOBUTTONDATA" => window.radio_button_data = Some(parse_radio_button_data(val)),
         "STATICTEXTDATA" => window.static_text_data = Some(parse_static_text_data(val)),
+        "IMAGEOFFSET" => {
+            let nums = extract_numbers(val);
+            if nums.len() >= 2 {
+                window.image_offset = (nums[0], nums[1]);
+            }
+        }
         _ => {}
     }
     Ok(())

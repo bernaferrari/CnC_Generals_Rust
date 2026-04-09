@@ -94,6 +94,7 @@ pub enum KindOf {
     ScoreDestroy = 3,
     Infantry = 4,
     Vehicle = 5,
+    Aircraft = 6,
 }
 
 /// Represents KINDOFMASK_NONE from C++
