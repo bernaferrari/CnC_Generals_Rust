@@ -337,7 +337,7 @@ impl CombatSystem {
                 DamageEvent::Area {
                     position,
                     damage,
-                    damage_type,
+                    damage_type: _,
                     radius,
                     ..
                 } => {

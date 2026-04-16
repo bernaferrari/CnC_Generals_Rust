@@ -501,7 +501,7 @@ impl<'a> CommandExecutor<'a> {
             if let Some(unit) = self.game_logic.get_object(unit_id) {
                 // Garrisonable units deploy into the nearest compatible structure.
                 if unit.is_kind_of(KindOf::Infantry) {
-                    if let Some(building_id) = self.find_nearest_garrison_target(unit_id) {
+                    if let Some(_building_id) = self.find_nearest_garrison_target(unit_id) {
                         if let Some(unit_mut) = self.game_logic.get_object_mut(unit_id) {
                             unit_mut.set_ai_state(AIState::Entering);
                             // The enter/garrison logic is handled by the AI state machine.
