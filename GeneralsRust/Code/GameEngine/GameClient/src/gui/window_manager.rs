@@ -3824,7 +3824,7 @@ impl WindowManager {
         {
             let mut wm = window.borrow_mut();
             wm.set_name("MessageBox");
-            wm.set_text(body);
+            let _ = wm.set_text(body);
             wm.instance_data_mut().text_label = title.to_string();
             wm.set_status_exact(
                 WindowStatus::ACTIVE

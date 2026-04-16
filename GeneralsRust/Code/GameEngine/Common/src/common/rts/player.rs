@@ -922,7 +922,7 @@ impl Player {
         // C++ lines 230-234: Units should hunt
         let units_should_hunt = false;
 
-        let mut player = Self {
+        let player = Self {
             index,
             player_display_name: String::new(),
             player_name: String::new(),
