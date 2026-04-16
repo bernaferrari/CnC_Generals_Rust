@@ -59,12 +59,3 @@ required-features = ["benchmarks"]
 name = "dictionary_benchmarks"
 harness = false
 required-features = ["benchmarks", "dictionary_compression"]
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.bench]
-debug = true
