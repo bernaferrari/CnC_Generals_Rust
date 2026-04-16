@@ -6,8 +6,8 @@
 //! to support network transmission and replay recording.
 
 use super::game_message::*;
-use log::{debug, error, warn};
-use std::io::{self, Read, Write};
+use log::debug;
+use std::io;
 
 /// Error types for message serialization
 #[derive(Debug)]

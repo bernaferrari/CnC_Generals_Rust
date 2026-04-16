@@ -37,11 +37,7 @@
 //! - Entry 1: WarFactory (OR flag set)
 //! - Entry 2: TechCenter (no flag)
 
-use super::{
-    handles::ThingTemplateHandle,
-    player::Player,
-    science::{ScienceAccess, ScienceType},
-};
+use super::{handles::ThingTemplateHandle, player::Player, science::ScienceType};
 use crate::common::{
     system::{Snapshotable, Xfer},
     thing::thing_factory::get_thing_factory,

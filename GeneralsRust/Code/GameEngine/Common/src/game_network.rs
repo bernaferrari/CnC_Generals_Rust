@@ -3,8 +3,6 @@
 //! This provides the minimal API surface used by the Common crate so it can
 //! compile without the real game_network crate (avoids cyclic dependency).
 
-use std::sync::{Arc, Mutex};
-
 pub const PLAYERTEMPLATE_MIN: i32 = 0;
 pub const PLAYERTEMPLATE_OBSERVER: i32 = 1;
 pub const PLAYERTEMPLATE_RANDOM: i32 = 2;
