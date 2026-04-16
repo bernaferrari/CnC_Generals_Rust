@@ -1,18 +1,32 @@
 #![allow(unused_imports, unused_variables, dead_code)]
 
-//! Audio system module for the C&C Generals Zero Hour game engine
-//! Converted from C++ to Rust
+//! Audio system module ported from C++ GeneralsMD/Code/GameEngine/Source/Common/Audio/
 //!
-//! This module contains all the audio-related functionality including:
-//! - Audio event management (AudioEventRTS)
-//! - Audio request handling (AudioRequest)
-//! - Dynamic audio event customization (DynamicAudioEventInfo)
-//! - Main audio management (GameAudio)
-//! - Music playback (GameMusic)
-//! - Sound effects (GameSounds)
-//! - Speech and dialog (GameSpeech)
-//! - Simple media player (SimplePlayer)
-//! - URL launching utilities (URLLaunch)
+//! ## C++ Parity Modules (direct ports)
+//! - `audio_event_rts` — AudioEventRTS.cpp
+//! - `audio_request` — AudioRequest.cpp
+//! - `dynamic_audio_event_info` — DynamicAudioEventInfo.cpp
+//! - `game_audio` — GameAudio.cpp (AudioManager, SoundManager, MusicManager)
+//! - `game_music` — GameMusic.cpp
+//! - `game_sounds` — GameSounds.cpp
+//! - `game_speech` — GameSpeech.cpp
+//! - `simple_player` / `simpleplayer` — simpleplayer.cpp
+//! - `url_launch` / `urllaunch` — urllaunch.cpp
+//!
+//! ## Rust-Only Modules (no C++ equivalent, gated behind `audio` feature)
+//! These provide speculative abstractions for future audio engine work:
+//! - `assets` — Audio asset management (no C++ counterpart)
+//! - `effects` — Sound effect categorization (no C++ counterpart)
+//! - `engine` — Core audio engine with rodio backend (no C++ counterpart)
+//! - `mixing` — DSP mixing, EQ, reverb, compressor (no C++ counterpart)
+//! - `spatial` — 3D spatial audio with HRTF (no C++ counterpart)
+//! - `streaming` — Audio streaming for large files (no C++ counterpart)
+//!
+//! ## Note
+//! The C++ audio system (5,248 lines across 9 files) is fully covered by
+//! the parity modules above (totaling ~7,800 lines). The Rust-only modules
+//! add ~6,700 lines of speculative audio infrastructure behind an optional
+//! feature flag. Do NOT use Rust-only modules for C++ behavioral parity.
 
 use std::sync::Arc;
 
