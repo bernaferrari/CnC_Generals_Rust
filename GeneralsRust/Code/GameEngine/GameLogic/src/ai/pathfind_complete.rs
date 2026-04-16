@@ -794,12 +794,7 @@ impl PathfindingSystem {
                 return;
             };
             let relationship = obj_guard.relationship_to(&goal_guard);
-            if !request.move_allies
-                && matches!(
-                    relationship,
-                    crate::common::Relationship::Allies | crate::common::Relationship::Allies
-                )
-            {
+            if !request.move_allies && matches!(relationship, crate::common::Relationship::Allies) {
                 ok = false;
                 return;
             }

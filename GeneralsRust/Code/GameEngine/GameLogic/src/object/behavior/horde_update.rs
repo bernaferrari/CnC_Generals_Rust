@@ -401,12 +401,7 @@ impl HordeUpdate {
 
             if self.module_data.allies_only {
                 let relationship = obj.relationship_to(&other);
-                if !matches!(
-                    relationship,
-                    crate::common::Relationship::Allies
-                        | crate::common::Relationship::Allies
-                        | crate::common::Relationship::Allies
-                ) {
+                if !matches!(relationship, crate::common::Relationship::Allies) {
                     continue;
                 }
             }

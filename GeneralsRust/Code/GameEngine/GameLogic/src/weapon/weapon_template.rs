@@ -599,7 +599,7 @@ impl WeaponTemplate {
 
         let mut required_mask = 0u32;
         match projectile_guard.relationship_to(&collided_guard) {
-            Relationship::Allies | Relationship::Allies => {
+            Relationship::Allies => {
                 required_mask |= WeaponCollideMask::ALLIES;
             }
             Relationship::Enemies => {
@@ -1251,10 +1251,7 @@ impl WeaponTemplate {
 
         if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0 {
             let relationship = target_guard.relationship_to(&source_guard);
-            if matches!(
-                relationship,
-                Relationship::Allies | Relationship::Allies | Relationship::Allies
-            ) {
+            if matches!(relationship, Relationship::Allies) {
                 if source_guard
                     .get_template()
                     .is_equivalent_to(target_guard.get_template().as_ref())
@@ -1272,9 +1269,7 @@ impl WeaponTemplate {
 
         let relationship = target_guard.relationship_to(&source_guard);
         let required_mask = match relationship {
-            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
-                WeaponAffectsMask::ALLIES
-            }
+            Relationship::Allies => WeaponAffectsMask::ALLIES,
             Relationship::Enemies => WeaponAffectsMask::ENEMIES,
             _ => WeaponAffectsMask::NEUTRALS,
         };

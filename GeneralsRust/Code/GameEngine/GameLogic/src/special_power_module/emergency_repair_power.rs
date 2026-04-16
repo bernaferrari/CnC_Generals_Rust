@@ -300,7 +300,7 @@ impl EmergencyRepairPower {
     fn should_repair_object(&self, obj: &Object, relationship: Relationship) -> Bool {
         if !matches!(
             relationship,
-            Relationship::Allies | Relationship::Allies | Relationship::Allies
+            Relationship::Allies
         ) {
             return false;
         }

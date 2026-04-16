@@ -374,7 +374,7 @@ impl PropagandaTowerBehavior {
         }
         matches!(
             tower.relationship_to(target),
-            Relationship::Allies | Relationship::Allies | Relationship::Allies
+            Relationship::Allies
         )
     }
 

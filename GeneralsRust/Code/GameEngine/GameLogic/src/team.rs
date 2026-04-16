@@ -1814,7 +1814,7 @@ impl Team {
     pub fn is_allied_with(&self, that_team: &Team) -> Bool {
         matches!(
             self.get_relationship(that_team),
-            Relationship::Allies | Relationship::Allies | Relationship::Allies
+            Relationship::Allies
         )
     }
 

@@ -649,7 +649,7 @@ impl PlayerSelection {
             match self.relationship_to_owner(selected_obj.owner_id) {
                 Relationship::Enemies => info.current_count_enemies += 1,
                 Relationship::Neutral => info.current_count_civilians += 1,
-                Relationship::Allies | Relationship::Allies | Relationship::Allies => {
+                Relationship::Allies => {
                     info.current_count_friends += 1;
                 }
             }
@@ -697,7 +697,7 @@ impl PlayerSelection {
                 match self.relationship_to_owner(obj_info.owner_id) {
                     Relationship::Enemies => info.new_count_enemies += 1,
                     Relationship::Neutral => info.new_count_civilians += 1,
-                    Relationship::Allies | Relationship::Allies | Relationship::Allies => {
+                    Relationship::Allies => {
                         info.new_count_friends += 1;
                     }
                 }
@@ -767,7 +767,7 @@ impl PlayerSelection {
                     Relationship::Neutral => {
                         new_civilian.get_or_insert((object_id, obj_info.position));
                     }
-                    Relationship::Allies | Relationship::Allies | Relationship::Allies => {
+                    Relationship::Allies => {
                         new_friendly.get_or_insert((object_id, obj_info.position));
                     }
                 }

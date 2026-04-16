@@ -3529,8 +3529,8 @@ impl Weapon {
 
         // Apply scatter
         let distance = source_pos.distance(target_position);
-        let target_type = if target_obj_id.is_some() {
-            self.get_object_type(target_obj_id.unwrap())
+        let target_type = if let Some(target_id) = target_obj_id {
+            self.get_object_type(target_id)
         } else {
             ObjectType::Unknown
         };
@@ -3886,14 +3886,10 @@ impl Weapon {
                         {
                             if let Some(source) = source_guard.as_ref() {
                                 let rel = source.relationship_to(&victim_guard);
-                                if matches!(
-                                    rel,
-                                    Relationship::Allies
-                                        | Relationship::Allies
-                                        | Relationship::Allies
-                                ) && source
-                                    .get_template()
-                                    .is_equivalent_to(victim_guard.get_template().as_ref())
+                                if matches!(rel, Relationship::Allies)
+                                    && source
+                                        .get_template()
+                                        .is_equivalent_to(victim_guard.get_template().as_ref())
                                 {
                                     continue;
                                 }
@@ -3914,9 +3910,7 @@ impl Weapon {
                             .map(|source| victim_guard.relationship_to(source))
                             .unwrap_or(Relationship::Neutral);
                         let required_mask = match relationship {
-                            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
-                                WeaponAffectsMask::ALLIES
-                            }
+                            Relationship::Allies => WeaponAffectsMask::ALLIES,
                             Relationship::Enemies => WeaponAffectsMask::ENEMIES,
                             _ => WeaponAffectsMask::NEUTRALS,
                         };
@@ -4852,9 +4846,7 @@ impl Weapon {
             let relationship_mask = source_guard
                 .as_ref()
                 .map(|source| match source.relationship_to(&obj) {
-                    Relationship::Allies | Relationship::Allies | Relationship::Allies => {
-                        WeaponAffectsMask::ALLIES
-                    }
+                    Relationship::Allies => WeaponAffectsMask::ALLIES,
                     Relationship::Enemies => WeaponAffectsMask::ENEMIES,
                     _ => WeaponAffectsMask::NEUTRALS,
                 })
