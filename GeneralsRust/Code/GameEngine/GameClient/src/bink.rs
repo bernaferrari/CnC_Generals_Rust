@@ -561,7 +561,8 @@ mod tests {
     fn make_bink_blob(magic: [u8; 4]) -> Vec<u8> {
         let mut bytes = vec![0u8; 44 + 8 + 32];
         bytes[0..4].copy_from_slice(&magic);
-        bytes[4..8].copy_from_slice(&(bytes.len() as u32).to_le_bytes());
+        let len = bytes.len() as u32;
+        bytes[4..8].copy_from_slice(&len.to_le_bytes());
         bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
         bytes[12..16].copy_from_slice(&32u32.to_le_bytes());
         bytes[20..24].copy_from_slice(&4u32.to_le_bytes());
