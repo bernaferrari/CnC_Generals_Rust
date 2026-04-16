@@ -1070,6 +1070,16 @@ impl ParticleSystem {
         }
     }
 
+    /// Get attached object ID (raw, for Xfer)
+    pub fn attached_object_id(&self) -> ObjectId {
+        self.attached_object_id
+    }
+
+    /// Check if system is stopped
+    pub fn is_stopped(&self) -> bool {
+        self.is_stopped
+    }
+
     /// Get particle type name
     pub fn particle_type_name(&self) -> &str {
         &self.template.info().particle_type_name

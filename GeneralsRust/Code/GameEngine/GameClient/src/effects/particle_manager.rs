@@ -1330,13 +1330,26 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
             if template_name.is_empty() {
                 continue;
             }
-            // PARITY_NOTE: C++ calls system->xfer(xfer). Here we serialize key fields directly
-            // via the System Xfer trait. The common::system::Xfer Snapshotable impl is used by
-            // the common snapshot path; this path uses the System Xfer for the subsystem bridge.
-            let mut particle_count = system.particle_count() as u32;
-            xfer.xfer_unsigned_int(&mut particle_count)?;
-            let mut system_id_val = system.system_id();
-            xfer.xfer_unsigned_int(&mut system_id_val)?;
+            // C++ ParticleSys.cpp line 3273: xfer->xferSnapshot(system)
+            // Uses game_engine::Xfer (not system::Xfer), so fields are xfer'd individually.
+            let mut s_id = system.system_id();
+            xfer.xfer_unsigned_int(&mut s_id)?;
+            let mut attached_drawable = system.attached_drawable_id().0;
+            xfer.xfer_drawable_id(&mut attached_drawable)?;
+            let mut attached_object = system.attached_object_id();
+            xfer.xfer_object_id(&mut attached_object)?;
+            let mut is_stopped = system.is_stopped();
+            xfer.xfer_bool(&mut is_stopped)?;
+            let mut slave_id = system
+                .slave_system_id()
+                .unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
+            xfer.xfer_unsigned_int(&mut slave_id)?;
+            let mut master_id = system
+                .master_system_id()
+                .unwrap_or(INVALID_PARTICLE_SYSTEM_ID);
+            xfer.xfer_unsigned_int(&mut master_id)?;
+            let mut p_count = system.particle_count() as u32;
+            xfer.xfer_unsigned_int(&mut p_count)?;
         }
     } else {
         manager.active_systems.clear();
@@ -1345,7 +1358,6 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
         manager.system_count = 0;
         manager.on_screen_particle_count = 0;
 
-        let mut max_loaded_system_id = manager.next_system_id.saturating_sub(1);
         for _ in 0..system_count {
             let mut template_name = String::new();
             xfer.xfer_ascii_string(&mut template_name)?;
@@ -1356,19 +1368,31 @@ pub fn xfer_particle_system_manager_state(xfer: &mut dyn Xfer) -> Result<(), Xfe
             let template = manager
                 .find_template(template_name.as_str())
                 .ok_or(XferStatus::InvalidData)?;
-            let mut system = Box::new(ParticleSystem::new(template, manager.next_system_id, false));
-            // PARITY_NOTE: deserialize key fields via System Xfer (see Save branch note)
-            let mut particle_count = 0u32;
-            xfer.xfer_unsigned_int(&mut particle_count)?;
-            let mut system_id_val = 0u32;
-            xfer.xfer_unsigned_int(&mut system_id_val)?;
-            max_loaded_system_id = max_loaded_system_id.max(system.system_id());
+            let system_id = manager.next_system_id;
+            let mut system = Box::new(ParticleSystem::new(template, system_id, false));
+
+            let mut s_id = 0u32;
+            xfer.xfer_unsigned_int(&mut s_id)?;
+            let mut attached_drawable = 0u32;
+            xfer.xfer_drawable_id(&mut attached_drawable)?;
+            let mut attached_object = 0u32;
+            xfer.xfer_object_id(&mut attached_object)?;
+            let mut is_stopped = false;
+            xfer.xfer_bool(&mut is_stopped)?;
+            let mut slave_id = 0u32;
+            xfer.xfer_unsigned_int(&mut slave_id)?;
+            let mut master_id = 0u32;
+            xfer.xfer_unsigned_int(&mut master_id)?;
+            let mut p_count = 0u32;
+            xfer.xfer_unsigned_int(&mut p_count)?;
+
+            // C++ ParticleSys.cpp line 3305: system = createParticleSystem(template, FALSE)
+            manager.next_system_id = manager
+                .next_system_id
+                .max(system.system_id().saturating_add(1));
             manager.active_systems.insert(system.system_id(), system);
         }
 
-        manager.next_system_id = manager
-            .next_system_id
-            .max(max_loaded_system_id.saturating_add(1));
         manager.system_count = manager.active_systems.len();
         manager.particle_count = manager
             .active_systems
