@@ -1286,17 +1286,56 @@ impl CommandTranslator {
     ) -> GameMessageResult<GameMessageType> {
         self.sync_selection_from_logic();
 
+        // C++ parity: "null out draw/obj" forces position-based evaluation.
+        let mut evaluate_as_position = false;
+
+        if let Some(obj_id) = drawable.get_object_id() {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(guard) = obj.read() {
+                    let is_masked = guard
+                        .get_status_bits()
+                        .contains(LogicObjectStatusMaskType::MASKED);
+                    if is_masked
+                        && !guard.is_kind_of(KindOf::Shrubbery)
+                        && !guard.is_kind_of(KindOf::ForceAttackable)
+                    {
+                        evaluate_as_position = true;
+                    }
+
+                    if !evaluate_as_position
+                        && guard.is_kind_of(KindOf::Mine)
+                        && guard.is_locally_controlled()
+                    {
+                        evaluate_as_position = true;
+                    }
+
+                    if !evaluate_as_position
+                        && guard.is_locally_controlled()
+                        && TheInGameUI::is_in_prefer_selection_mode()
+                    {
+                        return Ok(GameMessageType::Invalid);
+                    }
+                }
+            }
+        } else {
+            evaluate_as_position = true;
+        }
+
+        if self.force_move_mode || TheInGameUI::is_in_force_move_to_mode() {
+            evaluate_as_position = true;
+        }
+
         let result = match cmd_type {
             ClientCommandEvaluateType::Context
             | ClientCommandEvaluateType::Primary
             | ClientCommandEvaluateType::Secondary => {
-                if drawable.get_object_id().is_some() {
-                    self.handle_mouseover_drawable_hint(drawable.get_id().0)
+                if evaluate_as_position || drawable.get_object_id().is_none() {
+                    self.handle_mouseover_location_hint(position)
                         .into_iter()
                         .next()
                         .unwrap_or(GameMessageType::Invalid)
                 } else {
-                    self.handle_mouseover_location_hint(position)
+                    self.handle_mouseover_drawable_hint(drawable.get_id().0)
                         .into_iter()
                         .next()
                         .unwrap_or(GameMessageType::Invalid)
