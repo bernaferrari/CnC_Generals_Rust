@@ -66,12 +66,3 @@ required-features = ["benchmarks"]
 name = "deflate_benchmarks"
 harness = false
 required-features = ["benchmarks", "simd"]
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.bench]
-debug = true
