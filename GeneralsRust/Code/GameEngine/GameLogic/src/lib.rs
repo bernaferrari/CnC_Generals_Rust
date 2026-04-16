@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Game Logic System - Rust Implementation
 //!
 //! This crate provides the core game logic systems for Command & Conquer Generals Zero Hour,

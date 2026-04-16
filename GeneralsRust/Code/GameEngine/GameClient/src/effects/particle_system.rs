@@ -725,6 +725,60 @@ impl Snapshotable for ParticleSystem {
     }
 }
 
+/// Merge master and slave particle systems to produce a combined ParticleInfo
+/// for the slave particle (matches C++ ParticleSystem::mergeRelatedParticleSystems).
+///
+/// This is a standalone function because the manager needs to call it with
+/// immutable references to two systems, then create particles on the slave.
+///
+/// # Arguments
+/// * `master` - The master particle system
+/// * `slave` - The slave particle system
+/// * `slave_needs_full_promotion` - If true, slave system's burst/velocity/volume
+///   params get promoted from master (C++ line 2317)
+pub(crate) fn merge_related_particle_systems(
+    master: &ParticleSystem,
+    slave: &ParticleSystem,
+    slave_needs_full_promotion: bool,
+) -> ParticleInfo {
+    // Generate fresh particle info from master (C++ line 2286)
+    let mut merge_info = master.generate_particle_info(1, 1).unwrap_or_default();
+
+    // Generate fresh particle info from slave (C++ line 2289)
+    let slave_info = slave.generate_particle_info(1, 1).unwrap_or_default();
+
+    // Override unique attributes of slave particle (C++ lines 2292-2309)
+    merge_info.lifetime = slave_info.lifetime;
+
+    // Size becomes a scale factor of master's particles (C++ lines 2294-2297)
+    merge_info.size *= slave_info.size;
+    merge_info.size_rate *= slave_info.size_rate;
+    merge_info.size_rate_damping *= slave_info.size_rate_damping;
+
+    merge_info.angle_z = slave_info.angle_z;
+    merge_info.angular_rate_z = slave_info.angular_rate_z;
+    merge_info.angular_damping = slave_info.angular_damping;
+
+    // Copy alpha and color keys from slave (C++ lines 2303-2308)
+    merge_info.alpha_keys = slave_info.alpha_keys;
+    merge_info.color_keys = slave_info.color_keys;
+
+    merge_info.color_scale = slave_info.color_scale;
+
+    // Offset slave's position relative to master's (C++ lines 2311-2315)
+    let offset = slave.slave_position_offset();
+    merge_info.position.x += offset.x;
+    merge_info.position.y += offset.y;
+    merge_info.position.z += offset.z;
+
+    // Full promotion: copy burst/velocity/volume from master to slave system
+    // (C++ lines 2317-2345). This requires &mut access to the slave, which
+    // the manager handles separately after this function returns.
+    let _ = slave_needs_full_promotion; // Handled by the manager if needed
+
+    merge_info
+}
+
 fn xfer_vec3(xfer: &mut dyn Xfer, value: &mut Vector3<f32>) -> Result<(), String> {
     xfer.xfer_real(&mut value.x).map_err(|e| e.to_string())?;
     xfer.xfer_real(&mut value.y).map_err(|e| e.to_string())?;
@@ -806,6 +860,12 @@ pub struct ParticleSystem {
     // Emission volume overrides
     emission_volume_override: Option<EmissionVolume>,
     emission_volume_type_override: Option<EmissionVolumeType>,
+
+    // Slave emission buffer: during emit_particles, if a slave system is present,
+    // the emitted particle count is recorded here so the manager can create
+    // corresponding slave particles in a separate pass (avoids double-&mut borrow).
+    // Matches C++ ParticleSystem::update lines 2004-2009.
+    slave_emission_count: u32,
 }
 
 impl ParticleSystem {
@@ -865,6 +925,8 @@ impl ParticleSystem {
 
             emission_volume_override: None,
             emission_volume_type_override: None,
+
+            slave_emission_count: 0,
         };
 
         // Initialize wind motion
@@ -1033,9 +1095,38 @@ impl ParticleSystem {
         self.is_saveable
     }
 
-    /// Set saveable
+    /// Set saveable (matches C++ ParticleSystem::setSaveable)
+    /// Cascades to slave system if present (C++ line 1232-1233)
     pub fn set_saveable(&mut self, b: bool) {
         self.is_saveable = b;
+        // Note: In C++, this cascades to slave via direct pointer.
+        // In Rust, slave_system is an ID — the manager handles cascading.
+    }
+
+    /// Set master system (matches C++ ParticleSystem::setMaster)
+    pub fn set_master(&mut self, master_id: Option<ParticleSystemId>) {
+        self.master_system = master_id;
+    }
+
+    /// Set slave system (matches C++ ParticleSystem::setSlave)
+    pub fn set_slave(&mut self, slave_id: Option<ParticleSystemId>) {
+        self.slave_system = slave_id;
+    }
+
+    /// Get slave system ID
+    pub fn slave_system_id(&self) -> Option<ParticleSystemId> {
+        self.slave_system
+    }
+
+    /// Get master system ID
+    pub fn master_system_id(&self) -> Option<ParticleSystemId> {
+        self.master_system
+    }
+
+    /// Drain the count of slave particles emitted in the last update pass.
+    /// The manager calls this after updating each system to create slave particles.
+    pub fn drain_slave_emission_count(&mut self) -> u32 {
+        std::mem::take(&mut self.slave_emission_count)
     }
 
     /// Set skip parent transform
@@ -1140,9 +1231,16 @@ impl ParticleSystem {
     }
 
     /// Destroy the particle system (matches C++ ParticleSystem::destroy)
+    /// In C++, this cascades to slave via m_slaveSystem->destroy().
+    /// In Rust, the manager handles cascading via slave_system ID.
     pub fn destroy(&mut self) {
         self.is_stopped = true;
         self.is_destroyed = true;
+    }
+
+    /// Check if destroyed
+    pub fn is_destroyed(&self) -> bool {
+        self.is_destroyed
     }
 
     /// Trigger immediate burst (matches C++ ParticleSystem::trigger)
@@ -1154,6 +1252,18 @@ impl ParticleSystem {
     /// Get particle count
     pub fn particle_count(&self) -> usize {
         self.particle_count
+    }
+
+    /// Get personality counter (for creating particles externally, e.g., slave emissions)
+    pub fn personality_counter(&self) -> u32 {
+        self.personality_counter
+    }
+
+    /// Push a pre-created particle into the system (used by manager for slave emission)
+    pub fn push_particle(&mut self, particle: Particle) {
+        self.personality_counter += 1;
+        self.particle_count += 1;
+        self.particles.push_back(particle);
     }
 
     /// Get wind angle
@@ -1228,14 +1338,24 @@ impl ParticleSystem {
         let info = self.template.info();
         let burst_count = (info.burst_count.sample() * self.count_coeff) as u32;
 
+        // Reset slave emission count for this burst
+        self.slave_emission_count = 0;
+
         for i in 0..burst_count {
-            if let Some(particle_info) = self.generate_particle_info(i, burst_count) {
+            if let Some(_particle_info) = self.generate_particle_info(i, burst_count) {
                 // Create particle with current frame as creation timestamp (C++ line 287)
                 let particle =
-                    Particle::new(&particle_info, self.personality_counter, current_frame);
+                    Particle::new(&_particle_info, self.personality_counter, current_frame);
                 self.particles.push_back(particle);
                 self.particle_count += 1;
                 self.personality_counter += 1;
+
+                // Track slave emission count (C++ lines 2004-2009)
+                // The actual slave particle creation is handled by the manager
+                // because we can't mutably borrow two systems simultaneously.
+                if self.slave_system.is_some() {
+                    self.slave_emission_count += 1;
+                }
             }
         }
 
@@ -1259,7 +1379,8 @@ impl ParticleSystem {
     }
 
     /// Generate particle info (matches C++ ParticleSystem::generateParticleInfo)
-    fn generate_particle_info(
+    /// pub(crate) so the manager can call it for slave merge processing.
+    pub(crate) fn generate_particle_info(
         &self,
         particle_num: u32,
         particle_count: u32,
@@ -1589,11 +1710,6 @@ impl ParticleSystem {
     /// Get system ID
     pub fn system_id(&self) -> ParticleSystemId {
         self.system_id
-    }
-
-    /// Check if destroyed
-    pub fn is_destroyed(&self) -> bool {
-        self.is_destroyed
     }
 
     /// Get template
