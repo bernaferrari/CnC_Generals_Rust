@@ -50,6 +50,7 @@ pub mod particle_manager;
 pub mod particle_presets;
 pub mod particle_renderer;
 pub mod particle_system;
+pub mod particle_system_manager;
 pub mod particles;
 pub mod ray_effects;
 pub mod shadow_system;
