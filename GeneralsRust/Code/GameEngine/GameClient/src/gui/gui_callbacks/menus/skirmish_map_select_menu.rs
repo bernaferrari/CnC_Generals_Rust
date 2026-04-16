@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for SkirmishMapSelectMenu.cpp callbacks.
 
 use crate::gui::callbacks::skirmish_map_select_menu::{

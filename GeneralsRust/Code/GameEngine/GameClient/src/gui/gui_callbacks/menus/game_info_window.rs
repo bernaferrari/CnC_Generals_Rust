@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for GameInfoWindow.cpp callbacks.
 
 use crate::gui::callbacks::game_info_window::{game_info_window_init, game_info_window_system};
