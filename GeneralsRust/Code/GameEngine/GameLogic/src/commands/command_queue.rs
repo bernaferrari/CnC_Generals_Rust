@@ -290,14 +290,17 @@ impl PlayerCommandQueue {
             if command.execute_frame <= current_frame
                 && commands_this_frame < MAX_COMMANDS_PER_FRAME
             {
-                let mut command = self.pending_commands.pop().unwrap();
-                command.state = CommandExecutionState::Executing;
+                if let Some(mut command) = self.pending_commands.pop() {
+                    command.state = CommandExecutionState::Executing;
 
-                let command_id = command.get_id();
-                self.executing_commands.insert(command_id, command.clone());
-                ready_commands.push(command);
+                    let command_id = command.get_id();
+                    self.executing_commands.insert(command_id, command.clone());
+                    ready_commands.push(command);
 
-                commands_this_frame += 1;
+                    commands_this_frame += 1;
+                } else {
+                    break;
+                }
             } else {
                 break; // No more commands ready this frame
             }

@@ -1270,12 +1270,7 @@ impl JetAIUpdate {
             }
             if let Ok(jet_guard) = obj.read() {
                 let relationship = jet_guard.relationship_to(candidate);
-                if !matches!(
-                    relationship,
-                    crate::common::Relationship::Allies
-                        | crate::common::Relationship::Allies
-                        | crate::common::Relationship::Allies
-                ) {
+                if !matches!(relationship, crate::common::Relationship::Allies) {
                     return false;
                 }
             }

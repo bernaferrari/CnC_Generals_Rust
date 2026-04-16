@@ -496,7 +496,7 @@ impl CommandButtonHuntUpdate {
                 {
                     continue;
                 }
-                if matches!(relationship, Relationship::Allies | Relationship::Allies) {
+                if matches!(relationship, Relationship::Allies) {
                     continue;
                 }
             } else if relationship != Relationship::Enemies {

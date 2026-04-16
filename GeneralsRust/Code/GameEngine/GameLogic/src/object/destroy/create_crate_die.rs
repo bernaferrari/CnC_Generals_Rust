@@ -120,7 +120,7 @@ impl CreateCrateDie {
             // No crate for killing an ally
             if matches!(
                 obj_lock.relationship_to(&*killer_lock),
-                Relationship::Allies | Relationship::Allies | Relationship::Allies
+                Relationship::Allies
             ) {
                 return Ok(None);
             }

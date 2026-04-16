@@ -252,14 +252,11 @@ impl CommandButton {
             Relationship::Enemies => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
             }
-            Relationship::Allies | Relationship::Allies => {
+            Relationship::Allies => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
             }
             Relationship::Neutral => {
                 options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
-            }
-            Relationship::Allies => {
-                options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
             }
         }
     }

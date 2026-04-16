@@ -1561,7 +1561,7 @@ impl AI {
 
             if !matches!(
                 me_guard.relationship_to(&target),
-                Relationship::Allies | Relationship::Allies | Relationship::Allies
+                Relationship::Allies
             ) {
                 continue;
             }

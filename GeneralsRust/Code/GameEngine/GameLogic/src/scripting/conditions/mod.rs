@@ -776,8 +776,6 @@ impl ScriptCondition for PlayersAlliedCondition {
         Ok(matches!(
             rel,
             crate::common::Relationship::Allies
-                | crate::common::Relationship::Allies
-                | crate::common::Relationship::Allies
         ))
     }
 
@@ -6799,8 +6797,6 @@ impl ScriptCondition for EnemySightedCondition {
                                 matches!(
                                     rel,
                                     Relationship::Allies
-                                        | Relationship::Allies
-                                        | Relationship::Allies
                                 )
                             } else {
                                 false

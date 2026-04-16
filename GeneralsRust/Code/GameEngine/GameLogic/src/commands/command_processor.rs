@@ -162,12 +162,16 @@ impl SelectionCommandHandler {
             SelectionType::Add
         };
 
-        let mut object_ids = Vec::new();
-        for idx in 1..(command.get_argument_count() as Int) {
-            if let Some(CommandArgumentType::ObjectID(id)) = command.get_argument(idx) {
-                object_ids.push(*id);
-            }
-        }
+        // Collect object IDs using iterator collect instead of manual loop
+        let object_ids: Vec<ObjectID> = (1..(command.get_argument_count() as Int))
+            .filter_map(|idx| {
+                if let Some(CommandArgumentType::ObjectID(id)) = command.get_argument(idx) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let selection_manager = get_selection_manager();
         let Ok(mut manager) = selection_manager.write() else {
@@ -2252,7 +2256,7 @@ impl DefaultCommandHandler {
         };
         matches!(
             player_guard.get_relationship_with_team(&local_team_guard),
-            Relationship::Allies | Relationship::Allies
+            Relationship::Allies
         )
     }
 
@@ -2280,8 +2284,8 @@ impl DefaultCommandHandler {
             return (false, false);
         };
         let relation = player_guard.get_relationship_with_team(&local_team_guard);
-        let visible = matches!(relation, Relationship::Allies | Relationship::Allies);
-        let allies = matches!(relation, Relationship::Allies | Relationship::Allies);
+        let visible = matches!(relation, Relationship::Allies);
+        let allies = matches!(relation, Relationship::Allies);
         (visible, allies)
     }
 
