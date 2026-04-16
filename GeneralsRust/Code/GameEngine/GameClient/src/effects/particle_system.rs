@@ -1752,5 +1752,44 @@ mod tests {
 
         // This would require the actual computation logic
         // which is implemented in compute_particle_position
+        let _ = (rng.gen::<f32>(), sphere);
+    }
+
+    #[test]
+    fn test_slave_system_tracking() {
+        let template = Arc::new(ParticleSystemTemplate::new("Master".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+
+        assert_eq!(system.slave_system_id(), None);
+        assert_eq!(system.master_system_id(), None);
+
+        system.set_slave(Some(42));
+        assert_eq!(system.slave_system_id(), Some(42));
+
+        system.set_master(Some(99));
+        assert_eq!(system.master_system_id(), Some(99));
+
+        system.set_slave(None);
+        assert_eq!(system.slave_system_id(), None);
+    }
+
+    #[test]
+    fn test_destroy_flag() {
+        let template = Arc::new(ParticleSystemTemplate::new("Test".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+
+        assert!(!system.is_destroyed());
+        system.destroy();
+        assert!(system.is_destroyed());
+    }
+
+    #[test]
+    fn test_saveable_cascade_flag() {
+        let template = Arc::new(ParticleSystemTemplate::new("Test".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+
+        assert!(system.is_saveable());
+        system.set_saveable(false);
+        assert!(!system.is_saveable());
     }
 }
