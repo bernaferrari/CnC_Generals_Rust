@@ -497,6 +497,33 @@ impl ParticleSystemTemplate {
     pub fn slave_template(&self) -> Option<&Arc<ParticleSystemTemplate>> {
         self.slave_template.as_ref()
     }
+
+    /// Get slave system name (matches C++ ParticleSystemTemplate::m_slaveSystemName)
+    pub fn slave_system_name(&self) -> &str {
+        &self.info.slave_system_name
+    }
+
+    /// Create a slave particle system from this template's slave template.
+    /// Returns None if no slave system name is configured.
+    /// (matches C++ ParticleSystemTemplate::createSlaveSystem)
+    pub fn create_slave_system(
+        &mut self,
+        manager: &mut ParticleSystemManager,
+        create_slaves: bool,
+    ) -> Option<ParticleSystemId> {
+        // Resolve slave template from name if not cached (C++ line 2785-2786)
+        if self.slave_template.is_none() && !self.info.slave_system_name.is_empty() {
+            self.slave_template = manager.find_template(&self.info.slave_system_name);
+        }
+
+        if let Some(ref slave_tmpl) = self.slave_template {
+            manager
+                .create_particle_system(slave_tmpl, create_slaves)
+                .ok()
+        } else {
+            None
+        }
+    }
 }
 
 /// The particle system manager (matches C++ ParticleSystemManager)
@@ -553,6 +580,42 @@ impl ParticleSystemManager {
     /// Find a template by name
     pub fn find_template(&self, name: &str) -> Option<Arc<ParticleSystemTemplate>> {
         self.templates.get(name).cloned()
+    }
+
+    /// Find a particle system template's parent by slave system name.
+    /// Searches templates for one whose slave_system_name matches `name`.
+    /// `parent_num` selects the Nth match (0-indexed).
+    /// (matches C++ ParticleSystemManager::findParentTemplate, ParticleSys.cpp:3040)
+    pub fn find_parent_template(
+        &self,
+        name: &str,
+        mut parent_num: i32,
+    ) -> Option<Arc<ParticleSystemTemplate>> {
+        if name.is_empty() {
+            return None;
+        }
+
+        for sys_template in self.templates.values() {
+            if sys_template.info().slave_system_name == name {
+                if parent_num == 0 {
+                    return Some(sys_template.clone());
+                }
+                parent_num -= 1;
+            }
+        }
+
+        None
+    }
+
+    /// Preload particle texture assets for all templates.
+    /// (matches C++ ParticleSystemManager::preloadAssets, ParticleSys.cpp:3204)
+    pub fn preload_assets(&mut self) {
+        for tmplate in self.templates.values() {
+            if tmplate.info().particle_type_name.is_empty() {
+                continue;
+            }
+            // TODO: wire TheDisplay->preloadTextureAssets(tmplate->m_particleTypeName)
+        }
     }
 
     /// Create a new template
@@ -639,11 +702,22 @@ impl ParticleSystemManager {
         self.active_systems.get_mut(&id).map(|b| b.as_mut())
     }
 
-    /// Destroy a particle system by ID
+    /// Destroy a particle system by ID.
+    /// Cascades destruction to any slave system (C++ ParticleSystem::destroy line 1258-1261).
     pub fn destroy_particle_system(&mut self, id: ParticleSystemId) {
+        let slave_id = self
+            .active_systems
+            .get(&id)
+            .and_then(|s| s.slave_system_id());
+
         if let Some(mut system) = self.active_systems.remove(&id) {
             system.destroy();
             self.system_count = self.system_count.saturating_sub(1);
+        }
+
+        // Cascade to slave (C++ line 1258-1260: m_slaveSystem->destroy())
+        if let Some(slave_id) = slave_id {
+            self.destroy_particle_system(slave_id);
         }
     }
 
@@ -683,10 +757,61 @@ impl ParticleSystemManager {
             }
         }
 
-        // Remove dead systems
+        // Process slave particle emissions (C++ ParticleSys.cpp lines 2004-2009)
+        let slave_work: Vec<(ParticleSystemId, ParticleSystemId, u32)> = self
+            .active_systems
+            .iter_mut()
+            .filter_map(|(master_id, system)| {
+                let count = system.drain_slave_emission_count();
+                if count == 0 {
+                    return None;
+                }
+                system
+                    .slave_system_id()
+                    .map(|slave_id| (*master_id, slave_id, count))
+            })
+            .collect();
+
+        for (master_id, slave_id, count) in slave_work {
+            let merged_infos: Vec<crate::effects::particle_system::ParticleInfo> = {
+                let master = match self.active_systems.get(&master_id) {
+                    Some(m) => m.as_ref(),
+                    None => continue,
+                };
+                let slave = match self.active_systems.get(&slave_id) {
+                    Some(s) => s.as_ref(),
+                    None => continue,
+                };
+                (0..count)
+                    .map(|_| {
+                        crate::effects::particle_system::merge_related_particle_systems(
+                            master, slave, false,
+                        )
+                    })
+                    .collect()
+            };
+
+            if let Some(slave_system) = self.active_systems.get_mut(&slave_id) {
+                for info in merged_infos {
+                    let particle = crate::effects::particle_system::Particle::new(
+                        &info,
+                        slave_system.personality_counter(),
+                        current_frame,
+                    );
+                    slave_system.push_particle(particle);
+                }
+            }
+        }
+
         for id in systems_to_remove {
-            self.active_systems.remove(&id);
-            self.system_count = self.system_count.saturating_sub(1);
+            if let Some(system) = self.active_systems.get(&id) {
+                let slave_id = system.slave_system_id();
+                self.active_systems.remove(&id);
+                self.system_count = self.system_count.saturating_sub(1);
+                if let Some(slave_id) = slave_id {
+                    self.destroy_particle_system(slave_id);
+                }
+            }
         }
 
         // Update statistics
