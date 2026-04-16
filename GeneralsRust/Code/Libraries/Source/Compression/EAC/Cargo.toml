@@ -57,12 +57,3 @@ required-features = ["benchmarks"]
 name = "simd_benchmarks" 
 harness = false
 required-features = ["simd", "benchmarks"]
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.bench]
-debug = true
