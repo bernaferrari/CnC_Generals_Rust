@@ -6411,7 +6411,7 @@ impl GameLogic {
         };
 
         // Build a player_id → bit-mask mapping for do_shroud_reveal.
-        let player_ids: Vec<u32> = self.players.keys().copied().collect();
+        let _player_ids: Vec<u32> = self.players.keys().copied().collect();
 
         for obj in self.objects.values() {
             if !obj.is_alive() {
@@ -6424,7 +6424,7 @@ impl GameLogic {
             }
 
             // Find the player_id for this object's team.
-            let player_id = match self.player_id_for_team(obj.team) {
+            let _player_id = match self.player_id_for_team(obj.team) {
                 Some(id) => id,
                 None => continue,
             };
