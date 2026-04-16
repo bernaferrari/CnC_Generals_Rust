@@ -12906,7 +12906,7 @@ impl ScriptActionDispatcher {
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
                         && matches!(
                             relationship,
-                            Relationship::Allies | Relationship::Allies | Relationship::Allies
+                            Relationship::Allies
                         ))
                     || (!options.intersects(
                         SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
@@ -17374,7 +17374,7 @@ impl ScriptConditionEvaluator {
                 1 => relationship == Relationship::Neutral, // REL_NEUTRAL
                 2 => matches!(
                     relationship,
-                    Relationship::Allies | Relationship::Allies | Relationship::Allies
+                    Relationship::Allies
                 ), // REL_FRIEND
                 _ => false,
             };
@@ -17898,7 +17898,7 @@ impl ScriptConditionEvaluator {
                         let rel = player_guard.get_relationship(&owner_guard);
                         if matches!(
                             rel,
-                            Relationship::Allies | Relationship::Allies | Relationship::Allies
+                            Relationship::Allies
                         ) {
                             continue;
                         }

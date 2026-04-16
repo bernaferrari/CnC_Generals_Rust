@@ -398,7 +398,6 @@ impl AllianceManager {
                 self.break_player_alliance(player1, player2);
                 self.break_player_enemy(player1, player2);
             }
-            _ => {}
         }
     }
 
@@ -416,7 +415,6 @@ impl AllianceManager {
                 self.break_team_alliance(team1, team2);
                 self.break_team_enemy(team1, team2);
             }
-            _ => {}
         }
     }
 }

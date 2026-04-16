@@ -156,8 +156,12 @@ impl ScienceStore {
 
         for science_info in &mut self.sciences {
             science_info.root_sciences.clear();
-            let mut roots = Vec::new();
-            science_info.add_root_sciences(&mut roots, &store_snapshot);
+            // Collect roots using an intermediate vector and collect()
+            let roots: Vec<ScienceType> = {
+                let mut tmp = Vec::new();
+                science_info.add_root_sciences(&mut tmp, &store_snapshot);
+                tmp
+            };
             science_info.root_sciences = roots;
         }
     }

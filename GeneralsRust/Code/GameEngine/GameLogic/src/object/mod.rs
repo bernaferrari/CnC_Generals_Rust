@@ -2728,7 +2728,7 @@ impl Object {
 
         match relationship {
             Relationship::Enemies => ObjectRelationship::Enemy,
-            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
+            Relationship::Allies => {
                 ObjectRelationship::Ally
             }
             _ => ObjectRelationship::Neutral,
@@ -2921,7 +2921,7 @@ impl Object {
                     }
 
                     match relationship {
-                        Relationship::Allies | Relationship::Allies | Relationship::Allies => {
+                        Relationship::Allies => {
                             let mut disarmed = false;
                             for behavior in behaviors {
                                 if let Ok(mut behavior_guard) = behavior.lock() {
@@ -8808,8 +8808,8 @@ impl Object {
     ) -> Result<(), String> {
         // Trigger force application event
         let force_data = (force_x, force_y, force_z);
-        self.trigger_event("apply_force", &bincode::serialize(&force_data).unwrap())
-            .await
+        let serialized = bincode::serialize(&force_data).map_err(|e| format!("Serialization error: {}", e))?;
+        self.trigger_event("apply_force", &serialized).await
     }
 
     /// Trigger an event on this object

@@ -7,6 +7,10 @@ use crate::video_buffer::{VideoBuffer, VideoBufferType};
 use crate::video_player::{register_video_stream_provider, VideoStreamProvider};
 use crate::video_stream::VideoStreamInterface;
 
+mod bink_decoder;
+
+pub const ENABLE_REAL_BINK1_DECODER: bool = false;
+
 const BINK_HEADER_SIZE: usize = 44;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

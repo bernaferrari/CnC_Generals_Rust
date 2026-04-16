@@ -627,7 +627,7 @@ impl DamageCalculator {
                         Relationship::Enemies => {
                             relationship_flags |= WEAPON_AFFECTS_ENEMIES;
                         }
-                        Relationship::Allies | Relationship::Allies | Relationship::Allies => {
+                        Relationship::Allies => {
                             relationship_flags |= WEAPON_AFFECTS_ALLIES;
                         }
                         Relationship::Neutral => {

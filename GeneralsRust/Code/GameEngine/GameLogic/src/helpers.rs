@@ -4096,10 +4096,9 @@ fn partition_filter_allows(
             PartitionFilter::Enemy => {
                 matches!(from.relationship_to(candidate), Relationship::Enemies)
             }
-            PartitionFilter::Friendly => matches!(
-                from.relationship_to(candidate),
-                Relationship::Allies | Relationship::Allies | Relationship::Allies
-            ),
+            PartitionFilter::Friendly => {
+                matches!(from.relationship_to(candidate), Relationship::Allies)
+            }
             PartitionFilter::Neutral => {
                 matches!(from.relationship_to(candidate), Relationship::Neutral)
             }
@@ -4235,8 +4234,6 @@ impl crate::special_power_module::integration::PartitionManagerInterface
                         matches!(
                             team_guard.get_relationship(&obj_team_guard),
                             crate::common::Relationship::Allies
-                                | crate::common::Relationship::Allies
-                                | crate::common::Relationship::Allies
                         )
                     }
                 }
@@ -4918,9 +4915,7 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
         };
 
         match source_guard.get_relationship_with_team(&local_team_guard) {
-            Relationship::Allies | Relationship::Allies | Relationship::Allies => {
-                AudioLocalityRelationship::Allies
-            }
+            Relationship::Allies => AudioLocalityRelationship::Allies,
             Relationship::Enemies => AudioLocalityRelationship::Enemies,
             Relationship::Neutral => AudioLocalityRelationship::Neutral,
         }
