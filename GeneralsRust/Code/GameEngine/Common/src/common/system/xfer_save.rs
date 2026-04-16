@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use super::snapshot::Snapshot;
-use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus, XferVersion};
+use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use std::io::{self, Seek, SeekFrom, Write};
 
 pub struct XferSave<W: Write + Seek> {

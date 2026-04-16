@@ -18,7 +18,7 @@ use crate::common::{
     ini::INI,
     rts::{AsciiString, NameKeyType},
     system::{SubsystemInterface, Xfer},
-    thing::module::{BaseModuleData, Module, ModuleData, ModuleInterfaceType, ModuleType, Thing},
+    thing::module::{Module, ModuleData, ModuleInterfaceType, ModuleType, Thing},
 };
 use once_cell::sync::Lazy;
 use std::{
