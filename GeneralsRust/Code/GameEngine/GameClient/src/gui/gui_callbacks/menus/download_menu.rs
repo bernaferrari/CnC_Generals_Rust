@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for DownloadMenu.cpp callbacks.
 
 use crate::gui::callbacks::download_menu::{

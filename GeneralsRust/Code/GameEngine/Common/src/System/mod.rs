@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 // FILE: mod.rs (System module)
 // Author: Ported from C++
 // Desc: System subsystem module exports

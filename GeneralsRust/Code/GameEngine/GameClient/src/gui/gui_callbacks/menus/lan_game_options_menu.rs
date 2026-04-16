@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for LanGameOptionsMenu.cpp callbacks.
 
 use crate::gui::callbacks::lan_game_options_menu::{

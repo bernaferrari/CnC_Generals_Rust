@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for LanMapSelectMenu.cpp callbacks.
 
 use crate::gui::callbacks::lan_map_select_menu::{
