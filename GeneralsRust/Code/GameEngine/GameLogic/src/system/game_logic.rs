@@ -1381,7 +1381,7 @@ pub struct ObjectTOCEntry {
 
 /// Entry for sleepy update queue (priority queue by wake frame)
 #[derive(Clone)]
-struct SleepyUpdateEntry {
+pub struct SleepyUpdateEntry {
     wake_frame: UnsignedInt,
     phase: SleepyUpdatePhase,
     object_id: ObjectID,
