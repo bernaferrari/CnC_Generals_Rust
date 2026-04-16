@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for SkirmishGameOptionsMenu.cpp callbacks.
 
 use crate::gui::callbacks::skirmish_game_options_menu::{

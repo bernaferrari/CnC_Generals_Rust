@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for PopupReplay.cpp callbacks.
 
 use crate::gui::callbacks::popup_replay::{

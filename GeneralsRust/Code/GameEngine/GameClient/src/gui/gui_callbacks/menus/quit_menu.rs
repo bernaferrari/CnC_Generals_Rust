@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for QuitMenu.cpp callbacks.
 
 use crate::gui::callbacks::quit_menu::{

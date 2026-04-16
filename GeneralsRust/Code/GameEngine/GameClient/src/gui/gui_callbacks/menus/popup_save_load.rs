@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for PopupSaveLoad.cpp callbacks.
 
 use crate::gui::callbacks::popup_save_load::{

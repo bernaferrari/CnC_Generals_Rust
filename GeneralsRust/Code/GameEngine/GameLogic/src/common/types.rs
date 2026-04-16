@@ -3,6 +3,7 @@
 //! This module provides type definitions that match the C++ Object system
 //! to ensure compatibility and correct behavior.
 #![allow(missing_docs)]
+#![allow(non_upper_case_globals)]
 
 use crate::physics::PhysicsType;
 use bitflags::bitflags;

@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! Shim for ScoreScreen.cpp callbacks.
 
 use crate::gui::callbacks::score_screen::{
