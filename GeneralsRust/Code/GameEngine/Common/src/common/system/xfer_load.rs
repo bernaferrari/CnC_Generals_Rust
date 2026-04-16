@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use super::snapshot::Snapshot;
-use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus, XferVersion};
+use super::xfer::{Xfer, XferBlockSize, XferMode, XferStatus};
 use super::xfer_crc::{CorruptionEntry, XferDeepCRC};
 use std::collections::HashMap;
 use std::io::{self, Cursor, Read, Seek, SeekFrom};

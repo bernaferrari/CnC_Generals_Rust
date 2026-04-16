@@ -5,7 +5,6 @@
 //! This module defines the core GameMessage types and structures used
 //! throughout the message stream system.
 
-use log::{debug, error};
 use std::fmt;
 
 /// Invalid translator ID constant

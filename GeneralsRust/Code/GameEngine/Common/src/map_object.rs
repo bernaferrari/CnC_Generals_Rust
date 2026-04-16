@@ -8,8 +8,6 @@
 // runtime gameplay object.  We define the data structure here matching
 // the C++ fields.
 
-use std::cell::Cell;
-
 pub const MAP_XY_FACTOR: f32 = 10.0;
 pub const MAP_HEIGHT_SCALE: f32 = MAP_XY_FACTOR / 16.0;
 
