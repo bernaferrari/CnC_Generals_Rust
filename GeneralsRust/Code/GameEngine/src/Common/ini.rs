@@ -38,9 +38,9 @@ const INI_READ_BUFFER: usize = 8192;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum INILoadType {
     Invalid,
-    Overwrite,          // create new or load over existing data instance
-    CreateOverrides,    // create new or load into new override data instance
-    MultiFile,          // create new or continue loading into existing data instance
+    Overwrite,       // create new or load over existing data instance
+    CreateOverrides, // create new or load into new override data instance
+    MultiFile,       // create new or continue loading into existing data instance
 }
 
 /// INI Error types
@@ -154,12 +154,8 @@ pub struct LookupListRec {
 }
 
 /// Field parse function type
-pub type INIFieldParseProc = fn(
-    ini: &mut INI,
-    instance: *mut u8,
-    store: *mut u8,
-    user_data: *const u8,
-) -> INIResult<()>;
+pub type INIFieldParseProc =
+    fn(ini: &mut INI, instance: *mut u8, store: *mut u8, user_data: *const u8) -> INIResult<()>;
 
 /// Block parse function type
 pub type INIBlockParse = fn(ini: &mut INI) -> INIResult<()>;
@@ -174,7 +170,12 @@ pub struct FieldParse {
 }
 
 impl FieldParse {
-    pub fn new(token: impl Into<String>, parse: INIFieldParseProc, user_data: *const u8, offset: Int) -> Self {
+    pub fn new(
+        token: impl Into<String>,
+        parse: INIFieldParseProc,
+        user_data: *const u8,
+        offset: Int,
+    ) -> Self {
         Self {
             token: token.into(),
             parse,
@@ -200,7 +201,11 @@ impl MultiIniFieldParse {
         }
     }
 
-    pub fn add(&mut self, field_parse: *const FieldParse, extra_offset: UnsignedInt) -> INIResult<()> {
+    pub fn add(
+        &mut self,
+        field_parse: *const FieldParse,
+        extra_offset: UnsignedInt,
+    ) -> INIResult<()> {
         if self.field_parse.len() < Self::MAX_MULTI_FIELDS {
             self.field_parse.push(field_parse);
             self.extra_offset.push(extra_offset);
@@ -356,13 +361,19 @@ impl INI {
     /// Prepare file for reading
     fn prep_file(&mut self, filename: impl AsRef<Path>, load_type: INILoadType) -> INIResult<()> {
         if self.file.is_some() {
-            eprintln!("INI::load, cannot open file '{}', file already open", filename.as_ref().display());
+            eprintln!(
+                "INI::load, cannot open file '{}', file already open",
+                filename.as_ref().display()
+            );
             return Err(INIError::FileAlreadyOpen);
         }
 
         // Open the file
         let file = File::open(&filename).map_err(|_| {
-            eprintln!("INI::load, cannot open file '{}'", filename.as_ref().display());
+            eprintln!(
+                "INI::load, cannot open file '{}'",
+                filename.as_ref().display()
+            );
             INIError::CantOpenFile
         })?;
 
@@ -512,10 +523,7 @@ impl INI {
         if self.token_index < self.token_buffer.len() {
             let token = &self.token_buffer[self.token_index];
             self.token_index += 1;
-            Ok(Some(unsafe {
-                // SAFETY: We're returning a reference that lives as long as token_buffer
-                std::mem::transmute::<&str, &str>(token.as_str())
-            }))
+            Ok(Some(token.as_str()))
         } else {
             Ok(None)
         }
@@ -623,16 +631,21 @@ impl INI {
                     // Find and call the appropriate block parser
                     if let Some(parse_fn) = crate::ini_blocks::find_block_parse(token) {
                         match parse_fn(self) {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(e) => {
-                                eprintln!("Error parsing block '{}' in INI file '{}'", token, self.filename);
+                                eprintln!(
+                                    "Error parsing block '{}' in INI file '{}'",
+                                    token, self.filename
+                                );
                                 eprintln!("Current line: '{}'", current_line);
                                 return Err(e);
                             }
                         }
                     } else {
-                        eprintln!("[LINE: {} - FILE: '{}'] Unknown block '{}'",
-                            self.line_num, self.filename, token);
+                        eprintln!(
+                            "[LINE: {} - FILE: '{}'] Unknown block '{}'",
+                            self.line_num, self.filename, token
+                        );
                         return Err(INIError::UnknownToken);
                     }
 
@@ -701,11 +714,7 @@ impl INI {
     }
 
     /// Check if line is a declaration of specified type
-    pub fn is_declaration_of_type(
-        block_type: &str,
-        block_name: &str,
-        buffer: &str,
-    ) -> bool {
+    pub fn is_declaration_of_type(block_type: &str, block_name: &str, buffer: &str) -> bool {
         let trimmed = buffer.trim_start();
 
         if !trimmed.starts_with(block_type) {
@@ -736,7 +745,11 @@ impl INI {
     }
 
     /// Initialize from INI using multiple field parse tables
-    pub fn init_from_ini_multi(&mut self, what: *mut u8, parse_table_list: &MultiIniFieldParse) -> INIResult<()> {
+    pub fn init_from_ini_multi(
+        &mut self,
+        what: *mut u8,
+        parse_table_list: &MultiIniFieldParse,
+    ) -> INIResult<()> {
         if what.is_null() {
             return Err(INIError::InvalidParams);
         }
