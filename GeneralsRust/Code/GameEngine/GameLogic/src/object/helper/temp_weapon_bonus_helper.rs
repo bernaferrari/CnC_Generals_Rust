@@ -50,6 +50,7 @@ impl Default for TempWeaponBonusHelperModuleData {
 #[derive(Debug)]
 pub struct TempWeaponBonusHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: TempWeaponBonusHelperModuleData,
 
     /// Owning object id

@@ -402,6 +402,7 @@ impl WeaponStore {
     }
 
     /// Delete all delayed damage (used during reset)
+    #[allow(dead_code)]
     fn delete_all_delayed_damage(&mut self) {
         self.delayed_damage_info.clear();
         log::debug!("Cleared all delayed damage entries");

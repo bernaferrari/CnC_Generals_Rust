@@ -40,12 +40,9 @@ impl Waypoint {
     }
 
     pub fn from_terrain(waypoint: &TerrainWaypoint) -> Self {
-        let mut links = Vec::new();
-        for i in 0..waypoint.get_num_links() {
-            if let Some(link) = waypoint.get_link(i) {
-                links.push(link);
-            }
-        }
+        let links: Vec<_> = (0..waypoint.get_num_links())
+            .filter_map(|i| waypoint.get_link(i))
+            .collect();
         Self {
             id: waypoint.get_id(),
             position: *waypoint.get_location(),

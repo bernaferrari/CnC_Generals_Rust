@@ -565,6 +565,7 @@ impl HelixContain {
     }
 
     /// Parse initial payload from INI data
+    #[allow(dead_code)]
     fn parse_initial_payload(&mut self, _template_names: &[String]) -> GameResult<()> {
         // Implementation would parse and create payload objects
         Ok(())

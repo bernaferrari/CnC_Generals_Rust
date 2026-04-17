@@ -270,6 +270,7 @@ pub struct EMPUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<EMPUpdateModuleData>,
     die_frame: UnsignedInt,
+    #[allow(dead_code)]
     tint_env_fade_frames: UnsignedInt,
     tint_env_play_frame: UnsignedInt,
     target_scale: Real,

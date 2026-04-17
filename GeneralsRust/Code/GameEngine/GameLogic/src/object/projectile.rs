@@ -66,11 +66,13 @@ pub enum GuidanceType {
 
 /// Projectile-specific data and behavior
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Projectile {
     /// Base object functionality
     base_object: Arc<RwLock<Object>>,
 
     /// Projectile classification
+    #[allow(dead_code)]
     projectile_type: ProjectileType,
     movement_pattern: ProjectileMovement,
     guidance_type: GuidanceType,
@@ -1302,6 +1304,7 @@ enum DetonationReason {
     Timer,
     Altitude,
     Lifetime,
+    #[allow(dead_code)]
     Intercept,
 }
 

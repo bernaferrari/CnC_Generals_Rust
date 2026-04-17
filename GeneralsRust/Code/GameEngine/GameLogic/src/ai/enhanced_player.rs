@@ -79,6 +79,7 @@ pub struct TeamBuildOrder {
 }
 
 /// Enhanced AI Player implementation
+#[allow(dead_code)]
 pub struct EnhancedAiPlayer {
     /// Player reference for resource and state queries
     player: Weak<RwLock<Player>>,
@@ -149,6 +150,7 @@ impl Default for AiTimers {
 }
 
 /// AI Player performance statistics
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct AiPlayerStats {
     structures_built: u32,
@@ -161,6 +163,7 @@ pub struct AiPlayerStats {
 }
 
 /// Build list for the AI player
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct BuildList {
     structures: Vec<BuildOrderItem>,

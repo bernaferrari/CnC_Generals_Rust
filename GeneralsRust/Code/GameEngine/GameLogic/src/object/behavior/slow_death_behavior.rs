@@ -515,6 +515,7 @@ impl SlowDeathBehavior {
         (self.flags & (1 << Self::SLOW_DEATH_ACTIVATED)) != 0
     }
 
+    #[allow(dead_code)]
     fn get_destruction_frame(&self) -> UnsignedInt {
         self.destruction_frame
     }

@@ -528,7 +528,7 @@ impl ParticleSystemTemplate {
 
 /// The particle system manager (matches C++ ParticleSystemManager)
 pub struct ParticleSystemManager {
-    templates: HashMap<String, Arc<ParticleSystemTemplate>>,
+    pub(crate) templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     active_systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
     next_system_id: ParticleSystemId,
 

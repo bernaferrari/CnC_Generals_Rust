@@ -86,6 +86,7 @@ pub struct TunnelContain {
     /// Reference to the owning object (the tunnel entrance)
     object: Weak<RwLock<Object>>,
     /// Whether we need to run onBuildComplete logic
+    #[allow(dead_code)]
     need_to_run_on_build_complete: bool,
     /// Whether this tunnel is currently registered with the TunnelTracker
     is_currently_registered: bool,
@@ -395,6 +396,7 @@ impl TunnelContain {
 
     /// Scatter an exiting unit to a nearby random position.
     /// Matches C++ TunnelContain::scatterToNearbyPosition (TunnelContain.cpp:273-300)
+    #[allow(dead_code)]
     fn scatter_to_nearby_position(&self, obj: &mut Object) -> GameResult<()> {
         let owner = self.get_object()?;
         let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;

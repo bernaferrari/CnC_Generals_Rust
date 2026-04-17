@@ -1090,6 +1090,7 @@ struct PendingDamage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct PendingCollision {
     object_a: ObjectID,
     object_b: ObjectID,

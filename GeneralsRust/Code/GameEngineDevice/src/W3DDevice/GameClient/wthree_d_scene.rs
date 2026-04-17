@@ -676,19 +676,17 @@ impl W3DScene {
         }
     }
 
-    /// Flush render queue (matching C++ Flush)
+    /// Flush render queue — matches C++ RTS3DScene::Flush() (W3DScene.cpp:809-848)
     pub fn flush(&mut self, rinfo: &RenderInfo, frame_number: u64) {
-        // C++ draws non-stencil shadows before the main mesh flush when the scene is in the
-        // default pass.
+        if self.custom_pass_mode != CustomScenePassMode::Default {
+            self.flush_occluded_objects_into_stencil(rinfo);
+            self.flush_translucent_objects(rinfo);
+            return;
+        }
+
         self.flush_non_stencil_shadow_sequence_hook(rinfo, frame_number);
-
-        // Stencil/occlusion work happens immediately after the main opaque flush in C++.
         self.flush_occluded_objects_into_stencil(rinfo);
-
-        // C++ performs the stencil-shadow pass after occlusion and before translucent flushes.
         self.flush_stencil_shadow_sequence_hook(rinfo, frame_number);
-
-        // Translucent objects are still flushed after the occlusion and shadow paths.
         self.flush_translucent_objects(rinfo);
     }
 

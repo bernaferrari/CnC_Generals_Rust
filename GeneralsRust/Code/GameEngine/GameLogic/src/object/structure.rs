@@ -65,11 +65,13 @@ pub enum ProductionState {
 
 /// Structure-specific data and behavior
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Structure {
     /// Base object functionality
     base_object: Arc<RwLock<Object>>,
 
     /// Structure classification
+    #[allow(dead_code)]
     structure_type: StructureType,
     is_faction_structure: bool,
     is_key_structure: bool, // Losing this ends the game

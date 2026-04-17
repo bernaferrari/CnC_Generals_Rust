@@ -27,7 +27,9 @@ impl Default for DeletionUpdateModuleData {
 
 crate::impl_behavior_module_data_via_base!(DeletionUpdateModuleData, base);
 
+#[allow(dead_code)]
 pub struct DeletionUpdate {
+    #[allow(dead_code)]
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<DeletionUpdateModuleData>,
     delete_frame: UnsignedInt,

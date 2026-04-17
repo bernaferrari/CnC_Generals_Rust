@@ -22,6 +22,7 @@ impl Default for LifetimeUpdateModuleData {
 #[derive(Debug, Clone)]
 pub struct LifetimeUpdate {
     thing: ThingId,
+    #[allow(dead_code)]
     module_data: LifetimeUpdateModuleData,
     die_frame: u32,
 }

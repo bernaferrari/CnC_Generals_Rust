@@ -1,4 +1,5 @@
 //! Shim for WOLLocaleSelectPopup.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_locale_select_popup::{
     wol_locale_select_init, wol_locale_select_input, wol_locale_select_shutdown,

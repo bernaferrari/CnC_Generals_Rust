@@ -328,6 +328,7 @@ impl TriggerSystem {
     }
 
     /// Evaluate AND condition chain
+    #[allow(dead_code)]
     fn evaluate_and_condition(&self, and_condition: &mut Condition) -> GameLogicResult<bool> {
         let evaluator = ScriptEvaluator::new(self.engine.clone());
         evaluator.evaluate_and_condition(and_condition)

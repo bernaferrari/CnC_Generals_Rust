@@ -152,6 +152,7 @@ impl Default for DockUpdateModuleData {
 }
 
 /// Dock update behavior module
+#[allow(dead_code)]
 pub struct DockUpdate {
     /// Configuration data
     data: DockUpdateModuleData,

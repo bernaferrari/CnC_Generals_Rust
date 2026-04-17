@@ -54,9 +54,8 @@ impl DockSharedState {
             .unwrap_or(-1)
     }
 
-    fn reset(&self) {
-        self.clear_approach_position();
-    }
+    #[allow(dead_code)]
+    fn reset(&self) {}
 }
 
 /// The states of the Docking state machine.

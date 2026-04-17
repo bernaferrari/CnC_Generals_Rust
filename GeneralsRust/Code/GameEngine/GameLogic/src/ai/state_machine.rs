@@ -231,6 +231,7 @@ impl Default for AiStateData {
 }
 
 /// AI State Machine implementation
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct AiStateMachine {
     /// Owner object ID

@@ -1,4 +1,5 @@
 //! Shim for PopupHostGame.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::popup_host_game::{
     popup_host_game_init, popup_host_game_input, popup_host_game_system, popup_host_game_update,

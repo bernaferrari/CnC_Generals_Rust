@@ -844,6 +844,7 @@ fn stealth_look_from_u32(value: u32) -> StealthLookType {
 
 /// Drawable object data and behavior
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Drawable {
     /// Unique drawable identifier (matches C++ Drawable::m_id semantics).
     drawable_id: DrawableID,
@@ -855,6 +856,7 @@ pub struct Drawable {
     object_ref: Option<Weak<RwLock<crate::object::Object>>>,
 
     /// Drawable classification
+    #[allow(dead_code)]
     drawable_type: DrawableType,
 
     /// Transform and positioning

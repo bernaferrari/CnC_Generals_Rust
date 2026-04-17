@@ -2762,6 +2762,7 @@ impl ObjectHeldHelper {
 
 /// Object disabled helper (matching C++ ObjectDisabledHelper)
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ObjectDisabledHelper {
     disabled_mask: DisabledMaskType,
     disabled_until: [UnsignedInt; DISABLED_COUNT],
@@ -4282,6 +4283,7 @@ impl TheMessageStream {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct FloatingTextEntry {
     text: String,
     position: Coord3D,
@@ -5326,6 +5328,7 @@ impl TheTerrainVisual {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 struct WaterVelocityImpulse {
     x: Real,
     y: Real,

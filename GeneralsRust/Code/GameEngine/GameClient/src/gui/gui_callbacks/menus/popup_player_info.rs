@@ -1,4 +1,5 @@
 //! Shim for PopupPlayerInfo.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::popup_player_info::{
     popup_player_info_init, popup_player_info_input, popup_player_info_shutdown,

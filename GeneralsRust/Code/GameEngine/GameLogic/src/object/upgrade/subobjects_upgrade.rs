@@ -377,6 +377,7 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
     }
 }
 
+#[allow(dead_code)]
 fn apply_subobject_visibility_for_object(
     object_id: ObjectID,
     data: &SubObjectsUpgradeModuleData,

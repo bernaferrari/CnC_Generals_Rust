@@ -62,6 +62,7 @@ pub enum WeaponStatus {
 #[derive(Debug)]
 pub struct ObjectWeaponStatusHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: ObjectWeaponStatusHelperModuleData,
 
     /// Current weapon status (for tracking changes)

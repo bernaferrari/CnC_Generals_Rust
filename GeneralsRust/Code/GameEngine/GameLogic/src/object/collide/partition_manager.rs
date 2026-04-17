@@ -218,6 +218,7 @@ impl PartitionCell {
         removed
     }
 
+    #[allow(dead_code)]
     fn contains(&self, id: ObjectId) -> bool {
         self.objects.contains(&id)
     }
@@ -268,6 +269,7 @@ impl PartitionCell {
 /// Object registration in partition system
 #[derive(Debug, Clone)]
 struct PartitionObject {
+    #[allow(dead_code)]
     id: ObjectId,
     position: Coord3D,
     geometry: GeometryInfo,

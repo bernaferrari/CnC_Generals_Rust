@@ -23,6 +23,7 @@ use crate::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
 use crate::physics::{SurfaceType, TerrainQuery};
 use crate::polygon_trigger::{PolygonTrigger, PolygonTriggerList};
 use crate::system::map_loader::MapWaypoint;
+use game_engine::system::geometry::GeometryType as EngineGeometryType;
 use lazy_static::lazy_static;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -2417,15 +2418,282 @@ impl TerrainLogic {
         self.active_boundary = new_active_boundary;
     }
 
-    /// Flatten terrain under object
-    pub fn flatten_terrain(&mut self, _obj: &Arc<RwLock<Object>>) {
-        // Would flatten terrain under the object
-        // This affects the height map data
+    /// Flatten terrain under a building/object.
+    /// Reference: C++ TerrainLogic::flattenTerrain() in TerrainLogic.cpp
+    ///
+    /// Computes the average height under the object's footprint, then lowers
+    /// all terrain cells within the footprint to that average. Only lowers,
+    /// never raises — matching C++ setRawMapHeight behavior.
+    pub fn flatten_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
+        let obj_guard = obj.read().unwrap();
+        if obj_guard.get_geometry_info().get_is_small() {
+            return;
+        }
+
+        let pos = obj_guard.get_position();
+        let geom = obj_guard.get_geometry_info();
+
+        match geom.get_geometry_type() {
+            EngineGeometryType::Box => {
+                let angle = obj_guard.get_orientation();
+                let halfsize_x = geom.get_major_radius();
+                let halfsize_y = geom.get_minor_radius();
+                let c = angle.cos();
+                let s = angle.sin();
+
+                let top_left_x = pos.x - halfsize_x * c - halfsize_y * s;
+                let top_left_y = pos.y + halfsize_y * c - halfsize_x * s;
+                let top_right_x = pos.x + halfsize_x * c - halfsize_y * s;
+                let top_right_y = pos.y + halfsize_y * c + halfsize_x * s;
+                let bottom_right_x = pos.x + halfsize_x * c + halfsize_y * s;
+                let bottom_right_y = pos.y - halfsize_y * c + halfsize_x * s;
+                let bottom_left_x = pos.x - halfsize_x * c + halfsize_y * s;
+                let bottom_left_y = pos.y - halfsize_y * c - halfsize_x * s;
+
+                let min_x = top_left_x
+                    .min(top_right_x)
+                    .min(bottom_right_x)
+                    .min(bottom_left_x);
+                let max_x = top_left_x
+                    .max(top_right_x)
+                    .max(bottom_right_x)
+                    .max(bottom_left_x);
+                let min_y = top_left_y
+                    .min(top_right_y)
+                    .min(bottom_right_y)
+                    .min(bottom_left_y);
+                let max_y = top_left_y
+                    .max(top_right_y)
+                    .max(bottom_right_y)
+                    .max(bottom_left_y);
+
+                let i_min_x = (min_x / MAP_XY_FACTOR).floor() as i32;
+                let i_min_y = (min_y / MAP_XY_FACTOR).floor() as i32;
+                let i_max_x = (max_x / MAP_XY_FACTOR).floor() as i32;
+                let i_max_y = (max_y / MAP_XY_FACTOR).floor() as i32;
+
+                // First pass: sample average height within the rotated box
+                let mut total_height: f32 = 0.0;
+                let mut num_samples: i32 = 0;
+                for i in i_min_x..=i_max_x {
+                    // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
+                    for j in 0..=i_max_y {
+                        let test_pt_x = i as f32 * MAP_XY_FACTOR;
+                        let test_pt_y = j as f32 * MAP_XY_FACTOR;
+                        let match_tri = Self::point_in_triangle_2d(
+                            top_left_x,
+                            top_left_y,
+                            top_right_x,
+                            top_right_y,
+                            bottom_left_x,
+                            bottom_left_y,
+                            test_pt_x,
+                            test_pt_y,
+                        ) || Self::point_in_triangle_2d(
+                            top_right_x,
+                            top_right_y,
+                            bottom_right_x,
+                            bottom_right_y,
+                            bottom_left_x,
+                            bottom_left_y,
+                            test_pt_x,
+                            test_pt_y,
+                        );
+                        if match_tri {
+                            total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
+                            num_samples += 1;
+                        }
+                    }
+                }
+                if num_samples == 0 {
+                    return;
+                }
+                let avg_height = total_height / num_samples as f32;
+                let mut raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
+
+                // Compare to center height — setRawMapHeight only lowers
+                let center_height =
+                    (self.get_ground_height(pos.x, pos.y, None) / MAP_HEIGHT_SCALE).floor() as i32;
+                if raw_data_height > center_height {
+                    raw_data_height = center_height;
+                }
+
+                // Second pass: flatten 3x3 area around each matching cell
+                for i in i_min_x..=i_max_x {
+                    for j in 0..=i_max_y {
+                        let test_pt_x = i as f32 * MAP_XY_FACTOR;
+                        let test_pt_y = j as f32 * MAP_XY_FACTOR;
+                        let match_tri = Self::point_in_triangle_2d(
+                            top_left_x,
+                            top_left_y,
+                            top_right_x,
+                            top_right_y,
+                            bottom_left_x,
+                            bottom_left_y,
+                            test_pt_x,
+                            test_pt_y,
+                        ) || Self::point_in_triangle_2d(
+                            top_right_x,
+                            top_right_y,
+                            bottom_right_x,
+                            bottom_right_y,
+                            bottom_left_x,
+                            bottom_left_y,
+                            test_pt_x,
+                            test_pt_y,
+                        );
+                        if match_tri {
+                            // Set 3x3 area: center + 4 cardinal + 4 diagonal neighbors
+                            for di in -1..=1 {
+                                for dj in -1..=1 {
+                                    self.set_raw_map_height(i + di, j + dj, raw_data_height);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            EngineGeometryType::Sphere | EngineGeometryType::Cylinder => {
+                let radius = geom.get_major_radius();
+                let radius_sqr = radius * radius;
+                let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
+                let i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
+                let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
+                let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
+
+                // First pass: sample average height within the circle
+                let mut total_height: f32 = 0.0;
+                let mut num_samples: i32 = 0;
+                for i in i_min_x..=i_max_x {
+                    // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
+                    for j in 0..=i_max_y {
+                        let test_pt_x = i as f32 * MAP_XY_FACTOR;
+                        let test_pt_y = j as f32 * MAP_XY_FACTOR;
+                        let dx = test_pt_x - pos.x;
+                        let dy = test_pt_y - pos.y;
+                        if dx * dx + dy * dy < radius_sqr {
+                            total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
+                            num_samples += 1;
+                        }
+                    }
+                }
+                if num_samples == 0 {
+                    return;
+                }
+                let avg_height = total_height / num_samples as f32;
+                let raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
+
+                // Second pass: flatten 3x3 area around each matching cell
+                for i in i_min_x..=i_max_x {
+                    for j in 0..=i_max_y {
+                        let test_pt_x = i as f32 * MAP_XY_FACTOR;
+                        let test_pt_y = j as f32 * MAP_XY_FACTOR;
+                        let dx = test_pt_x - pos.x;
+                        let dy = test_pt_y - pos.y;
+                        if dx * dx + dy * dy < radius_sqr {
+                            for di in -1..=1 {
+                                for dj in -1..=1 {
+                                    self.set_raw_map_height(i + di, j + dj, raw_data_height);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    /// Create crater in terrain
-    pub fn create_crater_in_terrain(&mut self, _obj: &Arc<RwLock<Object>>) {
-        // Would create a crater effect in the terrain
+    /// Dig a deep circular gorge into the terrain beneath an object.
+    /// Reference: C++ TerrainLogic::createCraterInTerrain() in TerrainLogic.cpp
+    ///
+    /// Creates a crater with radial displacement — deepest at center,
+    /// tapering to zero at the edge of the object's radius.
+    pub fn create_crater_in_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
+        let obj_guard = obj.read().unwrap();
+        if obj_guard.get_geometry_info().get_is_small() {
+            return;
+        }
+
+        let pos = obj_guard.get_position();
+        let radius = obj_guard.get_geometry_info().get_major_radius();
+        if radius <= 0.0 {
+            return;
+        }
+
+        let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
+
+        for i in i_min_x..=i_max_x {
+            // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
+            for j in 0..=i_max_y {
+                let delta_x = i as f32 * MAP_XY_FACTOR - pos.x;
+                let delta_y = j as f32 * MAP_XY_FACTOR - pos.y;
+                let distance = (delta_x * delta_x + delta_y * delta_y).sqrt();
+
+                if distance < radius {
+                    let displacement_amount = radius * (1.0 - distance / radius);
+                    let current_height = self.get_raw_map_height(i, j);
+                    let target_height = (1i32).max(current_height - displacement_amount as i32);
+                    self.set_raw_map_height(i, j, target_height);
+                }
+            }
+        }
+    }
+
+    /// Set raw map height at grid position — only lowers, never raises.
+    /// Reference: C++ W3DTerrainVisual::setRawMapHeight() in W3DTerrainVisual.cpp
+    ///
+    /// The C++ implementation only writes if the new height is lower than
+    /// the current height, and accounts for border size offset.
+    fn set_raw_map_height(&mut self, x: i32, y: i32, height: i32) {
+        if x < 0 || y < 0 || x >= self.map_dx || y >= self.map_dy {
+            return;
+        }
+        let idx = (y * self.map_dx + x) as usize;
+        if idx >= self.map_data.len() {
+            return;
+        }
+        let height_clamped = height.max(0).min(255) as u8;
+        if self.map_data[idx] > height_clamped {
+            self.map_data[idx] = height_clamped;
+        }
+    }
+
+    /// Get raw map height at grid position.
+    /// Reference: C++ W3DTerrainVisual::getRawMapHeight() in W3DTerrainVisual.cpp
+    fn get_raw_map_height(&self, x: i32, y: i32) -> i32 {
+        if x < 0 || y < 0 || x >= self.map_dx || y >= self.map_dy {
+            return 0;
+        }
+        let idx = (y * self.map_dx + x) as usize;
+        if idx >= self.map_data.len() {
+            return 0;
+        }
+        self.map_data[idx] as i32
+    }
+
+    /// 2D point-in-triangle test using cross products.
+    /// Reference: C++ Point_In_Triangle_2D
+    fn point_in_triangle_2d(
+        v0x: f32,
+        v0y: f32,
+        v1x: f32,
+        v1y: f32,
+        v2x: f32,
+        v2y: f32,
+        px: f32,
+        py: f32,
+    ) -> bool {
+        let d1 = (px - v1x) * (v0y - v1y) - (v0x - v1x) * (py - v1y);
+        let d2 = (px - v2x) * (v1y - v2y) - (v1x - v2x) * (py - v2y);
+        let d3 = (px - v0x) * (v2y - v0y) - (v2x - v0x) * (py - v0y);
+
+        let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+        let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+
+        !(has_neg && has_pos)
     }
 
     // Private helper methods

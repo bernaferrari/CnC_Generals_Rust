@@ -22,7 +22,9 @@ use game_engine::common::thing::module::{
 use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
 
+#[allow(dead_code)]
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
+#[allow(dead_code)]
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
 /// Module data for StealthDetectorUpdate

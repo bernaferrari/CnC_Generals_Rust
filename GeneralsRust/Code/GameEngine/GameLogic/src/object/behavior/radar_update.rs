@@ -60,6 +60,7 @@ const RADAR_UPDATE_FIELDS: &[FieldParse<RadarUpdateModuleData>] = &[FieldParse {
     parse: parse_radar_extend_time,
 }];
 
+#[allow(dead_code)]
 pub struct RadarUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<RadarUpdateModuleData>,

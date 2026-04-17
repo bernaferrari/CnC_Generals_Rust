@@ -459,6 +459,7 @@ const SPECIAL_ABILITY_UPDATE_FIELDS: &[FieldParse<SpecialAbilityUpdateModuleData
 pub struct SpecialAbilityUpdate {
     base: SpecialPowerUpdateModule,
     module_data: Arc<SpecialAbilityUpdateModuleData>,
+    #[allow(dead_code)]
     this_module_data: Option<Arc<dyn ModuleData>>, // Keep reference to raw module data if needed
     active: bool,
     prep_frames: u32,

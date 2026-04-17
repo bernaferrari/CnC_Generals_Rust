@@ -543,6 +543,26 @@ impl RoadSegment {
         }
     }
 
+    /// C++ parity: W3DRoadBuffer::loadFloat4PtSection
+    ///
+    /// Tessellates a quadrilateral into a strip mesh using bilinear interpolation,
+    /// matching the C++ algorithm exactly.  Produces a uCount×2 collapsed grid
+    /// (bottom row + top row per column) ready for terrain projection and
+    /// strip-row collapse in the follow-up `apply_terrain_heights_and_normals`
+    /// pass.
+    ///
+    /// The bilinear formula mirrors C++:
+    /// ```text
+    ///   P(i,j) = origin
+    ///          + uVector1 * iFactor * (1-jFactor)
+    ///          + uVector2 * iFactor * jFactor
+    ///          + vVector1 * (1-iFactor) * jFactor
+    ///          + vVector2 * iFactor * jFactor
+    /// ```
+    /// with `uVector2 += (vVector1 - vVector2)` perspective correction.
+    ///
+    /// UV coordinates are computed via dot-product mapping against the
+    /// normalised road direction and road normal, exactly as C++ does.
     fn generate_float4pt_strip_geometry(
         &self,
         loc: Vec3,
@@ -554,72 +574,103 @@ impl RoadSegment {
         u_scale: f32,
         v_scale: f32,
     ) -> TerrainResult<RoadGeometry> {
+        const MAX_SEG_VERTEX: usize = 500;
+        const MAX_SEG_INDEX: usize = 2000;
+        const MAX_ROWS: u32 = 100;
+
         let road_len = road_vector.length().max(1.0e-6);
+        let half_height = road_normal.length().max(1.0e-6);
+
         let mut road_vector_dir = road_vector / road_len;
         road_vector_dir.y = 0.0;
-        road_vector_dir = road_vector_dir.normalize_or_zero();
-        if road_vector_dir.length_squared() <= 1.0e-6 {
+        if road_vector_dir.length_squared() > 1.0e-6 {
+            road_vector_dir = road_vector_dir.normalize();
+        } else {
             road_vector_dir = Vec3::new(1.0, 0.0, 0.0);
         }
 
-        let mut road_normal_dir = road_normal;
+        let mut road_normal_dir = road_normal / half_height;
         road_normal_dir.y = 0.0;
-        road_normal_dir = road_normal_dir.normalize_or_zero();
-        if road_normal_dir.length_squared() <= 1.0e-6 {
-            road_normal_dir =
-                Vec3::new(-road_vector_dir.z, 0.0, road_vector_dir.x).normalize_or_zero();
-        }
-        if road_normal_dir.length_squared() <= 1.0e-6 {
-            road_normal_dir = Vec3::new(0.0, 0.0, 1.0);
+        if road_normal_dir.length_squared() > 1.0e-6 {
+            road_normal_dir = road_normal_dir.normalize();
+        } else {
+            road_normal_dir = Vec3::new(-road_vector_dir.z, 0.0, road_vector_dir.x);
+            if road_normal_dir.length_squared() > 1.0e-6 {
+                road_normal_dir = road_normal_dir.normalize();
+            } else {
+                road_normal_dir = Vec3::new(0.0, 0.0, 1.0);
+            }
         }
 
-        let u_count = Self::runtime_linear_resolution_for_length(road_len);
-        let mut vertices = Vec::with_capacity((u_count * 2) as usize);
-        let mut indices = Vec::with_capacity(((u_count.saturating_sub(1)) * 6) as usize);
+        let u_count = (((road_len / MAP_XY_FACTOR) as u32).saturating_add(1)).max(2);
+        let _v_count = (((2.0 * half_height) / MAP_XY_FACTOR) as u32)
+            .saturating_add(1)
+            .max(2)
+            .min(MAX_ROWS as u32);
+
         let elevation = self.properties.elevation;
         let u_scale = u_scale.max(1.0e-6);
         let v_scale = v_scale.max(1.0e-6);
 
+        let origin = corners[0];
+        let u_vector1 = corners[1] - corners[0];
+        let mut u_vector2 = corners[3] - corners[2];
+        let v_vector1 = corners[2] - corners[0];
+        let v_vector2 = corners[3] - corners[1];
+        u_vector2 = u_vector2 + (v_vector1 - v_vector2);
+
+        let mut vertices = Vec::with_capacity((u_count as usize * 2).min(MAX_SEG_VERTEX));
+        let mut indices =
+            Vec::with_capacity(((u_count.saturating_sub(1)) as usize * 6).min(MAX_SEG_INDEX));
+
         for i in 0..u_count {
-            let t = if u_count == 2 {
-                i as f32
-            } else {
+            let i_factor = if u_count > 1 {
                 i as f32 / (u_count - 1) as f32
+            } else {
+                0.0
             };
-            let bottom = corners[0].lerp(corners[1], t);
-            let top = corners[2].lerp(corners[3], t);
-            let bottom_cur = Vec3::new(bottom.x - loc.x, 0.0, bottom.z - loc.z);
-            let top_cur = Vec3::new(top.x - loc.x, 0.0, top.z - loc.z);
+            let i_bar = 1.0 - i_factor;
+
+            let bottom_pos = origin + u_vector1 * i_factor;
+
+            let top_pos = origin + u_vector2 * i_factor + v_vector1 * i_bar + v_vector2 * i_factor;
+
+            if vertices.len() + 2 > MAX_SEG_VERTEX {
+                break;
+            }
+
+            let bottom_cur = Vec3::new(bottom_pos.x - loc.x, 0.0, bottom_pos.z - loc.z);
+            let top_cur = Vec3::new(top_pos.x - loc.x, 0.0, top_pos.z - loc.z);
             let bottom_u = road_vector_dir.dot(bottom_cur);
             let bottom_v = road_normal_dir.dot(bottom_cur);
             let top_u = road_vector_dir.dot(top_cur);
             let top_v = road_normal_dir.dot(top_cur);
 
             vertices.push(RoadVertex {
-                position: [bottom.x, bottom.y + elevation, bottom.z],
+                position: [bottom_pos.x, bottom_pos.y + elevation, bottom_pos.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: [
                     u_offset + bottom_u / (u_scale * 4.0),
                     v_offset - bottom_v / (v_scale * 4.0),
                 ],
                 color: [1.0, 1.0, 1.0, 1.0],
-                road_distance: road_len * t,
+                road_distance: road_len * i_factor,
             });
             vertices.push(RoadVertex {
-                position: [top.x, top.y + elevation, top.z],
+                position: [top_pos.x, top_pos.y + elevation, top_pos.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: [
                     u_offset + top_u / (u_scale * 4.0),
                     v_offset - top_v / (v_scale * 4.0),
                 ],
                 color: [1.0, 1.0, 1.0, 1.0],
-                road_distance: road_len * t,
+                road_distance: road_len * i_factor,
             });
-        }
 
-        for i in 0..u_count.saturating_sub(1) {
-            let base = i * 2;
-            indices.extend_from_slice(&[base + 1, base, base + 2, base + 1, base + 2, base + 3]);
+            if i > 0 && indices.len() + 6 <= MAX_SEG_INDEX {
+                let base = (i as u32) * 2;
+                indices.extend_from_slice(&[base - 2, base - 1, base, base - 1, base + 1, base]);
+            }
         }
 
         let uvs = vertices

@@ -70,6 +70,7 @@ fn parse_percent(value: &str) -> Result<Real, INIError> {
     INI::parse_percent_to_real(value)
 }
 
+#[allow(dead_code)]
 fn parse_unsigned(value: &str) -> Result<UnsignedInt, INIError> {
     INI::parse_unsigned_int(value)
 }
@@ -117,6 +118,7 @@ fn parse_percent_field(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn parse_unsigned_field(
     _ini: &mut INI,
     setter: &mut dyn FnMut(UnsignedInt),

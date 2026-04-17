@@ -74,6 +74,7 @@ impl Snapshotable for SquishCollideModuleData {
 pub struct SquishCollide {
     owner_id: ObjectId,
     module_data: Arc<SquishCollideModuleData>,
+    #[allow(dead_code)]
     version: u32,
 }
 

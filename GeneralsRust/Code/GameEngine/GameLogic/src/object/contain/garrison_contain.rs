@@ -999,6 +999,7 @@ impl GarrisonContain {
     }
 
     /// Redeploy occupants at garrison points
+    #[allow(dead_code)]
     fn redeploy_occupants(&mut self) -> GameResult<()> {
         self.add_valid_objects_to_garrison_points()?;
         Ok(())
@@ -1120,6 +1121,7 @@ impl GarrisonContain {
     }
 
     /// Calculate best garrison position
+    #[allow(dead_code)]
     fn calc_best_garrison_position(&self, source_pos: &mut Coord3D, target_pos: &Coord3D) -> bool {
         if !self.garrison_points_initialized {
             return false;

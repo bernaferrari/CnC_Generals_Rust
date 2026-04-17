@@ -53,9 +53,12 @@ pub const STEALTH_NOT_WHILE_FIRING_WEAPON: u32 = STEALTH_NOT_WHILE_FIRING_PRIMAR
     | STEALTH_NOT_WHILE_FIRING_SECONDARY
     | STEALTH_NOT_WHILE_FIRING_TERTIARY;
 
+#[allow(dead_code)]
 const INVALID_OPACITY: Real = -1.0;
+#[allow(dead_code)]
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
+#[allow(dead_code)]
 const NEVER: UnsignedInt = u32::MAX;
 
 /// Default reveal distance threshold (in game units)
@@ -184,6 +187,7 @@ impl Snapshotable for StealthUpdateModuleData {
 }
 
 /// StealthUpdate behavior module
+#[allow(dead_code)]
 pub struct StealthUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<StealthUpdateModuleData>,
@@ -493,6 +497,7 @@ impl StealthUpdate {
     }
 
     /// Check delay time has expired
+    #[allow(dead_code)]
     fn delay_time_expired(&self) -> Bool {
         // Frame counter tracked via last_distance_check_frame
         let current_frame = self.last_distance_check_frame;

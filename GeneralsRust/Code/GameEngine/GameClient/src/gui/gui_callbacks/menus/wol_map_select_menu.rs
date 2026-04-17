@@ -1,4 +1,5 @@
 //! Shim for WOLMapSelectMenu.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_map_select_menu::{
     wol_map_select_menu_init, wol_map_select_menu_input, wol_map_select_menu_shutdown,

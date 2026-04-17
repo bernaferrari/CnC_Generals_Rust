@@ -1,4 +1,5 @@
 //! Shim for WOLQMScoreScreen.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wolqm_score_screen::{
     wol_qm_score_screen_init, wol_qm_score_screen_input, wol_qm_score_screen_shutdown,

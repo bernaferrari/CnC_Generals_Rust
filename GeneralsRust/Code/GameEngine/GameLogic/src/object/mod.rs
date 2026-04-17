@@ -160,6 +160,7 @@ struct SpecialAbilityUpdateProxy {
     behavior: Arc<Mutex<dyn BehaviorModuleInterface>>,
 }
 
+#[allow(dead_code)]
 struct ModuleSpecialAbilityUpdateProxy {
     entry: Arc<ModuleEntry>,
 }
@@ -1352,6 +1353,7 @@ impl ModuleEntry {
     }
 
     /// Mutable module access - same as with_module but explicitly named for clarity
+    #[allow(dead_code)]
     fn with_module_mut<F, R>(&self, func: F) -> R
     where
         F: FnOnce(&mut dyn Module) -> R,
@@ -2054,6 +2056,7 @@ pub enum ObjectError {
 }
 
 /// Main Object struct - the core game entity
+#[allow(dead_code)]
 pub struct Object {
     // Core identification
     id: ObjectID,
@@ -4069,6 +4072,7 @@ impl Object {
         self.get_body_module()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_body_module(&mut self, body: Option<Arc<Mutex<dyn BodyModuleInterface>>>) {
         self.body = body;
     }
@@ -5351,6 +5355,7 @@ impl Object {
 
     /// Get the spawn behavior interface if this object has one.
     /// Used for handling spawns-as-weapons disable propagation.
+    #[allow(dead_code)]
     fn get_spawn_behavior_interface(&self) -> Option<Arc<Mutex<dyn SpawnBehaviorInterface>>> {
         None // Placeholder - spawn behavior is accessed directly through behaviors
     }
@@ -13181,6 +13186,7 @@ mod visibility_tests {
 pub type ObjectId = ObjectID;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ParticleSpawn {
     object_id: ObjectID,
     bone_base: String,

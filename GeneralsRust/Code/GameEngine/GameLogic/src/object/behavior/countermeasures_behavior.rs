@@ -667,6 +667,7 @@ impl CountermeasuresBehavior {
         ThePartitionManager::get_distance_squared(&*obj1_guard, &*obj2_guard, FROM_CENTER_2D)
     }
 
+    #[allow(dead_code)]
     fn get_statistics(&self) -> CountermeasuresStatistics {
         let state = self.state.read().unwrap();
         CountermeasuresStatistics {

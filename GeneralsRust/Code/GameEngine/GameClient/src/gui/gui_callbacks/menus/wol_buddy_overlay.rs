@@ -1,4 +1,5 @@
 //! Shim for WOLBuddyOverlay.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_buddy_overlay::{
     popup_buddy_notification_system, wol_buddy_overlay_init, wol_buddy_overlay_input,

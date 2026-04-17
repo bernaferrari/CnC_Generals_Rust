@@ -4,9 +4,9 @@
 
 use super::{ObjectPool, PoolConfig};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 /// Registry for game object pools.
 ///
@@ -30,7 +30,7 @@ impl ObjectPoolRegistry {
         name: &str,
         config_fn: impl FnOnce() -> PoolConfig,
     ) -> Result<Arc<ObjectPool<T>>, String> {
-        let mut pools = self.pools.write();
+        let mut pools = self.pools.write().unwrap();
 
         if let Some(pool) = pools.get(name) {
             return pool
@@ -53,13 +53,14 @@ impl ObjectPoolRegistry {
     pub fn get<T: 'static>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
         self.pools
             .read()
+            .unwrap()
             .get(name)
             .and_then(|p| p.downcast_ref::<Arc<ObjectPool<T>>>().map(Arc::clone))
     }
 
     /// Register a pre-created pool.
     pub fn register<T: 'static + Send + Sync>(&self, name: &str, pool: Arc<ObjectPool<T>>) {
-        self.pools.write().insert(
+        self.pools.write().unwrap().insert(
             name.to_string(),
             Arc::new(pool) as Arc<dyn std::any::Any + Send + Sync>,
         );
@@ -93,7 +94,7 @@ impl ModulePoolRegistry {
         &self,
         module_name: &str,
     ) -> Result<Arc<ObjectPool<T>>, String> {
-        let mut pools = self.pools.write();
+        let mut pools = self.pools.write().unwrap();
 
         if let Some(pool) = pools.get(module_name) {
             return pool
@@ -117,6 +118,7 @@ impl ModulePoolRegistry {
     pub fn get<T: 'static>(&self, module_name: &str) -> Option<Arc<ObjectPool<T>>> {
         self.pools
             .read()
+            .unwrap()
             .get(module_name)
             .and_then(|p| p.downcast_ref::<Arc<ObjectPool<T>>>().map(Arc::clone))
     }

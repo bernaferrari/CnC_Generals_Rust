@@ -59,6 +59,7 @@ pub struct PassengersFireUpgrade {
 
 #[derive(Debug)]
 struct PassengersFireUpgradeInner {
+    #[allow(dead_code)]
     data: Arc<PassengersFireUpgradeModuleData>,
     object_id: ObjectID,
 }
