@@ -107,6 +107,18 @@ impl TerrainLOD {
     }
 }
 
+/// C++ W3DDisplay.cpp: MaximumFrameTimeCutoff — ignore frame time spikes above 0.5s
+pub const MAXIMUM_FRAME_TIME_CUTOFF: f32 = 0.5;
+
+/// C++ W3DDisplay.cpp: FPS_HISTORY_SIZE — rolling average window
+pub const FPS_HISTORY_SIZE: usize = 30;
+
+/// C++ W3DGameClient.cpp: adjustLOD max texture reduction factor (4 = 16x reduction)
+pub const MAX_TEXTURE_REDUCTION: i32 = 4;
+
+/// C++ GameLOD.cpp: PROFILE_ERROR_LIMIT — 6% tolerance for benchmark matching
+pub const PROFILE_ERROR_LIMIT: f32 = 0.94;
+
 /// LOD distance thresholds (in world units)
 pub struct LODDistances {
     /// Distance for LOD level 0 (highest detail)
