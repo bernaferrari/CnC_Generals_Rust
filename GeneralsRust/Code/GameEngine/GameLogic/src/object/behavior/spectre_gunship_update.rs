@@ -511,8 +511,7 @@ impl SpectreGunshipUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<SpectreGunshipUpdateModuleData>()
+        .downcast_ref::<SpectreGunshipUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {

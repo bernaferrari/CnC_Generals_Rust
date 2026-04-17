@@ -1031,4 +1031,81 @@ mod tests {
             KeyCode::LeftMeta
         );
     }
+
+    #[test]
+    fn test_get_printable_key_us_letters() {
+        assert_eq!(get_printable_key(KeyCode::A, 0), 'a');
+        assert_eq!(get_printable_key(KeyCode::A, 1), 'A');
+        assert_eq!(get_printable_key(KeyCode::Z, 0), 'z');
+        assert_eq!(get_printable_key(KeyCode::Z, 1), 'Z');
+    }
+
+    #[test]
+    fn test_get_printable_key_us_numbers() {
+        assert_eq!(get_printable_key(KeyCode::Num1, 0), '1');
+        assert_eq!(get_printable_key(KeyCode::Num1, 1), '!');
+        assert_eq!(get_printable_key(KeyCode::Num0, 0), '0');
+        assert_eq!(get_printable_key(KeyCode::Num0, 1), ')');
+    }
+
+    #[test]
+    fn test_get_printable_key_us_punctuation() {
+        assert_eq!(get_printable_key(KeyCode::Comma, 0), ',');
+        assert_eq!(get_printable_key(KeyCode::Comma, 1), '<');
+        assert_eq!(get_printable_key(KeyCode::Semicolon, 0), ';');
+        assert_eq!(get_printable_key(KeyCode::Semicolon, 1), ':');
+        assert_eq!(get_printable_key(KeyCode::Minus, 0), '-');
+        assert_eq!(get_printable_key(KeyCode::Minus, 1), '_');
+        assert_eq!(get_printable_key(KeyCode::Plus, 0), '=');
+        assert_eq!(get_printable_key(KeyCode::Plus, 1), '+');
+    }
+
+    #[test]
+    fn test_get_printable_key_numpad() {
+        assert_eq!(get_printable_key(KeyCode::NumPad5, 0), '5');
+        assert_eq!(get_printable_key(KeyCode::NumPadAdd, 0), '+');
+        assert_eq!(get_printable_key(KeyCode::NumPadEnter, 0), '\n');
+    }
+
+    #[test]
+    fn test_get_printable_key_special_keys() {
+        assert_eq!(get_printable_key(KeyCode::Space, 0), ' ');
+        assert_eq!(get_printable_key(KeyCode::Tab, 0), '\t');
+        assert_eq!(get_printable_key(KeyCode::Enter, 0), '\n');
+    }
+
+    #[test]
+    fn test_get_printable_key_non_printable() {
+        assert_eq!(get_printable_key(KeyCode::F1, 0), '\0');
+        assert_eq!(get_printable_key(KeyCode::Escape, 0), '\0');
+        assert_eq!(get_printable_key(KeyCode::LeftShift, 0), '\0');
+        assert_eq!(get_printable_key(KeyCode::Up, 0), '\0');
+    }
+
+    #[test]
+    fn test_translate_key_no_modifiers() {
+        assert_eq!(translate_key(KeyCode::A, false, false), Some('a'));
+        assert_eq!(translate_key(KeyCode::Num1, false, false), Some('1'));
+        assert_eq!(translate_key(KeyCode::Space, false, false), Some(' '));
+    }
+
+    #[test]
+    fn test_translate_key_shift() {
+        assert_eq!(translate_key(KeyCode::A, true, false), Some('A'));
+        assert_eq!(translate_key(KeyCode::Num1, true, false), Some('!'));
+        assert_eq!(translate_key(KeyCode::Comma, true, false), Some('<'));
+    }
+
+    #[test]
+    fn test_translate_key_caps_lock() {
+        assert_eq!(translate_key(KeyCode::A, false, true), Some('A'));
+        assert_eq!(translate_key(KeyCode::Num1, false, true), Some('1'));
+    }
+
+    #[test]
+    fn test_translate_key_non_printable() {
+        assert_eq!(translate_key(KeyCode::F1, false, false), None);
+        assert_eq!(translate_key(KeyCode::Escape, false, false), None);
+        assert_eq!(translate_key(KeyCode::LeftShift, false, false), None);
+    }
 }

@@ -7,7 +7,8 @@ use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{object_status_types::ObjectStatusMaskType, Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     BaseModuleData, CreateInterface, Drawable as ModuleDrawableTrait, Module, ModuleData,
-    ModuleInterfaceType, ModuleType, NameKeyType, Object as ModuleObjectTrait, Thing as ModuleThing,
+    ModuleInterfaceType, ModuleType, NameKeyType, Object as ModuleObjectTrait,
+    Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::{
     apply_module_overrides_to_existing_templates, get_module_factory, register_module_override,
@@ -330,54 +331,54 @@ use crate::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
 use log::warn;
 
 // Additional missing module imports
-use crate::object::behavior::slow_death_behavior::{
-    SlowDeathBehavior, SlowDeathBehaviorModuleData,
-};
-use crate::object::behavior::minefield_behavior::{
-    MinefieldBehavior, MinefieldBehaviorFactory, MinefieldBehaviorModuleData,
-};
-use crate::object::behavior::grant_stealth_behavior::{
-    GrantStealthBehavior, GrantStealthBehaviorFactory, GrantStealthBehaviorModuleData,
-};
-use crate::object::behavior::physics_update::{
-    PhysicsBehaviorUpdate, PhysicsBehaviorFactory, PhysicsBehaviorModuleData,
-};
-use crate::object::behavior::height_die_update::{
-    HeightDieUpdate, HeightDieUpdateFactory, HeightDieUpdateModuleData,
-};
-use crate::object::behavior::deletion_update::{
-    DeletionUpdate, DeletionUpdateFactory, DeletionUpdateModuleData,
-};
-use crate::object::behavior::wave_guide_update::{
-    WaveGuideUpdate, WaveGuideUpdateFactory, WaveGuideUpdateModuleData,
+use crate::object::behavior::animation_steering_update::{
+    AnimationSteeringUpdate, AnimationSteeringUpdateFactory, AnimationSteeringUpdateModuleData,
 };
 use crate::object::behavior::checkpoint_update::{
     CheckpointUpdate, CheckpointUpdateFactory, CheckpointUpdateModuleData,
 };
-use crate::object::behavior::animation_steering_update::{
-    AnimationSteeringUpdate, AnimationSteeringUpdateFactory, AnimationSteeringUpdateModuleData,
+use crate::object::behavior::deletion_update::{
+    DeletionUpdate, DeletionUpdateFactory, DeletionUpdateModuleData,
 };
-use crate::object::behavior::pilot_find_vehicle_update::{
-    PilotFindVehicleUpdate, PilotFindVehicleUpdateFactory, PilotFindVehicleUpdateModuleData,
-};
-use crate::object::behavior::hijacker_update::{
-    HijackerUpdate, HijackerUpdateFactory, HijackerUpdateModuleData,
-};
-use crate::object::behavior::neutron_missile_slow_death_update::{
-    NeutronMissileSlowDeathUpdate, NeutronMissileSlowDeathUpdateFactory,
-    NeutronMissileSlowDeathUpdateModuleData,
-};
-use crate::object::behavior::helicopter_slow_death_behavior::{
-    HelicopterSlowDeathBehavior, HelicopterSlowDeathBehaviorFactory,
-    HelicopterSlowDeathBehaviorModuleData,
+use crate::object::behavior::dynamic_geometry_info_update::{
+    DynamicGeometryInfoUpdate, DynamicGeometryInfoUpdateFactory,
+    DynamicGeometryInfoUpdateModuleData,
 };
 use crate::object::behavior::firestorm_dynamic_geometry_info_update::{
     FirestormDynamicGeometryInfoUpdate, FirestormDynamicGeometryInfoUpdateFactory,
     FirestormDynamicGeometryInfoUpdateModuleData,
 };
-use crate::object::behavior::dynamic_geometry_info_update::{
-    DynamicGeometryInfoUpdate, DynamicGeometryInfoUpdateFactory,
-    DynamicGeometryInfoUpdateModuleData,
+use crate::object::behavior::grant_stealth_behavior::{
+    GrantStealthBehavior, GrantStealthBehaviorFactory, GrantStealthBehaviorModuleData,
+};
+use crate::object::behavior::height_die_update::{
+    HeightDieUpdate, HeightDieUpdateFactory, HeightDieUpdateModuleData,
+};
+use crate::object::behavior::helicopter_slow_death_behavior::{
+    HelicopterSlowDeathBehavior, HelicopterSlowDeathBehaviorFactory,
+    HelicopterSlowDeathBehaviorModuleData,
+};
+use crate::object::behavior::hijacker_update::{
+    HijackerUpdate, HijackerUpdateFactory, HijackerUpdateModuleData,
+};
+use crate::object::behavior::minefield_behavior::{
+    MinefieldBehavior, MinefieldBehaviorFactory, MinefieldBehaviorModuleData,
+};
+use crate::object::behavior::neutron_missile_slow_death_update::{
+    NeutronMissileSlowDeathUpdate, NeutronMissileSlowDeathUpdateFactory,
+    NeutronMissileSlowDeathUpdateModuleData,
+};
+use crate::object::behavior::physics_update::{
+    PhysicsBehaviorFactory, PhysicsBehaviorModuleData, PhysicsBehaviorUpdate,
+};
+use crate::object::behavior::pilot_find_vehicle_update::{
+    PilotFindVehicleUpdate, PilotFindVehicleUpdateFactory, PilotFindVehicleUpdateModuleData,
+};
+use crate::object::behavior::slow_death_behavior::{
+    SlowDeathBehavior, SlowDeathBehaviorModuleData,
+};
+use crate::object::behavior::wave_guide_update::{
+    WaveGuideUpdate, WaveGuideUpdateFactory, WaveGuideUpdateModuleData,
 };
 
 #[cfg(feature = "allow_surrender")]
@@ -511,7 +512,6 @@ fn contain_data_ref<T: Clone + Send + Sync + std::fmt::Debug + 'static>(
     module_data: &dyn ModuleData,
 ) -> Option<T> {
     module_data
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<T>>()
         .map(ContainModuleDataAdapter::contain_data)
         .cloned()
@@ -552,14 +552,6 @@ impl ContainBindingModule {
 }
 
 impl Module for ContainBindingModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -649,14 +641,6 @@ impl CreateInterface for CaveContainBindingModule {
 }
 
 impl Module for CaveContainBindingModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -780,14 +764,6 @@ impl InactiveBodyModule {
 }
 
 impl Module for InactiveBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -839,14 +815,14 @@ fn inactive_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let module_data_any: Arc<dyn Any + Send + Sync> = module_data;
-    let module_data_arc = match module_data_any.downcast::<InactiveBodyModuleData>() {
-        Ok(data) => data,
-        Err(_) => {
+    let typed_data = module_data
+        .downcast_ref::<InactiveBodyModuleData>()
+        .cloned()
+        .unwrap_or_else(|| {
             warn!("InactiveBodyModuleData expected, using default fallback");
-            Arc::new(InactiveBodyModuleData::default())
-        }
-    };
+            InactiveBodyModuleData::default()
+        });
+    let module_data_arc = Arc::new(typed_data);
     let module_name_key = NameKeyGenerator::name_to_key("InactiveBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let module = InactiveBodyModule::new(module_name_key, module_data_arc, owner_id);
@@ -879,14 +855,6 @@ impl ActiveBodyModule {
 }
 
 impl Module for ActiveBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -938,14 +906,13 @@ fn active_body_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ActiveBodyModuleData>()
         .expect("ActiveBodyModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("ActiveBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let body = Arc::new(Mutex::new(ActiveBody::new_with_owner(
-        data_arc.as_ref().clone(),
+        typed_data.clone(),
         owner_id,
     )));
     Box::new(ActiveBodyModule::new(
@@ -981,14 +948,6 @@ impl StructureBodyModule {
 }
 
 impl Module for StructureBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1040,16 +999,12 @@ fn structure_body_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StructureBodyModuleData>()
         .expect("StructureBodyModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("StructureBody");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let body = Arc::new(Mutex::new(StructureBody::new(
-        data_arc.as_ref().clone(),
-        owner_id,
-    )));
+    let body = Arc::new(Mutex::new(StructureBody::new(typed_data.clone(), owner_id)));
     Box::new(StructureBodyModule::new(
         module_name_key,
         data_arc,
@@ -1083,14 +1038,6 @@ impl HighlanderBodyModule {
 }
 
 impl Module for HighlanderBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1132,14 +1079,13 @@ fn highlander_body_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ActiveBodyModuleData>()
         .expect("ActiveBodyModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("HighlanderBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let body = Arc::new(Mutex::new(HighlanderBody::new(
-        data_arc.as_ref().clone(),
+        typed_data.clone(),
         owner_id,
     )));
     Box::new(HighlanderBodyModule::new(
@@ -1175,14 +1121,6 @@ impl ImmortalBodyModule {
 }
 
 impl Module for ImmortalBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1224,16 +1162,12 @@ fn immortal_body_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ActiveBodyModuleData>()
         .expect("ActiveBodyModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("ImmortalBody");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let body = Arc::new(Mutex::new(ImmortalBody::new(
-        data_arc.as_ref().clone(),
-        owner_id,
-    )));
+    let body = Arc::new(Mutex::new(ImmortalBody::new(typed_data.clone(), owner_id)));
     Box::new(ImmortalBodyModule::new(
         module_name_key,
         data_arc,
@@ -1267,14 +1201,6 @@ impl HiveStructureBodyModule {
 }
 
 impl Module for HiveStructureBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1326,14 +1252,13 @@ fn hive_structure_body_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<HiveStructureBodyModuleData>()
         .expect("HiveStructureBodyModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("HiveStructureBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let body = Arc::new(Mutex::new(HiveStructureBody::new(
-        data_arc.as_ref().clone(),
+        typed_data.clone(),
         owner_id,
     )));
     Box::new(HiveStructureBodyModule::new(
@@ -1369,14 +1294,6 @@ impl UndeadBodyModule {
 }
 
 impl Module for UndeadBodyModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1428,16 +1345,12 @@ fn undead_body_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<UndeadBodyModuleData>()
         .expect("UndeadBodyModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
     let module_name_key = NameKeyGenerator::name_to_key("UndeadBody");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let body = Arc::new(Mutex::new(UndeadBody::new(
-        data_arc.as_ref().clone(),
-        owner_id,
-    )));
+    let body = Arc::new(Mutex::new(UndeadBody::new(typed_data.clone(), owner_id)));
     Box::new(UndeadBodyModule::new(
         module_name_key,
         data_arc,
@@ -1468,14 +1381,6 @@ impl LockWeaponCreateModule {
 }
 
 impl Module for LockWeaponCreateModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1527,7 +1432,6 @@ fn lock_weapon_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<LockWeaponCreateModuleData>()
         .expect("LockWeaponCreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1562,14 +1466,6 @@ impl GrantUpgradeCreateModule {
 }
 
 impl Module for GrantUpgradeCreateModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1621,7 +1517,6 @@ fn grant_upgrade_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<GrantUpgradeCreateModuleData>()
         .expect("GrantUpgradeCreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1656,14 +1551,6 @@ impl VeterancyGainCreateModule {
 }
 
 impl Module for VeterancyGainCreateModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1715,7 +1602,6 @@ fn veterancy_gain_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<VeterancyGainCreateModuleData>()
         .expect("VeterancyGainCreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1749,14 +1635,6 @@ impl<T> Module for SimpleCreateModule<T>
 where
     T: CreateInterface + Snapshotable + 'static,
 {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1801,7 +1679,6 @@ fn preorder_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CreateModuleData>()
         .expect("CreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1816,7 +1693,6 @@ fn special_power_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CreateModuleData>()
         .expect("CreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1831,7 +1707,6 @@ fn supply_center_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CreateModuleData>()
         .expect("CreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1846,7 +1721,6 @@ fn supply_warehouse_create_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CreateModuleData>()
         .expect("CreateModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -1955,14 +1829,6 @@ impl FireWeaponCollideModule {
 }
 
 impl Module for FireWeaponCollideModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -2037,7 +1903,6 @@ fn fire_weapon_collide_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireWeaponCollideModuleData>()
         .expect("FireWeaponCollideModuleData expected");
 
@@ -2084,14 +1949,6 @@ impl SquishCollideModule {
 }
 
 impl Module for SquishCollideModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -2149,7 +2006,6 @@ fn squish_collide_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SquishCollideModuleData>()
         .expect("SquishCollideModuleData expected");
 
@@ -2191,7 +2047,6 @@ fn upgrade_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<UpgradeDieModuleData>()
         .expect("UpgradeDieModuleData expected");
 
@@ -2235,7 +2090,6 @@ fn destroy_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DieModuleData>()
         .expect("DieModuleData expected");
 
@@ -2266,7 +2120,6 @@ fn keep_object_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DieModuleData>()
         .expect("DieModuleData expected");
 
@@ -2311,7 +2164,6 @@ fn create_object_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CreateObjectDieModuleData>()
         .expect("CreateObjectDieModuleData expected");
 
@@ -2356,7 +2208,6 @@ fn create_crate_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CreateCrateDieModuleData>()
         .expect("CreateCrateDieModuleData expected");
 
@@ -2401,7 +2252,6 @@ fn fx_list_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FXListDieModuleData>()
         .expect("FXListDieModuleData expected");
 
@@ -2446,7 +2296,6 @@ fn crush_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CrushDieModuleData>()
         .expect("CrushDieModuleData expected");
 
@@ -2491,7 +2340,6 @@ fn eject_pilot_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<EjectPilotDieModuleData>()
         .expect("EjectPilotDieModuleData expected");
 
@@ -2536,7 +2384,6 @@ fn rebuild_hole_expose_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RebuildHoleExposeDieModuleData>()
         .expect("RebuildHoleExposeDieModuleData expected");
 
@@ -2581,7 +2428,6 @@ fn special_power_completion_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpecialPowerCompletionDieModuleData>()
         .expect("SpecialPowerCompletionDieModuleData expected");
 
@@ -2626,7 +2472,6 @@ fn demoralize_special_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DemoralizeSpecialPowerModuleData>()
         .expect("DemoralizeSpecialPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2660,7 +2505,6 @@ fn cash_hack_special_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CashHackSpecialPowerModuleData>()
         .expect("CashHackSpecialPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2694,7 +2538,6 @@ fn spy_vision_special_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpyVisionSpecialPowerModuleData>()
         .expect("SpyVisionSpecialPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2728,7 +2571,6 @@ fn defector_special_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DefectorSpecialPowerModuleData>()
         .expect("DefectorSpecialPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2762,7 +2604,6 @@ fn cash_bounty_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CashBountyPowerModuleData>()
         .expect("CashBountyPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2792,7 +2633,6 @@ fn cleanup_area_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CleanupAreaPowerModuleData>()
         .expect("CleanupAreaPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2822,7 +2662,6 @@ fn fire_weapon_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireWeaponPowerModuleData>()
         .expect("FireWeaponPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2852,7 +2691,6 @@ fn special_ability_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpecialAbilityModuleData>()
         .expect("SpecialAbilityModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2882,7 +2720,6 @@ fn baikonur_launch_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BaikonurLaunchPowerModuleData>()
         .expect("BaikonurLaunchPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2916,7 +2753,6 @@ fn ocl_special_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<OclSpecialPowerModuleData>()
         .expect("OclSpecialPowerModuleData expected");
     let data_arc = Arc::new(typed_data.clone());
@@ -2946,7 +2782,6 @@ fn dam_die_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DamDieModuleData>()
         .expect("DamDieModuleData expected");
 
@@ -2992,7 +2827,6 @@ fn status_bits_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StatusBitsUpgradeModuleData>()
         .expect("StatusBitsUpgradeModuleData expected");
 
@@ -3031,7 +2865,6 @@ fn passengers_fire_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PassengersFireUpgradeModuleData>()
         .expect("PassengersFireUpgradeModuleData expected");
 
@@ -3071,7 +2904,6 @@ fn subobjects_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SubObjectsUpgradeModuleData>()
         .expect("SubObjectsUpgradeModuleData expected");
 
@@ -3111,7 +2943,6 @@ fn grant_science_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<GrantScienceUpgradeModuleData>()
         .expect("GrantScienceUpgradeModuleData expected");
 
@@ -3151,7 +2982,6 @@ fn object_creation_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ObjectCreationUpgradeModuleData>()
         .expect("ObjectCreationUpgradeModuleData expected");
 
@@ -3191,7 +3021,6 @@ fn active_shroud_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ActiveShroudUpgradeModuleData>()
         .expect("ActiveShroudUpgradeModuleData expected");
 
@@ -3231,7 +3060,6 @@ fn armor_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ArmorUpgradeModuleData>()
         .expect("ArmorUpgradeModuleData expected");
 
@@ -3271,7 +3099,6 @@ fn command_set_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CommandSetUpgradeModuleData>()
         .expect("CommandSetUpgradeModuleData expected");
 
@@ -3311,7 +3138,6 @@ fn cost_modifier_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CostModifierUpgradeModuleData>()
         .expect("CostModifierUpgradeModuleData expected");
 
@@ -3351,7 +3177,6 @@ fn experience_scalar_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ExperienceScalarUpgradeModuleData>()
         .expect("ExperienceScalarUpgradeModuleData expected");
 
@@ -3391,7 +3216,6 @@ fn locomotor_set_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<LocomotorSetUpgradeModuleData>()
         .expect("LocomotorSetUpgradeModuleData expected");
 
@@ -3431,7 +3255,6 @@ fn max_health_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<MaxHealthUpgradeModuleData>()
         .expect("MaxHealthUpgradeModuleData expected");
 
@@ -3471,7 +3294,6 @@ fn model_condition_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ModelConditionUpgradeModuleData>()
         .expect("ModelConditionUpgradeModuleData expected");
 
@@ -3511,7 +3333,6 @@ fn power_plant_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PowerPlantUpgradeModuleData>()
         .expect("PowerPlantUpgradeModuleData expected");
 
@@ -3551,7 +3372,6 @@ fn radar_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RadarUpgradeModuleData>()
         .expect("RadarUpgradeModuleData expected");
 
@@ -3591,7 +3411,6 @@ fn replace_object_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ReplaceObjectUpgradeModuleData>()
         .expect("ReplaceObjectUpgradeModuleData expected");
 
@@ -3631,7 +3450,6 @@ fn stealth_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StealthUpgradeModuleData>()
         .expect("StealthUpgradeModuleData expected");
 
@@ -3671,7 +3489,6 @@ fn unpause_special_power_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<UnpauseSpecialPowerUpgradeModuleData>()
         .expect("UnpauseSpecialPowerUpgradeModuleData expected");
 
@@ -3711,7 +3528,6 @@ fn weapon_bonus_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<WeaponBonusUpgradeModuleData>()
         .expect("WeaponBonusUpgradeModuleData expected");
 
@@ -3751,7 +3567,6 @@ fn weapon_set_upgrade_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<WeaponSetUpgradeModuleData>()
         .expect("WeaponSetUpgradeModuleData expected");
 
@@ -3791,7 +3606,6 @@ fn transition_damage_fx_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<TransitionDamageFXModuleData>()
         .expect("TransitionDamageFXModuleData expected");
 
@@ -3830,7 +3644,6 @@ fn stealth_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StealthUpdateModuleData>()
         .expect("StealthUpdateModuleData expected");
 
@@ -3870,7 +3683,6 @@ fn ai_update_interface_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AIUpdateModuleData>()
         .expect("AIUpdateModuleData expected");
 
@@ -3904,7 +3716,6 @@ fn railed_transport_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RailedTransportAIUpdateModuleData>()
         .expect("RailedTransportAIUpdateModuleData expected");
 
@@ -3938,7 +3749,6 @@ fn railroad_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RailroadBehaviorModuleData>()
         .expect("RailroadBehaviorModuleData expected");
 
@@ -3978,7 +3788,6 @@ fn special_power_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpecialPowerModuleData>()
         .expect("SpecialPowerModuleData expected");
 
@@ -4009,7 +3818,6 @@ fn production_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ProductionUpdateCompleteModuleData>()
         .expect("ProductionUpdateModuleData expected");
 
@@ -4049,7 +3857,6 @@ fn transport_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<TransportAIUpdateModuleData>()
         .expect("TransportAIUpdateModuleData expected");
 
@@ -4067,7 +3874,6 @@ fn assault_transport_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AssaultTransportAIUpdateModuleData>()
         .expect("AssaultTransportAIUpdateModuleData expected");
 
@@ -4117,7 +3923,6 @@ fn deploy_style_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DeployStyleAIUpdateModuleData>()
         .expect("DeployStyleAIUpdateModuleData expected");
 
@@ -4139,7 +3944,6 @@ fn wander_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<WanderAIUpdateModuleData>()
         .expect("WanderAIUpdateModuleData expected");
 
@@ -4154,7 +3958,6 @@ fn deliver_payload_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
         .expect("DeliverPayloadAIUpdateModuleData expected");
 
@@ -4188,7 +3991,6 @@ fn hack_internet_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<HackInternetAIUpdateModuleData>()
         .expect("HackInternetAIUpdateModuleData expected");
 
@@ -4222,7 +4024,6 @@ fn supply_truck_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SupplyTruckAIUpdateModuleData>()
         .expect("SupplyTruckAIUpdateModuleData expected");
 
@@ -4256,7 +4057,6 @@ fn chinook_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ChinookAIUpdateModuleData>()
         .expect("ChinookAIUpdateModuleData expected");
 
@@ -4287,7 +4087,6 @@ fn jet_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<JetAIUpdateModuleData>()
         .expect("JetAIUpdateModuleData expected");
 
@@ -4318,7 +4117,6 @@ fn worker_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<WorkerAIUpdateModuleData>()
         .expect("WorkerAIUpdateModuleData expected");
 
@@ -4349,7 +4147,6 @@ fn dozer_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DozerAIUpdateModuleData>()
         .expect("DozerAIUpdateModuleData expected");
 
@@ -4382,7 +4179,6 @@ fn pow_truck_ai_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<POWTruckAIUpdateModuleData>()
         .expect("POWTruckAIUpdateModuleData expected");
 
@@ -4416,7 +4212,6 @@ fn auto_heal_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AutoHealBehaviorModuleData>()
         .expect("AutoHealBehaviorModuleData expected");
 
@@ -4453,7 +4248,6 @@ fn horde_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<HordeUpdateModuleData>()
         .expect("HordeUpdateModuleData expected");
 
@@ -4493,7 +4287,6 @@ fn spawn_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpawnBehaviorModuleData>()
         .expect("SpawnBehaviorModuleData expected");
 
@@ -4535,12 +4328,6 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> GenericBehaviorModule
 }
 
 impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBehaviorModule<T> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -4549,7 +4336,9 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBeh
     }
 }
 
-impl<T: crate::modules::BehaviorModuleInterface + 'static> Snapshotable for GenericBehaviorModule<T> {
+impl<T: crate::modules::BehaviorModuleInterface + 'static> Snapshotable
+    for GenericBehaviorModule<T>
+{
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
@@ -4585,7 +4374,6 @@ fn slow_death_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SlowDeathBehaviorModuleData>()
         .expect("SlowDeathBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -4625,7 +4413,6 @@ fn minefield_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<MinefieldBehaviorModuleData>()
         .expect("MinefieldBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -4665,7 +4452,6 @@ fn grant_stealth_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<GrantStealthBehaviorModuleData>()
         .expect("GrantStealthBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -4705,13 +4491,12 @@ fn physics_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PhysicsBehaviorModuleData>()
         .expect("PhysicsBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("PhysicsUpdate requires a valid object");
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("PhysicsUpdate requires a valid object");
     let behavior = PhysicsBehaviorFactory::create_behavior(object, module_data_arc.clone())
         .expect("PhysicsUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -4753,13 +4538,12 @@ fn height_die_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<HeightDieUpdateModuleData>()
         .expect("HeightDieUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("HeightDieUpdate requires a valid object");
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("HeightDieUpdate requires a valid object");
     let behavior = HeightDieUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("HeightDieUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -4789,13 +4573,12 @@ fn deletion_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DeletionUpdateModuleData>()
         .expect("DeletionUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("DeletionUpdate requires a valid object");
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("DeletionUpdate requires a valid object");
     let behavior = DeletionUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("DeletionUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -4825,13 +4608,12 @@ fn wave_guide_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<WaveGuideUpdateModuleData>()
         .expect("WaveGuideUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("WaveGuideUpdate requires a valid object");
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("WaveGuideUpdate requires a valid object");
     let behavior = WaveGuideUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("WaveGuideUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -4861,7 +4643,6 @@ fn checkpoint_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CheckpointUpdateModuleData>()
         .expect("CheckpointUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -4897,7 +4678,6 @@ fn animation_steering_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AnimationSteeringUpdateModuleData>()
         .expect("AnimationSteeringUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -4933,7 +4713,6 @@ fn pilot_find_vehicle_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PilotFindVehicleUpdateModuleData>()
         .expect("PilotFindVehicleUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -4969,13 +4748,12 @@ fn hijacker_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<HijackerUpdateModuleData>()
         .expect("HijackerUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("HijackerUpdate requires a valid object");
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("HijackerUpdate requires a valid object");
     let behavior = HijackerUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("HijackerUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -4985,7 +4763,9 @@ fn hijacker_update_module_factory(
     ))
 }
 
-fn helicopter_slow_death_behavior_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+fn helicopter_slow_death_behavior_module_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
     let mut data = HelicopterSlowDeathBehaviorModuleData::default();
     if let Some(ini) = ini {
         if let Err(err) = data.parse_from_ini(ini) {
@@ -5005,7 +4785,6 @@ fn helicopter_slow_death_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
         .expect("HelicopterSlowDeathBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -5044,7 +4823,6 @@ fn neutron_missile_slow_death_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>()
         .expect("NeutronMissileSlowDeathUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -5083,18 +4861,15 @@ fn firestorm_dynamic_geometry_info_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
         .expect("FirestormDynamicGeometryInfoUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
     let object = TheGameLogic::find_object_by_id(owner_id)
         .expect("FirestormDynamicGeometryInfoUpdate requires a valid object");
-    let behavior = FirestormDynamicGeometryInfoUpdateFactory::create_behavior(
-        object,
-        module_data_arc.clone(),
-    )
-    .expect("FirestormDynamicGeometryInfoUpdate failed to initialize");
+    let behavior =
+        FirestormDynamicGeometryInfoUpdateFactory::create_behavior(object, module_data_arc.clone())
+            .expect("FirestormDynamicGeometryInfoUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
         "FirestormDynamicGeometryInfoUpdate",
         module_data_arc,
@@ -5122,7 +4897,6 @@ fn dynamic_geometry_info_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DynamicGeometryInfoUpdateModuleData>()
         .expect("DynamicGeometryInfoUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
@@ -5161,7 +4935,6 @@ fn radar_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RadarUpdateModuleData>()
         .expect("RadarUpdateModuleData expected");
 
@@ -5202,7 +4975,6 @@ fn stealth_detector_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StealthDetectorUpdateModuleData>()
         .expect("StealthDetectorUpdateModuleData expected");
 
@@ -5231,7 +5003,6 @@ fn radius_decal_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RadiusDecalUpdateModuleData>()
         .expect("RadiusDecalUpdateModuleData expected");
 
@@ -5272,7 +5043,6 @@ fn sticky_bomb_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StickyBombUpdateModuleData>()
         .expect("StickyBombUpdateModuleData expected");
 
@@ -5313,7 +5083,6 @@ fn prone_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ProneUpdateModuleData>()
         .expect("ProneUpdateModuleData expected");
 
@@ -5354,7 +5123,6 @@ fn projectile_stream_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ProjectileStreamUpdateModuleData>()
         .expect("ProjectileStreamUpdateModuleData expected");
 
@@ -5395,7 +5163,6 @@ fn point_defense_laser_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PointDefenseLaserUpdateModuleData>()
         .expect("PointDefenseLaserUpdateModuleData expected");
 
@@ -5436,7 +5203,6 @@ fn laser_behavior_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<LaserBehaviorUpdateModuleData>()
         .expect("LaserBehaviorUpdateModuleData expected");
 
@@ -5477,7 +5243,6 @@ fn bone_fx_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BoneFXUpdateModuleData>()
         .expect("BoneFXUpdateModuleData expected");
 
@@ -5515,7 +5280,6 @@ fn demo_trap_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DemoTrapUpdateModuleData>()
         .expect("DemoTrapUpdateModuleData expected");
 
@@ -5558,7 +5322,6 @@ fn smart_bomb_target_homing_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SmartBombTargetHomingUpdateModuleData>()
         .expect("SmartBombTargetHomingUpdateModuleData expected");
 
@@ -5599,7 +5362,6 @@ fn tensile_formation_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<TensileFormationUpdateModuleData>()
         .expect("TensileFormationUpdateModuleData expected");
 
@@ -5640,7 +5402,6 @@ fn generate_minefield_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
         .expect("GenerateMinefieldBehaviorModuleData expected");
 
@@ -5679,7 +5440,6 @@ fn special_ability_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpecialAbilityUpdateModuleData>()
         .expect("SpecialAbilityUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5717,7 +5477,6 @@ fn spectre_gunship_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpectreGunshipUpdateModuleData>()
         .expect("SpectreGunshipUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5757,7 +5516,6 @@ fn spectre_gunship_deployment_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>()
         .expect("SpectreGunshipDeploymentUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5787,7 +5545,6 @@ fn particle_uplink_cannon_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
         .expect("ParticleUplinkCannonUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5815,7 +5572,6 @@ fn battle_plan_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BattlePlanUpdateModuleData>()
         .expect("BattlePlanUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5853,7 +5609,6 @@ fn lifetime_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<LifetimeUpdateModuleData>()
         .expect("LifetimeUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5883,7 +5638,6 @@ fn missile_launcher_building_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
         .expect("MissileLauncherBuildingUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
@@ -5923,7 +5677,6 @@ fn spy_vision_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpyVisionUpdateModuleData>()
         .expect("SpyVisionUpdateModuleData expected");
 
@@ -5964,7 +5717,6 @@ fn fire_weapon_when_dead_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
         .expect("FireWeaponWhenDeadBehaviorModuleData expected");
 
@@ -6007,7 +5759,6 @@ fn fire_weapon_when_damaged_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
         .expect("FireWeaponWhenDamagedBehaviorModuleData expected");
 
@@ -6048,7 +5799,6 @@ fn fire_weapon_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireWeaponUpdateModuleData>()
         .expect("FireWeaponUpdateModuleData expected");
 
@@ -6091,7 +5841,6 @@ fn fire_ocl_after_weapon_cooldown_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
         .expect("FireOCLAfterWeaponCooldownUpdateModuleData expected");
 
@@ -6132,7 +5881,6 @@ fn weapon_bonus_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<WeaponBonusUpdateModuleData>()
         .expect("WeaponBonusUpdateModuleData expected");
 
@@ -6173,7 +5921,6 @@ fn emp_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<EMPUpdateModuleData>()
         .expect("EMPUpdateModuleData expected");
 
@@ -6214,7 +5961,6 @@ fn structure_collapse_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StructureCollapseUpdateModuleData>()
         .expect("StructureCollapseUpdateModuleData expected");
 
@@ -6255,7 +6001,6 @@ fn float_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FloatUpdateModuleData>()
         .expect("FloatUpdateModuleData expected");
 
@@ -6296,7 +6041,6 @@ fn enemy_near_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<EnemyNearUpdateModuleData>()
         .expect("EnemyNearUpdateModuleData expected");
 
@@ -6337,7 +6081,6 @@ fn auto_find_healing_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AutoFindHealingUpdateModuleData>()
         .expect("AutoFindHealingUpdateModuleData expected");
 
@@ -6380,7 +6123,6 @@ fn supply_warehouse_crippling_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SupplyWarehouseCripplingBehaviorModuleData>()
         .expect("SupplyWarehouseCripplingBehaviorModuleData expected");
 
@@ -6421,7 +6163,6 @@ fn base_regenerate_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BaseRegenerateUpdateModuleData>()
         .expect("BaseRegenerateUpdateModuleData expected");
 
@@ -6462,7 +6203,6 @@ fn auto_deposit_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AutoDepositUpdateModuleData>()
         .expect("AutoDepositUpdateModuleData expected");
 
@@ -6503,7 +6243,6 @@ fn power_plant_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PowerPlantUpdateModuleData>()
         .expect("PowerPlantUpdateModuleData expected");
 
@@ -6544,7 +6283,6 @@ fn tech_building_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<TechBuildingBehaviorModuleData>()
         .expect("TechBuildingBehaviorModuleData expected");
 
@@ -6585,7 +6323,6 @@ fn propaganda_tower_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PropagandaTowerBehaviorModuleData>()
         .expect("PropagandaTowerBehaviorModuleData expected");
 
@@ -6626,7 +6363,6 @@ fn assisted_targeting_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<AssistedTargetingUpdateModuleData>()
         .expect("AssistedTargetingUpdateModuleData expected");
 
@@ -6669,7 +6405,6 @@ fn dynamic_shroud_clearing_range_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
         .expect("DynamicShroudClearingRangeUpdateModuleData expected");
 
@@ -6710,7 +6445,6 @@ fn cleanup_hazard_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CleanupHazardUpdateModuleData>()
         .expect("CleanupHazardUpdateModuleData expected");
 
@@ -6751,7 +6485,6 @@ fn fire_spread_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FireSpreadUpdateModuleData>()
         .expect("FireSpreadUpdateModuleData expected");
 
@@ -6791,7 +6524,6 @@ fn slaved_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SlavedUpdateModuleData>()
         .expect("SlavedUpdateModuleData expected");
 
@@ -6830,7 +6562,6 @@ fn mob_member_slaved_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<MobMemberSlavedUpdateModuleData>()
         .expect("MobMemberSlavedUpdateModuleData expected");
 
@@ -6871,7 +6602,6 @@ fn command_button_hunt_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CommandButtonHuntUpdateModuleData>()
         .expect("CommandButtonHuntUpdateModuleData expected");
 
@@ -6909,7 +6639,6 @@ fn topple_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ToppleUpdateModuleData>()
         .expect("ToppleUpdateModuleData expected");
 
@@ -6949,7 +6678,6 @@ fn structure_topple_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<StructureToppleUpdateModuleData>()
         .expect("StructureToppleUpdateModuleData expected");
 
@@ -6990,7 +6718,6 @@ fn rebuild_hole_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RebuildHoleBehaviorModuleData>()
         .expect("RebuildHoleBehaviorModuleData expected");
 
@@ -7031,7 +6758,6 @@ fn firing_tracker_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FiringTrackerBehaviorModuleData>()
         .expect("FiringTrackerBehaviorModuleData expected");
 
@@ -7053,7 +6779,6 @@ fn overcharge_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<OverchargeBehaviorModuleData>()
         .expect("OverchargeBehaviorModuleData expected");
 
@@ -7090,7 +6815,6 @@ fn countermeasures_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<CountermeasuresBehaviorModuleData>()
         .expect("CountermeasuresBehaviorModuleData expected");
 
@@ -7129,7 +6853,6 @@ fn bunker_buster_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BunkerBusterBehaviorModuleData>()
         .expect("BunkerBusterBehaviorModuleData expected");
 
@@ -7168,7 +6891,6 @@ fn flight_deck_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<FlightDeckBehaviorModuleData>()
         .expect("FlightDeckBehaviorModuleData expected");
 
@@ -7209,7 +6931,6 @@ fn pow_truck_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<POWTruckBehaviorModuleData>()
         .expect("POWTruckBehaviorModuleData expected");
 
@@ -7255,7 +6976,6 @@ fn prison_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PrisonBehaviorModuleData>()
         .expect("PrisonBehaviorModuleData expected");
 
@@ -7301,7 +7021,6 @@ fn propaganda_center_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PropagandaCenterBehaviorModuleData>()
         .expect("PropagandaCenterBehaviorModuleData expected");
 
@@ -7347,7 +7066,6 @@ fn queue_production_exit_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<QueueProductionExitModuleData>()
         .expect("QueueProductionExitModuleData expected");
 
@@ -7388,7 +7106,6 @@ fn default_production_exit_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<DefaultProductionExitModuleData>()
         .expect("DefaultProductionExitModuleData expected");
 
@@ -7431,7 +7148,6 @@ fn spawn_point_production_exit_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpawnPointProductionExitModuleData>()
         .expect("SpawnPointProductionExitModuleData expected");
 
@@ -7474,7 +7190,6 @@ fn supply_center_production_exit_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SupplyCenterProductionExitModuleData>()
         .expect("SupplyCenterProductionExitModuleData expected");
 
@@ -7528,7 +7243,6 @@ fn bridge_scaffold_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BridgeScaffoldBehaviorModuleData>()
         .expect("BridgeScaffoldBehaviorModuleData expected");
 
@@ -7567,7 +7281,6 @@ fn bridge_tower_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BridgeTowerBehaviorModuleData>()
         .expect("BridgeTowerBehaviorModuleData expected");
 
@@ -7606,7 +7319,6 @@ fn bridge_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BridgeBehaviorModuleData>()
         .expect("BridgeBehaviorModuleData expected");
 
@@ -7644,7 +7356,6 @@ fn parking_place_behavior_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ParkingPlaceBehaviorModuleData>()
         .expect("ParkingPlaceBehaviorModuleData expected");
 
@@ -7685,13 +7396,12 @@ fn repair_dock_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RepairDockUpdateData>()
         .expect("RepairDockUpdateData expected");
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = RepairDockUpdate::new(module_data_arc.as_ref().clone(), owner_id, &owner_pos);
+    let behavior = RepairDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("RepairDockUpdate");
     Box::new(RepairDockUpdateModule::new(
@@ -7713,13 +7423,12 @@ fn prison_dock_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<PrisonDockUpdateData>()
         .expect("PrisonDockUpdateData expected");
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = PrisonDockUpdate::new(module_data_arc.as_ref().clone(), owner_id, &owner_pos);
+    let behavior = PrisonDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("PrisonDockUpdate");
     Box::new(PrisonDockUpdateModule::new(
@@ -7751,14 +7460,12 @@ fn railed_transport_dock_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<RailedTransportDockUpdateData>()
         .expect("RailedTransportDockUpdateData expected");
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior =
-        RailedTransportDockUpdate::new(module_data_arc.as_ref().clone(), owner_id, &owner_pos);
+    let behavior = RailedTransportDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("RailedTransportDockUpdate");
     Box::new(RailedTransportDockUpdateModule::new(
@@ -7790,14 +7497,12 @@ fn supply_center_dock_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SupplyCenterDockUpdateData>()
         .expect("SupplyCenterDockUpdateData expected");
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior =
-        SupplyCenterDockUpdate::new(module_data_arc.as_ref().clone(), owner_id, &owner_pos);
+    let behavior = SupplyCenterDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("SupplyCenterDockUpdate");
     Box::new(SupplyCenterDockUpdateModule::new(
@@ -7829,14 +7534,12 @@ fn supply_warehouse_dock_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SupplyWarehouseDockUpdateData>()
         .expect("SupplyWarehouseDockUpdateData expected");
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior =
-        SupplyWarehouseDockUpdate::new(module_data_arc.as_ref().clone(), owner_id, &owner_pos);
+    let behavior = SupplyWarehouseDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("SupplyWarehouseDockUpdate");
     Box::new(SupplyWarehouseDockUpdateModule::new(
@@ -7868,7 +7571,6 @@ fn w3d_model_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DModelDrawModuleData>()
         .cloned()
         .or_else(|| {
@@ -7910,7 +7612,6 @@ fn w3d_tank_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DTankDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -7946,7 +7647,6 @@ fn w3d_overlord_tank_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DOverlordTankDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -7982,7 +7682,6 @@ fn w3d_projectile_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DProjectileDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8018,7 +7717,6 @@ fn w3d_laser_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DLaserDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8038,7 +7736,6 @@ fn w3d_rope_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DRopeDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8068,7 +7765,6 @@ fn w3d_projectile_stream_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DProjectileStreamDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8098,7 +7794,6 @@ fn w3d_tree_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DTreeDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8123,7 +7818,6 @@ fn w3d_tracer_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DTracerDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8143,7 +7837,6 @@ fn w3d_debris_draw_module_factory(
 ) -> Box<dyn Module> {
     let data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<W3DDebrisDrawModuleData>()
         .cloned()
         .unwrap_or_else(|| {
@@ -8173,7 +7866,6 @@ fn laser_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<LaserClientUpdateModuleData>()
         .expect("LaserUpdateModuleData expected");
     let module_name_key = NameKeyGenerator::name_to_key("LaserUpdate");
@@ -8206,7 +7898,6 @@ fn ocl_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<OCLUpdateModuleData>()
         .expect("OCLUpdateModuleData expected");
     let module_name_key = NameKeyGenerator::name_to_key("OCLUpdate");
@@ -8229,7 +7920,6 @@ fn special_power_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<SpecialPowerUpdateModuleData>()
         .expect("SpecialPowerUpdateModuleData expected");
     let (owner_id, _) = resolve_owner_info(&thing);
@@ -8262,7 +7952,6 @@ fn beacon_client_update_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<BeaconClientUpdateModuleData>()
         .expect("BeaconClientUpdateModuleData expected");
     let module_name_key = NameKeyGenerator::name_to_key("BeaconClientUpdate");
@@ -8329,14 +8018,17 @@ fn open_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = expect_contain_data::<OpenContainModuleData>(module_data.as_ref(), "OpenContain");
+    let typed_data =
+        expect_contain_data::<OpenContainModuleData>(module_data.as_ref(), "OpenContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = OpenContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
-            warn!("Failed to create OpenContain for object {}: {}", owner_id, err);
-            OpenContain::new(Weak::new(), &OpenContainModuleData::default())
-                .expect("OpenContain default construction failed")
-        });
+    let contain = OpenContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        warn!(
+            "Failed to create OpenContain for object {}: {}",
+            owner_id, err
+        );
+        OpenContain::new(Weak::new(), &OpenContainModuleData::default())
+            .expect("OpenContain default construction failed")
+    });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     make_contain_binding_module("OpenContain", thing, module_data, contain)
 }
@@ -8362,8 +8054,8 @@ fn transport_contain_module_factory(
     let typed_data =
         expect_contain_data::<TransportContainModuleData>(module_data.as_ref(), "TransportContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = TransportContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        TransportContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create TransportContain for object {}: {}",
                 owner_id, err
@@ -8396,8 +8088,8 @@ fn garrison_contain_module_factory(
     let typed_data =
         expect_contain_data::<GarrisonContainModuleData>(module_data.as_ref(), "GarrisonContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = GarrisonContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        GarrisonContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create GarrisonContain for object {}: {}",
                 owner_id, err
@@ -8430,15 +8122,14 @@ fn tunnel_contain_module_factory(
     let typed_data =
         expect_contain_data::<TunnelContainModuleData>(module_data.as_ref(), "TunnelContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = TunnelContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
-            warn!(
-                "Failed to create TunnelContain for object {}: {}",
-                owner_id, err
-            );
-            TunnelContain::new(Weak::new(), &TunnelContainModuleData::default())
-                .expect("TunnelContain default construction failed")
-        });
+    let contain = TunnelContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        warn!(
+            "Failed to create TunnelContain for object {}: {}",
+            owner_id, err
+        );
+        TunnelContain::new(Weak::new(), &TunnelContainModuleData::default())
+            .expect("TunnelContain default construction failed")
+    });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     make_contain_binding_module("TunnelContain", thing, module_data, contain)
 }
@@ -8464,8 +8155,8 @@ fn overlord_contain_module_factory(
     let typed_data =
         expect_contain_data::<OverlordContainModuleData>(module_data.as_ref(), "OverlordContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = OverlordContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        OverlordContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create OverlordContain for object {}: {}",
                 owner_id, err
@@ -8498,12 +8189,14 @@ fn helix_contain_module_factory(
     let typed_data =
         expect_contain_data::<HelixContainModuleData>(module_data.as_ref(), "HelixContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = HelixContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
-            warn!("Failed to create HelixContain for object {}: {}", owner_id, err);
-            HelixContain::new(Weak::new(), &HelixContainModuleData::default())
-                .expect("HelixContain default construction failed")
-        });
+    let contain = HelixContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        warn!(
+            "Failed to create HelixContain for object {}: {}",
+            owner_id, err
+        );
+        HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("HelixContain default construction failed")
+    });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     make_contain_binding_module("HelixContain", thing, module_data, contain)
 }
@@ -8562,11 +8255,13 @@ fn rider_change_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data =
-        expect_contain_data::<RiderChangeContainModuleData>(module_data.as_ref(), "RiderChangeContain");
+    let typed_data = expect_contain_data::<RiderChangeContainModuleData>(
+        module_data.as_ref(),
+        "RiderChangeContain",
+    );
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = RiderChangeContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        RiderChangeContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create RiderChangeContain for object {}: {}",
                 owner_id, err
@@ -8601,8 +8296,8 @@ fn internet_hack_contain_module_factory(
         "InternetHackContain",
     );
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = InternetHackContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        InternetHackContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create InternetHackContain for object {}: {}",
                 owner_id, err
@@ -8632,14 +8327,17 @@ fn heal_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = expect_contain_data::<HealContainModuleData>(module_data.as_ref(), "HealContain");
+    let typed_data =
+        expect_contain_data::<HealContainModuleData>(module_data.as_ref(), "HealContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = HealContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
-            warn!("Failed to create HealContain for object {}: {}", owner_id, err);
-            HealContain::new(Weak::new(), &HealContainModuleData::default())
-                .expect("HealContain default construction failed")
-        });
+    let contain = HealContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        warn!(
+            "Failed to create HealContain for object {}: {}",
+            owner_id, err
+        );
+        HealContain::new(Weak::new(), &HealContainModuleData::default())
+            .expect("HealContain default construction failed")
+    });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     make_contain_binding_module("HealContain", thing, module_data, contain)
 }
@@ -8662,11 +8360,15 @@ fn cave_contain_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = expect_contain_data::<CaveContainModuleData>(module_data.as_ref(), "CaveContain");
+    let typed_data =
+        expect_contain_data::<CaveContainModuleData>(module_data.as_ref(), "CaveContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = CaveContain::new(make_owner_weak(owner_id), typed_data, None)
-        .unwrap_or_else(|err| {
-            warn!("Failed to create CaveContain for object {}: {}", owner_id, err);
+    let contain =
+        CaveContain::new(make_owner_weak(owner_id), typed_data, None).unwrap_or_else(|err| {
+            warn!(
+                "Failed to create CaveContain for object {}: {}",
+                owner_id, err
+            );
             CaveContain::new(Weak::new(), &CaveContainModuleData::default(), None)
                 .expect("CaveContain default construction failed")
         });
@@ -8701,8 +8403,8 @@ fn parachute_contain_module_factory(
     let typed_data =
         expect_contain_data::<ParachuteContainModuleData>(module_data.as_ref(), "ParachuteContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = ParachuteContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        ParachuteContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create ParachuteContain for object {}: {}",
                 owner_id, err
@@ -8735,8 +8437,8 @@ fn mob_nexus_contain_module_factory(
     let typed_data =
         expect_contain_data::<MobNexusContainModuleData>(module_data.as_ref(), "MobNexusContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = MobNexusContain::new(make_owner_weak(owner_id), typed_data)
-        .unwrap_or_else(|err| {
+    let contain =
+        MobNexusContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create MobNexusContain for object {}: {}",
                 owner_id, err
@@ -10154,7 +9856,6 @@ mod tests {
         let data = status_bits_upgrade_module_data_factory(None);
         let typed = data
             .as_ref()
-            .as_any()
             .downcast_ref::<StatusBitsUpgradeModuleData>()
             .unwrap();
         assert!(typed.status_to_set().is_empty());

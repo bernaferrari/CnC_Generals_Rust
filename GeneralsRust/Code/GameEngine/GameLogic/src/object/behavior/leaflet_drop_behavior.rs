@@ -117,8 +117,7 @@ impl LeafletDropBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<LeafletDropBehaviorModuleData>()
+        .downcast_ref::<LeafletDropBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         let now = TheGameLogic::get_frame();

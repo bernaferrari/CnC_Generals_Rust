@@ -1080,13 +1080,6 @@ impl Snapshotable for BattleBusSlowDeathBehaviorModule {
 }
 
 impl EngineModule for BattleBusSlowDeathBehaviorModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
@@ -1183,8 +1176,7 @@ mod tests {
         let data = battle_bus_slow_death_data_factory(None);
         let typed = data
             .as_ref()
-            .as_any()
-            .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
+        .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
             .expect("battle bus slow death data");
         assert_eq!(typed.throw_force, 1.0);
         assert!(typed.fx_start_undeath.is_none());

@@ -707,8 +707,7 @@ impl MissileAIUpdateBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<MissileAIUpdateModuleData>()
+        .downcast_ref::<MissileAIUpdateModuleData>()
             .ok_or("Invalid MissileAIUpdate module data")?;
         let module_data = Arc::new(data.clone());
         let current_frame = TheGameLogic::get_frame();

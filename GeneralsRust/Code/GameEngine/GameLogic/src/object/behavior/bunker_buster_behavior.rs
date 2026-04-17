@@ -224,8 +224,7 @@ impl BunkerBusterBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<BunkerBusterBehaviorModuleData>()
+        .downcast_ref::<BunkerBusterBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
@@ -555,13 +554,6 @@ impl Snapshotable for BunkerBusterBehaviorModule {
 }
 
 impl EngineModule for BunkerBusterBehaviorModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key

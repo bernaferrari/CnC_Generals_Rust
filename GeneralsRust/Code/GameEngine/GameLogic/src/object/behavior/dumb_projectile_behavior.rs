@@ -1309,13 +1309,6 @@ impl Snapshotable for DumbProjectileBehaviorModule {
 }
 
 impl EngineModule for DumbProjectileBehaviorModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
@@ -1417,8 +1410,7 @@ mod tests {
         let data_box = dumb_projectile_behavior_module_data_factory(None);
         let typed = data_box
             .as_ref()
-            .as_any()
-            .downcast_ref::<DumbProjectileBehaviorModuleData>()
+        .downcast_ref::<DumbProjectileBehaviorModuleData>()
             .expect("dumb projectile data");
         assert_eq!(
             typed.max_lifespan,

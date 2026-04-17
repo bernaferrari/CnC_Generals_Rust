@@ -173,6 +173,12 @@ pub trait ModuleData: AsAny + Send + Sync + std::fmt::Debug + std::any::Any {
     }
 }
 
+impl dyn ModuleData {
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.as_any().downcast_ref::<T>()
+    }
+}
+
 /// Extension trait for Arc<dyn ModuleData> to provide as_any_arc method
 pub trait ModuleDataExt {
     fn as_any_arc(self) -> Arc<dyn std::any::Any + Send + Sync>;

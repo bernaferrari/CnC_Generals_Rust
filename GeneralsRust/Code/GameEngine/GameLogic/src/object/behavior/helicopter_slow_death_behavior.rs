@@ -91,8 +91,7 @@ impl HelicopterSlowDeathBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
+        .downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         // Get current frame from game logic (matches C++ line 145-146)

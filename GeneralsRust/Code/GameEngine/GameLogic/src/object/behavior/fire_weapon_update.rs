@@ -151,8 +151,7 @@ impl FireWeaponUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<FireWeaponUpdateModuleData>()
+        .downcast_ref::<FireWeaponUpdateModuleData>()
             .ok_or("Invalid module data for FireWeaponUpdate")?;
 
         let data = Arc::new(specific_data.clone());

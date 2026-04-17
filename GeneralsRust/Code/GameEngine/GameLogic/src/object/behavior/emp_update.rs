@@ -284,8 +284,7 @@ impl EMPUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<EMPUpdateModuleData>()
+        .downcast_ref::<EMPUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let now = TheGameLogic::get_frame();

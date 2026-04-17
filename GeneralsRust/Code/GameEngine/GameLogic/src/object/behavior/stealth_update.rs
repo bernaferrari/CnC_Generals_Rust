@@ -224,8 +224,7 @@ impl StealthUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<StealthUpdateModuleData>()
+        .downcast_ref::<StealthUpdateModuleData>()
             .ok_or("Invalid module data type for StealthUpdate")?;
 
         let reveal_distance_config =

@@ -54,8 +54,7 @@ impl EnemyNearUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<EnemyNearUpdateModuleData>()
+        .downcast_ref::<EnemyNearUpdateModuleData>()
             .ok_or("Invalid module data for EnemyNearUpdate")?;
 
         let mut enemy_scan_delay = 0;

@@ -1161,7 +1161,7 @@ impl EnhancedControlBar {
 
     /// A drawable has just become deselected
     pub fn on_drawable_deselected(&mut self, drawable_name: &str) {
-        if self.current_selected_drawable.as_ref() == Some(&drawable_name.to_string()) {
+        if self.current_selected_drawable.as_deref() == Some(drawable_name) {
             self.current_selected_drawable = None;
             self.mark_ui_dirty();
         }
@@ -2674,10 +2674,10 @@ impl EnhancedControlBar {
         if !side_icon.is_empty() {
             if let Some(flag_window) = self.observer_flag_window.as_ref() {
                 flag_window.set_draw_images(
-                    Some(side_icon.to_string()),
-                    Some(side_icon.to_string()),
-                    Some(side_icon.to_string()),
-                    Some(side_icon.to_string()),
+                    Some(side_icon),
+                    Some(side_icon),
+                    Some(side_icon),
+                    Some(side_icon),
                 );
             }
         }
@@ -2725,10 +2725,10 @@ impl EnhancedControlBar {
                     let side_icon = player.get_side_icon_image();
                     if !side_icon.is_empty() {
                         window.set_draw_images(
-                            Some(side_icon.to_string()),
-                            Some(side_icon.to_string()),
-                            Some(side_icon.to_string()),
-                            Some(side_icon.to_string()),
+                            Some(side_icon),
+                            Some(side_icon),
+                            Some(side_icon),
+                            Some(side_icon),
                         );
                     }
                     self.observer_player_indices[slot] = Some(*player_index);
@@ -3124,10 +3124,10 @@ impl EnhancedControlBar {
                 window.set_tooltip(&tooltip, 1);
                 if !ini_button.button_image.is_empty() {
                     window.set_draw_images(
-                        Some(ini_button.button_image.clone()),
-                        Some(ini_button.button_image.clone()),
-                        Some(ini_button.button_image.clone()),
-                        Some(ini_button.button_image.clone()),
+                        Some(&ini_button.button_image),
+                        Some(&ini_button.button_image),
+                        Some(&ini_button.button_image),
+                        Some(&ini_button.button_image),
                     );
                 }
             }
@@ -3289,12 +3289,12 @@ impl EnhancedControlBar {
                 }
 
                 window.set_tooltip(&tooltip, 1);
-                if let Some(image) = image {
+                if let Some(ref image) = image {
                     window.set_draw_images(
-                        Some(image.clone()),
-                        Some(image.clone()),
-                        Some(image.clone()),
-                        Some(image),
+                        Some(image.as_str()),
+                        Some(image.as_str()),
+                        Some(image.as_str()),
+                        Some(image.as_str()),
                     );
                 }
                 let progress = if index == 0 {

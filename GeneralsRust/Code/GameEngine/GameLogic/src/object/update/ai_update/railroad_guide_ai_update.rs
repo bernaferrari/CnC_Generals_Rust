@@ -542,8 +542,7 @@ impl RailroadBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<RailroadBehaviorModuleData>()
+        .downcast_ref::<RailroadBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         let mut running_sound = specific_data.running_sound.clone();

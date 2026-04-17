@@ -41,8 +41,7 @@ impl AnimationSteeringUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<AnimationSteeringUpdateModuleData>()
+        .downcast_ref::<AnimationSteeringUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
