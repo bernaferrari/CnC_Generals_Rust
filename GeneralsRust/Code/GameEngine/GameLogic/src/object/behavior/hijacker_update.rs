@@ -51,8 +51,7 @@ impl HijackerUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<HijackerUpdateModuleData>()
+        .downcast_ref::<HijackerUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {

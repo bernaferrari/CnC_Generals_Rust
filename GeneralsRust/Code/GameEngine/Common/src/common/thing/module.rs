@@ -110,6 +110,12 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     fn as_any(&self) -> &dyn Any;
 }
 
+impl dyn ModuleData {
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.as_any().downcast_ref::<T>()
+    }
+}
+
 /// Concrete implementation of ModuleData
 #[derive(Debug, Clone)]
 pub struct BaseModuleData {
@@ -239,14 +245,6 @@ impl BaseModule {
 }
 
 impl Module for BaseModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -350,14 +348,6 @@ impl BaseObjectModule {
 }
 
 impl Module for BaseObjectModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.base.get_module_name_key()
     }
@@ -416,14 +406,6 @@ impl BaseDrawableModule {
 }
 
 impl Module for BaseDrawableModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.base.get_module_name_key()
     }

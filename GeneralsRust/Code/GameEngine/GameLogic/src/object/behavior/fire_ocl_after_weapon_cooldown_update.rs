@@ -67,8 +67,7 @@ impl FireOCLAfterWeaponCooldownUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
+        .downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let upgrade_mux = UpgradeMux::new(specific_data.upgrade_mux_data.clone());

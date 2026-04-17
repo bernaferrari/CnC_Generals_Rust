@@ -2109,7 +2109,7 @@ impl GameLogic {
             } else {
                 display_name
             });
-            player.set_side(faction.clone());
+            player.set_side(&faction);
             player.set_base_side(faction);
             player.set_difficulty(LogicGameDifficulty::Normal);
 

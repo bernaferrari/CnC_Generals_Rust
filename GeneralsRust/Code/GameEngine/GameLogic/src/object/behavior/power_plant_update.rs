@@ -72,8 +72,7 @@ impl PowerPlantUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<PowerPlantUpdateModuleData>()
+        .downcast_ref::<PowerPlantUpdateModuleData>()
             .ok_or("Invalid module data type for PowerPlantUpdate")?;
 
         Ok(Self {
@@ -237,13 +236,6 @@ impl Snapshotable for PowerPlantUpdateModule {
 }
 
 impl Module for PowerPlantUpdateModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key

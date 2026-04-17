@@ -428,8 +428,7 @@ impl GenerateMinefieldBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
+        .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
             .ok_or("Invalid module data")?;
         let object_id = object.read().map(|guard| guard.get_id()).unwrap_or(0);
         Ok(Self::new_from_config(object_id, specific_data.clone()))

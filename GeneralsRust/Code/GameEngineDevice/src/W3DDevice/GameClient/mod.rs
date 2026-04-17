@@ -22,6 +22,7 @@ pub mod terrain_rendering;
 pub mod terrain_system;
 pub mod terrain_tex;
 pub mod terrain_texture;
+pub mod texture_combiner;
 pub mod w3d_waypoint_buffer;
 #[path = "Water/mod.rs"]
 pub mod water;

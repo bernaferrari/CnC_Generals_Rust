@@ -122,8 +122,7 @@ impl TensileFormationUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<TensileFormationUpdateModuleData>()
+        .downcast_ref::<TensileFormationUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let owner_id = object.read().map(|obj| obj.get_id()).unwrap_or(0);

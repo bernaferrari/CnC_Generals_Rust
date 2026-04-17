@@ -314,8 +314,7 @@ impl ParkingPlaceBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<ParkingPlaceBehaviorModuleData>()
+        .downcast_ref::<ParkingPlaceBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(owner_guard) = object.read() {

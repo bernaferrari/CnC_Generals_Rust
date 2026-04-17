@@ -13,6 +13,7 @@ pub trait LegacyModuleData: Snapshotable + Clone + Send + Sync + std::fmt::Debug
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+
     fn set_module_tag_name_key(&mut self, key: NameKeyType);
     fn get_module_tag_name_key(&self) -> NameKeyType;
 
@@ -48,11 +49,11 @@ pub trait LegacyModuleData: Snapshotable + Clone + Send + Sync + std::fmt::Debug
 macro_rules! impl_legacy_module_data_with_key_field {
     ($ty:ty, $field:ident) => {
         impl $crate::common::LegacyModuleData for $ty {
-            fn as_any(&self) -> &dyn ::std::any::Any {
+            fn as_any(&self) -> &dyn::std::any::Any {
                 self
             }
 
-            fn as_any_mut(&mut self) -> &mut dyn ::std::any::Any {
+            fn as_any_mut(&mut self) -> &mut dyn::std::any::Any {
                 self
             }
 
@@ -66,7 +67,7 @@ macro_rules! impl_legacy_module_data_with_key_field {
         }
 
         impl ::game_engine::common::thing::module::ModuleData for $ty {
-            fn as_any(&self) -> &dyn ::std::any::Any {
+            fn as_any(&self) -> &dyn::std::any::Any {
                 $crate::common::LegacyModuleData::as_any(self)
             }
 
@@ -85,11 +86,11 @@ macro_rules! impl_legacy_module_data_with_key_field {
                 $crate::common::LegacyModuleData::is_ai_module_data(self)
             }
 
-            fn get_as_w3d_model_draw_module_data(&self) -> Option<&dyn ::std::any::Any> {
+            fn get_as_w3d_model_draw_module_data(&self) -> Option<&dyn::std::any::Any> {
                 $crate::common::LegacyModuleData::get_as_w3d_model_draw_module_data(self)
             }
 
-            fn get_as_w3d_tree_draw_module_data(&self) -> Option<&dyn ::std::any::Any> {
+            fn get_as_w3d_tree_draw_module_data(&self) -> Option<&dyn::std::any::Any> {
                 $crate::common::LegacyModuleData::get_as_w3d_tree_draw_module_data(self)
             }
 
@@ -106,11 +107,11 @@ macro_rules! impl_legacy_module_data_with_key_field {
 macro_rules! impl_legacy_module_data_via_base {
     ($ty:ty, $field:ident) => {
         impl $crate::common::LegacyModuleData for $ty {
-            fn as_any(&self) -> &dyn ::std::any::Any {
+            fn as_any(&self) -> &dyn::std::any::Any {
                 self
             }
 
-            fn as_any_mut(&mut self) -> &mut dyn ::std::any::Any {
+            fn as_any_mut(&mut self) -> &mut dyn::std::any::Any {
                 self
             }
 
@@ -129,7 +130,7 @@ macro_rules! impl_legacy_module_data_via_base {
         }
 
         impl ::game_engine::common::thing::module::ModuleData for $ty {
-            fn as_any(&self) -> &dyn ::std::any::Any {
+            fn as_any(&self) -> &dyn::std::any::Any {
                 $crate::common::LegacyModuleData::as_any(self)
             }
 
@@ -148,11 +149,11 @@ macro_rules! impl_legacy_module_data_via_base {
                 $crate::common::LegacyModuleData::is_ai_module_data(self)
             }
 
-            fn get_as_w3d_model_draw_module_data(&self) -> Option<&dyn ::std::any::Any> {
+            fn get_as_w3d_model_draw_module_data(&self) -> Option<&dyn::std::any::Any> {
                 $crate::common::LegacyModuleData::get_as_w3d_model_draw_module_data(self)
             }
 
-            fn get_as_w3d_tree_draw_module_data(&self) -> Option<&dyn ::std::any::Any> {
+            fn get_as_w3d_tree_draw_module_data(&self) -> Option<&dyn::std::any::Any> {
                 $crate::common::LegacyModuleData::get_as_w3d_tree_draw_module_data(self)
             }
 
@@ -169,11 +170,11 @@ macro_rules! impl_legacy_module_data_via_base {
 macro_rules! impl_behavior_module_data_via_base {
     ($ty:ty, $field:ident) => {
         impl ::game_engine::common::system::Snapshotable for $ty {
-            fn crc(&self, xfer: &mut dyn ::game_engine::system::Xfer) -> Result<(), String> {
+            fn crc(&self, xfer: &mut dyn::game_engine::system::Xfer) -> Result<(), String> {
                 self.$field.crc(xfer)
             }
 
-            fn xfer(&mut self, xfer: &mut dyn ::game_engine::system::Xfer) -> Result<(), String> {
+            fn xfer(&mut self, xfer: &mut dyn::game_engine::system::Xfer) -> Result<(), String> {
                 self.$field.xfer(xfer)
             }
 

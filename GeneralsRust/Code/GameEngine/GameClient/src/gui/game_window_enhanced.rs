@@ -553,16 +553,16 @@ impl EnhancedGameWindow {
 
     pub fn set_draw_images(
         &self,
-        enabled: Option<String>,
-        disabled: Option<String>,
-        hilited: Option<String>,
-        pushed: Option<String>,
+        enabled: Option<&str>,
+        disabled: Option<&str>,
+        hilited: Option<&str>,
+        pushed: Option<&str>,
     ) {
         let mut draw_data = self.draw_data.write().unwrap();
-        draw_data.enabled = enabled;
-        draw_data.disabled = disabled;
-        draw_data.hilited = hilited;
-        draw_data.pushed = pushed;
+        draw_data.enabled = enabled.map(|s| s.to_string());
+        draw_data.disabled = disabled.map(|s| s.to_string());
+        draw_data.hilited = hilited.map(|s| s.to_string());
+        draw_data.pushed = pushed.map(|s| s.to_string());
     }
 
     pub fn set_draw_data(

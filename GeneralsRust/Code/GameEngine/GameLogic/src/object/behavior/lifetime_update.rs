@@ -90,8 +90,7 @@ impl LifetimeUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<LifetimeUpdateModuleData>()
+        .downcast_ref::<LifetimeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         // Get current frame from game logic - matches C++ LifetimeUpdate.cpp

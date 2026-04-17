@@ -490,8 +490,7 @@ impl StructureToppleUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<StructureToppleUpdateModuleData>()
+        .downcast_ref::<StructureToppleUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(building) = object.read() {
