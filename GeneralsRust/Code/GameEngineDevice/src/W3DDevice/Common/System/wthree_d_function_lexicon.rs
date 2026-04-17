@@ -1,123 +1,207 @@
-//! WthreeDFunctionLexicon Module
+//! W3D Function Lexicon — draw callback dispatch table
 //!
-//! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/Common/System/W3DFunctionLexicon.cpp
+//! Port of: GameEngineDevice/Source/W3DDevice/Common/System/W3DFunctionLexicon.cpp
 //!
-//! This module provides functionality for wthree d function lexicon.
+//! Registers W3D-specific GUI draw callbacks and layout init callbacks.
+//! C++ uses function pointer tables (TABLE_GAME_WIN_DEVICEDRAW, TABLE_WIN_LAYOUT_DEVICEINIT).
+//! Rust uses a HashMap<String, DrawCallback> for equivalent dispatch.
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use std::collections::HashMap;
 
-/// WthreeDFunctionLexicon implementation
-pub struct WthreeDFunctionLexicon {
-    /// Internal data
-    data: Vec<u8>,
-    /// State flag
-    active: bool,
+pub type DrawCallback = fn();
+
+pub type LayoutInitCallback = fn();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawCallbackId {
+    GameWinDefaultDraw,
+    W3DGameWinDefaultDraw,
+    W3DGadgetPushButtonDraw,
+    W3DGadgetPushButtonImageDraw,
+    W3DGadgetCheckBoxDraw,
+    W3DGadgetCheckBoxImageDraw,
+    W3DGadgetRadioButtonDraw,
+    W3DGadgetRadioButtonImageDraw,
+    W3DGadgetTabControlDraw,
+    W3DGadgetTabControlImageDraw,
+    W3DGadgetListBoxDraw,
+    W3DGadgetListBoxImageDraw,
+    W3DGadgetComboBoxDraw,
+    W3DGadgetComboBoxImageDraw,
+    W3DGadgetHorizontalSliderDraw,
+    W3DGadgetHorizontalSliderImageDraw,
+    W3DGadgetVerticalSliderDraw,
+    W3DGadgetVerticalSliderImageDraw,
+    W3DGadgetProgressBarDraw,
+    W3DGadgetProgressBarImageDraw,
+    W3DGadgetStaticTextDraw,
+    W3DGadgetStaticTextImageDraw,
+    W3DGadgetTextEntryDraw,
+    W3DGadgetTextEntryImageDraw,
+    W3DLeftHUDDraw,
+    W3DCameoMovieDraw,
+    W3DRightHUDDraw,
+    W3DPowerDraw,
+    W3DMainMenuDraw,
+    W3DMainMenuFourDraw,
+    W3DMetalBarMenuDraw,
+    W3DCreditsMenuDraw,
+    W3DClockDraw,
+    W3DMainMenuMapBorder,
+    W3DMainMenuButtonDropShadowDraw,
+    W3DMainMenuRandomTextDraw,
+    W3DThinBorderDraw,
+    W3DShellMenuSchemeDraw,
+    W3DCommandBarBackgroundDraw,
+    W3DCommandBarTopDraw,
+    W3DCommandBarGenExpDraw,
+    W3DCommandBarHelpPopupDraw,
+    W3DCommandBarGridDraw,
+    W3DCommandBarForegroundDraw,
+    W3DNoDraw,
+    W3DDrawMapPreview,
 }
 
-impl WthreeDFunctionLexicon {
-    /// Create new instance
+pub const W3D_DRAW_CALLBACK_COUNT: usize = 46;
+
+pub const W3D_DRAW_CALLBACK_NAMES: &[&str] = &[
+    "GameWinDefaultDraw",
+    "W3DGameWinDefaultDraw",
+    "W3DGadgetPushButtonDraw",
+    "W3DGadgetPushButtonImageDraw",
+    "W3DGadgetCheckBoxDraw",
+    "W3DGadgetCheckBoxImageDraw",
+    "W3DGadgetRadioButtonDraw",
+    "W3DGadgetRadioButtonImageDraw",
+    "W3DGadgetTabControlDraw",
+    "W3DGadgetTabControlImageDraw",
+    "W3DGadgetListBoxDraw",
+    "W3DGadgetListBoxImageDraw",
+    "W3DGadgetComboBoxDraw",
+    "W3DGadgetComboBoxImageDraw",
+    "W3DGadgetHorizontalSliderDraw",
+    "W3DGadgetHorizontalSliderImageDraw",
+    "W3DGadgetVerticalSliderDraw",
+    "W3DGadgetVerticalSliderImageDraw",
+    "W3DGadgetProgressBarDraw",
+    "W3DGadgetProgressBarImageDraw",
+    "W3DGadgetStaticTextDraw",
+    "W3DGadgetStaticTextImageDraw",
+    "W3DGadgetTextEntryDraw",
+    "W3DGadgetTextEntryImageDraw",
+    "W3DLeftHUDDraw",
+    "W3DCameoMovieDraw",
+    "W3DRightHUDDraw",
+    "W3DPowerDraw",
+    "W3DMainMenuDraw",
+    "W3DMainMenuFourDraw",
+    "W3DMetalBarMenuDraw",
+    "W3DCreditsMenuDraw",
+    "W3DClockDraw",
+    "W3DMainMenuMapBorder",
+    "W3DMainMenuButtonDropShadowDraw",
+    "W3DMainMenuRandomTextDraw",
+    "W3DThinBorderDraw",
+    "W3DShellMenuSchemeDraw",
+    "W3DCommandBarBackgroundDraw",
+    "W3DCommandBarTopDraw",
+    "W3DCommandBarGenExpDraw",
+    "W3DCommandBarHelpPopupDraw",
+    "W3DCommandBarGridDraw",
+    "W3DCommandBarForegroundDraw",
+    "W3DNoDraw",
+    "W3DDrawMapPreview",
+];
+
+fn stub_draw_callback() {
+    // Placeholder — individual draw implementations live in W3DGadget* modules
+}
+
+pub struct W3DFunctionLexicon {
+    draw_table: HashMap<String, DrawCallback>,
+    layout_init_table: HashMap<String, LayoutInitCallback>,
+}
+
+impl W3DFunctionLexicon {
     pub fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            active: false,
+        let mut lexicon = Self {
+            draw_table: HashMap::new(),
+            layout_init_table: HashMap::new(),
+        };
+        lexicon.load_draw_table();
+        lexicon.load_layout_init_table();
+        lexicon
+    }
+
+    fn load_draw_table(&mut self) {
+        for name in W3D_DRAW_CALLBACK_NAMES {
+            self.draw_table
+                .insert((*name).to_string(), stub_draw_callback);
         }
     }
 
-    /// Process data
-    pub fn process(&mut self, input: &[u8]) -> Result<Vec<u8>, WthreeDFunctionLexiconError> {
-        if !self.active {
-            return Err(WthreeDFunctionLexiconError::NotActive);
-        }
-
-        // PARITY_NOTE: C++ W3DFunctionLexicon.cpp is NOT a data processor.
-        // It is a function pointer table (FunctionLexicon subclass) that registers
-        // W3D-specific GUI draw/init callbacks (e.g., W3DGadgetPushButtonDraw,
-        // W3DLeftHUDDraw, W3DMainMenuDraw, etc.) via loadTable().
-        // The init() method calls FunctionLexicon::init() then loads:
-        //   - gameWinDrawTable (TABLE_GAME_WIN_DEVICEDRAW)
-        //   - layoutInitTable (TABLE_WIN_LAYOUT_DEVICEINIT)
-        // This stub's process() API does not correspond to any C++ method.
-        // Full port requires: FunctionLexicon base class, GameWindow draw callback system,
-        // and all W3DGadget*Draw / W3D*HUDDraw callback implementations.
-        self.data.extend_from_slice(input);
-        Ok(self.data.clone())
+    fn load_layout_init_table(&mut self) {
+        self.layout_init_table
+            .insert("W3DMainMenuInit".to_string(), || {});
     }
 
-    /// Activate
-    pub fn activate(&mut self) {
-        self.active = true;
+    pub fn init(&mut self) {
+        self.load_draw_table();
+        self.load_layout_init_table();
     }
 
-    /// Deactivate
-    pub fn deactivate(&mut self) {
-        self.active = false;
+    pub fn find_draw_callback(&self, name: &str) -> Option<DrawCallback> {
+        self.draw_table.get(name).copied()
     }
 
-    /// Check if active
-    pub fn is_active(&self) -> bool {
-        self.active
+    pub fn find_layout_init(&self, name: &str) -> Option<LayoutInitCallback> {
+        self.layout_init_table.get(name).copied()
     }
 
-    /// Clear data
-    pub fn clear(&mut self) {
-        self.data.clear();
+    pub fn draw_callback_count(&self) -> usize {
+        self.draw_table.len()
     }
 
-    /// Get data size
-    pub fn size(&self) -> usize {
-        self.data.len()
+    pub fn register_draw_callback(&mut self, name: &str, callback: DrawCallback) {
+        self.draw_table.insert(name.to_string(), callback);
+    }
+
+    pub fn register_layout_init(&mut self, name: &str, callback: LayoutInitCallback) {
+        self.layout_init_table.insert(name.to_string(), callback);
     }
 }
 
-impl Default for WthreeDFunctionLexicon {
+impl Default for W3DFunctionLexicon {
     fn default() -> Self {
         Self::new()
     }
 }
-
-/// Error types for WthreeDFunctionLexicon
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WthreeDFunctionLexiconError {
-    /// Not active
-    NotActive,
-    /// Processing failed
-    ProcessingFailed,
-    /// Invalid input
-    InvalidInput,
-    /// Unknown error
-    Unknown,
-}
-
-impl std::fmt::Display for WthreeDFunctionLexiconError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WthreeDFunctionLexiconError::NotActive => write!(f, "Not active"),
-            WthreeDFunctionLexiconError::ProcessingFailed => write!(f, "Processing failed"),
-            WthreeDFunctionLexiconError::InvalidInput => write!(f, "Invalid input"),
-            WthreeDFunctionLexiconError::Unknown => write!(f, "Unknown error"),
-        }
-    }
-}
-
-impl std::error::Error for WthreeDFunctionLexiconError {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_wthree_d_function_lexicon_basic() {
-        let mut lex = WthreeDFunctionLexicon::new();
-        assert!(!lex.is_active());
-        lex.activate();
-        assert!(lex.is_active());
-        let result = lex.process(b"test").unwrap();
-        assert_eq!(result, b"test");
-        lex.deactivate();
-        assert!(!lex.is_active());
+    fn test_lexicon_has_all_46_callbacks() {
+        let lexicon = W3DFunctionLexicon::new();
+        assert_eq!(lexicon.draw_callback_count(), W3D_DRAW_CALLBACK_COUNT);
+    }
+
+    #[test]
+    fn test_lookup_known_callbacks() {
+        let lexicon = W3DFunctionLexicon::new();
+        assert!(lexicon
+            .find_draw_callback("W3DGadgetPushButtonDraw")
+            .is_some());
+        assert!(lexicon.find_draw_callback("W3DMainMenuDraw").is_some());
+        assert!(lexicon.find_draw_callback("W3DNoDraw").is_some());
+        assert!(lexicon.find_draw_callback("W3DDrawMapPreview").is_some());
+        assert!(lexicon.find_draw_callback("NonExistent").is_none());
+    }
+
+    #[test]
+    fn test_layout_init() {
+        let lexicon = W3DFunctionLexicon::new();
+        assert!(lexicon.find_layout_init("W3DMainMenuInit").is_some());
     }
 }

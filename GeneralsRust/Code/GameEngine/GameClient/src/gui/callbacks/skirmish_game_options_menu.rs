@@ -13,6 +13,9 @@ use crate::gui::{
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::shell_hooks::{
+    signal_ui_interaction, SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED, SHELL_SCRIPT_HOOK_SKIRMISH_OPENED,
+};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
@@ -1265,6 +1268,7 @@ pub fn skirmish_game_options_menu_init(
     set_skirmish_is_shutting_down(false);
     set_skirmish_is_initing(true);
     set_skirmish_slot_updates_enabled(false);
+    signal_ui_interaction(SHELL_SCRIPT_HOOK_SKIRMISH_OPENED);
 
     with_state(|state| {
         state.parent_id = name_to_id("SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent");
@@ -1455,6 +1459,8 @@ pub fn skirmish_game_options_menu_shutdown(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
 ) {
+    signal_ui_interaction(SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED);
+
     let pop_immediate = user_data
         .and_then(|data| data.downcast_ref::<bool>())
         .copied()
@@ -1485,11 +1491,12 @@ pub fn skirmish_game_options_menu_system(
     with_state(|state| match msg {
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
+            // C++ parity: if(buttonPushed) break; guards ALL button handling
+            if state.button_pushed || skirmish_button_pushed() {
+                handled = true;
+                return;
+            }
             if control_id == state.button_start_id {
-                if state.button_pushed || skirmish_button_pushed() {
-                    handled = true;
-                    return;
-                }
                 state.button_pushed = true;
                 set_skirmish_button_pushed(true);
                 start_skirmish_game(state);
@@ -1497,7 +1504,6 @@ pub fn skirmish_game_options_menu_system(
                 return;
             }
             if control_id == state.button_back_id {
-                if state.button_pushed || skirmish_button_pushed() {
                     handled = true;
                     return;
                 }
