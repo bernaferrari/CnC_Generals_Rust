@@ -180,6 +180,7 @@ pub struct ParachuteContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
     /// Reference to the owning object
+    #[allow(dead_code)]
     object: Weak<RwLock<Object>>,
 }
 

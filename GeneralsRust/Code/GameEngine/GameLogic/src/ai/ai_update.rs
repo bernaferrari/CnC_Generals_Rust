@@ -115,6 +115,7 @@ pub struct AiPerformanceMetrics {
 }
 
 /// Main AI Update coordinator
+#[allow(dead_code)]
 pub struct AIUpdate {
     /// Task queue prioritized by importance
     task_queue: VecDeque<AiUpdateTask>,

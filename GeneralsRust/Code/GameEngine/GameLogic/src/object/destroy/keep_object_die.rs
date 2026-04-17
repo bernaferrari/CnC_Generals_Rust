@@ -78,6 +78,7 @@ pub struct KeepObjectDie {
     /// Weak reference to the owning object
     object: Weak<RwLock<Object>>,
     /// Module data
+    #[allow(dead_code)]
     module_data: Arc<KeepObjectDieModuleData>,
 }
 

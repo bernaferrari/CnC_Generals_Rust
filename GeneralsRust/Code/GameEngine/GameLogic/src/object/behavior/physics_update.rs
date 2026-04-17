@@ -485,6 +485,7 @@ impl PhysicsBehaviorUpdate {
         )
     }
 
+    #[allow(dead_code)]
     fn get_z_friction(&self, state: &PhysicsBehaviorState) -> Real {
         Self::clamp_friction(
             self.module_data.z_friction + state.extra_friction,

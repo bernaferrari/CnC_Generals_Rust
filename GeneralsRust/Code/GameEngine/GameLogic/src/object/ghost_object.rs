@@ -126,6 +126,7 @@ impl Default for GhostObject {
 
 /// Manager for ghost objects (used for partition and visibility tracking).
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct GhostObjectManager {
     lock_ghost_objects: Bool,
     save_lock_ghost_objects: Bool,
@@ -134,6 +135,7 @@ pub struct GhostObjectManager {
 }
 
 impl GhostObjectManager {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             lock_ghost_objects: false,

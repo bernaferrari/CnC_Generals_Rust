@@ -254,10 +254,12 @@ impl DockUpdate {
         working_position
     }
 
+    #[allow(dead_code)]
     pub(crate) fn approach_positions_len(&self) -> usize {
         self.approach_positions.len()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn all_approaches_unoccupied(&self) -> bool {
         self.approach_position_owners
             .iter()

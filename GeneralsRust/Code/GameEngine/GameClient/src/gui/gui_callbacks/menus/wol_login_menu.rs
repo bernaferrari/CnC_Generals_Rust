@@ -1,4 +1,5 @@
 //! Shim for WOLLoginMenu.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_login_menu::{
     wol_login_menu_init, wol_login_menu_input, wol_login_menu_shutdown, wol_login_menu_system,

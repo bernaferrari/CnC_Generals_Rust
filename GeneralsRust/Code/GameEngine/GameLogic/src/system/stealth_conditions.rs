@@ -570,13 +570,11 @@ impl StealthConditionsManager {
         object_id: ObjectID,
     ) -> Result<Vec<&'static str>, String> {
         let flags = self.get_condition_flags(object_id)?;
-        let mut names = Vec::new();
-
-        for condition in StealthCondition::all_conditions() {
-            if (flags & condition.bitmask()) != 0 {
-                names.push(condition.as_str());
-            }
-        }
+        let names: Vec<_> = StealthCondition::all_conditions()
+            .iter()
+            .filter(|condition| (flags & condition.bitmask()) != 0)
+            .map(|condition| condition.as_str())
+            .collect();
 
         Ok(names)
     }

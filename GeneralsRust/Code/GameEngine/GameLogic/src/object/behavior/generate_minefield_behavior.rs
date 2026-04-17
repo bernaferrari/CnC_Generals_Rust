@@ -24,6 +24,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 trait Coord3DExt {
+    #[allow(dead_code)]
     fn distance_to(&self, other: &Coord3D) -> f32;
     fn distance_2d(&self, other: &Coord3D) -> f32;
 }

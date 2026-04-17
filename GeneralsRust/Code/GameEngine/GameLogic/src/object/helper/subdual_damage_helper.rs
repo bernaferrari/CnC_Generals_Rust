@@ -47,6 +47,7 @@ impl Default for SubdualDamageHelperModuleData {
 #[derive(Debug)]
 pub struct SubdualDamageHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: SubdualDamageHelperModuleData,
 
     /// Owning object id

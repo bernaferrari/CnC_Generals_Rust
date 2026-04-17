@@ -4,1017 +4,1398 @@
 //                                                                            //
 ////////////////////////////////////////////////////////////////////////////////
 
-//! GameMemory - Memory management system for C&C Generals
+//! GameMemory - Faithful port of C&C Generals pool allocator
 //!
-//! This module provides comprehensive memory management functionality with
-//! Rust safety features, including:
-//! - Memory pool allocation
-//! - Custom allocators
-//! - Memory tracking and debugging
-//! - Thread-safe memory operations
-//! - RAII memory management
+//! Ported from GameMemory.h/cpp. Provides:
+//! - `MemoryPoolSingleBlock`: fundamental allocation unit with header, user data,
+//!   and debug bounding walls
+//! - `MemoryPoolBlob`: monolithic chunk of same-sized blocks
+//! - `MemoryPool`: pool of fixed-size blocks backed by blobs
+//! - `DynamicMemoryAllocator`: multi-size allocator routing to best-fit sub-pool
+//! - `MemoryPoolFactory`: central manager for all pools and DMAs
 //!
-//! Converted from C++ GameMemory.h/cpp to modern Rust
+//! Debug features (active in debug_assertions):
+//! - Fill patterns: 0xDEADBEEF on free, 0xF00DCAFE on init allocation
+//! - Bounding walls (0xBABEFACE-derived) detect overruns/underruns
+//! - Magic cookie validation (12345)
+//! - Tag string tracking per allocation
 
-use bumpalo::Bump;
-use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
-use std::alloc::{alloc, dealloc, Layout};
-use std::collections::{HashMap, VecDeque};
-use std::ptr::{null_mut, NonNull};
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-    Arc,
-};
-use std::thread;
-use thiserror::Error;
+use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
+use std::collections::HashMap;
+use std::ptr;
+use std::sync::Mutex;
 
-/// Thread-safe wrapper for memory pointers
-#[derive(Debug)]
-pub struct SafeMemoryPtr {
-    ptr: usize,
+// ---------------------------------------------------------------------------
+// Constants matching C++ defines
+// ---------------------------------------------------------------------------
+
+/// Alignment boundary for all allocations (C++: MEM_BOUND_ALIGNMENT = 4).
+pub const MEM_BOUND_ALIGNMENT: usize = 4;
+
+/// Max sub-pools per DynamicMemoryAllocator (C++: MAX_DYNAMICMEMORYALLOCATOR_SUBPOOLS = 8).
+pub const MAX_DMA_SUBPOOLS: usize = 8;
+
+/// How much slop is tolerable per pool vs sizeof(T) (C++: MEMORY_POOL_OBJECT_ALLOCATION_SLOP = 16).
+pub const MEMORY_POOL_OBJECT_ALLOCATION_SLOP: usize = 16;
+
+#[cfg(debug_assertions)]
+mod debug_consts {
+    pub const SINGLEBLOCK_MAGIC_COOKIE: u16 = 12345;
+    pub const GARBAGE_FILL_VALUE: u32 = 0xDEAD_BEEF;
+    pub const WALLCOUNT: usize = 2;
+    pub const WALLSIZE: usize = WALLCOUNT * std::mem::size_of::<u32>();
+    pub const INIT_FILLER_VALUE: u32 = 0xF00D_CAFE;
 }
 
-unsafe impl Send for SafeMemoryPtr {}
-unsafe impl Sync for SafeMemoryPtr {}
-
-impl SafeMemoryPtr {
-    pub fn new(ptr: NonNull<u8>) -> Self {
-        Self {
-            ptr: ptr.as_ptr() as usize,
-        }
-    }
-
-    pub fn as_non_null(&self) -> NonNull<u8> {
-        unsafe { NonNull::new_unchecked(self.ptr as *mut u8) }
-    }
-
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.ptr as *mut u8
-    }
+#[cfg(not(debug_assertions))]
+mod debug_consts {
+    pub const WALLCOUNT: usize = 0;
+    pub const WALLSIZE: usize = 0;
 }
 
-/// Memory allocation alignment
-pub const MEMORY_ALIGNMENT: usize = 16;
+// ---------------------------------------------------------------------------
+// PoolInitRec - mirrors C++ PoolInitRec
+// ---------------------------------------------------------------------------
 
-/// Memory pool block size
-pub const MEMORY_POOL_BLOCK_SIZE: usize = 4096;
-
-/// Maximum number of memory pools
-pub const MAX_MEMORY_POOLS: usize = 256;
-
-/// Memory debug bounding wall pattern
-pub const MEMORY_BOUNDING_WALL_PATTERN: u32 = 0xDEADBEEF;
-
-/// Memory allocation errors
-#[derive(Debug, Error)]
-pub enum MemoryError {
-    #[error("Out of memory")]
-    OutOfMemory,
-    #[error("Invalid memory allocation size: {size}")]
-    InvalidSize { size: usize },
-    #[error("Memory corruption detected at address: {address:p}")]
-    MemoryCorruption { address: *const u8 },
-    #[error("Double free detected at address: {address:p}")]
-    DoubleFree { address: *const u8 },
-    #[error("Pool allocation failed for pool: {pool_name}")]
-    PoolAllocationFailed { pool_name: String },
-    #[error("Invalid memory pool: {pool_name}")]
-    InvalidPool { pool_name: String },
-    #[error("Memory alignment error: required {required}, got {actual}")]
-    AlignmentError { required: usize, actual: usize },
-}
-
-/// Memory allocation statistics
-#[derive(Debug, Default)]
-pub struct MemoryStats {
-    pub total_allocated: AtomicUsize,
-    pub total_freed: AtomicUsize,
-    pub current_allocated: AtomicUsize,
-    pub peak_allocated: AtomicUsize,
-    pub allocation_count: AtomicUsize,
-    pub free_count: AtomicUsize,
-    pub pool_allocations: AtomicUsize,
-    pub heap_allocations: AtomicUsize,
-}
-
-impl MemoryStats {
-    /// Record a new allocation
-    pub fn record_allocation(&self, size: usize) {
-        self.total_allocated.fetch_add(size, Ordering::Relaxed);
-        let current = self.current_allocated.fetch_add(size, Ordering::Relaxed) + size;
-        self.allocation_count.fetch_add(1, Ordering::Relaxed);
-
-        // Update peak if necessary
-        let peak = self.peak_allocated.load(Ordering::Relaxed);
-        if current > peak {
-            self.peak_allocated.store(current, Ordering::Relaxed);
-        }
-    }
-
-    /// Record a free operation
-    pub fn record_free(&self, size: usize) {
-        self.total_freed.fetch_add(size, Ordering::Relaxed);
-        self.current_allocated.fetch_sub(size, Ordering::Relaxed);
-        self.free_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Record pool allocation
-    pub fn record_pool_allocation(&self) {
-        self.pool_allocations.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Record heap allocation
-    pub fn record_heap_allocation(&self) {
-        self.heap_allocations.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Get current memory usage summary
-    pub fn get_summary(&self) -> MemorySummary {
-        MemorySummary {
-            total_allocated: self.total_allocated.load(Ordering::Relaxed),
-            total_freed: self.total_freed.load(Ordering::Relaxed),
-            current_allocated: self.current_allocated.load(Ordering::Relaxed),
-            peak_allocated: self.peak_allocated.load(Ordering::Relaxed),
-            allocation_count: self.allocation_count.load(Ordering::Relaxed),
-            free_count: self.free_count.load(Ordering::Relaxed),
-            pool_allocations: self.pool_allocations.load(Ordering::Relaxed),
-            heap_allocations: self.heap_allocations.load(Ordering::Relaxed),
-        }
-    }
-}
-
-/// Memory usage summary snapshot
+/// Initialization record for a pool or DMA sub-pool.
 #[derive(Debug, Clone)]
-pub struct MemorySummary {
-    pub total_allocated: usize,
-    pub total_freed: usize,
-    pub current_allocated: usize,
-    pub peak_allocated: usize,
-    pub allocation_count: usize,
-    pub free_count: usize,
-    pub pool_allocations: usize,
-    pub heap_allocations: usize,
+pub struct PoolInitRec {
+    pub pool_name: &'static str,
+    pub allocation_size: usize,
+    pub initial_allocation_count: usize,
+    pub overflow_allocation_count: usize,
 }
 
-/// Memory block header for debugging and tracking
-#[repr(C, align(16))]
-#[derive(Debug)]
-pub struct MemoryBlockHeader {
-    pub size: usize,
-    pub pool_id: u32,
-    pub allocation_id: u64,
-    pub thread_id: std::thread::ThreadId,
-    pub timestamp: std::time::Instant,
-    pub file: Option<&'static str>,
-    pub line: Option<u32>,
-    pub bounding_wall_start: u32,
-}
-
-impl MemoryBlockHeader {
-    /// Create a new memory block header
-    pub fn new(size: usize, pool_id: u32, allocation_id: u64) -> Self {
+impl PoolInitRec {
+    pub const fn new(
+        pool_name: &'static str,
+        allocation_size: usize,
+        initial_allocation_count: usize,
+        overflow_allocation_count: usize,
+    ) -> Self {
         Self {
-            size,
-            pool_id,
-            allocation_id,
-            thread_id: thread::current().id(),
-            timestamp: std::time::Instant::now(),
-            file: None,
-            line: None,
-            bounding_wall_start: MEMORY_BOUNDING_WALL_PATTERN,
+            pool_name,
+            allocation_size,
+            initial_allocation_count,
+            overflow_allocation_count,
         }
     }
-
-    /// Set debug location information
-    pub fn set_location(&mut self, file: &'static str, line: u32) {
-        self.file = Some(file);
-        self.line = Some(line);
-    }
-
-    /// Verify memory block integrity
-    pub fn verify_integrity(&self) -> Result<(), MemoryError> {
-        if self.bounding_wall_start != MEMORY_BOUNDING_WALL_PATTERN {
-            return Err(MemoryError::MemoryCorruption {
-                address: self as *const _ as *const u8,
-            });
-        }
-        Ok(())
-    }
 }
 
-/// Memory pool for fixed-size allocations
-pub struct MemoryPool {
-    pub name: String,
-    pub block_size: usize,
-    pub alignment: usize,
-    pub initial_capacity: usize,
-    pub growth_factor: f32,
+// ---------------------------------------------------------------------------
+// Helper: round up to alignment boundary
+// ---------------------------------------------------------------------------
 
-    // Pool storage
-    chunks: ParkingMutex<VecDeque<Chunk>>,
-    free_blocks: ParkingMutex<Vec<SafeMemoryPtr>>,
-
-    // Statistics
-    total_allocated: AtomicUsize,
-    total_freed: AtomicUsize,
-    current_usage: AtomicUsize,
-    peak_usage: AtomicUsize,
-
-    // Configuration
-    enabled: AtomicBool,
-    debug_enabled: AtomicBool,
+#[inline]
+fn round_up_mem_bound(i: usize) -> usize {
+    (i + (MEM_BOUND_ALIGNMENT - 1)) & !(MEM_BOUND_ALIGNMENT - 1)
 }
 
-/// Memory chunk in a pool
-pub struct Chunk {
-    pub memory: SafeMemoryPtr,
-    pub size: usize,
-    pub layout: Layout,
-}
-
-impl Drop for Chunk {
-    fn drop(&mut self) {
+/// Fill a region of memory with a 32-bit pattern (matches C++ memset32).
+#[cfg(debug_assertions)]
+fn memset32(ptr: *mut u8, value: u32, bytes_to_fill: usize) {
+    let words = bytes_to_fill / 4;
+    let remainder = bytes_to_fill % 4;
+    let p = ptr as *mut u32;
+    for i in 0..words {
         unsafe {
-            dealloc(self.memory.as_ptr(), self.layout);
+            ptr::write(p.add(i), value);
         }
     }
+    let bp = unsafe { ptr.add(words * 4) };
+    for i in 0..remainder {
+        unsafe {
+            ptr::write(bp.add(i), value as u8);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Raw system allocation (matches C++ sysAllocateDoNotZero / sysFree)
+// ---------------------------------------------------------------------------
+
+fn sys_allocate(num_bytes: usize) -> *mut u8 {
+    if num_bytes == 0 {
+        return std::ptr::null_mut();
+    }
+    let layout =
+        Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT).expect("invalid sys layout");
+    let ptr = unsafe { alloc(layout) };
+    if ptr.is_null() {
+        panic!("Out of memory: sys_allocate failed for {} bytes", num_bytes);
+    }
+    #[cfg(debug_assertions)]
+    {
+        let actual = layout.size();
+        memset32(ptr, debug_consts::INIT_FILLER_VALUE, actual);
+    }
+    ptr
+}
+
+fn sys_allocate_zeroed(num_bytes: usize) -> *mut u8 {
+    if num_bytes == 0 {
+        return std::ptr::null_mut();
+    }
+    let layout =
+        Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT).expect("invalid sys layout");
+    let ptr = unsafe { alloc_zeroed(layout) };
+    if ptr.is_null() {
+        panic!(
+            "Out of memory: sys_allocate_zeroed failed for {} bytes",
+            num_bytes
+        );
+    }
+    ptr
+}
+
+unsafe fn sys_free(ptr: *mut u8, num_bytes: usize) {
+    if ptr.is_null() {
+        return;
+    }
+    let layout = Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT)
+        .expect("invalid sys layout on free");
+    #[cfg(debug_assertions)]
+    {
+        memset32(ptr, debug_consts::GARBAGE_FILL_VALUE, layout.size());
+    }
+    dealloc(ptr, layout);
+}
+
+// ---------------------------------------------------------------------------
+// BlockHeader - header embedded before user data in every allocation.
+// Mirrors the non-debug fields of C++ MemoryPoolSingleBlock.
+// ---------------------------------------------------------------------------
+
+/// Header placed before each user data region.
+/// In C++, this was `MemoryPoolSingleBlock` allocated inline with the user data.
+/// Here we use a `repr(C)` struct to ensure layout compatibility.
+#[repr(C)]
+struct BlockHeader {
+    /// Pointer back to the owning blob (NULL for raw/DMA blocks).
+    owning_blob: *mut MemoryPoolBlob,
+    /// Next block in the free list (within blob) or raw list (within DMA).
+    next: *mut BlockHeader,
+    /// Previous block (doubly-linked, matches C++ MPSB_DLINK).
+    prev: *mut BlockHeader,
+    /// Logical size requested by the user.
+    logical_size: usize,
+    /// Unique seed for bounding walls (debug).
+    #[cfg(debug_assertions)]
+    wall_pattern: u32,
+    /// Magic cookie for validation (debug).
+    #[cfg(debug_assertions)]
+    magic_cookie: u16,
+    /// Debug flags (e.g. IGNORE_LEAKS).
+    #[cfg(debug_assertions)]
+    debug_flags: u16,
+}
+
+impl BlockHeader {
+    /// Calculate the raw block size needed for a given logical (user) size.
+    /// Matches C++ MemoryPoolSingleBlock::calcRawBlockSize.
+    fn calc_raw_block_size(logical_size: usize) -> usize {
+        let aligned = round_up_mem_bound(logical_size);
+        let mut s = std::mem::size_of::<BlockHeader>() + aligned;
+        #[cfg(debug_assertions)]
+        {
+            s += debug_consts::WALLSIZE * 2;
+        }
+        s
+    }
+
+    /// Get a pointer to user data (just past the header + front wall).
+    fn user_data_ptr(&self) -> *mut u8 {
+        let base = self as *const BlockHeader as *mut u8;
+        let offset = std::mem::size_of::<BlockHeader>();
+        #[cfg(debug_assertions)]
+        {
+            let p = unsafe { base.add(offset + debug_consts::WALLSIZE) };
+            return p;
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            unsafe { base.add(offset) }
+        }
+    }
+
+    /// Recover BlockHeader* from a user data pointer.
+    fn from_user_data(user: *mut u8) -> *mut BlockHeader {
+        #[cfg(debug_assertions)]
+        let offset = std::mem::size_of::<BlockHeader>() + debug_consts::WALLSIZE;
+        #[cfg(not(debug_assertions))]
+        let offset = std::mem::size_of::<BlockHeader>();
+        unsafe { user.sub(offset) as *mut BlockHeader }
+    }
+
+    /// Initialize a freshly allocated block header.
+    fn init(&mut self, logical_size: usize, owning_blob: *mut MemoryPoolBlob) {
+        self.owning_blob = owning_blob;
+        self.next = ptr::null_mut();
+        self.prev = ptr::null_mut();
+        self.logical_size = logical_size;
+        #[cfg(debug_assertions)]
+        {
+            self.magic_cookie = debug_consts::SINGLEBLOCK_MAGIC_COOKIE;
+            self.debug_flags = 0;
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn fill_walls(&mut self) {
+        let base = self as *mut BlockHeader as *mut u8;
+        let front_start = unsafe { base.add(std::mem::size_of::<BlockHeader>()) };
+        let pattern = self.wall_pattern;
+        let p = front_start as *mut u32;
+        for i in 0..debug_consts::WALLCOUNT {
+            unsafe {
+                ptr::write(p.add(i), pattern.wrapping_add(i as u32));
+            }
+        }
+        let back_start = unsafe {
+            self.user_data_ptr()
+                .add(round_up_mem_bound(self.logical_size))
+        };
+        let bp = back_start as *mut u32;
+        for i in 0..debug_consts::WALLCOUNT {
+            unsafe {
+                ptr::write(bp.add(i), pattern.wrapping_sub(i as u32));
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn check_underrun(&self) -> bool {
+        let base = self as *const BlockHeader as *const u8;
+        let front_start = unsafe { base.add(std::mem::size_of::<BlockHeader>()) };
+        let p = front_start as *const u32;
+        for i in 0..debug_consts::WALLCOUNT {
+            let expected = self.wall_pattern.wrapping_add(i as u32);
+            let actual = unsafe { ptr::read(p.add(i)) };
+            if actual != expected {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[cfg(debug_assertions)]
+    fn check_overrun(&self) -> bool {
+        let back_start = unsafe {
+            self.user_data_ptr()
+                .add(round_up_mem_bound(self.logical_size))
+        };
+        let p = back_start as *const u32;
+        for i in 0..debug_consts::WALLCOUNT {
+            let expected = self.wall_pattern.wrapping_sub(i as u32);
+            let actual = unsafe { ptr::read(p.add(i)) };
+            if actual != expected {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[cfg(debug_assertions)]
+    fn verify(&self) -> bool {
+        if self.magic_cookie != debug_consts::SINGLEBLOCK_MAGIC_COOKIE {
+            return false;
+        }
+        self.check_underrun() && self.check_overrun()
+    }
+
+    #[cfg(debug_assertions)]
+    fn mark_as_freed(&mut self) {
+        let user = self.user_data_ptr();
+        let size = round_up_mem_bound(self.logical_size);
+        memset32(user, debug_consts::GARBAGE_FILL_VALUE, size);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MemoryPoolBlob - matches C++ MemoryPoolBlob
+// ---------------------------------------------------------------------------
+
+/// A monolithic chunk of memory subdivided into fixed-size blocks.
+struct MemoryPoolBlob {
+    /// Pointer to the raw allocation holding all blocks.
+    block_data: *mut u8,
+    /// Layout for deallocation.
+    layout: Layout,
+    /// First free block in this blob.
+    first_free_block: *mut BlockHeader,
+    /// Number of blocks currently in use.
+    used_blocks_in_blob: usize,
+    /// Total number of blocks in this blob.
+    total_blocks_in_blob: usize,
+    /// Raw size of each block (header + aligned user data + walls).
+    raw_block_size: usize,
+    /// Logical (user-visible) allocation size.
+    allocation_size: usize,
+    /// Doubly-linked list pointers.
+    prev_blob: *mut MemoryPoolBlob,
+    next_blob: *mut MemoryPoolBlob,
+}
+
+impl MemoryPoolBlob {
+    fn init(&mut self, allocation_size: usize, allocation_count: usize) {
+        self.allocation_size = allocation_size;
+        self.total_blocks_in_blob = allocation_count;
+        self.used_blocks_in_blob = 0;
+        self.raw_block_size = BlockHeader::calc_raw_block_size(allocation_size);
+
+        let total_bytes = self.raw_block_size * allocation_count;
+        self.layout =
+            Layout::from_size_align(total_bytes, MEM_BOUND_ALIGNMENT).expect("invalid blob layout");
+        self.block_data = sys_allocate(total_bytes);
+
+        self.prev_blob = ptr::null_mut();
+        self.next_blob = ptr::null_mut();
+
+        // Initialize each block header and link into free list.
+        for i in 0..allocation_count {
+            let block_ptr =
+                unsafe { self.block_data.add(i * self.raw_block_size) } as *mut BlockHeader;
+            unsafe {
+                (*block_ptr).init(allocation_size, self);
+                #[cfg(debug_assertions)]
+                {
+                    (*block_ptr).wall_pattern = 0xBABE_FACE_u32.wrapping_add(i as u32);
+                    (*block_ptr).fill_walls();
+                }
+            }
+            // Link: last block points to previous, forming a stack.
+            if i == 0 {
+                unsafe {
+                    (*block_ptr).next = ptr::null_mut();
+                    (*block_ptr).prev = ptr::null_mut();
+                }
+            } else {
+                let prev_block = unsafe { self.block_data.add((i - 1) * self.raw_block_size) }
+                    as *mut BlockHeader;
+                unsafe {
+                    (*block_ptr).next = prev_block;
+                    (*prev_block).prev = block_ptr;
+                }
+            }
+            #[cfg(debug_assertions)]
+            unsafe {
+                (*block_ptr).mark_as_freed();
+            }
+        }
+        // First free block = last in the array (top of stack).
+        if allocation_count > 0 {
+            self.first_free_block = unsafe {
+                self.block_data
+                    .add((allocation_count - 1) * self.raw_block_size)
+            } as *mut BlockHeader;
+        } else {
+            self.first_free_block = ptr::null_mut();
+        }
+    }
+
+    fn has_free_blocks(&self) -> bool {
+        !self.first_free_block.is_null()
+    }
+
+    fn allocate_single_block(&mut self) -> *mut u8 {
+        assert!(!self.first_free_block.is_null(), "no free blocks in blob");
+        let block = self.first_free_block;
+        unsafe {
+            self.first_free_block = (*block).next;
+            if !self.first_free_block.is_null() {
+                (*self.first_free_block).prev = ptr::null_mut();
+            }
+            (*block).next = ptr::null_mut();
+            (*block).prev = ptr::null_mut();
+            (*block).init(self.allocation_size, self);
+            #[cfg(debug_assertions)]
+            {
+                (*block).wall_pattern = 0xBABE_FACE_u32;
+                (*block).fill_walls();
+            }
+        }
+        self.used_blocks_in_blob += 1;
+        unsafe { (*block).user_data_ptr() }
+    }
+
+    fn free_single_block(&mut self, user_ptr: *mut u8) {
+        let block = BlockHeader::from_user_data(user_ptr);
+        unsafe {
+            assert_eq!((*block).owning_blob, self as *mut MemoryPoolBlob);
+            #[cfg(debug_assertions)]
+            {
+                (*block).mark_as_freed();
+            }
+            (*block).next = self.first_free_block;
+            (*block).prev = ptr::null_mut();
+            if !self.first_free_block.is_null() {
+                (*self.first_free_block).prev = block;
+            }
+            self.first_free_block = block;
+        }
+        self.used_blocks_in_blob -= 1;
+    }
+}
+
+impl Drop for MemoryPoolBlob {
+    fn drop(&mut self) {
+        if !self.block_data.is_null() {
+            unsafe {
+                sys_free(self.block_data, self.layout.size());
+            }
+            self.block_data = ptr::null_mut();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MemoryPool - matches C++ MemoryPool
+// ---------------------------------------------------------------------------
+
+/// A pool of fixed-size blocks, backed by one or more blobs.
+pub struct MemoryPool {
+    pool_name: String,
+    allocation_size: usize,
+    initial_allocation_count: usize,
+    overflow_allocation_count: usize,
+    used_blocks_in_pool: usize,
+    total_blocks_in_pool: usize,
+    peak_used_blocks_in_pool: usize,
+    first_blob: *mut MemoryPoolBlob,
+    last_blob: *mut MemoryPoolBlob,
+    first_blob_with_free_blocks: *mut MemoryPoolBlob,
+    /// Linked list of pools in factory.
+    next_pool_in_factory: *mut MemoryPool,
+    /// Back-pointer to owning factory.
+    factory: *mut MemoryPoolFactory,
 }
 
 impl MemoryPool {
-    /// Create a new memory pool
-    pub fn new(
-        name: &str,
-        block_size: usize,
-        initial_capacity: usize,
-    ) -> Result<Self, MemoryError> {
-        let aligned_size = Self::align_size(block_size, MEMORY_ALIGNMENT);
+    fn new() -> Self {
+        Self {
+            pool_name: String::new(),
+            allocation_size: 0,
+            initial_allocation_count: 0,
+            overflow_allocation_count: 0,
+            used_blocks_in_pool: 0,
+            total_blocks_in_pool: 0,
+            peak_used_blocks_in_pool: 0,
+            first_blob: ptr::null_mut(),
+            last_blob: ptr::null_mut(),
+            first_blob_with_free_blocks: ptr::null_mut(),
+            next_pool_in_factory: ptr::null_mut(),
+            factory: ptr::null_mut(),
+        }
+    }
 
-        let pool = Self {
-            name: name.to_string(),
-            block_size: aligned_size,
-            alignment: MEMORY_ALIGNMENT,
-            initial_capacity,
-            growth_factor: 1.5,
+    fn init(
+        &mut self,
+        factory: *mut MemoryPoolFactory,
+        pool_name: &str,
+        allocation_size: usize,
+        initial_allocation_count: usize,
+        overflow_allocation_count: usize,
+    ) {
+        self.factory = factory;
+        self.pool_name = pool_name.to_string();
+        self.allocation_size = round_up_mem_bound(allocation_size);
+        self.initial_allocation_count = initial_allocation_count;
+        self.overflow_allocation_count = overflow_allocation_count;
+        self.used_blocks_in_pool = 0;
+        self.total_blocks_in_pool = 0;
+        self.peak_used_blocks_in_pool = 0;
+        self.create_blob(initial_allocation_count);
+    }
 
-            chunks: ParkingMutex::new(VecDeque::new()),
-            free_blocks: ParkingMutex::new(Vec::new()),
+    fn create_blob(&mut self, allocation_count: usize) {
+        assert!(
+            allocation_count > 0 && allocation_count % MEM_BOUND_ALIGNMENT == 0,
+            "bad allocationCount ({})",
+            allocation_count
+        );
 
-            total_allocated: AtomicUsize::new(0),
-            total_freed: AtomicUsize::new(0),
-            current_usage: AtomicUsize::new(0),
-            peak_usage: AtomicUsize::new(0),
+        let raw_size = std::mem::size_of::<MemoryPoolBlob>();
+        let blob_ptr = sys_allocate(raw_size) as *mut MemoryPoolBlob;
+        unsafe {
+            ptr::write_bytes(blob_ptr, 0, 1);
+            (*blob_ptr).block_data = ptr::null_mut();
+        }
+        // Init in place
+        unsafe {
+            (*blob_ptr).init(self.allocation_size, allocation_count);
+        }
 
-            enabled: AtomicBool::new(true),
-            debug_enabled: AtomicBool::new(cfg!(debug_assertions)),
+        // Link into pool's blob list.
+        unsafe {
+            (*blob_ptr).prev_blob = self.last_blob;
+            (*blob_ptr).next_blob = ptr::null_mut();
+            if !self.last_blob.is_null() {
+                (*self.last_blob).next_blob = blob_ptr;
+            }
+            if self.first_blob.is_null() {
+                self.first_blob = blob_ptr;
+            }
+            self.last_blob = blob_ptr;
+        }
+
+        self.first_blob_with_free_blocks = blob_ptr;
+        self.total_blocks_in_pool += allocation_count;
+    }
+
+    fn free_blob(&mut self, blob: *mut MemoryPoolBlob) -> usize {
+        assert!(!blob.is_null());
+        unsafe {
+            let total_in_blob = (*blob).total_blocks_in_blob;
+            let used_in_blob = (*blob).used_blocks_in_blob;
+            assert_eq!(used_in_blob, 0, "freeing a nonempty blob");
+
+            // Unlink from list.
+            let prev = (*blob).prev_blob;
+            let next = (*blob).next_blob;
+            if !prev.is_null() {
+                (*prev).next_blob = next;
+            } else {
+                self.first_blob = next;
+            }
+            if !next.is_null() {
+                (*next).prev_blob = prev;
+            } else {
+                self.last_blob = prev;
+            }
+
+            if self.first_blob_with_free_blocks == blob {
+                self.first_blob_with_free_blocks = self.first_blob;
+            }
+
+            // Drop the blob.
+            ptr::drop_in_place(blob);
+            sys_free(blob as *mut u8, std::mem::size_of::<MemoryPoolBlob>());
+
+            self.used_blocks_in_pool -= used_in_blob;
+            self.total_blocks_in_pool -= total_in_blob;
+            total_in_blob * self.allocation_size + std::mem::size_of::<MemoryPoolBlob>()
+        }
+    }
+
+    /// Allocate a block, zeroed. Returns pointer to user data.
+    pub fn allocate_block(&mut self) -> *mut u8 {
+        let ptr = self.allocate_block_do_not_zero();
+        if !ptr.is_null() {
+            unsafe {
+                ptr::write_bytes(ptr, 0, self.allocation_size);
+            }
+        }
+        ptr
+    }
+
+    /// Allocate a block without zeroing. Returns pointer to user data.
+    pub fn allocate_block_do_not_zero(&mut self) -> *mut u8 {
+        // Check if current free-blob pointer is stale.
+        if !self.first_blob_with_free_blocks.is_null() {
+            let has_free = unsafe { (*self.first_blob_with_free_blocks).has_free_blocks() };
+            if !has_free {
+                // Scan for a blob with free blocks.
+                let mut blob = self.first_blob;
+                let mut found: *mut MemoryPoolBlob = ptr::null_mut();
+                while !blob.is_null() {
+                    if unsafe { (*blob).has_free_blocks() } {
+                        found = blob;
+                        break;
+                    }
+                    blob = unsafe { (*blob).next_blob };
+                }
+                self.first_blob_with_free_blocks = found;
+            }
+        }
+
+        // No free blocks anywhere: overflow.
+        if self.first_blob_with_free_blocks.is_null() {
+            if self.overflow_allocation_count == 0 {
+                panic!("Pool '{}' is full and cannot grow", self.pool_name);
+            }
+            self.create_blob(self.overflow_allocation_count);
+        }
+
+        let blob = self.first_blob_with_free_blocks;
+        assert!(!blob.is_null());
+        let user_ptr = unsafe { (*blob).allocate_single_block() };
+
+        #[cfg(debug_assertions)]
+        {
+            memset32(
+                user_ptr,
+                debug_consts::INIT_FILLER_VALUE,
+                self.allocation_size,
+            );
+        }
+
+        self.used_blocks_in_pool += 1;
+        if self.used_blocks_in_pool > self.peak_used_blocks_in_pool {
+            self.peak_used_blocks_in_pool = self.used_blocks_in_pool;
+        }
+        user_ptr
+    }
+
+    /// Free a block. OK to pass null.
+    pub fn free_block(&mut self, user_ptr: *mut u8) {
+        if user_ptr.is_null() {
+            return;
+        }
+        let block = BlockHeader::from_user_data(user_ptr);
+        let blob = unsafe { (*block).owning_blob };
+        assert!(
+            !blob.is_null() && unsafe { (*blob).allocation_size == self.allocation_size },
+            "block does not belong to this pool"
+        );
+        unsafe {
+            (*blob).free_single_block(user_ptr);
+        }
+        if self.first_blob_with_free_blocks.is_null() {
+            self.first_blob_with_free_blocks = blob;
+        }
+        self.used_blocks_in_pool -= 1;
+    }
+
+    pub fn get_pool_name(&self) -> &str {
+        &self.pool_name
+    }
+    pub fn get_allocation_size(&self) -> usize {
+        self.allocation_size
+    }
+    pub fn get_used_block_count(&self) -> usize {
+        self.used_blocks_in_pool
+    }
+    pub fn get_total_block_count(&self) -> usize {
+        self.total_blocks_in_pool
+    }
+    pub fn get_free_block_count(&self) -> usize {
+        self.total_blocks_in_pool
+            .saturating_sub(self.used_blocks_in_pool)
+    }
+    pub fn get_peak_block_count(&self) -> usize {
+        self.peak_used_blocks_in_pool
+    }
+    pub fn get_initial_block_count(&self) -> usize {
+        self.initial_allocation_count
+    }
+
+    /// Release empty blobs back to the system.
+    pub fn release_empties(&mut self) -> usize {
+        let mut released = 0usize;
+        let mut blob = self.first_blob;
+        while !blob.is_null() {
+            let next = unsafe { (*blob).next_blob };
+            if unsafe { (*blob).used_blocks_in_blob == 0 } {
+                released += self.free_blob(blob);
+            }
+            blob = next;
+        }
+        released
+    }
+
+    /// Destroy all blocks and blobs.
+    pub fn reset(&mut self) {
+        while !self.first_blob.is_null() {
+            self.free_blob(self.first_blob);
+        }
+        self.first_blob = ptr::null_mut();
+        self.last_blob = ptr::null_mut();
+        self.first_blob_with_free_blocks = ptr::null_mut();
+        self.create_blob(self.initial_allocation_count);
+    }
+}
+
+impl Drop for MemoryPool {
+    fn drop(&mut self) {
+        while !self.first_blob.is_null() {
+            self.free_blob(self.first_blob);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DynamicMemoryAllocator - matches C++ DynamicMemoryAllocator
+// ---------------------------------------------------------------------------
+
+/// Multi-size allocator that routes to the best-fit sub-pool.
+pub struct DynamicMemoryAllocator {
+    factory: *mut MemoryPoolFactory,
+    pools: [*mut MemoryPool; MAX_DMA_SUBPOOLS],
+    num_pools: usize,
+    used_blocks_in_dma: usize,
+    /// Linked list of raw (oversized) blocks.
+    raw_blocks: *mut BlockHeader,
+    /// Linked list pointer for factory.
+    next_dma_in_factory: *mut DynamicMemoryAllocator,
+}
+
+impl DynamicMemoryAllocator {
+    fn new() -> Self {
+        Self {
+            factory: ptr::null_mut(),
+            pools: [ptr::null_mut(); MAX_DMA_SUBPOOLS],
+            num_pools: 0,
+            used_blocks_in_dma: 0,
+            raw_blocks: ptr::null_mut(),
+            next_dma_in_factory: ptr::null_mut(),
+        }
+    }
+
+    fn init(&mut self, factory: *mut MemoryPoolFactory, sub_pools: &[PoolInitRec]) {
+        const DEFAULT_DMA: [PoolInitRec; 7] = [
+            PoolInitRec::new("dmaPool_16", 16, 64, 64),
+            PoolInitRec::new("dmaPool_32", 32, 64, 64),
+            PoolInitRec::new("dmaPool_64", 64, 64, 64),
+            PoolInitRec::new("dmaPool_128", 128, 64, 64),
+            PoolInitRec::new("dmaPool_256", 256, 64, 64),
+            PoolInitRec::new("dmaPool_512", 512, 64, 64),
+            PoolInitRec::new("dmaPool_1024", 1024, 64, 64),
+        ];
+
+        let params = if sub_pools.is_empty() {
+            &DEFAULT_DMA[..]
+        } else {
+            sub_pools
         };
 
-        Ok(pool)
+        self.factory = factory;
+        self.num_pools = params.len().min(MAX_DMA_SUBPOOLS);
+        self.used_blocks_in_dma = 0;
+
+        // Create sub-pools via the factory.
+        // Since we can't call factory methods through raw ptr safely during init,
+        // we create the pools inline.
+        for (i, parm) in params.iter().take(self.num_pools).enumerate() {
+            let raw_size = std::mem::size_of::<MemoryPool>();
+            let pool_ptr = sys_allocate(raw_size) as *mut MemoryPool;
+            unsafe {
+                ptr::write_bytes(pool_ptr, 0, 1);
+                (*pool_ptr).init(
+                    factory,
+                    parm.pool_name,
+                    parm.allocation_size,
+                    parm.initial_allocation_count,
+                    parm.overflow_allocation_count,
+                );
+            }
+            self.pools[i] = pool_ptr;
+        }
     }
 
-    /// Initialize the pool with initial capacity
-    pub fn init(&self) -> Result<(), MemoryError> {
-        if self.initial_capacity > 0 {
-            self.grow_pool(self.initial_capacity)?;
+    fn find_pool_for_size(&self, alloc_size: usize) -> Option<*mut MemoryPool> {
+        for i in 0..self.num_pools {
+            let pool = self.pools[i];
+            if !pool.is_null() && unsafe { (*pool).get_allocation_size() } >= alloc_size {
+                return Some(pool);
+            }
         }
-        Ok(())
+        None
     }
 
-    /// Allocate a block from the pool
-    pub fn allocate(&self) -> Result<NonNull<u8>, MemoryError> {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return Err(MemoryError::InvalidPool {
-                pool_name: self.name.clone(),
-            });
+    /// Allocate bytes, zeroed. Never returns null (panics on OOM).
+    pub fn allocate_bytes(&mut self, num_bytes: usize) -> *mut u8 {
+        let ptr = self.allocate_bytes_do_not_zero(num_bytes);
+        if !ptr.is_null() {
+            unsafe {
+                ptr::write_bytes(ptr, 0, num_bytes);
+            }
+        }
+        ptr
+    }
+
+    /// Allocate bytes without zeroing. Never returns null.
+    pub fn allocate_bytes_do_not_zero(&mut self, num_bytes: usize) -> *mut u8 {
+        if let Some(pool_ptr) = self.find_pool_for_size(num_bytes) {
+            let user_ptr = unsafe { (*pool_ptr).allocate_block_do_not_zero() };
+            self.used_blocks_in_dma += 1;
+            return user_ptr;
         }
 
-        // Try to get a free block
-        if let Some(block) = self.free_blocks.lock().pop() {
-            self.record_allocation();
-            return Ok(block.as_non_null());
+        // Too large for any sub-pool: allocate as a raw block.
+        let raw_size = BlockHeader::calc_raw_block_size(num_bytes);
+        let block_ptr = sys_allocate(raw_size) as *mut BlockHeader;
+        unsafe {
+            (*block_ptr).init(num_bytes, ptr::null_mut());
+            (*block_ptr).owning_blob = ptr::null_mut();
+            (*block_ptr).next = self.raw_blocks;
+            (*block_ptr).prev = ptr::null_mut();
+            if !self.raw_blocks.is_null() {
+                (*self.raw_blocks).prev = block_ptr;
+            }
+            self.raw_blocks = block_ptr;
         }
 
-        // Need to grow the pool
-        let growth_size = ((self.current_usage.load(Ordering::Relaxed) as f32 * self.growth_factor)
-            as usize)
-            .max(16);
-        self.grow_pool(growth_size)?;
+        #[cfg(debug_assertions)]
+        {
+            let user = unsafe { (*block_ptr).user_data_ptr() };
+            memset32(user, debug_consts::INIT_FILLER_VALUE, num_bytes);
+        }
 
-        // Try again after growing
-        if let Some(block) = self.free_blocks.lock().pop() {
-            self.record_allocation();
-            Ok(block.as_non_null())
+        self.used_blocks_in_dma += 1;
+        unsafe { (*block_ptr).user_data_ptr() }
+    }
+
+    /// Free bytes. OK to pass null.
+    pub fn free_bytes(&mut self, user_ptr: *mut u8) {
+        if user_ptr.is_null() {
+            return;
+        }
+        let block = BlockHeader::from_user_data(user_ptr);
+        let blob = unsafe { (*block).owning_blob };
+
+        if !blob.is_null() {
+            // Belongs to a sub-pool blob.
+            let pool = unsafe { (*blob).allocation_size };
+            if let Some(pool_ptr) = self.find_pool_for_size(pool) {
+                unsafe {
+                    (*pool_ptr).free_block(user_ptr);
+                }
+            }
         } else {
-            Err(MemoryError::PoolAllocationFailed {
-                pool_name: self.name.clone(),
-            })
-        }
-    }
-
-    /// Free a block back to the pool
-    pub fn deallocate(&self, ptr: NonNull<u8>) -> Result<(), MemoryError> {
-        // Verify the block belongs to this pool
-        if !self.owns_pointer(ptr) {
-            return Err(MemoryError::InvalidPool {
-                pool_name: self.name.clone(),
-            });
-        }
-
-        // Add to free list
-        self.free_blocks.lock().push(SafeMemoryPtr::new(ptr));
-        self.record_free();
-
-        Ok(())
-    }
-
-    /// Check if a pointer belongs to this pool
-    pub fn owns_pointer(&self, ptr: NonNull<u8>) -> bool {
-        let chunks = self.chunks.lock();
-        let ptr_addr = ptr.as_ptr() as usize;
-
-        for chunk in chunks.iter() {
-            let start = chunk.memory.as_ptr() as usize;
-            let end = start + chunk.size;
-
-            if ptr_addr >= start && ptr_addr < end {
-                return true;
+            // Raw block (oversized). Remove from linked list and free.
+            unsafe {
+                let next = (*block).next;
+                let prev = (*block).prev;
+                if !prev.is_null() {
+                    (*prev).next = next;
+                } else {
+                    self.raw_blocks = next;
+                }
+                if !next.is_null() {
+                    (*next).prev = prev;
+                }
+                #[cfg(debug_assertions)]
+                {
+                    (*block).mark_as_freed();
+                }
+                let raw_size = BlockHeader::calc_raw_block_size((*block).logical_size);
+                sys_free(block as *mut u8, raw_size);
             }
         }
-
-        false
+        self.used_blocks_in_dma -= 1;
     }
 
-    /// Grow the pool by allocating more chunks
-    fn grow_pool(&self, num_blocks: usize) -> Result<(), MemoryError> {
-        let total_size = self.block_size * num_blocks;
-        let layout = Layout::from_size_align(total_size, self.alignment)
-            .map_err(|_| MemoryError::InvalidSize { size: total_size })?;
-
-        unsafe {
-            let memory = alloc(layout);
-            if memory.is_null() {
-                return Err(MemoryError::OutOfMemory);
-            }
-
-            let memory = NonNull::new_unchecked(memory);
-
-            // Create the chunk
-            let chunk = Chunk {
-                memory: SafeMemoryPtr::new(memory),
-                size: total_size,
-                layout,
-            };
-
-            // Add individual blocks to free list
-            let mut free_blocks = self.free_blocks.lock();
-            for i in 0..num_blocks {
-                let block_ptr = memory.as_ptr().add(i * self.block_size);
-                free_blocks.push(SafeMemoryPtr::new(NonNull::new_unchecked(block_ptr)));
-            }
-
-            // Add chunk to chunk list
-            self.chunks.lock().push_back(chunk);
-        }
-
-        Ok(())
-    }
-
-    /// Record an allocation
-    fn record_allocation(&self) {
-        let current = self.current_usage.fetch_add(1, Ordering::Relaxed) + 1;
-        self.total_allocated.fetch_add(1, Ordering::Relaxed);
-
-        // Update peak usage
-        let peak = self.peak_usage.load(Ordering::Relaxed);
-        if current > peak {
-            self.peak_usage.store(current, Ordering::Relaxed);
+    /// Return the actual allocation size for a request (may be larger than requested).
+    pub fn get_actual_allocation_size(&self, num_bytes: usize) -> usize {
+        if let Some(pool_ptr) = self.find_pool_for_size(num_bytes) {
+            unsafe { (*pool_ptr).get_allocation_size() }
+        } else {
+            num_bytes
         }
     }
 
-    /// Record a free operation
-    fn record_free(&self) {
-        self.current_usage.fetch_sub(1, Ordering::Relaxed);
-        self.total_freed.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Align size to boundary
-    fn align_size(size: usize, alignment: usize) -> usize {
-        (size + alignment - 1) & !(alignment - 1)
-    }
-
-    /// Get pool statistics
-    pub fn get_stats(&self) -> PoolStats {
-        PoolStats {
-            name: self.name.clone(),
-            block_size: self.block_size,
-            total_allocated: self.total_allocated.load(Ordering::Relaxed),
-            total_freed: self.total_freed.load(Ordering::Relaxed),
-            current_usage: self.current_usage.load(Ordering::Relaxed),
-            peak_usage: self.peak_usage.load(Ordering::Relaxed),
-            free_blocks: self.free_blocks.lock().len(),
-            total_chunks: self.chunks.lock().len(),
-            enabled: self.enabled.load(Ordering::Relaxed),
-        }
-    }
-
-    /// Enable or disable the pool
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    /// Clear all allocations (dangerous - only use in shutdown)
-    pub unsafe fn clear(&self) {
-        let mut chunks = self.chunks.lock();
-        chunks.clear(); // Drop will handle deallocation
-
-        self.free_blocks.lock().clear();
-        self.current_usage.store(0, Ordering::Relaxed);
-    }
-}
-
-/// Pool statistics
-#[derive(Debug, Clone)]
-pub struct PoolStats {
-    pub name: String,
-    pub block_size: usize,
-    pub total_allocated: usize,
-    pub total_freed: usize,
-    pub current_usage: usize,
-    pub peak_usage: usize,
-    pub free_blocks: usize,
-    pub total_chunks: usize,
-    pub enabled: bool,
-}
-
-/// Game memory allocator
-pub struct GameMemoryAllocator {
-    // Memory pools indexed by size
-    pools: ParkingRwLock<HashMap<usize, Arc<MemoryPool>>>,
-
-    // Bump allocator for temporary allocations
-    bump_allocator: ParkingMutex<Bump>,
-
-    // Global statistics
-    stats: MemoryStats,
-
-    // Configuration
-    pool_enabled: AtomicBool,
-    debug_enabled: AtomicBool,
-    allocation_counter: AtomicU64,
-}
-
-impl GameMemoryAllocator {
-    /// Create a new game memory allocator
-    pub fn new() -> Self {
-        Self {
-            pools: ParkingRwLock::new(HashMap::new()),
-            bump_allocator: ParkingMutex::new(Bump::new()),
-            stats: MemoryStats::default(),
-            pool_enabled: AtomicBool::new(true),
-            debug_enabled: AtomicBool::new(cfg!(debug_assertions)),
-            allocation_counter: AtomicU64::new(1),
-        }
-    }
-
-    /// Initialize the allocator with default pools
-    pub fn init(&self) -> Result<(), MemoryError> {
-        use crate::common::system::memory_init::{get_default_dma_params, init_memory_pools};
-
-        // Initialize memory pool manager first
-        init_memory_pools();
-
-        // Create default DMA pools
-        let dma_params = get_default_dma_params();
-        for param in dma_params {
-            let pool = Arc::new(MemoryPool::new(
-                &param.name,
-                param.alloc_size,
-                param.initial_count,
-            )?);
-            pool.init()?;
-            self.pools.write().insert(param.alloc_size, pool);
-        }
-
-        Ok(())
-    }
-
-    /// Allocate memory with alignment
-    pub fn allocate_aligned(
-        &self,
-        size: usize,
-        alignment: usize,
-    ) -> Result<NonNull<u8>, MemoryError> {
-        if size == 0 {
-            return Err(MemoryError::InvalidSize { size });
-        }
-
-        let aligned_size = Self::align_size(size, alignment.max(MEMORY_ALIGNMENT));
-
-        // Try pool allocation first if enabled
-        if self.pool_enabled.load(Ordering::Relaxed) {
-            if let Some(pool) = self.find_suitable_pool(aligned_size) {
-                match pool.allocate() {
-                    Ok(ptr) => {
-                        self.stats.record_allocation(aligned_size);
-                        self.stats.record_pool_allocation();
-                        return Ok(ptr);
-                    }
-                    Err(_) => {
-                        // Fall through to heap allocation
-                    }
+    /// Reset all allocations.
+    pub fn reset(&mut self) {
+        for i in 0..self.num_pools {
+            let pool = self.pools[i];
+            if !pool.is_null() {
+                unsafe {
+                    (*pool).reset();
                 }
             }
         }
-
-        // Fall back to heap allocation
-        self.heap_allocate(aligned_size, alignment)
-    }
-
-    /// Allocate memory (default alignment)
-    pub fn allocate(&self, size: usize) -> Result<NonNull<u8>, MemoryError> {
-        self.allocate_aligned(size, MEMORY_ALIGNMENT)
-    }
-
-    /// Allocate zeroed memory
-    pub fn allocate_zeroed(&self, size: usize) -> Result<NonNull<u8>, MemoryError> {
-        let ptr = self.allocate(size)?;
-        unsafe {
-            std::ptr::write_bytes(ptr.as_ptr(), 0, size);
-        }
-        Ok(ptr)
-    }
-
-    /// Deallocate memory
-    pub fn deallocate(&self, ptr: NonNull<u8>, size: usize) -> Result<(), MemoryError> {
-        // Try pool deallocation first
-        if self.pool_enabled.load(Ordering::Relaxed) {
-            let pools = self.pools.read();
-            for pool in pools.values() {
-                if pool.owns_pointer(ptr) {
-                    pool.deallocate(ptr)?;
-                    self.stats.record_free(size);
-                    return Ok(());
-                }
+        // Free raw blocks.
+        while !self.raw_blocks.is_null() {
+            let block = self.raw_blocks;
+            unsafe {
+                self.raw_blocks = (*block).next;
+                let raw_size = BlockHeader::calc_raw_block_size((*block).logical_size);
+                sys_free(block as *mut u8, raw_size);
             }
         }
-
-        // Fall back to heap deallocation
-        self.heap_deallocate(ptr, size)
-    }
-
-    /// Reallocate memory
-    pub fn reallocate(
-        &self,
-        ptr: NonNull<u8>,
-        old_size: usize,
-        new_size: usize,
-    ) -> Result<NonNull<u8>, MemoryError> {
-        if new_size == 0 {
-            self.deallocate(ptr, old_size)?;
-            return Err(MemoryError::InvalidSize { size: new_size });
-        }
-
-        if old_size == new_size {
-            return Ok(ptr);
-        }
-
-        // Allocate new block
-        let new_ptr = self.allocate(new_size)?;
-
-        // Copy existing data
-        unsafe {
-            let copy_size = old_size.min(new_size);
-            std::ptr::copy_nonoverlapping(ptr.as_ptr(), new_ptr.as_ptr(), copy_size);
-        }
-
-        // Free old block
-        self.deallocate(ptr, old_size)?;
-
-        Ok(new_ptr)
-    }
-
-    /// Allocate from bump allocator (temporary allocations)
-    pub fn bump_allocate(&self, size: usize, alignment: usize) -> Result<NonNull<u8>, MemoryError> {
-        let bump = self.bump_allocator.lock();
-        let layout = Layout::from_size_align(size, alignment)
-            .map_err(|_| MemoryError::InvalidSize { size })?;
-
-        match bump.try_alloc_layout(layout) {
-            Ok(ptr) => {
-                self.stats.record_allocation(size);
-                Ok(ptr)
-            }
-            Err(_) => Err(MemoryError::OutOfMemory),
-        }
-    }
-
-    /// Clear bump allocator
-    pub fn clear_bump_allocator(&self) {
-        let mut bump = self.bump_allocator.lock();
-        bump.reset();
-    }
-
-    /// Create or get a memory pool for a specific size
-    pub fn create_pool(
-        &self,
-        name: &str,
-        block_size: usize,
-        initial_capacity: usize,
-    ) -> Result<Arc<MemoryPool>, MemoryError> {
-        let pool = Arc::new(MemoryPool::new(name, block_size, initial_capacity)?);
-        pool.init()?;
-
-        self.pools.write().insert(block_size, pool.clone());
-        Ok(pool)
-    }
-
-    /// Get memory statistics
-    pub fn get_stats(&self) -> MemorySummary {
-        self.stats.get_summary()
-    }
-
-    /// Get all pool statistics
-    pub fn get_pool_stats(&self) -> Vec<PoolStats> {
-        let pools = self.pools.read();
-        pools.values().map(|pool| pool.get_stats()).collect()
-    }
-
-    /// Enable or disable pool allocation
-    pub fn set_pool_enabled(&self, enabled: bool) {
-        self.pool_enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    /// Enable or disable debug mode
-    pub fn set_debug_enabled(&self, enabled: bool) {
-        self.debug_enabled.store(enabled, Ordering::Relaxed);
-    }
-
-    /// Heap allocation fallback
-    fn heap_allocate(&self, size: usize, alignment: usize) -> Result<NonNull<u8>, MemoryError> {
-        let layout = Layout::from_size_align(size, alignment)
-            .map_err(|_| MemoryError::InvalidSize { size })?;
-
-        unsafe {
-            let ptr = alloc(layout);
-            if ptr.is_null() {
-                return Err(MemoryError::OutOfMemory);
-            }
-
-            self.stats.record_allocation(size);
-            self.stats.record_heap_allocation();
-            Ok(NonNull::new_unchecked(ptr))
-        }
-    }
-
-    /// Heap deallocation
-    fn heap_deallocate(&self, ptr: NonNull<u8>, size: usize) -> Result<(), MemoryError> {
-        let layout = Layout::from_size_align(size, MEMORY_ALIGNMENT)
-            .map_err(|_| MemoryError::InvalidSize { size })?;
-
-        unsafe {
-            dealloc(ptr.as_ptr(), layout);
-        }
-
-        self.stats.record_free(size);
-        Ok(())
-    }
-
-    /// Find a suitable pool for allocation size
-    fn find_suitable_pool(&self, size: usize) -> Option<Arc<MemoryPool>> {
-        let pools = self.pools.read();
-
-        // Find exact match first
-        if let Some(pool) = pools.get(&size) {
-            return Some(pool.clone());
-        }
-
-        // Find smallest pool that can accommodate the size
-        pools
-            .iter()
-            .filter(|(pool_size, _)| **pool_size >= size)
-            .min_by_key(|(pool_size, _)| *pool_size)
-            .map(|(_, pool)| pool.clone())
-    }
-
-    /// Align size to boundary
-    fn align_size(size: usize, alignment: usize) -> usize {
-        (size + alignment - 1) & !(alignment - 1)
-    }
-
-    /// Get next allocation ID
-    fn next_allocation_id(&self) -> u64 {
-        self.allocation_counter.fetch_add(1, Ordering::Relaxed)
-    }
-
-    /// Shutdown the allocator
-    pub unsafe fn shutdown(&self) {
-        // Clear all pools
-        let mut pools = self.pools.write();
-        for pool in pools.values() {
-            pool.clear();
-        }
-        pools.clear();
-
-        // Clear bump allocator
-        self.clear_bump_allocator();
+        self.used_blocks_in_dma = 0;
     }
 }
 
-impl Default for GameMemoryAllocator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Global allocator instance
-lazy_static::lazy_static! {
-    pub static ref GAME_MEMORY_ALLOCATOR: Arc<GameMemoryAllocator> = Arc::new(GameMemoryAllocator::new());
-}
-
-/// Initialize the game memory system
-pub fn init_game_memory() -> Result<(), MemoryError> {
-    GAME_MEMORY_ALLOCATOR.init()
-}
-
-/// Get the global game memory allocator
-pub fn get_game_memory_allocator() -> Arc<GameMemoryAllocator> {
-    GAME_MEMORY_ALLOCATOR.clone()
-}
-
-/// Allocate game memory
-pub fn game_allocate(size: usize) -> Result<NonNull<u8>, MemoryError> {
-    GAME_MEMORY_ALLOCATOR.allocate(size)
-}
-
-/// Allocate aligned game memory
-pub fn game_allocate_aligned(size: usize, alignment: usize) -> Result<NonNull<u8>, MemoryError> {
-    GAME_MEMORY_ALLOCATOR.allocate_aligned(size, alignment)
-}
-
-/// Allocate zeroed game memory
-pub fn game_allocate_zeroed(size: usize) -> Result<NonNull<u8>, MemoryError> {
-    GAME_MEMORY_ALLOCATOR.allocate_zeroed(size)
-}
-
-/// Deallocate game memory
-pub fn game_deallocate(ptr: NonNull<u8>, size: usize) -> Result<(), MemoryError> {
-    GAME_MEMORY_ALLOCATOR.deallocate(ptr, size)
-}
-
-/// Reallocate game memory
-pub fn game_reallocate(
-    ptr: NonNull<u8>,
-    old_size: usize,
-    new_size: usize,
-) -> Result<NonNull<u8>, MemoryError> {
-    GAME_MEMORY_ALLOCATOR.reallocate(ptr, old_size, new_size)
-}
-
-/// Custom allocator for specific types
-pub struct GameAllocator<T> {
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T> GameAllocator<T> {
-    pub const fn new() -> Self {
-        Self {
-            _phantom: std::marker::PhantomData,
-        }
-    }
-
-    pub fn allocate(&self, count: usize) -> Result<NonNull<T>, MemoryError> {
-        let size = std::mem::size_of::<T>() * count;
-        let alignment = std::mem::align_of::<T>();
-        let ptr = game_allocate_aligned(size, alignment)?;
-        Ok(ptr.cast())
-    }
-
-    pub fn deallocate(&self, ptr: NonNull<T>, count: usize) -> Result<(), MemoryError> {
-        let size = std::mem::size_of::<T>() * count;
-        game_deallocate(ptr.cast(), size)
-    }
-}
-
-/// RAII memory guard
-pub struct MemoryGuard {
-    ptr: Option<NonNull<u8>>,
-    size: usize,
-}
-
-impl MemoryGuard {
-    /// Create a new memory guard
-    pub fn new(size: usize) -> Result<Self, MemoryError> {
-        let ptr = game_allocate(size)?;
-        Ok(Self {
-            ptr: Some(ptr),
-            size,
-        })
-    }
-
-    /// Get the managed pointer
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.ptr.map(|p| p.as_ptr()).unwrap_or(null_mut())
-    }
-
-    /// Get the managed pointer as NonNull
-    pub fn as_non_null(&self) -> Option<NonNull<u8>> {
-        self.ptr
-    }
-
-    /// Release the memory guard (caller takes ownership)
-    pub fn release(mut self) -> Option<NonNull<u8>> {
-        self.ptr.take()
-    }
-}
-
-impl Drop for MemoryGuard {
+impl Drop for DynamicMemoryAllocator {
     fn drop(&mut self) {
-        if let Some(ptr) = self.ptr.take() {
-            let _ = game_deallocate(ptr, self.size);
+        // Free raw blocks.
+        while !self.raw_blocks.is_null() {
+            let block = self.raw_blocks;
+            unsafe {
+                self.raw_blocks = (*block).next;
+                let raw_size = BlockHeader::calc_raw_block_size((*block).logical_size);
+                sys_free(block as *mut u8, raw_size);
+            }
+        }
+        // Destroy sub-pools.
+        for i in 0..self.num_pools {
+            let pool = self.pools[i];
+            if !pool.is_null() {
+                unsafe {
+                    ptr::drop_in_place(pool);
+                    sys_free(pool as *mut u8, std::mem::size_of::<MemoryPool>());
+                }
+                self.pools[i] = ptr::null_mut();
+            }
         }
     }
 }
 
-/// Memory debugging utilities
-pub mod debug {
-    use super::*;
+// ---------------------------------------------------------------------------
+// MemoryPoolFactory - matches C++ MemoryPoolFactory
+// ---------------------------------------------------------------------------
 
-    /// Check for memory leaks
-    pub fn check_memory_leaks() -> bool {
-        let stats = GAME_MEMORY_ALLOCATOR.get_stats();
-        stats.current_allocated > 0
+/// Central manager for all MemoryPools and DynamicMemoryAllocators.
+pub struct MemoryPoolFactory {
+    pools: HashMap<String, *mut MemoryPool>,
+    pool_list_head: *mut MemoryPool,
+    dma_list_head: *mut DynamicMemoryAllocator,
+    /// Debug: total bytes in use (logical).
+    #[cfg(debug_assertions)]
+    used_bytes: usize,
+    /// Debug: total bytes allocated (physical).
+    #[cfg(debug_assertions)]
+    phys_bytes: usize,
+}
+
+impl MemoryPoolFactory {
+    fn new() -> Self {
+        Self {
+            pools: HashMap::new(),
+            pool_list_head: ptr::null_mut(),
+            dma_list_head: ptr::null_mut(),
+            #[cfg(debug_assertions)]
+            used_bytes: 0,
+            #[cfg(debug_assertions)]
+            phys_bytes: 0,
+        }
     }
 
-    /// Print memory statistics
-    pub fn print_memory_stats() {
-        let stats = GAME_MEMORY_ALLOCATOR.get_stats();
-        println!("Memory Statistics:");
-        println!("  Total Allocated: {} bytes", stats.total_allocated);
-        println!("  Total Freed: {} bytes", stats.total_freed);
-        println!("  Current Allocated: {} bytes", stats.current_allocated);
-        println!("  Peak Allocated: {} bytes", stats.peak_allocated);
-        println!("  Allocation Count: {}", stats.allocation_count);
-        println!("  Free Count: {}", stats.free_count);
-        println!("  Pool Allocations: {}", stats.pool_allocations);
-        println!("  Heap Allocations: {}", stats.heap_allocations);
+    fn init(&mut self) {
+        // C++ just sets defaults, which we already do.
     }
 
-    /// Print pool statistics
-    pub fn print_pool_stats() {
-        let pool_stats = GAME_MEMORY_ALLOCATOR.get_pool_stats();
-        println!("Pool Statistics:");
-        for stat in pool_stats {
-            println!("  Pool '{}' (block size: {}):", stat.name, stat.block_size);
-            println!("    Total Allocated: {}", stat.total_allocated);
-            println!("    Current Usage: {}", stat.current_usage);
-            println!("    Peak Usage: {}", stat.peak_usage);
-            println!("    Free Blocks: {}", stat.free_blocks);
-            println!("    Enabled: {}", stat.enabled);
+    /// Create a memory pool. If a pool with the given name exists, return it.
+    pub fn create_memory_pool(
+        &mut self,
+        pool_name: &str,
+        allocation_size: usize,
+        initial_allocation_count: usize,
+        overflow_allocation_count: usize,
+    ) -> *mut MemoryPool {
+        if let Some(&existing) = self.pools.get(pool_name) {
+            assert_eq!(
+                unsafe { (*existing).get_allocation_size() },
+                round_up_mem_bound(allocation_size),
+                "pool size mismatch for '{}'",
+                pool_name
+            );
+            return existing;
+        }
+
+        assert!(
+            initial_allocation_count > 0,
+            "illegal pool size: initial={}",
+            initial_allocation_count
+        );
+
+        let raw_size = std::mem::size_of::<MemoryPool>();
+        let pool_ptr = sys_allocate(raw_size) as *mut MemoryPool;
+        unsafe {
+            ptr::write_bytes(pool_ptr, 0, 1);
+            (*pool_ptr).init(
+                self as *mut MemoryPoolFactory,
+                pool_name,
+                allocation_size,
+                initial_allocation_count,
+                overflow_allocation_count,
+            );
+            (*pool_ptr).next_pool_in_factory = self.pool_list_head;
+        }
+        self.pool_list_head = pool_ptr;
+        self.pools.insert(pool_name.to_string(), pool_ptr);
+        pool_ptr
+    }
+
+    /// Find an existing pool by name.
+    pub fn find_memory_pool(&self, pool_name: &str) -> Option<*mut MemoryPool> {
+        self.pools.get(pool_name).copied()
+    }
+
+    /// Destroy a memory pool.
+    pub fn destroy_memory_pool(&mut self, pool: *mut MemoryPool) {
+        if pool.is_null() {
+            return;
+        }
+        unsafe {
+            assert_eq!(
+                (*pool).get_used_block_count(),
+                0,
+                "destroying a nonempty pool"
+            );
+            // Unlink from list.
+            let mut prev: *mut MemoryPool = ptr::null_mut();
+            let mut cur = self.pool_list_head;
+            while !cur.is_null() {
+                if cur == pool {
+                    if !prev.is_null() {
+                        (*prev).next_pool_in_factory = (*cur).next_pool_in_factory;
+                    } else {
+                        self.pool_list_head = (*cur).next_pool_in_factory;
+                    }
+                    break;
+                }
+                prev = cur;
+                cur = (*cur).next_pool_in_factory;
+            }
+        }
+        // Remove from hashmap.
+        let name = unsafe { (*pool).get_pool_name().to_string() };
+        self.pools.remove(&name);
+        // Drop and free.
+        unsafe {
+            ptr::drop_in_place(pool);
+            sys_free(pool as *mut u8, std::mem::size_of::<MemoryPool>());
+        }
+    }
+
+    /// Create a DMA with given sub-pool parameters. Empty slice uses defaults.
+    pub fn create_dynamic_memory_allocator(
+        &mut self,
+        sub_pools: &[PoolInitRec],
+    ) -> *mut DynamicMemoryAllocator {
+        let raw_size = std::mem::size_of::<DynamicMemoryAllocator>();
+        let dma_ptr = sys_allocate(raw_size) as *mut DynamicMemoryAllocator;
+        unsafe {
+            ptr::write_bytes(dma_ptr, 0, 1);
+            (*dma_ptr).init(self as *mut MemoryPoolFactory, sub_pools);
+            (*dma_ptr).next_dma_in_factory = self.dma_list_head;
+        }
+        self.dma_list_head = dma_ptr;
+        dma_ptr
+    }
+
+    /// Destroy a DMA.
+    pub fn destroy_dynamic_memory_allocator(&mut self, dma: *mut DynamicMemoryAllocator) {
+        if dma.is_null() {
+            return;
+        }
+        // Unlink.
+        unsafe {
+            let mut prev: *mut DynamicMemoryAllocator = ptr::null_mut();
+            let mut cur = self.dma_list_head;
+            while !cur.is_null() {
+                if cur == dma {
+                    if !prev.is_null() {
+                        (*prev).next_dma_in_factory = (*cur).next_dma_in_factory;
+                    } else {
+                        self.dma_list_head = (*cur).next_dma_in_factory;
+                    }
+                    break;
+                }
+                prev = cur;
+                cur = (*cur).next_dma_in_factory;
+            }
+        }
+        unsafe {
+            ptr::drop_in_place(dma);
+            sys_free(
+                dma as *mut u8,
+                std::mem::size_of::<DynamicMemoryAllocator>(),
+            );
+        }
+    }
+
+    /// Reset all pools and DMAs.
+    pub fn reset(&mut self) {
+        let mut pool = self.pool_list_head;
+        while !pool.is_null() {
+            unsafe {
+                (*pool).reset();
+                pool = (*pool).next_pool_in_factory;
+            }
+        }
+        let mut dma = self.dma_list_head;
+        while !dma.is_null() {
+            unsafe {
+                (*dma).reset();
+                dma = (*dma).next_dma_in_factory;
+            }
+        }
+        #[cfg(debug_assertions)]
+        {
+            self.used_bytes = 0;
+            self.phys_bytes = 0;
         }
     }
 }
+
+impl Drop for MemoryPoolFactory {
+    fn drop(&mut self) {
+        while !self.pool_list_head.is_null() {
+            let next = unsafe { (*self.pool_list_head).next_pool_in_factory };
+            self.destroy_memory_pool(self.pool_list_head);
+            self.pool_list_head = next;
+        }
+        while !self.dma_list_head.is_null() {
+            let next = unsafe { (*self.dma_list_head).next_dma_in_factory };
+            self.destroy_dynamic_memory_allocator(self.dma_list_head);
+            self.dma_list_head = next;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Global singletons (matching C++ TheMemoryPoolFactory, TheDynamicMemoryAllocator)
+// ---------------------------------------------------------------------------
+
+/// Wrapper to make raw DMA pointer Send-safe.
+/// The Mutex already provides exclusive access, so this is sound.
+struct DmaPtr(*mut DynamicMemoryAllocator);
+unsafe impl Send for DmaPtr {}
+unsafe impl Send for MemoryPoolFactory {}
+
+lazy_static::lazy_static! {
+    static ref THE_FACTORY: Mutex<MemoryPoolFactory> = Mutex::new(MemoryPoolFactory::new());
+    static ref THE_DMA: Mutex<Option<DmaPtr>> = Mutex::new(None);
+}
+
+/// Initialize the memory manager (matches C++ initMemoryManager).
+pub fn init_memory_manager() {
+    let mut factory = THE_FACTORY.lock().unwrap();
+    factory.init();
+
+    let dma_ptr = factory.create_dynamic_memory_allocator(&[]);
+    let mut dma = THE_DMA.lock().unwrap();
+    *dma = Some(DmaPtr(dma_ptr));
+}
+
+/// Shut down the memory manager.
+pub fn shutdown_memory_manager() {
+    {
+        let mut dma = THE_DMA.lock().unwrap();
+        *dma = None;
+    }
+    let mut factory = THE_FACTORY.lock().unwrap();
+    // Destroy all DMAs and pools.
+    loop {
+        let head = factory.dma_list_head;
+        if head.is_null() {
+            break;
+        }
+        let next = unsafe { (*head).next_dma_in_factory };
+        factory.destroy_dynamic_memory_allocator(head);
+        factory.dma_list_head = next;
+    }
+    loop {
+        let head = factory.pool_list_head;
+        if head.is_null() {
+            break;
+        }
+        let next = unsafe { (*head).next_pool_in_factory };
+        factory.destroy_memory_pool(head);
+        factory.pool_list_head = next;
+    }
+    factory.pools.clear();
+}
+
+/// Get the global MemoryPoolFactory.
+pub fn get_memory_pool_factory() -> &'static Mutex<MemoryPoolFactory> {
+    &THE_FACTORY
+}
+
+/// Allocate bytes from the global DMA (zeroed). Panics on OOM.
+pub fn dma_allocate(num_bytes: usize) -> *mut u8 {
+    let dma_opt = THE_DMA.lock().unwrap();
+    let dma_ptr = dma_opt.as_ref().expect("DMA not initialized").0;
+    let dma = unsafe { &mut *dma_ptr };
+    dma.allocate_bytes(num_bytes)
+}
+
+/// Allocate bytes from the global DMA (not zeroed). Panics on OOM.
+pub fn dma_allocate_do_not_zero(num_bytes: usize) -> *mut u8 {
+    let dma_opt = THE_DMA.lock().unwrap();
+    let dma_ptr = dma_opt.as_ref().expect("DMA not initialized").0;
+    let dma = unsafe { &mut *dma_ptr };
+    dma.allocate_bytes_do_not_zero(num_bytes)
+}
+
+/// Free bytes through the global DMA. OK to pass null.
+pub fn dma_free(ptr: *mut u8) {
+    if ptr.is_null() {
+        return;
+    }
+    let dma_opt = THE_DMA.lock().unwrap();
+    let dma_ptr = dma_opt.as_ref().expect("DMA not initialized").0;
+    let dma = unsafe { &mut *dma_ptr };
+    dma.free_bytes(ptr);
+}
+
+/// Create a named memory pool via the global factory.
+pub fn create_pool(
+    pool_name: &str,
+    allocation_size: usize,
+    initial_count: usize,
+    overflow_count: usize,
+) -> *mut MemoryPool {
+    let mut factory = THE_FACTORY.lock().unwrap();
+    factory.create_memory_pool(pool_name, allocation_size, initial_count, overflow_count)
+}
+
+/// Find a named pool.
+pub fn find_pool(pool_name: &str) -> Option<*mut MemoryPool> {
+    let factory = THE_FACTORY.lock().unwrap();
+    factory.find_memory_pool(pool_name)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::thread;
 
     #[test]
-    fn test_memory_allocation() {
-        let allocator = GameMemoryAllocator::new();
-        allocator.init().unwrap();
-
-        let ptr = allocator.allocate(1024).unwrap();
-        assert!(!ptr.as_ptr().is_null());
-
-        allocator.deallocate(ptr, 1024).unwrap();
+    fn test_round_up_mem_bound() {
+        assert_eq!(round_up_mem_bound(1), 4);
+        assert_eq!(round_up_mem_bound(4), 4);
+        assert_eq!(round_up_mem_bound(5), 8);
+        assert_eq!(round_up_mem_bound(8), 8);
     }
 
     #[test]
-    fn test_aligned_allocation() {
-        let allocator = GameMemoryAllocator::new();
-        allocator.init().unwrap();
+    fn test_pool_create_and_alloc() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let pool = factory.create_memory_pool("TestPool", 64, 16, 16);
+        assert!(!pool.is_null());
 
-        let ptr = allocator.allocate_aligned(1024, 32).unwrap();
-        assert_eq!(ptr.as_ptr() as usize % 32, 0);
-
-        allocator.deallocate(ptr, 1024).unwrap();
-    }
-
-    #[test]
-    fn test_zeroed_allocation() {
-        let allocator = GameMemoryAllocator::new();
-        allocator.init().unwrap();
-
-        let ptr = allocator.allocate_zeroed(1024).unwrap();
         unsafe {
-            let slice = std::slice::from_raw_parts(ptr.as_ptr(), 1024);
+            assert_eq!((*pool).get_allocation_size(), 64);
+            assert_eq!((*pool).get_total_block_count(), 16);
+            assert_eq!((*pool).get_used_block_count(), 0);
+
+            let p1 = (*pool).allocate_block();
+            assert!(!p1.is_null());
+            assert_eq!((*pool).get_used_block_count(), 1);
+
+            // Verify zeroed.
+            let slice = std::slice::from_raw_parts(p1, 64);
+            assert!(slice.iter().all(|&b| b == 0));
+
+            (*pool).free_block(p1);
+            assert_eq!((*pool).get_used_block_count(), 0);
+        }
+    }
+
+    #[test]
+    fn test_pool_overflow() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let pool = factory.create_memory_pool("OverflowPool", 32, 4, 4);
+        assert!(!pool.is_null());
+
+        unsafe {
+            // Allocate more than initial count.
+            let mut ptrs = Vec::new();
+            for _ in 0..8 {
+                let p = (*pool).allocate_block();
+                assert!(!p.is_null());
+                ptrs.push(p);
+            }
+            assert_eq!((*pool).get_used_block_count(), 8);
+            assert!((*pool).get_total_block_count() >= 8);
+
+            for p in ptrs {
+                (*pool).free_block(p);
+            }
+            assert_eq!((*pool).get_used_block_count(), 0);
+        }
+    }
+
+    #[test]
+    fn test_dma_basic() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let dma = factory.create_dynamic_memory_allocator(&[]);
+        assert!(!dma.is_null());
+
+        unsafe {
+            // Small allocation goes to sub-pool.
+            let p1 = (*dma).allocate_bytes(32);
+            assert!(!p1.is_null());
+            // Verify zeroed.
+            let slice = std::slice::from_raw_parts(p1, 32);
+            assert!(slice.iter().all(|&b| b == 0));
+            (*dma).free_bytes(p1);
+
+            // Large allocation (bigger than any sub-pool) goes raw.
+            let p2 = (*dma).allocate_bytes(2048);
+            assert!(!p2.is_null());
+            (*dma).free_bytes(p2);
+        }
+    }
+
+    #[test]
+    fn test_pool_reset() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let pool = factory.create_memory_pool("ResetPool", 64, 8, 8);
+        unsafe {
+            let p = (*pool).allocate_block();
+            assert!(!p.is_null());
+            (*pool).reset();
+            assert_eq!((*pool).get_used_block_count(), 0);
+        }
+    }
+
+    #[test]
+    fn test_factory_destroy_pool() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let pool = factory.create_memory_pool("DestroyPool", 64, 4, 4);
+        assert!(factory.find_memory_pool("DestroyPool").is_some());
+        factory.destroy_memory_pool(pool);
+        assert!(factory.find_memory_pool("DestroyPool").is_none());
+    }
+
+    #[test]
+    fn test_fill_pattern_on_free() {
+        let mut factory = MemoryPoolFactory::new();
+        factory.init();
+        let pool = factory.create_memory_pool("FillPool", 64, 4, 4);
+        unsafe {
+            let p = (*pool).allocate_block();
+            // Write something.
+            ptr::write_bytes(p, 0xAA, 64);
+            (*pool).free_block(p);
+            // Re-allocate: in debug, it should have been filled with GARBAGE_FILL_VALUE
+            // but then we wrote 0xAA. After free, it's filled with DEADBEEF.
+            // Then allocate_block zeros it again.
+            let p2 = (*pool).allocate_block();
+            let slice = std::slice::from_raw_parts(p2, 64);
             assert!(slice.iter().all(|&b| b == 0));
         }
-
-        allocator.deallocate(ptr, 1024).unwrap();
     }
 
     #[test]
-    fn test_reallocation() {
-        let allocator = GameMemoryAllocator::new();
-        allocator.init().unwrap();
-
-        let ptr1 = allocator.allocate(512).unwrap();
-        let ptr2 = allocator.reallocate(ptr1, 512, 1024).unwrap();
-
-        assert!(!ptr2.as_ptr().is_null());
-        allocator.deallocate(ptr2, 1024).unwrap();
-    }
-
-    #[test]
-    fn test_memory_pool() {
-        let pool = MemoryPool::new("TestPool", 64, 10).unwrap();
-        pool.init().unwrap();
-
-        let ptr1 = pool.allocate().unwrap();
-        let ptr2 = pool.allocate().unwrap();
-
-        assert_ne!(ptr1, ptr2);
-
-        pool.deallocate(ptr1).unwrap();
-        pool.deallocate(ptr2).unwrap();
-
-        let stats = pool.get_stats();
-        assert_eq!(stats.total_allocated, 2);
-        assert_eq!(stats.total_freed, 2);
-    }
-
-    #[test]
-    fn test_memory_guard() {
-        let guard = MemoryGuard::new(1024).unwrap();
-        assert!(!guard.as_ptr().is_null());
-
-        let ptr = guard.release().unwrap();
-        game_deallocate(ptr, 1024).unwrap();
-    }
-
-    #[test]
-    fn test_bump_allocator() {
-        let allocator = GameMemoryAllocator::new();
-
-        let ptr1 = allocator.bump_allocate(64, 8).unwrap();
-        let ptr2 = allocator.bump_allocate(32, 4).unwrap();
-
-        assert_ne!(ptr1, ptr2);
-
-        allocator.clear_bump_allocator();
-    }
-
-    #[test]
-    fn test_custom_allocator() {
-        let allocator = GameAllocator::<u32>::new();
-
-        let ptr = allocator.allocate(10).unwrap();
-        allocator.deallocate(ptr, 10).unwrap();
-    }
-
-    #[test]
-    fn test_multithreaded_allocation() {
-        let allocator = Arc::new(GameMemoryAllocator::new());
-        allocator.init().unwrap();
-
-        let handles: Vec<_> = (0..4)
-            .map(|_| {
-                let allocator = allocator.clone();
-                thread::spawn(move || {
-                    for _ in 0..100 {
-                        let ptr = allocator.allocate(1024).unwrap();
-                        allocator.deallocate(ptr, 1024).unwrap();
-                    }
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
+    fn test_bounding_walls() {
+        #[cfg(debug_assertions)]
+        {
+            let mut factory = MemoryPoolFactory::new();
+            factory.init();
+            let pool = factory.create_memory_pool("WallPool", 64, 4, 4);
+            unsafe {
+                let p = (*pool).allocate_block();
+                let block = BlockHeader::from_user_data(p);
+                assert!((*block).verify());
+                assert!((*block).check_underrun());
+                assert!((*block).check_overrun());
+                (*pool).free_block(p);
+            }
         }
-
-        let stats = allocator.get_stats();
-        assert_eq!(stats.allocation_count, stats.free_count);
     }
 
     #[test]
-    fn test_memory_stats() {
-        let allocator = GameMemoryAllocator::new();
-        allocator.init().unwrap();
-
-        let ptr1 = allocator.allocate(512).unwrap();
-        let ptr2 = allocator.allocate(256).unwrap();
-
-        let stats = allocator.get_stats();
-        assert!(stats.current_allocated >= 768);
-        assert!(stats.allocation_count >= 2);
-
-        allocator.deallocate(ptr1, 512).unwrap();
-        allocator.deallocate(ptr2, 256).unwrap();
-
-        let final_stats = allocator.get_stats();
-        assert_eq!(final_stats.allocation_count, final_stats.free_count);
+    fn test_init_memory_manager() {
+        init_memory_manager();
+        let p = dma_allocate(128);
+        assert!(!p.is_null());
+        let slice = unsafe { std::slice::from_raw_parts(p, 128) };
+        assert!(slice.iter().all(|&b| b == 0));
+        dma_free(p);
+        shutdown_memory_manager();
     }
 }

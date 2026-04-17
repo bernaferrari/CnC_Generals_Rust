@@ -373,6 +373,7 @@ struct DozerActionTask {
     task_type: DozerTask,
     target_id: ObjectID,
     dock_point: Option<Coord3D>,
+    #[allow(dead_code)]
     failed_attempts: u32,
     build_total_frames: u32,
     build_max_health: f32,

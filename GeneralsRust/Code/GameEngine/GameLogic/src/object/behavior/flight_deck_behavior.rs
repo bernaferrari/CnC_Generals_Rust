@@ -1426,6 +1426,7 @@ impl FlightDeckBehavior {
     }
 
     /// Kill an object
+    #[allow(dead_code)]
     fn kill_object(&self, _object_id: ObjectID) -> BehaviorResult<()> {
         Ok(())
     }

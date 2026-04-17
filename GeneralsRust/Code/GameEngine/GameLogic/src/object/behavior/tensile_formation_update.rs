@@ -99,8 +99,10 @@ impl Default for TensileFormationLink {
     }
 }
 
+#[allow(dead_code)]
 pub struct TensileFormationUpdate {
     object: Weak<RwLock<GameObject>>,
+    #[allow(dead_code)]
     module_data: Arc<TensileFormationUpdateModuleData>,
     enabled: Bool,
     crack_sound: AudioEventRts,

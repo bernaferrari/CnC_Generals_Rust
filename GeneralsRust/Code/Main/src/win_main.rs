@@ -192,8 +192,7 @@ unsafe fn debug_init() {
 /// Initialize memory manager - equivalent to C++ initMemoryManager
 unsafe fn init_memory_manager() -> Result<(), anyhow::Error> {
     // The C++ code initializes a custom memory manager here.
-    game_engine::common::system::game_memory::init_game_memory()
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
+    game_engine::common::system::game_memory::init_memory_manager();
     Ok(())
 }
 

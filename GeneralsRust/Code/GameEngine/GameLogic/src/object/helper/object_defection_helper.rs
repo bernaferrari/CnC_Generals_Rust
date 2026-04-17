@@ -48,6 +48,7 @@ impl Default for ObjectDefectionHelperModuleData {
 #[derive(Debug)]
 pub struct ObjectDefectionHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: ObjectDefectionHelperModuleData,
 
     /// Defection detection start frame (absolute frame, NOT counter)

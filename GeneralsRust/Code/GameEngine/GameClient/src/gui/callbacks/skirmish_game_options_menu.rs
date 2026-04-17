@@ -1435,12 +1435,16 @@ pub fn skirmish_game_options_menu_update(
             skirmish_update_slot_list(state);
         }
 
-        if state.is_shutting_down
-            && get_shell().is_anim_finished()
+        // C++ parity: check animation/transitions unconditionally (no is_shutting_down gate).
+        // C++ SkirmishGameOptionsMenuUpdate calls TheShell->shutdownComplete(layout) whenever
+        // both the shell animation and transition handler report finished.
+        if get_shell().is_anim_finished()
             && with_window_manager(|manager| manager.transitions_finished())
         {
-            state.is_shutting_down = false;
-            set_skirmish_is_shutting_down(false);
+            if state.is_shutting_down {
+                state.is_shutting_down = false;
+                set_skirmish_is_shutting_down(false);
+            }
             layout.hide(true);
             let _ = get_shell().shutdown_complete(None, false);
         }

@@ -334,6 +334,7 @@ impl HordeUpdate {
         self.module_data.allowed_nationalism
     }
 
+    #[allow(dead_code)]
     fn show_hide_flag(&mut self, show: Bool) {
         self.has_flag = show;
         if self.module_data.flag_sub_obj_names.is_empty() {

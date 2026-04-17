@@ -203,12 +203,12 @@ impl SelectionCommandHandler {
         use super::command::CommandArgumentType;
         use crate::commands::SelectionType;
 
-        let mut object_ids = Vec::new();
-        for idx in 0..(command.get_argument_count() as Int) {
-            if let Some(CommandArgumentType::ObjectID(id)) = command.get_argument(idx) {
-                object_ids.push(*id);
-            }
-        }
+        let object_ids: Vec<_> = (0..(command.get_argument_count() as Int))
+            .filter_map(|idx| match command.get_argument(idx) {
+                Some(CommandArgumentType::ObjectID(id)) => Some(*id),
+                _ => None,
+            })
+            .collect();
 
         if object_ids.is_empty() {
             return CommandExecutionResult::Success;

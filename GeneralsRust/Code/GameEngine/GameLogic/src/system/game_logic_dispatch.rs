@@ -143,6 +143,7 @@ impl Command {
 
 /// Queued command with priority metadata
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct QueuedCommand {
     command: Command,
     priority: CommandPriority,
@@ -164,6 +165,7 @@ impl QueuedCommand {
 ///
 /// ## C++ Reference: RtsCommand in GameLogicDispatch.h
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct RtsCommand {
     /// Command type identifier
     pub command_type: Option<String>,
@@ -307,10 +309,9 @@ impl GameLogicDispatch {
     ///
     /// ## C++ Reference: GameLogicDispatch constructor
     pub fn new(max_players: Int) -> Self {
-        let mut player_stats = Vec::new();
-        for _ in 0..max_players {
-            player_stats.push(PlayerCommandStats::default());
-        }
+        let player_stats: Vec<PlayerCommandStats> = (0..max_players)
+            .map(|_| PlayerCommandStats::default())
+            .collect();
 
         Self {
             max_players,

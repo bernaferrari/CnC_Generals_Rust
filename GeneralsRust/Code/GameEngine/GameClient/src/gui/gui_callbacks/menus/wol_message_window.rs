@@ -1,4 +1,5 @@
 //! Shim for WOLMessageWindow.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_message_window::{
     wol_message_window_init, wol_message_window_input, wol_message_window_shutdown,

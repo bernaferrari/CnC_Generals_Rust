@@ -71,6 +71,7 @@ impl RhaiScriptExecutor {
 
     /// Helper function to access game logic safely
     #[inline]
+    #[allow(dead_code)]
     fn with_game_logic<F, R>(f: F) -> Option<R>
     where
         F: FnOnce(&mut crate::system::game_logic::GameLogic) -> R,

@@ -414,6 +414,7 @@ pub trait SpawnBehaviorInterface: Send + Sync {
 
 /// Main SpawnBehavior implementation
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SpawnBehavior {
     // Base module data
     object: Option<Arc<RwLock<Object>>>,

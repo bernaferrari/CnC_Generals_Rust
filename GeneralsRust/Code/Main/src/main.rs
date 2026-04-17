@@ -30,7 +30,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use game_engine::common::game_engine::clear_game_engine;
-use game_engine::common::system::game_memory::init_game_memory;
+use game_engine::common::system::game_memory::init_memory_manager;
 use generals_main::command_line::{self, CommandLineArgs};
 use generals_main::subsystem_manager;
 use log::{debug, error, info, warn, LevelFilter};
@@ -266,11 +266,7 @@ async fn main() {
     // =========================================================================
     // PHASE 5: MEMORY MANAGER INITIALIZATION (matches WinMain.cpp:982-985)
     // =========================================================================
-    if let Err(e) = init_game_memory() {
-        error!("Failed to initialize game memory: {e}");
-        cleanup_and_exit();
-        std::process::exit(1);
-    }
+    init_memory_manager();
     debug!("Game memory initialized");
 
     // =========================================================================

@@ -41,6 +41,7 @@ pub struct ResourceContent {
 
 /// Simple object-specific data and behavior
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SimpleObject {
     /// Base object functionality
     base_object: Arc<RwLock<Object>>,
@@ -49,6 +50,7 @@ pub struct SimpleObject {
     simple_object_type: SimpleObjectType,
     is_interactive: bool,
     is_destructible: bool,
+    #[allow(dead_code)]
     is_selectable: bool,
 
     /// Resource content (for resource nodes and crates)

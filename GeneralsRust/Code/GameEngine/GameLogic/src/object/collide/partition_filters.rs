@@ -290,11 +290,13 @@ impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnSquad 
 
 /// Reject objects not within clear line-of-sight of the given object.
 /// Matches C++ PartitionFilterLineOfSight.
+#[allow(dead_code)]
 pub struct PartitionFilterLineOfSight {
     obj_id: ObjectId,
 }
 
 impl PartitionFilterLineOfSight {
+    #[allow(dead_code)]
     pub fn new(obj_id: ObjectId) -> Self {
         Self { obj_id }
     }
@@ -586,6 +588,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectByObject
 /// Accept or reject stealthed-and-undetected objects (based on `allow` flag).
 /// Matches C++ PartitionFilterStealthedAndUndetected.
 pub struct PartitionFilterStealthedAndUndetected {
+    #[allow(dead_code)]
     obj_id: ObjectId,
     allow: bool,
 }
@@ -1392,6 +1395,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonable {
 /// Accept/reject objects that the specified player can/cannot garrison.
 /// Matches C++ PartitionFilterGarrisonableByPlayer.
 pub struct PartitionFilterGarrisonableByPlayer {
+    #[allow(dead_code)]
     player_id: PlayerId,
     match_flag: bool,
     _command_source: CommandSourceType,

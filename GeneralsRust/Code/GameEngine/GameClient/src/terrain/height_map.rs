@@ -14,6 +14,21 @@ use image::{DynamicImage, ImageBuffer, Luma};
 use super::utils::{bilinear_interpolate, calculate_normal};
 use super::{TerrainError, TerrainResult};
 
+pub const K_MIN_HEIGHT: u8 = 0;
+pub const K_MAX_HEIGHT: u8 = 255;
+pub const NUM_SOURCE_TILES: usize = 1024;
+pub const NUM_BLEND_TILES: usize = 16192;
+
+const K_HORIZ: usize = 0;
+const K_VERT: usize = 1;
+const K_LDIAG: usize = 2;
+const K_RDIAG: usize = 3;
+const K_LLDIAG: usize = 4;
+const K_LRDIAG: usize = 5;
+const K_DIR_MOD: u8 = 0x05;
+const K_INV: usize = 6;
+const NUM_ALPHA_TILES: usize = 12;
+
 /// Height map data structure
 #[derive(Debug, Clone)]
 pub struct HeightMap {
@@ -37,19 +52,36 @@ pub struct HeightMap {
 
     /// Height range (max - min)
     pub height_range: f32,
+
+    pub border_size: i32,
+
+    pub tile_ndxes: Vec<i16>,
+    pub blend_tile_ndxes: Vec<i16>,
+    pub draw_origin_x: i32,
+    pub draw_origin_y: i32,
+    pub draw_width: i32,
+    pub draw_height: i32,
 }
 
 impl HeightMap {
     /// Create a new heightmap
     pub fn new(width: u32, height: u32, max_height: f32, scale: f32) -> Self {
+        let sample_count = (width * height) as usize;
         Self {
             width,
             height,
-            heights: vec![0.0; (width * height) as usize],
+            heights: vec![0.0; sample_count],
             max_height,
             scale,
             min_height: 0.0,
             height_range: max_height,
+            border_size: 0,
+            tile_ndxes: vec![0i16; sample_count],
+            blend_tile_ndxes: vec![0i16; sample_count],
+            draw_origin_x: 0,
+            draw_origin_y: 0,
+            draw_width: width as i32,
+            draw_height: height as i32,
         }
     }
 
@@ -111,15 +143,23 @@ impl HeightMap {
         let world_min_height = min_height * MAP_HEIGHT_SCALE;
         let world_height_range = height_range * MAP_HEIGHT_SCALE;
         let world_max_height = max_height * MAP_HEIGHT_SCALE;
+        let sample_count = (width * height) as usize;
 
         Ok(Self {
             width,
             height,
             heights,
             max_height: world_max_height,
-            scale: 1.0, // Default scale, can be adjusted
+            scale: 1.0,
             min_height: world_min_height,
             height_range: world_height_range,
+            border_size: 0,
+            tile_ndxes: vec![0i16; sample_count],
+            blend_tile_ndxes: vec![0i16; sample_count],
+            draw_origin_x: 0,
+            draw_origin_y: 0,
+            draw_width: width as i32,
+            draw_height: height as i32,
         })
     }
 
@@ -151,6 +191,7 @@ impl HeightMap {
         let world_min_height = min_sample * MAP_HEIGHT_SCALE;
         let world_height_range = (max_sample - min_sample) * MAP_HEIGHT_SCALE;
         let world_max_height = max_sample * MAP_HEIGHT_SCALE;
+        let sample_count = (width * height) as usize;
 
         Ok(Self {
             width,
@@ -160,6 +201,13 @@ impl HeightMap {
             scale: 1.0,
             min_height: world_min_height,
             height_range: world_height_range,
+            border_size: 0,
+            tile_ndxes: vec![0i16; sample_count],
+            blend_tile_ndxes: vec![0i16; sample_count],
+            draw_origin_x: 0,
+            draw_origin_y: 0,
+            draw_width: width as i32,
+            draw_height: height as i32,
         })
     }
 
@@ -212,6 +260,7 @@ impl HeightMap {
         let world_min_height = min_height * MAP_HEIGHT_SCALE;
         let world_height_range = height_range * MAP_HEIGHT_SCALE;
         let world_max_height = max_height * MAP_HEIGHT_SCALE;
+        let sample_count = (dimension * dimension) as usize;
 
         Ok(Self {
             width: dimension,
@@ -221,6 +270,13 @@ impl HeightMap {
             scale: 1.0,
             min_height: world_min_height,
             height_range: world_height_range,
+            border_size: 0,
+            tile_ndxes: vec![0i16; sample_count],
+            blend_tile_ndxes: vec![0i16; sample_count],
+            draw_origin_x: 0,
+            draw_origin_y: 0,
+            draw_width: dimension as i32,
+            draw_height: dimension as i32,
         })
     }
 
@@ -340,6 +396,156 @@ impl HeightMap {
         let hm_y = world_y / self.scale;
 
         hm_x >= 0.0 && hm_y >= 0.0 && hm_x < self.width as f32 && hm_y < self.height as f32
+    }
+
+    pub fn get_display_height(&self, x: i32, y: i32) -> u8 {
+        let ndx = (x + self.draw_origin_x) + (self.width as i32) * (y + self.draw_origin_y);
+        if ndx >= 0 && (ndx as usize) < self.heights.len() {
+            (self.heights[ndx as usize] * (K_MAX_HEIGHT as f32)).round() as u8
+        } else {
+            0
+        }
+    }
+
+    pub fn get_raw_height(&self, x_index: i32, y_index: i32) -> u8 {
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx >= 0 && (ndx as usize) < self.heights.len() {
+            (self.heights[ndx as usize] * (K_MAX_HEIGHT as f32)).round() as u8
+        } else {
+            0
+        }
+    }
+
+    pub fn set_raw_height(&mut self, x_index: i32, y_index: i32, height: u8) {
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx >= 0 && (ndx as usize) < self.heights.len() {
+            self.heights[ndx as usize] = height as f32 / K_MAX_HEIGHT as f32;
+        }
+    }
+
+    pub fn get_tile_index(&self, x_index: i32, y_index: i32) -> i16 {
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx >= 0 && (ndx as usize) < self.tile_ndxes.len() {
+            self.tile_ndxes[ndx as usize]
+        } else {
+            0
+        }
+    }
+
+    pub fn get_blend_tile_index(&self, x_index: i32, y_index: i32) -> i16 {
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx >= 0 && (ndx as usize) < self.blend_tile_ndxes.len() {
+            self.blend_tile_ndxes[ndx as usize]
+        } else {
+            0
+        }
+    }
+
+    /// Matches C++ WorldHeightMap::getPointerToTileData. Given a tile data
+    /// source (callback for get_raw_tile_data) and blend tiles, returns the
+    /// BGRA pixel data for the tile at (x_index, y_index) blended with any
+    /// overlay tiles.
+    pub fn get_pointer_to_tile_data<F>(
+        &self,
+        x_index: i32,
+        y_index: i32,
+        width: i32,
+        source_tiles: &[Option<super::textures::TileData>; NUM_SOURCE_TILES],
+        blend_tiles: &[super::textures::BlendTileInfo; NUM_BLEND_TILES],
+        alpha_tiles: &[Option<Vec<u8>>; NUM_ALPHA_TILES],
+        get_raw_tile_data: &F,
+    ) -> Option<Vec<u8>>
+    where
+        F: Fn(i16, i32, &mut [u8]) -> bool,
+    {
+        if y_index < 0
+            || x_index < 0
+            || x_index >= self.width as i32
+            || y_index >= self.height as i32
+        {
+            return None;
+        }
+        let ndx = y_index * (self.width as i32) + x_index;
+        if ndx < 0 || (ndx as usize) >= self.heights.len() {
+            return None;
+        }
+
+        let tile_ndx = self.tile_ndxes.get(ndx as usize).copied().unwrap_or(0);
+        let data_len = (width * width * 4) as usize;
+        let mut buffer = vec![0u8; data_len];
+
+        if get_raw_tile_data(tile_ndx, width, &mut buffer) {
+            let blend_ndx = self
+                .blend_tile_ndxes
+                .get(ndx as usize)
+                .copied()
+                .unwrap_or(0);
+            if blend_ndx > 0 && (blend_ndx as usize) < NUM_BLEND_TILES {
+                let blend = &blend_tiles[blend_ndx as usize];
+                let mut blend_buffer = vec![0u8; data_len];
+                if get_raw_tile_data(blend.blend_ndx as i16, width, &mut blend_buffer) {
+                    let alpha_data = Self::get_rgb_alpha_data_for_width(width, blend, alpha_tiles);
+                    let pixel_count = (width * width) as usize;
+                    for i in 0..pixel_count {
+                        let base = i * 4;
+                        let a = alpha_data.get(base + 3).copied().unwrap_or(0);
+                        let b_blend = blend_buffer[base] as i32;
+                        let g_blend = blend_buffer[base + 1] as i32;
+                        let r_blend = blend_buffer[base + 2] as i32;
+                        let a_i = a as i32;
+                        let inv_a = 255 - a_i;
+                        buffer[base] =
+                            ((b_blend * a_i) / 255 + (buffer[base] as i32 * inv_a) / 255) as u8;
+                        buffer[base + 1] =
+                            ((g_blend * a_i) / 255 + (buffer[base + 1] as i32 * inv_a) / 255) as u8;
+                        buffer[base + 2] =
+                            ((r_blend * a_i) / 255 + (buffer[base + 2] as i32 * inv_a) / 255) as u8;
+                        buffer[base + 3] = 255;
+                    }
+                }
+            }
+            return Some(buffer);
+        }
+
+        None
+    }
+
+    /// Matches C++ WorldHeightMap::getRGBAlphaDataForWidth.
+    /// Returns the alpha tile data for the given blend direction.
+    fn get_rgb_alpha_data_for_width(
+        width: i32,
+        blend: &super::textures::BlendTileInfo,
+        alpha_tiles: &[Option<Vec<u8>>; NUM_ALPHA_TILES],
+    ) -> Vec<u8> {
+        let mut alpha_ndx = 0usize;
+        if blend.horiz != 0 {
+            alpha_ndx = K_HORIZ;
+        } else if blend.vert != 0 {
+            alpha_ndx = K_VERT;
+        } else if blend.right_diagonal != 0 {
+            alpha_ndx = K_RDIAG;
+            if blend.long_diagonal != 0 {
+                alpha_ndx = K_LRDIAG;
+            }
+        } else if blend.left_diagonal != 0 {
+            alpha_ndx = K_LDIAG;
+            if blend.long_diagonal != 0 {
+                alpha_ndx = K_LLDIAG;
+            }
+        }
+        if blend.inverted & 0x1 != 0 {
+            alpha_ndx += K_INV;
+        }
+
+        let pixels_per_side = width as usize;
+        let data_len = pixels_per_side * pixels_per_side * 4;
+        if let Some(Some(alpha)) = alpha_tiles.get(alpha_ndx) {
+            if alpha.len() >= data_len {
+                return alpha.clone();
+            }
+        }
+
+        vec![0u8; data_len]
     }
 
     /// Apply terrain modification

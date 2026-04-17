@@ -258,6 +258,7 @@ pub struct Script {
 
 /// Script execution state
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ScriptExecution {
     /// Script being executed
     script: Script,
@@ -270,6 +271,7 @@ struct ScriptExecution {
 }
 
 /// Advanced scripting engine
+#[allow(dead_code)]
 pub struct ScriptingEngine {
     /// Rhai engine for script execution
     rhai_engine: Engine,

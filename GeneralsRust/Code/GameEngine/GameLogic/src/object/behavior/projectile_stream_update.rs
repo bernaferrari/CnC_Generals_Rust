@@ -38,6 +38,7 @@ impl ProjectileStreamUpdateModuleData {
 
 pub struct ProjectileStreamUpdate {
     object: Weak<RwLock<GameObject>>,
+    #[allow(dead_code)]
     module_data: Arc<ProjectileStreamUpdateModuleData>,
     projectile_ids: [ObjectID; MAX_PROJECTILE_STREAM],
     next_free_index: i32,

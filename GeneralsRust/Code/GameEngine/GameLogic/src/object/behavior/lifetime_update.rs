@@ -78,6 +78,7 @@ const LIFETIME_UPDATE_FIELDS: &[FieldParse<LifetimeUpdateModuleData>] = &[
 
 pub struct LifetimeUpdate {
     object: Weak<RwLock<GameObject>>,
+    #[allow(dead_code)]
     module_data: Arc<LifetimeUpdateModuleData>,
     die_frame: UnsignedInt,
 }

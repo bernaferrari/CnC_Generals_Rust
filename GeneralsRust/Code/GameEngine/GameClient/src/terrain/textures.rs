@@ -36,10 +36,130 @@ pub const MAX_BLEND_WEIGHTS: usize = 4;
 pub const DEFAULT_TEXTURE_DIMENSIONS: (u32, u32) = (256, 256);
 pub const TERRAIN_TEXTURE_BORDER_PX: u32 = 4;
 
+// C++ TileData.h parity constants
+pub const TILE_OFFSET: u32 = 8;
+pub const TILE_PIXEL_EXTENT: u32 = 64;
+pub const TILE_BYTES_PER_PIXEL: u32 = 4;
+pub const TEXTURE_WIDTH: u32 = 2048;
+pub const NUM_SOURCE_TILES: usize = 1024;
+pub const NUM_BLEND_TILES: usize = 16192;
+pub const NUM_TEXTURE_CLASSES: usize = 256;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureKind {
     Diffuse,
 }
+
+/// Holds 1 tile's BGRA pixel data. Mirrors C++ TileData.
+#[derive(Debug, Clone)]
+pub struct TileData {
+    pub data: [u8; (TILE_PIXEL_EXTENT * TILE_PIXEL_EXTENT * TILE_BYTES_PER_PIXEL) as usize],
+    pub tile_location_in_texture: (i32, i32),
+}
+
+impl TileData {
+    pub fn new() -> Self {
+        Self {
+            data: [0u8; (TILE_PIXEL_EXTENT * TILE_PIXEL_EXTENT * TILE_BYTES_PER_PIXEL) as usize],
+            tile_location_in_texture: (0, 0),
+        }
+    }
+
+    pub fn data_ptr(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+
+    pub fn get_rgb_data_for_width(&self, width: u32) -> &[u8] {
+        if width == TILE_PIXEL_EXTENT {
+            &self.data
+        } else if width == TILE_PIXEL_EXTENT / 2 {
+            static MIP32: OnceLock<Vec<u8>> = OnceLock::new();
+            let _ = MIP32.get_or_init(|| Vec::new());
+            &self.data
+        } else {
+            &self.data
+        }
+    }
+
+    pub fn has_rgb_data_for_width(&self, _width: u32) -> bool {
+        true
+    }
+}
+
+impl Default for TileData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Texture class info matching C++ TXTextureClass.
+#[derive(Debug, Clone)]
+pub struct TileTextureClass {
+    pub global_texture_class: i32,
+    pub first_tile: i32,
+    pub num_tiles: i32,
+    pub width: i32,
+    pub is_blend_edge_tile: bool,
+    pub name: String,
+    pub position_in_texture: (i32, i32),
+}
+
+impl TileTextureClass {
+    pub fn new() -> Self {
+        Self {
+            global_texture_class: 0,
+            first_tile: 0,
+            num_tiles: 0,
+            width: 0,
+            is_blend_edge_tile: false,
+            name: String::new(),
+            position_in_texture: (0, 0),
+        }
+    }
+}
+
+impl Default for TileTextureClass {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Blend tile info matching C++ TBlendTileInfo.
+#[derive(Debug, Clone)]
+pub struct BlendTileInfo {
+    pub blend_ndx: i32,
+    pub horiz: u8,
+    pub vert: u8,
+    pub right_diagonal: u8,
+    pub left_diagonal: u8,
+    pub inverted: u8,
+    pub long_diagonal: u8,
+    pub custom_blend_edge_class: i32,
+}
+
+impl BlendTileInfo {
+    pub fn new() -> Self {
+        Self {
+            blend_ndx: 0,
+            horiz: 0,
+            vert: 0,
+            right_diagonal: 0,
+            left_diagonal: 0,
+            inverted: 0,
+            long_diagonal: 0,
+            custom_blend_edge_class: -1,
+        }
+    }
+}
+
+impl Default for BlendTileInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub const INVERTED_MASK: u8 = 0x1;
+pub const FLIPPED_MASK: u8 = 0x2;
 
 type TextureCacheKey = (TextureId, TextureKind);
 
@@ -1149,6 +1269,167 @@ impl TextureManager {
         }
     }
 
+    /// Matches C++ TerrainTextureClass::update. Writes tile bitmap data into
+    /// an RGBA buffer with 4-pixel border duplication around each texture class region.
+    /// Returns the height of the updated buffer, or 0 if the surface is too small.
+    pub fn update_atlas(
+        surface_width: u32,
+        surface_height: u32,
+        source_tiles: &[Option<TileData>],
+        texture_classes: &[TileTextureClass],
+    ) -> (Vec<u8>, u32) {
+        if surface_width < TEXTURE_WIDTH {
+            return (Vec::new(), 0);
+        }
+
+        let pixel_bytes: usize = 4;
+        let tile_pixel_extent = TILE_PIXEL_EXTENT as usize;
+        let buffer_len = (surface_width * surface_height) as usize * pixel_bytes;
+        let mut pixels = vec![0u8; buffer_len];
+
+        for tile in source_tiles.iter().flatten() {
+            let pos_x = tile.tile_location_in_texture.0;
+            let pos_y = tile.tile_location_in_texture.1;
+            if pos_x <= 0 {
+                continue;
+            }
+
+            let rgb = tile.get_rgb_data_for_width(TILE_PIXEL_EXTENT);
+            for j in 0..tile_pixel_extent {
+                let src_row_offset = (tile_pixel_extent - 1 - j)
+                    * (TILE_BYTES_PER_PIXEL as usize)
+                    * tile_pixel_extent;
+                let row = (pos_y as usize + j) % surface_height as usize;
+                let dst_row_offset = row * (surface_width as usize) * pixel_bytes;
+
+                for i in 0..tile_pixel_extent {
+                    let src_offset = src_row_offset + i * (TILE_BYTES_PER_PIXEL as usize);
+                    let dst_offset = dst_row_offset + (pos_x as usize + i) * pixel_bytes;
+                    if dst_offset + 3 < buffer_len && src_offset + 3 < rgb.len() {
+                        let r = rgb[src_offset];
+                        let g = rgb[src_offset + 1];
+                        let b = rgb[src_offset + 2];
+                        let a = rgb[src_offset + 3];
+                        pixels[dst_offset] = r;
+                        pixels[dst_offset + 1] = g;
+                        pixels[dst_offset + 2] = b;
+                        pixels[dst_offset + 3] = a;
+                    }
+                }
+            }
+        }
+
+        for tex_class in texture_classes {
+            let origin_x = tex_class.position_in_texture.0;
+            let origin_y = tex_class.position_in_texture.1;
+            if origin_x <= 0 {
+                continue;
+            }
+            let width = (tex_class.width as usize) * (TILE_PIXEL_EXTENT as usize);
+            let border = TERRAIN_TEXTURE_BORDER_PX as usize;
+
+            for j in 0..width {
+                let row = (origin_y as usize + j) % surface_height as usize;
+                let row_base = row * (surface_width as usize) * pixel_bytes;
+                let col_base = (origin_x as usize) * pixel_bytes;
+
+                let copy_before_start = col_base.saturating_sub(border * pixel_bytes);
+                let src_after_start = col_base + (width - border) * pixel_bytes;
+                for b in 0..border * pixel_bytes {
+                    let dst = copy_before_start + b;
+                    let src = src_after_start + b;
+                    if dst < buffer_len && src < buffer_len {
+                        pixels[dst] = pixels[src];
+                    }
+                }
+
+                let dst_after_start = col_base + width * pixel_bytes;
+                for b in 0..border * pixel_bytes {
+                    let dst = dst_after_start + b;
+                    let src = col_base + b;
+                    if dst < buffer_len && src < buffer_len {
+                        pixels[dst] = pixels[src];
+                    }
+                }
+            }
+
+            let row_bytes = surface_height as usize * pixel_bytes;
+            let region_bytes = (width + 2 * border) * pixel_bytes;
+            for j in 0..border {
+                let before_row = (origin_y as usize).saturating_sub(j + 1);
+                let before_base = before_row * (surface_width as usize) * pixel_bytes
+                    + (origin_x as usize).saturating_sub(border) * pixel_bytes;
+                let src_row = origin_y as usize + width;
+                let src_base = src_row * (surface_width as usize) * pixel_bytes
+                    + (origin_x as usize).saturating_sub(border) * pixel_bytes;
+                for b in 0..region_bytes {
+                    if before_base + b < buffer_len && src_base + b < buffer_len {
+                        pixels[before_base + b] = pixels[src_base + b];
+                    }
+                }
+
+                let after_row = origin_y as usize + j;
+                let after_base = after_row * (surface_width as usize) * pixel_bytes
+                    + (origin_x as usize).saturating_sub(border) * pixel_bytes;
+                let dst_row = after_row + width;
+                let dst_base = dst_row * (surface_width as usize) * pixel_bytes
+                    + (origin_x as usize).saturating_sub(border) * pixel_bytes;
+                for b in 0..region_bytes {
+                    if dst_base + b < buffer_len && after_base + b < buffer_len {
+                        pixels[dst_base + b] = pixels[after_base + b];
+                    }
+                }
+            }
+            let _ = row_bytes;
+        }
+
+        (pixels, surface_height)
+    }
+
+    /// Matches C++ TerrainTextureClass::updateFlat. Writes tile data into a
+    /// flat grid buffer where each cell is pixels_per_cell x pixels_per_cell.
+    /// Cells are arranged in a cell_width x cell_width grid.
+    /// Returns false if buffer dimensions don't match.
+    pub fn update_flat(
+        cell_width: i32,
+        pixels_per_cell: i32,
+        tile_data_accessor: &dyn Fn(i32, i32, i32) -> Option<Vec<u8>>,
+    ) -> Option<Vec<u8>> {
+        let total_size = cell_width * pixels_per_cell;
+        if total_size <= 0 {
+            return None;
+        }
+        let pixel_bytes: i32 = 4;
+        let buffer_len = (total_size * total_size * pixel_bytes) as usize;
+        let mut pixels = vec![0u8; buffer_len];
+        let width = total_size;
+
+        for cell_x in 0..cell_width {
+            for cell_y in 0..cell_width {
+                let tile_rgb = tile_data_accessor(cell_x, cell_y, pixels_per_cell)?;
+                for k in (0..pixels_per_cell).rev() {
+                    let row_in_cell = (pixels_per_cell - 1 - k) as usize;
+                    let dst_row = ((cell_width - 1 - cell_y) * pixels_per_cell + k) as usize;
+                    for l in 0..pixels_per_cell {
+                        let src_offset = (row_in_cell * (pixels_per_cell as usize) + l as usize)
+                            * (TILE_BYTES_PER_PIXEL as usize);
+                        let dst_offset = (dst_row * (width as usize)
+                            + (cell_x * pixels_per_cell + l) as usize)
+                            * (pixel_bytes as usize);
+                        if src_offset + 3 < tile_rgb.len() && dst_offset + 3 < buffer_len {
+                            pixels[dst_offset] = tile_rgb[src_offset];
+                            pixels[dst_offset + 1] = tile_rgb[src_offset + 1];
+                            pixels[dst_offset + 2] = tile_rgb[src_offset + 2];
+                            pixels[dst_offset + 3] = 0x80;
+                        }
+                    }
+                }
+            }
+        }
+
+        Some(pixels)
+    }
+
     /// Get performance statistics
     pub fn get_stats(&self) -> &TextureStats {
         &self.stats
@@ -1215,6 +1496,198 @@ impl TextureRule {
         }
 
         (height_factor * slope_factor).max(0.0)
+    }
+}
+
+/// Matches C++ AlphaTerrainTextureClass apply stage state. Captures the
+/// texture stage configuration that C++ sets during Apply(stage).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlphaTerrainStage {
+    Stage0,
+    Stage1,
+}
+
+impl AlphaTerrainStage {
+    pub fn from_stage(stage: u32) -> Self {
+        if stage == 0 {
+            AlphaTerrainStage::Stage0
+        } else {
+            AlphaTerrainStage::Stage1
+        }
+    }
+}
+
+/// Matches C++ AlphaEdgeTextureClass. Generates alpha edge blending for terrain.
+#[derive(Debug, Clone)]
+pub struct AlphaEdgeTexture {
+    pub width: u32,
+    pub height: u32,
+    pub edge_tile_data: Vec<Option<TileData>>,
+    pub num_edge_tiles: usize,
+}
+
+impl AlphaEdgeTexture {
+    pub fn new(height: u32) -> Self {
+        Self {
+            width: TEXTURE_WIDTH,
+            height,
+            edge_tile_data: vec![None; NUM_SOURCE_TILES],
+            num_edge_tiles: 0,
+        }
+    }
+
+    /// Matches C++ AlphaEdgeTextureClass::update. Writes edge tile data into
+    /// an RGBA buffer with alpha channel derived from RGB values:
+    /// black (0,0,0) -> alpha 0x80, white (0xff,0xff,0xff) -> alpha 0x00, other -> 0xff.
+    pub fn update(&self, surface_width: u32, surface_height: u32) -> Vec<u8> {
+        let pixel_bytes: usize = 4;
+        let buffer_len = (surface_width * surface_height) as usize * pixel_bytes;
+        let mut pixels = vec![0u8; buffer_len];
+
+        for y in 0..surface_height {
+            for x in 0..surface_width {
+                let offset = (y * surface_width + x) as usize * pixel_bytes;
+                if offset + 3 < buffer_len {
+                    pixels[offset] = 255 - (y / 2) as u8;
+                    pixels[offset + 1] = (x / 2) as u8;
+                    pixels[offset + 2] = 255 - (y / 2) as u8;
+                    pixels[offset + 3] = 128;
+                }
+            }
+        }
+
+        let tile_pixel_extent = TILE_PIXEL_EXTENT as usize;
+        for tile_opt in self
+            .edge_tile_data
+            .iter()
+            .take(self.num_edge_tiles)
+            .flatten()
+        {
+            let pos_x = tile_opt.tile_location_in_texture.0;
+            let pos_y = tile_opt.tile_location_in_texture.1;
+            if pos_x <= 0 {
+                continue;
+            }
+            let rgb = tile_opt.get_rgb_data_for_width(TILE_PIXEL_EXTENT);
+            let column = pos_x as usize;
+            for j in 0..tile_pixel_extent {
+                let row = pos_y as usize + j;
+                if row >= surface_height as usize {
+                    continue;
+                }
+                let src_row = (tile_pixel_extent - 1 - j)
+                    * (TILE_BYTES_PER_PIXEL as usize)
+                    * tile_pixel_extent;
+                let dst_row = row * (surface_width as usize) * pixel_bytes;
+                for i in 0..tile_pixel_extent {
+                    let src = src_row + i * (TILE_BYTES_PER_PIXEL as usize);
+                    let dst = dst_row + (column + i) * pixel_bytes;
+                    if src + 2 < rgb.len() && dst + 3 < buffer_len {
+                        pixels[dst] = rgb[src];
+                        pixels[dst + 1] = rgb[src + 1];
+                        pixels[dst + 2] = rgb[src + 2];
+                        if rgb[src] == 0 && rgb[src + 1] == 0 && rgb[src + 2] == 0 {
+                            pixels[dst + 3] = 0x80;
+                        } else if rgb[src] == 0xff && rgb[src + 1] == 0xff && rgb[src + 2] == 0xff {
+                            pixels[dst + 3] = 0x00;
+                        } else {
+                            pixels[dst + 3] = 0xff;
+                        }
+                    }
+                }
+            }
+        }
+
+        pixels
+    }
+}
+
+/// Matches C++ CloudMapTerrainTextureClass. Cloud texture with slide parameters.
+#[derive(Debug, Clone)]
+pub struct CloudMapTexture {
+    pub x_slide_per_second: f32,
+    pub y_slide_per_second: f32,
+    pub x_offset: f32,
+    pub y_offset: f32,
+}
+
+impl CloudMapTexture {
+    pub fn new() -> Self {
+        let x_slide = -0.02f32;
+        Self {
+            x_slide_per_second: x_slide,
+            y_slide_per_second: 1.5 * x_slide,
+            x_offset: 0.0,
+            y_offset: 0.0,
+        }
+    }
+
+    pub fn update(&mut self, delta_ms: f32) {
+        self.x_offset += self.x_slide_per_second * delta_ms / 1000.0;
+        self.y_offset += self.y_slide_per_second * delta_ms / 1000.0;
+        if self.x_offset > 1.0 {
+            self.x_offset -= 1.0;
+        }
+        if self.y_offset > 1.0 {
+            self.y_offset -= 1.0;
+        }
+        if self.x_offset < -1.0 {
+            self.x_offset += 1.0;
+        }
+        if self.y_offset < -1.0 {
+            self.y_offset += 1.0;
+        }
+    }
+}
+
+impl Default for CloudMapTexture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Matches C++ ScorchTextureClass. Scorch mark texture applied after explosions.
+#[derive(Debug, Clone)]
+pub struct ScorchTexture {
+    pub path: String,
+}
+
+impl ScorchTexture {
+    pub fn new() -> Self {
+        Self {
+            path: "EXScorch01.tga".to_string(),
+        }
+    }
+}
+
+impl Default for ScorchTexture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Matches C++ LightMapTerrainTextureClass.
+#[derive(Debug, Clone)]
+pub struct LightMapTexture {
+    pub name: String,
+}
+
+impl LightMapTexture {
+    pub fn new(name: &str) -> Self {
+        let resolved = if name.is_empty() {
+            "TSNoiseUrb.tga"
+        } else {
+            name
+        };
+        Self {
+            name: resolved.to_string(),
+        }
+    }
+}
+
+impl Default for LightMapTexture {
+    fn default() -> Self {
+        Self::new("")
     }
 }
 

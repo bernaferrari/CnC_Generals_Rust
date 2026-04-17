@@ -1,4 +1,5 @@
 //! Shim for WOLQuickMatchMenu.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_quick_match_menu::{
     wol_quick_match_menu_init, wol_quick_match_menu_input, wol_quick_match_menu_shutdown,

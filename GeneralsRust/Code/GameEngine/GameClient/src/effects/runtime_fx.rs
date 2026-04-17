@@ -34,6 +34,7 @@
 //! its nuggets create runtime FX instances that live in this container.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use nalgebra::{Point3, Vector3};
@@ -45,19 +46,11 @@ use nalgebra::{Point3, Vector3};
 /// Unique identifier for a live runtime effect.
 pub type FXId = u64;
 
-/// Global counter for generating unique IDs. Not thread-safe; call from
-/// the main game thread only (matches C++ single-threaded game loop).
-static mut FX_NEXT_ID: FXId = 1;
+/// Global counter for generating unique IDs.
+static FX_NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_fx_id() -> FXId {
-    // SAFETY: Only called from the main game-thread update/render path.
-    // This mirrors the C++ pattern of incrementing global ID counters
-    // from the game loop without locking.
-    unsafe {
-        let id = FX_NEXT_ID;
-        FX_NEXT_ID += 1;
-        id
-    }
+    FX_NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 // ---------------------------------------------------------------------------

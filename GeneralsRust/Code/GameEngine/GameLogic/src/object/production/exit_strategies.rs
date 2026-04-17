@@ -37,6 +37,7 @@ pub trait ProductionExitStrategy: Send + Sync + Debug {
 #[derive(Debug)]
 pub struct DefaultProductionExit {
     /// Producer object ID
+    #[allow(dead_code)]
     producer_id: ObjectID,
     /// Exit points (one per door)
     exit_points: Vec<Coord3D>,
@@ -296,6 +297,7 @@ pub struct SupplyCenterProductionExit {
     /// Base exit strategy
     base: DefaultProductionExit,
     /// Supply dock positions
+    #[allow(dead_code)]
     supply_docks: Vec<Coord3D>,
 }
 
@@ -405,6 +407,7 @@ impl ProductionExitStrategy for SupplyCenterProductionExit {
 #[derive(Debug)]
 pub struct SpawnPointProductionExit {
     /// Producer object ID
+    #[allow(dead_code)]
     producer_id: ObjectID,
     /// Spawn positions (may be in air for aircraft)
     spawn_points: Vec<Coord3D>,

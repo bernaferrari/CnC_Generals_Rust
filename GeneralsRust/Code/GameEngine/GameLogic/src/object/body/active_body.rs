@@ -31,6 +31,7 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock};
 
 /// Yellow damage threshold percentage (when fear sounds play)
+#[allow(dead_code)]
 const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 
 /// Configuration data specific to active bodies

@@ -68,20 +68,11 @@ impl ParticleSystemINIParser {
         self.parse_info_from_ini(ini, &mut info)?;
 
         // Apply parsed info to the template via mutable reference
-        if let Some(arc_template) = manager.templates.get(&name) {
-            // We need to get a mutable reference - use Arc::get_mut if unique,
-            // or clone and replace
-            if let Some(template_mut) = Arc::get_mut(&mut manager.templates.get_mut(&name).unwrap())
-            {
-                *template_mut.info_mut() = info;
-            } else {
-                // Arc is shared, need to clone and replace
-                let mut new_template = (**arc_template).clone();
-                *new_template.info_mut() = info;
-                manager
-                    .templates
-                    .insert(name.clone(), Arc::new(new_template));
-            }
+        // Clone-then-replace pattern to avoid simultaneous borrows on the HashMap
+        if let Some(arc_template) = manager.templates.get(&name).cloned() {
+            let mut new_template = (*arc_template).clone();
+            *new_template.info_mut() = info;
+            manager.templates.insert(name, Arc::new(new_template));
         }
 
         Ok(())
