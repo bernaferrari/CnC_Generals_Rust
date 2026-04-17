@@ -582,6 +582,36 @@ impl RenderBridge {
         Some(Arc::new(fallback))
     }
 
+    /// Drain all processed submissions from the scene layers after `flush()`.
+    ///
+    /// Returns `(DrawSubmission, is_transparent)` pairs. The scene is cleared
+    /// after draining so the submissions are not rendered a second time.
+    ///
+    /// This is the bridge point where the GameClient drawable pipeline hands
+    /// off its culled/sorted submissions to the main `RenderPipeline`.
+    pub fn drain_scene_submissions(&mut self) -> Vec<(DrawSubmission, bool)> {
+        let mut result = Vec::new();
+
+        for i in 0..self.scene.layer_count() {
+            let is_transparent = self
+                .scene
+                .get_layer(i)
+                .map(|l| l.name() == "transparent")
+                .unwrap_or(false);
+
+            if let Some(layer) = self.scene.get_layer(i) {
+                for obj in layer.objects_slice() {
+                    if let Some(bridge_obj) = obj.as_any().downcast_ref::<BridgeRenderObject>() {
+                        result.push((bridge_obj.submission.clone(), is_transparent));
+                    }
+                }
+            }
+        }
+
+        self.scene.clear();
+        result
+    }
+
     pub fn end_frame(&mut self) {}
 
     pub fn scene(&self) -> &Scene {
