@@ -3736,8 +3736,8 @@ impl EnhancedControlBar {
         let Ok(guard) = player.read() else {
             return None;
         };
-        let side = guard.get_side().to_string();
-        let base = guard.get_base_side().to_string();
+        let side = guard.get_side();
+        let base = guard.get_base_side();
         let suffix = if base.contains("China") {
             "China"
         } else if base.contains("GLA") {
