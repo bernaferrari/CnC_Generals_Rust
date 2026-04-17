@@ -1821,11 +1821,25 @@ impl CnCGameEngine {
     }
 
     fn ui_window_manager_has_windows(&self) -> bool {
-        false
+        #[cfg(feature = "game_client")]
+        {
+            game_client::gui::with_window_manager_ref(|wm| wm.window_count() > 0)
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
+        }
     }
 
     fn gameplay_ui_active(&self) -> bool {
-        false
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::get_input_enabled()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
+        }
     }
 
     fn ensure_shell_loading_overlay(&mut self) {

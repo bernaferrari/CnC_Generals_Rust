@@ -6,6 +6,8 @@ use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 #[cfg(feature = "game_client")]
 use glam028::Mat4 as GameClientMat4;
+#[cfg(feature = "game_client")]
+use glam028::Vec3 as GameClientVec3;
 use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicUsize;
@@ -656,7 +658,15 @@ impl RenderPipeline {
             } else {
                 initial_deferred_model_load_budget.saturating_sub(deferred_model_load_budget)
             };
-            // Removed excessive logging
+
+            #[cfg(feature = "game_client")]
+            {
+                self.drain_render_bridge_submissions(
+                    graphics_system,
+                    camera_position,
+                    &mut deferred_model_load_budget,
+                );
+            }
 
             // Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
             let sort_started = std::time::Instant::now();
@@ -1598,6 +1608,148 @@ impl RenderPipeline {
         resolved
             .map(RenderModelLoadResult::Ready)
             .unwrap_or(RenderModelLoadResult::Failed)
+    }
+
+    /// Drain submissions from the GameClient RenderBridge and convert them
+    /// into `RenderItem`s so they flow through the existing ForwardPass.
+    ///
+    /// C++ parity: drawables submit to the WW3D scene during
+    /// `GameClient::update()`; the render pipeline then consumes those
+    /// submissions during `RenderPipeline::execute()`.
+    #[cfg(feature = "game_client")]
+    fn drain_render_bridge_submissions(
+        &mut self,
+        graphics_system: &mut GraphicsSystem,
+        camera_position: Vec3,
+        deferred_model_load_budget: &mut usize,
+    ) {
+        use game_client::render_bridge::get_render_bridge;
+
+        let mut bridge_guard = match get_render_bridge().lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let bridge = match bridge_guard.as_mut() {
+            Some(b) => b,
+            None => return,
+        };
+
+        bridge.flush();
+
+        let submissions = bridge.drain_scene_submissions();
+        if submissions.is_empty() {
+            return;
+        }
+
+        let submissions_count = submissions.len();
+        let mut bridge_items_added = 0usize;
+
+        for (submission, is_transparent) in submissions {
+            let model_name = &submission.model_name;
+            if model_name.is_empty() {
+                continue;
+            }
+
+            let render_pass = if is_transparent {
+                RenderPass::ForwardTransparent
+            } else {
+                RenderPass::ForwardOpaque
+            };
+
+            let client_transform: GameClientMat4 = submission.world_transform;
+            let world_matrix = Mat4::from_cols_array_2d(&client_transform.to_cols_array_2d());
+            let world_position = Vec3::new(
+                world_matrix.w_axis.x,
+                world_matrix.w_axis.y,
+                world_matrix.w_axis.z,
+            );
+
+            let object_id = crate::game_logic::ObjectId(submission.drawable_id.0);
+            let vis_alpha = submission.render_state.opacity;
+            let fow_vis = ObjectVisibility {
+                visibility_alpha: vis_alpha,
+                is_explored: 1.0,
+                visibility_falloff: 1.0,
+            };
+
+            let load_result = Self::ensure_render_model_loaded(
+                graphics_system,
+                model_name,
+                model_name,
+                true,
+                deferred_model_load_budget,
+            );
+
+            match load_result {
+                RenderModelLoadResult::Ready(w3d_model) => {
+                    if w3d_model.meshes.is_empty() {
+                        if let Some(fallback_model) =
+                            graphics_system.get_model_or_fallback("__fallback_cube__")
+                        {
+                            if !fallback_model.meshes.is_empty() {
+                                let mut item = RenderItem::new(
+                                    object_id,
+                                    "__fallback_cube__".to_string(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    &fallback_model.meshes[0].material,
+                                    render_pass,
+                                );
+                                item.distance = world_position.distance(camera_position);
+                                item.set_fow_visibility(fow_vis);
+                                self.render_items.push(item);
+                                bridge_items_added += 1;
+                            }
+                        }
+                    } else {
+                        for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
+                            let mut item = RenderItem::new(
+                                object_id,
+                                model_name.clone(),
+                                mesh_idx,
+                                world_position,
+                                world_matrix,
+                                &mesh.material,
+                                render_pass,
+                            );
+                            item.distance = world_position.distance(camera_position);
+                            item.set_fow_visibility(fow_vis);
+                            self.render_items.push(item);
+                        }
+                        bridge_items_added += 1;
+                    }
+                }
+                RenderModelLoadResult::SkippedByBudget | RenderModelLoadResult::Failed => {
+                    if let Some(fallback_model) =
+                        graphics_system.get_model_or_fallback("__fallback_cube__")
+                    {
+                        if !fallback_model.meshes.is_empty() {
+                            let mut item = RenderItem::new(
+                                object_id,
+                                "__fallback_cube__".to_string(),
+                                0,
+                                world_position,
+                                world_matrix,
+                                &fallback_model.meshes[0].material,
+                                render_pass,
+                            );
+                            item.distance = world_position.distance(camera_position);
+                            item.set_fow_visibility(fow_vis);
+                            self.render_items.push(item);
+                            bridge_items_added += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if bridge_items_added > 0 && self.frame_number % 300 == 0 {
+            debug!(
+                "RenderBridge drain: {} items from {} submissions",
+                bridge_items_added, submissions_count
+            );
+        }
     }
 
     /// Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()

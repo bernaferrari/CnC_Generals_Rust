@@ -1504,9 +1504,6 @@ pub fn skirmish_game_options_menu_system(
                 return;
             }
             if control_id == state.button_back_id {
-                    handled = true;
-                    return;
-                }
                 state.button_pushed = true;
                 set_skirmish_button_pushed(true);
                 write_skirmish_preferences(state);

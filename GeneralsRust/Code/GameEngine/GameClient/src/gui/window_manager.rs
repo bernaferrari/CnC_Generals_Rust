@@ -705,6 +705,12 @@ impl WindowManager {
         &self.root_windows
     }
 
+    /// Get the total number of windows managed by this WindowManager.
+    /// C++ parity: mirrors `TheWindowManager->winGetWindowList() != NULL` check.
+    pub fn window_count(&self) -> usize {
+        self.window_count
+    }
+
     pub fn debug_collect_window_texts_by_prefix(
         &self,
         prefix: &str,
