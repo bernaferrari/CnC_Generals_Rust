@@ -298,13 +298,6 @@ impl ContainBindingModule {
 }
 
 impl Module for ContainBindingModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
@@ -381,7 +374,6 @@ fn open_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<OpenContainModuleData>>()
         .expect("OpenContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -414,7 +406,6 @@ fn transport_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<TransportContainModuleData>>()
         .expect("TransportContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -447,7 +438,6 @@ fn garrison_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<GarrisonContainModuleData>>()
         .expect("GarrisonContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -480,7 +470,6 @@ fn tunnel_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<TunnelContainModuleData>>()
         .expect("TunnelContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -513,7 +502,6 @@ fn overlord_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<OverlordContainModuleData>>()
         .expect("OverlordContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -546,7 +534,6 @@ fn helix_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<HelixContainModuleData>>()
         .expect("HelixContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -579,7 +566,6 @@ fn railed_transport_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<RailedTransportContainModuleData>>()
         .expect("RailedTransportContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -612,7 +598,6 @@ fn rider_change_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<RiderChangeContainModuleData>>()
         .expect("RiderChangeContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -645,7 +630,6 @@ fn internet_hack_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<InternetHackContainModuleData>>()
         .expect("InternetHackContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -678,7 +662,6 @@ fn heal_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<HealContainModuleData>>()
         .expect("HealContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -711,7 +694,6 @@ fn cave_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<CaveContainModuleData>>()
         .expect("CaveContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -744,7 +726,6 @@ fn parachute_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<ParachuteContainModuleData>>()
         .expect("ParachuteContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);
@@ -777,7 +758,6 @@ fn mob_nexus_contain_module_factory(
 ) -> Box<dyn Module> {
     let typed_data = module_data
         .as_ref()
-        .as_any()
         .downcast_ref::<ContainModuleDataAdapter<MobNexusContainModuleData>>()
         .expect("MobNexusContain module data adapter expected");
     let owner_id = resolve_owner_id(&thing);

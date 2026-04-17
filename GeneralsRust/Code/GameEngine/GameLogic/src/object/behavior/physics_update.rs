@@ -438,8 +438,7 @@ impl PhysicsBehaviorUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<PhysicsBehaviorModuleData>()
+        .downcast_ref::<PhysicsBehaviorModuleData>()
             .ok_or("Invalid module data for PhysicsBehavior")?;
 
         let module_data = Arc::new(data.clone());

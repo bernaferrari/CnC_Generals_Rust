@@ -334,8 +334,7 @@ impl StructureCollapseUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<StructureCollapseUpdateModuleData>()
+        .downcast_ref::<StructureCollapseUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(obj) = object.read() {

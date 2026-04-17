@@ -334,8 +334,7 @@ impl DynamicShroudClearingRangeUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
+        .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         // Calculate state timeline (see C++ diagram comment)

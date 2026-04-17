@@ -206,8 +206,7 @@ impl PropagandaTowerBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<PropagandaTowerBehaviorModuleData>()
+        .downcast_ref::<PropagandaTowerBehaviorModuleData>()
             .ok_or("Invalid module data type for PropagandaTowerBehavior")?;
 
         let object_id = object
@@ -652,13 +651,6 @@ impl Snapshotable for PropagandaTowerBehaviorModule {
 }
 
 impl Module for PropagandaTowerBehaviorModule {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key

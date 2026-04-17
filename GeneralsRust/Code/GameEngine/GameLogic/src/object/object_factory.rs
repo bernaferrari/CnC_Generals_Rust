@@ -276,8 +276,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<AIUpdateModuleData>()
+        .downcast_ref::<AIUpdateModuleData>()
                         })
                         .map(|data| data.clone());
 
@@ -289,8 +288,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<RailedTransportAIUpdateModuleData>()
+        .downcast_ref::<RailedTransportAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -302,8 +300,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<HackInternetAIUpdateModuleData>()
+        .downcast_ref::<HackInternetAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -315,8 +312,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<AssaultTransportAIUpdateModuleData>()
+        .downcast_ref::<AssaultTransportAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -328,8 +324,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
+        .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -341,8 +336,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<DeployStyleAIUpdateModuleData>()
+        .downcast_ref::<DeployStyleAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -364,8 +358,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<DozerAIUpdateModuleData>()
+        .downcast_ref::<DozerAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -377,8 +370,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<ChinookAIUpdateModuleData>()
+        .downcast_ref::<ChinookAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -390,8 +382,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<JetAIUpdateModuleData>()
+        .downcast_ref::<JetAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -403,8 +394,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<SupplyTruckAIUpdateModuleData>()
+        .downcast_ref::<SupplyTruckAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -416,8 +406,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<WorkerAIUpdateModuleData>()
+        .downcast_ref::<WorkerAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -430,8 +419,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-                                .as_any()
-                                .downcast_ref::<POWTruckAIUpdateModuleData>()
+        .downcast_ref::<POWTruckAIUpdateModuleData>()
                         })
                         .map(|data| data.base.clone());
 

@@ -55,8 +55,7 @@ impl ProjectileStreamUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<ProjectileStreamUpdateModuleData>()
+        .downcast_ref::<ProjectileStreamUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {

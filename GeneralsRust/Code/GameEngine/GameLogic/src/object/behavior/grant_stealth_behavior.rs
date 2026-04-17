@@ -184,8 +184,7 @@ impl GrantStealthBehavior {
         let specific_data = {
             let data_ref = module_data
                 .as_ref()
-                .as_any()
-                .downcast_ref::<GrantStealthBehaviorModuleData>()
+        .downcast_ref::<GrantStealthBehaviorModuleData>()
                 .ok_or("Invalid module data type for GrantStealthBehavior")?;
             data_ref.clone()
         };

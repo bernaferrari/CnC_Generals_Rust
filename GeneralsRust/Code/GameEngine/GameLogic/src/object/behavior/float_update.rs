@@ -72,8 +72,7 @@ impl FloatUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<FloatUpdateModuleData>()
+        .downcast_ref::<FloatUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {

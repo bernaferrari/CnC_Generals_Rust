@@ -384,8 +384,7 @@ impl FireWeaponWhenDamagedBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
+        .downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
             .ok_or("Invalid module data for FireWeaponWhenDamagedBehavior")?;
 
         let data = Arc::new(specific_data.clone());

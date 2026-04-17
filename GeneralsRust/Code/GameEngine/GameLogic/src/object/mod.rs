@@ -1828,14 +1828,6 @@ impl EngineSnapshotable for BehaviorModuleProxy {
 }
 
 impl engine_module::Module for BehaviorModuleProxy {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.entry
             .with_module(|module| module.get_module_name_key())

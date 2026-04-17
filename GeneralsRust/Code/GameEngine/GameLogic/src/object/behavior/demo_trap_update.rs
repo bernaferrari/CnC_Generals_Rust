@@ -237,8 +237,7 @@ impl DemoTrapUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<DemoTrapUpdateModuleData>()
+        .downcast_ref::<DemoTrapUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {

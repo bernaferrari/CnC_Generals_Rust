@@ -197,12 +197,6 @@ impl Module for W3DRopeDraw {
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self._data.module_tag_name_key
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
     fn get_module_data(&self) -> &dyn ModuleData {
         &self._data
     }

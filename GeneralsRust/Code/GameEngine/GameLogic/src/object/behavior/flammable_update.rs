@@ -71,8 +71,7 @@ impl FlammableUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<FlammableUpdateModuleData>()
+        .downcast_ref::<FlammableUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let flame_limit = specific_data.flame_damage_limit;

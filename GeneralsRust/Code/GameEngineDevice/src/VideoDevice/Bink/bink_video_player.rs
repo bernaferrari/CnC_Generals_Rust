@@ -150,12 +150,12 @@ impl BinkHeader {
 ///   position correctly.
 /// - `is_frame_ready()` returns `true` immediately (no async decompression).
 pub struct BinkVideoStream {
+    decoder: Option<game_client_rust::bink::BinkDecoder>,
     header: BinkHeader,
     current_frame: u32,
-    /// The movie title for logging / identification.
     movie_title: String,
-    /// Whether the stream has reached the last frame.
     finished: bool,
+    current_rgba: Vec<u8>,
 }
 
 impl BinkVideoStream {
@@ -171,11 +171,21 @@ impl BinkVideoStream {
             );
             return None;
         }
+
+        let decoder = game_client_rust::bink::BinkDecoder::open(path).ok();
+        let current_rgba = if let Some(ref dec) = decoder {
+            dec.decode_current_frame_rgba()
+        } else {
+            Vec::new()
+        };
+
         Some(Self {
+            decoder,
             header,
             current_frame: 0,
             movie_title: movie_title.to_string(),
             finished: false,
+            current_rgba,
         })
     }
 }
@@ -235,17 +245,12 @@ impl VideoStreamInterface for BinkVideoStream {
     // -- frame operations ----------------------------------------------------
     fn frame_decompress(&mut self) {
         // C++: BinkDoFrame(m_handle);
-        // No real decoder available — no-op.  frame_render() will write
-        // placeholder data directly.
+        if let Some(ref decoder) = self.decoder {
+            self.current_rgba = decoder.decode_current_frame_rgba();
+        }
     }
 
     fn frame_render(&mut self, buffer: &mut dyn VideoBuffer) {
-        // C++ BinkVideoStream::frameRender():
-        //   void *mem = buffer->lock();
-        //   select Bink surface flags from buffer->format()
-        //   BinkCopyToBuffer(m_handle, mem, pitch, height, xPos, yPos, flags);
-        //   buffer->unlock();
-
         if !buffer.valid() {
             return;
         }
@@ -266,7 +271,6 @@ impl VideoStreamInterface for BinkVideoStream {
             return;
         }
 
-        // Determine bytes per pixel from the buffer format.
         let bpp: usize = match buf_format {
             VideoBufferType::X8R8G8B8 => 4,
             VideoBufferType::R8G8B8 => 3,
@@ -277,12 +281,8 @@ impl VideoStreamInterface for BinkVideoStream {
             }
         };
 
-        // Source dimensions from the video header.
         let vid_w = self.header.width as usize;
         let vid_h = self.header.height as usize;
-
-        // Compute the copy region — only write pixels that fit in both the
-        // video dimensions and the buffer (respecting the x/y offset).
         let copy_w = vid_w.min(buf_width.saturating_sub(x_offset));
         let copy_h = vid_h.min(buf_height.saturating_sub(y_offset));
 
@@ -291,70 +291,36 @@ impl VideoStreamInterface for BinkVideoStream {
             return;
         }
 
-        // Build a 16×16 checkerboard pattern in dark blue / lighter blue,
-        // which makes it obvious that this is a placeholder while still
-        // showing that frames are being rendered.
-        let checker_size = 16usize;
-        let frame_idx = self.current_frame as usize;
-
-        for row in 0..copy_h {
-            let dst_row = y_offset + row;
-            let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
-
-            for col in 0..copy_w {
-                let checker_x = (col + frame_idx * 2) / checker_size;
-                let checker_y = row / checker_size;
-                let is_light = (checker_x + checker_y) % 2 == 0;
-
-                let dst = unsafe { row_base.add(col * bpp) };
-
-                match buf_format {
-                    VideoBufferType::X8R8G8B8 => {
-                        // X8R8G8B8: byte order [B, G, R, X]
-                        let (r, g, b) = if is_light {
-                            (80u8, 100, 180)
-                        } else {
-                            (30u8, 40, 100)
-                        };
-                        unsafe {
-                            *dst = b;
-                            *dst.add(1) = g;
-                            *dst.add(2) = r;
-                            *dst.add(3) = 0xFF;
-                        }
-                    }
-                    VideoBufferType::R8G8B8 => {
-                        // R8G8B8: byte order [R, G, B]
-                        let (r, g, b) = if is_light {
-                            (80u8, 100, 180)
-                        } else {
-                            (30u8, 40, 100)
-                        };
-                        unsafe {
-                            *dst = r;
-                            *dst.add(1) = g;
-                            *dst.add(2) = b;
-                        }
-                    }
-                    VideoBufferType::R5G6B5 => {
-                        // R5G6B5 packed u16
-                        let pixel = if is_light { 0x5148 } else { 0x2094 };
-                        let bytes = pixel.to_le_bytes();
-                        unsafe {
-                            *dst = bytes[0];
-                            *dst.add(1) = bytes[1];
-                        }
-                    }
-                    VideoBufferType::X1R5G5B5 => {
-                        // X1R5G5B5 packed u16
-                        let pixel = if is_light { 0x5A94 } else { 0x2149 };
-                        let bytes = pixel.to_le_bytes();
-                        unsafe {
-                            *dst = bytes[0];
-                            *dst.add(1) = bytes[1];
-                        }
-                    }
-                    _ => unreachable!(),
+        if !self.current_rgba.is_empty() && self.current_rgba.len() >= vid_w * vid_h * 4 {
+            // Use decoded RGBA data from the BinkDecoder.
+            for row in 0..copy_h {
+                let dst_row = y_offset + row;
+                let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
+                for col in 0..copy_w {
+                    let src_index = (row * vid_w + col) * 4;
+                    let rgba = &self.current_rgba[src_index..src_index + 4];
+                    let dst = unsafe { row_base.add(col * bpp) };
+                    unsafe { write_pixel(dst, buf_format, rgba[0], rgba[1], rgba[2], rgba[3]) };
+                }
+            }
+        } else {
+            // Fallback: checkerboard placeholder when no decoder data is available.
+            let checker_size = 16usize;
+            let frame_idx = self.current_frame as usize;
+            for row in 0..copy_h {
+                let dst_row = y_offset + row;
+                let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
+                for col in 0..copy_w {
+                    let checker_x = (col + frame_idx * 2) / checker_size;
+                    let checker_y = row / checker_size;
+                    let is_light = (checker_x + checker_y) % 2 == 0;
+                    let dst = unsafe { row_base.add(col * bpp) };
+                    let (r, g, b) = if is_light {
+                        (80u8, 100, 180)
+                    } else {
+                        (30u8, 40, 100)
+                    };
+                    unsafe { write_pixel(dst, buf_format, r, g, b, 0xFF) };
                 }
             }
         }
@@ -363,8 +329,10 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn frame_next(&mut self) {
-        // C++: BinkNextFrame(m_handle);
-        if self.current_frame < self.header.num_frames.saturating_sub(1) {
+        if let Some(ref mut decoder) = self.decoder {
+            decoder.advance();
+            self.current_frame = decoder.current_frame_index();
+        } else if self.current_frame < self.header.num_frames.saturating_sub(1) {
             self.current_frame += 1;
         } else {
             self.finished = true;
@@ -372,8 +340,10 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn frame_goto(&mut self, index: i32) {
-        // C++: BinkGoto(m_handle, index, NULL);
-        if index < 0 {
+        if let Some(ref mut decoder) = self.decoder {
+            decoder.seek(index.max(0) as u32);
+            self.current_frame = decoder.current_frame_index();
+        } else if index < 0 {
             self.current_frame = 0;
         } else if (index as u32) >= self.header.num_frames {
             self.current_frame = self.header.num_frames.saturating_sub(1);
@@ -381,6 +351,41 @@ impl VideoStreamInterface for BinkVideoStream {
             self.current_frame = index as u32;
         }
         self.finished = false;
+    }
+}
+
+unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, r: u8, g: u8, b: u8, a: u8) {
+    match format {
+        VideoBufferType::X8R8G8B8 => {
+            *dst = b;
+            *dst.add(1) = g;
+            *dst.add(2) = r;
+            *dst.add(3) = a;
+        }
+        VideoBufferType::R8G8B8 => {
+            *dst = r;
+            *dst.add(1) = g;
+            *dst.add(2) = b;
+        }
+        VideoBufferType::R5G6B5 => {
+            let packed = (((r as u16 >> 3) & 0x1F) << 11)
+                | (((g as u16 >> 2) & 0x3F) << 5)
+                | ((b as u16 >> 3) & 0x1F);
+            let bytes = packed.to_le_bytes();
+            *dst = bytes[0];
+            *dst.add(1) = bytes[1];
+        }
+        VideoBufferType::X1R5G5B5 => {
+            let alpha_bit = if a >= 128 { 1u16 } else { 0u16 };
+            let packed = (alpha_bit << 15)
+                | (((r as u16 >> 3) & 0x1F) << 10)
+                | (((g as u16 >> 3) & 0x1F) << 5)
+                | ((b as u16 >> 3) & 0x1F);
+            let bytes = packed.to_le_bytes();
+            *dst = bytes[0];
+            *dst.add(1) = bytes[1];
+        }
+        _ => {}
     }
 }
 
@@ -468,6 +473,19 @@ impl BinkVideoProviderHandle {
         }
         game_client_rust::video_player::clear_video_stream_provider();
         self.registered = false;
+    }
+
+    /// Equivalent to C++ `BinkVideoPlayer::notifyVideoPlayerOfNewProvider(Bool)`.
+    ///
+    /// In C++ this connects/disconnects Bink audio with the Miles audio system.
+    /// The Rust port does not depend on Miles, so this is a stub that manages
+    /// the provider registration state.
+    pub fn notify_video_player_of_new_provider(&mut self, now_has_valid: bool) {
+        if now_has_valid && !self.registered {
+            self.init();
+        } else if !now_has_valid && self.registered {
+            self.deinit();
+        }
     }
 }
 
@@ -756,6 +774,7 @@ mod tests {
 impl BinkVideoStream {
     fn new_from_dims(width: u32, height: u32, num_frames: u32) -> Self {
         Self {
+            decoder: None,
             header: BinkHeader {
                 magic: BINK_MAGIC_BIKI,
                 width,
@@ -768,6 +787,7 @@ impl BinkVideoStream {
             current_frame: 0,
             movie_title: String::from("test"),
             finished: false,
+            current_rgba: Vec::new(),
         }
     }
 }

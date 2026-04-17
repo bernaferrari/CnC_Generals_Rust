@@ -241,8 +241,7 @@ impl ParticleUplinkCannonUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
+        .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let obj_guard = object.read().unwrap();

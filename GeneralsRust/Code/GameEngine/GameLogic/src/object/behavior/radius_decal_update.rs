@@ -66,8 +66,7 @@ impl RadiusDecalUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<RadiusDecalUpdateModuleData>()
+        .downcast_ref::<RadiusDecalUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let mut decal = RadiusDecal::new(Coord3D::origin(), 0.0);

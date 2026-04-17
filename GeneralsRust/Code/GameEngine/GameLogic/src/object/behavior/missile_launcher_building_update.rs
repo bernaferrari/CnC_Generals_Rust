@@ -90,8 +90,7 @@ impl MissileLauncherBuildingUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
+        .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let mut audio = AudioEventRts::default();

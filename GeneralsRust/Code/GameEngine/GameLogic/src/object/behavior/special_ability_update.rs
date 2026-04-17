@@ -488,8 +488,7 @@ impl SpecialAbilityUpdate {
 
         let sa_data = module_data
             .as_ref()
-            .as_any()
-            .downcast_ref::<SpecialAbilityUpdateModuleData>()
+        .downcast_ref::<SpecialAbilityUpdateModuleData>()
             .expect("Invalid ModuleData for SpecialAbilityUpdate")
             .clone();
 
