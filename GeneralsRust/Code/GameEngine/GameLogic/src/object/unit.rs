@@ -94,6 +94,7 @@ pub enum CombatMode {
 
 /// Unit-specific data and behavior
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Unit {
     /// Base object functionality
     base_object: Arc<RwLock<Object>>,
@@ -118,6 +119,7 @@ pub struct Unit {
     mood_attack_check_rate_frames: u32,
 
     /// Formation and group behavior
+    #[allow(dead_code)]
     formation_type: FormationType,
     formation_position: usize,
     group_leader: Option<ObjectID>,

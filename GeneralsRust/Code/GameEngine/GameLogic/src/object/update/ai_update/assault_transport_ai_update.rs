@@ -29,6 +29,7 @@ const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AssaultStateType {
     Idle,
+    #[allow(dead_code)]
     Assaulting,
 }
 

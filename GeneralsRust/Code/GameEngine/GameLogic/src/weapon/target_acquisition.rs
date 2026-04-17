@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 pub type ObjectId = u32;
+#[allow(dead_code)]
 pub const INVALID_OBJECT_ID: ObjectId = 0;
 
 /// Target priority classification (per C++ design: structure > siege > infantry > armor)

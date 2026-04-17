@@ -1,4 +1,5 @@
 //! Shim for WOLCustomScoreScreen.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_custom_score_screen::{
     wol_custom_score_screen_init, wol_custom_score_screen_input, wol_custom_score_screen_shutdown,

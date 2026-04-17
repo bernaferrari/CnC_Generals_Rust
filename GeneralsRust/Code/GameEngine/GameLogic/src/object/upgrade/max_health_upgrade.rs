@@ -84,6 +84,7 @@ pub struct MaxHealthUpgrade {
 
 #[derive(Debug)]
 struct MaxHealthUpgradeInner {
+    #[allow(dead_code)]
     module_name_key: NameKeyType,
     data: Arc<MaxHealthUpgradeModuleData>,
     object_id: ObjectID,
@@ -111,10 +112,12 @@ impl MaxHealthUpgradeEntry {
         }
     }
 
+    #[allow(dead_code)]
     fn upgrade(&self) -> Option<Arc<MaxHealthUpgradeModuleData>> {
         self.data.upgrade()
     }
 
+    #[allow(dead_code)]
     fn applied(&self) -> bool {
         self.applied
     }
@@ -188,6 +191,7 @@ fn mark_max_health_applied(
     }
 }
 
+#[allow(dead_code)]
 fn mark_max_health_removed(
     object_id: ObjectID,
     data: &Arc<MaxHealthUpgradeModuleData>,
@@ -271,6 +275,7 @@ impl MaxHealthUpgradeInner {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn remove_max_health(&mut self) -> Result<(), String> {
         let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
             return Err(format!(

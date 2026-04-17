@@ -172,6 +172,7 @@ pub struct ObjectFactory {
     template_cache: HashMap<String, Arc<dyn ThingTemplate>>,
 
     /// Weapon template cache
+    #[allow(dead_code)]
     weapon_template_cache: HashMap<String, Arc<WeaponTemplate>>,
 
     /// Objects to be destroyed at end of frame

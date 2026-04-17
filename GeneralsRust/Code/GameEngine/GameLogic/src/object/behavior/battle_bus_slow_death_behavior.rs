@@ -625,6 +625,7 @@ impl BattleBusSlowDeathBehavior {
         base.begin_slow_death(damage_info)
     }
 
+    #[allow(dead_code)]
     fn begin_base_with_last_damage(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

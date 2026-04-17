@@ -83,6 +83,7 @@ pub struct StatusBitsUpgrade {
 
 #[derive(Debug)]
 struct StatusBitsUpgradeInner {
+    #[allow(dead_code)]
     module_name_key: NameKeyType,
     data: Arc<StatusBitsUpgradeModuleData>,
     object_id: ObjectID,
@@ -187,6 +188,7 @@ impl StatusUpgradeEntry {
         }
     }
 
+    #[allow(dead_code)]
     fn is_active(&self, active_mask: UpgradeMaskType) -> bool {
         match self.upgrade_mask {
             Some(mask) => active_mask.contains(mask),
@@ -252,6 +254,7 @@ fn mark_status_bits_applied(
     }
 }
 
+#[allow(dead_code)]
 fn mark_status_bits_removed(
     object_id: ObjectID,
     data: &Arc<StatusBitsUpgradeModuleData>,
@@ -313,6 +316,7 @@ fn unregister_status_bits_upgrade_module(
     }
 }
 
+#[allow(dead_code)]
 struct AggregatedStatusMasks {
     active_set: ObjectStatusMaskType,
     active_clear: ObjectStatusMaskType,
@@ -320,6 +324,7 @@ struct AggregatedStatusMasks {
     inactive_restore: ObjectStatusMaskType,
 }
 
+#[allow(dead_code)]
 fn aggregate_registered_masks(object: &Object) -> AggregatedStatusMasks {
     let object_id = object.get_object_id();
     let _active_mask = object.completed_upgrades();

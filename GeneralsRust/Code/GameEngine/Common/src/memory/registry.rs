@@ -6,10 +6,10 @@
 use super::pool::ObjectPool;
 use super::stats::{AllocationStats, MemoryStats};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 /// Global registry of all pools.
 pub struct PoolRegistry {
@@ -30,13 +30,14 @@ impl PoolRegistry {
         let key = (TypeId::of::<T>(), name);
         self.pools
             .write()
+            .unwrap()
             .insert(key, Arc::new(TypedPoolHandle { pool }));
     }
 
     /// Get a pool by type and name.
     pub fn get<T: 'static + Send + Sync>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
         let key = (TypeId::of::<T>(), name.to_string());
-        self.pools.read().get(&key).and_then(|handle| {
+        self.pools.read().unwrap().get(&key).and_then(|handle| {
             handle
                 .as_any()
                 .downcast_ref::<TypedPoolHandle<T>>()
@@ -46,7 +47,7 @@ impl PoolRegistry {
 
     /// Get global memory statistics.
     pub fn memory_stats(&self) -> MemoryStats {
-        let pools = self.pools.read();
+        let pools = self.pools.read().unwrap();
         let mut total_allocations = 0;
         let mut total_bytes_allocated = 0;
         let mut total_bytes_in_use = 0;
@@ -86,6 +87,7 @@ impl PoolRegistry {
     pub fn pool_names(&self) -> Vec<String> {
         self.pools
             .read()
+            .unwrap()
             .keys()
             .map(|(_, name)| name.clone())
             .collect()
@@ -93,7 +95,7 @@ impl PoolRegistry {
 
     /// Clear all pools (dangerous!).
     pub fn clear_all(&self) {
-        for handle in self.pools.read().values() {
+        for handle in self.pools.read().unwrap().values() {
             handle.clear();
         }
     }

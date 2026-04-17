@@ -123,6 +123,7 @@ struct CrateCollideState {
     /// Whether the crate has been collected
     is_collected: bool,
     /// Time when the crate was created
+    #[allow(dead_code)]
     creation_time: u64,
 }
 

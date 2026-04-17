@@ -1324,7 +1324,9 @@ impl GameClient {
         Ok(())
     }
 
-    /// Updates the game client - main game loop entry point
+    /// Updates the game client - main game loop entry point.
+    ///
+    /// C++ parity: frame sequence matches `GameClient::update()` (GameClient.cpp:489-752).
     pub fn update(&mut self) -> GameClientResult<()> {
         if !self.initialized {
             return Err(GameClientError::InvalidOperation(
@@ -1337,7 +1339,6 @@ impl GameClient {
 
         self.frame = self.frame.wrapping_add(1);
 
-        // Create frame tick message
         self.create_frame_tick_message()?;
         self.update_startup_movies()?;
         if self.startup_movies_active() {
@@ -1348,7 +1349,9 @@ impl GameClient {
         }
         self.ensure_shell_visible()?;
 
-        // Update subsystems
+        // C++ lines 612-619: window manager and video player update BEFORE drawables
+        self.update_pre_draw_ui()?;
+
         let mut visual_delta = if self.should_freeze_visual_time() {
             0.0
         } else {
@@ -1360,22 +1363,38 @@ impl GameClient {
         } else {
             visual_delta * visual_speed as f32
         };
+
+        // C++ lines 560-584: keyboard, mouse, Anim2D, Eva
         self.update_input()?;
         self.update_audio()?;
+
+        // C++ lines 660-700: shroud check per-drawable then updateDrawable()
         self.update_drawables(visual_delta)?;
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;
             self.finish_frame_timing(current_time);
             return Ok(());
         }
+
+        self.update_particle_system_local_player()?;
+
+        // C++ line 721: terrain visual, C++ line 726: display UPDATE
         self.update_effects(visual_delta)?;
         apply_pending_script_display_state();
-        self.update_display()?;
-        self.update_ui()?;
+        self.update_display_only()?;
+
+        // C++ line 735: TheDisplay->DRAW()
+        self.draw_display()?;
+
+        // C++ line 740: DisplayStringManager update
+        self.update_display_string_manager()?;
+
+        // C++ lines 744-751: Shell and InGameUI AFTER draw
+        self.update_post_draw_ui()?;
+
         self.process_beacon_notifications()?;
         self.pump_message_stream()?;
 
-        // Reset performance counters
         self.rendered_object_count = 0;
 
         self.finish_frame_timing(current_time);
@@ -3100,22 +3119,37 @@ impl GameClient {
 
     fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
         let frame = self.frame;
+        let local_player_index = self.local_player_id;
 
-        // Update all client-owned drawables
         for drawable in self.drawable_map.values_mut() {
             drawable.update(delta_time);
         }
 
-        // Update GameLogic drawables as well.
+        // C++ parity: GameClient.cpp lines 660-700 iterates drawables with shroud check.
+        // For each drawable bound to an object, check shroud status and set visibility
+        // before calling updateDrawable().
         self.iterate_objects_with_drawables(|obj_ref| {
             let Ok(mut obj) = obj_ref.write() else {
                 return;
             };
-            if let Some(drawable) = obj.get_drawable() {
-                if let Ok(mut drawable_guard) = drawable.write() {
+            let object_id = obj.get_id();
+            let shroud = obj.get_shrouded_status(local_player_index);
+            let is_effectively_dead = obj.is_effectively_dead();
+            let fully_obscured = matches!(
+                shroud,
+                gamelogic::common::types::ObjectShroudStatus::Fogged
+                    | gamelogic::common::types::ObjectShroudStatus::Shrouded
+                    | gamelogic::common::types::ObjectShroudStatus::InvalidButPreviousValid
+            );
+
+            if let Some(drawable_arc) = obj.get_drawable() {
+                if let Ok(mut drawable_guard) = drawable_arc.write() {
+                    drawable_guard.set_fully_obscured_by_shroud(fully_obscured);
                     let _ = drawable_guard.update(delta_time, frame);
                 }
             }
+
+            let _ = (object_id, is_effectively_dead);
         })?;
         Ok(())
     }
@@ -3255,11 +3289,16 @@ impl GameClient {
         }
     }
 
-    fn update_display(&mut self) -> GameClientResult<()> {
+    fn update_display_only(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
-            let mut display = display.lock().unwrap();
-            display.update()?;
-            display.draw()?;
+            display.lock().unwrap().update()?;
+        }
+        Ok(())
+    }
+
+    fn draw_display(&mut self) -> GameClientResult<()> {
+        if let Some(ref display) = self.subsystem_manager.display {
+            display.lock().unwrap().draw()?;
         }
         Ok(())
     }
@@ -3412,6 +3451,51 @@ impl GameClient {
                     err
                 ))
             })?;
+        }
+        Ok(())
+    }
+
+    fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
+        if let Some(ref window_manager) = self.subsystem_manager.window_manager {
+            window_manager.lock().unwrap().update()?;
+        }
+
+        if let Some(ref video_player) = self.subsystem_manager.video_player {
+            video_player.lock().unwrap().update()?;
+        }
+
+        Ok(())
+    }
+
+    fn update_post_draw_ui(&mut self) -> GameClientResult<()> {
+        {
+            let mut shell = get_shell();
+            shell.update().map_err(|err| {
+                GameClientError::SubsystemError(format!("Shell update failed: {err}"))
+            })?;
+        }
+
+        if let Some(ref ui) = self.subsystem_manager.in_game_ui {
+            ui.lock().unwrap().update()?;
+        }
+
+        crate::eva::update_eva_system();
+
+        Ok(())
+    }
+
+    fn update_display_string_manager(&self) -> GameClientResult<()> {
+        crate::display_string_manager::update_display_string_manager()
+            .map_err(|err| GameClientError::SubsystemError(format!("{err}")))
+    }
+
+    fn update_particle_system_local_player(&self) -> GameClientResult<()> {
+        if let Ok(mut manager_guard) =
+            crate::effects::particle_manager::get_particle_system_manager_mut()
+        {
+            if let Some(manager) = manager_guard.as_mut() {
+                manager.set_local_player_index(self.local_player_id);
+            }
         }
         Ok(())
     }

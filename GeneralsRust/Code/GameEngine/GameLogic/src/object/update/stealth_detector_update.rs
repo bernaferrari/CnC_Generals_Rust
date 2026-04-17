@@ -147,6 +147,8 @@ impl Snapshotable for StealthDetectorUpdateModuleData {
 struct StealthedOrStealthGarrisonedFilter;
 
 impl StealthedOrStealthGarrisonedFilter {
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     fn allow(&self, obj: &Object) -> bool {
         // Check if object is stealthed (line 110)
         if obj

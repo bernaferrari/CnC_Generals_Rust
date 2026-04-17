@@ -204,6 +204,7 @@ fn parse_unsigned_field(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn parse_duration_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],

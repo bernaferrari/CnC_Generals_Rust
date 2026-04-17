@@ -634,4 +634,5 @@ impl Snapshotable for W3DTankDraw {
 }
 
 /// Maximum number of treads per tank
+#[allow(dead_code)]
 const MAX_TREADS_PER_TANK: usize = 4;

@@ -28,6 +28,7 @@ enum LockType {
 
 /// Viewport post-process filter type.  Matches `FilterType` in view.rs.
 #[repr(i32)]
+#[allow(dead_code)]
 enum FilterType {
     Null = 0,
     BlackAndWhite = 1,
@@ -37,6 +38,7 @@ enum FilterType {
 
 /// Viewport post-process filter mode.  Matches `FilterMode` in view.rs.
 #[repr(i32)]
+#[allow(dead_code)]
 enum FilterMode {
     Null = 0,
     BWBlackAndWhite = 1,

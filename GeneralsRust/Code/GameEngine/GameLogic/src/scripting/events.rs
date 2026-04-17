@@ -133,6 +133,7 @@ pub trait EventSubscriber: Send + Sync {
 
 /// Event history entry
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct EventHistoryEntry {
     event: GameEvent,
     processed: bool,

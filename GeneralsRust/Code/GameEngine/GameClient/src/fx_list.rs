@@ -400,12 +400,12 @@ fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> 
     if key.eq_ignore_ascii_case("End") {
         return Ok(Some((String::from("End"), Vec::new())));
     }
-    let mut values = Vec::new();
-    for token in tokens.iter().skip(1) {
-        if *token != "=" {
-            values.push((*token).to_string());
-        }
-    }
+    let values: Vec<String> = tokens
+        .iter()
+        .skip(1)
+        .filter(|token| **token != "=")
+        .map(|token| (*token).to_string())
+        .collect();
     Ok(Some((key.to_string(), values)))
 }
 
@@ -441,7 +441,8 @@ fn parse_tracer_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
             continue;
         };
         match key.to_ascii_uppercase().as_str() {
-            "NAME" => nugget.tracer_name = INI::parse_ascii_string(value)?,
+            "TRACERNAME" => nugget.tracer_name = INI::parse_ascii_string(value)?,
+            "BONENAME" => nugget.bone_name = INI::parse_ascii_string(value)?,
             "SPEED" => nugget.speed = INI::parse_real(value)?,
             "DECAYAT" => nugget.decay_at = INI::parse_real(value)?,
             "LENGTH" => nugget.length = INI::parse_real(value)?,
@@ -525,9 +526,18 @@ fn parse_light_pulse_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()
                 }
             }
             "RADIUS" => nugget.radius = INI::parse_real(value)?,
-            "BOUNDINGCIRCLEPCT" => nugget.bounding_circle_pct = INI::parse_real(value)?,
-            "INCREASEFRAMES" => nugget.increase_frames = INI::parse_int(value)? as u32,
-            "DECREASEFRAMES" => nugget.decrease_frames = INI::parse_int(value)? as u32,
+            "RADIUSASPERCENTOFOBJECTSIZE" => {
+                let pct = INI::parse_real(value)?;
+                nugget.bounding_circle_pct = pct / 100.0;
+            }
+            "INCREASETIME" => {
+                let msec = INI::parse_real(value)?;
+                nugget.increase_frames = (msec / 33.333).ceil() as u32;
+            }
+            "DECREASETIME" => {
+                let msec = INI::parse_real(value)?;
+                nugget.decrease_frames = (msec / 33.333).ceil() as u32;
+            }
             _ => {}
         }
     }
@@ -548,18 +558,11 @@ fn parse_view_shake_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()>
             continue;
         };
         match key.to_ascii_uppercase().as_str() {
-            "POSITIONOFFSET" => {
-                if values.len() >= 3 {
-                    nugget.offset = Vec3::new(
-                        INI::parse_real(&values[0])?,
-                        INI::parse_real(&values[1])?,
-                        INI::parse_real(&values[2])?,
-                    );
+            "TYPE" => {
+                if let Some(shake_type) = CameraShakeType::parse_shake_type(value) {
+                    nugget.shake_type = shake_type;
                 }
             }
-            "RADIUS" => nugget.radius = INI::parse_real(value)?,
-            "DURATION" => nugget.duration = INI::parse_real(value)?,
-            "POWER" => nugget.power = INI::parse_real(value)?,
             _ => {}
         }
     }
@@ -580,7 +583,11 @@ fn parse_terrain_scorch_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult
             continue;
         };
         match key.to_ascii_uppercase().as_str() {
-            "SCORCHTYPE" => nugget.scorch_type = INI::parse_ascii_string(value)?,
+            "TYPE" => {
+                if let Some(scorch) = ScorchType::parse_scorch_type(value) {
+                    nugget.scorch = scorch;
+                }
+            }
             "RADIUS" => nugget.radius = INI::parse_real(value)?,
             _ => {}
         }
@@ -629,7 +636,7 @@ fn parse_particle_system_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResul
                     );
                 }
             }
-            "DELAY" => {
+            "INITIALDELAY" => {
                 if values.len() >= 2 {
                     nugget.delay = GameClientRandomVariable::new(
                         INI::parse_real(&values[0])?,
@@ -705,6 +712,7 @@ impl FXNugget for SoundFXNugget {
 #[derive(Debug, Clone)]
 struct TracerFXNugget {
     tracer_name: String,
+    bone_name: String,
     speed: f32,
     decay_at: f32,
     length: f32,
@@ -717,6 +725,7 @@ impl Default for TracerFXNugget {
     fn default() -> Self {
         Self {
             tracer_name: "GenericTracer".to_string(),
+            bone_name: String::new(),
             speed: 0.0,
             decay_at: 1.0,
             length: 10.0,
@@ -860,21 +869,58 @@ impl FXNugget for LightPulseFXNugget {
     }
 }
 
+/// Camera shake types matching C++ View::CameraShakeType (View.h)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CameraShakeType {
+    Subtle,
+    Normal,
+    Strong,
+    Severe,
+    CineExtreme,
+    CineInsane,
+}
+
+impl Default for CameraShakeType {
+    fn default() -> Self {
+        CameraShakeType::Normal
+    }
+}
+
+impl CameraShakeType {
+    fn parse_shake_type(value: &str) -> Option<Self> {
+        match value.trim().to_uppercase().as_str() {
+            "SUBTLE" => Some(CameraShakeType::Subtle),
+            "NORMAL" => Some(CameraShakeType::Normal),
+            "STRONG" => Some(CameraShakeType::Strong),
+            "SEVERE" => Some(CameraShakeType::Severe),
+            "CINE_EXTREME" => Some(CameraShakeType::CineExtreme),
+            "CINE_INSANE" => Some(CameraShakeType::CineInsane),
+            _ => None,
+        }
+    }
+
+    fn shake_params(self) -> (f32, f32, f32) {
+        let (radius, duration, power) = match self {
+            CameraShakeType::Subtle => (50.0, 0.3, 0.5),
+            CameraShakeType::Normal => (100.0, 0.5, 1.0),
+            CameraShakeType::Strong => (200.0, 0.8, 2.0),
+            CameraShakeType::Severe => (400.0, 1.2, 4.0),
+            CameraShakeType::CineExtreme => (600.0, 1.5, 6.0),
+            CameraShakeType::CineInsane => (800.0, 2.0, 8.0),
+        };
+        (radius, duration, power)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ViewShakeFXNugget {
-    offset: Vec3,
-    radius: f32,
-    duration: f32,
-    power: f32,
+    shake_type: CameraShakeType,
 }
 
 impl Default for ViewShakeFXNugget {
     fn default() -> Self {
         Self {
-            offset: Vec3::ZERO,
-            radius: 0.0,
-            duration: 0.0,
-            power: 0.0,
+            shake_type: CameraShakeType::Normal,
         }
     }
 }
@@ -891,23 +937,54 @@ impl FXNugget for ViewShakeFXNugget {
         let Some(primary) = primary else {
             return;
         };
-        let epicenter = *primary + self.offset;
+        let (radius, duration, power) = self.shake_type.shake_params();
         with_shake_system(|system| {
-            system.add_camera_shake(epicenter, self.radius, self.duration, self.power);
+            system.add_camera_shake(*primary, radius, duration, power);
         });
+    }
+}
+
+/// Scorch types matching C++ Scorches enum (FXList.cpp:459-472)
+#[derive(Debug, Clone, Copy)]
+enum ScorchType {
+    Scorch1 = 0,
+    Scorch2 = 1,
+    Scorch3 = 2,
+    Scorch4 = 3,
+    ShadowScorch = 4,
+    Random = -1,
+}
+
+impl Default for ScorchType {
+    fn default() -> Self {
+        ScorchType::Random
+    }
+}
+
+impl ScorchType {
+    fn parse_scorch_type(value: &str) -> Option<i32> {
+        match value.trim().to_uppercase().as_str() {
+            "SCORCH_1" => Some(0),
+            "SCORCH_2" => Some(1),
+            "SCORCH_3" => Some(2),
+            "SCORCH_4" => Some(3),
+            "SHADOW_SCORCH" => Some(4),
+            "RANDOM" => Some(-1),
+            _ => None,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 struct TerrainScorchFXNugget {
-    scorch_type: String,
+    scorch: i32,
     radius: f32,
 }
 
 impl Default for TerrainScorchFXNugget {
     fn default() -> Self {
         Self {
-            scorch_type: String::new(),
+            scorch: -1,
             radius: 0.0,
         }
     }
@@ -925,11 +1002,22 @@ impl FXNugget for TerrainScorchFXNugget {
         let Some(primary) = primary else {
             return;
         };
+        let scorch_idx = if self.scorch < 0 {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0..4)
+        } else {
+            self.scorch
+        };
         with_decal_manager(|manager| {
             let size = self.radius.max(0.1);
-            let settings = DecalSettings::scorch_mark(
+            let settings = DecalSettings::new(
+                if scorch_idx == 4 {
+                    DecalType::Scorch
+                } else {
+                    DecalType::Scorch
+                },
                 nalgebra::Point3::new(primary.x, primary.y, primary.z),
-                size,
             );
             manager.create_decal(settings);
         });

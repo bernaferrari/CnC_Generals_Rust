@@ -29,8 +29,10 @@ use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::thing::module::ModuleInterfaceType;
 
 /// Maximum shots limit constant matching C++
+#[allow(dead_code)]
 pub const NO_MAX_SHOTS_LIMIT: i32 = 0x7fffffff;
 
+#[allow(dead_code)]
 fn map_weapon_slot_to_common(slot: WeaponSlotType) -> crate::common::WeaponSlotType {
     match slot {
         WeaponSlotType::Primary => crate::common::WeaponSlotType::Primary,
@@ -41,6 +43,7 @@ fn map_weapon_slot_to_common(slot: WeaponSlotType) -> crate::common::WeaponSlotT
 
 /// Weapon template defining all weapon properties and behavior
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct WeaponTemplate {
     /// Basic identification
     pub name: String,
@@ -154,6 +157,7 @@ impl WeaponTemplate {
     /// Create a new weapon template with default values matching C++
     ///
     /// Matches C++ WeaponTemplate::WeaponTemplate() from Weapon.cpp lines 231-306
+    #[allow(dead_code)]
     pub fn new(name: String) -> Self {
         Self {
             name,
@@ -2572,6 +2576,7 @@ impl Default for WeaponTemplate {
 // Weapon INI field parsing helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn parse_bool_simple(s: &str) -> Result<bool, ()> {
     match s {
         "yes" | "Yes" | "YES" | "true" | "True" | "TRUE" | "1" => Ok(true),
@@ -2580,6 +2585,7 @@ fn parse_bool_simple(s: &str) -> Result<bool, ()> {
     }
 }
 
+#[allow(dead_code)]
 fn parse_damage_type(s: &str) -> DamageType {
     match s.trim().to_ascii_uppercase().as_str() {
         "UNRESISTABLE" => DamageType::Unresistable,
@@ -2624,6 +2630,7 @@ fn parse_damage_type(s: &str) -> DamageType {
     }
 }
 
+#[allow(dead_code)]
 fn parse_damage_status_type(s: &str) -> ObjectStatusTypes {
     // C++: ObjectStatusMaskType::parseSingleBitFromINI
     match s.trim().to_ascii_uppercase().as_str() {
@@ -2647,6 +2654,7 @@ fn parse_damage_status_type(s: &str) -> ObjectStatusTypes {
     }
 }
 
+#[allow(dead_code)]
 fn parse_death_type(s: &str) -> DeathType {
     match s.trim().to_ascii_uppercase().as_str() {
         "NONE" => DeathType::None,
@@ -2676,10 +2684,12 @@ fn parse_death_type(s: &str) -> DeathType {
     }
 }
 
+#[allow(dead_code)]
 fn parse_weapon_reload_type(s: &str) -> WeaponReloadType {
     WeaponReloadType::from_ini(s.trim()).unwrap_or(WeaponReloadType::AutoReload)
 }
 
+#[allow(dead_code)]
 fn parse_weapon_prefire_type(s: &str) -> WeaponPrefireType {
     WeaponPrefireType::from_ini(s.trim()).unwrap_or(WeaponPrefireType::PrefirePerShot)
 }

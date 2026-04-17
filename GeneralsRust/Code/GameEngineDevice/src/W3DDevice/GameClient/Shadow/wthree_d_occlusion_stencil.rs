@@ -727,11 +727,7 @@ pub fn encode_shadow_volume_pass(
 ) -> ShadowPassResult {
     let drawable_tasks: Vec<&ShadowVolumeRenderTask> = tasks
         .iter()
-        .filter(|t| {
-            t.vertex_buffer.is_some()
-                && t.index_buffer.is_some()
-                && t.index_count > 0
-        })
+        .filter(|t| t.vertex_buffer.is_some() && t.index_buffer.is_some() && t.index_count > 0)
         .collect();
 
     if drawable_tasks.is_empty() {
@@ -818,121 +814,6 @@ pub fn encode_shadow_volume_pass(
 
         for task in &drawable_tasks {
             // PARITY_NOTE: C++ re-renders same VB/IB with back-face culling (DECRSAT)
-            if let (Some(ref vb), Some(ref ib)) = (&task.vertex_buffer, &task.index_buffer) {
-                render_pass.set_vertex_buffer(0, vb.slice(..));
-                render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
-                if let Some(ref bg) = task.bind_group {
-                    render_pass.set_bind_group(0, bg, &[]);
-                }
-                render_pass.draw_indexed(0..task.index_count, 0, 0..1);
-            }
-        }
-
-        drop(render_pass);
-    }
-
-    ShadowPassResult {
-        num_rendered_shadows: num_rendered,
-        has_shadows: num_rendered > 0,
-    }
-}
-
-    // PARITY_NOTE: C++ W3DVolumetricShadowManager::renderShadows() line 3429:
-    // The C++ code does:
-    // 1. Set material/shader/texture state
-    // 2. Disable color writes (D3DRS_COLORWRITEENABLE=0) or fake via alpha blend
-    // 3. Configure stencil: FUNC=NOTEQUAL/GREATEREQUAL, REF=0x80808080, PASS=INCR
-    // 4. Set CULLMODE=CW
-    // 5. Update and render each shadow (front-face pass with INCR)
-    // 6. Change STENCILPASS to DECRSAT
-    // 7. Set CULLMODE=CCW
-    // 8. Re-render all static shadow volumes (back-face pass with DECRSAT)
-    // 9. Flush dynamic shadow volumes (back-face pass)
-    // 10. Reset render tasks
-    // 11. Call renderStencilShadows()
-
-    let num_rendered = drawable_tasks.len() as u32;
-
-    // --- Pass 1: Front-face increment (CW cull, INCR) ---
-    // C++: Steps 4-5: Set CULLMODE=CW, STENCILPASS=INCR, render all volumes
-    {
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Shadow Volume Front Face Pass (INCR)"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth_stencil_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&stencil_pipeline.front_face_pipeline);
-
-        for task in &drawable_tasks {
-            // PARITY_NOTE: C++ calls shadow->RenderVolume(meshIndex, lightIndex)
-            // which binds VB/IB and calls DrawIndexedPrimitive.
-            // In WGPU we bind the task's vertex buffer, index buffer, and bind group.
-            if let (Some(ref vb), Some(ref ib)) = (&task.vertex_buffer, &task.index_buffer) {
-                render_pass.set_vertex_buffer(0, vb.slice(..));
-                render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
-                if let Some(ref bg) = task.bind_group {
-                    render_pass.set_bind_group(0, bg, &[]);
-                }
-                render_pass.draw_indexed(0..task.index_count, 0, 0..1);
-            }
-        }
-
-        drop(render_pass);
-    }
-
-    // --- Pass 2: Back-face decrement (CCW cull, DECRSAT) ---
-    // C++: Steps 6-9: Set STENCILPASS=DECRSAT, CULLMODE=CCW, re-render all volumes
-    {
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Shadow Volume Back Face Pass (DECRSAT)"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth_stencil_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&stencil_pipeline.back_face_pipeline);
-
-        for task in &drawable_tasks {
-            // PARITY_NOTE: C++ re-renders the same shadow volumes with back-face culling.
-            // The same VB/IB are used; only the stencil op and cull mode differ.
             if let (Some(ref vb), Some(ref ib)) = (&task.vertex_buffer, &task.index_buffer) {
                 render_pass.set_vertex_buffer(0, vb.slice(..));
                 render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
@@ -1142,10 +1023,13 @@ mod tests {
     #[test]
     fn test_config_update_invalidates_pipelines() {
         let mut system = OcclusionStencilSystem::new();
-        system.set_config(OcclusionStencilConfig {
-            shadow_color: 0xff000000,
-            ..Default::default()
-        }, None);
+        system.set_config(
+            OcclusionStencilConfig {
+                shadow_color: 0xff000000,
+                ..Default::default()
+            },
+            None,
+        );
         assert!(!system.initialized);
         assert_eq!(system.config.shadow_color, 0xff000000);
     }

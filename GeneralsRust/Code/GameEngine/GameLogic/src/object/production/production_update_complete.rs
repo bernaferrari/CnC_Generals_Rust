@@ -850,6 +850,7 @@ impl ProductionUpdateComplete {
 
     /// Check if production should be disabled due to game state
     /// Matches C++ lines 641-648: sold status check
+    #[allow(dead_code)]
     fn should_halt_production(&self, object_sold: bool, object_disabled: bool) -> bool {
         // If object is sold or destroyed, halt production
         // C++: "if( us->getStatusBits().test( OBJECT_STATUS_SOLD ) )"

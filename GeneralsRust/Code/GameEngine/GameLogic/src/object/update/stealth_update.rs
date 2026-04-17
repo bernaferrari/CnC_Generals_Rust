@@ -47,6 +47,7 @@ pub const STEALTH_NOT_WHILE_RIDERS_ATTACKING: u32 = 0x00000100;
 
 /// Stealth update module data - matches C++ StealthUpdateModuleData (lines 53-82)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct StealthUpdateModuleData {
     module_tag_name_key: NameKeyType,
 
@@ -56,6 +57,7 @@ pub struct StealthUpdateModuleData {
     forbidden_status: ObjectStatusMaskType,
 
     // FX lists
+    #[allow(dead_code)]
     disguise_fx: Option<String>,
     disguise_reveal_fx: Option<String>,
 
@@ -1049,6 +1051,7 @@ impl StealthUpdateController {
 }
 
 /// Stealth update module
+#[allow(dead_code)]
 pub struct StealthUpdate {
     module_name_key: NameKeyType,
     data: Arc<StealthUpdateModuleData>,
@@ -1058,6 +1061,7 @@ pub struct StealthUpdate {
 }
 
 impl StealthUpdate {
+    #[allow(dead_code)]
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<StealthUpdateModuleData>,

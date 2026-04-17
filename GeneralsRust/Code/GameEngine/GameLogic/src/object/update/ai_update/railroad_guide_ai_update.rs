@@ -77,6 +77,7 @@ impl TrackPoint {
         }
     }
 
+    #[allow(dead_code)]
     fn clear(&mut self) {
         *self = Self::new();
     }
@@ -104,6 +105,7 @@ impl TrainTrack {
         self.ref_count += 1;
     }
 
+    #[allow(dead_code)]
     fn release_reference(&mut self) -> Bool {
         self.ref_count -= 1;
         self.ref_count <= 0
@@ -1254,6 +1256,7 @@ impl RailroadBehavior {
         obj_guard.handle_partition_cell_maintenance();
     }
 
+    #[allow(dead_code)]
     fn destroy_whole_train_now(&mut self) {
         if let Some(obj_arc) = self.get_object() {
             if let Ok(obj_guard) = obj_arc.write() {

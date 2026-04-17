@@ -81,6 +81,7 @@ impl SpecialModelConditionFlags {
 #[derive(Debug)]
 pub struct ObjectSMCHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: ObjectSMCHelperModuleData,
 
     /// Next wake frame

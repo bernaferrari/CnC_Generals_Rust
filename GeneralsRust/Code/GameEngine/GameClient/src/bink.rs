@@ -362,10 +362,10 @@ fn extract_frame_packets(bytes: &[u8], header: &BinkHeader) -> Vec<BinkFramePack
         }];
     }
 
-    let mut raw_offsets = Vec::new();
-    for chunk in bytes[table_offset..table_end].chunks_exact(4) {
-        raw_offsets.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize);
-    }
+    let raw_offsets: Vec<usize> = bytes[table_offset..table_end]
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize)
+        .collect();
 
     let mut packets = Vec::new();
     for (index, offset) in raw_offsets.iter().copied().enumerate() {

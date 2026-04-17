@@ -552,6 +552,7 @@ impl ParkingPlaceBehavior {
 
     /// Find parking place info for object
     /// Matches C++ ParkingPlaceBehavior::findPPI (line 234)
+    #[allow(dead_code)]
     fn find_ppi(&mut self, id: ObjectID) -> Option<&mut ParkingPlaceInfo> {
         if !self.got_info || id == OBJECT_INVALID_ID {
             return None;
@@ -562,6 +563,7 @@ impl ParkingPlaceBehavior {
 
     /// Find empty parking place
     /// Matches C++ ParkingPlaceBehavior::findEmptyPPI (line 251)
+    #[allow(dead_code)]
     fn find_empty_ppi(&mut self) -> Option<&mut ParkingPlaceInfo> {
         if !self.got_info {
             return None;

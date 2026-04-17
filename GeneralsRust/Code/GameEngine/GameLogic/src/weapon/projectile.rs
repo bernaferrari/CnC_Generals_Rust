@@ -602,6 +602,7 @@ impl Projectile {
     }
 
     /// Update rolling physics
+    #[allow(dead_code)]
     fn update_rolling(&mut self, delta_time: f32) -> GameLogicResult<()> {
         if !self.is_rolling {
             return Ok(());

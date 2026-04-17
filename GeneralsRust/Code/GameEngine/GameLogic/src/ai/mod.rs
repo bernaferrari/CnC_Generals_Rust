@@ -788,6 +788,7 @@ pub trait AiCommandInterface {
 }
 
 // AI Group - collection of AI objects for group pathfinding and commands
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct AiGroup {
     id: u32,
@@ -1559,10 +1560,7 @@ impl AI {
                 continue;
             }
 
-            if !matches!(
-                me_guard.relationship_to(&target),
-                Relationship::Allies
-            ) {
+            if !matches!(me_guard.relationship_to(&target), Relationship::Allies) {
                 continue;
             }
 

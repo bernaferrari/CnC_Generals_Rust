@@ -60,6 +60,7 @@ const FLOAT_UPDATE_FIELDS: &[FieldParse<FloatUpdateModuleData>] = &[FieldParse {
 
 pub struct FloatUpdate {
     object: Weak<RwLock<GameObject>>,
+    #[allow(dead_code)]
     module_data: Arc<FloatUpdateModuleData>,
     enabled: Bool,
 }

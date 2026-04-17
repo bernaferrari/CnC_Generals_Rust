@@ -32,12 +32,14 @@ pub enum INIError {
     InvalidParams,
     InvalidNameList,
     InvalidData,
+    InvalidValue,
     MissingEndToken,
     UnknownToken,
     BufferTooSmall,
     FileNotOpen,
     FileAlreadyOpen,
     CantOpenFile,
+    UnexpectedEndOfFile,
     UnknownError,
     EndOfFile,
 }
@@ -52,12 +54,14 @@ impl fmt::Display for INIError {
             INIError::InvalidParams => write!(f, "Invalid parameters"),
             INIError::InvalidNameList => write!(f, "Invalid name list"),
             INIError::InvalidData => write!(f, "Invalid data"),
+            INIError::InvalidValue => write!(f, "Invalid value"),
             INIError::MissingEndToken => write!(f, "Missing end token"),
             INIError::UnknownToken => write!(f, "Unknown token"),
             INIError::BufferTooSmall => write!(f, "Buffer too small"),
             INIError::FileNotOpen => write!(f, "File not open"),
             INIError::FileAlreadyOpen => write!(f, "File already open"),
             INIError::CantOpenFile => write!(f, "Cannot open file"),
+            INIError::UnexpectedEndOfFile => write!(f, "Unexpected end of file"),
             INIError::UnknownError => write!(f, "Unknown error"),
             INIError::EndOfFile => write!(f, "End of file"),
         }
@@ -1486,6 +1490,76 @@ impl INI {
     /// Return all tokens in the current line.
     pub fn get_line_tokens(&self) -> Vec<&str> {
         self.buffer.split_whitespace().collect()
+    }
+
+    /// Get the current token from the buffer.
+    ///
+    /// C++ Reference: `INI::getCurrentToken()` — returns the first token of the
+    /// current line, typically the block/section name after a block header.
+    pub fn get_current_token(&self) -> Option<String> {
+        self.buffer.split_whitespace().next().map(|s| s.to_string())
+    }
+
+    /// Read the next line and return the field name (first token).
+    ///
+    /// Used by field-based INI parsers that iterate over `Field = Value` lines
+    /// inside a block. Returns `None` on EOF or when an `End` token is reached.
+    ///
+    /// C++ Reference: the common pattern in C++ particle system and similar
+    /// parsers that loop over fields within a named block.
+    pub fn get_next_field(&mut self) -> Option<String> {
+        loop {
+            if self.end_of_file {
+                return None;
+            }
+            // Read the next line
+            if self.read_line().is_err() {
+                return None;
+            }
+            if self.end_of_file {
+                return None;
+            }
+            let trimmed = self.buffer.trim();
+            // Skip empty lines and comments
+            if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with("//") {
+                continue;
+            }
+            // Check for End block token
+            let first = trimmed.split_whitespace().next().unwrap_or("");
+            if first.eq_ignore_ascii_case("end") {
+                return None;
+            }
+            return Some(first.to_string());
+        }
+    }
+
+    /// Get the value portion of the current `Field = Value` line.
+    ///
+    /// After `get_next_field()` positions the cursor on a line like
+    /// `Shader = ADDITIVE`, this returns everything after the `=` sign,
+    /// trimmed. The `_field_name` parameter is accepted for API parity
+    /// with C++ but the value is extracted from the current buffer line.
+    ///
+    /// C++ Reference: `INI::getFieldValue()` in field-parse table usage.
+    pub fn get_field_value(&mut self, _field_name: &str) -> INIResult<String> {
+        // Find '=' and return everything after it, trimmed
+        if let Some(eq_pos) = self.buffer.find('=') {
+            let value = self.buffer[eq_pos + 1..].trim();
+            if value.is_empty() {
+                Err(INIError::InvalidValue)
+            } else {
+                Ok(value.to_string())
+            }
+        } else {
+            // Some INI fields use space-separated tokens without '='
+            // Fall back to second token
+            let mut tokens = self.buffer.split_whitespace();
+            tokens.next(); // skip field name
+            tokens
+                .next()
+                .map(|s| s.to_string())
+                .ok_or(INIError::InvalidValue)
+        }
     }
 
     /// Check whether the INI stream has reached end-of-file.

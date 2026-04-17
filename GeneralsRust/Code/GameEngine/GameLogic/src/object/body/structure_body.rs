@@ -99,6 +99,7 @@ pub struct StructureBody {
     /// Base active body functionality
     active_body: ActiveBody,
     /// Structure-specific configuration
+    #[allow(dead_code)]
     module_data: Arc<StructureBodyModuleData>,
     /// Thread-safe mutable state
     state: Arc<RwLock<StructureBodyState>>,

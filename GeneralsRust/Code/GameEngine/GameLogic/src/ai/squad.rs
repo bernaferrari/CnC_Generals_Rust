@@ -141,12 +141,11 @@ impl Squad {
     /// Get all live object IDs (best effort when object handles are missing)
     pub fn get_live_object_ids(&mut self) -> Vec<ObjectID> {
         if !self.objects_cached.is_empty() {
-            let mut ids = Vec::new();
-            for obj in self.get_live_objects() {
-                if let Ok(obj_ref) = obj.try_read() {
-                    ids.push(obj_ref.get_id());
-                }
-            }
+            let ids: Vec<_> = self
+                .get_live_objects()
+                .into_iter()
+                .filter_map(|obj| obj.try_read().ok().map(|guard| guard.get_id()))
+                .collect();
             return ids;
         }
 

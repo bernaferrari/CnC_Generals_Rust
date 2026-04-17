@@ -717,6 +717,7 @@ impl Default for ObjectFactory {
 
 /// Spatial partitioning for efficient object queries - matches C++ PartitionManager
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SpatialPartition {
     /// Grid cells containing object lists
     grid: HashMap<(i32, i32), Vec<ObjectID>>,
@@ -731,6 +732,7 @@ pub struct SpatialPartition {
     cell_size: Real,
 
     /// World bounds
+    #[allow(dead_code)]
     world_min: Coord3D,
     world_max: Coord3D,
 }

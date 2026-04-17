@@ -53,6 +53,7 @@ impl ParseContext {
         self.current_index += 1;
     }
 
+    #[allow(dead_code)]
     fn peek(&self) -> Option<&LineInfo> {
         self.lines.get(self.current_index)
     }

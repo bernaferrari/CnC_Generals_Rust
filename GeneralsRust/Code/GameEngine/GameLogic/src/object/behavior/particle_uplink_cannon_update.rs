@@ -65,6 +65,7 @@ enum IntensityTypes {
     Light,
     Medium,
     Intense,
+    #[allow(dead_code)]
     Finish,
 }
 
@@ -207,6 +208,7 @@ pub struct ParticleUplinkCannonUpdate {
     // Steering control
     manual_target_mode: Bool,
     scripted_waypoint_mode: Bool,
+    #[allow(dead_code)]
     next_dest_waypoint_id: UnsignedInt,
 
     last_driving_click_frame: UnsignedInt,

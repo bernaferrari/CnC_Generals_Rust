@@ -35,6 +35,7 @@ crate::impl_behavior_module_data_via_base!(HijackerUpdateModuleData, base);
 
 pub struct HijackerUpdate {
     object: Weak<RwLock<GameObject>>,
+    #[allow(dead_code)]
     module_data: Arc<HijackerUpdateModuleData>,
     target_id: ObjectID,
     eject_pos: Coord3D,

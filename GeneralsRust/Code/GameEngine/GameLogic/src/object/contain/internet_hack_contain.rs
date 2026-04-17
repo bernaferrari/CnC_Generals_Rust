@@ -45,6 +45,7 @@ pub struct InternetHackContain {
     /// Base functionality from TransportContain
     pub base: TransportContain,
     /// Reference to the owning object
+    #[allow(dead_code)]
     object: Weak<RwLock<Object>>,
 }
 

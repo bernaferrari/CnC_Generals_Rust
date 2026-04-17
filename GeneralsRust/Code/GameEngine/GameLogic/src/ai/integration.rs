@@ -277,6 +277,7 @@ pub struct AiIntegrationManager {
 }
 
 /// Performance statistics for AI integration
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct AiPerformanceStats {
     pathfinding_requests_per_frame: u32,
@@ -827,6 +828,7 @@ impl AiIntegrationManager {
     // Internal helper methods
 
     /// Update pathfinding system
+    #[allow(dead_code)]
     fn update_pathfinding_system(&mut self) -> Result<(), AiError> {
         self.performance_stats.pathfinding_requests_per_frame = 0;
         Ok(())
@@ -849,6 +851,7 @@ impl AiIntegrationManager {
     }
 
     /// Update all unit groups
+    #[allow(dead_code)]
     fn update_unit_groups(&mut self, frame_time: Instant) -> Result<(), AiError> {
         let _ = frame_time;
         self.performance_stats.group_updates_per_frame = 0;
@@ -856,6 +859,7 @@ impl AiIntegrationManager {
     }
 
     /// Update all object state machines
+    #[allow(dead_code)]
     fn update_object_state_machines(&mut self) -> Result<(), AiError> {
         self.performance_stats.state_machine_updates_per_frame = 0;
         Ok(())

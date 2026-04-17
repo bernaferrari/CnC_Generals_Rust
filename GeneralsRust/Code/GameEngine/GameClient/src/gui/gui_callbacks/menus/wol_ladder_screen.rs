@@ -1,4 +1,5 @@
 //! Shim for WOLLadderScreen.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_ladder_screen::{
     wol_ladder_screen_init, wol_ladder_screen_input, wol_ladder_screen_shutdown,

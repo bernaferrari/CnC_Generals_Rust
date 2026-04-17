@@ -39,6 +39,7 @@ impl BaseRegenerateUpdateModuleData {
     }
 }
 
+#[allow(dead_code)]
 pub struct BaseRegenerateUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<BaseRegenerateUpdateModuleData>,

@@ -4733,6 +4733,7 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
+    #[allow(dead_code)]
     fn do_team_guard_for_framecount(
         &mut self,
         action: &ScriptAction,
@@ -7880,12 +7881,15 @@ impl ScriptActionDispatcher {
             return Vec::new();
         };
 
-        let mut matches = Vec::new();
-        for command_button in command_set.buttons.iter().flatten() {
-            if !command_button.get_name().is_empty() && command_button.get_name() == ability {
-                matches.push(command_button.get_id());
-            }
-        }
+        let matches: Vec<_> = command_set
+            .buttons
+            .iter()
+            .flatten()
+            .filter(|command_button| {
+                !command_button.get_name().is_empty() && command_button.get_name() == ability
+            })
+            .map(|command_button| command_button.get_id())
+            .collect();
         matches
     }
 
@@ -12904,10 +12908,7 @@ impl ScriptActionDispatcher {
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
                         && relationship == Relationship::Neutral)
                     || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
-                        && matches!(
-                            relationship,
-                            Relationship::Allies
-                        ))
+                        && matches!(relationship, Relationship::Allies))
                     || (!options.intersects(
                         SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
                             | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
@@ -13728,6 +13729,7 @@ impl ScriptActionDispatcher {
 ///
 /// C++ Reference: ScriptConditions::evaluateCondition()
 /// This evaluates script conditions to determine script flow
+#[allow(dead_code)]
 pub struct ScriptConditionEvaluator {
     context: Arc<RwLock<ScriptContext>>,
 }
@@ -17372,10 +17374,7 @@ impl ScriptConditionEvaluator {
             let relation_ok = match alliance {
                 0 => relationship == Relationship::Enemies, // REL_ENEMY
                 1 => relationship == Relationship::Neutral, // REL_NEUTRAL
-                2 => matches!(
-                    relationship,
-                    Relationship::Allies
-                ), // REL_FRIEND
+                2 => matches!(relationship, Relationship::Allies), // REL_FRIEND
                 _ => false,
             };
             if !relation_ok {
@@ -17896,10 +17895,7 @@ impl ScriptConditionEvaluator {
                 {
                     if let Ok(owner_guard) = owner_arc.read() {
                         let rel = player_guard.get_relationship(&owner_guard);
-                        if matches!(
-                            rel,
-                            Relationship::Allies
-                        ) {
+                        if matches!(rel, Relationship::Allies) {
                             continue;
                         }
                     }

@@ -138,6 +138,7 @@ impl GroupUnit {
 }
 
 /// AI Unit Group - Enhanced group management with formation control
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct AiUnitGroup {
     /// Unique group identifier
@@ -178,6 +179,7 @@ pub struct AiUnitGroup {
 }
 
 /// Group performance and behavior statistics
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct GroupStats {
     formation_coherence: Real,  // How well units maintain formation (0.0-1.0)

@@ -531,6 +531,236 @@ impl Default for KeyboardState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Key name translation — matches C++ Keyboard::initKeyNames / getPrintableKey
+// ---------------------------------------------------------------------------
+
+/// Maximum key states in C++ (std, shifted, shifted2).
+pub const MAX_KEY_STATES: usize = 3;
+
+/// Entry in the key-name table.
+///
+/// C++ parity: `m_keyNames[z].stdKey`, `m_keyNames[z].shifted`,
+/// `m_keyNames[z].shifted2`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct KeyNameEntry {
+    pub std_key: char,
+    pub shifted: char,
+    pub shifted2: char,
+}
+
+/// Total number of key-code slots in the name table (matches C++ KEY_NAMES_COUNT).
+pub const KEY_NAMES_COUNT: usize = 256;
+
+/// Build the default US-layout key name table.
+///
+/// C++ parity: `Keyboard::initKeyNames()` for `LANGUAGE_ID_US`.
+fn build_us_key_names() -> [KeyNameEntry; KEY_NAMES_COUNT] {
+    let mut names = [KeyNameEntry::default(); KEY_NAMES_COUNT];
+
+    let set = |table: &mut [KeyNameEntry; KEY_NAMES_COUNT],
+               idx: usize,
+               std: char,
+               shifted: char,
+               shifted2: char| {
+        if idx < KEY_NAMES_COUNT {
+            table[idx].std_key = std;
+            table[idx].shifted = shifted;
+            table[idx].shifted2 = shifted2;
+        }
+    };
+
+    // --- navigation / special keys (no printable output) ---
+    set(&mut names, KeyCode::Up as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Down as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Left as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Right as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Home as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::End as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::PageUp as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::PageDown as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Insert as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Delete as usize, '\u{8}', '\u{8}', '\0');
+    set(
+        &mut names,
+        KeyCode::Backspace as usize,
+        '\u{8}',
+        '\u{8}',
+        '\0',
+    );
+    set(&mut names, KeyCode::Escape as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Tab as usize, '\t', '\t', '\0');
+    set(&mut names, KeyCode::CapsLock as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::Enter as usize, '\n', '\n', '\0');
+
+    // modifiers
+    set(&mut names, KeyCode::RightAlt as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::RightCtrl as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::RightShift as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::LeftAlt as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::LeftCtrl as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::LeftShift as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::NumLock as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::ScrollLock as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::PrintScreen as usize, '\0', '\0', '\0');
+
+    // function keys
+    set(&mut names, KeyCode::F1 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F2 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F3 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F4 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F5 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F6 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F7 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F8 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F9 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F10 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F11 as usize, '\0', '\0', '\0');
+    set(&mut names, KeyCode::F12 as usize, '\0', '\0', '\0');
+
+    // numpad digits
+    set(&mut names, KeyCode::NumPad1 as usize, '1', '1', '\0');
+    set(&mut names, KeyCode::NumPad2 as usize, '2', '2', '\0');
+    set(&mut names, KeyCode::NumPad3 as usize, '3', '3', '\0');
+    set(&mut names, KeyCode::NumPad4 as usize, '4', '4', '\0');
+    set(&mut names, KeyCode::NumPad5 as usize, '5', '5', '\0');
+    set(&mut names, KeyCode::NumPad6 as usize, '6', '6', '\0');
+    set(&mut names, KeyCode::NumPad7 as usize, '7', '7', '\0');
+    set(&mut names, KeyCode::NumPad8 as usize, '8', '8', '\0');
+    set(&mut names, KeyCode::NumPad9 as usize, '9', '9', '\0');
+    set(&mut names, KeyCode::NumPad0 as usize, '0', '0', '\0');
+
+    // numpad operators
+    set(&mut names, KeyCode::NumPadSubtract as usize, '-', '-', '\0');
+    set(&mut names, KeyCode::NumPadAdd as usize, '+', '+', '\0');
+    set(&mut names, KeyCode::NumPadEnter as usize, '\n', '\n', '\0');
+    set(&mut names, KeyCode::NumPadDivide as usize, '/', '/', '\0');
+    set(&mut names, KeyCode::NumPadDecimal as usize, '.', '.', '\0');
+    set(&mut names, KeyCode::NumPadMultiply as usize, '*', '*', '\0');
+
+    // space
+    set(&mut names, KeyCode::Space as usize, ' ', ' ', '\0');
+
+    // --- US-layout printable keys ---
+    // letters
+    set(&mut names, KeyCode::A as usize, 'a', 'A', '\0');
+    set(&mut names, KeyCode::B as usize, 'b', 'B', '\0');
+    set(&mut names, KeyCode::C as usize, 'c', 'C', '\0');
+    set(&mut names, KeyCode::D as usize, 'd', 'D', '\0');
+    set(&mut names, KeyCode::E as usize, 'e', 'E', '\0');
+    set(&mut names, KeyCode::F as usize, 'f', 'F', '\0');
+    set(&mut names, KeyCode::G as usize, 'g', 'G', '\0');
+    set(&mut names, KeyCode::H as usize, 'h', 'H', '\0');
+    set(&mut names, KeyCode::I as usize, 'i', 'I', '\0');
+    set(&mut names, KeyCode::J as usize, 'j', 'J', '\0');
+    set(&mut names, KeyCode::K as usize, 'k', 'K', '\0');
+    set(&mut names, KeyCode::L as usize, 'l', 'L', '\0');
+    set(&mut names, KeyCode::M as usize, 'm', 'M', '\0');
+    set(&mut names, KeyCode::N as usize, 'n', 'N', '\0');
+    set(&mut names, KeyCode::O as usize, 'o', 'O', '\0');
+    set(&mut names, KeyCode::P as usize, 'p', 'P', '\0');
+    set(&mut names, KeyCode::Q as usize, 'q', 'Q', '\0');
+    set(&mut names, KeyCode::R as usize, 'r', 'R', '\0');
+    set(&mut names, KeyCode::S as usize, 's', 'S', '\0');
+    set(&mut names, KeyCode::T as usize, 't', 'T', '\0');
+    set(&mut names, KeyCode::U as usize, 'u', 'U', '\0');
+    set(&mut names, KeyCode::V as usize, 'v', 'V', '\0');
+    set(&mut names, KeyCode::W as usize, 'w', 'W', '\0');
+    set(&mut names, KeyCode::X as usize, 'x', 'X', '\0');
+    set(&mut names, KeyCode::Y as usize, 'y', 'Y', '\0');
+    set(&mut names, KeyCode::Z as usize, 'z', 'Z', '\0');
+
+    // number row
+    set(&mut names, KeyCode::Num1 as usize, '1', '!', '\0');
+    set(&mut names, KeyCode::Num2 as usize, '2', '@', '\0');
+    set(&mut names, KeyCode::Num3 as usize, '3', '#', '\0');
+    set(&mut names, KeyCode::Num4 as usize, '4', '$', '\0');
+    set(&mut names, KeyCode::Num5 as usize, '5', '%', '\0');
+    set(&mut names, KeyCode::Num6 as usize, '6', '^', '\0');
+    set(&mut names, KeyCode::Num7 as usize, '7', '&', '\0');
+    set(&mut names, KeyCode::Num8 as usize, '8', '*', '\0');
+    set(&mut names, KeyCode::Num9 as usize, '9', '(', '\0');
+    set(&mut names, KeyCode::Num0 as usize, '0', ')', '\0');
+
+    // punctuation
+    set(&mut names, KeyCode::Comma as usize, ',', '<', '\0');
+    set(&mut names, KeyCode::Period as usize, '.', '>', '\0');
+    set(&mut names, KeyCode::Slash as usize, '/', '?', '\0');
+    set(&mut names, KeyCode::LeftBracket as usize, '[', '{', '\0');
+    set(&mut names, KeyCode::RightBracket as usize, ']', '}', '\0');
+    set(&mut names, KeyCode::Semicolon as usize, ';', ':', '\0');
+    set(&mut names, KeyCode::Quote as usize, '\'', '"', '\0');
+    set(&mut names, KeyCode::Grave as usize, '`', '~', '\0');
+    set(&mut names, KeyCode::Backslash as usize, '\\', '|', '\0');
+    set(&mut names, KeyCode::Minus as usize, '-', '_', '\0');
+    set(&mut names, KeyCode::Plus as usize, '=', '+', '\0');
+
+    names
+}
+
+/// Lazy-initialized US key name table.
+static US_KEY_NAMES: std::sync::OnceLock<[KeyNameEntry; KEY_NAMES_COUNT]> =
+    std::sync::OnceLock::new();
+
+fn us_key_names() -> &'static [KeyNameEntry; KEY_NAMES_COUNT] {
+    US_KEY_NAMES.get_or_init(build_us_key_names)
+}
+
+/// Get the printable character for a key and state.
+///
+/// C++ parity: `WideChar Keyboard::getPrintableKey(UnsignedByte key, Int state)`.
+///
+/// * `state == 0` → `stdKey`
+/// * `state == 1` → `shifted`
+/// * `state == 2` → `shifted2`
+///
+/// Returns `'\0'` if the key has no printable representation or is out of range.
+pub fn get_printable_key(key: KeyCode, state: usize) -> char {
+    let idx = key as usize;
+    if idx >= KEY_NAMES_COUNT || state >= MAX_KEY_STATES {
+        return '\0';
+    }
+    let names = us_key_names();
+    match state {
+        0 => names[idx].std_key,
+        1 => names[idx].shifted,
+        2 => names[idx].shifted2,
+        _ => '\0',
+    }
+}
+
+/// Translate a key code to a printable character, respecting shift and caps-lock.
+///
+/// C++ parity: `WideChar Keyboard::translateKey(WideChar keyCode)`.
+///
+/// Returns `Some(char)` for printable keys, `None` for non-printable / modifier keys.
+pub fn translate_key(key: KeyCode, shift: bool, caps_lock: bool) -> Option<char> {
+    let idx = key as usize;
+    if idx >= KEY_NAMES_COUNT {
+        return None;
+    }
+
+    let names = us_key_names();
+    let std = names[idx].std_key;
+
+    // Modifier keys return None
+    if std == '\0' {
+        return None;
+    }
+
+    // C++ parity: if shift is held OR (caps-lock and the key is alphabetic),
+    // return the shifted form.
+    let is_alpha = std.is_ascii_alphabetic();
+    if shift || (caps_lock && is_alpha) {
+        let shifted = names[idx].shifted;
+        if shifted != '\0' {
+            return Some(shifted);
+        }
+    }
+
+    Some(std)
+}
+
 /// Keyboard input handler
 pub struct Keyboard {
     /// Current keyboard state

@@ -496,6 +496,7 @@ impl Coord2D {
 pub type ObjectId = u32;
 pub const INVALID_OBJECT_ID: ObjectId = 0;
 
+#[allow(dead_code)]
 fn get_player_index_for_object(object_id: ObjectId) -> Option<usize> {
     let source_arc = TheGameLogic::find_object_by_id(object_id)?;
     let source_guard = source_arc.read().ok()?;
@@ -504,6 +505,7 @@ fn get_player_index_for_object(object_id: ObjectId) -> Option<usize> {
     Some(player_guard.get_player_index() as usize)
 }
 
+#[allow(dead_code)]
 fn notify_special_power_completion_on_source(object_id: ObjectId) -> bool {
     let Some(source_arc) = TheGameLogic::find_object_by_id(object_id) else {
         return false;
@@ -826,6 +828,7 @@ impl WeaponTemplate {
         TheThingFactory::find_template(name)
     }
 
+    #[allow(dead_code)]
     fn projectile_special_power_template(&self) -> Option<String> {
         let template = self.projectile_template()?;
         for info in template.get_behavior_module_info() {
@@ -5417,6 +5420,7 @@ impl WeaponStore {
     }
 
     /// Set delayed damage when only a template reference is available.
+    #[allow(dead_code)]
     pub(crate) fn set_delayed_damage_from_template(
         &mut self,
         weapon: &WeaponTemplate,

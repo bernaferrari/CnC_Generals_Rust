@@ -25,8 +25,8 @@ use super::game_message::{
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::core::script_action_handler::{
-    get_script_display_debug_callback, set_script_display_debug_callback,
-    script_set_3d_wireframe_mode, stop_script_display_movie, toggle_script_display_letter_box,
+    get_script_display_debug_callback, script_set_3d_wireframe_mode,
+    set_script_display_debug_callback, stop_script_display_movie, toggle_script_display_letter_box,
     toggle_script_display_movie_capture,
 };
 use crate::display::display::DebugDisplayCallback;
@@ -251,7 +251,10 @@ fn bw_view_mode_for_tests() -> u8 {
 #[cfg(test)]
 fn bw_view_wireframe_for_tests() -> (bool, bool) {
     crate::display::view::with_tactical_view_ref(|view| {
-        (view.is_3d_wireframe_mode(), view.pending_3d_wireframe_mode())
+        (
+            view.is_3d_wireframe_mode(),
+            view.pending_3d_wireframe_mode(),
+        )
     })
 }
 
@@ -1593,12 +1596,12 @@ fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> 
     if key.eq_ignore_ascii_case("End") {
         return Ok(Some((String::from("End"), Vec::new())));
     }
-    let mut values = Vec::new();
-    for token in tokens.iter().skip(1) {
-        if *token != "=" {
-            values.push((*token).to_string());
-        }
-    }
+    let values: Vec<String> = tokens
+        .iter()
+        .skip(1)
+        .filter(|token| **token != "=")
+        .map(|token| (*token).to_string())
+        .collect();
     Ok(Some((key.to_string(), values)))
 }
 
@@ -2025,7 +2028,10 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return None;
     }
 
-    if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HAND_OF_GOD_MODE") {
+    if record
+        .name
+        .eq_ignore_ascii_case("DEMO_TOGGLE_HAND_OF_GOD_MODE")
+    {
         if !TheGameLogic::is_in_multiplayer_game() {
             let enabled = toggle_shared_bool_state(hand_of_god_mode_state());
             TheInGameUI::message(if enabled {
@@ -2038,7 +2044,10 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         return None;
     }
 
-    if record.name.eq_ignore_ascii_case("CHEAT_TOGGLE_HAND_OF_GOD_MODE") {
+    if record
+        .name
+        .eq_ignore_ascii_case("CHEAT_TOGGLE_HAND_OF_GOD_MODE")
+    {
         if !TheGameLogic::is_in_multiplayer_game() {
             let enabled = toggle_shared_bool_state(hand_of_god_mode_state());
             TheInGameUI::message(if enabled {
@@ -2076,7 +2085,9 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_TEST_SURRENDER") {
         let local_player = get_local_player_id() as u32;
-        emit_message(GameMessage::new(GameMessageType::SelfDestruct(local_player)));
+        emit_message(GameMessage::new(GameMessageType::SelfDestruct(
+            local_player,
+        )));
         return Some(GameMessageDisposition::DestroyMessage);
     }
 

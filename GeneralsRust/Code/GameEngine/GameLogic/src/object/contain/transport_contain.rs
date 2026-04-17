@@ -20,6 +20,7 @@ use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 
+#[allow(dead_code)]
 type ObjectId = ObjectID;
 
 /// Initial payload configuration

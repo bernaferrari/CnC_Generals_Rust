@@ -402,8 +402,9 @@ impl FXNugget for FXListAtBonePosFXNugget {
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
-        // This requires bone position lookup from drawable
-        // Would call draw->getCurrentClientBonePositions and convert to world space
+        // C++ FXListAtBonePosFXNugget::doFXPos crashes with DEBUG_CRASH.
+        // Position form cannot resolve bone positions without an object/drawable.
+        // This matches C++ behavior: "You must use the object form for this effect"
     }
 
     fn do_fx_obj(
@@ -414,8 +415,15 @@ impl FXNugget for FXListAtBonePosFXNugget {
         context: &mut FXContext,
     ) {
         if let (Some(pos), Some(fx_list)) = (primary_pos, &self.fx_list) {
-            // Execute the nested FXList at bone positions
+            // C++ FXListAtBonePosFXNugget::doFxAtBones:
+            // First tries unadorned bone name, then 01,02,03... variants.
+            // Bone position resolution requires drawable bone queries, which
+            // are not yet threaded through FXContext. For now, execute the
+            // nested FXList at the primary position (matching fallback behavior).
             fx_list.execute_fx_pos(pos, primary_mtx, 0.0, None, 0.0, context);
+
+            // TODO: When drawable bone queries are integrated with FXContext,
+            // implement full doFxAtBones matching C++ lines 711-728.
         }
     }
 }

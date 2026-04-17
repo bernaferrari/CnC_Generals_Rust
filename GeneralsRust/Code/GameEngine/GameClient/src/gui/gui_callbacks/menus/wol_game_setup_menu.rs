@@ -1,4 +1,5 @@
 //! Shim for WOLGameSetupMenu.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::wol_game_setup_menu::{
     wol_game_setup_menu_init, wol_game_setup_menu_input, wol_game_setup_menu_shutdown,

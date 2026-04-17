@@ -63,6 +63,7 @@ pub struct ArmorUpgrade {
 
 #[derive(Debug)]
 struct ArmorUpgradeInner {
+    #[allow(dead_code)]
     module_name_key: NameKeyType,
     data: Arc<ArmorUpgradeModuleData>,
     object_id: ObjectID,
@@ -89,10 +90,12 @@ impl ArmorUpgradeEntry {
         }
     }
 
+    #[allow(dead_code)]
     fn upgrade(&self) -> Option<Arc<ArmorUpgradeModuleData>> {
         self.data.upgrade()
     }
 
+    #[allow(dead_code)]
     fn applied(&self) -> bool {
         self.applied
     }

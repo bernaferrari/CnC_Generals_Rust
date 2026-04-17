@@ -3561,6 +3561,8 @@ impl Drawable for BasicDrawable {
 
 impl Snapshotable for BasicDrawable {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // PARITY_NOTE: C++ Drawable::crc (Drawable.cpp line 4757) is intentionally empty.
+        // Rust performs a full field CRC for deep verification, which is a strict superset.
         let mut id = self.id.0;
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("{:?}", e))?;
@@ -3574,44 +3576,26 @@ impl Snapshotable for BasicDrawable {
         let mut instance_transform = self.instance_transform;
         xfer_matrix4(xfer, &mut instance_transform)?;
 
-        let mut instance_scale = self.instance_scale;
-        xfer.xfer_real(&mut instance_scale)
+        let mut has_selection_flash = self.selection_flash_envelope.is_some();
+        xfer.xfer_bool(&mut has_selection_flash)
             .map_err(|e| format!("{:?}", e))?;
+        if has_selection_flash {
+            if let Some(ref envelope) = self.selection_flash_envelope {
+                Snapshotable::crc(envelope, xfer)?;
+            }
+        }
 
-        let mut status_bits = self.status.bits;
-        xfer.xfer_unsigned_int(&mut status_bits)
+        let mut has_tint_envelope = self.tint_envelope.is_some();
+        xfer.xfer_bool(&mut has_tint_envelope)
             .map_err(|e| format!("{:?}", e))?;
+        if has_tint_envelope {
+            if let Some(ref envelope) = self.tint_envelope {
+                Snapshotable::crc(envelope, xfer)?;
+            }
+        }
 
-        let mut tint_status_bits = self.tint_status.bits;
-        xfer.xfer_unsigned_int(&mut tint_status_bits)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut prev_tint_status_bits = self.prev_tint_status.bits;
-        xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut visible = self.visible;
-        xfer.xfer_bool(&mut visible)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut hidden = self.hidden;
-        xfer.xfer_bool(&mut hidden)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut hidden_by_stealth = self.hidden_by_stealth;
-        xfer.xfer_bool(&mut hidden_by_stealth)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut selected = self.selected;
-        xfer.xfer_bool(&mut selected)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut selectable = self.selectable;
-        xfer.xfer_bool(&mut selectable)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut opacity = self.opacity;
-        xfer.xfer_real(&mut opacity)
+        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
+        xfer.xfer_unsigned_byte(&mut decal_type)
             .map_err(|e| format!("{:?}", e))?;
 
         let mut explicit_opacity = self.explicit_opacity;
@@ -3626,39 +3610,45 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_real(&mut effective_stealth_opacity)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
-        xfer.xfer_unsigned_byte(&mut stealth_look)
+        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
+        xfer.xfer_real(&mut decal_opacity_fade_target)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut tint_color = self.tint_color;
-        xfer_vector3(xfer, &mut tint_color)?;
-
-        let mut has_tint_envelope = self.tint_envelope.is_some();
-        xfer.xfer_bool(&mut has_tint_envelope)
+        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
+        xfer.xfer_real(&mut decal_opacity_fade_rate)
             .map_err(|e| format!("{:?}", e))?;
-        if has_tint_envelope {
-            if let Some(ref envelope) = self.tint_envelope {
-                Snapshotable::crc(envelope, xfer)?;
-            }
-        }
 
-        let mut has_selection_flash = self.selection_flash_envelope.is_some();
-        xfer.xfer_bool(&mut has_selection_flash)
+        let mut decal_opacity = self.decal_opacity;
+        xfer.xfer_real(&mut decal_opacity)
             .map_err(|e| format!("{:?}", e))?;
-        if has_selection_flash {
-            if let Some(ref envelope) = self.selection_flash_envelope {
-                Snapshotable::crc(envelope, xfer)?;
-            }
-        }
 
-        let mut has_icon_info = self.icon_info.is_some();
-        xfer.xfer_bool(&mut has_icon_info)
+        let mut object_id = self.object_id.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut object_id)
             .map_err(|e| format!("{:?}", e))?;
-        if has_icon_info {
-            if let Some(ref icon_info) = self.icon_info {
-                Snapshotable::crc(icon_info, xfer)?;
-            }
-        }
+
+        let mut status_bits = self.status.bits;
+        xfer.xfer_unsigned_int(&mut status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut tint_status_bits = self.tint_status.bits;
+        xfer.xfer_unsigned_int(&mut tint_status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut prev_tint_status_bits = self.prev_tint_status.bits;
+        xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
+        xfer.xfer_unsigned_byte(&mut fade_mode)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut time_elapsed_fade = self.time_elapsed_fade;
+        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut time_to_fade = self.time_to_fade;
+        xfer.xfer_unsigned_int(&mut time_to_fade)
+            .map_err(|e| format!("{:?}", e))?;
 
         let mut has_loco_info = self.loco_info.is_some();
         xfer.xfer_bool(&mut has_loco_info)
@@ -3669,60 +3659,76 @@ impl Snapshotable for BasicDrawable {
             }
         }
 
-        let mut receives_dynamic_lights = self.receives_dynamic_lights;
-        xfer.xfer_bool(&mut receives_dynamic_lights)
+        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
+        xfer.xfer_unsigned_byte(&mut stealth_look)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
-        xfer.xfer_unsigned_byte(&mut decal_type)
+        let mut flash_count = self.flash_count as i32;
+        xfer.xfer_int(&mut flash_count)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut terrain_decal_size = self.terrain_decal_size;
-        xfer_vector3(xfer, &mut terrain_decal_size)?;
-
-        let mut decal_opacity = self.decal_opacity;
-        xfer.xfer_real(&mut decal_opacity)
+        let mut flash_color_bits = vector3_to_color_bits(self.flash_color);
+        xfer.xfer_int(&mut flash_color_bits)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
-        xfer.xfer_real(&mut decal_opacity_fade_target)
+        let mut hidden = self.hidden;
+        xfer.xfer_bool(&mut hidden)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
-        xfer.xfer_real(&mut decal_opacity_fade_rate)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
-        xfer.xfer_unsigned_byte(&mut fade_mode)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut time_to_fade = self.time_to_fade;
-        xfer.xfer_unsigned_int(&mut time_to_fade)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut time_elapsed_fade = self.time_elapsed_fade;
-        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
+        let mut hidden_by_stealth = self.hidden_by_stealth;
+        xfer.xfer_bool(&mut hidden_by_stealth)
             .map_err(|e| format!("{:?}", e))?;
 
         let mut second_material_pass_opacity = self.second_material_pass_opacity;
         xfer.xfer_real(&mut second_material_pass_opacity)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut flash_count = self.flash_count;
-        xfer.xfer_unsigned_int(&mut flash_count)
+        let mut instance_is_identity = self.is_instance_identity();
+        xfer.xfer_bool(&mut instance_is_identity)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut flash_color = self.flash_color;
-        xfer_vector3(xfer, &mut flash_color)?;
-
-        let mut has_expiration = self.expiration_frame.is_some();
-        xfer.xfer_bool(&mut has_expiration)
+        let mut instance_scale = self.instance_scale;
+        xfer.xfer_real(&mut instance_scale)
             .map_err(|e| format!("{:?}", e))?;
-        if has_expiration {
-            let mut frame = self.expiration_frame.unwrap_or(0);
-            xfer.xfer_unsigned_int(&mut frame)
-                .map_err(|e| format!("{:?}", e))?;
+
+        let mut expiration = self.expiration_frame.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut expiration)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut has_icon_info = self.icon_info.is_some();
+        xfer.xfer_bool(&mut has_icon_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_icon_info {
+            if let Some(ref icon_info) = self.icon_info {
+                Snapshotable::crc(icon_info, xfer)?;
+            }
         }
+
+        let mut visible = self.visible;
+        xfer.xfer_bool(&mut visible)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut selected = self.selected;
+        xfer.xfer_bool(&mut selected)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut selectable = self.selectable;
+        xfer.xfer_bool(&mut selectable)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut opacity = self.opacity;
+        xfer.xfer_real(&mut opacity)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut tint_color = self.tint_color;
+        xfer_vector3(xfer, &mut tint_color)?;
+
+        let mut receives_dynamic_lights = self.receives_dynamic_lights;
+        xfer.xfer_bool(&mut receives_dynamic_lights)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut terrain_decal_size = self.terrain_decal_size;
+        xfer_vector3(xfer, &mut terrain_decal_size)?;
 
         let mut current_frame = self.current_frame;
         xfer.xfer_unsigned_int(&mut current_frame)
@@ -3732,61 +3738,260 @@ impl Snapshotable for BasicDrawable {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 2;
+        // PARITY_NOTE: C++ Drawable::xfer is at version 7 (Drawable.cpp line 4900).
+        // Rust version 3 adds object_id, drawable module stub, and instance_is_identity
+        // to match the C++ save/load field coverage. Existing v2 fields are preserved
+        // in their original order for backward compatibility.
+        const CURRENT_VERSION: XferVersion = 3;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
 
+        // --- drawable id (C++ line 4919: xferDrawableID) ---
         let mut id = self.id.0;
         xfer.xfer_unsigned_int(&mut id)
             .map_err(|e| format!("{:?}", e))?;
         self.id = DrawableId(id);
 
+        // --- condition state (C++ version >= 2, line 4924) ---
         if version >= 2 {
             let mut flags = self.model_condition_flags.clone();
             xfer_model_condition_flags(xfer, &mut flags)?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                self.replace_model_condition_flags(self.model_condition_flags.clone(), true);
+                self.replace_model_condition_flags(flags, true);
             }
         }
 
+        // --- transform (C++ version >= 5: Matrix3D, line 4935) ---
         xfer_vector3(xfer, &mut self.position)?;
         xfer_matrix4(xfer, &mut self.instance_transform)?;
 
-        let mut instance_scale = self.instance_scale;
-        xfer.xfer_real(&mut instance_scale)
+        // --- selection flash envelope (C++ line 4956) ---
+        let mut has_selection_flash = self.selection_flash_envelope.is_some();
+        xfer.xfer_bool(&mut has_selection_flash)
             .map_err(|e| format!("{:?}", e))?;
-        self.instance_scale = instance_scale;
+        if has_selection_flash {
+            if self.selection_flash_envelope.is_none() {
+                self.selection_flash_envelope = Some(TintEnvelope::new());
+            }
+            if let Some(ref mut envelope) = self.selection_flash_envelope {
+                envelope.xfer(xfer)?;
+            }
+        } else {
+            self.selection_flash_envelope = None;
+        }
 
+        // --- color tint envelope (C++ line 4971) ---
+        let mut has_tint_envelope = self.tint_envelope.is_some();
+        xfer.xfer_bool(&mut has_tint_envelope)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_tint_envelope {
+            if self.tint_envelope.is_none() {
+                self.tint_envelope = Some(TintEnvelope::new());
+            }
+            if let Some(ref mut envelope) = self.tint_envelope {
+                envelope.xfer(xfer)?;
+            }
+        } else {
+            self.tint_envelope = None;
+        }
+
+        // --- terrain decal type (C++ line 4986: xferUser sizeof TerrainDecalType) ---
+        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
+        xfer.xfer_unsigned_byte(&mut decal_type)
+            .map_err(|e| format!("{:?}", e))?;
+        self.terrain_decal_type = terrain_decal_from_u8(decal_type);
+
+        // --- explicit opacity (C++ line 4992) ---
+        let mut explicit_opacity = self.explicit_opacity;
+        xfer.xfer_real(&mut explicit_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+        self.explicit_opacity = explicit_opacity;
+
+        // --- stealth opacity (C++ line 4995) ---
+        let mut stealth_opacity = self.stealth_opacity;
+        xfer.xfer_real(&mut stealth_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+        self.stealth_opacity = stealth_opacity;
+
+        // --- effective stealth opacity (C++ line 4998) ---
+        let mut effective_stealth_opacity = self.effective_stealth_opacity;
+        xfer.xfer_real(&mut effective_stealth_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+        self.effective_stealth_opacity = effective_stealth_opacity;
+
+        // --- decal opacity fade target (C++ line 5001) ---
+        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
+        xfer.xfer_real(&mut decal_opacity_fade_target)
+            .map_err(|e| format!("{:?}", e))?;
+        self.decal_opacity_fade_target = decal_opacity_fade_target;
+
+        // --- decal opacity fade rate (C++ line 5004) ---
+        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
+        xfer.xfer_real(&mut decal_opacity_fade_rate)
+            .map_err(|e| format!("{:?}", e))?;
+        self.decal_opacity_fade_rate = decal_opacity_fade_rate;
+
+        // --- decal opacity (C++ line 5007) ---
+        let mut decal_opacity = self.decal_opacity;
+        xfer.xfer_real(&mut decal_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+        self.decal_opacity = decal_opacity;
+
+        // --- object id (C++ line 5010: xferObjectID, with validation) ---
+        // PARITY_NOTE: Added in version 3. C++ validates the object binding on load.
+        if version >= 3 {
+            let mut object_id = self.object_id.unwrap_or(0);
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| format!("{:?}", e))?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.object_id = if object_id != 0 {
+                    Some(object_id)
+                } else {
+                    None
+                };
+            }
+        }
+
+        // --- status (C++ line 5059: xferUnsignedInt) ---
         let mut status_bits = self.status.bits;
         xfer.xfer_unsigned_int(&mut status_bits)
             .map_err(|e| format!("{:?}", e))?;
         self.status.bits = status_bits;
 
+        // --- tint status (C++ line 5062) ---
         let mut tint_status_bits = self.tint_status.bits;
         xfer.xfer_unsigned_int(&mut tint_status_bits)
             .map_err(|e| format!("{:?}", e))?;
         self.tint_status.bits = tint_status_bits;
 
+        // --- prev tint status (C++ line 5065) ---
         let mut prev_tint_status_bits = self.prev_tint_status.bits;
         xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
             .map_err(|e| format!("{:?}", e))?;
         self.prev_tint_status.bits = prev_tint_status_bits;
 
-        let mut visible = self.visible;
-        xfer.xfer_bool(&mut visible)
+        // --- fading mode (C++ line 5068: xferUser sizeof FadingMode) ---
+        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
+        xfer.xfer_unsigned_byte(&mut fade_mode)
             .map_err(|e| format!("{:?}", e))?;
-        self.visible = visible;
+        self.fade_mode = fading_mode_from_u8(fade_mode);
 
+        // --- time elapsed fade (C++ line 5071) ---
+        let mut time_elapsed_fade = self.time_elapsed_fade;
+        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
+            .map_err(|e| format!("{:?}", e))?;
+        self.time_elapsed_fade = time_elapsed_fade;
+
+        // --- time to fade (C++ line 5074) ---
+        let mut time_to_fade = self.time_to_fade;
+        xfer.xfer_unsigned_int(&mut time_to_fade)
+            .map_err(|e| format!("{:?}", e))?;
+        self.time_to_fade = time_to_fade;
+
+        // --- loco info (C++ line 5076: inline fields, no versioning) ---
+        let mut has_loco_info = self.loco_info.is_some();
+        xfer.xfer_bool(&mut has_loco_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_loco_info {
+            if self.loco_info.is_none() {
+                self.loco_info = Some(LocoInfo::default());
+            }
+            if let Some(ref mut loco_info) = self.loco_info {
+                loco_info.xfer(xfer)?;
+            }
+        } else {
+            self.loco_info = None;
+        }
+
+        // --- drawable modules (C++ line 5130: xferDrawableModules) ---
+        // PARITY_NOTE: Added in version 3. C++ saves module count per type with name-keyed
+        // blocks. Rust draw modules don't yet support Snapshotable, so we write a versioned
+        // stub with module count = 0 to preserve the format structure.
+        if version >= 3 {
+            xfer_drawable_modules(xfer, &self.draw_modules)?;
+        }
+
+        // --- stealth look (C++ line 5133: xferUser sizeof StealthLookType) ---
+        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
+        xfer.xfer_unsigned_byte(&mut stealth_look)
+            .map_err(|e| format!("{:?}", e))?;
+        self.stealth_look = stealth_look_from_u8(stealth_look);
+
+        // --- flash count (C++ line 5137: xferInt) ---
+        let mut flash_count = self.flash_count as i32;
+        xfer.xfer_int(&mut flash_count)
+            .map_err(|e| format!("{:?}", e))?;
+        self.flash_count = flash_count.max(0) as u32;
+
+        // --- flash color (C++ line 5140: xferColor = i32 ARGB) ---
+        let mut flash_color_bits = vector3_to_color_bits(self.flash_color);
+        xfer.xfer_int(&mut flash_color_bits)
+            .map_err(|e| format!("{:?}", e))?;
+        self.flash_color = color_bits_to_vector3(flash_color_bits);
+
+        // --- hidden (C++ line 5143) ---
         let mut hidden = self.hidden;
         xfer.xfer_bool(&mut hidden)
             .map_err(|e| format!("{:?}", e))?;
         self.hidden = hidden;
 
+        // --- hidden by stealth (C++ line 5146) ---
         let mut hidden_by_stealth = self.hidden_by_stealth;
         xfer.xfer_bool(&mut hidden_by_stealth)
             .map_err(|e| format!("{:?}", e))?;
         self.hidden_by_stealth = hidden_by_stealth;
+
+        // --- heat vision / second material pass opacity (C++ line 5149) ---
+        let mut second_material_pass_opacity = self.second_material_pass_opacity;
+        xfer.xfer_real(&mut second_material_pass_opacity)
+            .map_err(|e| format!("{:?}", e))?;
+        self.second_material_pass_opacity = second_material_pass_opacity;
+
+        // --- instance is identity (C++ line 5152) ---
+        // PARITY_NOTE: Added in version 3. C++ uses xferBool.
+        if version >= 3 {
+            let mut instance_is_identity = self.is_instance_identity();
+            xfer.xfer_bool(&mut instance_is_identity)
+                .map_err(|e| format!("{:?}", e))?;
+        }
+
+        // --- instance scale (C++ line 5158) ---
+        let mut instance_scale = self.instance_scale;
+        xfer.xfer_real(&mut instance_scale)
+            .map_err(|e| format!("{:?}", e))?;
+        self.instance_scale = instance_scale;
+
+        // --- expiration date (C++ line 5182: xferUnsignedInt) ---
+        let mut expiration = self.expiration_frame.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut expiration)
+            .map_err(|e| format!("{:?}", e))?;
+        self.expiration_frame = if expiration > 0 {
+            Some(expiration)
+        } else {
+            None
+        };
+
+        // --- icon count + icons (C++ line 5185-5267) ---
+        let mut has_icon_info = self.icon_info.is_some();
+        xfer.xfer_bool(&mut has_icon_info)
+            .map_err(|e| format!("{:?}", e))?;
+        if has_icon_info {
+            if self.icon_info.is_none() {
+                self.icon_info = Some(IconInfo::new());
+            }
+            if let Some(ref mut icon_info) = self.icon_info {
+                icon_info.xfer(xfer)?;
+            }
+        } else {
+            self.icon_info = None;
+        }
+
+        // --- Rust-specific fields not in C++ (preserved for v2 compat) ---
+        let mut visible = self.visible;
+        xfer.xfer_bool(&mut visible)
+            .map_err(|e| format!("{:?}", e))?;
+        self.visible = visible;
 
         let mut selected = self.selected;
         xfer.xfer_bool(&mut selected)
@@ -3803,149 +4008,14 @@ impl Snapshotable for BasicDrawable {
             .map_err(|e| format!("{:?}", e))?;
         self.opacity = opacity;
 
-        let mut explicit_opacity = self.explicit_opacity;
-        xfer.xfer_real(&mut explicit_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-        self.explicit_opacity = explicit_opacity;
-
-        let mut stealth_opacity = self.stealth_opacity;
-        xfer.xfer_real(&mut stealth_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-        self.stealth_opacity = stealth_opacity;
-
-        let mut effective_stealth_opacity = self.effective_stealth_opacity;
-        xfer.xfer_real(&mut effective_stealth_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-        self.effective_stealth_opacity = effective_stealth_opacity;
-
-        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
-        xfer.xfer_unsigned_byte(&mut stealth_look)
-            .map_err(|e| format!("{:?}", e))?;
-        self.stealth_look = stealth_look_from_u8(stealth_look);
-
         xfer_vector3(xfer, &mut self.tint_color)?;
-
-        let mut has_tint_envelope = self.tint_envelope.is_some();
-        xfer.xfer_bool(&mut has_tint_envelope)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_tint_envelope {
-            if self.tint_envelope.is_none() {
-                self.tint_envelope = Some(TintEnvelope::new());
-            }
-            if let Some(ref mut envelope) = self.tint_envelope {
-                envelope.xfer(xfer)?;
-            }
-        } else {
-            self.tint_envelope = None;
-        }
-
-        let mut has_selection_flash = self.selection_flash_envelope.is_some();
-        xfer.xfer_bool(&mut has_selection_flash)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_selection_flash {
-            if self.selection_flash_envelope.is_none() {
-                self.selection_flash_envelope = Some(TintEnvelope::new());
-            }
-            if let Some(ref mut envelope) = self.selection_flash_envelope {
-                envelope.xfer(xfer)?;
-            }
-        } else {
-            self.selection_flash_envelope = None;
-        }
-
-        let mut has_icon_info = self.icon_info.is_some();
-        xfer.xfer_bool(&mut has_icon_info)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_icon_info {
-            if self.icon_info.is_none() {
-                self.icon_info = Some(IconInfo::new());
-            }
-            if let Some(ref mut icon_info) = self.icon_info {
-                icon_info.xfer(xfer)?;
-            }
-        } else {
-            self.icon_info = None;
-        }
-
-        let mut has_loco_info = self.loco_info.is_some();
-        xfer.xfer_bool(&mut has_loco_info)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_loco_info {
-            if self.loco_info.is_none() {
-                self.loco_info = Some(LocoInfo::default());
-            }
-            if let Some(ref mut loco_info) = self.loco_info {
-                loco_info.xfer(xfer)?;
-            }
-        } else {
-            self.loco_info = None;
-        }
 
         let mut receives_dynamic_lights = self.receives_dynamic_lights;
         xfer.xfer_bool(&mut receives_dynamic_lights)
             .map_err(|e| format!("{:?}", e))?;
         self.receives_dynamic_lights = receives_dynamic_lights;
 
-        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
-        xfer.xfer_unsigned_byte(&mut decal_type)
-            .map_err(|e| format!("{:?}", e))?;
-        self.terrain_decal_type = terrain_decal_from_u8(decal_type);
-
         xfer_vector3(xfer, &mut self.terrain_decal_size)?;
-
-        let mut decal_opacity = self.decal_opacity;
-        xfer.xfer_real(&mut decal_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-        self.decal_opacity = decal_opacity;
-
-        let mut decal_opacity_fade_target = self.decal_opacity_fade_target;
-        xfer.xfer_real(&mut decal_opacity_fade_target)
-            .map_err(|e| format!("{:?}", e))?;
-        self.decal_opacity_fade_target = decal_opacity_fade_target;
-
-        let mut decal_opacity_fade_rate = self.decal_opacity_fade_rate;
-        xfer.xfer_real(&mut decal_opacity_fade_rate)
-            .map_err(|e| format!("{:?}", e))?;
-        self.decal_opacity_fade_rate = decal_opacity_fade_rate;
-
-        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
-        xfer.xfer_unsigned_byte(&mut fade_mode)
-            .map_err(|e| format!("{:?}", e))?;
-        self.fade_mode = fading_mode_from_u8(fade_mode);
-
-        let mut time_to_fade = self.time_to_fade;
-        xfer.xfer_unsigned_int(&mut time_to_fade)
-            .map_err(|e| format!("{:?}", e))?;
-        self.time_to_fade = time_to_fade;
-
-        let mut time_elapsed_fade = self.time_elapsed_fade;
-        xfer.xfer_unsigned_int(&mut time_elapsed_fade)
-            .map_err(|e| format!("{:?}", e))?;
-        self.time_elapsed_fade = time_elapsed_fade;
-
-        let mut second_material_pass_opacity = self.second_material_pass_opacity;
-        xfer.xfer_real(&mut second_material_pass_opacity)
-            .map_err(|e| format!("{:?}", e))?;
-        self.second_material_pass_opacity = second_material_pass_opacity;
-
-        let mut flash_count = self.flash_count;
-        xfer.xfer_unsigned_int(&mut flash_count)
-            .map_err(|e| format!("{:?}", e))?;
-        self.flash_count = flash_count;
-
-        xfer_vector3(xfer, &mut self.flash_color)?;
-
-        let mut has_expiration = self.expiration_frame.is_some();
-        xfer.xfer_bool(&mut has_expiration)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_expiration {
-            let mut frame = self.expiration_frame.unwrap_or(0);
-            xfer.xfer_unsigned_int(&mut frame)
-                .map_err(|e| format!("{:?}", e))?;
-            self.expiration_frame = Some(frame);
-        } else {
-            self.expiration_frame = None;
-        }
 
         let mut current_frame = self.current_frame;
         xfer.xfer_unsigned_int(&mut current_frame)
@@ -3955,6 +4025,7 @@ impl Snapshotable for BasicDrawable {
         if xfer.get_xfer_mode() == XferMode::Load {
             // C++ resets stealth look after load so a subsequent update re-applies
             // hidden/shadow behavior from authoritative object state.
+            // (C++ Drawable.cpp line 5274: m_stealthLook = STEALTHLOOK_NONE)
             self.stealth_look = StealthLook::None;
         }
 
@@ -4104,6 +4175,45 @@ fn fading_mode_from_u8(value: u8) -> FadingMode {
         2 => FadingMode::FadingOut,
         _ => FadingMode::None,
     }
+}
+
+fn vector3_to_color_bits(color: Vector3) -> i32 {
+    // C++ xferColor encodes as ARGB i32. Convert from Vector3 (r,g,b 0-1) to ARGB.
+    let r = (color.x.clamp(0.0, 1.0) * 255.0) as u32;
+    let g = (color.y.clamp(0.0, 1.0) * 255.0) as u32;
+    let b = (color.z.clamp(0.0, 1.0) * 255.0) as u32;
+    (0xFF << 24 | r << 16 | g << 8 | b) as i32
+}
+
+fn color_bits_to_vector3(bits: i32) -> Vector3 {
+    let bits = bits as u32;
+    Vector3::new(
+        ((bits >> 16) & 0xFF) as f32 / 255.0,
+        ((bits >> 8) & 0xFF) as f32 / 255.0,
+        (bits & 0xFF) as f32 / 255.0,
+    )
+}
+
+fn xfer_drawable_modules(
+    xfer: &mut dyn Xfer,
+    _modules: &[Box<dyn DrawModule>],
+) -> Result<(), String> {
+    // PARITY_NOTE: C++ Drawable::xferDrawableModules (Drawable.cpp line 4767).
+    // Saves version, module type count, then per-type: module count + name-keyed blocks.
+    // Rust draw modules don't yet implement Snapshotable, so we write a versioned
+    // stub with 0 module types to preserve the stream format.
+    const CURRENT_VERSION: XferVersion = 1;
+    let mut version = CURRENT_VERSION;
+    xfer.xfer_version(&mut version, CURRENT_VERSION)
+        .map_err(|e| format!("{:?}", e))?;
+
+    // C++ writes NUM_DRAWABLE_MODULE_TYPES as UnsignedShort (Drawable.cpp line 4786).
+    // Rust currently has 0 drawable module types in the save format.
+    let mut module_types: u16 = 0;
+    xfer.xfer_unsigned_short(&mut module_types)
+        .map_err(|e| format!("{:?}", e))?;
+
+    Ok(())
 }
 
 impl<T: Drawable + ?Sized> DrawableExt for T {

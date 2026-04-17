@@ -107,12 +107,11 @@ impl ObjectTypes {
 
     /// Gather templates referenced by this list and return zero-initialised counts array.
     pub fn prep_for_player_counting(&self) -> (Vec<Arc<dyn ThingTemplate>>, Vec<Int>) {
-        let mut templates = Vec::new();
-        for name in &self.object_types {
-            if let Some(template) = TheThingFactory::find_template(name) {
-                templates.push(template);
-            }
-        }
+        let templates: Vec<_> = self
+            .object_types
+            .iter()
+            .filter_map(|name| TheThingFactory::find_template(name))
+            .collect();
         let counts = vec![0; templates.len()];
         (templates, counts)
     }

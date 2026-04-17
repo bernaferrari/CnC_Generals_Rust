@@ -166,10 +166,14 @@ impl DamageInfo {
 }
 
 // Constants
+#[allow(dead_code)]
 const UPDATE_SLEEP_NONE: UpdateSleepTime = UpdateSleepTime::None;
+#[allow(dead_code)]
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 const INVALID_ID: ObjectID = 0;
+#[allow(dead_code)]
 const NEVER: UnsignedInt = u32::MAX;
+#[allow(dead_code)]
 const FOREVER: UnsignedInt = u32::MAX;
 const MIN_HEALTH: Real = 0.1;
 const LOGICFRAMES_PER_SECOND: UnsignedInt = 30;

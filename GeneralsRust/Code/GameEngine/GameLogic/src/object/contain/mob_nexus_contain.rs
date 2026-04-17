@@ -207,6 +207,7 @@ pub struct MobNexusContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
     /// Reference to the owning object
+    #[allow(dead_code)]
     object: Weak<RwLock<Object>>,
     /// Module configuration
     module_data: MobNexusContainModuleData,

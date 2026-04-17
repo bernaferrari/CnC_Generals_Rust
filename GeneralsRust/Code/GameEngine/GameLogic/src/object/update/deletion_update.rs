@@ -22,6 +22,7 @@ impl Default for DeletionUpdateModuleData {
 #[derive(Debug, Clone)]
 pub struct DeletionUpdate {
     thing: ThingId,
+    #[allow(dead_code)]
     module_data: DeletionUpdateModuleData,
     die_frame: u32,
 }

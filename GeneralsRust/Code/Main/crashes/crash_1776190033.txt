@@ -1,0 +1,143 @@
+Command & Conquer Generals Zero Hour - Crash Report
+Time: 1776190033
+Panic: panicked at Code/Main/src/game_results_queue.rs:176:47:
+called `Result::unwrap()` on an `Err` value: Failed to lock GameResultsQueue during init: poisoned lock: another task failed inside
+
+Stack backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/backtrace.rs:331:13
+   3: anyhow::error::<impl anyhow::Error>::msg
+             at /Users/bernardoferrari/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.102/src/backtrace.rs:10:14
+   4: anyhow::__private::format_err
+             at /Users/bernardoferrari/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.102/src/lib.rs:690:13
+   5: generals_main::game_results_queue::init_game_results_queue::{{closure}}
+             at ./src/game_results_queue.rs:87:28
+   6: core::result::Result<T,E>::map_err
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/result.rs:968:27
+   7: generals_main::game_results_queue::init_game_results_queue
+             at ./src/game_results_queue.rs:87:14
+   8: generals_main::game_results_queue::tests::game_results_queue_preserves_fifo_order
+             at ./src/game_results_queue.rs:176:21
+   9: generals_main::game_results_queue::tests::game_results_queue_preserves_fifo_order::{{closure}}
+             at ./src/game_results_queue.rs:174:49
+  10: core::ops::function::FnOnce::call_once
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  11: core::ops::function::FnOnce::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/ops/function.rs:250:5
+  12: test::__rust_begin_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:663:18
+  13: test::run_test_in_process::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:686:74
+  14: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panic/unwind_safe.rs:274:9
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:581:40
+  16: std::panicking::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:544:19
+  17: std::panic::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panic.rs:359:14
+  18: test::run_test_in_process
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:686:27
+  19: test::run_test::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:607:43
+  20: test::run_test::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:637:41
+  21: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/backtrace.rs:166:18
+  22: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/thread/lifecycle.rs:91:13
+  23: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panic/unwind_safe.rs:274:9
+  24: std::panicking::catch_unwind::do_call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:581:40
+  25: std::panicking::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:544:19
+  26: std::panic::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panic.rs:359:14
+  27: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/thread/lifecycle.rs:89:26
+  28: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/ops/function.rs:250:5
+  29: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/alloc/src/boxed.rs:2206:9
+  30: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/thread/unix.rs:127:17
+  31: __pthread_cond_wait
+Location: Some(Location { file: "Code/Main/src/game_results_queue.rs", line: 176, column: 47 })
+Backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: std::backtrace::Backtrace::create
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/backtrace.rs:331:13
+   3: generals_main::debug_system::DebugSystem::setup_crash_handler::{{closure}}
+             at ./src/debug_system.rs:240:37
+   4: <alloc::boxed::Box<F,A> as core::ops::function::Fn<Args>>::call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/alloc/src/boxed.rs:2220:9
+   5: std::panicking::panic_with_hook
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:833:13
+   6: std::panicking::panic_handler::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:698:13
+   7: std::sys::backtrace::__rust_end_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/backtrace.rs:182:18
+   8: __rustc::rust_begin_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:689:5
+   9: core::panicking::panic_fmt
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panicking.rs:80:14
+  10: core::result::unwrap_failed
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/result.rs:1867:5
+  11: core::result::Result<T,E>::unwrap
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/result.rs:1233:23
+  12: generals_main::game_results_queue::tests::game_results_queue_preserves_fifo_order
+             at ./src/game_results_queue.rs:176:47
+  13: generals_main::game_results_queue::tests::game_results_queue_preserves_fifo_order::{{closure}}
+             at ./src/game_results_queue.rs:174:49
+  14: core::ops::function::FnOnce::call_once
+             at /Users/bernardoferrari/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  15: core::ops::function::FnOnce::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/ops/function.rs:250:5
+  16: test::__rust_begin_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:663:18
+  17: test::run_test_in_process::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:686:74
+  18: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panic/unwind_safe.rs:274:9
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:581:40
+  20: std::panicking::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:544:19
+  21: std::panic::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panic.rs:359:14
+  22: test::run_test_in_process
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:686:27
+  23: test::run_test::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:607:43
+  24: test::run_test::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/test/src/lib.rs:637:41
+  25: std::sys::backtrace::__rust_begin_short_backtrace
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/backtrace.rs:166:18
+  26: std::thread::lifecycle::spawn_unchecked::{{closure}}::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/thread/lifecycle.rs:91:13
+  27: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/panic/unwind_safe.rs:274:9
+  28: std::panicking::catch_unwind::do_call
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:581:40
+  29: std::panicking::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panicking.rs:544:19
+  30: std::panic::catch_unwind
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/panic.rs:359:14
+  31: std::thread::lifecycle::spawn_unchecked::{{closure}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/thread/lifecycle.rs:89:26
+  32: core::ops::function::FnOnce::call_once{{vtable.shim}}
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/core/src/ops/function.rs:250:5
+  33: <alloc::boxed::Box<F,A> as core::ops::function::FnOnce<Args>>::call_once
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/alloc/src/boxed.rs:2206:9
+  34: std::sys::thread::unix::Thread::new::thread_start
+             at /rustc/4a4ef493e3a1488c6e321570238084b38948f6db/library/std/src/sys/thread/unix.rs:127:17
+  35: __pthread_cond_wait
+

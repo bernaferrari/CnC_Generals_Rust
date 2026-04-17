@@ -1,4 +1,5 @@
 //! Shim for NetworkDirectConnect.cpp callbacks.
+#![allow(non_snake_case)]
 
 use crate::gui::callbacks::network_direct_connect::{
     network_direct_connect_init, network_direct_connect_input, network_direct_connect_shutdown,

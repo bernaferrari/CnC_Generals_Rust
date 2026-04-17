@@ -40,6 +40,7 @@ impl Default for ObjectRepulsorHelperModuleData {
 #[derive(Debug)]
 pub struct ObjectRepulsorHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: ObjectRepulsorHelperModuleData,
 
     /// Next wake frame

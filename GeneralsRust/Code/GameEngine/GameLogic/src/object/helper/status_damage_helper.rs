@@ -48,6 +48,7 @@ impl Default for StatusDamageHelperModuleData {
 #[derive(Debug)]
 pub struct StatusDamageHelper {
     /// Module data
+    #[allow(dead_code)]
     module_data: StatusDamageHelperModuleData,
 
     /// Owning object id

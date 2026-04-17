@@ -13,6 +13,7 @@ impl<'a> SpecialPowerModuleKindMut<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn into_base_special_power_module(
         self,
     ) -> Option<&'a mut crate::object::special_power_module::SpecialPowerModule> {
@@ -84,6 +85,7 @@ pub(crate) fn module_special_power_interface(
     module_special_power_kind(module).map(SpecialPowerModuleKindMut::into_interface)
 }
 
+#[allow(dead_code)]
 pub(crate) fn module_base_special_power_module(
     module: &mut dyn Module,
 ) -> Option<&mut crate::object::special_power_module::SpecialPowerModule> {

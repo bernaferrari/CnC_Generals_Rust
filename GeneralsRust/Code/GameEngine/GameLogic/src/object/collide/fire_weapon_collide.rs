@@ -114,6 +114,7 @@ impl Snapshotable for FireWeaponCollideModuleData {
 pub struct FireWeaponCollide {
     object_id: ObjectId,
     module_data: Arc<FireWeaponCollideModuleData>,
+    #[allow(dead_code)]
     weapon_template: Arc<WeaponTemplate>,
     collide_weapon: Weapon,
     ever_fired: bool,

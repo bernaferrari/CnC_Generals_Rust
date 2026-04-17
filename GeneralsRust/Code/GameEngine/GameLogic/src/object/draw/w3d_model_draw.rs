@@ -880,6 +880,7 @@ impl AnimationOverride {
         }
     }
 
+    #[allow(dead_code)]
     fn clear(&mut self) {
         self.duration_frames = None;
         self.completion_frames = None;
@@ -896,6 +897,7 @@ enum ActiveModelState {
 /// W3DModelDraw module instance
 ///
 /// Reference: W3DModelDraw in W3DModelDraw.h
+#[allow(dead_code)]
 pub struct W3DModelDraw {
     /// Module data
     data: W3DModelDrawModuleData,
@@ -910,6 +912,7 @@ pub struct W3DModelDraw {
     next_state_anim_loop_duration: u32,
 
     /// Current hex color
+    #[allow(dead_code)]
     hex_color: i32,
 
     /// Index of currently playing animation in current state
