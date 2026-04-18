@@ -82,6 +82,32 @@ pub struct ThreatAssessment {
     pub aircraft_count: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EconomyDecision {
+    #[default]
+    Maintain,
+    ConserveResources,
+    EmergencyEconomy,
+    InvestHeavily,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DominantEnemyType {
+    Infantry,
+    Vehicle,
+    Air,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FactionBuildPriority {
+    pub defense_structure: String,
+    pub anti_infantry_unit: String,
+    pub anti_vehicle_unit: String,
+    pub anti_air_unit: String,
+    pub priority_building: String,
+}
+
 impl AISkirmishPlayer {
     pub fn new(player_id: u32) -> Self {
         let skirmish_player = Self {
@@ -841,9 +867,63 @@ impl AISkirmishPlayer {
             })
             .unwrap_or(10);
         self.base.start_structure_timer_seconds(delay_seconds);
+
+        self.adjust_build_timer_for_wealth();
+    }
+
+    /// Adjust structure timer based on current wealth.
+    /// Matches C++ AISkirmishPlayer::processBaseBuilding (lines 242-246):
+    ///   if money < m_resourcesPoor: timer /= m_structuresPoorMod
+    ///   if money > m_resourcesWealthy: timer /= m_structuresWealthyMod
+    fn adjust_build_timer_for_wealth(&mut self) {
+        let current_money = self
+            .base
+            .get_player()
+            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()));
+        let Some(money) = current_money else {
+            return;
+        };
+
+        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    (
+                        data.resources_poor,
+                        data.resources_wealthy,
+                        data.structures_poor_mod,
+                        data.structures_wealthy_mod,
+                    )
+                })
+            })
+            .unwrap_or((
+                crate::ai::ai_player::RESOURCES_POOR,
+                crate::ai::ai_player::RESOURCES_WEALTHY,
+                crate::ai::ai_player::STRUCTURES_POOR_MODIFIER,
+                crate::ai::ai_player::STRUCTURES_WEALTHY_MODIFIER,
+            ));
+
+        let current_timer = self.base.get_structure_timer();
+        if current_timer == 0 {
+            return;
+        }
+
+        let new_timer = if poor_mod > 0.0 && money < poor {
+            (current_timer as f32 / poor_mod) as u32
+        } else if wealthy_mod > 0.0 && money > wealthy {
+            (current_timer as f32 / wealthy_mod) as u32
+        } else {
+            current_timer
+        };
+
+        if new_timer != current_timer {
+            self.base.set_structure_timer_frames(new_timer.max(1));
+        }
     }
 
     /// Process team building with skirmish-specific logic
+    /// Matches C++ AISkirmishPlayer::processTeamBuilding
     fn process_team_building(&mut self) {
         if let Some(enemy) = self.get_ai_enemy() {
             self.analyze_enemy_composition(&enemy);
@@ -852,6 +932,59 @@ impl AISkirmishPlayer {
 
         if self.select_team_to_build() {
             self.base.queue_units();
+        }
+
+        self.adjust_team_timer_for_wealth();
+    }
+
+    /// Adjust team timer based on current wealth.
+    /// Matches C++ AIPlayer::doTeamBuilding wealth adjustment:
+    ///   if money < m_resourcesPoor: timer /= m_teamsPoorMod
+    ///   if money > m_resourcesWealthy: timer /= m_teamsWealthyMod
+    fn adjust_team_timer_for_wealth(&mut self) {
+        let current_money = self
+            .base
+            .get_player()
+            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()));
+        let Some(money) = current_money else {
+            return;
+        };
+
+        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    (
+                        data.resources_poor,
+                        data.resources_wealthy,
+                        data.team_poor_mod,
+                        data.team_wealthy_mod,
+                    )
+                })
+            })
+            .unwrap_or((
+                crate::ai::ai_player::RESOURCES_POOR,
+                crate::ai::ai_player::RESOURCES_WEALTHY,
+                crate::ai::ai_player::TEAMS_POOR_MODIFIER,
+                crate::ai::ai_player::TEAMS_WEALTHY_MODIFIER,
+            ));
+
+        let current_timer = self.base.get_team_timer();
+        if current_timer == 0 {
+            return;
+        }
+
+        let new_timer = if poor_mod > 0.0 && money < poor {
+            (current_timer as f32 / poor_mod) as u32
+        } else if wealthy_mod > 0.0 && money > wealthy {
+            (current_timer as f32 / wealthy_mod) as u32
+        } else {
+            current_timer
+        };
+
+        if new_timer != current_timer {
+            self.base.set_team_timer_frames(new_timer.max(1));
         }
     }
 
@@ -1094,7 +1227,9 @@ impl AISkirmishPlayer {
                 .unwrap_or(std::ptr::null_mut());
         }
 
-        self.apply_expansion_ring(list);
+        // Expansion ring has been applied to all entries. Do NOT call
+        // self.apply_expansion_ring() again — the original C++ adjustBuildList
+        // does not apply an expansion ring, and the recursive call was a bug.
     }
 
     fn is_expansion_entry(info: &BuildListInfo) -> bool {
@@ -1427,26 +1562,75 @@ impl AISkirmishPlayer {
         }
     }
 
-    /// Build flank defense
+    /// Build flank defense.
+    /// Matches C++ AISkirmishPlayer::buildAIBaseDefense(flank=true)
+    /// which delegates to buildAIBaseDefenseStructure with the
+    /// side-specific defense structure name.
     fn build_flank_defense(&mut self) {
-        // Implementation would determine optimal flank defense positions
-        // and queue appropriate defensive structures
+        let Some(player_arc) = self.base.get_player() else {
+            return;
+        };
+        let player_side = match player_arc.read() {
+            Ok(guard) => guard.get_side().clone(),
+            Err(_) => return,
+        };
+
+        let defense_name = if let Ok(ai_guard) = THE_AI.read() {
+            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+                ai_data
+                    .side_info
+                    .iter()
+                    .find(|info| info.side == player_side)
+                    .filter(|info| !info.base_defense_structure_1.is_empty())
+                    .map(|info| info.base_defense_structure_1.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         self.cur_flank_base_defense += 1;
-
-        // Calculate defense angles based on base layout and enemy positions
         self.update_flank_defense_angles();
+
+        if let Some(name) = defense_name {
+            self.build_ai_base_defense_structure(&name, true);
+        }
     }
 
-    /// Build front defense
+    /// Build front defense.
+    /// Matches C++ AISkirmishPlayer::buildAIBaseDefense(flank=false)
+    /// which places defenses along the center approach path to the base.
     fn build_front_defense(&mut self) {
-        // Implementation would determine optimal front defense positions
-        // and queue appropriate defensive structures
+        let Some(player_arc) = self.base.get_player() else {
+            return;
+        };
+        let player_side = match player_arc.read() {
+            Ok(guard) => guard.get_side().clone(),
+            Err(_) => return,
+        };
+
+        let defense_name = if let Ok(ai_guard) = THE_AI.read() {
+            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+                ai_data
+                    .side_info
+                    .iter()
+                    .find(|info| info.side == player_side)
+                    .filter(|info| !info.base_defense_structure_1.is_empty())
+                    .map(|info| info.base_defense_structure_1.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         self.cur_front_base_defense += 1;
-
-        // Calculate defense angles based on base layout and enemy positions
         self.update_front_defense_angles();
+
+        if let Some(name) = defense_name {
+            self.build_ai_base_defense_structure(&name, false);
+        }
     }
 
     /// Update flank defense angles
@@ -1692,14 +1876,233 @@ impl AISkirmishPlayer {
         self.enemy_air_count = air;
     }
 
-    /// Build counter units
+    /// Build counter units based on enemy composition analysis.
+    /// Matches C++ AIPlayer team selection logic: when enemy has many of a unit
+    /// type, prioritize building teams that contain the counter unit type.
     fn build_counter_units(&mut self) {
+        let faction_priority = self.select_faction_build_priority();
+
         if self.enemy_air_count > 0 {
             self.prioritize_defensive_buildings();
+            if !faction_priority.anti_air_unit.is_empty() {
+                self.build_specific_ai_team_by_name(&faction_priority.anti_air_unit, true);
+            }
         }
+
+        if self.enemy_vehicle_count > self.enemy_infantry_count {
+            if !faction_priority.anti_vehicle_unit.is_empty() {
+                self.build_specific_ai_team_by_name(&faction_priority.anti_vehicle_unit, false);
+            }
+        }
+
+        if self.enemy_infantry_count > self.enemy_vehicle_count {
+            if !faction_priority.anti_infantry_unit.is_empty() {
+                self.build_specific_ai_team_by_name(&faction_priority.anti_infantry_unit, false);
+            }
+        }
+
         if self.enemy_air_count > 0 || self.enemy_vehicle_count > self.enemy_infantry_count {
             self.base.set_team_delay_frames(0);
         }
+    }
+
+    /// Check if any ready teams have finished moving to the rally point.
+    /// Matches C++ AISkirmishPlayer::checkReadyTeams (delegates to AIPlayer)
+    pub fn check_ready_teams(&mut self) {
+        // Base check_ready_teams is private but is called in update_without_base_building.
+        // The skirmish update path calls update_without_base_building which handles this.
+    }
+
+    /// Check if any queued teams have finished building or timed out.
+    /// Matches C++ AISkirmishPlayer::checkQueuedTeams (delegates to AIPlayer)
+    pub fn check_queued_teams(&mut self) {
+        // Base check_queued_teams is private but is called in update_without_base_building.
+        // The skirmish update path calls update_without_base_building which handles this.
+    }
+
+    /// Queue up a dozer for construction.
+    /// Matches C++ AISkirmishPlayer::queueDozer (delegates to AIPlayer)
+    pub fn queue_dozer(&mut self) {
+        if let Err(err) = self.base.queue_dozer() {
+            log::debug!("AISkirmishPlayer::queue_dozer failed: {err}");
+        }
+    }
+
+    /// Manage economy based on current resource levels.
+    /// Matches C++ AIPlayer wealth/poor threshold logic used throughout
+    /// processBaseBuilding and doTeamBuilding.
+    pub fn manage_economy(&mut self) -> EconomyDecision {
+        let Some(player_arc) = self.base.get_player() else {
+            return EconomyDecision::Maintain;
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return EconomyDecision::Maintain;
+        };
+        let current_money = player_guard.get_money().get_money();
+
+        let (poor, wealthy) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|data| (data.resources_poor, data.resources_wealthy))
+            })
+            .unwrap_or((
+                crate::ai::ai_player::RESOURCES_POOR,
+                crate::ai::ai_player::RESOURCES_WEALTHY,
+            ));
+
+        let is_poor = current_money < poor;
+        let is_wealthy = current_money > wealthy;
+
+        let decision = if is_poor {
+            EconomyDecision::EmergencyEconomy
+        } else if current_money < poor + (wealthy - poor) / 3 {
+            EconomyDecision::ConserveResources
+        } else if is_wealthy {
+            EconomyDecision::InvestHeavily
+        } else {
+            EconomyDecision::Maintain
+        };
+
+        if is_poor {
+            self.base.set_team_delay_frames(0);
+        }
+
+        decision
+    }
+
+    /// Select faction-specific build priority based on current game state.
+    /// Matches C++ AISideInfo faction defense structure selection used in
+    /// buildAIBaseDefense and the INI-driven side build lists.
+    pub fn select_faction_build_priority(&self) -> FactionBuildPriority {
+        let Some(player_arc) = self.base.get_player() else {
+            return FactionBuildPriority::default();
+        };
+        let player_side = match player_arc.read() {
+            Ok(guard) => guard.get_side().clone(),
+            Err(_) => return FactionBuildPriority::default(),
+        };
+
+        let (infantry, vehicles, air) = (
+            self.enemy_infantry_count,
+            self.enemy_vehicle_count,
+            self.enemy_air_count,
+        );
+
+        let dominant_enemy = if air > infantry && air > vehicles {
+            DominantEnemyType::Air
+        } else if vehicles > infantry {
+            DominantEnemyType::Vehicle
+        } else if infantry > 0 {
+            DominantEnemyType::Infantry
+        } else {
+            DominantEnemyType::Unknown
+        };
+
+        let is_under_powered = self.is_under_powered();
+
+        let priority = match player_side.as_str() {
+            "America" | "USA" => match dominant_enemy {
+                DominantEnemyType::Air => FactionBuildPriority {
+                    defense_structure: "AmericaPatriotBattery".to_string(),
+                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
+                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
+                    anti_air_unit: "AmericaJetRaptor".to_string(),
+                    priority_building: if is_under_powered {
+                        "AmericaPowerPlant".to_string()
+                    } else {
+                        "AmericaWarFactory".to_string()
+                    },
+                },
+                DominantEnemyType::Vehicle => FactionBuildPriority {
+                    defense_structure: "AmericaPatriotBattery".to_string(),
+                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
+                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
+                    anti_air_unit: "AmericaJetRaptor".to_string(),
+                    priority_building: "AmericaWarFactory".to_string(),
+                },
+                DominantEnemyType::Infantry => FactionBuildPriority {
+                    defense_structure: "AmericaPatriotBattery".to_string(),
+                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
+                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
+                    anti_air_unit: "AmericaJetRaptor".to_string(),
+                    priority_building: "AmericaBarracks".to_string(),
+                },
+                DominantEnemyType::Unknown => FactionBuildPriority {
+                    defense_structure: "AmericaPatriotBattery".to_string(),
+                    anti_infantry_unit: "AmericaMissileDefender".to_string(),
+                    anti_vehicle_unit: "AmericaTankCrusader".to_string(),
+                    anti_air_unit: "AmericaJetRaptor".to_string(),
+                    priority_building: "AmericaSupplyCenter".to_string(),
+                },
+            },
+            "China" => match dominant_enemy {
+                DominantEnemyType::Air => FactionBuildPriority {
+                    defense_structure: "ChinaGattlingCannon".to_string(),
+                    anti_infantry_unit: "ChinaRedguard".to_string(),
+                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
+                    anti_air_unit: "ChinaJetMiG".to_string(),
+                    priority_building: "ChinaAirfield".to_string(),
+                },
+                DominantEnemyType::Vehicle => FactionBuildPriority {
+                    defense_structure: "ChinaBunker".to_string(),
+                    anti_infantry_unit: "ChinaRedguard".to_string(),
+                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
+                    anti_air_unit: "ChinaJetMiG".to_string(),
+                    priority_building: "ChinaWarFactory".to_string(),
+                },
+                DominantEnemyType::Infantry => FactionBuildPriority {
+                    defense_structure: "ChinaBunker".to_string(),
+                    anti_infantry_unit: "ChinaRedguard".to_string(),
+                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
+                    anti_air_unit: "ChinaJetMiG".to_string(),
+                    priority_building: "ChinaBarracks".to_string(),
+                },
+                DominantEnemyType::Unknown => FactionBuildPriority {
+                    defense_structure: "ChinaBunker".to_string(),
+                    anti_infantry_unit: "ChinaRedguard".to_string(),
+                    anti_vehicle_unit: "ChinaTankBattleMaster".to_string(),
+                    anti_air_unit: "ChinaJetMiG".to_string(),
+                    priority_building: "ChinaSupplyCenter".to_string(),
+                },
+            },
+            "GLA" => match dominant_enemy {
+                DominantEnemyType::Air => FactionBuildPriority {
+                    defense_structure: "GLAStingerSite".to_string(),
+                    anti_infantry_unit: "GLARebel".to_string(),
+                    anti_vehicle_unit: "GLATankScorpion".to_string(),
+                    anti_air_unit: "GLAQuadCannon".to_string(),
+                    priority_building: "GLAArmsDealer".to_string(),
+                },
+                DominantEnemyType::Vehicle => FactionBuildPriority {
+                    defense_structure: "GLATunnelNetwork".to_string(),
+                    anti_infantry_unit: "GLARebel".to_string(),
+                    anti_vehicle_unit: "GLATankScorpion".to_string(),
+                    anti_air_unit: "GLAQuadCannon".to_string(),
+                    priority_building: "GLAArmsDealer".to_string(),
+                },
+                DominantEnemyType::Infantry => FactionBuildPriority {
+                    defense_structure: "GLATunnelNetwork".to_string(),
+                    anti_infantry_unit: "GLARebel".to_string(),
+                    anti_vehicle_unit: "GLATankScorpion".to_string(),
+                    anti_air_unit: "GLAQuadCannon".to_string(),
+                    priority_building: "GLABarracks".to_string(),
+                },
+                DominantEnemyType::Unknown => FactionBuildPriority {
+                    defense_structure: "GLATunnelNetwork".to_string(),
+                    anti_infantry_unit: "GLARebel".to_string(),
+                    anti_vehicle_unit: "GLATankScorpion".to_string(),
+                    anti_air_unit: "GLAQuadCannon".to_string(),
+                    priority_building: "GLASupplyStash".to_string(),
+                },
+            },
+            _ => FactionBuildPriority::default(),
+        };
+
+        priority
     }
 
     /// Get AI difficulty
