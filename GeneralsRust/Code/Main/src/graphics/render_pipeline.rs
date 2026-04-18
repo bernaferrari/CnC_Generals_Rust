@@ -1159,6 +1159,15 @@ impl RenderPipeline {
             if !object.is_alive() {
                 continue;
             }
+
+            // Objects bridged to GameEngine ObjectFactory render exclusively via
+            // RenderBridge (drain_render_bridge_submissions). Skipping them here
+            // prevents double-rendering and ensures drawables drive their visuals.
+            #[cfg(feature = "game_client")]
+            if object.engine_object_id.is_some() {
+                continue;
+            }
+
             alive_objects += 1;
 
             // Check FOW visibility - skip objects that have never been seen
