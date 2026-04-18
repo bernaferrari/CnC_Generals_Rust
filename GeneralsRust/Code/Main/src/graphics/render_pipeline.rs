@@ -251,6 +251,8 @@ pub struct RenderPipeline {
     debug_last_missing_model_samples: Vec<String>,
     debug_warned_bad_mesh_transforms: HashSet<String>,
     model_cull_bounds_cache: HashMap<String, (Vec3, f32)>,
+    animation_states: HashMap<u32, ObjectAnimationState>,
+    last_frame_time: f32,
 }
 
 const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -260,6 +262,13 @@ const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
     "TSMorningW.tga",
     "TSMorningT.tga",
 ];
+
+struct ObjectAnimationState {
+    animation_index: usize,
+    current_frame: f32,
+    frame_rate: f32,
+    num_frames: u32,
+}
 
 /// Forward rendering pass powered by the WW3D renderer backend.
 pub struct ForwardPass {
@@ -572,6 +581,8 @@ impl RenderPipeline {
             debug_last_missing_model_samples: Vec::new(),
             debug_warned_bad_mesh_transforms: HashSet::new(),
             model_cull_bounds_cache: HashMap::new(),
+            animation_states: HashMap::new(),
+            last_frame_time: 0.0,
         })
     }
 
@@ -600,6 +611,9 @@ impl RenderPipeline {
 
         self.frame_number += 1;
         graphics_system.begin_frame();
+
+        let delta_time = time - self.last_frame_time;
+        self.last_frame_time = time;
 
         // Update global uniforms
         graphics_system.update_global_uniforms(
@@ -650,6 +664,7 @@ impl RenderPipeline {
                 camera_position,
                 allow_sync_model_loads,
                 &mut deferred_model_load_budget,
+                delta_time,
             )?;
             collect_elapsed = collect_started.elapsed();
             self.debug_last_deferred_model_load_budget = initial_deferred_model_load_budget;
@@ -1075,6 +1090,7 @@ impl RenderPipeline {
         camera_position: Vec3,
         allow_sync_model_loads: bool,
         deferred_model_load_budget: &mut usize,
+        delta_time: f32,
     ) -> Result<()> {
         let collect_started = Instant::now();
         trace!(
@@ -1198,11 +1214,37 @@ impl RenderPipeline {
                         self.debug_last_zero_mesh_models += 1;
                         // Fall through to fallback cube below (same as Failed path)
                     } else {
-                        // Normal mesh processing
                         let visibility = visibilities
                             .get(&object_id)
                             .copied()
                             .unwrap_or_else(ObjectVisibility::default);
+
+                        let anim_frame = if !w3d_model.animations.is_empty()
+                            && w3d_model.hierarchy.is_some()
+                        {
+                            let obj_key = object_id.0;
+                            let state = self.animation_states.entry(obj_key).or_insert_with(|| {
+                                let (num_frames, frame_rate) =
+                                    w3d_model.animation_metadata(0).unwrap_or((1, 30));
+                                ObjectAnimationState {
+                                    animation_index: 0,
+                                    current_frame: 0.0,
+                                    frame_rate: frame_rate as f32,
+                                    num_frames,
+                                }
+                            });
+                            if delta_time > 0.0 && delta_time < 1.0 {
+                                state.current_frame += delta_time * state.frame_rate;
+                                if state.num_frames > 1
+                                    && state.current_frame >= state.num_frames as f32
+                                {
+                                    state.current_frame %= (state.num_frames - 1) as f32;
+                                }
+                            }
+                            state.current_frame
+                        } else {
+                            0.0
+                        };
 
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let mut material = mesh.material.clone();
@@ -1289,6 +1331,7 @@ impl RenderPipeline {
                             render_item.set_mesh_local_transform(mesh_local_transform);
                             render_item.distance = world_position.distance(camera_position);
                             render_item.set_fow_visibility(visibility);
+                            render_item.animation_frame = anim_frame;
 
                             self.render_items.push(render_item);
                         }
@@ -1703,6 +1746,25 @@ impl RenderPipeline {
                             }
                         }
                     } else {
+                        let anim_frame = if !w3d_model.animations.is_empty()
+                            && w3d_model.hierarchy.is_some()
+                        {
+                            let obj_key = object_id.0;
+                            let state = self.animation_states.entry(obj_key).or_insert_with(|| {
+                                let (num_frames, frame_rate) =
+                                    w3d_model.animation_metadata(0).unwrap_or((1, 30));
+                                ObjectAnimationState {
+                                    animation_index: 0,
+                                    current_frame: 0.0,
+                                    frame_rate: frame_rate as f32,
+                                    num_frames,
+                                }
+                            });
+                            state.current_frame
+                        } else {
+                            0.0
+                        };
+
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let mut item = RenderItem::new(
                                 object_id,
@@ -1715,6 +1777,7 @@ impl RenderPipeline {
                             );
                             item.distance = world_position.distance(camera_position);
                             item.set_fow_visibility(fow_vis);
+                            item.animation_frame = anim_frame;
                             self.render_items.push(item);
                         }
                         bridge_items_added += 1;
@@ -2945,6 +3008,18 @@ impl ForwardPass {
                 warn!("GENERALS_FORCE_TWO_SIDED enabled: forcing two-sided pipelines for mesh diagnostics");
             }
             mesh.is_decal_instance = true;
+        }
+
+        if let Some(w3d_model) = graphics_system.get_model(&item.model_name) {
+            if !w3d_model.animations.is_empty() && w3d_model.hierarchy.is_some() {
+                if let Some(bone_transforms) = w3d_model.sample_animation(0, item.animation_frame) {
+                    let matrices: Vec<Mat4> = bone_transforms
+                        .iter()
+                        .map(|m| Mat4::from_cols_array(m))
+                        .collect();
+                    mesh.set_bone_palette_slice(&matrices);
+                }
+            }
         }
 
         Ok(Some(Arc::new(mesh)))

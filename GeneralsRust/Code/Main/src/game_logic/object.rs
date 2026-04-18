@@ -313,7 +313,33 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
+        if let Some(engine_id) = self.engine_object_id {
+            if let Some(alive) = Self::read_engine_is_alive(engine_id) {
+                return alive;
+            }
+        }
         !self.status.destroyed && self.health.is_alive()
+    }
+
+    fn read_engine_is_alive(engine_id: u32) -> Option<bool> {
+        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
+        let guard = obj.read().ok()?;
+        Some(guard.is_alive())
+    }
+
+    pub fn get_health_percentage(&self) -> f32 {
+        if let Some(engine_id) = self.engine_object_id {
+            if let Some(pct) = Self::read_engine_health_percentage(engine_id) {
+                return pct;
+            }
+        }
+        self.health.percentage()
+    }
+
+    fn read_engine_health_percentage(engine_id: u32) -> Option<f32> {
+        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
+        let guard = obj.read().ok()?;
+        Some(guard.get_health_percentage())
     }
 
     pub fn is_constructed(&self) -> bool {
@@ -371,7 +397,19 @@ impl Object {
     }
 
     pub fn get_position(&self) -> Vec3 {
+        if let Some(engine_id) = self.engine_object_id {
+            if let Some(pos) = Self::read_engine_position(engine_id) {
+                return pos;
+            }
+        }
         self.thing.get_position()
+    }
+
+    fn read_engine_position(engine_id: u32) -> Option<Vec3> {
+        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
+        let guard = obj.read().ok()?;
+        let pos = guard.get_position(); // Coord3D is glam028::Vec3, convert to glam 0.24
+        Some(Vec3::new(pos.x, pos.y, pos.z))
     }
 
     pub fn set_position(&mut self, position: Vec3) {
@@ -379,7 +417,18 @@ impl Object {
     }
 
     pub fn get_orientation(&self) -> f32 {
+        if let Some(engine_id) = self.engine_object_id {
+            if let Some(angle) = Self::read_engine_orientation(engine_id) {
+                return angle;
+            }
+        }
         self.thing.get_orientation()
+    }
+
+    fn read_engine_orientation(engine_id: u32) -> Option<f32> {
+        let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
+        let guard = obj.read().ok()?;
+        Some(guard.get_orientation())
     }
 
     pub fn set_orientation(&mut self, angle: f32) {
@@ -910,7 +959,7 @@ impl Object {
             selection_radius: self.selection_radius,
             is_selected: self.selected,
             show_health_bar: self.show_health_bar && self.is_alive(),
-            health_percentage: self.health.percentage(),
+            health_percentage: self.get_health_percentage(),
             model_name: self.thing.template.model_name.clone(),
             object_type: self.object_type,
             team: self.team,
