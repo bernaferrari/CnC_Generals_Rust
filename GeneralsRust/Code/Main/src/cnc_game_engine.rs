@@ -1065,6 +1065,12 @@ pub struct CnCGameEngine {
     startup_health_summary_logged: bool,
     last_caustic_warmup_attempt: Option<Instant>,
 
+    // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
+    // for drawable updates and display draw. Full GameClient::update() is NOT called
+    // because Main already handles input/audio/effects separately.
+    #[cfg(feature = "game_client")]
+    game_client: game_client::core::game_client::GameClient,
+
     // Game state
     game_logic: GameLogic,
     combat_system: CombatSystem,
@@ -3154,6 +3160,10 @@ impl CnCGameEngine {
             startup_health_summary_logged: false,
             last_caustic_warmup_attempt: None,
 
+            #[cfg(feature = "game_client")]
+            game_client: game_client::core::game_client::GameClient::new()
+                .expect("Failed to create GameClient"),
+
             game_logic,
             combat_system,
             pathfinding_system,
@@ -4845,6 +4855,18 @@ impl CnCGameEngine {
                 log::trace!("gamelogic crate update failed (non-fatal): {}", e);
             }
 
+            #[cfg(feature = "game_client")]
+            {
+                let visual_delta = if self.game_logic.is_time_frozen_for_simulation() {
+                    0.0
+                } else {
+                    game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
+                };
+                if let Err(e) = self.game_client.update_drawables(visual_delta) {
+                    log::trace!("GameClient update_drawables failed (non-fatal): {}", e);
+                }
+            }
+
             // C++ parity: when script time-freeze is active, gameplay simulation should not
             // advance outside script evaluation.
             if !self.game_logic.is_time_frozen_for_simulation() {
@@ -5125,6 +5147,14 @@ impl CnCGameEngine {
         );
         let allow_sync_model_loads = deferred_startup_model_load_budget == 0;
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
+
+        #[cfg(feature = "game_client")]
+        {
+            if let Err(e) = self.game_client.draw_display() {
+                log::trace!("GameClient draw_display failed (non-fatal): {}", e);
+            }
+        }
+
         let render_pipeline_started = Instant::now();
         self.render_pipeline.execute(
             &mut self.graphics_system,
