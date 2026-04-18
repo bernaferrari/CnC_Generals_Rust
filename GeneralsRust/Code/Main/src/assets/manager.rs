@@ -1044,6 +1044,38 @@ impl AssetManager {
         self.model_cache.get(&unit_key).cloned()
     }
 
+    pub fn get_cached_model_ref(&self, unit_name: &str) -> Option<&W3DModel> {
+        let unit_key = unit_name.to_lowercase();
+        self.model_cache.get(&unit_key)
+    }
+
+    pub fn model_animation_names(&self, model_name: &str) -> Vec<String> {
+        let model_key = model_name.to_lowercase();
+        self.model_cache
+            .get(&model_key)
+            .map(|m| m.animation_names().into_iter().map(|s| s.to_string()).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn model_find_animation_index(&self, model_name: &str, anim_name: &str) -> Option<usize> {
+        let model_key = model_name.to_lowercase();
+        self.model_cache
+            .get(&model_key)
+            .and_then(|m| m.find_animation_index(anim_name))
+    }
+
+    pub fn model_sample_animation(
+        &self,
+        model_name: &str,
+        anim_index: usize,
+        frame: f32,
+    ) -> Option<Vec<[f32; 16]>> {
+        let model_key = model_name.to_lowercase();
+        self.model_cache
+            .get(&model_key)
+            .and_then(|m| m.sample_animation(anim_index, frame))
+    }
+
     /// Load a model asynchronously by cloning from cache or loading fresh
     pub async fn load_w3d_model_async(&mut self, model_name: &str) -> Result<W3DModel> {
         let resolved_name = self.resolve_available_model_name(model_name);
