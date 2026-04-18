@@ -3117,7 +3117,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
+    pub fn update_drawables(&mut self, delta_time: f32) -> GameClientResult<()> {
         let frame = self.frame;
         let local_player_index = self.local_player_id;
 
@@ -3296,7 +3296,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn draw_display(&mut self) -> GameClientResult<()> {
+    pub fn draw_display(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
             display.lock().unwrap().draw()?;
         }
