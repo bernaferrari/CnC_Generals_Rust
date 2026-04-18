@@ -501,6 +501,235 @@ impl W3DModel {
             }
         }
     }
+
+    /// Get the list of animation names available on this model.
+    pub fn animation_names(&self) -> Vec<&str> {
+        self.animations.iter().map(|a| a.name.as_str()).collect()
+    }
+
+    /// Find an animation index by name (case-insensitive).
+    pub fn find_animation_index(&self, name: &str) -> Option<usize> {
+        let lower = name.to_ascii_lowercase();
+        self.animations
+            .iter()
+            .position(|a| a.name.to_ascii_lowercase() == lower)
+    }
+
+    /// Get animation metadata: (num_frames, frame_rate) for the given animation.
+    pub fn animation_metadata(&self, anim_index: usize) -> Option<(u32, u32)> {
+        let anim = self.animations.get(anim_index)?;
+        Some((anim.num_frames, anim.frame_rate))
+    }
+
+    /// Sample an animation at the given frame, producing per-bone global transforms.
+    ///
+    /// Returns a Vec of column-major 4x4 matrices indexed by pivot (bone) index,
+    /// or `None` if the animation or hierarchy is missing.
+    ///
+    /// The frame parameter is a continuous value; fractional parts interpolate
+    /// between adjacent keyframes.
+    pub fn sample_animation(&self, anim_index: usize, frame: f32) -> Option<Vec<[f32; 16]>> {
+        let anim = self.animations.get(anim_index)?;
+        let hierarchy = self.hierarchy.as_ref()?;
+
+        let mut local_transforms: Vec<[f32; 16]> = hierarchy
+            .pivots
+            .iter()
+            .map(|p| mat4_from_pivot(p))
+            .collect();
+
+        for channel in &anim.channels {
+            let pivot_idx = channel.pivot as usize;
+            if pivot_idx >= local_transforms.len() {
+                continue;
+            }
+
+            let values = sample_channel(channel, frame);
+
+            match channel.flags {
+                0 => {
+                    if let Some(v) = values.first() {
+                        local_transforms[pivot_idx][12] = *v;
+                    }
+                }
+                1 => {
+                    if let Some(v) = values.first() {
+                        local_transforms[pivot_idx][13] = *v;
+                    }
+                }
+                2 => {
+                    if let Some(v) = values.first() {
+                        local_transforms[pivot_idx][14] = *v;
+                    }
+                }
+                6 => {
+                    if values.len() >= 4 {
+                        let qx = values[0];
+                        let qy = values[1];
+                        let qz = values[2];
+                        let qw = values[3];
+                        apply_quat_to_transform(&mut local_transforms[pivot_idx], qx, qy, qz, qw);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Some(compute_global_transforms_from_locals(hierarchy, &local_transforms))
+    }
+}
+
+/// Build a column-major 4x4 matrix from a pivot's translation + quaternion rotation.
+/// Same logic as W3DLoader::mat4_from_tr_quat but operates on W3dPivot directly.
+fn mat4_from_pivot(pivot: &W3dPivot) -> [f32; 16] {
+    let x = pivot.rotation[0];
+    let y = pivot.rotation[1];
+    let z = pivot.rotation[2];
+    let w = pivot.rotation[3];
+    let xx = x * x;
+    let yy = y * y;
+    let zz = z * z;
+    let xy = x * y;
+    let xz = x * z;
+    let yz = y * z;
+    let wx = w * x;
+    let wy = w * y;
+    let wz = w * z;
+    let m00 = 1.0 - 2.0 * (yy + zz);
+    let m01 = 2.0 * (xy - wz);
+    let m02 = 2.0 * (xz + wy);
+    let m10 = 2.0 * (xy + wz);
+    let m11 = 1.0 - 2.0 * (xx + zz);
+    let m12 = 2.0 * (yz - wx);
+    let m20 = 2.0 * (xz - wy);
+    let m21 = 2.0 * (yz + wx);
+    let m22 = 1.0 - 2.0 * (xx + yy);
+    let tx = pivot.translation[0];
+    let ty = pivot.translation[1];
+    let tz = pivot.translation[2];
+    [
+        m00, m10, m20, 0.0, m01, m11, m21, 0.0, m02, m12, m22, 0.0, tx, ty, tz, 1.0,
+    ]
+}
+
+/// Replace the 3×3 rotation part of a column-major 4x4 matrix with the given quaternion.
+/// Translation is preserved.
+fn apply_quat_to_transform(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32) {
+    let xx = qx * qx;
+    let yy = qy * qy;
+    let zz = qz * qz;
+    let xy = qx * qy;
+    let xz = qx * qz;
+    let yz = qy * qz;
+    let wx = qw * qx;
+    let wy = qw * qy;
+    let wz = qw * qz;
+    m[0] = 1.0 - 2.0 * (yy + zz); // col0 row0
+    m[1] = 2.0 * (xy + wz);        // col0 row1
+    m[2] = 2.0 * (xz - wy);        // col0 row2
+    m[4] = 2.0 * (xy - wz);        // col1 row0
+    m[5] = 1.0 - 2.0 * (xx + zz);  // col1 row1
+    m[6] = 2.0 * (yz + wx);        // col1 row2
+    m[8] = 2.0 * (xz + wy);        // col2 row0
+    m[9] = 2.0 * (yz - wx);        // col2 row1
+    m[10] = 1.0 - 2.0 * (xx + yy); // col2 row2
+}
+
+/// Interpolate an animation channel at the given continuous frame value.
+/// Returns the interpolated values (1 for scalar channels, 4 for quaternion).
+fn sample_channel(channel: &W3dAnimChannel, frame: f32) -> Vec<f32> {
+    let first = channel.first_frame as f32;
+    let last = channel.last_frame as f32;
+
+    // Clamp frame to channel range
+    let t = (frame - first).max(0.0).min((last - first).max(0.0));
+
+    let vl = channel.vector_len as usize;
+    if vl == 0 || channel.data.is_empty() {
+        return Vec::new();
+    }
+
+    // Number of keyframes in this channel
+    let num_keys = channel.data.len() / vl;
+    if num_keys == 0 {
+        return vec![0.0; vl];
+    }
+
+    let frame_idx = (t as usize).min(num_keys - 1);
+    let frac = t - frame_idx as f32;
+
+    let idx0 = frame_idx * vl;
+    let idx1 = if frame_idx + 1 < num_keys {
+        (frame_idx + 1) * vl
+    } else {
+        idx0
+    };
+
+    if idx0 + vl > channel.data.len() {
+        return vec![0.0; vl];
+    }
+
+    // Linear interpolation between adjacent keyframes
+    let mut result = Vec::with_capacity(vl);
+    for i in 0..vl {
+        let a = channel.data[idx0 + i];
+        let b = if idx1 + i < channel.data.len() {
+            channel.data[idx1 + i]
+        } else {
+            a
+        };
+        result.push(a + (b - a) * frac);
+    }
+
+    // For quaternion channels (flags=6), normalize to unit quaternion
+    if channel.flags == 6 && result.len() == 4 {
+        let len = (result[0] * result[0]
+            + result[1] * result[1]
+            + result[2] * result[2]
+            + result[3] * result[3])
+        .sqrt();
+        if len > 1e-10 {
+            for v in result.iter_mut() {
+                *v /= len;
+            }
+        }
+    }
+
+    result
+}
+
+/// Column-major 4x4 matrix multiply.
+fn mat4_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+    let mut r = [0.0; 16];
+    for i in 0..4 {
+        for j in 0..4 {
+            r[i * 4 + j] = a[i * 4 + 0] * b[0 * 4 + j]
+                + a[i * 4 + 1] * b[1 * 4 + j]
+                + a[i * 4 + 2] * b[2 * 4 + j]
+                + a[i * 4 + 3] * b[3 * 4 + j];
+        }
+    }
+    r
+}
+
+/// Compute global bone transforms from local transforms by walking the parent chain.
+fn compute_global_transforms_from_locals(
+    hierarchy: &W3dHierarchy,
+    locals: &[[f32; 16]],
+) -> Vec<[f32; 16]> {
+    let n = hierarchy.pivots.len();
+    let mut globals: Vec<[f32; 16]> = vec![[0.0; 16]; n];
+    for i in 0..n {
+        let local = locals[i];
+        let g = if hierarchy.pivots[i].parent_idx != 0xFFFF_FFFF {
+            let p = hierarchy.pivots[i].parent_idx as usize;
+            mat4_mul(&globals[p], &local)
+        } else {
+            local
+        };
+        globals[i] = g;
+    }
+    globals
 }
 
 /// W3D model loader
