@@ -733,6 +733,8 @@ impl GraphicsSystem {
             ww3d_mesh_models: HashMap::new(),
             bounding_box_min: Vec3::new(-5.0, -5.0, -5.0),
             bounding_box_max: Vec3::new(5.0, 5.0, 5.0),
+            hierarchy: None,
+            animations: Vec::new(),
         }
     }
 

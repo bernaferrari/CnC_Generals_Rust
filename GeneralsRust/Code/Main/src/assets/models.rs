@@ -69,6 +69,58 @@ const W3D_CHUNK_HMODEL: u32 = 0x00000300;
 const W3D_CHUNK_LODMODEL: u32 = 0x00000400;
 const W3D_CHUNK_HLOD: u32 = 0x00000700; // NEW: Hierarchical LOD model
 
+// Hierarchy sub-chunk types
+const W3D_CHUNK_HIERARCHY_HEADER: u32 = 0x00000101;
+const W3D_CHUNK_PIVOTS: u32 = 0x00000102;
+const W3D_CHUNK_PIVOT_FIXUPS: u32 = 0x00000103;
+
+// Animation sub-chunk types
+const W3D_CHUNK_ANIMATION_HEADER: u32 = 0x00000201;
+const W3D_CHUNK_ANIMATION_CHANNEL: u32 = 0x00000202;
+const W3D_CHUNK_BIT_CHANNEL: u32 = 0x00000203;
+
+/// W3D fixed-length name size (matches C++ W3D_NAME_LEN = 16)
+const W3D_NAME_LEN: usize = 16;
+
+/// Bone pivot from W3D hierarchy chunk. C++ parity: W3dPivotStruct (w3d_file.h:1322)
+#[derive(Debug, Clone)]
+pub struct W3dPivot {
+    pub name: String,
+    pub parent_idx: u32,       // 0xFFFFFFFF = root
+    pub translation: [f32; 3],
+    pub euler_angles: [f32; 3],
+    pub rotation: [f32; 4],    // Quaternion [x,y,z,w]
+}
+
+/// W3D hierarchy data. C++ parity: W3dHierarchyStruct + W3dPivotStruct array
+#[derive(Debug, Clone)]
+pub struct W3dHierarchy {
+    pub name: String,
+    pub pivots: Vec<W3dPivot>,
+    pub pivot_fixups: Vec<[[f32; 3]; 4]>,
+}
+
+/// Animation channel targeting a specific bone. C++ parity: animation channel data
+#[derive(Debug, Clone)]
+pub struct W3dAnimChannel {
+    pub first_frame: u16,
+    pub last_frame: u16,
+    pub vector_len: u16,  // 1 for scalar (X/Y/Z), 4 for quaternion
+    pub flags: u16,       // 0=X, 1=Y, 2=Z, 6=Q
+    pub pivot: u16,       // Bone index
+    pub data: Vec<f32>,
+}
+
+/// W3D animation data. C++ parity: W3dAnimHeaderStruct + channels
+#[derive(Debug, Clone)]
+pub struct W3dAnimation {
+    pub name: String,
+    pub hierarchy_name: String,
+    pub num_frames: u32,
+    pub frame_rate: u32,
+    pub channels: Vec<W3dAnimChannel>,
+}
+
 #[derive(Debug, Default)]
 struct ParsedTextureStage {
     texture_ids: Vec<u32>,
@@ -414,10 +466,12 @@ pub struct W3DModel {
     pub name: String,
     pub meshes: Vec<W3DMesh>,
     pub materials: HashMap<String, W3DMaterial>,
-    pub texture_names: Vec<String>, // W3D texture definitions loaded from W3D_CHUNK_TEXTURES
+    pub texture_names: Vec<String>,
     pub ww3d_mesh_models: HashMap<String, Arc<MeshModelClass>>,
     pub bounding_box_min: Vec3,
     pub bounding_box_max: Vec3,
+    pub hierarchy: Option<W3dHierarchy>,
+    pub animations: Vec<W3dAnimation>,
 }
 
 impl W3DModel {
@@ -430,6 +484,8 @@ impl W3DModel {
             ww3d_mesh_models: HashMap::new(),
             bounding_box_min: Vec3::splat(f32::MAX),
             bounding_box_max: Vec3::splat(f32::MIN),
+            hierarchy: None,
+            animations: Vec::new(),
         }
     }
 
@@ -679,10 +735,20 @@ impl W3DLoader {
                 }
                 W3D_CHUNK_HIERARCHY => {
                     debug!(
-                        "Parsing W3D hierarchy chunk (container), size: {}",
+                        "Parsing W3D hierarchy chunk, size: {}",
                         chunk_size
                     );
-                    // Parse hierarchy container - it may contain mesh chunks
+                    match self.parse_hierarchy_chunk(chunk_data) {
+                        Ok(hierarchy) => {
+                            debug!(
+                                "Parsed hierarchy '{}' with {} pivots",
+                                hierarchy.name,
+                                hierarchy.pivots.len()
+                            );
+                            model.hierarchy = Some(hierarchy);
+                        }
+                        Err(e) => warn!("Failed to parse hierarchy chunk: {}", e),
+                    }
                     if is_container_chunk {
                         self.parse_container_chunk(chunk_data, &mut model)?;
                     }
@@ -702,11 +768,16 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_ANIMATION => {
-                    debug!("Found W3D animation chunk, size: {}", chunk_size);
-                    if is_container_chunk {
-                        if let Err(e) = self.parse_container_chunk(chunk_data, &mut model) {
-                            warn!("Failed to parse animation container: {}", e);
+                    debug!("Parsing W3D animation chunk, size: {}", chunk_size);
+                    match self.parse_animation_chunk(chunk_data) {
+                        Ok(animation) => {
+                            debug!(
+                                "Parsed animation '{}' ({} frames @ {}fps)",
+                                animation.name, animation.num_frames, animation.frame_rate
+                            );
+                            model.animations.push(animation);
                         }
+                        Err(e) => warn!("Failed to parse animation chunk: {}", e),
                     }
                 }
                 W3D_CHUNK_HMODEL => {
@@ -774,6 +845,41 @@ impl W3DLoader {
         // This matches C++ behavior where W3D_CHUNK_MAP3_FILENAME contains texture indices
         // that need to be resolved against the texture_names array
         self.resolve_texture_indices(&mut model);
+
+        // Apply hierarchy transforms to mesh vertices.
+        // Vertices were already converted to Y-up in build_mesh_from_data, so we undo that,
+        // apply hierarchy transform in W3D Z-up space, then re-convert to Y-up.
+        if let Some(ref hierarchy) = model.hierarchy {
+            if !hierarchy.pivots.is_empty() {
+                let globals = Self::compute_global_transforms(hierarchy);
+                for mesh in &mut model.meshes {
+                    if mesh.transform != Mat4::IDENTITY {
+                        continue;
+                    }
+                    if let Some(pivot_idx) = hierarchy
+                        .pivots
+                        .iter()
+                        .position(|p| p.name == mesh.name)
+                    {
+                        let global = &globals[pivot_idx];
+                        let mat = Mat4::from_cols_array(global);
+                        mesh.transform = mat;
+                        for vertex in &mut mesh.vertices {
+                            // Undo Y-up → Z-up, apply hierarchy, convert Z-up → Y-up
+                            let zup_pos = [vertex.position[0], vertex.position[2], vertex.position[1]];
+                            let pos = mat.transform_point3(Vec3::from_array(zup_pos));
+                            vertex.position = [pos.x, pos.z, pos.y]; // Z-up → Y-up
+                            let zup_norm = [vertex.normal[0], vertex.normal[2], vertex.normal[1]];
+                            let nrm = mat.transform_point3(Vec3::from_array(zup_norm));
+                            let len = nrm.length();
+                            if len > 1e-10 {
+                                vertex.normal = [nrm.x / len, nrm.z / len, nrm.y / len];
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         model.calculate_bounding_box();
         Ok(model)
@@ -871,6 +977,348 @@ impl W3DLoader {
         }
 
         Ok(())
+    }
+
+    /// Parse W3D hierarchy chunk (0x100) — ported from standalone parser's parse_hierarchy_chunk
+    fn parse_hierarchy_chunk(&self, data: &[u8]) -> Result<W3dHierarchy> {
+        let mut name = String::new();
+        let mut num_pivots: u32 = 0;
+        let mut pivots: Vec<W3dPivot> = Vec::new();
+        let mut pivot_fixups: Vec<[[f32; 3]; 4]> = Vec::new();
+        let mut offset = 0usize;
+
+        while offset + 8 <= data.len() {
+            let chunk_type = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let raw_chunk_size = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
+
+            if offset + 8 + chunk_size > data.len() {
+                break;
+            }
+
+            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
+
+            match chunk_type {
+                W3D_CHUNK_HIERARCHY_HEADER => {
+                    // W3dHierarchyHeader: version(u32) + name[16] + num_pivots(u32) + center[3]
+                    if chunk_data.len() < 32 {
+                        return Err(anyhow!("hierarchy header too small: {}", chunk_data.len()));
+                    }
+                    let _version = u32::from_le_bytes([
+                        chunk_data[0],
+                        chunk_data[1],
+                        chunk_data[2],
+                        chunk_data[3],
+                    ]);
+                    let mut n = String::new();
+                    for i in 4..4 + W3D_NAME_LEN {
+                        if i >= chunk_data.len() || chunk_data[i] == 0 {
+                            break;
+                        }
+                        n.push(chunk_data[i] as char);
+                    }
+                    name = n;
+                    num_pivots = u32::from_le_bytes([
+                        chunk_data[20],
+                        chunk_data[21],
+                        chunk_data[22],
+                        chunk_data[23],
+                    ]);
+                    debug!(
+                        "Hierarchy header: name='{}', num_pivots={}",
+                        name, num_pivots
+                    );
+                }
+                W3D_CHUNK_PIVOTS => {
+                    // Each pivot: name[16] + parent_idx(u32) + translation[3] + euler[3] + quat[4]
+                    // = 16 + 4 + 12 + 12 + 16 = 60 bytes
+                    const PIVOT_SIZE: usize = 60;
+                    let count = if num_pivots > 0 {
+                        num_pivots as usize
+                    } else {
+                        chunk_size / PIVOT_SIZE
+                    };
+                    pivots.reserve(count);
+                    for i in 0..count {
+                        let base = i * PIVOT_SIZE;
+                        if base + PIVOT_SIZE > chunk_data.len() {
+                            break;
+                        }
+                        let d = &chunk_data[base..base + PIVOT_SIZE];
+                        let mut pname = String::new();
+                        for j in 0..W3D_NAME_LEN {
+                            if d[j] == 0 {
+                                break;
+                            }
+                            pname.push(d[j] as char);
+                        }
+                        let parent_idx = u32::from_le_bytes([d[16], d[17], d[18], d[19]]);
+                        let tx = f32::from_le_bytes([d[20], d[21], d[22], d[23]]);
+                        let ty = f32::from_le_bytes([d[24], d[25], d[26], d[27]]);
+                        let tz = f32::from_le_bytes([d[28], d[29], d[30], d[31]]);
+                        let ex = f32::from_le_bytes([d[32], d[33], d[34], d[35]]);
+                        let ey = f32::from_le_bytes([d[36], d[37], d[38], d[39]]);
+                        let ez = f32::from_le_bytes([d[40], d[41], d[42], d[43]]);
+                        let qx = f32::from_le_bytes([d[44], d[45], d[46], d[47]]);
+                        let qy = f32::from_le_bytes([d[48], d[49], d[50], d[51]]);
+                        let qz = f32::from_le_bytes([d[52], d[53], d[54], d[55]]);
+                        let qw = f32::from_le_bytes([d[56], d[57], d[58], d[59]]);
+                        pivots.push(W3dPivot {
+                            name: pname,
+                            parent_idx,
+                            translation: [tx, ty, tz],
+                            euler_angles: [ex, ey, ez],
+                            rotation: [qx, qy, qz, qw],
+                        });
+                    }
+                }
+                W3D_CHUNK_PIVOT_FIXUPS => {
+                    // Each fixup: [[f32;3];4] = 48 bytes
+                    const FIXUP_SIZE: usize = 48;
+                    let count = if num_pivots > 0 {
+                        num_pivots as usize
+                    } else {
+                        chunk_size / FIXUP_SIZE
+                    };
+                    pivot_fixups.reserve(count);
+                    for i in 0..count {
+                        let base = i * FIXUP_SIZE;
+                        if base + FIXUP_SIZE > chunk_data.len() {
+                            break;
+                        }
+                        let d = &chunk_data[base..base + FIXUP_SIZE];
+                        let mut tm = [[0.0f32; 3]; 4];
+                        for row in 0..4 {
+                            for col in 0..3 {
+                                let off = (row * 3 + col) * 4;
+                                tm[row][col] = f32::from_le_bytes([
+                                    d[off],
+                                    d[off + 1],
+                                    d[off + 2],
+                                    d[off + 3],
+                                ]);
+                            }
+                        }
+                        pivot_fixups.push(tm);
+                    }
+                }
+                _ => {}
+            }
+
+            offset += 8 + chunk_size;
+        }
+
+        Ok(W3dHierarchy {
+            name,
+            pivots,
+            pivot_fixups,
+        })
+    }
+
+    /// Parse W3D animation chunk (0x200) — ported from standalone parser's parse_animation_chunk
+    fn parse_animation_chunk(&self, data: &[u8]) -> Result<W3dAnimation> {
+        let mut name = String::new();
+        let mut hierarchy_name = String::new();
+        let mut num_frames: u32 = 0;
+        let mut frame_rate: u32 = 0;
+        let mut channels: Vec<W3dAnimChannel> = Vec::new();
+        let mut offset = 0usize;
+
+        while offset + 8 <= data.len() {
+            let chunk_type = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
+            let raw_chunk_size = u32::from_le_bytes([
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]);
+            let chunk_size = (raw_chunk_size & 0x7FFF_FFFF) as usize;
+
+            if offset + 8 + chunk_size > data.len() {
+                break;
+            }
+
+            let chunk_data = &data[offset + 8..offset + 8 + chunk_size];
+
+            match chunk_type {
+                W3D_CHUNK_ANIMATION_HEADER => {
+                    // version(u32) + name[16] + hierarchy_name[16] + num_frames(u32) + frame_rate(u32)
+                    // = 4 + 16 + 16 + 4 + 4 = 44 bytes
+                    if chunk_data.len() < 44 {
+                        return Err(anyhow!(
+                            "animation header too small: {}",
+                            chunk_data.len()
+                        ));
+                    }
+                    let mut n = String::new();
+                    for i in 4..4 + W3D_NAME_LEN {
+                        if chunk_data[i] == 0 {
+                            break;
+                        }
+                        n.push(chunk_data[i] as char);
+                    }
+                    name = n;
+                    let mut hn = String::new();
+                    for i in 20..20 + W3D_NAME_LEN {
+                        if i >= chunk_data.len() || chunk_data[i] == 0 {
+                            break;
+                        }
+                        hn.push(chunk_data[i] as char);
+                    }
+                    hierarchy_name = hn;
+                    num_frames = u32::from_le_bytes([
+                        chunk_data[36],
+                        chunk_data[37],
+                        chunk_data[38],
+                        chunk_data[39],
+                    ]);
+                    frame_rate = u32::from_le_bytes([
+                        chunk_data[40],
+                        chunk_data[41],
+                        chunk_data[42],
+                        chunk_data[43],
+                    ]);
+                    debug!(
+                        "Animation header: name='{}', hierarchy='{}', frames={}, fps={}",
+                        name, hierarchy_name, num_frames, frame_rate
+                    );
+                }
+                W3D_CHUNK_ANIMATION_CHANNEL => {
+                    // first_frame(u16) + last_frame(u16) + vector_len(u16) + flags(u16) + pivot(u16) + pad(u16)
+                    // = 12 bytes header, rest is f32 data
+                    if chunk_data.len() < 12 {
+                        offset += 8 + chunk_size;
+                        continue;
+                    }
+                    let first_frame = u16::from_le_bytes([chunk_data[0], chunk_data[1]]);
+                    let last_frame = u16::from_le_bytes([chunk_data[2], chunk_data[3]]);
+                    let vector_len = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
+                    let flags = u16::from_le_bytes([chunk_data[6], chunk_data[7]]);
+                    let pivot = u16::from_le_bytes([chunk_data[8], chunk_data[9]]);
+                    let remaining = chunk_size.saturating_sub(12);
+                    let count_f32 = remaining / 4;
+                    let mut chan_data = Vec::with_capacity(count_f32);
+                    for i in 0..count_f32 {
+                        let off = 12 + i * 4;
+                        if off + 4 > chunk_data.len() {
+                            break;
+                        }
+                        chan_data.push(f32::from_le_bytes([
+                            chunk_data[off],
+                            chunk_data[off + 1],
+                            chunk_data[off + 2],
+                            chunk_data[off + 3],
+                        ]));
+                    }
+                    channels.push(W3dAnimChannel {
+                        first_frame,
+                        last_frame,
+                        vector_len,
+                        flags,
+                        pivot,
+                        data: chan_data,
+                    });
+                }
+                W3D_CHUNK_BIT_CHANNEL => {
+                    // Skip bit channels for now — just consume the bytes
+                    debug!(
+                        "Skipping bit channel chunk, size: {}",
+                        chunk_size
+                    );
+                }
+                _ => {}
+            }
+
+            offset += 8 + chunk_size;
+        }
+
+        Ok(W3dAnimation {
+            name,
+            hierarchy_name,
+            num_frames,
+            frame_rate,
+            channels,
+        })
+    }
+
+    /// Compute global bone transforms from hierarchy pivots.
+    /// Ported from standalone writer.rs compute_global_transforms + mat4_from_tr_quat.
+    fn compute_global_transforms(hierarchy: &W3dHierarchy) -> Vec<[f32; 16]> {
+        let n = hierarchy.pivots.len();
+        let mut globals: Vec<[f32; 16]> = vec![[0.0; 16]; n];
+        for i in 0..n {
+            let local = Self::mat4_from_tr_quat(&hierarchy.pivots[i]);
+            let g = if hierarchy.pivots[i].parent_idx != 0xFFFF_FFFF {
+                let p = hierarchy.pivots[i].parent_idx as usize;
+                Self::mat4_mul(&globals[p], &local)
+            } else {
+                local
+            };
+            globals[i] = g;
+        }
+        globals
+    }
+
+    /// Build a column-major 4x4 matrix from pivot translation + quaternion.
+    /// Ported from standalone writer.rs mat4_from_tr_quat.
+    fn mat4_from_tr_quat(pivot: &W3dPivot) -> [f32; 16] {
+        let x = pivot.rotation[0];
+        let y = pivot.rotation[1];
+        let z = pivot.rotation[2];
+        let w = pivot.rotation[3];
+        let xx = x * x;
+        let yy = y * y;
+        let zz = z * z;
+        let xy = x * y;
+        let xz = x * z;
+        let yz = y * z;
+        let wx = w * x;
+        let wy = w * y;
+        let wz = w * z;
+        let m00 = 1.0 - 2.0 * (yy + zz);
+        let m01 = 2.0 * (xy - wz);
+        let m02 = 2.0 * (xz + wy);
+        let m10 = 2.0 * (xy + wz);
+        let m11 = 1.0 - 2.0 * (xx + zz);
+        let m12 = 2.0 * (yz - wx);
+        let m20 = 2.0 * (xz - wy);
+        let m21 = 2.0 * (yz + wx);
+        let m22 = 1.0 - 2.0 * (xx + yy);
+        let tx = pivot.translation[0];
+        let ty = pivot.translation[1];
+        let tz = pivot.translation[2];
+        [
+            m00, m01, m02, 0.0, m10, m11, m12, 0.0, m20, m21, m22, 0.0, tx, ty, tz, 1.0,
+        ]
+    }
+
+    /// Column-major 4x4 matrix multiply. Ported from standalone writer.rs mat4_mul.
+    fn mat4_mul(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
+        let mut r = [0.0; 16];
+        for i in 0..4 {
+            for j in 0..4 {
+                r[i * 4 + j] = a[i * 4 + 0] * b[0 * 4 + j]
+                    + a[i * 4 + 1] * b[1 * 4 + j]
+                    + a[i * 4 + 2] * b[2 * 4 + j]
+                    + a[i * 4 + 3] * b[3 * 4 + j];
+            }
+        }
+        r
     }
 
     /// Resolve texture indices to actual texture names - matches C++ behavior
