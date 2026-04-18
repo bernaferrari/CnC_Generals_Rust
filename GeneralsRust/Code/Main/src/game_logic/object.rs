@@ -25,6 +25,11 @@ pub struct Object {
     /// Unique identifier
     pub id: ObjectId,
 
+    /// Link to the GameEngine crate's full Object (ObjectFactory-created).
+    /// When Some, this object has a full module system (AI, weapons, physics, drawables).
+    /// When None, this is a lightweight visual-only object.
+    pub engine_object_id: Option<u32>,
+
     /// Team ownership
     pub team: Team,
 
@@ -195,6 +200,7 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
+            engine_object_id: None,
             team,
             name: String::new(),
             status: ObjectStatus::default(),
@@ -250,6 +256,7 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
+            engine_object_id: None,
             team,
             name: String::new(),
             status: ObjectStatus::default(),
