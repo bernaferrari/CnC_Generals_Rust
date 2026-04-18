@@ -57,6 +57,7 @@ use gamelogic::system::game_logic::RadarEventType;
 use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
+use gamelogic::object::object_factory::{get_object_factory, ObjectCreationFlags};
 use gamelogic::team::get_team_factory;
 use gamelogic::update_game_logic;
 use gamelogic::weapon::{update_dot_effects, update_projectiles, with_weapon_store_mut};
@@ -118,6 +119,21 @@ impl PendingSpecialAbility {
             | PendingSpecialAbility::SnipeVehicle { target_id } => target_id,
         }
     }
+}
+
+/// Bridge Main's lightweight Team enum to GameEngine's Arc<RwLock<Team>>.
+/// Uses the global TeamFactory to look up teams by player/faction name.
+fn resolve_gamelogic_team(team: &Team) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
+    let team_name = match team {
+        Team::USA => "America",
+        Team::China => "China", 
+        Team::GLA => "GLA",
+        Team::Neutral => return None,
+    };
+    get_team_factory()
+        .lock()
+        .ok()
+        .and_then(|mut factory| factory.find_team(team_name))
 }
 
 /// Global GameLogic singleton instance
@@ -1254,6 +1270,9 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
+        if let Ok(mut factory) = get_object_factory().write() {
+            let _ = factory.clear_all_objects();
+        }
         self.objects.clear();
         self.players.clear();
         self.next_object_id = ObjectId(1);
@@ -5299,6 +5318,40 @@ impl GameLogic {
             }
 
             self.objects.insert(id, object);
+
+            // Phase 1: Bridge to GameEngine's ObjectFactory for full module system.
+            // C++ parity: TheThingFactory->newThing() creates objects with full modules.
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let gl_team = resolve_gamelogic_team(&team);
+                let coord = glam028::Vec3::new(position.x, position.y, position.z);
+                let factory_arc = get_object_factory();
+                let result = match factory_arc.write() {
+                    Ok(mut factory) => factory.create_object(
+                        template_name,
+                        coord,
+                        gl_team,
+                        ObjectCreationFlags::NONE,
+                    ),
+                    Err(e) => Err(format!("ObjectFactory lock poisoned: {}", e).into()),
+                };
+
+                match result {
+                    Ok(engine_id) => {
+                        obj.engine_object_id = Some(engine_id);
+                        log::debug!(
+                            "Bridged object {} to GameEngine object {} ({})",
+                            id, engine_id, template_name
+                        );
+                    }
+                    Err(e) => {
+                        log::debug!(
+                            "ObjectFactory creation skipped for '{}' (lightweight-only): {}",
+                            template_name, e
+                        );
+                    }
+                }
+            }
+
             if counts_as_unit {
                 self.record_unit_production(team);
             } else if is_structure && !starts_under_construction {
@@ -5614,6 +5667,18 @@ impl GameLogic {
                 .retain(|_, ability| ability.target_id() != event.id);
 
             if let Some(obj) = self.objects.remove(&event.id) {
+                // Phase 1: Destroy the corresponding GameEngine ObjectFactory object.
+                if let Some(engine_id) = obj.engine_object_id {
+                    if let Ok(mut factory) = get_object_factory().write() {
+                        if let Err(e) = factory.destroy_object(engine_id) {
+                            log::debug!(
+                                "ObjectFactory destroy_object({}) failed: {}",
+                                engine_id, e
+                            );
+                        }
+                    }
+                }
+
                 let eject_origin = obj.get_position();
 
                 // C++ parity (OpenContain::onDie): if DamagePercentToUnits > 0,
