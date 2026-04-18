@@ -55,6 +55,8 @@ pub struct RenderItem {
 
     /// FOW visibility data for this render item
     pub fow_visibility: ObjectVisibility,
+
+    pub animation_frame: f32,
 }
 
 impl RenderItem {
@@ -93,7 +95,8 @@ impl RenderItem {
             vertex_buffer_range: None,
             index_buffer_range: None,
             sorting_key,
-            fow_visibility: ObjectVisibility::default(), // Default to fully visible
+            fow_visibility: ObjectVisibility::default(),
+            animation_frame: 0.0,
         }
     }
 
