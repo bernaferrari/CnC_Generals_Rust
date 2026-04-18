@@ -1119,6 +1119,8 @@ pub struct CnCGameEngine {
     is_windowed: bool,
     rmb_scroll_anchor: Option<(f32, f32)>,
     is_rmb_scrolling: bool,
+    is_mmb_rotating: bool,
+    mmb_anchor: Option<(f32, f32)>,
 
     // Game state
     selected_objects: Vec<ObjectId>,
@@ -3173,6 +3175,8 @@ impl CnCGameEngine {
             is_windowed: window.fullscreen().is_none(),
             rmb_scroll_anchor: None,
             is_rmb_scrolling: false,
+            is_mmb_rotating: false,
+            mmb_anchor: None,
             selected_objects: Vec::new(),
             control_groups: HashMap::new(),
             current_player_id: 0,
@@ -4236,6 +4240,14 @@ impl CnCGameEngine {
                             }
                             self.rmb_scroll_anchor = None;
                             self.is_rmb_scrolling = false;
+                        }
+                        (MouseButton::Middle, ElementState::Pressed) => {
+                            self.is_mmb_rotating = true;
+                            self.mmb_anchor = Some(self.mouse_position);
+                        }
+                        (MouseButton::Middle, ElementState::Released) => {
+                            self.is_mmb_rotating = false;
+                            self.mmb_anchor = None;
                         }
                         _ => {}
                     }
@@ -6771,6 +6783,15 @@ impl CnCGameEngine {
                         screen_scroll.y += norm_dy * speed * vertical_scroll_speed_factor;
                     }
                 }
+            }
+
+            // Middle-mouse-button camera yaw rotation (C++ LookAtXlat.cpp)
+            if self.is_mmb_rotating {
+                if let Some(anchor) = self.mmb_anchor {
+                    let dx = self.mouse_position.0 - anchor.0;
+                    self.camera_yaw_radians += dx * 0.005;
+                }
+                self.mmb_anchor = Some(self.mouse_position);
             }
 
             movement = self.camera_scroll_world_delta(screen_scroll);
