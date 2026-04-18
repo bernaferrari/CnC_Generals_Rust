@@ -57,6 +57,8 @@ use gamelogic::system::game_logic::RadarEventType;
 use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
+use gamelogic::common::CommandSourceType;
+use gamelogic::modules::AIUpdateInterfaceExt;
 use gamelogic::object::object_factory::{get_object_factory, ObjectCreationFlags};
 use gamelogic::team::get_team_factory;
 use gamelogic::update_game_logic;
@@ -3456,6 +3458,10 @@ impl GameLogic {
     fn update_movement(&mut self, object_ids: &[ObjectId], dt: f32) {
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
+                if obj.engine_object_id.is_some() {
+                    continue;
+                }
+
                 if !obj.movement.path.is_empty()
                     && obj.movement.current_path_index < obj.movement.path.len()
                 {
@@ -5608,12 +5614,21 @@ impl GameLogic {
         if let Some(player) = self.players.get(&player_id) {
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                let is_mobile = self
+                let (is_mobile, engine_id) = self
                     .objects
                     .get(&object_id)
-                    .map(|obj| obj.is_mobile())
-                    .unwrap_or(false);
-                if is_mobile {
+                    .map(|obj| (obj.is_mobile(), obj.engine_object_id))
+                    .unwrap_or((false, None));
+                if !is_mobile {
+                    continue;
+                }
+
+                // ObjectFactory objects route through GameEngine's full AI pipeline
+                // (locomotor physics, pathfinding controller, etc.)
+                if let Some(eid) = engine_id {
+                    self.bridge_move_to_engine(eid, target_position);
+                } else {
+                    // Lightweight objects use Main's pathfinding
                     self.move_object_with_pathfinding(object_id, target_position, None);
                 }
             }
@@ -5638,11 +5653,26 @@ impl GameLogic {
 
             let selected = player.selected_objects.clone();
             for &object_id in &selected {
-                if let Some(obj) = self.objects.get_mut(&object_id) {
-                    if obj.can_attack() && obj.team != target_team {
-                        obj.set_force_attack(false);
-                        obj.attack_target(target_id);
+                let attack_info = self.objects.get(&object_id).and_then(|obj| {
+                    if !obj.can_attack() || obj.team == target_team {
+                        return None;
                     }
+                    let target_engine_id = self
+                        .objects
+                        .get(&target_id)
+                        .and_then(|t| t.engine_object_id);
+                    Some((obj.engine_object_id, target_engine_id))
+                });
+
+                let Some((engine_id, target_engine_id)) = attack_info else {
+                    continue;
+                };
+
+                if let (Some(eid), Some(tid)) = (engine_id, target_engine_id) {
+                    self.bridge_attack_to_engine(eid, tid);
+                } else if let Some(obj_mut) = self.objects.get_mut(&object_id) {
+                    obj_mut.set_force_attack(false);
+                    obj_mut.attack_target(target_id);
                 }
             }
             log::trace!(
@@ -5652,6 +5682,56 @@ impl GameLogic {
                 target_id
             );
         }
+    }
+
+    /// Bridge a move command to GameEngine's AI pipeline for ObjectFactory objects.
+    fn bridge_move_to_engine(&self, engine_id: u32, target: Vec3) {
+        let factory = get_object_factory();
+        let Ok(factory_guard) = factory.read() else {
+            return;
+        };
+        let Some(instance) = factory_guard.get_object(engine_id) else {
+            return;
+        };
+        let base = instance.get_base_object();
+        let Ok(obj_guard) = base.read() else {
+            return;
+        };
+        let Some(ai) = obj_guard.get_ai() else {
+            return;
+        };
+        drop(obj_guard);
+        drop(factory_guard);
+
+        let coord = glam028::Vec3::new(target.x, target.y, target.z);
+        ai.ai_move_to_position(&coord, false, CommandSourceType::FromPlayer);
+    }
+
+    /// Bridge an attack command to GameEngine's AI pipeline for ObjectFactory objects.
+    fn bridge_attack_to_engine(&self, attacker_id: u32, target_id: u32) {
+        let factory = get_object_factory();
+        let Ok(factory_guard) = factory.read() else {
+            return;
+        };
+        let Some(attacker_instance) = factory_guard.get_object(attacker_id) else {
+            return;
+        };
+        let attacker_base = attacker_instance.get_base_object();
+
+        if factory_guard.get_object(target_id).is_none() {
+            return;
+        }
+        drop(factory_guard);
+
+        let Ok(attacker_guard) = attacker_base.read() else {
+            return;
+        };
+        let Some(ai) = attacker_guard.get_ai() else {
+            return;
+        };
+        drop(attacker_guard);
+
+        ai.ai_attack_object_id(target_id, -1, CommandSourceType::FromPlayer);
     }
 
     fn allocate_object_id(&mut self) -> ObjectId {
