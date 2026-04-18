@@ -128,6 +128,44 @@ impl W3DVertex {
     }
 }
 
+/// Map W3D shader blend factors to BlendMode — matches C++ W3DSHADER_SRCBLENDFUNC_*
+/// and W3DSHADER_DESTBLENDFUNC_* constants from w3d_file.h.
+///
+/// C++ W3D src blend constants:
+///   0 = ZERO, 1 = ONE (default), 2 = SRC_ALPHA, 3 = ONE_MINUS_SRC_ALPHA
+/// C++ W3D dest blend constants:
+///   0 = ZERO (default), 1 = ONE, 2 = SRC_COLOR, 3 = ONE_MINUS_SRC_COLOR,
+///   4 = SRC_ALPHA, 5 = ONE_MINUS_SRC_ALPHA, 6 = SRC_COLOR_PREFOG
+fn shader_blend_to_mode(src_blend: u8, dest_blend: u8, alpha_test: u8) -> (BlendMode, bool) {
+    let alpha_test_enabled = alpha_test != 0;
+
+    match (src_blend, dest_blend) {
+        // Opaque (default shader state): src=ONE, dest=ZERO
+        (1, 0) | (0, 0) => (BlendMode::Opaque, alpha_test_enabled),
+
+        // Standard alpha blending: src=SRC_ALPHA, dest=ONE_MINUS_SRC_ALPHA
+        (2, 5) => (BlendMode::Alpha, alpha_test_enabled),
+
+        // Additive: src=ONE, dest=ONE (full additive)
+        (1, 1) => (BlendMode::Additive, alpha_test_enabled),
+
+        // Additive with alpha: src=SRC_ALPHA, dest=ONE
+        (2, 1) => (BlendMode::Additive, alpha_test_enabled),
+
+        // Modulate (multiply): src combined with dest=SRC_COLOR or ONE_MINUS_SRC_COLOR
+        (_, 2) | (_, 3) => (BlendMode::Modulate, alpha_test_enabled),
+
+        // Alpha-blended with dest=SRC_ALPHA
+        (_, 4) => (BlendMode::Alpha, alpha_test_enabled),
+
+        // Any other non-zero dest blend → treat as alpha blend
+        (_, d) if d != 0 => (BlendMode::Alpha, alpha_test_enabled),
+
+        // Fallback: opaque
+        _ => (BlendMode::Opaque, alpha_test_enabled),
+    }
+}
+
 fn w3d_position_to_world(position: [f32; 3]) -> [f32; 3] {
     // Legacy W3D content is authored in X/Y ground with Z-up. The active Rust world
     // uses X/Z ground with Y-up, so swap the vertical and depth axes on import.
@@ -1664,6 +1702,25 @@ impl W3DLoader {
 
         if let Some(texture_name) = &mesh.material.texture_name {
             debug!("Mesh '{}' will use texture: '{}'", mesh.name, texture_name);
+        }
+
+        // Map W3D shader blend factors to material blend_mode for C++ parity.
+        // Uses the first shader, or the shader referenced by the first material pass.
+        let shader_idx = mesh
+            .passes
+            .first()
+            .map(|p| p.shader_id as usize)
+            .unwrap_or(0);
+        if let Some(shader) = mesh.shaders.get(shader_idx) {
+            let (mode, alpha_test) =
+                shader_blend_to_mode(shader.src_blend, shader.dest_blend, shader.alpha_test);
+            mesh.material.blend_mode = mode;
+            mesh.material.alpha_test_enabled = alpha_test;
+            debug!(
+                "Mesh '{}' blend_mode={:?}, alpha_test={} (src={}, dest={})",
+                mesh.name, mesh.material.blend_mode, mesh.material.alpha_test_enabled,
+                shader.src_blend, shader.dest_blend
+            );
         }
 
         Ok(mesh)
