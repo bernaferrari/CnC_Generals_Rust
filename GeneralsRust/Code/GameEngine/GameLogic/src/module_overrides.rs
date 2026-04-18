@@ -873,16 +873,19 @@ impl Module for ActiveBodyModule {
 }
 
 impl Snapshotable for ActiveBodyModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let body = self.body.lock().map_err(|_| "ActiveBody lock poisoned")?;
+        body.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut body = self.body.lock().map_err(|_| "ActiveBody lock poisoned")?;
+        body.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut body = self.body.lock().map_err(|_| "ActiveBody lock poisoned")?;
+        body.load_post_process()
     }
 }
 
@@ -966,16 +969,28 @@ impl Module for StructureBodyModule {
 }
 
 impl Snapshotable for StructureBodyModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let body = self
+            .body
+            .lock()
+            .map_err(|_| "StructureBody lock poisoned")?;
+        body.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut body = self
+            .body
+            .lock()
+            .map_err(|_| "StructureBody lock poisoned")?;
+        body.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut body = self
+            .body
+            .lock()
+            .map_err(|_| "StructureBody lock poisoned")?;
+        body.load_post_process()
     }
 }
 
@@ -1056,16 +1071,28 @@ impl Module for HighlanderBodyModule {
 }
 
 impl Snapshotable for HighlanderBodyModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let body = self
+            .body
+            .lock()
+            .map_err(|_| "HighlanderBody lock poisoned")?;
+        body.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut body = self
+            .body
+            .lock()
+            .map_err(|_| "HighlanderBody lock poisoned")?;
+        body.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut body = self
+            .body
+            .lock()
+            .map_err(|_| "HighlanderBody lock poisoned")?;
+        body.load_post_process()
     }
 }
 
@@ -1139,16 +1166,19 @@ impl Module for ImmortalBodyModule {
 }
 
 impl Snapshotable for ImmortalBodyModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let body = self.body.lock().map_err(|_| "ImmortalBody lock poisoned")?;
+        body.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut body = self.body.lock().map_err(|_| "ImmortalBody lock poisoned")?;
+        body.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut body = self.body.lock().map_err(|_| "ImmortalBody lock poisoned")?;
+        body.load_post_process()
     }
 }
 
@@ -1219,16 +1249,28 @@ impl Module for HiveStructureBodyModule {
 }
 
 impl Snapshotable for HiveStructureBodyModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let body = self
+            .body
+            .lock()
+            .map_err(|_| "HiveStructureBody lock poisoned")?;
+        body.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut body = self
+            .body
+            .lock()
+            .map_err(|_| "HiveStructureBody lock poisoned")?;
+        body.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut body = self
+            .body
+            .lock()
+            .map_err(|_| "HiveStructureBody lock poisoned")?;
+        body.load_post_process()
     }
 }
 
@@ -1312,16 +1354,19 @@ impl Module for UndeadBodyModule {
 }
 
 impl Snapshotable for UndeadBodyModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let body = self.body.lock().map_err(|_| "UndeadBody lock poisoned")?;
+        body.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut body = self.body.lock().map_err(|_| "UndeadBody lock poisoned")?;
+        body.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut body = self.body.lock().map_err(|_| "UndeadBody lock poisoned")?;
+        body.load_post_process()
     }
 }
 
