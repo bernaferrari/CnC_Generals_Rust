@@ -3483,6 +3483,56 @@ impl GameLogic {
         Ok(object_id)
     }
 
+    /// Add an already-registered object to the internal update lists
+    /// (`all_objects` / `objects`) without re-registering in OBJECT_REGISTRY.
+    ///
+    /// This is used when an object was registered via `TheGameLogic::register_object()`
+    /// (which only touches OBJECT_REGISTRY) but also needs to be visible to
+    /// `process_object_updates()`.
+    pub fn track_object_in_update_list(
+        &mut self,
+        object: Arc<RwLock<Object>>,
+    ) -> Result<ObjectID, GameLogicError> {
+        let object_id = {
+            let guard = object
+                .read()
+                .map_err(|_| GameLogicError::Generic("Object lock poisoned".to_string()))?;
+            guard.get_id()
+        };
+
+        if object_id == INVALID_ID {
+            return Err(GameLogicError::InvalidState(
+                "Attempted to track object without valid ID".to_string(),
+            ));
+        }
+
+        if self.objects.contains_key(&object_id) {
+            return Ok(object_id);
+        }
+
+        let previous_object_id = self.all_objects.last().copied();
+
+        self.objects.insert(object_id, Arc::clone(&object));
+        self.all_objects.push(object_id);
+
+        if let Some(previous_id) = previous_object_id {
+            if let Some(previous_object) = self.objects.get(&previous_id) {
+                if let Ok(mut previous_guard) = previous_object.write() {
+                    previous_guard.set_next_object_id(Some(object_id));
+                }
+            }
+            if let Ok(mut object_guard) = object.write() {
+                object_guard.set_prev_object_id(Some(previous_id));
+                object_guard.set_next_object_id(None);
+            }
+        } else if let Ok(mut object_guard) = object.write() {
+            object_guard.set_prev_object_id(None);
+            object_guard.set_next_object_id(None);
+        }
+
+        Ok(object_id)
+    }
+
     /// Mark an object for destruction
     ///
     /// ## C++ Reference: GameLogic::destroyObject() (GameLogic.cpp)
